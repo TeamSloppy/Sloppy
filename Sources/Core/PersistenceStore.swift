@@ -1,6 +1,58 @@
 import Foundation
 import Protocols
 
+public struct PersistedChannelRecord: Sendable, Equatable {
+    public var id: String
+    public var createdAt: Date
+    public var updatedAt: Date
+
+    public init(id: String, createdAt: Date, updatedAt: Date) {
+        self.id = id
+        self.createdAt = createdAt
+        self.updatedAt = updatedAt
+    }
+}
+
+public struct PersistedTaskRecord: Sendable, Equatable {
+    public var id: String
+    public var channelId: String
+    public var status: String
+    public var title: String
+    public var objective: String
+    public var createdAt: Date
+    public var updatedAt: Date
+
+    public init(
+        id: String,
+        channelId: String,
+        status: String,
+        title: String,
+        objective: String,
+        createdAt: Date,
+        updatedAt: Date
+    ) {
+        self.id = id
+        self.channelId = channelId
+        self.status = status
+        self.title = title
+        self.objective = objective
+        self.createdAt = createdAt
+        self.updatedAt = updatedAt
+    }
+}
+
+public struct PersistedArtifactRecord: Sendable, Equatable {
+    public var id: String
+    public var content: String
+    public var createdAt: Date
+
+    public init(id: String, content: String, createdAt: Date) {
+        self.id = id
+        self.content = content
+        self.createdAt = createdAt
+    }
+}
+
 public protocol PersistenceStore: Sendable {
     /// Persists protocol-level event envelopes emitted by the runtime.
     func persist(event: EventEnvelope) async
@@ -13,6 +65,18 @@ public protocol PersistenceStore: Sendable {
 
     /// Persists a generated memory bulletin.
     func persistBulletin(_ bulletin: MemoryBulletin) async
+
+    /// Lists persisted events in replay-safe order (oldest first).
+    func listPersistedEvents() async -> [EventEnvelope]
+
+    /// Lists persisted channels in creation order.
+    func listPersistedChannels() async -> [PersistedChannelRecord]
+
+    /// Lists persisted worker/task records in creation order.
+    func listPersistedTasks() async -> [PersistedTaskRecord]
+
+    /// Lists persisted artifacts in creation order.
+    func listPersistedArtifacts() async -> [PersistedArtifactRecord]
 
     /// Persists an artifact payload by artifact identifier.
     func persistArtifact(id: String, content: String) async

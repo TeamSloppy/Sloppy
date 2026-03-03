@@ -26,12 +26,17 @@ public actor InMemoryPersistenceStore: PersistenceStore {
     private var tokenUsages: [(channelId: String, taskId: String?, usage: TokenUsage)] = []
     private var bulletins: [MemoryBulletin] = []
     private var artifacts: [String: String] = [:]
+    private var artifactRecords: [String: PersistedArtifactRecord] = [:]
+    private var channels: [String: PersistedChannelRecord] = [:]
+    private var tasks: [String: PersistedTaskRecord] = [:]
     private var projects: [String: ProjectRecord] = [:]
 
     public init() {}
 
     public func persist(event: EventEnvelope) async {
         events.append(event)
+        upsertChannel(from: event)
+        upsertTask(from: event)
     }
 
     public func persistTokenUsage(channelId: String, taskId: String?, usage: TokenUsage) async {
@@ -68,8 +73,31 @@ public actor InMemoryPersistenceStore: PersistenceStore {
         bulletins.append(bulletin)
     }
 
+    public func listPersistedEvents() async -> [EventEnvelope] {
+        events.sorted { left, right in
+            if left.ts == right.ts {
+                return left.messageId < right.messageId
+            }
+            return left.ts < right.ts
+        }
+    }
+
+    public func listPersistedChannels() async -> [PersistedChannelRecord] {
+        channels.values.sorted { $0.createdAt < $1.createdAt }
+    }
+
+    public func listPersistedTasks() async -> [PersistedTaskRecord] {
+        tasks.values.sorted { $0.createdAt < $1.createdAt }
+    }
+
+    public func listPersistedArtifacts() async -> [PersistedArtifactRecord] {
+        artifactRecords.values.sorted { $0.createdAt < $1.createdAt }
+    }
+
     public func persistArtifact(id: String, content: String) async {
         artifacts[id] = content
+        let createdAt = artifactRecords[id]?.createdAt ?? Date()
+        artifactRecords[id] = PersistedArtifactRecord(id: id, content: content, createdAt: createdAt)
     }
 
     public func artifactContent(id: String) async -> String? {
@@ -112,6 +140,87 @@ public actor InMemoryPersistenceStore: PersistenceStore {
 
     public func deleteChannelPlugin(id: String) async {
         channelPlugins[id] = nil
+    }
+
+    private func upsertChannel(from event: EventEnvelope) {
+        if var existing = channels[event.channelId] {
+            existing.updatedAt = max(existing.updatedAt, event.ts)
+            channels[event.channelId] = existing
+            return
+        }
+
+        channels[event.channelId] = PersistedChannelRecord(
+            id: event.channelId,
+            createdAt: event.ts,
+            updatedAt: event.ts
+        )
+    }
+
+    private func upsertTask(from event: EventEnvelope) {
+        guard let taskId = event.taskId, !taskId.isEmpty else {
+            return
+        }
+
+        let now = event.ts
+        let payload = event.payload.objectValue
+        let inferredStatus = inferredTaskStatus(from: event.messageType)
+        let incomingTitle = payload["title"]?.stringValue ?? payload["progress"]?.stringValue
+        let incomingObjective = payload["objective"]?.stringValue
+
+        if var existing = tasks[taskId] {
+            existing.channelId = event.channelId
+            existing.status = inferredStatus ?? existing.status
+            if let incomingTitle, !incomingTitle.isEmpty {
+                existing.title = incomingTitle
+            }
+            if let incomingObjective, !incomingObjective.isEmpty {
+                existing.objective = incomingObjective
+            }
+            existing.updatedAt = max(existing.updatedAt, now)
+            tasks[taskId] = existing
+            return
+        }
+
+        tasks[taskId] = PersistedTaskRecord(
+            id: taskId,
+            channelId: event.channelId,
+            status: inferredStatus ?? "unknown",
+            title: incomingTitle ?? "Task \(taskId)",
+            objective: incomingObjective ?? "",
+            createdAt: now,
+            updatedAt: now
+        )
+    }
+
+    private func inferredTaskStatus(from messageType: MessageType) -> String? {
+        switch messageType {
+        case .workerSpawned:
+            "queued"
+        case .workerProgress:
+            "running"
+        case .workerCompleted:
+            "completed"
+        case .workerFailed:
+            "failed"
+        default:
+            nil
+        }
+    }
+}
+
+private extension JSONValue {
+    var objectValue: [String: JSONValue] {
+        if case .object(let object) = self {
+            return object
+        }
+        return [:]
+    }
+
+    var stringValue: String? {
+        if case .string(let value) = self {
+            return value
+        }
+        return nil
     }
 }
 

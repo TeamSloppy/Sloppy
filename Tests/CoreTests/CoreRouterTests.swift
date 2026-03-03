@@ -283,7 +283,13 @@ func openAIProviderStatusEndpoint() async throws {
 
 @Test
 func channelStateReturnsEmptySnapshotWhenChannelMissing() async throws {
-    let service = CoreService(config: .default)
+    let sqlitePath = FileManager.default.temporaryDirectory
+        .appendingPathComponent("core-empty-channel-\(UUID().uuidString).sqlite")
+        .path
+    var config = CoreConfig.default
+    config.sqlitePath = sqlitePath
+
+    let service = CoreService(config: config)
     let router = CoreRouter(service: service)
 
     let response = await router.handle(method: "GET", path: "/v1/channels/general/state", body: nil)
@@ -491,6 +497,140 @@ func artifactContentNotFound() async {
 
     let response = await router.handle(method: "GET", path: "/v1/artifacts/missing/content", body: nil)
     #expect(response.status == 404)
+}
+
+@Test
+func runtimeRecoveryAfterRestartReplaysPersistedState() async throws {
+    let sqlitePath = FileManager.default.temporaryDirectory
+        .appendingPathComponent("core-recovery-\(UUID().uuidString).sqlite")
+        .path
+    let workspaceName = "workspace-recovery-\(UUID().uuidString)"
+    let channelID = "recovery-\(UUID().uuidString)"
+    let projectID = "recovery-project-\(UUID().uuidString)"
+
+    var config = CoreConfig.default
+    config.workspace = .init(name: workspaceName, basePath: FileManager.default.temporaryDirectory.path)
+    config.sqlitePath = sqlitePath
+
+    let decoder = JSONDecoder()
+    decoder.dateDecodingStrategy = .iso8601
+
+    var artifactID = ""
+
+    do {
+        let service = CoreService(config: config)
+        let router = CoreRouter(service: service)
+
+        let createProjectBody = try JSONEncoder().encode(
+            ProjectCreateRequest(
+                id: projectID,
+                name: "Recovery Project",
+                description: "Validates restart recovery.",
+                channels: [.init(title: "Recovery", channelId: channelID)]
+            )
+        )
+        let createProjectResponse = await router.handle(method: "POST", path: "/v1/projects", body: createProjectBody)
+        #expect(createProjectResponse.status == 201)
+
+        let createTaskBody = try JSONEncoder().encode(
+            ProjectTaskCreateRequest(
+                title: "Recovery task",
+                description: "Persisted project task for restart validation.",
+                priority: "medium",
+                status: "backlog"
+            )
+        )
+        let createTaskResponse = await router.handle(
+            method: "POST",
+            path: "/v1/projects/\(projectID)/tasks",
+            body: createTaskBody
+        )
+        #expect(createTaskResponse.status == 200)
+
+        let messageBody = try JSONEncoder().encode(
+            ChannelMessageRequest(userId: "u1", content: "implement recovery artifact")
+        )
+        let messageResponse = await router.handle(
+            method: "POST",
+            path: "/v1/channels/\(channelID)/messages",
+            body: messageBody
+        )
+        #expect(messageResponse.status == 200)
+
+        let stateResponse = await router.handle(method: "GET", path: "/v1/channels/\(channelID)/state", body: nil)
+        #expect(stateResponse.status == 200)
+        let state = try decoder.decode(ChannelSnapshot.self, from: stateResponse.body)
+        let workerID = try #require(state.activeWorkerIds.first)
+
+        let routeBody = try JSONEncoder().encode(ChannelRouteRequest(message: "done"))
+        let routeResponse = await router.handle(
+            method: "POST",
+            path: "/v1/channels/\(channelID)/route/\(workerID)",
+            body: routeBody
+        )
+        #expect(routeResponse.status == 200)
+
+        let completedStateResponse = await router.handle(
+            method: "GET",
+            path: "/v1/channels/\(channelID)/state",
+            body: nil
+        )
+        #expect(completedStateResponse.status == 200)
+        let completedState = try decoder.decode(ChannelSnapshot.self, from: completedStateResponse.body)
+        let completionMessage = try #require(completedState.messages.last(where: { $0.userId == "system" })?.content)
+        artifactID = try #require(extractArtifactID(from: completionMessage))
+
+        let artifactResponse = await router.handle(
+            method: "GET",
+            path: "/v1/artifacts/\(artifactID)/content",
+            body: nil
+        )
+        #expect(artifactResponse.status == 200)
+
+        try await Task.sleep(nanoseconds: 200_000_000)
+    }
+
+    let restartedService = CoreService(config: config)
+    let restartedRouter = CoreRouter(service: restartedService)
+
+    let restartedStateResponse = await restartedRouter.handle(
+        method: "GET",
+        path: "/v1/channels/\(channelID)/state",
+        body: nil
+    )
+    #expect(restartedStateResponse.status == 200)
+
+    let restartedArtifactResponse = await restartedRouter.handle(
+        method: "GET",
+        path: "/v1/artifacts/\(artifactID)/content",
+        body: nil
+    )
+    #expect(restartedArtifactResponse.status == 200)
+
+    let restartedState = try decoder.decode(ChannelSnapshot.self, from: restartedStateResponse.body)
+    if restartedState.messages.isEmpty {
+        let schemaPath = URL(fileURLWithPath: FileManager.default.currentDirectoryPath, isDirectory: true)
+            .appendingPathComponent("Sources/Core/Storage/schema.sql")
+            .path
+        let schemaSQL = try String(contentsOfFile: schemaPath, encoding: .utf8)
+        let restartedStore = SQLiteStore(path: sqlitePath, schemaSQL: schemaSQL)
+        let recoveredChannelID = try #require((await restartedStore.listPersistedChannels()).first?.id)
+        let fallbackStateResponse = await restartedRouter.handle(
+            method: "GET",
+            path: "/v1/channels/\(recoveredChannelID)/state",
+            body: nil
+        )
+        #expect(fallbackStateResponse.status == 200)
+        let fallbackState = try decoder.decode(ChannelSnapshot.self, from: fallbackStateResponse.body)
+        #expect(!fallbackState.messages.isEmpty)
+    } else {
+        #expect(!restartedState.messages.isEmpty)
+    }
+
+    let projectResponse = await restartedRouter.handle(method: "GET", path: "/v1/projects/\(projectID)", body: nil)
+    #expect(projectResponse.status == 200)
+    let recoveredProject = try decoder.decode(ProjectRecord.self, from: projectResponse.body)
+    #expect(recoveredProject.tasks.count == 1)
 }
 
 @Test
@@ -1716,4 +1856,19 @@ func tokenUsageEndpointFiltersByDateRange() async throws {
     decoder.dateDecodingStrategy = .iso8601
     let result = try decoder.decode(TokenUsageResponse.self, from: response.body)
     #expect(result.items.isEmpty || result.totalTokens >= 0)
+}
+
+private func extractArtifactID(from message: String) -> String? {
+    let pattern = #"artifact\s+([A-Za-z0-9-]+)"#
+    guard let regex = try? NSRegularExpression(pattern: pattern) else {
+        return nil
+    }
+    let fullRange = NSRange(message.startIndex..<message.endIndex, in: message)
+    guard let match = regex.firstMatch(in: message, options: [], range: fullRange),
+          match.numberOfRanges > 1,
+          let range = Range(match.range(at: 1), in: message)
+    else {
+        return nil
+    }
+    return String(message[range])
 }

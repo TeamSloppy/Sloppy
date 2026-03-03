@@ -144,6 +144,7 @@ public actor CoreService {
     private var eventTask: Task<Void, Never>?
     private var activeGatewayPlugins: [any GatewayPlugin] = []
     private var visorScheduler: VisorScheduler?
+    private let recoveryManager: RecoveryManager
 
     /// Creates core orchestration service with runtime and persistence backend.
     public init(
@@ -192,6 +193,7 @@ public actor CoreService {
             channelSessionStore: self.channelSessionStore
         )
         self.logger = Logger(label: "slopoverlord.core.visor")
+        self.recoveryManager = RecoveryManager(store: self.store, runtime: self.runtime, logger: self.logger)
         self.currentConfig = config
         Task { [weak self] in
             guard let self else {
@@ -211,9 +213,6 @@ public actor CoreService {
                 }
                 return await self.invokeToolFromRuntime(agentID: agentID, sessionID: sessionID, request: request)
             }
-        }
-        Task {
-            await self.startEventPersistence()
         }
     }
 
@@ -311,6 +310,7 @@ public actor CoreService {
 
     /// Accepts a user channel message and returns routing decision.
     public func postChannelMessage(channelId: String, request: ChannelMessageRequest) async -> ChannelRouteDecision {
+        await waitForStartup()
         if let approvalReference = TaskApprovalCommandParser.parse(request.content) {
             return await handleTaskApprovalCommand(channelId: channelId, reference: approvalReference)
         }
@@ -319,7 +319,8 @@ public actor CoreService {
 
     /// Routes interactive message into a running worker.
     public func postChannelRoute(channelId: String, workerId: String, request: ChannelRouteRequest) async -> Bool {
-        await runtime.routeMessage(channelId: channelId, workerId: workerId, message: request.message)
+        await waitForStartup()
+        return await runtime.routeMessage(channelId: channelId, workerId: workerId, message: request.message)
     }
 
     /// Delivers an outbound message to the channel plugin responsible for this channelId.
@@ -330,11 +331,13 @@ public actor CoreService {
 
     /// Returns current state snapshot for a channel.
     public func getChannelState(channelId: String) async -> ChannelSnapshot? {
-        await runtime.channelState(channelId: channelId)
+        await waitForStartup()
+        return await runtime.channelState(channelId: channelId)
     }
 
     /// Returns known visor bulletins, preferring in-memory runtime state.
     public func getBulletins() async -> [MemoryBulletin] {
+        await waitForStartup()
         let runtimeBulletins = await runtime.bulletins()
         if runtimeBulletins.isEmpty {
             return await store.listBulletins()
@@ -344,11 +347,13 @@ public actor CoreService {
 
     /// Creates worker instance from API request.
     public func postWorker(request: WorkerCreateRequest) async -> String {
-        await runtime.createWorker(spec: request.spec)
+        await waitForStartup()
+        return await runtime.createWorker(spec: request.spec)
     }
 
     /// Reads artifact content from runtime or persistent storage.
     public func getArtifactContent(id: String) async -> ArtifactContentResponse? {
+        await waitForStartup()
         if let runtimeArtifact = await runtime.artifactContent(id: id) {
             await store.persistArtifact(id: id, content: runtimeArtifact)
             return ArtifactContentResponse(id: id, content: runtimeArtifact)
@@ -363,6 +368,7 @@ public actor CoreService {
 
     /// Forces immediate visor bulletin generation and stores it.
     public func triggerVisorBulletin() async -> MemoryBulletin {
+        await waitForStartup()
         let taskSummary = await buildProjectTaskSummary()
         let bulletin = await runtime.generateVisorBulletin(taskSummary: taskSummary)
         await store.persistBulletin(bulletin)
@@ -388,7 +394,8 @@ public actor CoreService {
 
     /// Exposes worker snapshots for observability endpoints.
     public func workerSnapshots() async -> [WorkerSnapshot] {
-        await runtime.workerSnapshots()
+        await waitForStartup()
+        return await runtime.workerSnapshots()
     }
 
     /// Lists dashboard projects with channels and task board data.
@@ -1328,6 +1335,7 @@ public actor CoreService {
 
     /// Creates a session for a given agent.
     public func createAgentSession(agentID: String, request: AgentSessionCreateRequest) async throws -> AgentSessionSummary {
+        await waitForStartup()
         guard let normalizedAgentID = normalizedAgentID(agentID) else {
             throw AgentSessionError.invalidAgentID
         }
@@ -1495,6 +1503,7 @@ public actor CoreService {
         sessionID: String,
         request: AgentSessionPostMessageRequest
     ) async throws -> AgentSessionMessageResponse {
+        await waitForStartup()
         guard let normalizedAgentID = normalizedAgentID(agentID) else {
             throw AgentSessionError.invalidAgentID
         }
@@ -1522,6 +1531,7 @@ public actor CoreService {
         sessionID: String,
         request: AgentSessionControlRequest
     ) async throws -> AgentSessionMessageResponse {
+        await waitForStartup()
         guard let normalizedAgentID = normalizedAgentID(agentID) else {
             throw AgentSessionError.invalidAgentID
         }
@@ -3607,14 +3617,26 @@ public actor CoreService {
         }
     }
 
+    private func waitForStartup() async {
+        await recoveryManager.recoverIfNeeded()
+        await startEventPersistence()
+    }
+
     /// Subscribes to runtime event stream and persists events in background.
     private func startEventPersistence() async {
-        eventTask = Task {
-            let stream = await runtime.eventBus.subscribe()
-            for await event in stream {
-                await store.persist(event: event)
-                await handleVisorEvent(event)
-                await extractAndPersistTokenUsage(from: event)
+        guard eventTask == nil else {
+            return
+        }
+
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            eventTask = Task {
+                let stream = await runtime.eventBus.subscribe()
+                continuation.resume()
+                for await event in stream {
+                    await store.persist(event: event)
+                    await handleVisorEvent(event)
+                    await extractAndPersistTokenUsage(from: event)
+                }
             }
         }
     }

@@ -2,6 +2,58 @@ import Foundation
 import PluginSDK
 import Protocols
 
+public struct RecoveryChannelState: Sendable, Equatable {
+    public var id: String
+    public var createdAt: Date
+    public var updatedAt: Date
+
+    public init(id: String, createdAt: Date, updatedAt: Date) {
+        self.id = id
+        self.createdAt = createdAt
+        self.updatedAt = updatedAt
+    }
+}
+
+public struct RecoveryTaskState: Sendable, Equatable {
+    public var id: String
+    public var channelId: String
+    public var status: String
+    public var title: String
+    public var objective: String
+    public var createdAt: Date
+    public var updatedAt: Date
+
+    public init(
+        id: String,
+        channelId: String,
+        status: String,
+        title: String,
+        objective: String,
+        createdAt: Date,
+        updatedAt: Date
+    ) {
+        self.id = id
+        self.channelId = channelId
+        self.status = status
+        self.title = title
+        self.objective = objective
+        self.createdAt = createdAt
+        self.updatedAt = updatedAt
+    }
+}
+
+public struct RecoveryArtifactState: Sendable, Equatable {
+    public var id: String
+    public var content: String
+    public var createdAt: Date
+
+    public init(id: String, content: String, createdAt: Date) {
+        self.id = id
+        self.content = content
+        self.createdAt = createdAt
+    }
+}
+
 public actor RuntimeSystem {
     public nonisolated let eventBus: EventBus
 
@@ -328,6 +380,267 @@ public actor RuntimeSystem {
         return workerId
     }
 
+    /// Rebuilds in-memory runtime state from persisted channels/tasks/events/artifacts.
+    public func recover(
+        channels channelStates: [RecoveryChannelState],
+        tasks taskStates: [RecoveryTaskState],
+        events: [EventEnvelope],
+        artifacts: [RecoveryArtifactState]
+    ) async {
+        await channels.resetForRecovery()
+        await workers.resetForRecovery()
+
+        for channel in channelStates.sorted(by: { $0.createdAt < $1.createdAt }) {
+            await channels.ensureChannel(channelId: channel.id)
+        }
+
+        for artifact in artifacts.sorted(by: { $0.createdAt < $1.createdAt }) {
+            await workers.restoreArtifact(id: artifact.id, content: artifact.content)
+        }
+
+        let tasksByID = Dictionary(uniqueKeysWithValues: taskStates.map { ($0.id, $0) })
+        let orderedEvents = events.sorted { left, right in
+            if left.ts == right.ts {
+                return left.messageId < right.messageId
+            }
+            return left.ts < right.ts
+        }
+
+        for event in orderedEvents {
+            await replayRecoveredEvent(event, tasksByID: tasksByID)
+        }
+
+        let eventCountsByChannel = Dictionary(grouping: orderedEvents, by: { $0.channelId })
+        for (channelID, eventsForChannel) in eventCountsByChannel where !eventsForChannel.isEmpty {
+            if let snapshot = await channels.snapshot(channelId: channelID), snapshot.messages.isEmpty {
+                await channels.appendSystemMessage(
+                    channelId: channelID,
+                    content: "Recovered \(eventsForChannel.count) persisted events."
+                )
+            }
+        }
+
+        for task in taskStates {
+            let hasTask = await workers.hasTask(taskId: task.id)
+            if hasTask {
+                continue
+            }
+            let spec = WorkerTaskSpec(
+                taskId: task.id,
+                channelId: task.channelId,
+                title: task.title,
+                objective: task.objective,
+                tools: [],
+                mode: .interactive
+            )
+            let workerID = "recovered-\(task.id)"
+            await workers.restoreWorker(
+                workerId: workerID,
+                spec: spec,
+                status: workerStatus(from: task.status),
+                latestReport: nil,
+                artifactId: nil
+            )
+            if workerStatus(from: task.status) == .queued ||
+                workerStatus(from: task.status) == .running ||
+                workerStatus(from: task.status) == .waitingInput {
+                await channels.attachWorker(channelId: task.channelId, workerId: workerID)
+            }
+        }
+    }
+
+    private func replayRecoveredEvent(
+        _ event: EventEnvelope,
+        tasksByID: [String: RecoveryTaskState]
+    ) async {
+        await channels.ensureChannel(channelId: event.channelId)
+
+        switch event.messageType {
+        case .channelMessageReceived:
+            guard let userId = event.payload.objectValue["userId"]?.stringValue,
+                  let message = event.payload.objectValue["message"]?.stringValue
+            else {
+                return
+            }
+            await channels.restoreMessage(
+                channelId: event.channelId,
+                message: ChannelMessageEntry(
+                    id: event.messageId,
+                    userId: userId,
+                    content: message,
+                    createdAt: event.ts
+                )
+            )
+
+        case .channelRouteDecided:
+            guard let decision = try? JSONValueCoder.decode(ChannelRouteDecision.self, from: event.payload) else {
+                return
+            }
+            await channels.restoreDecision(channelId: event.channelId, decision: decision)
+
+        case .branchConclusion:
+            guard let conclusion = try? JSONValueCoder.decode(BranchConclusion.self, from: event.payload) else {
+                return
+            }
+            await channels.applyBranchConclusion(channelId: event.channelId, conclusion: conclusion)
+
+        case .workerSpawned:
+            guard let workerID = event.workerId,
+                  let taskID = event.taskId
+            else {
+                return
+            }
+            let spec = recoveredWorkerSpec(
+                event: event,
+                workerId: workerID,
+                taskId: taskID,
+                tasksByID: tasksByID
+            )
+            await workers.restoreWorker(
+                workerId: workerID,
+                spec: spec,
+                status: .queued,
+                latestReport: nil,
+                artifactId: nil
+            )
+            await channels.attachWorker(channelId: event.channelId, workerId: workerID)
+
+        case .workerProgress:
+            guard let workerID = event.workerId,
+                  let taskID = event.taskId
+            else {
+                return
+            }
+            let progress = event.payload.objectValue["progress"]?.stringValue
+            let status: WorkerStatus = (progress == "waiting_for_route") ? .waitingInput : .running
+            let updated = await workers.updateRecoveredWorker(
+                workerId: workerID,
+                status: status,
+                latestReport: progress,
+                artifactId: nil
+            )
+            if !updated {
+                let spec = recoveredWorkerSpec(
+                    event: event,
+                    workerId: workerID,
+                    taskId: taskID,
+                    tasksByID: tasksByID
+                )
+                await workers.restoreWorker(
+                    workerId: workerID,
+                    spec: spec,
+                    status: status,
+                    latestReport: progress,
+                    artifactId: nil
+                )
+            }
+            await channels.attachWorker(channelId: event.channelId, workerId: workerID)
+
+        case .workerCompleted:
+            guard let workerID = event.workerId,
+                  let taskID = event.taskId
+            else {
+                return
+            }
+            let summary = event.payload.objectValue["summary"]?.stringValue
+            let artifactID = event.payload.objectValue["artifactId"]?.stringValue
+            let updated = await workers.updateRecoveredWorker(
+                workerId: workerID,
+                status: .completed,
+                latestReport: summary,
+                artifactId: artifactID
+            )
+            if !updated {
+                let spec = recoveredWorkerSpec(
+                    event: event,
+                    workerId: workerID,
+                    taskId: taskID,
+                    tasksByID: tasksByID
+                )
+                await workers.restoreWorker(
+                    workerId: workerID,
+                    spec: spec,
+                    status: .completed,
+                    latestReport: summary,
+                    artifactId: artifactID
+                )
+            }
+            await channels.detachWorker(channelId: event.channelId, workerId: workerID)
+
+        case .workerFailed:
+            guard let workerID = event.workerId,
+                  let taskID = event.taskId
+            else {
+                return
+            }
+            let error = event.payload.objectValue["error"]?.stringValue
+            let updated = await workers.updateRecoveredWorker(
+                workerId: workerID,
+                status: .failed,
+                latestReport: error,
+                artifactId: nil
+            )
+            if !updated {
+                let spec = recoveredWorkerSpec(
+                    event: event,
+                    workerId: workerID,
+                    taskId: taskID,
+                    tasksByID: tasksByID
+                )
+                await workers.restoreWorker(
+                    workerId: workerID,
+                    spec: spec,
+                    status: .failed,
+                    latestReport: error,
+                    artifactId: nil
+                )
+            }
+            await channels.detachWorker(channelId: event.channelId, workerId: workerID)
+
+        default:
+            break
+        }
+    }
+
+    private func recoveredWorkerSpec(
+        event: EventEnvelope,
+        workerId: String,
+        taskId: String,
+        tasksByID: [String: RecoveryTaskState]
+    ) -> WorkerTaskSpec {
+        let taskState = tasksByID[taskId]
+        let modeText = event.payload.objectValue["mode"]?.stringValue
+        let mode = modeText.flatMap(WorkerMode.init(rawValue:)) ?? .interactive
+        let title = event.payload.objectValue["title"]?.stringValue ?? taskState?.title ?? "Recovered worker \(workerId)"
+        let objective = taskState?.objective ?? event.payload.objectValue["objective"]?.stringValue ?? ""
+
+        return WorkerTaskSpec(
+            taskId: taskId,
+            channelId: event.channelId,
+            title: title,
+            objective: objective,
+            tools: [],
+            mode: mode
+        )
+    }
+
+    private func workerStatus(from raw: String) -> WorkerStatus {
+        switch raw.lowercased() {
+        case "queued", "ready", "pending_approval", "backlog":
+            .queued
+        case "running", "in_progress":
+            .running
+        case "waiting_input", "waitinginput":
+            .waitingInput
+        case "completed", "done":
+            .completed
+        case "failed":
+            .failed
+        default:
+            .queued
+        }
+    }
+
     /// Returns channel snapshot by identifier.
     public func channelState(channelId: String) async -> ChannelSnapshot? {
         await channels.snapshot(channelId: channelId)
@@ -369,5 +682,21 @@ public actor RuntimeSystem {
     /// Returns memory entries tracked by runtime memory store.
     public func memoryEntries() async -> [MemoryEntry] {
         await memoryStore.entries()
+    }
+}
+
+private extension JSONValue {
+    var objectValue: [String: JSONValue] {
+        if case .object(let object) = self {
+            return object
+        }
+        return [:]
+    }
+
+    var stringValue: String? {
+        if case .string(let value) = self {
+            return value
+        }
+        return nil
     }
 }

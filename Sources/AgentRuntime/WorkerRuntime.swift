@@ -244,6 +244,63 @@ public actor WorkerRuntime {
         artifacts[id]
     }
 
+    /// Clears worker and artifact maps before recovery replay.
+    public func resetForRecovery() {
+        workers.removeAll()
+        artifacts.removeAll()
+    }
+
+    /// Restores artifact payload from persistence.
+    public func restoreArtifact(id: String, content: String) {
+        artifacts[id] = content
+    }
+
+    /// Restores worker state from persistence without emitting lifecycle events.
+    public func restoreWorker(
+        workerId: String,
+        spec: WorkerTaskSpec,
+        status: WorkerStatus,
+        latestReport: String?,
+        artifactId: String?
+    ) {
+        workers[workerId] = WorkerState(
+            spec: spec,
+            status: status,
+            latestReport: latestReport,
+            routeInbox: [],
+            artifactId: artifactId
+        )
+    }
+
+    /// Mutates restored worker state during replay.
+    public func updateRecoveredWorker(
+        workerId: String,
+        status: WorkerStatus,
+        latestReport: String?,
+        artifactId: String?
+    ) -> Bool {
+        guard var state = workers[workerId] else {
+            return false
+        }
+        state.status = status
+        state.latestReport = latestReport ?? state.latestReport
+        if let artifactId {
+            state.artifactId = artifactId
+        }
+        workers[workerId] = state
+        return true
+    }
+
+    /// Returns true when worker exists in restored state.
+    public func hasWorker(workerId: String) -> Bool {
+        workers[workerId] != nil
+    }
+
+    /// Returns true when any worker is associated with task identifier.
+    public func hasTask(taskId: String) -> Bool {
+        workers.values.contains(where: { $0.spec.taskId == taskId })
+    }
+
     private func publish(
         channelId: String,
         taskId: String,

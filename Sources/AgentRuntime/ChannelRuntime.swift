@@ -146,6 +146,35 @@ public actor ChannelRuntime {
         }
     }
 
+    /// Clears all channel state before replay-based recovery.
+    public func resetForRecovery() {
+        channels.removeAll()
+    }
+
+    /// Ensures channel exists in runtime state without mutating message history.
+    public func ensureChannel(channelId: String) {
+        _ = channels[channelId, default: ChannelState()]
+    }
+
+    /// Restores one channel message from persistence replay.
+    public func restoreMessage(channelId: String, message: ChannelMessageEntry) {
+        var state = channels[channelId, default: ChannelState()]
+        if state.messages.contains(where: { $0.id == message.id }) {
+            return
+        }
+        state.messages.append(message)
+        state.messages.sort { $0.createdAt < $1.createdAt }
+        state.contextUtilization = estimateUtilization(state.messages)
+        channels[channelId] = state
+    }
+
+    /// Restores last route decision from persistence replay.
+    public func restoreDecision(channelId: String, decision: ChannelRouteDecision) {
+        var state = channels[channelId, default: ChannelState()]
+        state.lastDecision = decision
+        channels[channelId] = state
+    }
+
     private func estimateUtilization(_ messages: [ChannelMessageEntry]) -> Double {
         let characters = messages.reduce(0) { $0 + $1.content.count }
         let estimatedTokens = max(1, characters / 4)
