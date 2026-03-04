@@ -82,6 +82,54 @@ public actor InMemoryPersistenceStore: PersistenceStore {
         }
     }
 
+    public func listChannelEvents(
+        channelId: String,
+        limit: Int,
+        cursor: PersistedEventCursor?,
+        before: Date?,
+        after: Date?
+    ) async -> [EventEnvelope] {
+        guard limit > 0 else {
+            return []
+        }
+
+        let sorted = events
+            .filter { $0.channelId == channelId }
+            .sorted { left, right in
+                if left.ts == right.ts {
+                    return left.messageId > right.messageId
+                }
+                return left.ts > right.ts
+            }
+
+        var result: [EventEnvelope] = []
+        result.reserveCapacity(max(limit, 0))
+
+        for event in sorted {
+            if let before, !(event.ts < before) {
+                continue
+            }
+            if let after, !(event.ts > after) {
+                continue
+            }
+            if let cursor {
+                if event.ts > cursor.createdAt {
+                    continue
+                }
+                if event.ts == cursor.createdAt, event.messageId >= cursor.eventId {
+                    continue
+                }
+            }
+
+            result.append(event)
+            if result.count >= limit {
+                break
+            }
+        }
+
+        return result
+    }
+
     public func listPersistedChannels() async -> [PersistedChannelRecord] {
         channels.values.sorted { $0.createdAt < $1.createdAt }
     }

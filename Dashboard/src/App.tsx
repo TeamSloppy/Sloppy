@@ -78,7 +78,7 @@ export function App() {
       onArtifactIdChange={runtime.setArtifactId}
       onLoadArtifact={runtime.loadArtifact}
       artifactContent={runtime.artifactContent}
-      bulletins={runtime.bulletins}
+      events={runtime.events}
     />
   );
 

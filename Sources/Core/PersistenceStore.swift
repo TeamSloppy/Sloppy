@@ -53,6 +53,16 @@ public struct PersistedArtifactRecord: Sendable, Equatable {
     }
 }
 
+public struct PersistedEventCursor: Sendable, Equatable {
+    public var createdAt: Date
+    public var eventId: String
+
+    public init(createdAt: Date, eventId: String) {
+        self.createdAt = createdAt
+        self.eventId = eventId
+    }
+}
+
 public protocol PersistenceStore: Sendable {
     /// Persists protocol-level event envelopes emitted by the runtime.
     func persist(event: EventEnvelope) async
@@ -68,6 +78,15 @@ public protocol PersistenceStore: Sendable {
 
     /// Lists persisted events in replay-safe order (oldest first).
     func listPersistedEvents() async -> [EventEnvelope]
+
+    /// Lists persisted events for one channel ordered by newest first.
+    func listChannelEvents(
+        channelId: String,
+        limit: Int,
+        cursor: PersistedEventCursor?,
+        before: Date?,
+        after: Date?
+    ) async -> [EventEnvelope]
 
     /// Lists persisted channels in creation order.
     func listPersistedChannels() async -> [PersistedChannelRecord]

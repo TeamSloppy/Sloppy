@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { CoreApi } from "../../../shared/api/coreApi";
 
+type AnyRecord = Record<string, unknown>;
+
 interface RuntimeMessage {
   id: string;
   userId: string;
@@ -34,6 +36,16 @@ interface RuntimeBulletin {
 
 type RuntimeWorker = Record<string, unknown>;
 
+interface RuntimeEvent {
+  id: string;
+  messageType: string;
+  ts: string;
+  taskId?: string;
+  branchId?: string;
+  workerId?: string;
+  payload?: unknown;
+}
+
 interface SubmitEventLike {
   preventDefault?: () => void;
 }
@@ -43,6 +55,7 @@ export interface RuntimeOverviewModel {
   setText: (value: string) => void;
   messages: RuntimeMessage[];
   channelState: RuntimeState | null;
+  events: RuntimeEvent[];
   workers: RuntimeWorker[];
   bulletins: RuntimeBulletin[];
   tasks: RuntimeTask[];
@@ -58,10 +71,49 @@ const CHANNEL_ID = "general";
 const DEFAULT_MESSAGE_TEXT = "Implement branch workflow and review";
 const DEFAULT_ARTIFACT_CONTENT = "Select artifact id to preview";
 
+function normalizeRuntimeEvents(payload: unknown): RuntimeEvent[] {
+  if (!payload || typeof payload !== "object") {
+    return [];
+  }
+
+  const items = (payload as AnyRecord).items;
+  if (!Array.isArray(items)) {
+    return [];
+  }
+
+  const result: RuntimeEvent[] = [];
+  for (const entry of items) {
+    if (!entry || typeof entry !== "object") {
+      continue;
+    }
+
+    const row = entry as AnyRecord;
+    const id = typeof row.messageId === "string" ? row.messageId : "";
+    const messageType = typeof row.messageType === "string" ? row.messageType : "";
+    const ts = typeof row.ts === "string" ? row.ts : "";
+    if (!id || !messageType || !ts) {
+      continue;
+    }
+
+    result.push({
+      id,
+      messageType,
+      ts,
+      taskId: typeof row.taskId === "string" ? row.taskId : undefined,
+      branchId: typeof row.branchId === "string" ? row.branchId : undefined,
+      workerId: typeof row.workerId === "string" ? row.workerId : undefined,
+      payload: row.payload
+    });
+  }
+
+  return result;
+}
+
 export function useRuntimeOverview(coreApi: CoreApi): RuntimeOverviewModel {
   const [text, setText] = useState(DEFAULT_MESSAGE_TEXT);
   const [messages, setMessages] = useState<RuntimeMessage[]>([]);
   const [channelState, setChannelState] = useState<RuntimeState | null>(null);
+  const [events, setEvents] = useState<RuntimeEvent[]>([]);
   const [workers, setWorkers] = useState<RuntimeWorker[]>([]);
   const [bulletins, setBulletins] = useState<RuntimeBulletin[]>([]);
   const [artifactId, setArtifactId] = useState("");
@@ -83,8 +135,9 @@ export function useRuntimeOverview(coreApi: CoreApi): RuntimeOverviewModel {
   }, [channelState]);
 
   const refreshRuntime = useCallback(async () => {
-    const [nextState, nextBulletins, nextWorkers] = await Promise.all([
+    const [nextState, nextEvents, nextBulletins, nextWorkers] = await Promise.all([
       coreApi.fetchChannelState(CHANNEL_ID),
+      coreApi.fetchChannelEvents(CHANNEL_ID, { limit: 100 }),
       coreApi.fetchBulletins(),
       coreApi.fetchWorkers()
     ]);
@@ -92,6 +145,7 @@ export function useRuntimeOverview(coreApi: CoreApi): RuntimeOverviewModel {
     const normalizedState = (nextState as RuntimeState | null) ?? null;
     setChannelState(normalizedState);
     setMessages(Array.isArray(normalizedState?.messages) ? normalizedState.messages : []);
+    setEvents(normalizeRuntimeEvents(nextEvents));
     setBulletins(Array.isArray(nextBulletins) ? (nextBulletins as RuntimeBulletin[]) : []);
     setWorkers(Array.isArray(nextWorkers) ? nextWorkers : []);
   }, [coreApi]);
@@ -132,6 +186,7 @@ export function useRuntimeOverview(coreApi: CoreApi): RuntimeOverviewModel {
     setText,
     messages,
     channelState,
+    events,
     workers,
     bulletins,
     tasks,

@@ -325,6 +325,23 @@ public actor CoreRouter {
             return Self.encodable(status: HTTPStatus.ok, payload: state)
         }
 
+        add(.get, "/v1/channels/:channelId/events") { request in
+            let channelId = request.pathParam("channelId") ?? ""
+            let parsedLimit = Int(request.queryParam("limit") ?? "") ?? 50
+            let limit = max(1, min(parsedLimit, 200))
+            let cursor = request.queryParam("cursor")
+            let before = request.queryParam("before").flatMap { Self.isoDate(from: $0) }
+            let after = request.queryParam("after").flatMap { Self.isoDate(from: $0) }
+            let response = await service.listChannelEvents(
+                channelId: channelId,
+                limit: limit,
+                cursor: cursor,
+                before: before,
+                after: after
+            )
+            return Self.encodable(status: HTTPStatus.ok, payload: response)
+        }
+
         add(.get, "/v1/bulletins") { _ in
             let bulletins = await service.getBulletins()
             return Self.encodable(status: HTTPStatus.ok, payload: bulletins)
@@ -1370,6 +1387,12 @@ public actor CoreRouter {
     }
 
     private static func isoDate(from string: String) -> Date? {
+        let formatterWithFractions = ISO8601DateFormatter()
+        formatterWithFractions.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let parsed = formatterWithFractions.date(from: string) {
+            return parsed
+        }
+
         let formatter = ISO8601DateFormatter()
         return formatter.date(from: string)
     }

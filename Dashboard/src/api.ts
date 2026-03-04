@@ -4,6 +4,7 @@ const coreApi = createCoreApi();
 
 export const sendChannelMessage = coreApi.sendChannelMessage;
 export const fetchChannelState = coreApi.fetchChannelState;
+export const fetchChannelEvents = coreApi.fetchChannelEvents;
 export const fetchBulletins = coreApi.fetchBulletins;
 export const fetchWorkers = coreApi.fetchWorkers;
 export const fetchArtifact = coreApi.fetchArtifact;

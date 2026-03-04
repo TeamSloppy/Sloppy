@@ -274,6 +274,56 @@ public actor SQLiteStore: PersistenceStore {
 #endif
     }
 
+    public func listChannelEvents(
+        channelId: String,
+        limit: Int,
+        cursor: PersistedEventCursor?,
+        before: Date?,
+        after: Date?
+    ) async -> [EventEnvelope] {
+        guard limit > 0 else {
+            return []
+        }
+#if canImport(SQLite3)
+        guard let db else {
+            return filteredFallbackChannelEvents(
+                channelId: channelId,
+                limit: limit,
+                cursor: cursor,
+                before: before,
+                after: after
+            )
+        }
+
+        let result = loadChannelEvents(
+            db: db,
+            channelId: channelId,
+            limit: limit,
+            cursor: cursor,
+            before: before,
+            after: after
+        )
+        if result.isEmpty && !fallbackEvents.isEmpty {
+            return filteredFallbackChannelEvents(
+                channelId: channelId,
+                limit: limit,
+                cursor: cursor,
+                before: before,
+                after: after
+            )
+        }
+        return result
+#else
+        return filteredFallbackChannelEvents(
+            channelId: channelId,
+            limit: limit,
+            cursor: cursor,
+            before: before,
+            after: after
+        )
+#endif
+    }
+
     /// Lists persisted channels in creation order.
     public func listPersistedChannels() async -> [PersistedChannelRecord] {
 #if canImport(SQLite3)
@@ -844,6 +894,43 @@ public actor SQLiteStore: PersistenceStore {
         }
     }
 
+    private func filteredFallbackChannelEvents(
+        channelId: String,
+        limit: Int,
+        cursor: PersistedEventCursor?,
+        before: Date?,
+        after: Date?
+    ) -> [EventEnvelope] {
+        var filtered = fallbackEvents
+            .filter { $0.channelId == channelId }
+            .sorted { left, right in
+                if left.ts == right.ts {
+                    return left.messageId > right.messageId
+                }
+                return left.ts > right.ts
+            }
+
+        filtered.removeAll { event in
+            if let before, !(event.ts < before) {
+                return true
+            }
+            if let after, !(event.ts > after) {
+                return true
+            }
+            if let cursor {
+                if event.ts > cursor.createdAt {
+                    return true
+                }
+                if event.ts == cursor.createdAt, event.messageId >= cursor.eventId {
+                    return true
+                }
+            }
+            return false
+        }
+
+        return Array(filtered.prefix(limit))
+    }
+
     private func persistFallbackEvent(_ event: EventEnvelope) {
         fallbackEvents.append(event)
         upsertFallbackChannel(channelId: event.channelId, timestamp: event.ts)
@@ -1065,6 +1152,107 @@ public actor SQLiteStore: PersistenceStore {
         defer { sqlite3_finalize(statement) }
 
         var result: [EventEnvelope] = []
+        while sqlite3_step(statement) == SQLITE_ROW {
+            guard
+                let idPtr = sqlite3_column_text(statement, 0),
+                let messageTypePtr = sqlite3_column_text(statement, 1),
+                let channelIDPtr = sqlite3_column_text(statement, 2),
+                let payloadPtr = sqlite3_column_text(statement, 6),
+                let createdAtPtr = sqlite3_column_text(statement, 7)
+            else {
+                continue
+            }
+
+            let messageID = String(cString: idPtr)
+            let rawMessageType = String(cString: messageTypePtr)
+            guard let messageType = MessageType(rawValue: rawMessageType) else {
+                continue
+            }
+
+            let timestamp = isoFormatter.date(from: String(cString: createdAtPtr)) ?? Date()
+            let payloadJSON = String(cString: payloadPtr)
+            let payloadData = Data(payloadJSON.utf8)
+            let payload = (try? JSONDecoder().decode(JSONValue.self, from: payloadData)) ?? .object([:])
+
+            result.append(
+                EventEnvelope(
+                    messageId: messageID,
+                    messageType: messageType,
+                    ts: timestamp,
+                    traceId: messageID,
+                    channelId: String(cString: channelIDPtr),
+                    taskId: optionalText(statement: statement, index: 3),
+                    branchId: optionalText(statement: statement, index: 4),
+                    workerId: optionalText(statement: statement, index: 5),
+                    payload: payload
+                )
+            )
+        }
+
+        return result
+    }
+
+    private func loadChannelEvents(
+        db: OpaquePointer,
+        channelId: String,
+        limit: Int,
+        cursor: PersistedEventCursor?,
+        before: Date?,
+        after: Date?
+    ) -> [EventEnvelope] {
+        var conditions: [String] = ["channel_id = ?"]
+        if before != nil {
+            conditions.append("created_at < ?")
+        }
+        if after != nil {
+            conditions.append("created_at > ?")
+        }
+        if cursor != nil {
+            conditions.append("(created_at < ? OR (created_at = ? AND id < ?))")
+        }
+
+        let whereClause = "WHERE " + conditions.joined(separator: " AND ")
+        let sql =
+            """
+            SELECT id, message_type, channel_id, task_id, branch_id, worker_id, payload_json, created_at
+            FROM events
+            \(whereClause)
+            ORDER BY created_at DESC, id DESC
+            LIMIT ?;
+            """
+
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK else {
+            return []
+        }
+        defer { sqlite3_finalize(statement) }
+
+        var parameter: Int32 = 1
+        bindText(channelId, at: parameter, statement: statement)
+        parameter += 1
+
+        if let before {
+            bindText(isoFormatter.string(from: before), at: parameter, statement: statement)
+            parameter += 1
+        }
+        if let after {
+            bindText(isoFormatter.string(from: after), at: parameter, statement: statement)
+            parameter += 1
+        }
+        if let cursor {
+            let cursorTimestamp = isoFormatter.string(from: cursor.createdAt)
+            bindText(cursorTimestamp, at: parameter, statement: statement)
+            parameter += 1
+            bindText(cursorTimestamp, at: parameter, statement: statement)
+            parameter += 1
+            bindText(cursor.eventId, at: parameter, statement: statement)
+            parameter += 1
+        }
+
+        sqlite3_bind_int(statement, parameter, Int32(limit))
+
+        var result: [EventEnvelope] = []
+        result.reserveCapacity(limit)
         while sqlite3_step(statement) == SQLITE_ROW {
             guard
                 let idPtr = sqlite3_column_text(statement, 0),

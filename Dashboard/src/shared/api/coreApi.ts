@@ -6,6 +6,13 @@ interface RequestOptions {
   signal?: AbortSignal;
 }
 
+interface ChannelEventsQuery {
+  limit?: number;
+  cursor?: string;
+  before?: string;
+  after?: string;
+}
+
 interface AgentSessionStreamHandlers {
   onUpdate?: (update: AnyRecord) => void;
   onOpen?: () => void;
@@ -15,6 +22,7 @@ interface AgentSessionStreamHandlers {
 export interface CoreApi {
   sendChannelMessage: (channelId: string, payload: AnyRecord) => Promise<AnyRecord | null>;
   fetchChannelState: (channelId: string) => Promise<AnyRecord | null>;
+  fetchChannelEvents: (channelId: string, query?: ChannelEventsQuery) => Promise<AnyRecord | null>;
   fetchBulletins: () => Promise<AnyRecord[]>;
   fetchWorkers: () => Promise<AnyRecord[]>;
   fetchArtifact: (id: string) => Promise<AnyRecord | null>;
@@ -101,6 +109,31 @@ export function createCoreApi(): CoreApi {
     fetchChannelState: async (channelId) => {
       const response = await requestJson<AnyRecord>({
         path: `/v1/channels/${encodeURIComponent(channelId)}/state`
+      });
+      if (!response.ok) {
+        return null;
+      }
+      return response.data;
+    },
+
+    fetchChannelEvents: async (channelId, query = {}) => {
+      const params = new URLSearchParams();
+      if (Number.isFinite(query.limit)) {
+        params.set("limit", String(query.limit));
+      }
+      if (typeof query.cursor === "string" && query.cursor.length > 0) {
+        params.set("cursor", query.cursor);
+      }
+      if (typeof query.before === "string" && query.before.length > 0) {
+        params.set("before", query.before);
+      }
+      if (typeof query.after === "string" && query.after.length > 0) {
+        params.set("after", query.after);
+      }
+
+      const queryString = params.toString();
+      const response = await requestJson<AnyRecord>({
+        path: `/v1/channels/${encodeURIComponent(channelId)}/events${queryString ? `?${queryString}` : ""}`
       });
       if (!response.ok) {
         return null;

@@ -38,6 +38,19 @@ public struct ArtifactContentResponse: Codable, Sendable {
     }
 }
 
+/// Response for channel runtime event feed with pagination cursor.
+public struct ChannelEventsResponse: Codable, Sendable, Equatable {
+    public var channelId: String
+    public var items: [EventEnvelope]
+    public var nextCursor: String?
+
+    public init(channelId: String, items: [EventEnvelope], nextCursor: String? = nil) {
+        self.channelId = channelId
+        self.items = items
+        self.nextCursor = nextCursor
+    }
+}
+
 public enum SystemLogLevel: String, Codable, Sendable, Equatable, CaseIterable {
     case trace
     case debug

@@ -304,6 +304,125 @@ func channelStateReturnsEmptySnapshotWhenChannelMissing() async throws {
 }
 
 @Test
+func channelEventsEndpointReturnsRuntimeTimeline() async throws {
+    let sqlitePath = FileManager.default.temporaryDirectory
+        .appendingPathComponent("core-channel-events-\(UUID().uuidString).sqlite")
+        .path
+    var config = CoreConfig.default
+    config.sqlitePath = sqlitePath
+
+    let service = CoreService(config: config)
+    let router = CoreRouter(service: service)
+    let channelID = "events-\(UUID().uuidString)"
+
+    let requestBody = try JSONEncoder().encode(
+        ChannelMessageRequest(userId: "u1", content: "respond please")
+    )
+    let firstResponse = await router.handle(
+        method: "POST",
+        path: "/v1/channels/\(channelID)/messages",
+        body: requestBody
+    )
+    #expect(firstResponse.status == 200)
+
+    try await Task.sleep(nanoseconds: 150_000_000)
+
+    let response = await router.handle(
+        method: "GET",
+        path: "/v1/channels/\(channelID)/events?limit=20",
+        body: nil
+    )
+    #expect(response.status == 200)
+
+    let decoder = JSONDecoder()
+    decoder.dateDecodingStrategy = .iso8601
+    let payload = try decoder.decode(ChannelEventsResponse.self, from: response.body)
+    #expect(payload.channelId == channelID)
+    #expect(!payload.items.isEmpty)
+    #expect(payload.items.allSatisfy { $0.channelId == channelID })
+    #expect(payload.items.contains(where: { $0.messageType == .channelMessageReceived }))
+}
+
+@Test
+func channelEventsEndpointSupportsCursorAndTimeFilters() async throws {
+    let sqlitePath = FileManager.default.temporaryDirectory
+        .appendingPathComponent("core-channel-events-pagination-\(UUID().uuidString).sqlite")
+        .path
+    var config = CoreConfig.default
+    config.sqlitePath = sqlitePath
+
+    let service = CoreService(config: config)
+    let router = CoreRouter(service: service)
+    let channelID = "events-pagination-\(UUID().uuidString)"
+
+    for index in 1...3 {
+        let body = try JSONEncoder().encode(
+            ChannelMessageRequest(userId: "u\(index)", content: "respond please \(index)")
+        )
+        let postResponse = await router.handle(
+            method: "POST",
+            path: "/v1/channels/\(channelID)/messages",
+            body: body
+        )
+        #expect(postResponse.status == 200)
+        try await Task.sleep(nanoseconds: 40_000_000)
+    }
+
+    try await Task.sleep(nanoseconds: 200_000_000)
+
+    let firstPageResponse = await router.handle(
+        method: "GET",
+        path: "/v1/channels/\(channelID)/events?limit=2",
+        body: nil
+    )
+    #expect(firstPageResponse.status == 200)
+
+    let decoder = JSONDecoder()
+    decoder.dateDecodingStrategy = .iso8601
+    let firstPage = try decoder.decode(ChannelEventsResponse.self, from: firstPageResponse.body)
+    #expect(firstPage.items.count == 2)
+    let cursor = try #require(firstPage.nextCursor)
+
+    let encodedCursor = cursor.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? cursor
+    let secondPageResponse = await router.handle(
+        method: "GET",
+        path: "/v1/channels/\(channelID)/events?limit=2&cursor=\(encodedCursor)",
+        body: nil
+    )
+    #expect(secondPageResponse.status == 200)
+    let secondPage = try decoder.decode(ChannelEventsResponse.self, from: secondPageResponse.body)
+
+    let firstIDs = Set(firstPage.items.map(\.messageId))
+    let secondIDs = Set(secondPage.items.map(\.messageId))
+    #expect(firstIDs.isDisjoint(with: secondIDs))
+
+    let isoFormatter = ISO8601DateFormatter()
+    if let newestTimestamp = firstPage.items.first?.ts {
+        let beforeValue = isoFormatter.string(from: newestTimestamp)
+        let beforeResponse = await router.handle(
+            method: "GET",
+            path: "/v1/channels/\(channelID)/events?limit=30&before=\(beforeValue)",
+            body: nil
+        )
+        #expect(beforeResponse.status == 200)
+        let beforePayload = try decoder.decode(ChannelEventsResponse.self, from: beforeResponse.body)
+        #expect(beforePayload.items.allSatisfy { $0.ts < newestTimestamp })
+    }
+
+    if let oldestTimestamp = firstPage.items.last?.ts {
+        let afterValue = isoFormatter.string(from: oldestTimestamp)
+        let afterResponse = await router.handle(
+            method: "GET",
+            path: "/v1/channels/\(channelID)/events?limit=30&after=\(afterValue)",
+            body: nil
+        )
+        #expect(afterResponse.status == 200)
+        let afterPayload = try decoder.decode(ChannelEventsResponse.self, from: afterResponse.body)
+        #expect(afterPayload.items.allSatisfy { $0.ts > oldestTimestamp })
+    }
+}
+
+@Test
 func getConfigEndpoint() async throws {
     let service = CoreService(config: .default)
     let router = CoreRouter(service: service)

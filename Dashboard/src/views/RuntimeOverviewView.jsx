@@ -11,7 +11,7 @@ export function RuntimeOverviewView({
   onArtifactIdChange,
   onLoadArtifact,
   artifactContent,
-  bulletins
+  events
 }) {
   return (
     <main className="grid">
@@ -58,14 +58,26 @@ export function RuntimeOverviewView({
       </section>
 
       <section className="panel">
-        <h2>Agent Feed</h2>
+        <h2>Activity Feed</h2>
         <div className="feed">
-          {bulletins.map((bulletin) => (
-            <article key={bulletin.id} className="feed-item">
-              <h3>{bulletin.headline}</h3>
-              <p>{bulletin.digest}</p>
-            </article>
-          ))}
+          {events.map((event) => {
+            const refs = [
+              event.taskId ? `task:${event.taskId}` : null,
+              event.branchId ? `branch:${event.branchId}` : null,
+              event.workerId ? `worker:${event.workerId}` : null
+            ]
+              .filter(Boolean)
+              .join(" • ");
+
+            return (
+              <article key={`${event.id}:${event.ts}`} className="feed-item">
+                <strong>{event.messageType}</strong>
+                <p>{new Date(event.ts).toLocaleString()}</p>
+                {refs ? <p>{refs}</p> : null}
+              </article>
+            );
+          })}
+          {events.length === 0 ? <p>No runtime events yet.</p> : null}
         </div>
       </section>
     </main>

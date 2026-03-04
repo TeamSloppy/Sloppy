@@ -425,6 +425,27 @@ public actor CoreService {
         )
     }
 
+    /// Lists runtime event timeline for a channel (newest first) with cursor pagination.
+    public func listChannelEvents(
+        channelId: String,
+        limit: Int = 50,
+        cursor: String? = nil,
+        before: Date? = nil,
+        after: Date? = nil
+    ) async -> ChannelEventsResponse {
+        let boundedLimit = min(max(limit, 1), 200)
+        let parsedCursor = Self.decodeEventCursor(cursor)
+        let events = await store.listChannelEvents(
+            channelId: channelId,
+            limit: boundedLimit,
+            cursor: parsedCursor,
+            before: before,
+            after: after
+        )
+        let nextCursor = events.last.map(Self.encodeEventCursor)
+        return ChannelEventsResponse(channelId: channelId, items: events, nextCursor: nextCursor)
+    }
+
     /// Returns one dashboard project by identifier.
     public func getProject(id: String) async throws -> ProjectRecord {
         guard let normalizedID = normalizedProjectID(id) else {
@@ -949,6 +970,44 @@ public actor CoreService {
         default:
             return .storageFailure
         }
+    }
+
+    private static func encodeEventCursor(_ event: EventEnvelope) -> String {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return "\(formatter.string(from: event.ts))|\(event.messageId)"
+    }
+
+    private static func decodeEventCursor(_ rawValue: String?) -> PersistedEventCursor? {
+        guard let rawValue, !rawValue.isEmpty else {
+            return nil
+        }
+        let parts = rawValue.split(separator: "|", maxSplits: 1, omittingEmptySubsequences: false)
+        guard parts.count == 2 else {
+            return nil
+        }
+
+        let timestamp = String(parts[0])
+        let eventID = String(parts[1])
+        guard !eventID.isEmpty else {
+            return nil
+        }
+        guard let createdAt = decodeEventCursorDate(timestamp) else {
+            return nil
+        }
+
+        return PersistedEventCursor(createdAt: createdAt, eventId: eventID)
+    }
+
+    private static func decodeEventCursorDate(_ value: String) -> Date? {
+        let formatterWithFractions = ISO8601DateFormatter()
+        formatterWithFractions.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let parsed = formatterWithFractions.date(from: value) {
+            return parsed
+        }
+
+        let formatter = ISO8601DateFormatter()
+        return formatter.date(from: value)
     }
 
     // MARK: - Channel Plugins
