@@ -746,7 +746,7 @@ function ProjectTaskEditModal({
     <div className="project-modal-overlay" onClick={onClose}>
       <section className="project-modal" onClick={(event) => event.stopPropagation()}>
         <div className="project-modal-head">
-          <h3>Edit Task</h3>
+          <h3>Edit Task · {task.id}</h3>
           <button type="button" className="project-modal-close" aria-label="Close" onClick={onClose}>
             ×
           </button>
@@ -1712,6 +1712,7 @@ export function ProjectsView({
           >
             <span className={`project-swarm-status project-swarm-status--${task.status}`}>{task.status}</span>
             <span className="project-swarm-node-title">{task.title}</span>
+            <span className="project-task-id">#{task.id}</span>
             {Number.isFinite(task.swarmDepth) ? <span className="project-swarm-node-meta">Depth {task.swarmDepth}</span> : null}
             {task.swarmTaskId ? <span className="project-swarm-node-meta">{task.swarmTaskId}</span> : null}
           </button>
@@ -1831,6 +1832,7 @@ export function ProjectsView({
                                 event.dataTransfer.effectAllowed = "move";
                               }}
                             >
+                              <span className="project-task-id">#{task.id}</span>
                               <h5>{task.title}</h5>
                               {task.description ? <p>{task.description}</p> : null}
 

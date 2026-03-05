@@ -348,7 +348,14 @@ public actor CoreService {
         if let approvalReference = TaskApprovalCommandParser.parse(request.content) {
             return await handleTaskApprovalCommand(channelId: channelId, reference: approvalReference)
         }
-        return await runtime.postMessage(channelId: channelId, request: request)
+
+        let enrichedContent = await enrichMessageWithTaskReferences(request.content)
+        let nextRequest = ChannelMessageRequest(
+            userId: request.userId,
+            content: enrichedContent,
+            topicId: request.topicId
+        )
+        return await runtime.postMessage(channelId: channelId, request: nextRequest)
     }
 
     /// Routes interactive message into a running worker.
@@ -424,6 +431,29 @@ public actor CoreService {
             lines.append("Project \(project.name): \(taskEntries.joined(separator: ", "))")
         }
         return lines.isEmpty ? nil : "Active tasks: " + lines.joined(separator: "; ")
+    }
+
+    private func enrichMessageWithTaskReferences(_ content: String) async -> String {
+        let references = extractTaskReferences(from: content)
+        guard !references.isEmpty else {
+            return content
+        }
+
+        var lines: [String] = [content, "", "[task_reference_context_v1]"]
+        for reference in references {
+            if let record = try? await getProjectTask(taskReference: reference) {
+                let description = record.task.description.trimmingCharacters(in: .whitespacesAndNewlines)
+                let compactDescription = description.isEmpty ? "(no description)" : String(description.prefix(320))
+                lines.append(
+                    "#\(reference) -> project=\(record.projectId), title=\(record.task.title), status=\(record.task.status), priority=\(record.task.priority)"
+                )
+                lines.append("details: \(compactDescription)")
+            } else {
+                lines.append("#\(reference) -> task_not_found")
+            }
+        }
+        lines.append("Use this task context when answering the user.")
+        return lines.joined(separator: "\n")
     }
 
     /// Exposes worker snapshots for observability endpoints.
@@ -620,7 +650,7 @@ public actor CoreService {
         let now = Date()
         let normalizedStatus = try normalizeTaskStatus(request.status)
         let task = ProjectTask(
-            id: UUID().uuidString,
+            id: nextProjectTaskID(for: project),
             title: try normalizeTaskTitle(request.title),
             description: normalizeTaskDescription(request.description),
             priority: try normalizeTaskPriority(request.priority),
@@ -654,10 +684,11 @@ public actor CoreService {
         guard let normalizedTask = normalizedEntityID(taskID) else {
             throw ProjectError.invalidTaskID
         }
+        let normalizedTaskLowercased = normalizedTask.lowercased()
         guard var project = await store.project(id: normalizedProject) else {
             throw ProjectError.notFound
         }
-        guard let taskIndex = project.tasks.firstIndex(where: { $0.id == normalizedTask }) else {
+        guard let taskIndex = project.tasks.firstIndex(where: { $0.id.lowercased() == normalizedTaskLowercased }) else {
             throw ProjectError.notFound
         }
 
@@ -710,17 +741,41 @@ public actor CoreService {
         guard let normalizedTask = normalizedEntityID(taskID) else {
             throw ProjectError.invalidTaskID
         }
+        let normalizedTaskLowercased = normalizedTask.lowercased()
         guard var project = await store.project(id: normalizedProject) else {
             throw ProjectError.notFound
         }
-        guard project.tasks.contains(where: { $0.id == normalizedTask }) else {
+        guard project.tasks.contains(where: { $0.id.lowercased() == normalizedTaskLowercased }) else {
             throw ProjectError.notFound
         }
 
-        project.tasks.removeAll(where: { $0.id == normalizedTask })
+        project.tasks.removeAll(where: { $0.id.lowercased() == normalizedTaskLowercased })
         project.updatedAt = Date()
         await store.saveProject(project)
         return project
+    }
+
+    /// Returns one task by readable id (for example, `MOBILE-1`).
+    public func getProjectTask(taskReference: String) async throws -> AgentTaskRecord {
+        guard let normalizedReference = normalizeTaskReference(taskReference) else {
+            throw ProjectError.invalidTaskID
+        }
+        let normalizedReferenceLowercased = normalizedReference.lowercased()
+
+        let projects = await store.listProjects().sorted(by: { $0.createdAt < $1.createdAt })
+        for project in projects {
+            guard let task = project.tasks.first(where: { $0.id.lowercased() == normalizedReferenceLowercased }) else {
+                continue
+            }
+
+            return AgentTaskRecord(
+                projectId: project.id,
+                projectName: project.name,
+                task: task
+            )
+        }
+
+        throw ProjectError.notFound
     }
 
     /// Returns currently active runtime config snapshot.
@@ -3306,6 +3361,8 @@ public actor CoreService {
             return await executeTaskList(request: request, sessionID: sessionID)
         case "project.task_create":
             return await executeTaskCreate(request: request, sessionID: sessionID)
+        case "project.task_get":
+            return await executeTaskGet(request: request, sessionID: sessionID)
         case "project.escalate_to_user":
             return await executeEscalateToUser(request: request, sessionID: sessionID)
         case "actor.discuss_with_actor":
@@ -3400,6 +3457,55 @@ public actor CoreService {
             return .init(
                 tool: request.tool, ok: false,
                 error: .init(code: "create_failed", message: "Failed to create task.", retryable: true)
+            )
+        }
+    }
+
+    private func executeTaskGet(request: ToolInvocationRequest, sessionID: String) async -> ToolInvocationResult {
+        let rawReference = request.arguments["taskId"]?.asString
+            ?? request.arguments["reference"]?.asString
+            ?? ""
+        let fallbackChannelId = request.arguments["channelId"]?.asString ?? sessionID
+
+        guard let normalizedReference = normalizeTaskReference(rawReference) else {
+            return .init(
+                tool: request.tool,
+                ok: false,
+                error: .init(
+                    code: "invalid_arguments",
+                    message: "`taskId` (or `reference`) is required. Example: MOBILE-1",
+                    retryable: false
+                )
+            )
+        }
+
+        do {
+            let record = try await getProjectTask(taskReference: normalizedReference)
+            return .init(tool: request.tool, ok: true, data: .object([
+                "projectId": .string(record.projectId),
+                "projectName": .string(record.projectName),
+                "task": jsonValue(for: record.task),
+                "taskId": .string(record.task.id)
+            ]))
+        } catch ProjectError.notFound {
+            return .init(
+                tool: request.tool,
+                ok: false,
+                data: .object([
+                    "channelId": .string(fallbackChannelId),
+                    "taskId": .string(normalizedReference)
+                ]),
+                error: .init(
+                    code: "task_not_found",
+                    message: "Task `\(normalizedReference)` was not found.",
+                    retryable: false
+                )
+            )
+        } catch {
+            return .init(
+                tool: request.tool,
+                ok: false,
+                error: .init(code: "read_failed", message: "Failed to fetch task details.", retryable: true)
             )
         }
     }
@@ -3703,6 +3809,39 @@ public actor CoreService {
         return nsSource.substring(with: range)
     }
 
+    private func extractTaskReferences(from content: String) -> [String] {
+        guard let regex = try? NSRegularExpression(pattern: #"#([A-Za-z0-9._-]+-\d+)"#) else {
+            return []
+        }
+
+        let nsContent = content as NSString
+        let range = NSRange(location: 0, length: nsContent.length)
+        let matches = regex.matches(in: content, options: [], range: range)
+        guard !matches.isEmpty else {
+            return []
+        }
+
+        var unique: Set<String> = []
+        var ordered: [String] = []
+        for match in matches where match.numberOfRanges > 1 {
+            let tokenRange = match.range(at: 1)
+            guard tokenRange.location != NSNotFound else {
+                continue
+            }
+
+            let token = nsContent.substring(with: tokenRange).trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !token.isEmpty else {
+                continue
+            }
+
+            let normalizedToken = token.uppercased()
+            if unique.insert(normalizedToken).inserted {
+                ordered.append(normalizedToken)
+            }
+        }
+        return ordered
+    }
+
     private func normalizeProjectName(_ raw: String) throws -> String {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty, trimmed.count <= 160 else {
@@ -3809,6 +3948,106 @@ public actor CoreService {
             throw ProjectError.invalidPayload
         }
         return normalized
+    }
+
+    private func normalizeTaskReference(_ raw: String) -> String? {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            return nil
+        }
+
+        let token = trimmed.hasPrefix("#") ? String(trimmed.dropFirst()) : trimmed
+        return normalizedEntityID(token)
+    }
+
+    private func nextProjectTaskID(for project: ProjectRecord) -> String {
+        let prefix = projectTaskIDPrefix(for: project)
+        let taskPrefix = "\(prefix)-"
+        let maxSequence = project.tasks.reduce(0) { partial, task in
+            max(partial, taskSequenceNumber(taskID: task.id, prefix: taskPrefix) ?? 0)
+        }
+        return "\(prefix)-\(maxSequence + 1)"
+    }
+
+    private func projectTaskIDPrefix(for project: ProjectRecord) -> String {
+        var candidates: [String] = []
+        if !isLikelyUUID(project.id) {
+            candidates.append(project.id)
+        }
+        candidates.append(project.name)
+        if isLikelyUUID(project.id) {
+            candidates.append(project.id)
+        }
+
+        for candidate in candidates {
+            let normalized = normalizeTaskPrefix(candidate)
+            if !normalized.isEmpty {
+                return normalized
+            }
+        }
+
+        return "PROJECT"
+    }
+
+    private func taskSequenceNumber(taskID: String, prefix: String) -> Int? {
+        let uppercased = taskID.uppercased()
+        guard uppercased.hasPrefix(prefix) else {
+            return nil
+        }
+
+        let suffix = String(uppercased.dropFirst(prefix.count))
+        guard !suffix.isEmpty,
+              suffix.rangeOfCharacter(from: CharacterSet.decimalDigits.inverted) == nil
+        else {
+            return nil
+        }
+        return Int(suffix)
+    }
+
+    private func normalizeTaskPrefix(_ raw: String) -> String {
+        let uppercased = raw
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .uppercased()
+        guard !uppercased.isEmpty else {
+            return ""
+        }
+
+        let compacted = uppercased.replacingOccurrences(
+            of: #"[^A-Z0-9]+"#,
+            with: "-",
+            options: .regularExpression
+        )
+        let trimmed = compacted.trimmingCharacters(in: CharacterSet(charactersIn: "-"))
+        return String(trimmed.prefix(80))
+    }
+
+    private func isLikelyUUID(_ raw: String) -> Bool {
+        raw.range(
+            of: #"^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}$"#,
+            options: .regularExpression
+        ) != nil
+    }
+
+    private func jsonValue(for task: ProjectTask) -> JSONValue {
+        .object([
+            "id": .string(task.id),
+            "title": .string(task.title),
+            "description": .string(task.description),
+            "priority": .string(task.priority),
+            "status": .string(task.status),
+            "actorId": task.actorId.map { .string($0) } ?? .null,
+            "teamId": task.teamId.map { .string($0) } ?? .null,
+            "claimedActorId": task.claimedActorId.map { .string($0) } ?? .null,
+            "claimedAgentId": task.claimedAgentId.map { .string($0) } ?? .null,
+            "swarmId": task.swarmId.map { .string($0) } ?? .null,
+            "swarmTaskId": task.swarmTaskId.map { .string($0) } ?? .null,
+            "swarmParentTaskId": task.swarmParentTaskId.map { .string($0) } ?? .null,
+            "swarmDependencyIds": task.swarmDependencyIds.map { .array($0.map { .string($0) }) } ?? .null,
+            "swarmDepth": task.swarmDepth.map { .number(Double($0)) } ?? .null,
+            "swarmActorPath": task.swarmActorPath.map { .array($0.map { .string($0) }) } ?? .null,
+            "createdAt": .string(ISO8601DateFormatter().string(from: task.createdAt)),
+            "updatedAt": .string(ISO8601DateFormatter().string(from: task.updatedAt))
+        ])
     }
 
     private func normalizeChannelTitle(_ raw: String) -> String {

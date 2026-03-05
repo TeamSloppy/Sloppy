@@ -369,6 +369,21 @@ public actor CoreRouter {
             }
         }
 
+        let taskLookupHandler: (HTTPRequest) async -> CoreRouterResponse = { request in
+            let taskReference = request.pathParam("taskReference") ?? ""
+            do {
+                let task = try await service.getProjectTask(taskReference: taskReference)
+                return Self.encodable(status: HTTPStatus.ok, payload: task)
+            } catch let error as CoreService.ProjectError {
+                return Self.projectErrorResponse(error, fallback: ErrorCode.projectReadFailed)
+            } catch {
+                return Self.json(status: HTTPStatus.internalServerError, payload: ["error": ErrorCode.projectReadFailed])
+            }
+        }
+
+        add(.get, "/v1/tasks/:taskReference", taskLookupHandler)
+        add(.get, "/tasks/:taskReference", taskLookupHandler)
+
         add(.get, "/v1/providers/openai/status") { _ in
             let status = await service.openAIProviderStatus()
             return Self.encodable(status: HTTPStatus.ok, payload: status)

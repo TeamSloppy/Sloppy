@@ -114,6 +114,27 @@ func projectCrudEndpoints() async throws {
     #expect(withTask.tasks.count == 1)
 
     let taskID = try #require(withTask.tasks.first?.id)
+    #expect(taskID == "PLATFORM-BOARD-1")
+
+    let createSecondTaskResponse = await router.handle(
+        method: "POST",
+        path: "/v1/projects/\(created.id)/tasks",
+        body: createTaskBody
+    )
+    #expect(createSecondTaskResponse.status == 200)
+    let withSecondTask = try decoder.decode(ProjectRecord.self, from: createSecondTaskResponse.body)
+    #expect(withSecondTask.tasks.contains(where: { $0.id == "PLATFORM-BOARD-2" }))
+
+    let taskLookupResponse = await router.handle(
+        method: "GET",
+        path: "/tasks/\(taskID)",
+        body: nil
+    )
+    #expect(taskLookupResponse.status == 200)
+    let taskLookup = try decoder.decode(AgentTaskRecord.self, from: taskLookupResponse.body)
+    #expect(taskLookup.projectId == created.id)
+    #expect(taskLookup.task.id == taskID)
+
     let patchTaskBody = try JSONEncoder().encode(ProjectTaskUpdateRequest(status: "in_progress"))
     let patchTaskResponse = await router.handle(
         method: "PATCH",
@@ -153,7 +174,8 @@ func projectCrudEndpoints() async throws {
     )
     #expect(removeTaskResponse.status == 200)
     let afterTaskDelete = try decoder.decode(ProjectRecord.self, from: removeTaskResponse.body)
-    #expect(afterTaskDelete.tasks.isEmpty)
+    #expect(afterTaskDelete.tasks.count == 1)
+    #expect(afterTaskDelete.tasks.first?.id == "PLATFORM-BOARD-2")
 
     let deleteProjectResponse = await router.handle(method: "DELETE", path: "/v1/projects/\(created.id)", body: nil)
     #expect(deleteProjectResponse.status == 200)

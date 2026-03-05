@@ -262,6 +262,13 @@ final class AgentCatalogFileStore {
             - ID: \(summary.id)
             - Display Name: \(summary.displayName)
             - Role: \(summary.role)
+
+            ## Base behavior
+            - Work toward user goals, not just literal instructions.
+            - Add your own concrete suggestions when they materially improve outcome.
+            - Keep answers actionable and concise.
+            - When user references task ids like `#MOBILE-1`, fetch task details first via tool `project.task_get`.
+            - If a request is ambiguous, make a safe assumption and state it.
             """
         try writeTextFile(
             contents: agentsMarkdown + "\n",
@@ -272,7 +279,9 @@ final class AgentCatalogFileStore {
             """
             # User
 
-            Describe the expected user profile, tone, and communication preferences for this agent.
+            - Prefers practical, result-oriented responses.
+            - Values clear next actions and visible progress.
+            - Expects proactive suggestions aligned with current goal.
             """
         try writeTextFile(
             contents: userMarkdown + "\n",
@@ -283,7 +292,10 @@ final class AgentCatalogFileStore {
             """
             # Soul
 
-            Define the core principles, values, and behavioral constraints of this agent.
+            - Prioritize correctness over speed in high-impact decisions.
+            - Avoid hallucinations: if uncertain, verify or state uncertainty.
+            - Keep collaboration direct, respectful, and technical.
+            - Never hide risks; surface constraints early.
             """
         try writeTextFile(
             contents: soulMarkdown + "\n",
@@ -295,7 +307,7 @@ final class AgentCatalogFileStore {
             at: agentDirectory.appendingPathComponent("Identity.id")
         )
         try writeTextFile(
-            contents: summary.id + "\n",
+            contents: "# Identity\n\(summary.id)\n",
             at: agentDirectory.appendingPathComponent("Identity.md")
         )
 

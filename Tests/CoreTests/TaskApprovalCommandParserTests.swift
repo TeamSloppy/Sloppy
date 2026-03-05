@@ -15,6 +15,12 @@ func parsesPickUpUUIDReference() {
 }
 
 @Test
+func parsesPickUpProjectTaskReference() {
+    let reference = TaskApprovalCommandParser.parse("approve #MOBILE-1")
+    #expect(reference == .taskID("MOBILE-1"))
+}
+
+@Test
 func rejectsUnsupportedText() {
     let reference = TaskApprovalCommandParser.parse("please pick this task")
     #expect(reference == nil)

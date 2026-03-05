@@ -151,6 +151,13 @@ enum ToolCatalog {
             description: "Create a new task in the project associated with the current channel."
         ),
         .init(
+            id: "project.task_get",
+            domain: "project",
+            title: "Get project task",
+            status: "fully_functional",
+            description: "Get full task details by readable id (for example, MOBILE-1). Accepts taskId or reference."
+        ),
+        .init(
             id: "project.escalate_to_user",
             domain: "project",
             title: "Escalate to user",

@@ -33,6 +33,7 @@ export interface CoreApi {
   fetchOpenAIProviderStatus: () => Promise<AnyRecord | null>;
   fetchProjects: () => Promise<AnyRecord[] | null>;
   fetchProject: (projectId: string) => Promise<AnyRecord | null>;
+  fetchTaskByReference: (taskReference: string) => Promise<AnyRecord | null>;
   createProject: (payload: AnyRecord) => Promise<AnyRecord | null>;
   updateProject: (projectId: string, payload: AnyRecord) => Promise<AnyRecord | null>;
   deleteProject: (projectId: string) => Promise<boolean>;
@@ -238,6 +239,16 @@ export function createCoreApi(): CoreApi {
     fetchProject: async (projectId) => {
       const response = await requestJson<AnyRecord>({
         path: `/v1/projects/${encodeURIComponent(projectId)}`
+      });
+      if (!response.ok) {
+        return null;
+      }
+      return response.data;
+    },
+
+    fetchTaskByReference: async (taskReference) => {
+      const response = await requestJson<AnyRecord>({
+        path: `/tasks/${encodeURIComponent(taskReference)}`
       });
       if (!response.ok) {
         return null;

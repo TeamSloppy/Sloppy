@@ -15,6 +15,7 @@ export const fetchOpenAIModels = coreApi.fetchOpenAIModels;
 export const fetchOpenAIProviderStatus = coreApi.fetchOpenAIProviderStatus;
 export const fetchProjects = coreApi.fetchProjects;
 export const fetchProject = coreApi.fetchProject;
+export const fetchTaskByReference = coreApi.fetchTaskByReference;
 export const createProject = coreApi.createProject;
 export const updateProject = coreApi.updateProject;
 export const deleteProject = coreApi.deleteProject;
