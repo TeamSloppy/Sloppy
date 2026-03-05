@@ -95,7 +95,27 @@ const EMPTY_CONFIG = {
   workspace: { name: "workspace", basePath: "~" },
   auth: { token: "dev-token" },
   models: [emptyModel()],
-  memory: { backend: "sqlite-local-vectors" },
+  memory: {
+    backend: "sqlite-local-vectors",
+    provider: {
+      mode: "local",
+      endpoint: "",
+      mcpServer: "",
+      timeoutMs: 2500,
+      apiKeyEnv: ""
+    },
+    retrieval: {
+      topK: 8,
+      semanticWeight: 0.55,
+      keywordWeight: 0.35,
+      graphWeight: 0.1
+    },
+    retention: {
+      episodicDays: 90,
+      todoCompletedDays: 30,
+      bulletinDays: 180
+    }
+  },
   nodes: ["local"],
   gateways: [],
   plugins: [],
@@ -211,11 +231,49 @@ function normalizeConfig(config) {
   const normalized = clone(EMPTY_CONFIG);
 
   normalized.listen.host = config?.listen?.host || normalized.listen.host;
-  normalized.listen.port = Number.parseInt(String(config?.listen?.port ?? normalized.listen.port), 10) || normalized.listen.port;
+  normalized.listen.port = parseInteger(config?.listen?.port ?? normalized.listen.port, normalized.listen.port);
   normalized.workspace.name = config?.workspace?.name || normalized.workspace.name;
   normalized.workspace.basePath = config?.workspace?.basePath || normalized.workspace.basePath;
   normalized.auth.token = config?.auth?.token || normalized.auth.token;
   normalized.memory.backend = config?.memory?.backend || normalized.memory.backend;
+  normalized.memory.provider.mode = String(config?.memory?.provider?.mode || normalized.memory.provider.mode);
+  normalized.memory.provider.endpoint = String(config?.memory?.provider?.endpoint || "");
+  normalized.memory.provider.mcpServer = String(config?.memory?.provider?.mcpServer || "");
+  normalized.memory.provider.timeoutMs = parseInteger(
+    config?.memory?.provider?.timeoutMs ?? normalized.memory.provider.timeoutMs,
+    normalized.memory.provider.timeoutMs
+  );
+  normalized.memory.provider.apiKeyEnv = String(config?.memory?.provider?.apiKeyEnv || "");
+
+  normalized.memory.retrieval.topK = parseInteger(
+    config?.memory?.retrieval?.topK ?? normalized.memory.retrieval.topK,
+    normalized.memory.retrieval.topK
+  );
+  normalized.memory.retrieval.semanticWeight = parseNumber(
+    config?.memory?.retrieval?.semanticWeight ?? normalized.memory.retrieval.semanticWeight,
+    normalized.memory.retrieval.semanticWeight
+  );
+  normalized.memory.retrieval.keywordWeight = parseNumber(
+    config?.memory?.retrieval?.keywordWeight ?? normalized.memory.retrieval.keywordWeight,
+    normalized.memory.retrieval.keywordWeight
+  );
+  normalized.memory.retrieval.graphWeight = parseNumber(
+    config?.memory?.retrieval?.graphWeight ?? normalized.memory.retrieval.graphWeight,
+    normalized.memory.retrieval.graphWeight
+  );
+
+  normalized.memory.retention.episodicDays = parseInteger(
+    config?.memory?.retention?.episodicDays ?? normalized.memory.retention.episodicDays,
+    normalized.memory.retention.episodicDays
+  );
+  normalized.memory.retention.todoCompletedDays = parseInteger(
+    config?.memory?.retention?.todoCompletedDays ?? normalized.memory.retention.todoCompletedDays,
+    normalized.memory.retention.todoCompletedDays
+  );
+  normalized.memory.retention.bulletinDays = parseInteger(
+    config?.memory?.retention?.bulletinDays ?? normalized.memory.retention.bulletinDays,
+    normalized.memory.retention.bulletinDays
+  );
   normalized.sqlitePath = config?.sqlitePath || normalized.sqlitePath;
 
   normalized.nodes = Array.isArray(config?.nodes) ? config.nodes.filter(Boolean) : [];
@@ -252,6 +310,16 @@ function parseLines(value) {
     .split("\n")
     .map((line) => line.trim())
     .filter(Boolean);
+}
+
+function parseInteger(value, fallback) {
+  const parsed = Number.parseInt(String(value), 10);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function parseNumber(value, fallback) {
+  const parsed = Number.parseFloat(String(value));
+  return Number.isFinite(parsed) ? parsed : fallback;
 }
 
 function isSettingsSection(id) {
@@ -332,14 +400,15 @@ export function ConfigView({ sectionId = "providers", onSectionChange = null }) 
     setSelectedSettings((current) => (current === sectionId ? current : sectionId));
   }, [sectionId]);
 
-  useEffect(() => {
-    if (typeof onSectionChange !== "function") {
+  function selectSettings(nextSectionId) {
+    if (!isSettingsSection(nextSectionId)) {
       return;
     }
-    if (selectedSettings !== sectionId) {
-      onSectionChange(selectedSettings);
+    setSelectedSettings(nextSectionId);
+    if (typeof onSectionChange === "function" && nextSectionId !== sectionId) {
+      onSectionChange(nextSectionId);
     }
-  }, [onSectionChange, selectedSettings, sectionId]);
+  }
 
   const filteredSettings = useMemo(() => {
     const needle = query.trim().toLowerCase();
@@ -755,7 +824,7 @@ export function ConfigView({ sectionId = "providers", onSectionChange = null }) 
         onQueryChange={setQuery}
         filteredSettings={filteredSettings}
         selectedSettings={selectedSettings}
-        onSelectSettings={setSelectedSettings}
+        onSelectSettings={selectSettings}
         mode={mode}
         onModeChange={setMode}
       />

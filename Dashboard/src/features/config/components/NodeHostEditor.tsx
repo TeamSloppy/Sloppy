@@ -1,6 +1,13 @@
 import React from "react";
 
 export function NodeHostEditor({ draftConfig, mutateDraft, parseLines }) {
+  const memoryProviderMode = String(draftConfig.memory?.provider?.mode || "local");
+
+  function parseInteger(value, fallback) {
+    const parsed = Number.parseInt(value, 10);
+    return Number.isFinite(parsed) ? parsed : fallback;
+  }
+
   return (
     <section className="entry-editor-card">
       <h3>NodeHost & Runtime</h3>
@@ -67,6 +74,79 @@ export function NodeHostEditor({ draftConfig, mutateDraft, parseLines }) {
             onChange={(event) =>
               mutateDraft((draft) => {
                 draft.memory.backend = event.target.value;
+              })
+            }
+          />
+        </label>
+        <label>
+          Memory Provider Mode
+          <select
+            value={memoryProviderMode}
+            onChange={(event) =>
+              mutateDraft((draft) => {
+                draft.memory.provider.mode = event.target.value;
+                if (event.target.value === "local") {
+                  draft.memory.provider.endpoint = "";
+                  draft.memory.provider.mcpServer = "";
+                  draft.memory.provider.apiKeyEnv = "";
+                }
+              })
+            }
+          >
+            <option value="local">Built-in (Local)</option>
+            <option value="http">Remote HTTP</option>
+            <option value="mcp">Remote MCP</option>
+          </select>
+        </label>
+        {memoryProviderMode === "http" ? (
+          <>
+            <label>
+              Memory Remote Endpoint
+              <input
+                placeholder="https://memory.example.com"
+                value={draftConfig.memory.provider.endpoint || ""}
+                onChange={(event) =>
+                  mutateDraft((draft) => {
+                    draft.memory.provider.endpoint = event.target.value;
+                  })
+                }
+              />
+            </label>
+            <label>
+              Memory API Key Env
+              <input
+                placeholder="MEMORY_API_KEY"
+                value={draftConfig.memory.provider.apiKeyEnv || ""}
+                onChange={(event) =>
+                  mutateDraft((draft) => {
+                    draft.memory.provider.apiKeyEnv = event.target.value;
+                  })
+                }
+              />
+            </label>
+          </>
+        ) : null}
+        {memoryProviderMode === "mcp" ? (
+          <label>
+            Memory MCP Server
+            <input
+              placeholder="memory-server"
+              value={draftConfig.memory.provider.mcpServer || ""}
+              onChange={(event) =>
+                mutateDraft((draft) => {
+                  draft.memory.provider.mcpServer = event.target.value;
+                })
+              }
+            />
+          </label>
+        ) : null}
+        <label>
+          Memory Timeout (ms)
+          <input
+            value={String(draftConfig.memory.provider.timeoutMs ?? 2500)}
+            onChange={(event) =>
+              mutateDraft((draft) => {
+                draft.memory.provider.timeoutMs = parseInteger(event.target.value, 2500);
               })
             }
           />

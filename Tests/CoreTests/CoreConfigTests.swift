@@ -92,3 +92,36 @@ func loadFallsBackToLegacyConfigFileInCurrentDirectory() throws {
     let loaded = CoreConfig.load(currentDirectory: fixtureDirectory.path)
     #expect(loaded.listen.port == 25999)
 }
+
+@Test
+func memoryProviderSupportsRemoteAliasAndKeepsSettings() throws {
+    let json =
+        """
+        {
+          "listen": { "host": "0.0.0.0", "port": 25101 },
+          "workspace": { "name": "workspace", "basePath": "~" },
+          "auth": { "token": "dev-token" },
+          "models": [],
+          "memory": {
+            "backend": "sqlite-local-vectors",
+            "provider": {
+              "mode": "remote",
+              "endpoint": "https://memory.example.com",
+              "timeoutMs": 5000,
+              "apiKeyEnv": "MEMORY_API_KEY"
+            }
+          },
+          "nodes": ["local"],
+          "gateways": [],
+          "plugins": [],
+          "channels": { "telegram": null },
+          "sqlitePath": "core.sqlite"
+        }
+        """
+
+    let decoded = try JSONDecoder().decode(CoreConfig.self, from: Data(json.utf8))
+    #expect(decoded.memory.provider.mode == .http)
+    #expect(decoded.memory.provider.endpoint == "https://memory.example.com")
+    #expect(decoded.memory.provider.timeoutMs == 5000)
+    #expect(decoded.memory.provider.apiKeyEnv == "MEMORY_API_KEY")
+}

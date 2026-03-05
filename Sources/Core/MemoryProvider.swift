@@ -279,16 +279,18 @@ enum MemoryProviderRegistry {
     static func makeProvider(config: CoreConfig.Memory, logger: Logger) -> (any MemoryProvider)? {
         switch config.provider.mode {
         case .local:
+            logger.info("Memory provider: using built-in local provider")
             return SQLiteFallbackProvider()
         case .http:
             guard
                 let endpointRaw = config.provider.endpoint,
                 !endpointRaw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-                let endpoint = URL(string: endpointRaw)
+                let endpoint = parseEndpoint(endpointRaw)
             else {
                 logger.warning("Memory provider mode is http but endpoint is missing. Falling back to local provider.")
                 return SQLiteFallbackProvider()
             }
+            logger.info("Memory provider: using remote HTTP endpoint \(endpoint.absoluteString)")
             return HTTPMemoryProviderAdapter(
                 endpoint: endpoint,
                 timeoutMs: config.provider.timeoutMs,
@@ -301,7 +303,20 @@ enum MemoryProviderRegistry {
                 logger.warning("Memory provider mode is mcp but mcpServer is missing. Falling back to local provider.")
                 return SQLiteFallbackProvider()
             }
+            logger.info("Memory provider: using remote MCP server \(server)")
             return MCPMemoryProviderAdapter(server: server)
         }
+    }
+
+    private static func parseEndpoint(_ raw: String) -> URL? {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            return nil
+        }
+        if let url = URL(string: trimmed),
+           url.scheme != nil {
+            return url
+        }
+        return URL(string: "http://\(trimmed)")
     }
 }

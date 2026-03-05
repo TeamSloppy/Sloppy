@@ -68,6 +68,32 @@ public struct CoreConfig: Codable, Sendable {
                 case local
                 case http
                 case mcp
+
+                public init(from decoder: Decoder) throws {
+                    let container = try decoder.singleValueContainer()
+                    let rawValue = try container.decode(String.self)
+                        .trimmingCharacters(in: .whitespacesAndNewlines)
+                        .lowercased()
+
+                    switch rawValue {
+                    case "local", "builtin", "embedded":
+                        self = .local
+                    case "http", "remote", "remote_http", "remote-http":
+                        self = .http
+                    case "mcp", "remote_mcp", "remote-mcp":
+                        self = .mcp
+                    default:
+                        throw DecodingError.dataCorruptedError(
+                            in: container,
+                            debugDescription: "Unsupported memory provider mode: \(rawValue)"
+                        )
+                    }
+                }
+
+                public func encode(to encoder: Encoder) throws {
+                    var container = encoder.singleValueContainer()
+                    try container.encode(rawValue)
+                }
             }
 
             public var mode: Mode
