@@ -48,6 +48,57 @@ Content-Type: application/json
 Response: `200 OK` with `{ "ok": true }` on success, or an appropriate error
 status. Core logs failures but does not retry automatically in v1.
 
+### Optional outbound streaming
+
+Plugins on platforms that support message editing may opt into a three-step
+streaming flow:
+
+```
+POST {plugin_base_url}/stream/start
+Content-Type: application/json
+
+{
+  "channelId": "<slopoverlord channel id>",
+  "userId": "<recipient hint>"
+}
+```
+
+Response:
+
+```json
+{ "ok": true, "streamId": "opaque-plugin-stream-id" }
+```
+
+Chunk updates:
+
+```
+POST {plugin_base_url}/stream/chunk
+Content-Type: application/json
+
+{
+  "streamId": "opaque-plugin-stream-id",
+  "channelId": "<slopoverlord channel id>",
+  "content": "<progressively built text>"
+}
+```
+
+Completion:
+
+```
+POST {plugin_base_url}/stream/end
+Content-Type: application/json
+
+{
+  "streamId": "opaque-plugin-stream-id",
+  "channelId": "<slopoverlord channel id>",
+  "userId": "<recipient hint>",
+  "content": "<final text or null>"
+}
+```
+
+If any of these endpoints are absent, Core falls back to the regular
+`/deliver` flow.
+
 ## Optional endpoints
 
 ### Validate

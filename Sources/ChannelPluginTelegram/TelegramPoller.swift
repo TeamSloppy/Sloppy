@@ -57,14 +57,14 @@ actor TelegramPoller {
         if !config.isAllowed(userId: userId, chatId: chatId) {
             logger.warning("Blocked: userId=\(userId) chatId=\(chatId) — not in allow list. allowedUsers=\(config.allowedUserIds) allowedChats=\(config.allowedChatIds)")
             let hint = "Access denied.\n\nTo allow this chat, add the following IDs to your config:\n• User ID: \(userId)\n• Chat ID: \(chatId)"
-            try? await bot.sendMessage(chatId: chatId, text: hint)
+            _ = try? await bot.sendMessage(chatId: chatId, text: hint)
             return
         }
 
         guard let channelId = config.channelId(forChatId: chatId) else {
             logger.warning("No channel mapping for chatId=\(chatId). Known mappings: \(config.channelChatMap). Message dropped.")
             let hint = "This chat is not connected to any channel.\n\nTo route messages here, add the following binding to your config:\n• Chat ID: \(chatId)\n\nMap it to a channel ID in the Channels → Bindings section."
-            try? await bot.sendMessage(chatId: chatId, text: hint)
+            _ = try? await bot.sendMessage(chatId: chatId, text: hint)
             return
         }
 
@@ -72,7 +72,7 @@ actor TelegramPoller {
 
         if let localReply = commands.handle(text: text, from: displayName) {
             logger.debug("Handled locally by CommandHandler, not forwarding to Core.")
-            try? await bot.sendMessage(chatId: chatId, text: localReply)
+            _ = try? await bot.sendMessage(chatId: chatId, text: localReply)
             return
         }
 
@@ -89,7 +89,7 @@ actor TelegramPoller {
             logger.debug("Message forwarded to Core: channelId=\(channelId) userId=\(userIdString)")
         } else {
             logger.warning("Failed to forward message to Core: channelId=\(channelId)")
-            try? await bot.sendMessage(chatId: chatId, text: "Failed to reach Core. Please try again later.")
+            _ = try? await bot.sendMessage(chatId: chatId, text: "Failed to reach Core. Please try again later.")
         }
     }
 }

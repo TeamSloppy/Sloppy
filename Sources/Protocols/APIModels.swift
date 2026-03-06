@@ -468,6 +468,52 @@ public struct ChannelPluginDeliverRequest: Codable, Sendable {
     }
 }
 
+public struct ChannelPluginStreamStartRequest: Codable, Sendable {
+    public var channelId: String
+    public var userId: String
+
+    public init(channelId: String, userId: String) {
+        self.channelId = channelId
+        self.userId = userId
+    }
+}
+
+public struct ChannelPluginStreamStartResponse: Codable, Sendable {
+    public var ok: Bool
+    public var streamId: String?
+
+    public init(ok: Bool, streamId: String? = nil) {
+        self.ok = ok
+        self.streamId = streamId
+    }
+}
+
+public struct ChannelPluginStreamChunkRequest: Codable, Sendable {
+    public var streamId: String
+    public var channelId: String
+    public var content: String
+
+    public init(streamId: String, channelId: String, content: String) {
+        self.streamId = streamId
+        self.channelId = channelId
+        self.content = content
+    }
+}
+
+public struct ChannelPluginStreamEndRequest: Codable, Sendable {
+    public var streamId: String
+    public var channelId: String
+    public var userId: String
+    public var content: String?
+
+    public init(streamId: String, channelId: String, userId: String, content: String? = nil) {
+        self.streamId = streamId
+        self.channelId = channelId
+        self.userId = userId
+        self.content = content
+    }
+}
+
 public enum AgentPolicyDefault: String, Codable, Sendable {
     case allow
     case deny

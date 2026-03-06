@@ -4,17 +4,22 @@ import PluginSDK
 
 /// In-process GatewayPlugin that bridges Telegram to SlopOverlord channels.
 /// Uses long-polling to receive messages and InboundMessageReceiver to forward them to Core.
-public final class TelegramGatewayPlugin: GatewayPlugin, @unchecked Sendable {
-    public let id: String = "telegram"
-
-    public var channelIds: [String] {
-        Array(config.channelChatMap.keys)
+public actor TelegramGatewayPlugin: StreamingGatewayPlugin {
+    private struct StreamState: Sendable {
+        let chatId: Int64
+        let messageId: Int64
+        var lastRenderedText: String
+        var lastUpdatedAt: Date
     }
+
+    public nonisolated let id: String = "telegram"
+    public nonisolated let channelIds: [String]
 
     private let config: TelegramPluginConfig
     private let bot: TelegramBotAPI
     private let logger: Logger
     private var pollerTask: Task<Void, Never>?
+    private var streams: [String: StreamState] = [:]
 
     public init(
         botToken: String,
@@ -29,6 +34,7 @@ public final class TelegramGatewayPlugin: GatewayPlugin, @unchecked Sendable {
             allowedUserIds: allowedUserIds,
             allowedChatIds: allowedChatIds
         )
+        self.channelIds = Array(channelChatMap.keys)
         let resolvedLogger = logger ?? Logger(label: "slopoverlord.plugin.telegram")
         self.logger = resolvedLogger
         self.bot = TelegramBotAPI(botToken: botToken, logger: resolvedLogger)
@@ -56,6 +62,7 @@ public final class TelegramGatewayPlugin: GatewayPlugin, @unchecked Sendable {
     public func stop() async {
         pollerTask?.cancel()
         pollerTask = nil
+        streams.removeAll()
         logger.info("Telegram gateway plugin stopped.")
     }
 
@@ -64,6 +71,71 @@ public final class TelegramGatewayPlugin: GatewayPlugin, @unchecked Sendable {
             logger.warning("No Telegram chat mapping for channel \(channelId). Message dropped.")
             return
         }
-        try await bot.sendMessage(chatId: chatId, text: message)
+        _ = try await bot.sendMessage(chatId: chatId, text: message)
+    }
+
+    public func beginStreaming(channelId: String, userId: String) async throws -> GatewayOutboundStreamHandle {
+        guard let chatId = config.chatId(forChannelId: channelId) else {
+            logger.warning("No Telegram chat mapping for channel \(channelId). Stream start dropped.")
+            throw TelegramAPIError.invalidResponse(method: "beginStreaming")
+        }
+
+        let placeholder = try await bot.sendMessage(chatId: chatId, text: "Thinking...")
+        let handle = GatewayOutboundStreamHandle(id: UUID().uuidString)
+        streams[handle.id] = StreamState(
+            chatId: chatId,
+            messageId: placeholder.messageId,
+            lastRenderedText: "",
+            lastUpdatedAt: .distantPast
+        )
+        return handle
+    }
+
+    public func updateStreaming(handle: GatewayOutboundStreamHandle, channelId: String, content: String) async throws {
+        guard var state = streams[handle.id] else {
+            return
+        }
+
+        let normalized = content.replacingOccurrences(of: "\r\n", with: "\n")
+        guard !normalized.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              normalized != state.lastRenderedText
+        else {
+            return
+        }
+
+        let now = Date()
+        let minInterval: TimeInterval = 1.0
+        guard now.timeIntervalSince(state.lastUpdatedAt) >= minInterval else {
+            return
+        }
+
+        _ = try await bot.editMessageText(chatId: state.chatId, messageId: state.messageId, text: normalized)
+        state.lastRenderedText = normalized
+        state.lastUpdatedAt = now
+        streams[handle.id] = state
+    }
+
+    public func endStreaming(
+        handle: GatewayOutboundStreamHandle,
+        channelId: String,
+        userId: String,
+        finalContent: String?
+    ) async throws {
+        guard let state = streams.removeValue(forKey: handle.id) else {
+            return
+        }
+
+        guard let finalContent = finalContent?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !finalContent.isEmpty
+        else {
+            try await bot.deleteMessage(chatId: state.chatId, messageId: state.messageId)
+            return
+        }
+
+        guard finalContent != state.lastRenderedText else {
+            return
+        }
+
+        _ = try await bot.editMessageText(chatId: state.chatId, messageId: state.messageId, text: finalContent)
     }
 }

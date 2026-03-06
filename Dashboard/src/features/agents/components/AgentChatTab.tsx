@@ -1634,6 +1634,14 @@ export function AgentChatTab({ agentId }) {
       mergeSessionSummary(summary);
     }
 
+    if (kind === "session_delta") {
+      const deltaText = String(update.message || "");
+      if (deltaText.trim().length > 0) {
+        setOptimisticAssistantText(deltaText);
+      }
+      return;
+    }
+
     if (streamEvent) {
       applyStreamEvent(summary, streamEvent);
 

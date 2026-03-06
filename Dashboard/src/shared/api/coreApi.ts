@@ -590,7 +590,7 @@ export function createCoreApi(): CoreApi {
         buildApiURL(`/v1/agents/${encodeURIComponent(agentId)}/sessions/${encodeURIComponent(sessionId)}/stream`)
       );
 
-      const eventNames = ["session_ready", "session_event", "heartbeat", "session_closed", "session_error"];
+      const eventNames = ["session_ready", "session_event", "session_delta", "heartbeat", "session_closed", "session_error"];
       const onMessage = (event: MessageEvent) => {
         if (!event?.data || typeof handlers.onUpdate !== "function") {
           return;

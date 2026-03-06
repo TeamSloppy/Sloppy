@@ -8,6 +8,7 @@ import PluginSDK
 public enum AgentSessionStreamUpdateKind: String, Codable, Sendable {
     case sessionReady = "session_ready"
     case sessionEvent = "session_event"
+    case sessionDelta = "session_delta"
     case heartbeat
     case sessionClosed = "session_closed"
     case sessionError = "session_error"
@@ -149,6 +150,8 @@ public actor CoreService {
     private var visorScheduler: VisorScheduler?
     private var memoryOutboxIndexer: MemoryOutboxIndexer?
     private let recoveryManager: RecoveryManager
+    private var liveSessionStreamContinuations: [String: [UUID: AsyncStream<AgentSessionStreamUpdate>.Continuation]] = [:]
+    private var liveSessionStreamCursor: [String: Int] = [:]
 
     /// Creates core orchestration service with runtime and persistence backend.
     public init(
@@ -245,6 +248,12 @@ public actor CoreService {
                     )
                 }
                 return await self.invokeToolFromRuntime(agentID: agentID, sessionID: sessionID, request: request)
+            }
+            await self.sessionOrchestrator.updateResponseChunkObserver { [weak self] agentID, sessionID, chunk in
+                guard let self else {
+                    return
+                }
+                await self.publishLiveSessionDelta(agentID: agentID, sessionID: sessionID, chunk: chunk)
             }
         }
     }
@@ -1528,9 +1537,17 @@ public actor CoreService {
 
         _ = try getAgent(id: normalizedAgentID)
         _ = try getAgentSession(agentID: normalizedAgentID, sessionID: normalizedSessionID)
+        let streamKey = sessionStreamKey(agentID: normalizedAgentID, sessionID: normalizedSessionID)
 
         return AsyncStream(bufferingPolicy: .bufferingNewest(128)) { continuation in
-            let task = Task { [normalizedAgentID, normalizedSessionID] in
+            let listenerID = UUID()
+            let task = Task { [normalizedAgentID, normalizedSessionID, streamKey] in
+                self.registerLiveSessionStreamContinuation(
+                    key: streamKey,
+                    listenerID: listenerID,
+                    continuation: continuation
+                )
+
                 var deliveredCount = 0
                 var lastHeartbeatAt = Date.distantPast
 
@@ -1621,8 +1638,70 @@ public actor CoreService {
 
             continuation.onTermination = { _ in
                 task.cancel()
+                Task {
+                    await self.unregisterLiveSessionStreamContinuation(key: streamKey, listenerID: listenerID)
+                }
             }
         }
+    }
+
+    private func publishLiveSessionDelta(agentID: String, sessionID: String, chunk: String) {
+        let normalized = chunk.replacingOccurrences(of: "\r\n", with: "\n")
+        let trimmed = normalized.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            return
+        }
+
+        let key = sessionStreamKey(agentID: agentID, sessionID: sessionID)
+        guard let listeners = liveSessionStreamContinuations[key], !listeners.isEmpty else {
+            return
+        }
+
+        let cursor = nextLiveSessionStreamCursor(for: key)
+        let update = AgentSessionStreamUpdate(
+            kind: .sessionDelta,
+            cursor: cursor,
+            message: normalized
+        )
+
+        for continuation in listeners.values {
+            continuation.yield(update)
+        }
+    }
+
+    private func registerLiveSessionStreamContinuation(
+        key: String,
+        listenerID: UUID,
+        continuation: AsyncStream<AgentSessionStreamUpdate>.Continuation
+    ) {
+        var listeners = liveSessionStreamContinuations[key] ?? [:]
+        listeners[listenerID] = continuation
+        liveSessionStreamContinuations[key] = listeners
+    }
+
+    private func unregisterLiveSessionStreamContinuation(key: String, listenerID: UUID) {
+        guard var listeners = liveSessionStreamContinuations[key] else {
+            return
+        }
+
+        listeners.removeValue(forKey: listenerID)
+        if listeners.isEmpty {
+            liveSessionStreamContinuations.removeValue(forKey: key)
+            liveSessionStreamCursor.removeValue(forKey: key)
+        } else {
+            liveSessionStreamContinuations[key] = listeners
+        }
+    }
+
+    private func nextLiveSessionStreamCursor(for key: String) -> Int {
+        let baseline = max(1_000_000, liveSessionStreamCursor[key] ?? 1_000_000)
+        let next = baseline + 1
+        liveSessionStreamCursor[key] = next
+        return next
+    }
+
+    private func sessionStreamKey(agentID: String, sessionID: String) -> String {
+        "\(agentID)::\(sessionID)"
     }
 
     /// Deletes one session and its attachment directory.
@@ -4719,9 +4798,13 @@ extension CoreService: InboundMessageReceiver {
 
         let request = ChannelMessageRequest(userId: userId, content: content)
         let collector = ResponseCollector()
+        let outboundStreamID = await channelDelivery.beginStream(channelId: channelId, userId: "assistant")
 
         let onChunk: @Sendable (String) async -> Bool = { chunk in
             await collector.set(chunk)
+            if let outboundStreamID {
+                _ = await self.channelDelivery.updateStream(id: outboundStreamID, content: chunk)
+            }
             return true
         }
 
@@ -4742,6 +4825,13 @@ extension CoreService: InboundMessageReceiver {
             } catch {
                 logger.warning("Failed to persist assistant message to channel session: \(error)")
             }
+        }
+        if let outboundStreamID {
+            _ = await channelDelivery.endStream(
+                id: outboundStreamID,
+                finalContent: reply.isEmpty ? nil : reply
+            )
+        } else if !reply.isEmpty {
             await channelDelivery.deliver(channelId: channelId, userId: "assistant", content: reply)
         }
         return true
