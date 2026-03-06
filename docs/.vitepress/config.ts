@@ -41,7 +41,7 @@ export default defineConfig({
       }
     ],
     socialLinks: [
-      { icon: "github", link: "https://github.com/Sloppy/Sloppy" }
+      { icon: "github", link: "https://github.com/TeamSloppy/Sloppy" }
     ],
     outline: {
       level: [2, 3],
