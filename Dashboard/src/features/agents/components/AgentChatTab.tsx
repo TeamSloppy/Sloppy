@@ -1933,7 +1933,9 @@ export function AgentChatTab({ agentId }) {
       eventItem.message &&
       (eventItem.message.role === "user" || eventItem.message.role === "assistant")
   );
-  const streamedAssistantText = optimisticAssistantText || latestRespondingTextFromEvents(events);
+  const streamedAssistantText = isSending
+    ? optimisticAssistantText
+    : optimisticAssistantText || latestRespondingTextFromEvents(events);
   const latestPersistedAssistantEvent = [...persistedMessages]
     .reverse()
     .find((eventItem) => eventItem?.message?.role === "assistant");
