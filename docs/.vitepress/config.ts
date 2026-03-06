@@ -3,6 +3,7 @@ import { defineConfig } from "vitepress";
 export default defineConfig({
   title: "Sloppy Docs",
   description: "Runtime specifications, ADRs, and implementation notes for Sloppy.",
+  base: "/Sloppy/",
   lang: "en-US",
   cleanUrls: true,
   lastUpdated: true,
