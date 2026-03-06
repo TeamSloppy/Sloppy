@@ -227,7 +227,7 @@ private struct WebSocketRouteDefinition {
 }
 
 public actor CoreRouter {
-    private static let logger = Logger(label: "slopoverlord.core.router")
+    private static let logger = Logger(label: "sloppy.core.router")
     private let service: CoreService
     private var routes: [RouteDefinition]
     private var webSocketRoutes: [WebSocketRouteDefinition]

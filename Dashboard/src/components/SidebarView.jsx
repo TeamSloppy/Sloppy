@@ -20,7 +20,7 @@ export function SidebarView({
           <>
             <div className="sidebar-brand-wrap">
               <img src="/so_logo.svg" alt="" className="sidebar-logo" aria-hidden="true" />
-              <strong className="sidebar-brand">SlopOverlord</strong>
+              <strong className="sidebar-brand">Sloppy</strong>
             </div>
             <button className="sidebar-toggle" type="button" onClick={onToggleCompact} aria-label="Collapse menu">
               <span className="material-symbols-rounded" aria-hidden="true">

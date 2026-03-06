@@ -219,11 +219,11 @@ public actor CoreService {
             processRegistry: processRegistry,
             channelSessionStore: self.channelSessionStore
         )
-        self.logger = Logger(label: "slopoverlord.core.visor")
+        self.logger = Logger(label: "sloppy.core.visor")
         if let hybridMemoryStore {
             self.memoryOutboxIndexer = MemoryOutboxIndexer(
                 store: hybridMemoryStore,
-                logger: Logger(label: "slopoverlord.memory.outbox")
+                logger: Logger(label: "sloppy.memory.outbox")
             )
         } else {
             self.memoryOutboxIndexer = nil
@@ -275,7 +275,7 @@ public actor CoreService {
                 channelChatMap: telegramConfig.channelChatMap,
                 allowedUserIds: telegramConfig.allowedUserIds,
                 allowedChatIds: telegramConfig.allowedChatIds,
-                logger: Logger(label: "slopoverlord.plugin.telegram")
+                logger: Logger(label: "sloppy.plugin.telegram")
             )
             await channelDelivery.registerPlugin(plugin)
             activeGatewayPlugins.append(plugin)
@@ -2009,7 +2009,7 @@ public actor CoreService {
             channelChatMap: telegramConfig.channelChatMap,
             allowedUserIds: telegramConfig.allowedUserIds,
             allowedChatIds: telegramConfig.allowedChatIds,
-            logger: Logger(label: "slopoverlord.plugin.telegram")
+            logger: Logger(label: "sloppy.plugin.telegram")
         )
         await channelDelivery.registerPlugin(plugin)
         activeGatewayPlugins.append(plugin)

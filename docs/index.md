@@ -2,12 +2,12 @@
 layout: home
 
 hero:
-  name: "SlopOverlord Docs"
+  name: "Sloppy Docs"
   text: "Runtime specs and ADRs in the Dashboard visual language"
   tagline: "VitePress site built from docs/, with the same dark palette, surfaces, and accent system used in the Dashboard."
   image:
     src: /so_logo.svg
-    alt: SlopOverlord logo
+    alt: Sloppy logo
   actions:
     - theme: brand
       text: Open Specs

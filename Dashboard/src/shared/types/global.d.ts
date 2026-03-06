@@ -1,11 +1,11 @@
-interface SlopOverlordClientConfig {
+interface SloppyClientConfig {
   apiBase?: string;
   accentColor?: string;
 }
 
 declare global {
   interface Window {
-    __SLOPOVERLORD_CONFIG__?: SlopOverlordClientConfig;
+    __SLOPPY_CONFIG__?: SloppyClientConfig;
   }
 }
 

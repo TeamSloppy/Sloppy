@@ -14,7 +14,7 @@ actor TelegramBotAPI {
     init(botToken: String, logger: Logger? = nil) {
         self.botToken = botToken
         self.baseURL = URL(string: "https://api.telegram.org/bot\(botToken)/")!
-        self.logger = logger ?? Logger(label: "slopoverlord.telegram.api")
+        self.logger = logger ?? Logger(label: "sloppy.telegram.api")
         let config = URLSessionConfiguration.default
         config.timeoutIntervalForRequest = 65
         self.session = URLSession(configuration: config)

@@ -17,7 +17,7 @@ export interface JsonResponse<TData> {
 const DEFAULT_API_BASE = "http://localhost:25101";
 
 export function resolveApiBase() {
-  const configured = window.__SLOPOVERLORD_CONFIG__?.apiBase;
+  const configured = window.__SLOPPY_CONFIG__?.apiBase;
   if (typeof configured !== "string" || configured.trim().length === 0) {
     return DEFAULT_API_BASE;
   }

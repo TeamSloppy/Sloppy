@@ -5,23 +5,23 @@ WORKDIR /workspace
 ARG SWIFT_BUILD_CONFIGURATION=release
 COPY Package.swift ./
 COPY Package.resolved ./
-RUN --mount=type=cache,id=slopoverlord-swiftpm,target=/root/.swiftpm \
-    --mount=type=cache,id=slopoverlord-swift-cache,target=/root/.cache \
+RUN --mount=type=cache,id=sloppy-swiftpm,target=/root/.swiftpm \
+    --mount=type=cache,id=sloppy-swift-cache,target=/root/.cache \
     swift package resolve
 COPY Sources ./Sources
 COPY Tests ./Tests
-RUN --mount=type=cache,id=slopoverlord-swiftpm,target=/root/.swiftpm \
-    --mount=type=cache,id=slopoverlord-swift-cache,target=/root/.cache \
-    --mount=type=cache,id=slopoverlord-core-build,target=/workspace/.build \
+RUN --mount=type=cache,id=sloppy-swiftpm,target=/root/.swiftpm \
+    --mount=type=cache,id=sloppy-swift-cache,target=/root/.cache \
+    --mount=type=cache,id=sloppy-core-build,target=/workspace/.build \
     set -eux; \
     swift build -c "${SWIFT_BUILD_CONFIGURATION}" --product Core; \
     mkdir -p /artifacts; \
-    mkdir -p /artifacts/SlopOverlord_Core.resources; \
-    mkdir -p /artifacts/SlopOverlord_Core.bundle; \
+    mkdir -p /artifacts/Sloppy_Core.resources; \
+    mkdir -p /artifacts/Sloppy_Core.bundle; \
     CORE_BIN="$(find .build -type f -path "*/${SWIFT_BUILD_CONFIGURATION}/Core" | head -n 1)"; \
     strip "$CORE_BIN" || true; \
-    cp "$CORE_BIN" /artifacts/slopoverlord-core; \
-    RESOURCE_DIR="$(find .build -type d \( -name 'SlopOverlord_Core.resources' -o -name 'SlopOverlord_Core.bundle' \) | head -n 1 || true)"; \
+    cp "$CORE_BIN" /artifacts/sloppy-core; \
+    RESOURCE_DIR="$(find .build -type d \( -name 'Sloppy_Core.resources' -o -name 'Sloppy_Core.bundle' \) | head -n 1 || true)"; \
     if [ -n "${RESOURCE_DIR}" ]; then \
       cp -R "$RESOURCE_DIR"/. "/artifacts/$(basename "$RESOURCE_DIR")"; \
     fi
@@ -43,10 +43,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libstdc++6 \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /root
-RUN mkdir -p /root/workspace /etc/slopoverlord /var/lib/slopoverlord
+RUN mkdir -p /root/workspace /etc/sloppy /var/lib/sloppy
 COPY --from=builder /usr/lib/swift /usr/lib/swift
-COPY --from=builder /artifacts/slopoverlord-core /usr/bin/slopoverlord-core
-COPY --from=builder /artifacts/SlopOverlord_Core.resources /usr/lib/slopoverlord/SlopOverlord_Core.resources
-COPY --from=builder /artifacts/SlopOverlord_Core.bundle /usr/lib/slopoverlord/SlopOverlord_Core.bundle
+COPY --from=builder /artifacts/sloppy-core /usr/bin/sloppy-core
+COPY --from=builder /artifacts/Sloppy_Core.resources /usr/lib/sloppy/Sloppy_Core.resources
+COPY --from=builder /artifacts/Sloppy_Core.bundle /usr/lib/sloppy/Sloppy_Core.bundle
 EXPOSE 25101
-CMD ["/usr/bin/slopoverlord-core"]
+CMD ["/usr/bin/sloppy-core"]

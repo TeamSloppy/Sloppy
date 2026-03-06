@@ -38,7 +38,7 @@ actor AgentSessionOrchestrator {
         availableModels: [ProviderModelOption],
         toolInvoker: ToolInvoker? = nil,
         responseChunkObserver: ResponseChunkObserver? = nil,
-        logger: Logger = Logger(label: "slopoverlord.core.sessions")
+        logger: Logger = Logger(label: "sloppy.core.sessions")
     ) {
         self.runtime = runtime
         self.sessionStore = sessionStore

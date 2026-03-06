@@ -9,14 +9,14 @@ struct CommandHandler: Sendable {
 
         if lower == "/start" || lower == "/help" {
             return """
-            SlopOverlord Channel Plugin (Telegram)
+            Sloppy Channel Plugin (Telegram)
 
             Available commands:
             /help   — show this message
             /status — check plugin connectivity
             /task <description> — create a task via Core
 
-            Any other message is forwarded to the linked SlopOverlord channel.
+            Any other message is forwarded to the linked Sloppy channel.
             """
         }
 

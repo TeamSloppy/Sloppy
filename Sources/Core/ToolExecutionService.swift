@@ -21,7 +21,7 @@ final class ToolExecutionService: @unchecked Sendable {
         agentCatalogStore: AgentCatalogFileStore,
         processRegistry: SessionProcessRegistry,
         channelSessionStore: ChannelSessionFileStore,
-        logger: Logger = Logger(label: "slopoverlord.core.tools")
+        logger: Logger = Logger(label: "sloppy.core.tools")
     ) {
         self.workspaceRootURL = workspaceRootURL
         self.runtime = runtime

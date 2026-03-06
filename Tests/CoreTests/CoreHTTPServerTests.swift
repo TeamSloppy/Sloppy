@@ -122,7 +122,7 @@ func sseStreamEndpointOverHTTPServerReturnsSessionReadyEvent() async throws {
         host: "127.0.0.1",
         port: 0,
         router: router,
-        logger: Logger(label: "slopoverlord.core.httpserver.tests")
+        logger: Logger(label: "sloppy.core.httpserver.tests")
     )
     try server.start()
     defer { try? server.shutdown() }

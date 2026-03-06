@@ -1,5 +1,5 @@
 {
-  "name": "SlopOverlord",
+  "name": "Sloppy",
   "dockerComposeFile": "../utils/docker/docker-compose.yml",
   "service": "core",
   "workspaceFolder": "/workspace",

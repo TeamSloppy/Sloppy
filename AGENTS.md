@@ -46,7 +46,7 @@ Run from repo root unless noted.
 Useful `Core` flags:
 - `swift run Core --oneshot`
 - `swift run Core --run-demo-request`
-- `swift run Core --config-path slopoverlord.config.json`
+- `swift run Core --config-path sloppy.json`
 
 ### Dashboard commands (inside `Dashboard/`)
 - `npm install`

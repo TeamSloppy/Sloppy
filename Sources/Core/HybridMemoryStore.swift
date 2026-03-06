@@ -19,7 +19,7 @@ public actor HybridMemoryStore: MemoryStore {
     private let logger: Logger
     private let isoFormatter: ISO8601DateFormatter
 
-    public init(config: CoreConfig, logger: Logger = Logger(label: "slopoverlord.memory")) {
+    public init(config: CoreConfig, logger: Logger = Logger(label: "sloppy.memory")) {
         self.retrieval = config.memory.retrieval
         self.retention = config.memory.retention
         self.logger = logger

@@ -2,7 +2,7 @@ import Foundation
 import Logging
 import PluginSDK
 
-/// In-process GatewayPlugin that bridges Telegram to SlopOverlord channels.
+/// In-process GatewayPlugin that bridges Telegram to Sloppy channels.
 /// Uses long-polling to receive messages and InboundMessageReceiver to forward them to Core.
 public actor TelegramGatewayPlugin: StreamingGatewayPlugin {
     private struct StreamState: Sendable {
@@ -35,7 +35,7 @@ public actor TelegramGatewayPlugin: StreamingGatewayPlugin {
             allowedChatIds: allowedChatIds
         )
         self.channelIds = Array(channelChatMap.keys)
-        let resolvedLogger = logger ?? Logger(label: "slopoverlord.plugin.telegram")
+        let resolvedLogger = logger ?? Logger(label: "sloppy.plugin.telegram")
         self.logger = resolvedLogger
         self.bot = TelegramBotAPI(botToken: botToken, logger: resolvedLogger)
     }

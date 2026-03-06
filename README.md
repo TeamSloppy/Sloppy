@@ -1,6 +1,6 @@
-# SlopOverlord Runtime v1
+# Sloppy Runtime v1
 
-[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/SlopOverlord/SlopOverlord)
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/TeamSloppy/Sloppy)
 
 Multi-agent runtime skeleton in Swift 6.2 with Channel/Branch/Worker architecture, Core API router, Node daemon, Dashboard, docs, and Docker compose.
 

@@ -3,7 +3,7 @@ import { createRoot } from "react-dom/client";
 import { App } from "./App";
 import "./styles.css";
 
-const configuredAccentColor = window.__SLOPOVERLORD_CONFIG__?.accentColor;
+const configuredAccentColor = window.__SLOPPY_CONFIG__?.accentColor;
 if (
   typeof configuredAccentColor === "string" &&
   configuredAccentColor.trim().length > 0 &&

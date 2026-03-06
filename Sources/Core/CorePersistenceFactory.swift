@@ -286,10 +286,10 @@ enum CorePersistenceFactory {
         let candidatePaths = [
             cwd.appendingPathComponent("Sources/Core/Storage/schema.sql").path,
             executableDirectory.appendingPathComponent("Sources/Core/Storage/schema.sql").path,
-            cwd.appendingPathComponent("SlopOverlord_Core.resources/schema.sql").path,
-            cwd.appendingPathComponent("SlopOverlord_Core.bundle/schema.sql").path,
-            executableDirectory.appendingPathComponent("SlopOverlord_Core.resources/schema.sql").path,
-            executableDirectory.appendingPathComponent("SlopOverlord_Core.bundle/schema.sql").path
+            cwd.appendingPathComponent("Sloppy_Core.resources/schema.sql").path,
+            cwd.appendingPathComponent("Sloppy_Core.bundle/schema.sql").path,
+            executableDirectory.appendingPathComponent("Sloppy_Core.resources/schema.sql").path,
+            executableDirectory.appendingPathComponent("Sloppy_Core.bundle/schema.sql").path
         ]
 
         for candidatePath in candidatePaths where fileManager.fileExists(atPath: candidatePath) {
