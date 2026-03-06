@@ -12,8 +12,8 @@ import Darwin
 @main
 struct CoreMain: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
-        commandName: "slopoverlord-core",
-        abstract: "Starts SlopOverlord core runtime demo entrypoint."
+        commandName: "sloppy-core",
+        abstract: "Starts Sloppy core runtime demo entrypoint."
     )
 
     @Option(name: [.short, .long], help: "Path to JSON config file")
@@ -63,7 +63,7 @@ struct CoreMain: AsyncParsableCommand {
             let workspaceRoot = try prepareWorkspace(config: &config)
             let systemLogFileURL = defaultSystemLogFileURL(in: workspaceRoot)
             await LoggingBootstrapper.shared.bootstrapIfNeeded(logFileURL: systemLogFileURL)
-            let logger = Logger(label: "slopoverlord.core.main")
+            let logger = Logger(label: "sloppy.core.main")
             runtimeLogger = logger
             await FatalSignalLogger.shared.installIfNeeded()
             logger.info("Workspace prepared at \(workspaceRoot.path)")
@@ -81,7 +81,7 @@ struct CoreMain: AsyncParsableCommand {
                 logger: logger
             )
 
-            logger.info("SlopOverlord Core initialized")
+            logger.info("Sloppy Core initialized")
 
             await service.bootstrapChannelPlugins()
 
@@ -114,7 +114,7 @@ struct CoreMain: AsyncParsableCommand {
 
             // Foreground server mode by default: keep process alive for container/service runtime.
             if !oneshot {
-                logger.info("SlopOverlord Core foreground server mode is active")
+                logger.info("Sloppy Core foreground server mode is active")
                 defer {
                     try? server.shutdown()
                     Task { await service.shutdownChannelPlugins() }
@@ -186,7 +186,7 @@ private func prepareWorkspace(config: inout CoreConfig) throws -> URL {
         config.sqlitePath = resolveSQLitePath(sqlitePath: config.sqlitePath, workspaceRoot: workspaceRoot)
         return workspaceRoot
     } catch {
-        let fallbackBasePath = "/tmp/slopoverlord"
+        let fallbackBasePath = "/tmp/sloppy"
         let fallbackRoot = URL(fileURLWithPath: fallbackBasePath, isDirectory: true)
             .appendingPathComponent(config.workspace.name, isDirectory: true)
 
@@ -286,7 +286,7 @@ private actor FatalSignalLogger {
 
 private func coreFatalSignalHandler(_ signalCode: Int32) {
     let signalName = signalNameForCode(signalCode)
-    let text = "slopoverlord-core fatal signal \(signalCode) (\(signalName)). Process will exit.\n"
+    let text = "sloppy-core fatal signal \(signalCode) (\(signalName)). Process will exit.\n"
     text.withCString { pointer in
         _ = write(STDERR_FILENO, pointer, strlen(pointer))
     }

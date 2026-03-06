@@ -17,7 +17,7 @@ public struct PluginManifest: Codable, Sendable {
 public struct PluginLoader: Sendable {
     private let logger: Logger
 
-    public init(logger: Logger = Logger(label: "slopoverlord.plugin.loader")) {
+    public init(logger: Logger = Logger(label: "sloppy.plugin.loader")) {
         self.logger = logger
     }
 
@@ -94,14 +94,14 @@ public struct PluginLoader: Sendable {
             return nil
         }
 
-        guard let sym = dlsym(handle, "slopoverlord_gateway_create") else {
+        guard let sym = dlsym(handle, "sloppy_gateway_create") else {
             let error = String(cString: dlerror())
-            logger.error("dlsym(slopoverlord_gateway_create) failed for plugin \(manifest.name): \(error)")
+            logger.error("dlsym(sloppy_gateway_create) failed for plugin \(manifest.name): \(error)")
             dlclose(handle)
             return nil
         }
 
-        // C ABI: void* slopoverlord_gateway_create(const char* manifest_json, void* inbound_receiver_opaque)
+        // C ABI: void* sloppy_gateway_create(const char* manifest_json, void* inbound_receiver_opaque)
         // The opaque pointer is an Unmanaged reference to the InboundMessageReceiver existential box.
         typealias CreateFn = @convention(c) (
             UnsafePointer<CChar>,
@@ -115,7 +115,7 @@ public struct PluginLoader: Sendable {
         let boxPtr = Unmanaged.passRetained(receiverBox).toOpaque()
 
         guard let rawPlugin = manifestJSON.withCString({ createFn($0, boxPtr) }) else {
-            logger.error("slopoverlord_gateway_create returned nil for plugin \(manifest.name).")
+            logger.error("sloppy_gateway_create returned nil for plugin \(manifest.name).")
             Unmanaged<ReceiverBox>.fromOpaque(boxPtr).release()
             dlclose(handle)
             return nil

@@ -73,7 +73,7 @@ func resolvedWorkspaceSupportsHomeShortcuts() {
 func defaultConfigPathResolvesInsideWorkspaceRoot() {
     let workspace = CoreConfig.Workspace(name: "workspace-dev", basePath: "/tmp/slop")
     let resolved = CoreConfig.defaultConfigPath(for: workspace, currentDirectory: "/unused")
-    #expect(resolved == "/tmp/slop/workspace-dev/slopoverlord.json")
+    #expect(resolved == "/tmp/slop/workspace-dev/sloppy.json")
 }
 
 @Test

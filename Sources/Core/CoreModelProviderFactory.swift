@@ -60,7 +60,7 @@ enum CoreModelProviderFactory {
             models: availableModels,
             openAI: openAISettings,
             ollama: ollamaSettings,
-            systemInstructions: "You are SlopOverlord core channel assistant."
+            systemInstructions: "You are Sloppy core channel assistant."
         )
     }
 

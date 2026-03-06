@@ -2,7 +2,7 @@
 import PackageDescription
 
 let package = Package(
-    name: "SlopOverlord",
+    name: "Sloppy",
     platforms: [
         .macOS(.v14)
     ],

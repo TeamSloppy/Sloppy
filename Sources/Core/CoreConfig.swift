@@ -1,8 +1,8 @@
 import Foundation
 
 public struct CoreConfig: Codable, Sendable {
-    public static let defaultConfigFileName = "slopoverlord.json"
-    public static let legacyDefaultConfigFileName = "slopoverlord.config.json"
+    public static let defaultConfigFileName = "sloppy.json"
+    public static let legacyDefaultConfigFileName = "sloppy.config.json"
     public static var defaultConfigPath: String {
         defaultConfigPath(currentDirectory: FileManager.default.currentDirectoryPath)
     }
@@ -197,7 +197,7 @@ public struct CoreConfig: Codable, Sendable {
         public struct Telegram: Codable, Sendable, Equatable {
             /// Telegram Bot API token.
             public var botToken: String
-            /// Maps SlopOverlord channelId → Telegram chat_id.
+            /// Maps Sloppy channelId → Telegram chat_id.
             public var channelChatMap: [String: Int64]
             /// When non-empty, only these Telegram user IDs are allowed.
             public var allowedUserIds: [Int64]
@@ -312,7 +312,7 @@ public struct CoreConfig: Codable, Sendable {
         }
 
         // Keep backward compatibility for repositories that still rely on
-        // slopoverlord.config.json in the working directory.
+        // sloppy.config.json in the working directory.
         if path == nil || normalizedPath?.isEmpty == true {
             let legacyPath = URL(fileURLWithPath: currentDirectory, isDirectory: true)
                 .appendingPathComponent(legacyDefaultConfigFileName)

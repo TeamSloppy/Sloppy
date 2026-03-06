@@ -5,8 +5,8 @@ import Logging
 @main
 struct NodeMain: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
-        commandName: "slopoverlord-node",
-        abstract: "Runs SlopOverlord node daemon entrypoint."
+        commandName: "sloppy-node",
+        abstract: "Runs Sloppy node daemon entrypoint."
     )
 
     @Option(name: [.short, .long], help: "Node identifier")
@@ -20,7 +20,7 @@ struct NodeMain: AsyncParsableCommand {
 
     mutating func run() async throws {
         await LoggingBootstrapper.shared.bootstrapIfNeeded()
-        let logger = Logger(label: "slopoverlord.node.main")
+        let logger = Logger(label: "sloppy.node.main")
 
         let daemon = NodeDaemon(nodeId: nodeId)
         await daemon.connect()

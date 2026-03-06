@@ -1,8 +1,8 @@
 import { defineConfig } from "vitepress";
 
 export default defineConfig({
-  title: "SlopOverlord Docs",
-  description: "Runtime specifications, ADRs, and implementation notes for SlopOverlord.",
+  title: "Sloppy Docs",
+  description: "Runtime specifications, ADRs, and implementation notes for Sloppy.",
   lang: "en-US",
   cleanUrls: true,
   lastUpdated: true,
@@ -41,7 +41,7 @@ export default defineConfig({
       }
     ],
     socialLinks: [
-      { icon: "github", link: "https://github.com/SlopOverlord/SlopOverlord" }
+      { icon: "github", link: "https://github.com/Sloppy/Sloppy" }
     ],
     outline: {
       level: [2, 3],
@@ -52,7 +52,7 @@ export default defineConfig({
     },
     footer: {
       message: "Built from docs/ and styled to match the Dashboard palette.",
-      copyright: "SlopOverlord"
+      copyright: "Sloppy"
     }
   }
 });

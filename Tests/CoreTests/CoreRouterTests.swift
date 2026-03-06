@@ -474,7 +474,7 @@ func systemLogsEndpointReadsJSONLFile() async throws {
     try FileManager.default.createDirectory(at: logsDirectory, withIntermediateDirectories: true)
     let logFileURL = logsDirectory.appendingPathComponent("core-test.log")
     let logLine = """
-    {"label":"slopoverlord.core.main","level":"error","message":"Test failure","metadata":{"module":"tests"},"source":"CoreTests","timestamp":"2026-02-28T10:11:12.123Z"}
+    {"label":"sloppy.core.main","level":"error","message":"Test failure","metadata":{"module":"tests"},"source":"CoreTests","timestamp":"2026-02-28T10:11:12.123Z"}
     """
     guard let logData = (logLine + "\n").data(using: .utf8) else {
         throw NSError(domain: "CoreRouterTests", code: 1)
@@ -567,7 +567,7 @@ func sqliteStoreFallbackProjectsPersistAcrossRestartWhenSQLiteUnavailable() asyn
 @Test
 func putConfigEndpoint() async throws {
     let tempPath = FileManager.default.temporaryDirectory
-        .appendingPathComponent("slopoverlord-config-\(UUID().uuidString).json")
+        .appendingPathComponent("sloppy-config-\(UUID().uuidString).json")
         .path
 
     let service = CoreService(config: .default, configPath: tempPath)
@@ -588,7 +588,7 @@ func putConfigEndpoint() async throws {
 @Test
 func putConfigHotReloadsRuntimeModelProvider() async throws {
     let tempPath = FileManager.default.temporaryDirectory
-        .appendingPathComponent("slopoverlord-config-\(UUID().uuidString).json")
+        .appendingPathComponent("sloppy-config-\(UUID().uuidString).json")
         .path
 
     var initialConfig = CoreConfig.default

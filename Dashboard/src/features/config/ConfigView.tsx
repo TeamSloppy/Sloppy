@@ -515,7 +515,7 @@ export function ConfigView({ sectionId = "providers", onSectionChange = null }) 
   }
 
   function openCodexOpenAIDeepLink() {
-    window.location.href = "codex://auth/openai?source=slopoverlord";
+    window.location.href = "codex://auth/openai?source=sloppy";
     setProviderStatus("openai-oauth", "Codex deeplink opened. Complete auth there; model catalog will update automatically.");
   }
 

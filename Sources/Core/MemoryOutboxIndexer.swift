@@ -9,7 +9,7 @@ actor MemoryOutboxIndexer {
 
     init(
         store: HybridMemoryStore,
-        logger: Logger = Logger(label: "slopoverlord.memory.outbox"),
+        logger: Logger = Logger(label: "sloppy.memory.outbox"),
         intervalNanoseconds: UInt64 = 2_000_000_000
     ) {
         self.store = store

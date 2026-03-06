@@ -4,7 +4,7 @@ struct TelegramPluginConfig: Sendable {
     let botToken: String
     let allowedUserIds: Set<Int64>
     let allowedChatIds: Set<Int64>
-    /// Maps SlopOverlord channelId → Telegram chat_id.
+    /// Maps Sloppy channelId → Telegram chat_id.
     let channelChatMap: [String: Int64]
 
     /// Initialise from structured config values (used when loading from CoreConfig).

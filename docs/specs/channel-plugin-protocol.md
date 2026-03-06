@@ -1,6 +1,6 @@
 # Channel Plugin Protocol v1
 
-Channel plugins are **external processes** that bridge SlopOverlord channels to
+Channel plugins are **external processes** that bridge Sloppy channels to
 messaging platforms (Telegram, Slack, email, etc.). Communication between Core
 and each plugin uses plain HTTP/JSON — the plugin can be written in any language.
 
@@ -27,7 +27,7 @@ Content-Type: application/json
 }
 ```
 
-`channelId` is the SlopOverlord channel identifier mapped to this external chat
+`channelId` is the Sloppy channel identifier mapped to this external chat
 in the plugin configuration.
 
 ## Outbound (Core → plugin)
@@ -39,7 +39,7 @@ POST {plugin_base_url}/deliver
 Content-Type: application/json
 
 {
-  "channelId": "<slopoverlord channel id>",
+  "channelId": "<sloppy channel id>",
   "userId": "<recipient hint — may be empty for broadcast>",
   "content": "<message text>"
 }
@@ -58,7 +58,7 @@ POST {plugin_base_url}/stream/start
 Content-Type: application/json
 
 {
-  "channelId": "<slopoverlord channel id>",
+  "channelId": "<sloppy channel id>",
   "userId": "<recipient hint>"
 }
 ```
@@ -77,7 +77,7 @@ Content-Type: application/json
 
 {
   "streamId": "opaque-plugin-stream-id",
-  "channelId": "<slopoverlord channel id>",
+  "channelId": "<sloppy channel id>",
   "content": "<progressively built text>"
 }
 ```
@@ -90,7 +90,7 @@ Content-Type: application/json
 
 {
   "streamId": "opaque-plugin-stream-id",
-  "channelId": "<slopoverlord channel id>",
+  "channelId": "<sloppy channel id>",
   "userId": "<recipient hint>",
   "content": "<final text or null>"
 }
@@ -158,7 +158,7 @@ the Core configuration file. Each registration record contains:
 | id          | string   | Unique plugin identifier (auto-generated or set) |
 | type        | string   | Plugin kind, e.g. `"telegram"`, `"slack"`        |
 | baseUrl     | string   | Root URL of the plugin HTTP server               |
-| channelIds  | [string] | SlopOverlord channel IDs served by this plugin   |
+| channelIds  | [string] | Sloppy channel IDs served by this plugin   |
 | config      | object   | Arbitrary settings (tokens, allow-lists, etc.)   |
 | enabled     | bool     | Whether Core should deliver to this plugin       |
 | createdAt   | ISO 8601 | Creation timestamp                               |

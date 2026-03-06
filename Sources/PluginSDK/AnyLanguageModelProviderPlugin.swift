@@ -2,7 +2,7 @@ import AnyLanguageModel
 import Foundation
 import Protocols
 
-/// Bridges SlopOverlord `ModelProviderPlugin` protocol to AnyLanguageModel backends.
+/// Bridges Sloppy `ModelProviderPlugin` protocol to AnyLanguageModel backends.
 public struct AnyLanguageModelProviderPlugin: ModelProviderPlugin {
     /// OpenAI-compatible backend settings.
     public struct OpenAISettings: Sendable {
@@ -339,7 +339,7 @@ public struct AnyLanguageModelProviderPlugin: ModelProviderPlugin {
         if let systemInstructions, !systemInstructions.isEmpty {
             return systemInstructions
         }
-        return "You are an execution-focused assistant for SlopOverlord agents."
+        return "You are an execution-focused assistant for Sloppy agents."
     }
 
     private enum Backend {
