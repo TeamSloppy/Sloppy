@@ -20,6 +20,26 @@ public protocol GatewayPlugin: Sendable {
     func send(channelId: String, message: String) async throws
 }
 
+public struct GatewayOutboundStreamHandle: Codable, Sendable, Equatable {
+    public var id: String
+
+    public init(id: String) {
+        self.id = id
+    }
+}
+
+/// Optional outbound streaming contract for channel plugins that can edit messages in place.
+public protocol StreamingGatewayPlugin: GatewayPlugin {
+    func beginStreaming(channelId: String, userId: String) async throws -> GatewayOutboundStreamHandle
+    func updateStreaming(handle: GatewayOutboundStreamHandle, channelId: String, content: String) async throws
+    func endStreaming(
+        handle: GatewayOutboundStreamHandle,
+        channelId: String,
+        userId: String,
+        finalContent: String?
+    ) async throws
+}
+
 public protocol ToolPlugin: Sendable {
     var id: String { get }
     var supportedTools: [String] { get }

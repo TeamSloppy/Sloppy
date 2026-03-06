@@ -103,7 +103,7 @@ let package = Package(
         ),
         .testTarget(
             name: "CoreTests",
-            dependencies: ["Core", "AgentRuntime", "Protocols"],
+            dependencies: ["Core", "AgentRuntime", "Protocols", "PluginSDK"],
             path: "Tests/CoreTests"
         )
     ]

@@ -102,9 +102,20 @@ actor TelegramBotAPI {
 
     struct SendMessageResponse: Decodable {
         let ok: Bool
+        let result: Message?
     }
 
-    func sendMessage(chatId: Int64, text: String, parseMode: String? = nil) async throws {
+    struct EditMessageTextResponse: Decodable {
+        let ok: Bool
+        let result: Message?
+    }
+
+    struct DeleteMessageResponse: Decodable {
+        let ok: Bool
+        let result: Bool?
+    }
+
+    func sendMessage(chatId: Int64, text: String, parseMode: String? = nil) async throws -> Message {
         logger.debug("sendMessage: chatId=\(chatId), length=\(text.count)")
 
         // Show typing indicator so user knows bot is responding
@@ -115,7 +126,43 @@ actor TelegramBotAPI {
             "text": text
         ]
         if let parseMode { params["parse_mode"] = parseMode }
-        _ = try await post(method: "sendMessage", params: params)
+        let data = try await post(method: "sendMessage", params: params)
+        let response = try JSONDecoder().decode(SendMessageResponse.self, from: data)
+        guard response.ok, let message = response.result else {
+            throw TelegramAPIError.invalidResponse(method: "sendMessage")
+        }
+        return message
+    }
+
+    func editMessageText(chatId: Int64, messageId: Int64, text: String, parseMode: String? = nil) async throws -> Message {
+        logger.debug("editMessageText: chatId=\(chatId), messageId=\(messageId), length=\(text.count)")
+
+        var params: [String: Any] = [
+            "chat_id": chatId,
+            "message_id": messageId,
+            "text": text
+        ]
+        if let parseMode { params["parse_mode"] = parseMode }
+        let data = try await post(method: "editMessageText", params: params)
+        let response = try JSONDecoder().decode(EditMessageTextResponse.self, from: data)
+        guard response.ok, let message = response.result else {
+            throw TelegramAPIError.invalidResponse(method: "editMessageText")
+        }
+        return message
+    }
+
+    func deleteMessage(chatId: Int64, messageId: Int64) async throws {
+        logger.debug("deleteMessage: chatId=\(chatId), messageId=\(messageId)")
+
+        let params: [String: Any] = [
+            "chat_id": chatId,
+            "message_id": messageId
+        ]
+        let data = try await post(method: "deleteMessage", params: params)
+        let response = try JSONDecoder().decode(DeleteMessageResponse.self, from: data)
+        guard response.ok else {
+            throw TelegramAPIError.invalidResponse(method: "deleteMessage")
+        }
     }
 
     // MARK: - HTTP transport
@@ -155,4 +202,5 @@ actor TelegramBotAPI {
 
 enum TelegramAPIError: Error {
     case httpError(statusCode: Int, body: String)
+    case invalidResponse(method: String)
 }

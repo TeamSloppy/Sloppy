@@ -6,6 +6,7 @@ import Protocols
 actor AgentSessionOrchestrator {
     private static let sessionContextBootstrapMarker = "[agent_session_context_bootstrap_v1]"
     typealias ToolInvoker = @Sendable (String, String, ToolInvocationRequest) async -> ToolInvocationResult
+    typealias ResponseChunkObserver = @Sendable (String, String, String) async -> Void
 
     enum OrchestratorError: Error {
         case invalidAgentID
@@ -21,6 +22,7 @@ actor AgentSessionOrchestrator {
     private let agentCatalogStore: AgentCatalogFileStore
     private let logger: Logger
     private var toolInvoker: ToolInvoker?
+    private var responseChunkObserver: ResponseChunkObserver?
 
     private var activeSessionRunChannels: Set<String> = []
     private var interruptedSessionRunChannels: Set<String> = []
@@ -33,12 +35,14 @@ actor AgentSessionOrchestrator {
         sessionStore: AgentSessionFileStore,
         agentCatalogStore: AgentCatalogFileStore,
         toolInvoker: ToolInvoker? = nil,
+        responseChunkObserver: ResponseChunkObserver? = nil,
         logger: Logger = Logger(label: "slopoverlord.core.sessions")
     ) {
         self.runtime = runtime
         self.sessionStore = sessionStore
         self.agentCatalogStore = agentCatalogStore
         self.toolInvoker = toolInvoker
+        self.responseChunkObserver = responseChunkObserver
         self.logger = logger
     }
 
@@ -49,6 +53,10 @@ actor AgentSessionOrchestrator {
 
     func updateToolInvoker(_ toolInvoker: ToolInvoker?) {
         self.toolInvoker = toolInvoker
+    }
+
+    func updateResponseChunkObserver(_ observer: ResponseChunkObserver?) {
+        self.responseChunkObserver = observer
     }
 
     func createSession(agentID: String, request: AgentSessionCreateRequest) async throws -> AgentSessionSummary {
@@ -457,6 +465,10 @@ actor AgentSessionOrchestrator {
     ) async -> Bool {
         let normalized = partialText.replacingOccurrences(of: "\r\n", with: "\n")
         streamedAssistantByChannel[channelID] = normalized
+
+        if let responseChunkObserver {
+            await responseChunkObserver(agentID, sessionID, normalized)
+        }
 
         if interruptedSessionRunChannels.contains(channelID) {
             return false
