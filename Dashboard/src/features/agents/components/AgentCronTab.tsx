@@ -1,47 +1,242 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import {
     fetchAgentCronTasks,
     createAgentCronTask,
     updateAgentCronTask,
-    deleteAgentCronTask
+    deleteAgentCronTask,
+    fetchActorsBoard
 } from "../../../api";
+
+function CronFormModal({
+    isOpen,
+    editingId,
+    form,
+    availableChannels,
+    isLoadingChannels,
+    onFormChange,
+    onClose,
+    onSubmit
+}) {
+    if (!isOpen) {
+        return null;
+    }
+
+    const selectedChannel = availableChannels.find((channel) => channel.channelId === form.channelId) || null;
+    const hasAvailableChannels = availableChannels.length > 0;
+
+    return (
+        <div className="project-modal-overlay" onClick={onClose}>
+            <section className="project-modal" onClick={(e) => e.stopPropagation()}>
+                <div className="project-modal-head">
+                    <h3>{editingId ? "Edit Cron Job" : "New Cron Job"}</h3>
+                    <button type="button" className="project-modal-close" aria-label="Close" onClick={onClose}>
+                        ×
+                    </button>
+                </div>
+
+                <form className="project-task-form" onSubmit={onSubmit}>
+                    <label>
+                        Schedule (Cron expression)
+                        <input
+                            value={form.schedule}
+                            onChange={(e) => onFormChange("schedule", e.target.value)}
+                            placeholder="*/5 * * * *"
+                            autoFocus
+                        />
+                    </label>
+
+                    <label>
+                        Command
+                        <input
+                            value={form.command}
+                            onChange={(e) => onFormChange("command", e.target.value)}
+                            placeholder="ping"
+                        />
+                    </label>
+
+                    <label>
+                        Channel ID
+                        <div className="tg-select-wrap">
+                            <select
+                                value={form.channelId}
+                                onChange={(e) => onFormChange("channelId", e.target.value)}
+                                disabled={isLoadingChannels || !hasAvailableChannels}
+                            >
+                                <option value="">
+                                    {isLoadingChannels ? "Loading channels..." : "Select a channel"}
+                                </option>
+                                {availableChannels.map((channel) => (
+                                    <option key={channel.channelId} value={channel.channelId}>
+                                        {channel.label}
+                                    </option>
+                                ))}
+                            </select>
+                            <span className="material-symbols-rounded tg-select-chevron">expand_more</span>
+                        </div>
+                        {isLoadingChannels ? (
+                            <span className="agent-field-note">Loading agent channels...</span>
+                        ) : hasAvailableChannels ? (
+                            <span className="agent-field-note">
+                                {selectedChannel
+                                    ? `Selected channel ID: ${selectedChannel.channelId}`
+                                    : "Choose one of the linked channels available to this agent."}
+                            </span>
+                        ) : (
+                            <span className="agent-field-note">
+                                No linked channels found for this agent. Add one in the Channels tab first.
+                            </span>
+                        )}
+                    </label>
+
+                    <label className="cron-form-toggle">
+                        <span>Enabled</span>
+                        <span className="agent-tools-switch">
+                            <input
+                                type="checkbox"
+                                checked={form.enabled}
+                                onChange={(e) => onFormChange("enabled", e.target.checked)}
+                            />
+                            <span className="agent-tools-switch-track" />
+                        </span>
+                    </label>
+
+                    <div className="project-modal-actions">
+                        <button type="button" onClick={onClose}>
+                            Cancel
+                        </button>
+                        <button
+                            type="submit"
+                            className="project-primary hover-levitate"
+                            disabled={!form.schedule.trim() || !form.command.trim() || !form.channelId.trim()}
+                        >
+                            {editingId ? "Save Changes" : "Create Job"}
+                        </button>
+                    </div>
+                </form>
+            </section>
+        </div>
+    );
+}
+
+function emptyForm() {
+    return { schedule: "*/5 * * * *", command: "", channelId: "", enabled: true };
+}
+
+function normalizeChannels(board, agentId) {
+    const nodes = Array.isArray(board?.nodes) ? board.nodes : [];
+    const byId = new Map();
+
+    for (const node of nodes) {
+        if (String(node?.linkedAgentId || "") !== agentId) {
+            continue;
+        }
+
+        const channelId = String(node?.channelId || "").trim();
+        if (!channelId) {
+            continue;
+        }
+
+        const displayName = String(node?.displayName || "").trim();
+        byId.set(channelId, {
+            channelId,
+            label: displayName || channelId
+        });
+    }
+
+    return Array.from(byId.values()).sort((left, right) => {
+        const labelCompare = left.label.localeCompare(right.label, undefined, { sensitivity: "base" });
+        if (labelCompare !== 0) {
+            return labelCompare;
+        }
+        return left.channelId.localeCompare(right.channelId, undefined, { sensitivity: "base" });
+    });
+}
 
 export function AgentCronTab({ agentId }) {
     const [tasks, setTasks] = useState([]);
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState("");
+    const [availableChannels, setAvailableChannels] = useState([]);
+    const [isLoadingChannels, setIsLoadingChannels] = useState(true);
 
-    const [isFormOpen, setIsFormOpen] = useState(false);
-    const [editingId, setEditingId] = useState(null);
-
-    const [form, setForm] = useState({
-        schedule: "",
-        command: "",
-        channelId: "",
-        enabled: true
-    });
+    const [isModalOpen, setIsModalOpen] = useState(false);
+    const [editingId, setEditingId] = useState<string | null>(null);
+    const [form, setForm] = useState(emptyForm());
 
     useEffect(() => {
-        loadTasks();
+        loadData();
     }, [agentId]);
 
-    async function loadTasks() {
+    useEffect(() => {
+        if (!isModalOpen || editingId || form.channelId.trim() || availableChannels.length === 0) {
+            return;
+        }
+
+        setForm((previous) => ({
+            ...previous,
+            channelId: availableChannels[0].channelId
+        }));
+    }, [availableChannels, editingId, form.channelId, isModalOpen]);
+
+    const modalChannels = useMemo(() => {
+        if (!form.channelId.trim()) {
+            return availableChannels;
+        }
+
+        const hasSelectedChannel = availableChannels.some((channel) => channel.channelId === form.channelId);
+        if (hasSelectedChannel) {
+            return availableChannels;
+        }
+
+        return [
+            ...availableChannels,
+            {
+                channelId: form.channelId,
+                label: `${form.channelId} (unlinked)`
+            }
+        ];
+    }, [availableChannels, form.channelId]);
+
+    async function loadData() {
         setIsLoading(true);
+        setIsLoadingChannels(true);
         setError("");
-        const result = await fetchAgentCronTasks(agentId);
-        if (!result) {
+
+        try {
+            const [tasksResult, boardResult] = await Promise.all([
+                fetchAgentCronTasks(agentId),
+                fetchActorsBoard()
+            ]);
+
+            if (!tasksResult) {
+                setError("Failed to fetch cron tasks.");
+                setTasks([]);
+            } else {
+                setTasks(tasksResult);
+            }
+
+            if (!boardResult) {
+                setAvailableChannels([]);
+            } else {
+                setAvailableChannels(normalizeChannels(boardResult, agentId));
+            }
+        } catch {
             setError("Failed to fetch cron tasks.");
             setTasks([]);
-        } else {
-            setTasks(result);
+            setAvailableChannels([]);
+        } finally {
+            setIsLoading(false);
+            setIsLoadingChannels(false);
         }
-        setIsLoading(false);
     }
 
     function handleOpenCreate() {
-        setForm({ schedule: "*/5 * * * *", command: "", channelId: "", enabled: true });
+        setForm({
+            ...emptyForm(),
+            channelId: availableChannels[0]?.channelId || ""
+        });
         setEditingId(null);
-        setIsFormOpen(true);
+        setIsModalOpen(true);
     }
 
     function handleEdit(task) {
@@ -52,16 +247,25 @@ export function AgentCronTab({ agentId }) {
             enabled: task.enabled
         });
         setEditingId(task.id);
-        setIsFormOpen(true);
+        setIsModalOpen(true);
+    }
+
+    function handleCloseModal() {
+        setIsModalOpen(false);
+        setEditingId(null);
+    }
+
+    function handleFormChange(field: string, value: string | boolean) {
+        setForm((prev) => ({ ...prev, [field]: value }));
     }
 
     async function handleDelete(taskId) {
-        if (!window.confirm("Are you sure you want to delete this cron task?")) return;
+        if (!window.confirm("Are you sure you want to delete this cron job?")) return;
         const success = await deleteAgentCronTask(agentId, taskId);
         if (success) {
-            loadTasks();
+            loadData();
         } else {
-            alert("Failed to delete cron task.");
+            alert("Failed to delete cron job.");
         }
     }
 
@@ -71,119 +275,120 @@ export function AgentCronTab({ agentId }) {
             enabled: !task.enabled
         });
         if (success) {
-            loadTasks();
+            loadData();
         } else {
-            alert("Failed to toggle cron task.");
+            alert("Failed to toggle cron job.");
         }
     }
 
     async function handleSubmit(e) {
         e.preventDefault();
-        if (!form.schedule || !form.command || !form.channelId) {
-            alert("Schedule, Command, and Channel ID are required.");
-            return;
-        }
 
         if (editingId) {
             const success = await updateAgentCronTask(agentId, editingId, form);
             if (success) {
-                setIsFormOpen(false);
-                loadTasks();
+                handleCloseModal();
+                loadData();
             } else {
-                alert("Failed to update task.");
+                alert("Failed to update cron job.");
             }
         } else {
             const success = await createAgentCronTask(agentId, form);
             if (success) {
-                setIsFormOpen(false);
-                loadTasks();
+                handleCloseModal();
+                loadData();
             } else {
-                alert("Failed to create task.");
+                alert("Failed to create cron job.");
             }
         }
     }
 
     return (
-        <div className="agent-content-card entry-editor-card">
-            <div className="flex-center gap-2" style={{ justifyContent: "space-between", marginBottom: "1rem" }}>
-                <h3>Cron Tasks</h3>
-                <button type="button" className="text-button" onClick={handleOpenCreate}>
-                    + Create Task
-                </button>
-            </div>
+        <>
+            <CronFormModal
+                isOpen={isModalOpen}
+                editingId={editingId}
+                form={form}
+                availableChannels={modalChannels}
+                isLoadingChannels={isLoadingChannels}
+                onFormChange={handleFormChange}
+                onClose={handleCloseModal}
+                onSubmit={handleSubmit}
+            />
 
-            {error ? <p className="agent-field-note" style={{ color: "red" }}>{error}</p> : null}
+            <div className="agent-content-card entry-editor-card">
+                <div className="agent-content-header">
+                    <h3>Cron Jobs</h3>
+                    {tasks.length > 0 && (
+                        <button type="button" className="text-button" onClick={handleOpenCreate}>
+                            + New Job
+                        </button>
+                    )}
+                </div>
 
-            {isFormOpen && (
-                <form onSubmit={handleSubmit} style={{ marginBottom: "2rem", padding: "1rem", border: "1px solid var(--border-light)", borderRadius: "8px" }}>
-                    <h4>{editingId ? "Edit Cron Task" : "New Cron Task"}</h4>
-                    <div style={{ display: "flex", flexDirection: "column", gap: "1rem", marginTop: "1rem" }}>
-                        <label>
-                            Schedule (Cron expression)
-                            <input
-                                value={form.schedule}
-                                onChange={e => setForm({ ...form, schedule: e.target.value })}
-                                placeholder="*/5 * * * *"
-                            />
-                        </label>
-                        <label>
-                            Command
-                            <input
-                                value={form.command}
-                                onChange={e => setForm({ ...form, command: e.target.value })}
-                                placeholder="ping"
-                            />
-                        </label>
-                        <label>
-                            Channel ID
-                            <input
-                                value={form.channelId}
-                                onChange={e => setForm({ ...form, channelId: e.target.value })}
-                                placeholder="ch_123"
-                            />
-                        </label>
-                        <label style={{ flexDirection: "row", alignItems: "center", gap: "0.5rem" }}>
-                            <input
-                                type="checkbox"
-                                checked={form.enabled}
-                                onChange={e => setForm({ ...form, enabled: e.target.checked })}
-                            />
-                            Enabled
-                        </label>
-                        <div style={{ display: "flex", gap: "1rem" }}>
-                            <button type="submit">{editingId ? "Save" : "Create"}</button>
-                            <button type="button" className="text-button" onClick={() => setIsFormOpen(false)}>Cancel</button>
-                        </div>
+                {error ? (
+                    <p className="agent-field-note" style={{ color: "var(--critical)" }}>{error}</p>
+                ) : null}
+
+                {isLoading ? (
+                    <p className="placeholder-text">Loading...</p>
+                ) : tasks.length === 0 ? (
+                    <div className="cron-empty-stage">
+                        <span className="material-symbols-rounded cron-empty-icon">timer</span>
+                        <h4 className="cron-empty-title">No cron jobs yet</h4>
+                        <p className="cron-empty-desc">
+                            Schedule automated tasks that run on a timer and<br />
+                            deliver results to messaging channels
+                        </p>
+                        <button type="button" className="agent-empty-create" onClick={handleOpenCreate}>
+                            + New Job
+                        </button>
                     </div>
-                </form>
-            )}
-
-            {isLoading ? (
-                <p className="placeholder-text">Loading...</p>
-            ) : tasks.length === 0 ? (
-                <p className="placeholder-text">No cron tasks found.</p>
-            ) : (
-                <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
-                    {tasks.map(task => (
-                        <div key={task.id} style={{ padding: "1rem", border: "1px solid var(--border-light)", borderRadius: "8px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                            <div>
-                                <strong>{task.schedule}</strong> - <code>{task.command}</code>
-                                <div style={{ fontSize: "0.85rem", color: "var(--text-muted)", marginTop: "4px" }}>
-                                    Channel: {task.channelId}
+                ) : (
+                    <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
+                        {tasks.map((task) => (
+                            <div key={task.id} className="cron-task-row">
+                                <div className="cron-task-info">
+                                    <code className="cron-task-schedule">{task.schedule}</code>
+                                    <span className="cron-task-command">{task.command}</span>
+                                    <span className="cron-task-channel">
+                                        <span className="material-symbols-rounded" style={{ fontSize: 13 }}>send</span>
+                                        {task.channelId}
+                                    </span>
+                                </div>
+                                <div className="cron-task-actions">
+                                    <label className="cron-task-toggle">
+                                        <span className="agent-tools-switch">
+                                            <input
+                                                type="checkbox"
+                                                checked={task.enabled}
+                                                onChange={() => handleToggle(task)}
+                                            />
+                                            <span className="agent-tools-switch-track" />
+                                        </span>
+                                        <span>{task.enabled ? "Active" : "Paused"}</span>
+                                    </label>
+                                    <button
+                                        type="button"
+                                        className="text-button"
+                                        onClick={() => handleEdit(task)}
+                                    >
+                                        Edit
+                                    </button>
+                                    <button
+                                        type="button"
+                                        className="text-button"
+                                        style={{ color: "var(--critical)" }}
+                                        onClick={() => handleDelete(task.id)}
+                                    >
+                                        Delete
+                                    </button>
                                 </div>
                             </div>
-                            <div style={{ display: "flex", gap: "1rem", alignItems: "center" }}>
-                                <label style={{ display: "flex", alignItems: "center", gap: "4px", margin: 0 }}>
-                                    <input type="checkbox" checked={task.enabled} onChange={() => handleToggle(task)} />
-                                    {task.enabled ? "Active" : "Disabled"}
-                                </label>
-                                <button type="button" className="text-button" onClick={() => handleEdit(task)}>Edit</button>
-                                <button type="button" className="text-button" style={{ color: "var(--critical)" }} onClick={() => handleDelete(task.id)}>Delete</button>
-                            </div>
-                        </div>
-                    ))}
-                </div>
-            )}
-        </div>
+                        ))}
+                    </div>
+                )}
+            </div>
+        </>
     );
 }

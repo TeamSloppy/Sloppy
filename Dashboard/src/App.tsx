@@ -115,16 +115,11 @@ export function App() {
       label: { icon: "support_agent", title: "Agents" },
       content: <AgentsView routeAgentId={route.agentId} routeTab={route.agentTab} onRouteChange={onAgentRouteChange} />
     },
-    {
-      id: "sessions",
-      label: { icon: "chat", title: "Sessions" },
-      content: <PlaceholderView title="Sessions" />
-    },
-    {
-      id: "nodes",
-      label: { icon: "dns", title: "Nodes" },
-      content: <PlaceholderView title="Nodes" />
-    },
+    // {
+    //   id: "nodes",
+    //   label: { icon: "dns", title: "Nodes" },
+    //   content: <PlaceholderView title="Nodes" />
+    // },
     {
       id: "config",
       label: { icon: "settings", title: "Config" },
