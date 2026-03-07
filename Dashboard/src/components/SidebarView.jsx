@@ -7,7 +7,7 @@ export function SidebarView({
   onToggleCompact,
   onSelect,
   isMobileOpen = false,
-  onRequestClose = () => {}
+  onRequestClose = () => { }
 }) {
   return (
     <aside className={`sidebar ${isCompact ? "compact" : "full"} ${isMobileOpen ? "mobile-open" : ""}`}>
@@ -19,8 +19,11 @@ export function SidebarView({
         ) : (
           <>
             <div className="sidebar-brand-wrap">
-              <img src="/so_logo.svg" alt="" className="sidebar-logo" aria-hidden="true" />
-              <strong className="sidebar-brand">Sloppy</strong>
+              <img src="/so_logo.svg" alt="" className="sidebar-logo" aria-hidden="true" style={{ filter: 'invert(1)' }} />
+              <div style={{ display: 'flex', flexDirection: 'column' }}>
+                <strong className="sidebar-brand" style={{ textTransform: 'uppercase' }}>&gt; Sloppy</strong>
+                <span style={{ fontSize: '10px', color: 'var(--muted)', letterSpacing: '0.05em' }}>SYS.VER // {__APP_VERSION__ || '2.0.4'}</span>
+              </div>
             </div>
             <button className="sidebar-toggle" type="button" onClick={onToggleCompact} aria-label="Collapse menu">
               <span className="material-symbols-rounded" aria-hidden="true">
@@ -51,7 +54,7 @@ export function SidebarView({
             <span className="material-symbols-rounded sidebar-icon" aria-hidden="true">
               {item.label.icon}
             </span>
-            {!isCompact && <span className="sidebar-label">{item.label.title}</span>}
+            {!isCompact && <span className="sidebar-label" style={{ textTransform: 'uppercase' }}>[ {item.label.title} ]</span>}
           </button>
         ))}
       </nav>

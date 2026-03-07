@@ -159,7 +159,14 @@ export function App() {
         aria-label="Close menu"
       />
 
-      <div className={`page ${activeItem.id === "config" ? "page-config" : ""}`}>
+      <div className={`page ${activeItem.id === "config" ? "page-config" : ""}`} style={{ position: 'relative' }}>
+        {/* HUD Elements */}
+        <div style={{ position: 'absolute', top: '10px', right: '20px', fontSize: '10px', color: 'var(--accent)', zIndex: 1000, pointerEvents: 'none', opacity: 0.8, letterSpacing: '0.1em' }}>
+          [&gt;_ SECURE_SESSION_ACTIVE // PID: 9284]
+        </div>
+        <div style={{ position: 'absolute', bottom: '10px', right: '20px', fontSize: '10px', color: 'var(--muted)', zIndex: 1000, pointerEvents: 'none', opacity: 0.5 }}>
+          UPLINK: ESTABLISHED / LATENCY: 12MS
+        </div>
         <button
           type="button"
           className="mobile-page-menu-button"
