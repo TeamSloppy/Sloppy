@@ -46,7 +46,7 @@ WORKDIR /root
 RUN mkdir -p /root/workspace /etc/sloppy /var/lib/sloppy
 COPY --from=builder /usr/lib/swift /usr/lib/swift
 COPY --from=builder /artifacts/sloppy-core /usr/bin/sloppy-core
-COPY --from=builder /artifacts/Sloppy_Core.resources /usr/lib/sloppy/Sloppy_Core.resources
-COPY --from=builder /artifacts/Sloppy_Core.bundle /usr/lib/sloppy/Sloppy_Core.bundle
+COPY --from=builder /artifacts/Sloppy_Core.resources /usr/bin/Sloppy_Core.resources
+COPY --from=builder /artifacts/Sloppy_Core.bundle /usr/bin/Sloppy_Core.bundle
 EXPOSE 25101
 CMD ["/usr/bin/sloppy-core"]

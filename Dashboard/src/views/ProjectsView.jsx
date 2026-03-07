@@ -1585,7 +1585,7 @@ export function ProjectsView({
       return (
         <section className="project-board-list">
           <article className="project-board-card">
-            <p className="placeholder-text">Loading projects from Core...</p>
+            <p className="app-status-text">Loading projects from Core...</p>
           </article>
         </section>
       );
@@ -1596,10 +1596,10 @@ export function ProjectsView({
         <section className="project-board-list project-board-list--empty">
           <article className="project-board-empty">
             <div className="project-board-empty-actions">
-              <p className="project-new-action project-new-action--hero" onClick={openCreateProjectModal}>
+              <p className="project-new-action-subtitle">
                 Start your first project!
               </p>
-              <button type="button" className="project-new-action" onClick={openCreateProjectModal}>
+              <button type="button" className="project-new-action hover-levitate" onClick={openCreateProjectModal}>
                 New Projects
               </button>
             </div>
@@ -2378,7 +2378,7 @@ export function ProjectsView({
       {selectedProject ? renderProjectDetails(selectedProject) : renderProjectList()}
 
       {statusText && statusText !== "No projects yet." && statusText !== "Loading projects..." && (
-        <p className="placeholder-text">{statusText}</p>
+        <p className="app-status-text">{statusText}</p>
       )}
 
       <ProjectCreateModal

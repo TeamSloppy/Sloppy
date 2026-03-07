@@ -56,6 +56,7 @@ let package = Package(
             ],
             path: "Sources/Core",
             resources: [
+                .process("Prompts"),
                 .process("Storage/schema.sql")
             ],
             linkerSettings: [

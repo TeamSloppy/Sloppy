@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { fetchAgents, fetchProjects } from "../api";
+import { Breadcrumbs } from "../components/Breadcrumbs/Breadcrumbs";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -390,15 +391,12 @@ export function RuntimeOverviewView({ workers, events, onNavigateToProject }) {
 
   return (
     <main className="overview-shell">
-      <div className="overview-header">
-        <h1 className="overview-title">Overview</h1>
-        {isLoading && (
-          <span className="overview-loading-badge">
-            <span className="overview-loading-dot" />
-            Syncing…
-          </span>
-        )}
-      </div>
+      <Breadcrumbs
+        items={[
+          { id: 'overview', label: 'Overview' },
+        ]}
+        style={{ marginBottom: '20px' }}
+      />
 
       <ActiveChannelsSection
         workers={normalizedWorkers}

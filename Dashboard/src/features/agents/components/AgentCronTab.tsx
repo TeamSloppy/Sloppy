@@ -340,7 +340,7 @@ export function AgentCronTab({ agentId }) {
                             Schedule automated tasks that run on a timer and<br />
                             deliver results to messaging channels
                         </p>
-                        <button type="button" className="agent-empty-create" onClick={handleOpenCreate}>
+                        <button type="button" className="agent-empty-create hover-levitate" onClick={handleOpenCreate}>
                             + New Job
                         </button>
                     </div>

@@ -71,6 +71,37 @@ private func makeAgentSessionFixture(
     return (catalogStore, sessionStore, agentsRootURL)
 }
 
+private func expectedFallbackBootstrapMessage(
+    agentID: String,
+    sessionID: String,
+    documents: AgentDocumentBundle
+) -> String {
+    """
+    [agent_session_context_bootstrap_v1]
+    Session context initialized.
+    Agent: \(agentID)
+    Session: \(sessionID)
+
+    [Agents.md]
+    \(documents.agentsMarkdown)
+
+    [User.md]
+    \(documents.userMarkdown)
+
+    [Identity.md]
+    \(documents.identityMarkdown)
+
+    [Soul.md]
+    \(documents.soulMarkdown)
+
+    [Runtime task-reference rules]
+    - If user mentions task references like #MOBILE-1, call tool `project.task_get` with {"taskId":"MOBILE-1"} before answering.
+    - Use fetched task details (status, priority, description, assignee) in the response.
+    - If task is not found, explicitly say that and ask for a correct task id.
+    - Blend your own concrete suggestions based on the user's goal, not only direct execution.
+    """
+}
+
 @Test
 func agentSessionOrchestratorUsesSelectedReasoningModelAndEffort() async throws {
     let availableModels = [
@@ -139,4 +170,115 @@ func agentSessionOrchestratorDropsReasoningEffortForNonReasoningModels() async t
 
     #expect(await provider.requestedModelsSnapshot() == ["openai:gpt-4.1-mini"])
     #expect(await provider.requestedReasoningEffortsSnapshot() == [nil])
+}
+
+@Test
+func agentSessionBootstrapIncludesInstalledSkillsSummary() async throws {
+    let availableModels = [
+        ProviderModelOption(id: "openai:gpt-4.1-mini", title: "openai:gpt-4.1-mini", capabilities: ["tools"])
+    ]
+    let (catalogStore, sessionStore, agentsRootURL) = try makeAgentSessionFixture(
+        agentID: "skills-agent",
+        selectedModel: "openai:gpt-4.1-mini",
+        availableModels: availableModels
+    )
+    let skillsStore = AgentSkillsFileStore(agentsRootURL: agentsRootURL)
+    _ = try skillsStore.installSkill(
+        agentID: "skills-agent",
+        owner: "acme",
+        repo: "release-skills",
+        name: "release-helper",
+        description: "Guides release execution"
+    )
+
+    let runtime = RuntimeSystem()
+    let orchestrator = AgentSessionOrchestrator(
+        runtime: runtime,
+        sessionStore: sessionStore,
+        agentCatalogStore: catalogStore,
+        agentSkillsStore: skillsStore,
+        availableModels: availableModels
+    )
+
+    let session = try await orchestrator.createSession(agentID: "skills-agent", request: AgentSessionCreateRequest())
+    let snapshot = await runtime.channelState(channelId: "agent:skills-agent:session:\(session.id)")
+    let bootstrapMessage = snapshot?.messages.first(where: {
+        $0.userId == "system" && $0.content.contains("[agent_session_context_bootstrap_v1]")
+    })?.content ?? ""
+
+    #expect(bootstrapMessage.contains("[Skills]"))
+    #expect(bootstrapMessage.contains("`acme/release-skills`"))
+    #expect(bootstrapMessage.contains("release-helper"))
+    #expect(bootstrapMessage.contains("Guides release execution"))
+    #expect(bootstrapMessage.contains("path: `\(agentsRootURL.appendingPathComponent("skills-agent", isDirectory: true).appendingPathComponent("skills", isDirectory: true).appendingPathComponent("acme/release-skills", isDirectory: true).path)`"))
+}
+
+@Test
+func agentSessionBootstrapRendersEmptySkillsStateWhenAgentHasNoSkills() async throws {
+    let availableModels = [
+        ProviderModelOption(id: "openai:gpt-4.1-mini", title: "openai:gpt-4.1-mini", capabilities: ["tools"])
+    ]
+    let (catalogStore, sessionStore, agentsRootURL) = try makeAgentSessionFixture(
+        agentID: "skills-empty-agent",
+        selectedModel: "openai:gpt-4.1-mini",
+        availableModels: availableModels
+    )
+    let skillsStore = AgentSkillsFileStore(agentsRootURL: agentsRootURL)
+
+    let runtime = RuntimeSystem()
+    let orchestrator = AgentSessionOrchestrator(
+        runtime: runtime,
+        sessionStore: sessionStore,
+        agentCatalogStore: catalogStore,
+        agentSkillsStore: skillsStore,
+        availableModels: availableModels
+    )
+
+    let session = try await orchestrator.createSession(agentID: "skills-empty-agent", request: AgentSessionCreateRequest())
+    let snapshot = await runtime.channelState(channelId: "agent:skills-empty-agent:session:\(session.id)")
+    let bootstrapMessage = snapshot?.messages.first(where: {
+        $0.userId == "system" && $0.content.contains("[agent_session_context_bootstrap_v1]")
+    })?.content ?? ""
+
+    #expect(bootstrapMessage.contains("[Skills]"))
+    #expect(bootstrapMessage.contains("No additional skills installed."))
+}
+
+@Test
+func agentSessionBootstrapFallsBackWhenPromptComposerFails() async throws {
+    let availableModels = [
+        ProviderModelOption(id: "openai:gpt-4.1-mini", title: "openai:gpt-4.1-mini", capabilities: ["tools"])
+    ]
+    let (catalogStore, sessionStore, agentsRootURL) = try makeAgentSessionFixture(
+        agentID: "fallback-agent",
+        selectedModel: "openai:gpt-4.1-mini",
+        availableModels: availableModels
+    )
+    let documents = try catalogStore.readAgentDocuments(agentID: "fallback-agent")
+    let failingLoader = PromptTemplateLoader(resolver: { _ in
+        throw PromptTemplateLoader.LoaderError.templateNotFound("forced-failure")
+    })
+    let composer = AgentPromptComposer(templateLoader: failingLoader)
+
+    let runtime = RuntimeSystem()
+    let orchestrator = AgentSessionOrchestrator(
+        runtime: runtime,
+        sessionStore: sessionStore,
+        agentCatalogStore: catalogStore,
+        agentSkillsStore: AgentSkillsFileStore(agentsRootURL: agentsRootURL),
+        promptComposer: composer,
+        availableModels: availableModels
+    )
+
+    let session = try await orchestrator.createSession(agentID: "fallback-agent", request: AgentSessionCreateRequest())
+    let snapshot = await runtime.channelState(channelId: "agent:fallback-agent:session:\(session.id)")
+    let bootstrapMessage = snapshot?.messages.first(where: {
+        $0.userId == "system" && $0.content.contains("[agent_session_context_bootstrap_v1]")
+    })?.content ?? ""
+
+    #expect(bootstrapMessage == expectedFallbackBootstrapMessage(
+        agentID: "fallback-agent",
+        sessionID: session.id,
+        documents: documents
+    ))
 }

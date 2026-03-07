@@ -195,7 +195,7 @@ export function AgentChannelsTab({ agentId, agentDisplayName }) {
                 >
                   Cancel
                 </button>
-                <button type="button" className="agent-create-confirm" disabled={isSaving} onClick={() => void addChannel()}>
+                <button type="button" className="agent-create-confirm hover-levitate" disabled={isSaving} onClick={() => void addChannel()}>
                   {isSaving ? "Adding..." : "Add Channel"}
                 </button>
               </div>

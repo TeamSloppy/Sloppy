@@ -1021,6 +1021,14 @@ body.mobile-menu-open {
   color: var(--muted);
 }
 
+.app-status-text {
+  color: var(--warn);
+  font-size: 10px;
+  position: absolute;
+  bottom: 10px;
+  z-index: 1000;
+}
+
 .projects-shell {
   display: flex;
   flex-direction: column;
@@ -1043,21 +1051,15 @@ body.mobile-menu-open {
 }
 
 .project-new-action {
-  border: 0;
+  border: 1px solid var(--line-strong);
   background: transparent;
   color: var(--accent);
-  padding: 2px 0;
+  padding: 10px;
   min-width: auto;
   font-size: 0.9rem;
 }
 
-.project-new-action:hover {
-  border: 0;
-  background: transparent;
-  color: #c9a9ff;
-}
-
-.project-new-action--hero {
+.project-new-action-subtitle {
   font-size: 0.8rem;
   color: var(--muted);
 }
@@ -4167,18 +4169,16 @@ body.agent-chat-no-page-scroll .page {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: radial-gradient(65% 65% at 50% 50%, rgba(74, 57, 122, 0.18) 0%, rgba(5, 8, 14, 0.82) 62%);
 }
 
 .agent-modal-card {
   width: min(520px, 100%);
-  border: 1px solid var(--line-strong);
+  border: 1px solid var(--line);
   border-radius: 0;
-  background: #0b0f17;
+  background: var(--surface-2);
   padding: 14px;
   display: grid;
   gap: 10px;
-  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.46);
 }
 
 .agent-modal-head {
@@ -4217,14 +4217,8 @@ body.agent-chat-no-page-scroll .page {
 }
 
 .agent-create-confirm {
-  border-color: #ba4dff;
-  background: linear-gradient(180deg, #c356ff 0%, #a63ce4 100%);
-  color: #f7edff;
-}
-
-.agent-create-confirm:hover {
-  border-color: #cf79ff;
-  color: #fff;
+  border-color: var(--accent-color);
+  color: var(--text);
 }
 
 .settings-shell {
@@ -5460,6 +5454,7 @@ pre {
 
   .sidebar.compact .sidebar-head {
     justify-content: space-between;
+    background: var(--accent-color);
   }
 
   .sidebar.compact .sidebar-item {
@@ -6453,7 +6448,6 @@ pre {
   font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: var(--accent);
 }
 
 .overview-loading-badge {

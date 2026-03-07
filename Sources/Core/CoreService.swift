@@ -208,11 +208,13 @@ public actor CoreService {
         }
         let orchestratorCatalogStore = AgentCatalogFileStore(agentsRootURL: self.agentsRootURL)
         let orchestratorSessionStore = AgentSessionFileStore(agentsRootURL: self.agentsRootURL)
+        let orchestratorSkillsStore = AgentSkillsFileStore(agentsRootURL: self.agentsRootURL)
         let initialAvailableAgentModels = Self.availableAgentModels(config: config)
         self.sessionOrchestrator = AgentSessionOrchestrator(
             runtime: self.runtime,
             sessionStore: orchestratorSessionStore,
             agentCatalogStore: orchestratorCatalogStore,
+            agentSkillsStore: orchestratorSkillsStore,
             availableModels: initialAvailableAgentModels
         )
         let toolsStore = AgentToolsFileStore(agentsRootURL: self.agentsRootURL)

@@ -35,6 +35,16 @@ function emptyAgentForm() {
   };
 }
 
+function agentInitials(name) {
+  const parts = String(name || "?")
+    .trim()
+    .split(/[\s_-]+/)
+    .filter(Boolean);
+  if (parts.length === 0) return "??";
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return (parts[0][0] + parts[1][0]).toUpperCase();
+}
+
 function normalizeAgent(item, index = 0) {
   const id = String(item?.id || `agent-${index + 1}`).trim();
   return {
@@ -282,7 +292,7 @@ function AgentPlaceholderTab({ title, description }) {
   return (
     <section className="entry-editor-card agent-content-card">
       <h3>{title}</h3>
-      <p className="placeholder-text">{description}</p>
+      <p className="app-status-text">{description}</p>
     </section>
   );
 }
@@ -326,7 +336,7 @@ function AgentTasksTab({ agentId }) {
     <section className="entry-editor-card agent-content-card">
       <h3>Tasks</h3>
       {items.length === 0 ? (
-        <p className="placeholder-text">{statusText}</p>
+        <p className="app-status-text">{statusText}</p>
       ) : (
         <div className="project-workers-list">
           {items.map((item, index) => {
@@ -395,7 +405,7 @@ function AgentCreateModal({ isOpen, form, createError, onFormChange, onClose, on
             <button type="button" onClick={onClose}>
               Cancel
             </button>
-            <button type="submit" className="agent-create-confirm">
+            <button type="submit" className="agent-create-confirm hover-levitate">
               Create
             </button>
           </div>
@@ -416,11 +426,11 @@ function AgentsIndexSection({
     <section className="agents-index">
       {isLoadingAgents ? (
         <div className="agents-empty-stage">
-          <p className="placeholder-text">Loading agents from Core...</p>
+          <p className="app-status-text">Loading agents from Core...</p>
         </div>
       ) : agents.length === 0 ? (
         <div className="agents-empty-stage">
-          <p className="placeholder-text">Create your first agent to start work</p>
+          <p className="project-new-action-subtitle">Create your first agent to start work</p>
           <button type="button" className="agent-empty-create hover-levitate" onClick={onOpenCreateModal}>
             Create Agent
           </button>
@@ -434,8 +444,8 @@ function AgentsIndexSection({
               className="agent-list-item-card hover-levitate"
               onClick={() => onSelectAgent(agent.id)}
             >
-              <span className="agent-list-icon material-symbols-rounded" aria-hidden="true">
-                smart_toy
+              <span className="channel-agent-avatar agent-chart-avatar" aria-hidden="true" style={{ width: '40px', height: '40px', fontSize: '16px' }}>
+                {agentInitials(agent.displayName || agent.id)}
               </span>
               <div className="agent-list-main">
                 <div className="agent-list-head">
@@ -450,7 +460,7 @@ function AgentsIndexSection({
       )}
 
       {agents.length > 0 || statusText.startsWith("Failed") ? (
-        <p className="agent-status-line placeholder-text">{statusText}</p>
+        <p className="app-status-text">{statusText}</p>
       ) : null}
     </section>
   );

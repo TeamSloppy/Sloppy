@@ -20,6 +20,8 @@ actor AgentSessionOrchestrator {
     private let runtime: RuntimeSystem
     private let sessionStore: AgentSessionFileStore
     private let agentCatalogStore: AgentCatalogFileStore
+    private let agentSkillsStore: AgentSkillsFileStore?
+    private let promptComposer: AgentPromptComposer
     private var availableModels: [ProviderModelOption]
     private let logger: Logger
     private var toolInvoker: ToolInvoker?
@@ -35,6 +37,8 @@ actor AgentSessionOrchestrator {
         runtime: RuntimeSystem,
         sessionStore: AgentSessionFileStore,
         agentCatalogStore: AgentCatalogFileStore,
+        agentSkillsStore: AgentSkillsFileStore? = nil,
+        promptComposer: AgentPromptComposer = AgentPromptComposer(),
         availableModels: [ProviderModelOption],
         toolInvoker: ToolInvoker? = nil,
         responseChunkObserver: ResponseChunkObserver? = nil,
@@ -43,6 +47,8 @@ actor AgentSessionOrchestrator {
         self.runtime = runtime
         self.sessionStore = sessionStore
         self.agentCatalogStore = agentCatalogStore
+        self.agentSkillsStore = agentSkillsStore
+        self.promptComposer = promptComposer
         self.availableModels = availableModels
         self.toolInvoker = toolInvoker
         self.responseChunkObserver = responseChunkObserver
@@ -614,11 +620,33 @@ actor AgentSessionOrchestrator {
         } catch {
             throw OrchestratorError.storageFailure
         }
-        let bootstrapMessage = sessionBootstrapContextMessage(
-            agentID: agentID,
-            sessionID: sessionID,
-            documents: documents
-        )
+        let installedSkills = loadInstalledSkills(agentID: agentID)
+        let bootstrapMessage: String
+        do {
+            bootstrapMessage = try promptComposer.compose(
+                context: .agentSessionBootstrap(
+                    agentID: agentID,
+                    sessionID: sessionID,
+                    bootstrapMarker: Self.sessionContextBootstrapMarker,
+                    documents: documents,
+                    installedSkills: installedSkills
+                )
+            )
+        } catch {
+            logger.warning(
+                "Prompt composer failed, using fallback bootstrap prompt",
+                metadata: [
+                    "agent_id": .string(agentID),
+                    "session_id": .string(sessionID),
+                    "error": .string(String(describing: error))
+                ]
+            )
+            bootstrapMessage = fallbackSessionBootstrapContextMessage(
+                agentID: agentID,
+                sessionID: sessionID,
+                documents: documents
+            )
+        }
 
         logger.info(
             "Session bootstrap prompt prepared",
@@ -629,6 +657,7 @@ actor AgentSessionOrchestrator {
                 "user_md_chars": .stringConvertible(documents.userMarkdown.count),
                 "identity_md_chars": .stringConvertible(documents.identityMarkdown.count),
                 "soul_md_chars": .stringConvertible(documents.soulMarkdown.count),
+                "skills_count": .stringConvertible(installedSkills.count),
                 "bootstrap_prompt": .string(truncateForLog(bootstrapMessage, limit: 24000))
             ]
         )
@@ -636,7 +665,7 @@ actor AgentSessionOrchestrator {
         await runtime.appendSystemMessage(channelId: channelID, content: bootstrapMessage)
     }
 
-    private func sessionBootstrapContextMessage(
+    private func fallbackSessionBootstrapContextMessage(
         agentID: String,
         sessionID: String,
         documents: AgentDocumentBundle
@@ -665,6 +694,25 @@ actor AgentSessionOrchestrator {
         - If task is not found, explicitly say that and ask for a correct task id.
         - Blend your own concrete suggestions based on the user's goal, not only direct execution.
         """
+    }
+
+    private func loadInstalledSkills(agentID: String) -> [InstalledSkill] {
+        guard let agentSkillsStore else {
+            return []
+        }
+
+        do {
+            return try agentSkillsStore.listSkills(agentID: agentID)
+        } catch {
+            logger.warning(
+                "Failed to load installed skills for prompt bootstrap",
+                metadata: [
+                    "agent_id": .string(agentID),
+                    "error": .string(String(describing: error))
+                ]
+            )
+            return []
+        }
     }
 
     private func mapSessionStoreError(_ error: Error) -> OrchestratorError {

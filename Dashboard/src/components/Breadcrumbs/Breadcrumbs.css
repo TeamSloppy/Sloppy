@@ -32,9 +32,9 @@
     border: none;
     padding: 4px 8px;
     margin: -4px -8px;
-    font-family: var(--font-primary);
-    font-size: 16px;
-    color: var(--text-secondary);
+    font-family: "Fira Code", monospace;
+    font-size: 14px;
+    color: var(--muted);
     cursor: pointer;
     transition: color 0.2s;
     border-radius: 4px;
@@ -48,18 +48,18 @@
 
 .breadcrumbs-link--active,
 .breadcrumbs-text--active {
-    color: var(--text-main);
+    color: var(--text);
     font-weight: 500;
 }
 
 .breadcrumbs-text {
-    font-family: var(--font-primary);
-    font-size: 16px;
-    color: var(--text-secondary);
+    font-family: "Fira Code", monospace;
+    font-size: 14px;
+    color: var(--text);
 }
 
 .breadcrumbs-separator {
-    color: var(--text-muted);
+    color: var(--muted);
     font-size: 18px !important;
     user-select: none;
 }
