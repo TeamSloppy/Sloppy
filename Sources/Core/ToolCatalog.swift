@@ -133,8 +133,8 @@ enum ToolCatalog {
             id: "cron",
             domain: "automation",
             title: "Schedule task",
-            status: "adapter",
-            description: "Schedule recurring task via external adapter."
+            status: "fully_functional",
+            description: "Schedule a recurring background task. Parameters: schedule (cron expression string like '*/5 * * * *'), command (string), channel_id (string, optional, defaults to current session)."
         ),
         .init(
             id: "project.task_list",

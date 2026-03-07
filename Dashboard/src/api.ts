@@ -57,3 +57,8 @@ export const fetchSkillsRegistry: (search?: string, sort?: string, limit?: numbe
 export const fetchAgentSkills = coreApi.fetchAgentSkills;
 export const installAgentSkill = coreApi.installAgentSkill;
 export const uninstallAgentSkill = coreApi.uninstallAgentSkill;
+
+export const fetchAgentCronTasks = coreApi.fetchAgentCronTasks;
+export const createAgentCronTask = coreApi.createAgentCronTask;
+export const updateAgentCronTask = coreApi.updateAgentCronTask;
+export const deleteAgentCronTask = coreApi.deleteAgentCronTask;

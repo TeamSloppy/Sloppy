@@ -122,6 +122,13 @@ public actor CoreService {
         case downloadFailure
     }
 
+    public enum AgentCronTaskError: Error {
+        case invalidAgentID
+        case invalidPayload
+        case notFound
+        case storageFailure
+    }
+
     private let runtime: RuntimeSystem
     private let memoryStore: any MemoryStore
     private let hybridMemoryStore: HybridMemoryStore?
@@ -148,6 +155,7 @@ public actor CoreService {
     private var eventTask: Task<Void, Never>?
     private var activeGatewayPlugins: [any GatewayPlugin] = []
     private var visorScheduler: VisorScheduler?
+    private var cronRunner: CronRunner?
     private var memoryOutboxIndexer: MemoryOutboxIndexer?
     private let recoveryManager: RecoveryManager
     private var liveSessionStreamContinuations: [String: [UUID: AsyncStream<AgentSessionStreamUpdate>.Continuation]] = [:]
@@ -217,7 +225,8 @@ public actor CoreService {
             sessionStore: self.sessionStore,
             agentCatalogStore: self.agentCatalogStore,
             processRegistry: processRegistry,
-            channelSessionStore: self.channelSessionStore
+            channelSessionStore: self.channelSessionStore,
+            store: self.store
         )
         self.logger = Logger(label: "sloppy.core.visor")
         if let hybridMemoryStore {
@@ -318,6 +327,11 @@ public actor CoreService {
             }
         }
         await visorScheduler?.start()
+        
+        if cronRunner == nil {
+            cronRunner = CronRunner(store: self.store, runtime: self.runtime, logger: self.logger)
+        }
+        await cronRunner?.start()
     }
 
     /// Stops all active in-process gateway plugins and visor scheduler. Called on shutdown.
@@ -329,6 +343,7 @@ public actor CoreService {
 
         await visorScheduler?.stop()
         await memoryOutboxIndexer?.stop()
+        await cronRunner?.stop()
     }
 
     private func seedTelegramPluginRecord(
@@ -516,6 +531,52 @@ public actor CoreService {
         )
         let nextCursor = events.last.map(Self.encodeEventCursor)
         return ChannelEventsResponse(channelId: channelId, items: events, nextCursor: nextCursor)
+    }
+
+    // MARK: - Cron Tasks
+
+    public func listAgentCronTasks(agentID: String) async throws -> [AgentCronTask] {
+        guard !agentID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            throw AgentCronTaskError.invalidAgentID
+        }
+        return await store.listCronTasks(agentId: agentID)
+    }
+
+    public func createAgentCronTask(agentID: String, request: AgentCronTaskCreateRequest) async throws -> AgentCronTask {
+        guard !agentID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            throw AgentCronTaskError.invalidAgentID
+        }
+        let task = AgentCronTask(
+            id: UUID().uuidString,
+            agentId: agentID,
+            channelId: request.channelId,
+            schedule: request.schedule,
+            command: request.command,
+            enabled: request.enabled ?? true
+        )
+        await store.saveCronTask(task)
+        return task
+    }
+
+    public func updateAgentCronTask(agentID: String, cronID: String, request: AgentCronTaskUpdateRequest) async throws -> AgentCronTask {
+        guard let existing = await store.cronTask(id: cronID), existing.agentId == agentID else {
+            throw AgentCronTaskError.notFound
+        }
+        var updated = existing
+        if let schedule = request.schedule { updated.schedule = schedule }
+        if let command = request.command { updated.command = command }
+        if let channelId = request.channelId { updated.channelId = channelId }
+        if let enabled = request.enabled { updated.enabled = enabled }
+        updated.updatedAt = Date()
+        await store.saveCronTask(updated)
+        return updated
+    }
+
+    public func deleteAgentCronTask(agentID: String, cronID: String) async throws {
+        guard let existing = await store.cronTask(id: cronID), existing.agentId == agentID else {
+            throw AgentCronTaskError.notFound
+        }
+        await store.deleteCronTask(id: cronID)
     }
 
     /// Returns one dashboard project by identifier.

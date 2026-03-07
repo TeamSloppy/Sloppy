@@ -494,6 +494,68 @@ public actor CoreRouter {
             return Self.encodable(status: HTTPStatus.ok, payload: catalog)
         }
 
+        add(.get, "/v1/agents/:agentId/cron") { request in
+            let agentId = request.pathParam("agentId") ?? ""
+            do {
+                let tasks = try await service.listAgentCronTasks(agentID: agentId)
+                return Self.encodable(status: HTTPStatus.ok, payload: tasks)
+            } catch CoreService.AgentCronTaskError.invalidAgentID {
+                return Self.json(status: HTTPStatus.badRequest, payload: ["error": ErrorCode.invalidAgentId])
+            } catch {
+                return Self.json(status: HTTPStatus.internalServerError, payload: ["error": "internal_error"])
+            }
+        }
+
+        add(.post, "/v1/agents/:agentId/cron") { request in
+            let agentId = request.pathParam("agentId") ?? ""
+            guard let body = request.body,
+                  let payload = Self.decode(body, as: AgentCronTaskCreateRequest.self)
+            else {
+                return Self.json(status: HTTPStatus.badRequest, payload: ["error": ErrorCode.invalidBody])
+            }
+
+            do {
+                let task = try await service.createAgentCronTask(agentID: agentId, request: payload)
+                return Self.encodable(status: HTTPStatus.created, payload: task)
+            } catch CoreService.AgentCronTaskError.invalidAgentID {
+                return Self.json(status: HTTPStatus.badRequest, payload: ["error": ErrorCode.invalidAgentId])
+            } catch {
+                return Self.json(status: HTTPStatus.internalServerError, payload: ["error": "internal_error"])
+            }
+        }
+
+        add(.put, "/v1/agents/:agentId/cron/:cronId") { request in
+            let agentId = request.pathParam("agentId") ?? ""
+            let cronId = request.pathParam("cronId") ?? ""
+            guard let body = request.body,
+                  let payload = Self.decode(body, as: AgentCronTaskUpdateRequest.self)
+            else {
+                return Self.json(status: HTTPStatus.badRequest, payload: ["error": ErrorCode.invalidBody])
+            }
+
+            do {
+                let task = try await service.updateAgentCronTask(agentID: agentId, cronID: cronId, request: payload)
+                return Self.encodable(status: HTTPStatus.ok, payload: task)
+            } catch CoreService.AgentCronTaskError.notFound {
+                return Self.json(status: HTTPStatus.notFound, payload: ["error": ErrorCode.notFound])
+            } catch {
+                return Self.json(status: HTTPStatus.internalServerError, payload: ["error": "internal_error"])
+            }
+        }
+
+        add(.delete, "/v1/agents/:agentId/cron/:cronId") { request in
+            let agentId = request.pathParam("agentId") ?? ""
+            let cronId = request.pathParam("cronId") ?? ""
+            do {
+                try await service.deleteAgentCronTask(agentID: agentId, cronID: cronId)
+                return Self.encodable(status: HTTPStatus.ok, payload: ["success": true])
+            } catch CoreService.AgentCronTaskError.notFound {
+                return Self.json(status: HTTPStatus.notFound, payload: ["error": ErrorCode.notFound])
+            } catch {
+                return Self.json(status: HTTPStatus.internalServerError, payload: ["error": "internal_error"])
+            }
+        }
+
         add(.get, "/v1/agents/:agentId/sessions/:sessionId") { request in
             let agentId = request.pathParam("agentId") ?? ""
             let sessionId = request.pathParam("sessionId") ?? ""

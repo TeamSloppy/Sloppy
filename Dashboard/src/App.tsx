@@ -103,7 +103,7 @@ export function App() {
           routeProjectId={route.projectId}
           routeProjectTab={route.projectTab}
           routeProjectTaskReference={route.projectTaskReference}
-          onRouteProjectChange={onProjectRouteChange}
+          onRouteProjectChange={onProjectRouteChange as any}
         />
       )
     },

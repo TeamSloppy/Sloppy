@@ -94,6 +94,10 @@ export interface CoreApi {
   fetchAgentSkills: (agentId: string) => Promise<AnyRecord | null>;
   installAgentSkill: (agentId: string, owner: string, repo: string) => Promise<AnyRecord | null>;
   uninstallAgentSkill: (agentId: string, skillId: string) => Promise<boolean>;
+  fetchAgentCronTasks: (agentId: string) => Promise<AnyRecord[] | null>;
+  createAgentCronTask: (agentId: string, payload: AnyRecord) => Promise<AnyRecord | null>;
+  updateAgentCronTask: (agentId: string, cronId: string, payload: AnyRecord) => Promise<AnyRecord | null>;
+  deleteAgentCronTask: (agentId: string, cronId: string) => Promise<boolean>;
 }
 
 export function createCoreApi(): CoreApi {
@@ -750,6 +754,48 @@ export function createCoreApi(): CoreApi {
     uninstallAgentSkill: async (agentId, skillId) => {
       const response = await requestJson<AnyRecord>({
         path: `/v1/agents/${encodeURIComponent(agentId)}/skills/${encodeURIComponent(skillId)}`,
+        method: "DELETE"
+      });
+      return response.ok;
+    },
+
+    fetchAgentCronTasks: async (agentId) => {
+      const response = await requestJson<AnyRecord[]>({
+        path: `/v1/agents/${encodeURIComponent(agentId)}/cron`
+      });
+      if (!response.ok || !Array.isArray(response.data)) {
+        return null;
+      }
+      return response.data;
+    },
+
+    createAgentCronTask: async (agentId, payload) => {
+      const response = await requestJson<AnyRecord, AnyRecord>({
+        path: `/v1/agents/${encodeURIComponent(agentId)}/cron`,
+        method: "POST",
+        body: payload
+      });
+      if (!response.ok) {
+        return null;
+      }
+      return response.data;
+    },
+
+    updateAgentCronTask: async (agentId, cronId, payload) => {
+      const response = await requestJson<AnyRecord, AnyRecord>({
+        path: `/v1/agents/${encodeURIComponent(agentId)}/cron/${encodeURIComponent(cronId)}`,
+        method: "PUT",
+        body: payload
+      });
+      if (!response.ok) {
+        return null;
+      }
+      return response.data;
+    },
+
+    deleteAgentCronTask: async (agentId, cronId) => {
+      const response = await requestJson<AnyRecord>({
+        path: `/v1/agents/${encodeURIComponent(agentId)}/cron/${encodeURIComponent(cronId)}`,
         method: "DELETE"
       });
       return response.ok;

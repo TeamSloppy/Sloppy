@@ -10,6 +10,7 @@ final class ToolExecutionService: @unchecked Sendable {
     private let agentCatalogStore: AgentCatalogFileStore
     private let processRegistry: SessionProcessRegistry
     private let channelSessionStore: ChannelSessionFileStore
+    private let store: any PersistenceStore
     private let logger: Logger
     private var workspaceRootURL: URL
 
@@ -21,6 +22,7 @@ final class ToolExecutionService: @unchecked Sendable {
         agentCatalogStore: AgentCatalogFileStore,
         processRegistry: SessionProcessRegistry,
         channelSessionStore: ChannelSessionFileStore,
+        store: any PersistenceStore,
         logger: Logger = Logger(label: "sloppy.core.tools")
     ) {
         self.workspaceRootURL = workspaceRootURL
@@ -30,6 +32,7 @@ final class ToolExecutionService: @unchecked Sendable {
         self.agentCatalogStore = agentCatalogStore
         self.processRegistry = processRegistry
         self.channelSessionStore = channelSessionStore
+        self.store = store
         self.logger = logger
     }
 
@@ -90,8 +93,10 @@ final class ToolExecutionService: @unchecked Sendable {
             result = await executeMemorySearch(tool: toolID, request: request)
         case "memory.save":
             result = await executeMemorySave(tool: toolID, request: request)
-        case "web.search", "web.fetch", "cron":
+        case "web.search", "web.fetch":
             result = unsupportedAdapterResult(tool: toolID)
+        case "cron":
+            result = await executeCron(agentID: agentID, sessionID: sessionID, request: request)
         default:
             result = failed(
                 tool: toolID,
@@ -842,5 +847,31 @@ final class ToolExecutionService: @unchecked Sendable {
             return nil
         }
         return MemoryScope(type: type, id: scopeID)
+    }
+
+    private func executeCron(agentID: String, sessionID: String, request: ToolInvocationRequest) async -> ToolInvocationResult {
+        let schedule = request.arguments["schedule"]?.asString?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let command = request.arguments["command"]?.asString?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let channelId = request.arguments["channel_id"]?.asString?.trimmingCharacters(in: .whitespacesAndNewlines) ?? sessionChannelID(agentID: agentID, sessionID: sessionID)
+
+        guard !schedule.isEmpty, !command.isEmpty else {
+            return failed(tool: request.tool, code: "invalid_arguments", message: "`schedule` and `command` are required.", retryable: false)
+        }
+
+        let task = AgentCronTask(
+            id: UUID().uuidString,
+            agentId: agentID,
+            channelId: channelId,
+            schedule: schedule,
+            command: command,
+            enabled: true
+        )
+
+        await store.saveCronTask(task)
+
+        return success(tool: request.tool, data: .object([
+            "task_id": .string(task.id),
+            "status": .string("created")
+        ]))
     }
 }
