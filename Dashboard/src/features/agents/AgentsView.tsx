@@ -55,14 +55,224 @@ function tabTitle(tabId) {
   return AGENT_TABS.find((tab) => tab.id === tabId)?.title || "Overview";
 }
 
-function AgentOverviewTab({ agent }) {
+function generateActivityData(runLimit = 14) {
+  const data = [];
+  const today = new Date();
+  for (let i = runLimit - 1; i >= 0; i--) {
+    const d = new Date(today);
+    d.setDate(today.getDate() - i);
+    data.push({
+      dateStr: `${d.getMonth() + 1}/${d.getDate()}`,
+      value: Math.floor(Math.random() * 100)
+    });
+  }
+  return data;
+}
+
+function AgentOverviewTab({ agent, navigateToAgent }) {
+  const [tasks, setTasks] = useState([]);
+  const [isLoadingTasks, setIsLoadingTasks] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function loadTasks() {
+      setIsLoadingTasks(true);
+      const response = await fetchAgentTasks(agent.id);
+      if (!cancelled) {
+        if (Array.isArray(response)) {
+          setTasks(response);
+        }
+        setIsLoadingTasks(false);
+      }
+    }
+    loadTasks().catch(() => {
+      if (!cancelled) setIsLoadingTasks(false);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [agent.id]);
+
+  const recentTasks = tasks.slice(0, 8);
+  const now = new Date();
+  const lastRunTime = "4m ago"; // Mocked for now
+
+  const runActivity = useMemo(() => generateActivityData(), []);
+
   return (
-    <section className="entry-editor-card agent-content-card">
-      <h3>Overview</h3>
-      <p className="placeholder-text">Display Name: {agent.displayName}</p>
-      <p className="placeholder-text">Agent ID: {agent.id}</p>
-      <p className="placeholder-text">Role: {agent.role}</p>
-    </section>
+    <div className="agent-dashboard">
+      <section className="dashboard-section">
+        <div className="dashboard-section-header">
+          <h3>Latest Run</h3>
+          <button className="text-button">View details &rarr;</button>
+        </div>
+        <div className="latest-run-card">
+          <div className="latest-run-status">
+            <span className="material-symbols-rounded">close</span>
+            <span className="badge badge-cancelled">cancelled</span>
+            <span className="run-id">89f73f42</span>
+            <span className="badge badge-assignment">Assignment</span>
+          </div>
+          <span className="run-time">{lastRunTime}</span>
+        </div>
+      </section>
+
+      <section className="dashboard-charts-grid">
+        <div className="chart-card">
+          <div className="chart-header">
+            <h4>Run Activity</h4>
+            <span className="chart-period">Last 14 days</span>
+          </div>
+          <div className="chart-body">
+            <div className="chart-bars">
+              {runActivity.map((d, i) => (
+                <div key={i} className="chart-bar-wrap">
+                  <div className="chart-bar bg-gray" style={{ height: `${d.value}%` }} />
+                </div>
+              ))}
+            </div>
+            <div className="chart-x-axis">
+              <span>{runActivity[0]?.dateStr}</span>
+              <span>{runActivity[Math.floor(runActivity.length / 2)]?.dateStr}</span>
+              <span>{runActivity[runActivity.length - 1]?.dateStr}</span>
+            </div>
+          </div>
+        </div>
+
+        <div className="chart-card">
+          <div className="chart-header">
+            <h4>Issues by Priority</h4>
+            <span className="chart-period">Last 14 days</span>
+          </div>
+          <div className="chart-body">
+            <div className="chart-bars">
+              {runActivity.map((d, i) => (
+                <div key={i} className="chart-bar-wrap">
+                  <div className="chart-bar bg-yellow" style={{ height: i === runActivity.length - 1 ? '70%' : '0%' }} />
+                </div>
+              ))}
+            </div>
+            <div className="chart-x-axis">
+              <span>{runActivity[0]?.dateStr}</span>
+              <span>{runActivity[Math.floor(runActivity.length / 2)]?.dateStr}</span>
+              <span>{runActivity[runActivity.length - 1]?.dateStr}</span>
+            </div>
+            <div className="chart-legend">
+              <span><span className="legend-dot bg-critical"></span>Critical</span>
+              <span><span className="legend-dot bg-high"></span>High</span>
+              <span><span className="legend-dot bg-medium"></span>Medium</span>
+              <span><span className="legend-dot bg-low"></span>Low</span>
+            </div>
+          </div>
+        </div>
+
+        <div className="chart-card">
+          <div className="chart-header">
+            <h4>Issues by Status</h4>
+            <span className="chart-period">Last 14 days</span>
+          </div>
+          <div className="chart-body">
+            <div className="chart-bars">
+              {runActivity.map((d, i) => (
+                <div key={i} className="chart-bar-wrap">
+                  <div className="chart-bar bg-blue" style={{ height: i === runActivity.length - 1 ? '60%' : '0%' }} />
+                </div>
+              ))}
+            </div>
+            <div className="chart-x-axis">
+              <span>{runActivity[0]?.dateStr}</span>
+              <span>{runActivity[Math.floor(runActivity.length / 2)]?.dateStr}</span>
+              <span>{runActivity[runActivity.length - 1]?.dateStr}</span>
+            </div>
+            <div className="chart-legend">
+              <span><span className="legend-dot bg-todo"></span>To Do</span>
+            </div>
+          </div>
+        </div>
+
+        <div className="chart-card">
+          <div className="chart-header">
+            <h4>Success Rate</h4>
+            <span className="chart-period">Last 14 days</span>
+          </div>
+          <div className="chart-body">
+            <div className="chart-bars">
+              {runActivity.map((d, i) => (
+                <div key={i} className="chart-bar-wrap">
+                  <div className="chart-bar bg-red" style={{ height: i === runActivity.length - 1 ? '5%' : '0%' }} />
+                </div>
+              ))}
+            </div>
+            <div className="chart-x-axis">
+              <span>{runActivity[0]?.dateStr}</span>
+              <span>{runActivity[Math.floor(runActivity.length / 2)]?.dateStr}</span>
+              <span>{runActivity[runActivity.length - 1]?.dateStr}</span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section className="dashboard-section mt-4">
+        <div className="dashboard-section-header">
+          <h3>Recent Issues</h3>
+          <button className="text-button" onClick={() => navigateToAgent(agent.id, 'tasks')}>See All &rarr;</button>
+        </div>
+        <div className="recent-issues-list">
+          {isLoadingTasks ? (
+            <div className="recent-issue-item text-muted">Loading tasks...</div>
+          ) : recentTasks.length === 0 ? (
+            <div className="recent-issue-item text-muted">No recent tasks.</div>
+          ) : (
+            recentTasks.map((taskItem, i) => {
+              const task = taskItem.task || {};
+              const id = task.id || `COR-${i + 1}`;
+              const title = task.title || "Task";
+              const status = String(task.status || "todo").toLowerCase();
+              return (
+                <div key={id} className="recent-issue-item">
+                  <span className="issue-id">{id}</span>
+                  <span className="issue-title">{title}</span>
+                  <span className={`badge badge-outline`}>{status}</span>
+                </div>
+              );
+            })
+          )}
+        </div>
+      </section>
+
+      <section className="dashboard-section mt-4">
+        <div className="dashboard-section-header">
+          <h3>Costs</h3>
+        </div>
+        <div className="costs-card">
+          <div className="cost-metric">
+            <span className="cost-label">Input tokens</span>
+            <span className="cost-value">0</span>
+          </div>
+          <div className="cost-metric">
+            <span className="cost-label">Output tokens</span>
+            <span className="cost-value">0</span>
+          </div>
+          <div className="cost-metric">
+            <span className="cost-label">Cached tokens</span>
+            <span className="cost-value">0</span>
+          </div>
+          <div className="cost-metric">
+            <span className="cost-label">Total cost</span>
+            <span className="cost-value">$0.00</span>
+          </div>
+        </div>
+      </section>
+
+      <section className="dashboard-section mt-4 configuration-section">
+        <div className="dashboard-section-header">
+          <h3>Configuration</h3>
+          <button className="text-button flex-center gap-2" onClick={() => navigateToAgent(agent.id, 'config')}>
+            <span className="material-symbols-rounded text-sm">settings</span> Manage &rarr;
+          </button>
+        </div>
+      </section>
+    </div>
   );
 }
 
@@ -371,7 +581,7 @@ export function AgentsView({ routeAgentId = null, routeTab = "overview", onRoute
 
   function renderAgentTabContent(agent, tab) {
     if (tab === "overview") {
-      return <AgentOverviewTab agent={agent} />;
+      return <AgentOverviewTab agent={agent} navigateToAgent={navigateToAgent} />;
     }
 
     if (tab === "chat") {
