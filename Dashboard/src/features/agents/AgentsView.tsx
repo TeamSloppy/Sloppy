@@ -11,6 +11,7 @@ import { AgentConfigTab } from "./components/AgentConfigTab";
 import { AgentToolsTab } from "./components/AgentToolsTab";
 import { AgentSkillsTab } from "./components/AgentSkillsTab";
 import { AgentCronTab } from "./components/AgentCronTab";
+import { Breadcrumbs } from "../../components/Breadcrumbs/Breadcrumbs";
 
 const AGENT_TABS = [
   { id: "overview", title: "Overview" },
@@ -658,14 +659,17 @@ export function AgentsView({ routeAgentId = null, routeTab = "overview", onRoute
   if (!activeAgent) {
     return (
       <main className="agents-shell">
-        <header className="agents-index-head">
-          <h2>Agents</h2>
-          {agents.length > 0 && !isLoadingAgents ? (
+        <Breadcrumbs
+          items={[
+            { id: 'agents', label: 'Agents' }
+          ]}
+          style={{ marginBottom: '20px' }}
+          action={
             <button type="button" className="agents-create-inline hover-levitate" onClick={openCreateModal}>
               Create Agent
             </button>
-          ) : null}
-        </header>
+          }
+        />
 
         <AgentsIndexSection
           agents={agents}
@@ -691,21 +695,18 @@ export function AgentsView({ routeAgentId = null, routeTab = "overview", onRoute
 
   return (
     <main className={`agents-shell ${isChatLayout ? "chat-layout" : ""}`}>
-      <section className="entry-editor-card agent-header-card">
-        <div className="agent-header-top">
-          <button type="button" className="agent-back-link" onClick={navigateToAgentList}>
-            <span className="material-symbols-rounded" aria-hidden="true">
-              arrow_back
-            </span>
-            All agents
+      <Breadcrumbs
+        items={[
+          { id: 'agents', label: 'Agents', onClick: navigateToAgentList },
+          { id: activeAgent.id, label: activeAgent.displayName }
+        ]}
+        style={{ marginBottom: '20px' }}
+        action={
+          <button type="button" className="agents-create-inline hover-levitate" onClick={openCreateModal}>
+            Create Agent
           </button>
-          <span className="agent-header-id">{activeAgent.id}</span>
-        </div>
-        <div className="agent-header-main">
-          <h2>{activeAgent.displayName}</h2>
-          <p className="placeholder-text">{activeAgent.role}</p>
-        </div>
-      </section>
+        }
+      />
 
       <section className="agent-tabs" aria-label="Agent sections">
         {AGENT_TABS.map((tab) => (

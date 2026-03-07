@@ -1345,28 +1345,7 @@ body.mobile-menu-open {
   margin: 2px 0 0;
 }
 
-.project-back-link {
-  min-width: auto;
-  border: 0;
-  background: transparent;
-  color: var(--accent);
-  padding: 0;
-  font-size: 0.82rem;
-  font-weight: 600;
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-}
 
-.project-back-link:hover {
-  border: 0;
-  background: transparent;
-  color: var(--danger);
-}
-
-.project-back-link .material-symbols-rounded {
-  font-size: 16px;
-}
 
 .project-tab-layout {
   display: grid;
@@ -2482,28 +2461,7 @@ body.mobile-menu-open {
   gap: 8px;
 }
 
-.agent-back-link {
-  min-width: auto;
-  border: 0;
-  background: transparent;
-  color: var(--accent);
-  padding: 0;
-  font-size: 0.82rem;
-  font-weight: 600;
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-}
 
-.agent-back-link:hover {
-  border: 0;
-  background: transparent;
-  color: #ccb7ff;
-}
-
-.agent-back-link .material-symbols-rounded {
-  font-size: 16px;
-}
 
 .agent-header-id {
   color: var(--muted);

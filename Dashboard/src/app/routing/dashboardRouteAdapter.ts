@@ -8,7 +8,8 @@ export const TOP_LEVEL_SECTIONS = [
   "usafe",
   "nodes",
   "config",
-  "logs"
+  "logs",
+  "not_found"
 ] as const;
 
 export const AGENT_TABS = ["overview", "chat", "memories", "tasks", "skills", "tools", "channels", "cron", "config"] as const;
@@ -45,10 +46,13 @@ function decodePathSegment(value: string) {
 }
 
 export function normalizeTopLevelSection(value: string): TopLevelSection {
+  if (!value) {
+    return DEFAULT_SECTION_ID;
+  }
   if (TOP_LEVEL_SECTION_SET.has(value)) {
     return value as TopLevelSection;
   }
-  return DEFAULT_SECTION_ID;
+  return "not_found";
 }
 
 export function normalizeAgentTab(value: string): AgentTab {

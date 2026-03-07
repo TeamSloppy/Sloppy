@@ -11,6 +11,7 @@ import { PlaceholderView } from "./views/PlaceholderView";
 import { ProjectsView } from "./views/ProjectsView";
 import { RuntimeOverviewView } from "./views/RuntimeOverviewView";
 import { LogsView } from "./views/LogsView";
+import { NotFoundView } from "./views/NotFoundView";
 
 interface SidebarItem {
   id: string;
@@ -139,6 +140,7 @@ export function App() {
     }
   ];
 
+  const isNotFound = route.section === "not_found";
   const activeItem = sidebarItems.find((item) => item.id === route.section) || sidebarItems[0];
 
   return (
@@ -186,7 +188,7 @@ export function App() {
             menu
           </span>
         </button>
-        {activeItem.content}
+        {isNotFound ? <NotFoundView /> : activeItem.content}
       </div>
     </div>
   );

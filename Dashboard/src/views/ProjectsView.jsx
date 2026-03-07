@@ -12,6 +12,7 @@ import {
   updateProjectTask as updateProjectTaskRequest,
   deleteProjectTask as deleteProjectTaskRequest
 } from "../api";
+import { Breadcrumbs } from "../components/Breadcrumbs/Breadcrumbs";
 
 const ACTIVE_WORKER_STATUSES = new Set(["queued", "running", "waitinginput", "waiting_input"]);
 
@@ -2339,19 +2340,6 @@ export function ProjectsView({
   function renderProjectDetails(project) {
     return (
       <section className="project-workspace">
-        <header className="project-workspace-head">
-          <button type="button" className="project-back-link" onClick={closeProject}>
-            <span className="material-symbols-rounded" aria-hidden="true">
-              arrow_back
-            </span>
-            Back to projects
-          </button>
-          <div className="project-workspace-meta">
-            <h3>{project.name}</h3>
-            <p className="placeholder-text">{project.description || "Project dashboard"}</p>
-          </div>
-        </header>
-
         <section className="agent-tabs" aria-label="Project sections">
           {PROJECT_TABS.map((tab) => (
             <button
@@ -2373,12 +2361,18 @@ export function ProjectsView({
   return (
     <main className="projects-shell">
       {projects.length > 0 && (
-        <header className="agents-index-head">
-          <h2>Projects</h2>
-          <button type="button" className="agents-create-inline hover-levitate" onClick={openCreateProjectModal}>
-            New Project
-          </button>
-        </header>
+        <Breadcrumbs
+          items={[
+            { id: 'projects', label: 'Projects', onClick: closeProject },
+            ...(selectedProject ? [{ id: selectedProject.id, label: selectedProject.name }] : [])
+          ]}
+          style={{ marginBottom: '20px' }}
+          action={
+            <button type="button" className="agents-create-inline hover-levitate" onClick={openCreateProjectModal}>
+              New Project
+            </button>
+          }
+        />
       )}
 
       {selectedProject ? renderProjectDetails(selectedProject) : renderProjectList()}
