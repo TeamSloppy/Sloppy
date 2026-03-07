@@ -1389,14 +1389,6 @@ export function ActorsView() {
                           placeholder="optional"
                         />
                       </label>
-                      <label>
-                        Channel
-                        <input
-                          value={nodeDraftChannel}
-                          onChange={(event) => setNodeDraftChannel(event.target.value)}
-                          placeholder="optional"
-                        />
-                      </label>
                       <div className="actor-link-menu-footer">
                         <button type="submit" disabled={isSaving}>
                           Save
@@ -1502,126 +1494,123 @@ export function ActorsView() {
                 }
               }}
             >
-            <div className="actor-modal-card actor-modal-card--wide" onPointerDown={(event) => event.stopPropagation()}>
-              <header>
-                <strong>{editingTeamId ? "Edit Team" : "New Team"}</strong>
-                <button
-                  type="button"
-                  className="actor-link-menu-close"
-                  onClick={() => {
-                    setShowNewTeamPopup(false);
-                    resetTeamForm();
-                  }}
-                >
-                  ×
-                </button>
-              </header>
-              <form className="actor-node-menu-form" onSubmit={submitTeam}>
-                <label>
-                  Name
-                  <input
-                    value={teamName}
-                    onChange={(event) => setTeamName(event.target.value)}
-                    placeholder="e.g. Delivery Team"
-                    autoFocus
-                  />
-                </label>
-                <div className="actor-team-members-picker">
-                  {teamMembers.length > 0 ? (
-                    <div className="actor-team-tags">
-                      {teamMembers.map((memberId) => {
-                        const node = board.nodes.find((n) => n.id === memberId);
-                        return (
-                          <span key={memberId} className="actor-team-tag">
-                            {node ? node.displayName : memberId}
-                            <button
-                              type="button"
-                              className="actor-team-tag-remove"
-                              onClick={() => setTeamMembers((previous) => previous.filter((entry) => entry !== memberId))}
-                              title="Remove"
-                            >
-                              ×
-                            </button>
-                          </span>
-                        );
-                      })}
-                    </div>
-                  ) : null}
-                  <div className="actor-team-search-wrap">
+              <div className="actor-modal-card actor-modal-card--wide" onPointerDown={(event) => event.stopPropagation()}>
+                <header>
+                  <strong>{editingTeamId ? "Edit Team" : "New Team"}</strong>
+                  <button
+                    type="button"
+                    className="actor-link-menu-close"
+                    onClick={() => {
+                      setShowNewTeamPopup(false);
+                      resetTeamForm();
+                    }}
+                  >
+                    ×
+                  </button>
+                </header>
+                <form className="actor-node-menu-form" onSubmit={submitTeam}>
+                  <label>
+                    Name
                     <input
-                      ref={teamMemberSearchRef}
-                      className="actor-team-search"
-                      value={teamMemberSearch}
-                      onChange={(event) => {
-                        setTeamMemberSearch(event.target.value);
-                        setTeamMemberDropdownOpen(true);
-                      }}
-                      onFocus={() => setTeamMemberDropdownOpen(true)}
-                      onBlur={() => setTimeout(() => setTeamMemberDropdownOpen(false), 150)}
-                      placeholder="Search actors…"
-                      autoComplete="off"
+                      value={teamName}
+                      onChange={(event) => setTeamName(event.target.value)}
+                      placeholder="e.g. Delivery Team"
+                      autoFocus
                     />
-                    {teamMemberDropdownOpen ? (
-                      <ul className="actor-team-dropdown">
-                        {board.nodes
-                          .filter((node) => {
+                  </label>
+                  <div className="actor-team-members-picker">
+                    {teamMembers.length > 0 ? (
+                      <div className="actor-team-tags">
+                        {teamMembers.map((memberId) => {
+                          const node = board.nodes.find((n) => n.id === memberId);
+                          return (
+                            <span key={memberId} className="actor-team-tag">
+                              {node ? node.displayName : memberId}
+                              <button
+                                type="button"
+                                className="actor-team-tag-remove"
+                                onClick={() => setTeamMembers((previous) => previous.filter((entry) => entry !== memberId))}
+                                title="Remove"
+                              >
+                                ×
+                              </button>
+                            </span>
+                          );
+                        })}
+                      </div>
+                    ) : null}
+                    <div className="actor-team-search-wrap">
+                      <input
+                        ref={teamMemberSearchRef}
+                        className="actor-team-search"
+                        value={teamMemberSearch}
+                        onChange={(event) => {
+                          setTeamMemberSearch(event.target.value);
+                          setTeamMemberDropdownOpen(true);
+                        }}
+                        onFocus={() => setTeamMemberDropdownOpen(true)}
+                        onBlur={() => setTimeout(() => setTeamMemberDropdownOpen(false), 150)}
+                        placeholder="Search actors…"
+                        autoComplete="off"
+                      />
+                      {teamMemberDropdownOpen ? (
+                        <ul className="actor-team-dropdown">
+                          {board.nodes
+                            .filter((node) => {
+                              const q = teamMemberSearch.toLowerCase();
+                              return node.displayName.toLowerCase().includes(q) || node.id.toLowerCase().includes(q);
+                            })
+                            .map((node) => {
+                              const isMember = teamMembers.includes(node.id);
+                              return (
+                                <li
+                                  key={node.id}
+                                  className={`actor-team-dropdown-item ${isMember ? "selected" : ""}`}
+                                  onMouseDown={(event) => {
+                                    event.preventDefault();
+                                    if (isMember) {
+                                      setTeamMembers((previous) => previous.filter((entry) => entry !== node.id));
+                                    } else {
+                                      setTeamMembers((previous) => Array.from(new Set([...previous, node.id])));
+                                    }
+                                    setTeamMemberSearch("");
+                                  }}
+                                >
+                                  <span className="actor-team-dropdown-name">{node.displayName}</span>
+                                  <span className="actor-team-dropdown-id">{node.id}</span>
+                                  {isMember ? <span className="actor-team-dropdown-check">✓</span> : null}
+                                </li>
+                              );
+                            })}
+                          {board.nodes.filter((node) => {
                             const q = teamMemberSearch.toLowerCase();
                             return node.displayName.toLowerCase().includes(q) || node.id.toLowerCase().includes(q);
-                          })
-                          .map((node) => {
-                            const isMember = teamMembers.includes(node.id);
-                            return (
-                              <li
-                                key={node.id}
-                                className={`actor-team-dropdown-item ${isMember ? "selected" : ""}`}
-                                onMouseDown={(event) => {
-                                  event.preventDefault();
-                                  if (isMember) {
-                                    setTeamMembers((previous) => previous.filter((entry) => entry !== node.id));
-                                  } else {
-                                    setTeamMembers((previous) => Array.from(new Set([...previous, node.id])));
-                                  }
-                                  setTeamMemberSearch("");
-                                }}
-                              >
-                                <span className="actor-team-dropdown-name">{node.displayName}</span>
-                                <span className="actor-team-dropdown-id">{node.id}</span>
-                                {isMember ? <span className="actor-team-dropdown-check">✓</span> : null}
-                              </li>
-                            );
-                          })}
-                        {board.nodes.filter((node) => {
-                          const q = teamMemberSearch.toLowerCase();
-                          return node.displayName.toLowerCase().includes(q) || node.id.toLowerCase().includes(q);
-                        }).length === 0 ? (
-                          <li className="actor-team-dropdown-empty">No actors found</li>
-                        ) : null}
-                      </ul>
+                          }).length === 0 ? (
+                            <li className="actor-team-dropdown-empty">No actors found</li>
+                          ) : null}
+                        </ul>
+                      ) : null}
+                    </div>
+                  </div>
+                  <div className="actor-link-menu-footer">
+                    <button type="submit" disabled={isSaving}>
+                      {editingTeamId ? "Save Team" : "Create Team"}
+                    </button>
+                    {editingTeamId ? (
+                      <>
+                        <button
+                          type="button"
+                          className="danger"
+                          disabled={isSaving}
+                          onClick={() => void deleteTeam(editingTeamId)}
+                        >
+                          Delete
+                        </button>
+                      </>
                     ) : null}
                   </div>
-                </div>
-                <div className="actor-link-menu-footer">
-                  <button type="submit" disabled={isSaving}>
-                    {editingTeamId ? "Save Team" : "Create Team"}
-                  </button>
-                  {editingTeamId ? (
-                    <>
-                      <button type="button" onClick={resetTeamForm}>
-                        Cancel
-                      </button>
-                      <button
-                        type="button"
-                        className="danger"
-                        disabled={isSaving}
-                        onClick={() => void deleteTeam(editingTeamId)}
-                      >
-                        Delete
-                      </button>
-                    </>
-                  ) : null}
-                </div>
-              </form>
-            </div>
+                </form>
+              </div>
             </div>
           ) : null}
         </section>

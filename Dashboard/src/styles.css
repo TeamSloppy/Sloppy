@@ -3,8 +3,10 @@
   --surface: #0a0a0a;
   --surface-2: #111111;
   --surface-3: #1a1a1a;
-  --line: #ccff00;
-  --line-strong: #aacc00;
+  --line: #333333;
+  /* Grey borders for inactive cards */
+  --line-strong: var(--accent);
+  /* Accent color for hover/active */
   --text: #f0f0f0;
   --muted: #888888;
   --accent-color: #ccff00;
@@ -76,7 +78,7 @@ body.mobile-menu-open {
   position: relative;
   flex: 1;
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: 0;
   background: var(--surface);
   min-height: 0;
   overflow: hidden;
@@ -90,9 +92,9 @@ body.mobile-menu-open {
   overflow: hidden;
   touch-action: none;
   overscroll-behavior: none;
-  background:
-    radial-gradient(circle at 1px 1px, rgba(255, 255, 255, 0.08) 1px, transparent 0) 0 0 / 28px 28px,
-    linear-gradient(160deg, rgba(22, 27, 37, 0.85), rgba(11, 14, 20, 1));
+  background-color: var(--bg);
+  background-image: radial-gradient(circle at 1px 1px, rgba(204, 255, 0, 0.25) 1px, transparent 0);
+  background-size: 28px 28px;
   cursor: grab;
 }
 
@@ -108,7 +110,7 @@ body.mobile-menu-open {
 .actor-team-group {
   position: absolute;
   border: 1.5px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: 0;
   pointer-events: auto;
   cursor: grab;
   transition: transform 0.1s steps(2), box-shadow 0.1s steps(2);
@@ -140,7 +142,7 @@ body.mobile-menu-open {
   justify-content: center;
   background: var(--bg);
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: 0;
   font-size: 0.9rem;
   cursor: pointer;
   pointer-events: auto;
@@ -171,7 +173,7 @@ body.mobile-menu-open {
 .actor-team-group-dot {
   width: 8px;
   height: 8px;
-  border-radius: 50%;
+  border-radius: 0;
   flex-shrink: 0;
 }
 
@@ -229,7 +231,7 @@ body.mobile-menu-open {
   width: 180px;
   min-height: 88px;
   border: 1px solid var(--line-strong);
-  border-radius: var(--radius);
+  border-radius: 0;
   background: var(--surface);
   color: var(--text);
   display: flex;
@@ -332,7 +334,7 @@ body.mobile-menu-open {
   z-index: 8;
   width: 236px;
   border: 1px solid var(--line);
-  border-radius: 12px;
+  border-radius: 0;
   padding: 10px;
   background: rgba(9, 12, 18, 0.98);
   box-shadow: 0 10px 28px rgba(0, 0, 0, 0.4);
@@ -403,7 +405,7 @@ body.mobile-menu-open {
   z-index: 8;
   width: 240px;
   border: 1px solid var(--line);
-  border-radius: 12px;
+  border-radius: 0;
   padding: 10px;
   background: rgba(9, 12, 18, 0.98);
   box-shadow: 0 10px 28px rgba(0, 0, 0, 0.4);
@@ -450,7 +452,7 @@ body.mobile-menu-open {
   font-size: 0.84rem;
   padding: 5px 8px;
   border: 1px solid var(--line);
-  border-radius: 6px;
+  border-radius: 0;
   background: rgba(255, 255, 255, 0.04);
   color: var(--text);
   min-height: 0;
@@ -467,7 +469,7 @@ body.mobile-menu-open {
   gap: 6px;
   padding: 10px 12px;
   border: 1px solid var(--line);
-  border-radius: 10px;
+  border-radius: 0;
   background: rgba(9, 12, 18, 0.92);
   box-shadow: 0 6px 20px rgba(0, 0, 0, 0.35);
   min-width: 152px;
@@ -488,7 +490,7 @@ body.mobile-menu-open {
   border: 1px solid var(--line);
   background: rgba(255, 255, 255, 0.04);
   color: var(--text);
-  border-radius: 6px;
+  border-radius: 0;
   text-align: left;
 }
 
@@ -530,7 +532,7 @@ body.mobile-menu-open {
 .actor-modal-card {
   width: 360px;
   border: 1px solid var(--line);
-  border-radius: 14px;
+  border-radius: 0;
   padding: 18px;
   background: rgba(11, 14, 21, 0.98);
   box-shadow: 0 24px 64px rgba(0, 0, 0, 0.55);
@@ -603,9 +605,9 @@ body.mobile-menu-open {
   align-items: center;
   gap: 4px;
   padding: 2px 8px 2px 10px;
-  border-radius: 12px;
+  border-radius: 0;
   background: var(--accent);
-  color: #fff;
+  color: #000;
   font-size: 0.78rem;
   font-weight: 500;
   line-height: 1.6;
@@ -644,7 +646,7 @@ body.mobile-menu-open {
   list-style: none;
   background: var(--surface2, #1e2130);
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: 0;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
   max-height: 200px;
   overflow-y: auto;
@@ -706,7 +708,7 @@ body.mobile-menu-open {
 
 .actor-team-list article {
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: 0;
   padding: 8px;
   display: grid;
   gap: 6px;
@@ -772,7 +774,6 @@ body.mobile-menu-open {
 
 .sidebar {
   flex: 0 0 auto;
-  background: #080a0f;
   border-right: 1px solid var(--line);
   padding: 10px;
   display: flex;
@@ -874,7 +875,7 @@ body.mobile-menu-open {
   align-items: center;
   gap: 10px;
   border: 1px solid transparent;
-  border-radius: 9px;
+  border-radius: 0;
   background: transparent;
   color: var(--muted);
   padding: 8px;
@@ -896,7 +897,7 @@ body.mobile-menu-open {
   width: 32px;
   min-width: 32px;
   height: 30px;
-  border-radius: 8px;
+  border-radius: 0;
   border: 1px solid transparent;
   display: inline-flex;
   align-items: center;
@@ -1008,7 +1009,7 @@ body.mobile-menu-open {
   min-height: 240px;
   background: var(--surface);
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: 0;
   padding: 14px;
 }
 
@@ -1071,7 +1072,7 @@ body.mobile-menu-open {
 
 .project-card {
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: 0;
   background: var(--surface);
   padding: 12px;
   display: grid;
@@ -1101,7 +1102,7 @@ body.mobile-menu-open {
 .project-menu summary {
   list-style: none;
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: 0;
   padding: 3px 8px;
   color: var(--muted);
   cursor: pointer;
@@ -1122,7 +1123,7 @@ body.mobile-menu-open {
   top: calc(100% + 6px);
   min-width: 140px;
   border: 1px solid var(--line);
-  border-radius: 10px;
+  border-radius: 0;
   background: #0c0f15;
   padding: 8px;
   display: grid;
@@ -1141,7 +1142,7 @@ body.mobile-menu-open {
 
 .project-task-pill {
   border: 1px solid var(--line-strong);
-  border-radius: 999px;
+  border-radius: 0;
   padding: 2px 10px;
   font-size: 0.8rem;
 }
@@ -1193,7 +1194,7 @@ body.mobile-menu-open {
 
 .project-listing-item {
   border: 1px solid var(--line);
-  border-radius: 10px;
+  border-radius: 0;
   padding: 10px;
   background: var(--surface-3);
 }
@@ -1243,7 +1244,7 @@ body.mobile-menu-open {
 
 .project-board-card {
   border: 1px solid var(--line);
-  border-radius: 12px;
+  border-radius: 0;
   padding: 14px;
   display: grid;
   gap: 8px;
@@ -1295,7 +1296,7 @@ body.mobile-menu-open {
 
 .project-badge {
   border: 1px solid var(--line);
-  border-radius: 999px;
+  border-radius: 0;
   padding: 2px 9px;
   font-size: 0.78rem;
   color: var(--muted);
@@ -1366,7 +1367,7 @@ body.mobile-menu-open {
 .project-back-link:hover {
   border: 0;
   background: transparent;
-  color: #ccb7ff;
+  color: var(--danger);
 }
 
 .project-back-link .material-symbols-rounded {
@@ -1380,7 +1381,7 @@ body.mobile-menu-open {
 
 .project-pane {
   border: 1px solid var(--line);
-  border-radius: 12px;
+  border-radius: 0;
   background: rgba(10, 13, 21, 0.66);
   padding: 12px;
   min-width: 0;
@@ -1406,7 +1407,7 @@ body.mobile-menu-open {
 
 .project-metric-card {
   border: 1px solid var(--line);
-  border-radius: 10px;
+  border-radius: 0;
   padding: 10px;
   display: grid;
   gap: 2px;
@@ -1430,7 +1431,7 @@ body.mobile-menu-open {
 
 .project-worker-item {
   border: 1px solid var(--line);
-  border-radius: 10px;
+  border-radius: 0;
   padding: 10px;
   background: rgba(12, 17, 27, 0.5);
 }
@@ -1447,7 +1448,7 @@ body.mobile-menu-open {
 
 .project-created-item {
   border: 1px solid var(--line);
-  border-radius: 10px;
+  border-radius: 0;
   padding: 10px;
   background: rgba(12, 17, 27, 0.5);
 }
@@ -1483,7 +1484,7 @@ body.mobile-menu-open {
   align-items: center;
   gap: 6px;
   border: 1px solid var(--line);
-  border-radius: 999px;
+  border-radius: 0;
   padding: 3px 9px;
   font-size: 0.8rem;
   color: var(--muted);
@@ -1495,7 +1496,7 @@ body.mobile-menu-open {
 
 .project-swarm-overview {
   border: 1px solid var(--line);
-  border-radius: 12px;
+  border-radius: 0;
   padding: 12px;
   margin-bottom: 12px;
   background: rgba(8, 13, 22, 0.72);
@@ -1508,7 +1509,7 @@ body.mobile-menu-open {
 
 .project-swarm-card {
   border: 1px solid var(--line);
-  border-radius: 10px;
+  border-radius: 0;
   padding: 10px;
   background: rgba(11, 16, 25, 0.85);
   display: grid;
@@ -1528,7 +1529,7 @@ body.mobile-menu-open {
 
 .project-swarm-card-head span {
   border: 1px solid var(--line);
-  border-radius: 999px;
+  border-radius: 0;
   padding: 2px 8px;
   font-size: 0.74rem;
   color: var(--muted);
@@ -1551,7 +1552,7 @@ body.mobile-menu-open {
   gap: 8px;
   padding: 7px 9px;
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: 0;
   background: rgba(6, 10, 17, 0.9);
   color: var(--text);
   text-align: left;
@@ -1564,7 +1565,7 @@ body.mobile-menu-open {
 }
 
 .project-swarm-status {
-  border-radius: 999px;
+  border-radius: 0;
   padding: 2px 7px;
   font-size: 0.68rem;
   text-transform: uppercase;
@@ -1604,7 +1605,7 @@ body.mobile-menu-open {
 
 .project-swarm-node-meta {
   border: 1px solid var(--line);
-  border-radius: 999px;
+  border-radius: 0;
   padding: 2px 7px;
   font-size: 0.69rem;
   color: var(--muted);
@@ -1641,7 +1642,7 @@ body.mobile-menu-open {
 
 .project-kanban-board::-webkit-scrollbar-thumb {
   background: rgba(138, 153, 180, 0.45);
-  border-radius: 999px;
+  border-radius: 0;
   border: 2px solid transparent;
   background-clip: content-box;
 }
@@ -1652,7 +1653,7 @@ body.mobile-menu-open {
 
 .project-kanban-column {
   border: 1px solid var(--line);
-  border-radius: 12px;
+  border-radius: 0;
   display: grid;
   grid-template-rows: auto 1fr;
   min-height: 420px;
@@ -1666,7 +1667,7 @@ body.mobile-menu-open {
   gap: 8px;
   padding: 10px;
   border-bottom: 1px solid var(--line);
-  border-radius: 12px 12px 0 0;
+  border-radius: 0;
 }
 
 .project-kanban-column-head span {
@@ -1737,7 +1738,7 @@ body.mobile-menu-open {
 
 .project-kanban-task {
   border: 1px solid var(--line);
-  border-radius: 10px;
+  border-radius: 0;
   padding: 10px;
   background: rgba(11, 16, 25, 0.85);
   display: grid;
@@ -1754,8 +1755,8 @@ body.mobile-menu-open {
 }
 
 .project-kanban-task--selected {
-  border-color: rgba(163, 118, 255, 0.85);
-  box-shadow: 0 0 0 1px rgba(163, 118, 255, 0.35);
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
 }
 
 .project-task-card-top {
@@ -1787,7 +1788,7 @@ body.mobile-menu-open {
   align-items: center;
   width: fit-content;
   border: 1px solid var(--line-strong);
-  border-radius: 6px;
+  border-radius: 0;
   padding: 1px 6px;
   font-size: 0.68rem;
   letter-spacing: 0.02em;
@@ -1815,7 +1816,7 @@ body.mobile-menu-open {
 
 .project-priority-badge {
   border: 1px solid var(--line-strong);
-  border-radius: 999px;
+  border-radius: 0;
   padding: 2px 8px;
   font-size: 0.74rem;
   font-weight: 600;
@@ -1848,7 +1849,7 @@ body.mobile-menu-open {
 .project-task-claim-badge,
 .project-task-assignee-badge {
   border: 1px solid var(--line-strong);
-  border-radius: 999px;
+  border-radius: 0;
   padding: 2px 8px;
   font-size: 0.72rem;
   color: var(--text);
@@ -1887,8 +1888,8 @@ body.mobile-menu-open {
 .project-task-composer {
   width: min(1020px, 94vw);
   border: 1px solid var(--line);
-  border-radius: 14px;
-  background: linear-gradient(180deg, rgba(12, 17, 27, 0.96), rgba(8, 12, 19, 0.98));
+  border-radius: 0;
+  background: var(--surface);
   color: var(--text);
   box-shadow: 0 24px 58px rgba(0, 0, 0, 0.5);
   padding: 14px 14px 12px;
@@ -1918,10 +1919,8 @@ body.mobile-menu-open {
 }
 
 .project-task-composer-badge {
-  border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: 0;
   padding: 3px 8px;
-  background: rgba(12, 17, 27, 0.9);
   color: #c5cde0;
 }
 
@@ -1939,7 +1938,7 @@ body.mobile-menu-open {
   border: 1px solid var(--line);
   background: rgba(12, 17, 27, 0.9);
   color: var(--text);
-  border-radius: 9px;
+  border-radius: 0;
   min-height: 34px;
   padding: 0 12px;
   font-size: 0.82rem;
@@ -2003,7 +2002,7 @@ body.mobile-menu-open {
 
 .project-task-composer-chip {
   border: 1px solid var(--line);
-  border-radius: 9px;
+  border-radius: 0;
   min-height: 34px;
   padding: 0 10px;
   background: rgba(11, 16, 25, 0.9);
@@ -2040,7 +2039,7 @@ body.mobile-menu-open {
 
 .project-task-composer-meta {
   border: 1px solid var(--line);
-  border-radius: 999px;
+  border-radius: 0;
   padding: 3px 9px;
   font-size: 0.76rem;
   color: var(--muted);
@@ -2069,7 +2068,7 @@ body.mobile-menu-open {
 
 .project-memory-channel {
   border: 1px solid var(--line);
-  border-radius: 10px;
+  border-radius: 0;
   padding: 10px;
   display: grid;
   gap: 8px;
@@ -2091,7 +2090,7 @@ body.mobile-menu-open {
 
 .project-memory-message {
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: 0;
   padding: 8px;
   background: rgba(8, 11, 17, 0.65);
 }
@@ -2133,7 +2132,7 @@ body.mobile-menu-open {
 .project-modal {
   width: min(860px, 96vw);
   border: 1px solid var(--line);
-  border-radius: 16px;
+  border-radius: 0;
   background: #090d14;
   padding: 18px;
   display: grid;
@@ -2218,7 +2217,7 @@ body.mobile-menu-open {
   max-width: 80em;
   min-height: 620px;
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: 0;
   background: radial-gradient(110% 90% at 50% 0%, rgba(72, 58, 119, 0.14) 0%, rgba(7, 10, 17, 0) 42%), #070b13;
   display: grid;
   grid-template-rows: 1fr auto;
@@ -2308,7 +2307,7 @@ body.mobile-menu-open {
 
 .agent-list-item-card {
   border: 1px solid var(--line);
-  border-radius: 12px;
+  border-radius: 0;
   padding: 14px;
   display: grid;
   gap: 8px;
@@ -2328,7 +2327,7 @@ body.mobile-menu-open {
 .agent-list-icon {
   width: 52px;
   height: 52px;
-  border-radius: 12px;
+  border-radius: 0;
   border: 1px solid var(--line);
   background: rgba(255, 255, 255, 0.02);
   display: inline-flex;
@@ -2553,7 +2552,7 @@ body.mobile-menu-open {
 
 .agent-content-shell {
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: 0;
   padding: 10px;
   background: var(--surface);
   display: grid;
@@ -2687,10 +2686,11 @@ body.agent-chat-no-page-scroll .page {
 
 .agent-chat-message.user {
   margin-left: auto;
-  border: 1px solid #353a49;
-  background: #2a2e3a;
-  border-radius: 999px;
-  padding: 10px 18px;
+  border-radius: 0;
+  padding: 10px 14px;
+  background: var(--surface);
+  border: 1px solid var(--accent);
+  box-shadow: 4px 4px 0px var(--accent);
 }
 
 .agent-chat-message.assistant {
@@ -2710,6 +2710,12 @@ body.agent-chat-no-page-scroll .page {
 .agent-chat-message-body {
   display: grid;
   gap: 6px;
+}
+
+.agent-chat-message-body.user {
+  display: grid;
+  gap: 6px;
+  color: var(--accent);
 }
 
 .agent-chat-tech-entry {
@@ -2776,9 +2782,8 @@ body.agent-chat-no-page-scroll .page {
 }
 
 .agent-chat-technical-body {
-  border: 1px solid #2f3547;
-  background: #222735;
-  border-radius: 14px;
+  background: var(--surface-2);
+  border-radius: 0;
   padding: 10px 12px;
   display: grid;
   gap: 10px;
@@ -2800,7 +2805,7 @@ body.agent-chat-no-page-scroll .page {
 .agent-chat-expandable {
   border: 1px solid #2f3547;
   background: #222735;
-  border-radius: 14px;
+  border-radius: 0;
   overflow: hidden;
 }
 
@@ -2880,15 +2885,15 @@ body.agent-chat-no-page-scroll .page {
   margin: 0;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
-  color: #d4dbf3;
-  font-size: 0.8rem;
+  color: var(--warn);
+  font-size: 0.75rem;
   line-height: 1.35;
 }
 
 .agent-chat-technical-link {
   justify-self: start;
   min-width: auto;
-  border-radius: 999px;
+  border-radius: 0;
   padding: 4px 10px;
   font-size: 0.76rem;
   border: 1px solid rgba(127, 153, 245, 0.55);
@@ -2907,10 +2912,9 @@ body.agent-chat-no-page-scroll .page {
   align-items: center;
   cursor: pointer;
   min-width: auto;
-  border-radius: 999px;
-  border: 1px solid rgba(138, 161, 255, 0.42);
-  background: rgba(96, 132, 255, 0.18);
-  color: #cdd7ff;
+  border-radius: 0;
+  border: 1px solid var(--line);
+  color: var(--text);
   font-size: 0.79rem;
   line-height: 1.1;
   padding: 3px 8px;
@@ -2918,8 +2922,8 @@ body.agent-chat-no-page-scroll .page {
 }
 
 .agent-chat-task-tag:hover {
-  border-color: rgba(173, 190, 255, 0.62);
-  background: rgba(110, 146, 255, 0.28);
+  border-color: var(--accent-color);
+  background: rgba(var(--accent-color), 0.1);
 }
 
 .agent-chat-message-body .agent-chat-task-tag {
@@ -2944,25 +2948,18 @@ body.agent-chat-no-page-scroll .page {
   gap: 6px;
   padding: 8px 12px;
   border: 1px solid #2c3140;
-  border-radius: 999px;
-  background: #252935;
+  border-radius: 0;
   position: relative;
   isolation: isolate;
   flex-shrink: 0;
-  box-shadow:
-    0 14px 32px rgba(12, 18, 36, 0.48),
-    0 2px 8px rgba(112, 77, 255, 0.26),
-    inset 0 1px 0 rgba(196, 206, 255, 0.09);
 }
 
 .agent-chat-compose::before {
   content: "";
   position: absolute;
   inset: -2px;
-  border-radius: inherit;
+  border-radius: 0;
   z-index: -1;
-  background:
-    linear-gradient(95deg, rgba(123, 174, 255, 0.24) 0%, rgba(149, 103, 255, 0.38) 48%, rgba(88, 202, 255, 0.2) 100%);
   filter: blur(14px);
   opacity: 0.62;
   pointer-events: none;
@@ -2972,9 +2969,8 @@ body.agent-chat-no-page-scroll .page {
   content: "";
   position: absolute;
   inset: 0;
-  border-radius: inherit;
+  border-radius: 0;
   pointer-events: none;
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.1) 0%, rgba(255, 255, 255, 0.01) 30%, rgba(255, 255, 255, 0) 100%);
 }
 
 .agent-chat-reply-target {
@@ -2984,7 +2980,7 @@ body.agent-chat-no-page-scroll .page {
   gap: 8px;
   border: 1px solid rgba(146, 130, 255, 0.35);
   background: rgba(146, 130, 255, 0.09);
-  border-radius: 10px;
+  border-radius: 0;
   padding: 6px 8px;
 }
 
@@ -3007,7 +3003,7 @@ body.agent-chat-no-page-scroll .page {
   width: 24px;
   height: 24px;
   border: 0;
-  border-radius: 999px;
+  border-radius: 0;
   padding: 0;
   background: transparent;
   color: var(--muted);
@@ -3064,9 +3060,9 @@ body.agent-chat-no-page-scroll .page {
 }
 
 .agent-chat-task-dropdown {
-  border: 1px solid rgba(92, 103, 130, 0.75);
-  border-radius: 12px;
-  background: rgba(8, 12, 20, 0.95);
+  border: 1px solid var(--line);
+  border-radius: 0;
+  background: var(--surface);
   max-height: 260px;
   overflow: auto;
   padding: 6px;
@@ -3083,7 +3079,7 @@ body.agent-chat-no-page-scroll .page {
 
 .agent-chat-task-dropdown-item {
   text-align: left;
-  border-radius: 10px;
+  border-radius: 0;
   border: 1px solid transparent;
   background: transparent;
   padding: 8px;
@@ -3094,8 +3090,8 @@ body.agent-chat-no-page-scroll .page {
 
 .agent-chat-task-dropdown-item:hover,
 .agent-chat-task-dropdown-item.active {
-  border-color: rgba(122, 144, 198, 0.55);
-  background: rgba(77, 96, 147, 0.26);
+  border-color: var(--accent);
+  background: var(--surface-2);
 }
 
 .agent-chat-task-dropdown-row {
@@ -3141,7 +3137,7 @@ body.agent-chat-no-page-scroll .page {
   padding: 4px 8px;
   min-width: auto;
   font-size: 0.8rem;
-  border-radius: 999px;
+  border-radius: 0;
 }
 
 .agent-chat-pending-files button .material-symbols-rounded {
@@ -3154,7 +3150,7 @@ body.agent-chat-no-page-scroll .page {
 
 .agent-chat-mode-button {
   min-width: auto;
-  border-radius: 999px;
+  border-radius: 0;
   font-size: 0.84rem;
   display: inline-flex;
   align-items: center;
@@ -3169,7 +3165,7 @@ body.agent-chat-no-page-scroll .page {
 .agent-chat-reasoning-select {
   min-width: auto;
   border: 1px solid var(--line);
-  border-radius: 999px;
+  border-radius: 0;
   padding: 4px 10px;
   display: inline-flex;
   align-items: center;
@@ -3200,7 +3196,7 @@ body.agent-chat-no-page-scroll .page {
   min-width: 34px;
   width: 34px;
   height: 34px;
-  border-radius: 999px;
+  border-radius: 0;
   padding: 0;
   display: inline-flex;
   align-items: center;
@@ -3253,7 +3249,7 @@ body.agent-chat-no-page-scroll .page {
   width: 28px;
   height: 28px;
   border: 0;
-  border-radius: 999px;
+  border-radius: 0;
   padding: 0;
   background: transparent;
   color: var(--muted);
@@ -3273,7 +3269,7 @@ body.agent-chat-no-page-scroll .page {
   position: fixed;
   width: min(340px, calc(100vw - 24px));
   border: 1px solid rgba(128, 140, 166, 0.7);
-  border-radius: 12px;
+  border-radius: 0;
   background: rgba(8, 11, 18, 0.97);
   box-shadow: 0 18px 44px rgba(0, 0, 0, 0.5);
   padding: 10px;
@@ -3317,7 +3313,7 @@ body.agent-chat-no-page-scroll .page {
 
 .agent-chat-task-preview-meta span {
   border: 1px solid rgba(118, 132, 164, 0.45);
-  border-radius: 999px;
+  border-radius: 0;
   padding: 2px 8px;
   font-size: 0.72rem;
   color: #bec8e2;
@@ -3380,7 +3376,7 @@ body.agent-chat-no-page-scroll .page {
 
 .agent-config-docs fieldset {
   border: 1px solid var(--line-strong);
-  border-radius: 10px;
+  border-radius: 0;
   padding: 8px;
   display: grid;
   gap: 6px;
@@ -3431,7 +3427,7 @@ body.agent-chat-no-page-scroll .page {
   gap: 12px;
   padding: 10px 12px;
   border: 1px solid var(--line);
-  border-radius: 10px;
+  border-radius: 0;
   background: var(--surface);
 }
 
@@ -3473,7 +3469,7 @@ body.agent-chat-no-page-scroll .page {
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: 8px;
+  border-radius: 0;
   border: 1px solid transparent;
   background: transparent;
   color: var(--muted);
@@ -3481,9 +3477,8 @@ body.agent-chat-no-page-scroll .page {
 }
 
 .agent-channel-remove:hover {
-  border-color: #ef4444;
-  color: #ef4444;
-  background: rgba(239, 68, 68, 0.06);
+  border-color: var(--danger);
+  color: var(--danger);
 }
 
 .agent-channel-remove .material-symbols-rounded {
@@ -3493,7 +3488,7 @@ body.agent-chat-no-page-scroll .page {
 
 .agent-channel-form {
   border: 1px solid var(--line);
-  border-radius: 10px;
+  border-radius: 0;
   background: var(--surface);
   padding: 14px;
   display: flex;
@@ -3537,7 +3532,7 @@ body.agent-chat-no-page-scroll .page {
   padding: 7px 14px;
   font-size: 0.85rem;
   font-weight: 600;
-  border-radius: 9px;
+  border-radius: 0;
   border: 1px solid var(--line);
   background: var(--surface);
   color: var(--text);
@@ -3573,7 +3568,7 @@ body.agent-chat-no-page-scroll .page {
 
 .agent-tools-status {
   border: 1px solid var(--line);
-  border-radius: 999px;
+  border-radius: 0;
   padding: 5px 10px;
   color: var(--muted);
   font-size: 0.77rem;
@@ -3587,7 +3582,7 @@ body.agent-chat-no-page-scroll .page {
 
 .agent-tools-panel {
   border: 1px solid var(--line);
-  border-radius: 12px;
+  border-radius: 0;
   padding: 12px;
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.015) 0%, rgba(255, 255, 255, 0) 100%);
   display: grid;
@@ -3635,7 +3630,7 @@ body.agent-chat-no-page-scroll .page {
 .agent-tools-domain {
   margin: 0;
   border: 1px solid var(--line);
-  border-radius: 11px;
+  border-radius: 0;
   background: rgba(13, 16, 24, 0.72);
   padding: 10px;
   display: grid;
@@ -3696,7 +3691,7 @@ body.agent-chat-no-page-scroll .page {
   height: 100%;
   border: 0;
   padding: 0;
-  border-radius: inherit;
+  border-radius: 0;
   opacity: 0;
   cursor: pointer;
 }
@@ -3704,7 +3699,7 @@ body.agent-chat-no-page-scroll .page {
 .agent-tools-switch-track {
   width: 100%;
   height: 100%;
-  border-radius: 999px;
+  border-radius: 0;
   border: 1px solid var(--line-strong);
   background: rgba(255, 255, 255, 0.06);
   transition: background 150ms ease, border-color 150ms ease;
@@ -3714,7 +3709,7 @@ body.agent-chat-no-page-scroll .page {
   content: "";
   width: 18px;
   height: 18px;
-  border-radius: 50%;
+  border-radius: 0;
   background: #d4d8e4;
   position: absolute;
   top: 3px;
@@ -3740,7 +3735,7 @@ body.agent-chat-no-page-scroll .page {
 
 .agent-tools-guardrail {
   border: 1px solid var(--line);
-  border-radius: 10px;
+  border-radius: 0;
   padding: 10px;
   display: grid;
   gap: 8px;
@@ -3874,7 +3869,7 @@ body.agent-chat-no-page-scroll .page {
 
 .logs-level-pill {
   border: 1px solid var(--line);
-  border-radius: 999px;
+  border-radius: 0;
   padding: 4px 10px;
   display: inline-flex;
   align-items: center;
@@ -3924,7 +3919,7 @@ body.agent-chat-no-page-scroll .page {
 
 .logs-feed {
   border: 1px solid var(--line);
-  border-radius: 10px;
+  border-radius: 0;
   min-height: 240px;
   max-height: 65vh;
   overflow: auto;
@@ -3956,7 +3951,7 @@ body.agent-chat-no-page-scroll .page {
 
 .logs-level-tag {
   border: 1px solid var(--line);
-  border-radius: 999px;
+  border-radius: 0;
   font-size: 0.76rem;
   padding: 2px 8px;
   text-transform: lowercase;
@@ -4019,7 +4014,7 @@ body.agent-chat-no-page-scroll .page {
   max-height: 220px;
   overflow: auto;
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: 0;
   background: rgba(10, 13, 20, 0.8);
   padding: 8px;
   color: #c5cde0;
@@ -4043,7 +4038,7 @@ body.agent-chat-no-page-scroll .page {
 .agent-modal-card {
   width: min(520px, 100%);
   border: 1px solid var(--line-strong);
-  border-radius: 14px;
+  border-radius: 0;
   background: #0b0f17;
   padding: 14px;
   display: grid;
@@ -4107,7 +4102,7 @@ body.agent-chat-no-page-scroll .page {
 .settings-side {
   background: var(--surface);
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: 0;
   padding: 10px;
   display: flex;
   flex-direction: column;
@@ -4127,7 +4122,7 @@ body.agent-chat-no-page-scroll .page {
 
 .settings-valid {
   border: 1px solid var(--line-strong);
-  border-radius: 999px;
+  border-radius: 0;
   padding: 4px 11px;
   font-size: 0.82rem;
 }
@@ -4143,7 +4138,7 @@ body.agent-chat-no-page-scroll .page {
 }
 
 .settings-search {
-  border-radius: 9px;
+  border-radius: 0;
 }
 
 .settings-nav {
@@ -4160,7 +4155,7 @@ body.agent-chat-no-page-scroll .page {
   gap: 10px;
   width: 100%;
   text-align: left;
-  border-radius: 9px;
+  border-radius: 0;
   border: 1px solid transparent;
   padding: 8px 10px;
   background: transparent;
@@ -4195,7 +4190,7 @@ body.agent-chat-no-page-scroll .page {
 
 .settings-mode-switch {
   border: 1px solid var(--line);
-  border-radius: 10px;
+  border-radius: 0;
   padding: 4px;
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -4215,7 +4210,7 @@ body.agent-chat-no-page-scroll .page {
 
 .settings-main {
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: 0;
   background: var(--surface);
   padding: 10px;
   display: grid;
@@ -4273,7 +4268,7 @@ body.agent-chat-no-page-scroll .page {
 
 .entry-list {
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: 0;
   background: var(--surface-3);
   display: grid;
   grid-template-rows: auto 1fr;
@@ -4307,7 +4302,7 @@ body.agent-chat-no-page-scroll .page {
   width: 100%;
   text-align: left;
   border: 1px solid var(--line);
-  border-radius: 10px;
+  border-radius: 0;
   background: var(--surface);
   color: var(--text);
 }
@@ -4319,7 +4314,7 @@ body.agent-chat-no-page-scroll .page {
 
 .entry-editor-card {
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: 0;
   background: var(--surface-3);
   padding: 10px;
 }
@@ -4337,7 +4332,7 @@ body.agent-chat-no-page-scroll .page {
 
 .entry-editor-block {
   border: 1px solid var(--line);
-  border-radius: 10px;
+  border-radius: 0;
   padding: 12px;
   margin-top: 10px;
   background: var(--surface);
@@ -4360,7 +4355,7 @@ body.agent-chat-no-page-scroll .page {
   font-size: 0.8rem;
   font-weight: 600;
   padding: 4px 12px;
-  border-radius: 20px;
+  border-radius: 0;
   border: 1px solid var(--line);
   background: transparent;
   color: var(--muted);
@@ -4394,7 +4389,7 @@ body.agent-chat-no-page-scroll .page {
 /* ---- Card ---- */
 .tg-card {
   border: 1px solid var(--line);
-  border-radius: 14px;
+  border-radius: 0;
   background: var(--surface-3);
   overflow: hidden;
 }
@@ -4427,7 +4422,7 @@ body.agent-chat-no-page-scroll .page {
   width: 36px;
   height: 36px;
   flex-shrink: 0;
-  border-radius: 50%;
+  border-radius: 0;
 }
 
 .tg-card-meta {
@@ -4457,14 +4452,14 @@ body.agent-chat-no-page-scroll .page {
   color: #22c55e;
   background: rgba(34, 197, 94, 0.10);
   border: 1px solid rgba(34, 197, 94, 0.25);
-  border-radius: 20px;
+  border-radius: 0;
   padding: 1px 8px;
 }
 
 .tg-status-dot {
   width: 6px;
   height: 6px;
-  border-radius: 50%;
+  border-radius: 0;
   background: #22c55e;
   flex-shrink: 0;
 }
@@ -4579,7 +4574,7 @@ body.agent-chat-no-page-scroll .page {
   height: 34px;
   font-size: 0.8rem;
   font-weight: 500;
-  border-radius: 8px;
+  border-radius: 0;
   border: 1px solid var(--line);
   background: var(--surface-3);
   color: var(--muted);
@@ -4609,7 +4604,7 @@ body.agent-chat-no-page-scroll .page {
   padding: 5px 14px;
   font-size: 0.82rem;
   font-weight: 600;
-  border-radius: 8px;
+  border-radius: 0;
   border: 1px solid var(--line);
   background: var(--surface);
   color: var(--text);
@@ -4640,7 +4635,7 @@ body.agent-chat-no-page-scroll .page {
   gap: 12px;
   padding: 10px 12px;
   border: 1px solid var(--line);
-  border-radius: 10px;
+  border-radius: 0;
   background: var(--surface);
 }
 
@@ -4672,13 +4667,13 @@ body.agent-chat-no-page-scroll .page {
   min-width: auto;
   padding: 5px 12px;
   font-size: 0.8rem;
-  border-radius: 8px;
+  border-radius: 0;
 }
 
 /* ---- Binding edit form ---- */
 .tg-binding-form {
   border: 1px solid var(--line);
-  border-radius: 10px;
+  border-radius: 0;
   background: var(--surface);
   padding: 12px;
   display: flex;
@@ -4714,7 +4709,7 @@ body.agent-chat-no-page-scroll .page {
   padding: 7px 16px;
   font-size: 0.85rem;
   font-weight: 600;
-  border-radius: 10px;
+  border-radius: 0;
   border: 1px solid var(--line);
   background: transparent;
   color: var(--text);
@@ -4741,7 +4736,7 @@ body.agent-chat-no-page-scroll .page {
 .tg-modal {
   width: min(480px, 100%);
   border: 1px solid var(--line-strong);
-  border-radius: 16px;
+  border-radius: 0;
   background: #0d1118;
   display: flex;
   flex-direction: column;
@@ -4774,7 +4769,7 @@ body.agent-chat-no-page-scroll .page {
   background: transparent;
   color: var(--muted);
   cursor: pointer;
-  border-radius: 8px;
+  border-radius: 0;
 }
 
 .tg-modal-close:hover {
@@ -4861,7 +4856,7 @@ body.agent-chat-no-page-scroll .page {
   font-size: 0.88rem;
   font-weight: 600;
   border: none;
-  border-radius: 10px;
+  border-radius: 0;
   background: var(--accent);
   color: #fff;
   cursor: pointer;
@@ -4892,7 +4887,7 @@ body.agent-chat-no-page-scroll .page {
 
 .providers-intro-card {
   border: 1px solid var(--line);
-  border-radius: 14px;
+  border-radius: 0;
   background: #0f1219;
   padding: 16px;
   display: grid;
@@ -4904,11 +4899,11 @@ body.agent-chat-no-page-scroll .page {
 }
 
 .providers-note {
-  border: 1px solid var(--line);
-  border-radius: 10px;
+  border: 1px solid var(--danger);
+  border-radius: 0;
   background: rgba(255, 255, 255, 0.01);
   padding: 12px 14px;
-  color: var(--muted);
+  color: var(--danger);
 }
 
 .providers-list {
@@ -4919,7 +4914,7 @@ body.agent-chat-no-page-scroll .page {
 
 .provider-card {
   border: 1px solid var(--line);
-  border-radius: 14px;
+  border-radius: 0;
   padding: 16px;
   background: #11141c;
   color: var(--text);
@@ -4946,7 +4941,7 @@ body.agent-chat-no-page-scroll .page {
 .provider-list-icon {
   width: 52px;
   height: 52px;
-  border-radius: 12px;
+  border-radius: 0;
   border: 1px solid var(--line);
   background: rgba(255, 255, 255, 0.02);
   display: inline-flex;
@@ -5004,7 +4999,7 @@ body.agent-chat-no-page-scroll .page {
   justify-content: center;
   min-width: 90px;
   border: 1px solid var(--line-strong);
-  border-radius: 10px;
+  border-radius: 0;
   padding: 10px 14px;
   font-size: 0.92rem;
   color: var(--text);
@@ -5027,7 +5022,7 @@ body.agent-chat-no-page-scroll .page {
   max-height: calc(100vh - 40px);
   overflow: auto;
   border: 1px solid var(--line-strong);
-  border-radius: 14px;
+  border-radius: 0;
   background: #0d1118;
   padding: 14px;
   display: grid;
@@ -5071,7 +5066,7 @@ body.agent-chat-no-page-scroll .page {
 
 .provider-modal-catalog {
   border: 1px solid var(--line);
-  border-radius: 12px;
+  border-radius: 0;
   padding: 10px;
   background: var(--surface-3);
   display: grid;
@@ -5091,7 +5086,7 @@ body.agent-chat-no-page-scroll .page {
   right: 0;
   z-index: 20;
   border: 1px solid var(--line-strong);
-  border-radius: 12px;
+  border-radius: 0;
   background: #101621;
   padding: 8px;
   display: grid;
@@ -5120,7 +5115,7 @@ body.agent-chat-no-page-scroll .page {
 
 .provider-model-option {
   border: 1px solid var(--line);
-  border-radius: 10px;
+  border-radius: 0;
   background: var(--surface);
   color: var(--text);
   text-align: left;
@@ -5163,7 +5158,7 @@ body.agent-chat-no-page-scroll .page {
   border: 1px solid var(--line-strong);
   background: var(--surface);
   color: var(--accent);
-  border-radius: 999px;
+  border-radius: 0;
   font-size: 0.74rem;
   padding: 2px 8px;
 }
@@ -5197,14 +5192,14 @@ select {
   border: 1px solid var(--line);
   background: var(--surface);
   color: var(--text);
-  border-radius: 9px;
+  border-radius: 0;
   padding: 10px;
   font: inherit;
 }
 
 button {
   border: 1px solid var(--line);
-  border-radius: 9px;
+  border-radius: 0;
   padding: 9px 12px;
   background: var(--surface);
   color: var(--text);
@@ -5234,7 +5229,7 @@ button:hover {
 .feed-item,
 .task-card {
   border: 1px solid var(--line);
-  border-radius: 10px;
+  border-radius: 0;
   padding: 8px;
   background: var(--surface-3);
 }
@@ -5254,7 +5249,7 @@ button:hover {
 pre {
   margin-top: 8px;
   padding: 10px;
-  border-radius: 10px;
+  border-radius: 0;
   border: 1px solid var(--line);
   background: #0a0d13;
   max-height: 200px;
@@ -5586,7 +5581,7 @@ pre {
   padding: 8px 16px;
   font-size: 0.9rem;
   cursor: pointer;
-  border-radius: 8px;
+  border-radius: 0;
   transition: all 0.2s;
 }
 
@@ -5617,7 +5612,7 @@ pre {
   gap: 10px;
   background: var(--surface);
   border: 1px solid var(--line);
-  border-radius: 10px;
+  border-radius: 0;
   padding: 10px 14px;
 }
 
@@ -5642,7 +5637,7 @@ pre {
 .skills-sort {
   background: var(--surface);
   border: 1px solid var(--line);
-  border-radius: 10px;
+  border-radius: 0;
   padding: 10px 14px;
   color: var(--text);
   font-size: 0.85rem;
@@ -5659,7 +5654,7 @@ pre {
 .skills-github-section {
   background: var(--surface);
   border: 1px solid var(--line);
-  border-radius: 12px;
+  border-radius: 0;
   padding: 16px;
   margin-bottom: 24px;
 }
@@ -5684,7 +5679,7 @@ pre {
   flex: 1;
   background: var(--bg);
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: 0;
   padding: 10px 12px;
   color: var(--text);
   font-size: 0.9rem;
@@ -5702,7 +5697,7 @@ pre {
   background: var(--accent);
   color: #fff;
   border: none;
-  border-radius: 8px;
+  border-radius: 0;
   padding: 10px 16px;
   font-size: 0.85rem;
   font-weight: 500;
@@ -5751,7 +5746,7 @@ pre {
 .skill-card {
   background: var(--surface);
   border: 1px solid var(--line);
-  border-radius: 12px;
+  border-radius: 0;
   padding: 16px;
   display: flex;
   flex-direction: column;
@@ -5811,7 +5806,7 @@ pre {
   justify-content: center;
   width: 32px;
   height: 32px;
-  border-radius: 8px;
+  border-radius: 0;
   border: none;
   cursor: pointer;
   transition: all 0.2s;
@@ -5819,7 +5814,7 @@ pre {
 
 .skill-button-install {
   background: var(--accent);
-  color: #fff;
+  color: #000;
 }
 
 .skill-button-install:hover:not(:disabled) {
@@ -5828,7 +5823,7 @@ pre {
 
 .skill-button-installed {
   background: var(--success);
-  color: #fff;
+  color: #000;
 }
 
 .skill-button-uninstall {
@@ -5891,7 +5886,7 @@ pre {
   background: var(--accent);
   color: #fff;
   border: none;
-  border-radius: 8px;
+  border-radius: 0;
   padding: 10px 20px;
   font-size: 0.9rem;
   cursor: pointer;
@@ -5909,7 +5904,7 @@ pre {
   gap: 8px;
   background: rgba(248, 113, 113, 0.1);
   border: 1px solid rgba(248, 113, 113, 0.3);
-  border-radius: 8px;
+  border-radius: 0;
   padding: 12px 16px;
   margin-bottom: 16px;
   color: var(--danger);
@@ -5933,7 +5928,7 @@ pre {
   gap: 6px;
   background: var(--surface);
   border: 1px solid var(--line);
-  border-radius: 10px;
+  border-radius: 0;
   padding: 10px 24px;
   color: var(--text);
   font-size: 0.9rem;
@@ -5985,7 +5980,7 @@ pre {
   font-size: 0.85rem;
   cursor: pointer;
   padding: 4px 8px;
-  border-radius: 6px;
+  border-radius: 0;
   transition: color 0.15s ease, background 0.15s ease;
 }
 
@@ -6019,7 +6014,7 @@ pre {
   background: rgba(255, 255, 255, 0.02);
   border: 1px solid var(--line);
   padding: 16px 20px;
-  border-radius: 8px;
+  border-radius: 0;
 }
 
 .latest-run-status {
@@ -6035,7 +6030,7 @@ pre {
 
 .badge {
   padding: 2px 10px;
-  border-radius: 12px;
+  border-radius: 0;
   font-size: 0.75rem;
   font-weight: 500;
   text-transform: capitalize;
@@ -6078,7 +6073,7 @@ pre {
 .chart-card {
   background: rgba(255, 255, 255, 0.02);
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: 0;
   padding: 16px;
   display: flex;
   flex-direction: column;
@@ -6127,7 +6122,7 @@ pre {
 
 .chart-bar {
   width: 10px;
-  border-radius: 2px 2px 0 0;
+  border-radius: 0;
   min-height: 2px;
 }
 
@@ -6173,7 +6168,7 @@ pre {
 .legend-dot {
   width: 6px;
   height: 6px;
-  border-radius: 50%;
+  border-radius: 0;
 }
 
 .bg-critical {
@@ -6200,7 +6195,7 @@ pre {
 .recent-issues-list {
   background: rgba(255, 255, 255, 0.02);
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: 0;
   display: flex;
   flex-direction: column;
 }
@@ -6241,7 +6236,7 @@ pre {
   background: rgba(255, 255, 255, 0.02);
   border: 1px solid var(--line);
   padding: 24px;
-  border-radius: 8px;
+  border-radius: 0;
   gap: 16px;
 }
 
