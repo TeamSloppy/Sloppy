@@ -421,7 +421,7 @@ function AgentsIndexSection({
       ) : agents.length === 0 ? (
         <div className="agents-empty-stage">
           <p className="placeholder-text">Create your first agent to start work</p>
-          <button type="button" className="agent-empty-create" onClick={onOpenCreateModal}>
+          <button type="button" className="agent-empty-create hover-levitate" onClick={onOpenCreateModal}>
             Create Agent
           </button>
         </div>

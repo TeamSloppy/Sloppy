@@ -2226,18 +2226,126 @@ body.mobile-menu-open {
 }
 
 .agent-empty-create {
-  border: 0;
-  background: transparent;
-  color: var(--accent);
-  font-size: 1.03rem;
-  font-weight: 500;
-  padding: 4px 8px;
+  border-color: var(--line-strong);
+  background: var(--surface-3);
+  padding: 6px 10px;
+  font-size: 0.86rem;
 }
 
-.agent-empty-create:hover {
-  border: 0;
-  color: #cd9eff;
+/* ── Cron Tab ─────────────────────────────────────────── */
+
+.cron-empty-stage {
+  min-height: 320px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  text-align: center;
+  padding: 24px 12px;
+  border: 1px dashed var(--line-strong);
+  border-radius: 0;
 }
+
+.cron-empty-icon {
+  font-size: 48px;
+  color: var(--muted);
+  opacity: 0.5;
+}
+
+.cron-empty-title {
+  margin: 0;
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.cron-empty-desc {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.9rem;
+  line-height: 1.55;
+}
+
+.cron-task-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 0;
+  background: var(--surface-2);
+  flex-wrap: wrap;
+}
+
+.cron-task-info {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.cron-task-schedule {
+  font-family: "Fira Code", monospace;
+  font-size: 0.82rem;
+  color: var(--accent);
+  background: rgba(139, 92, 246, 0.1);
+  border: 1px solid rgba(139, 92, 246, 0.3);
+  padding: 2px 8px;
+  white-space: nowrap;
+}
+
+.cron-task-command {
+  font-size: 0.9rem;
+  color: var(--text);
+  font-weight: 500;
+}
+
+.cron-task-channel {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+
+.cron-task-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-shrink: 0;
+}
+
+.cron-task-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.82rem;
+  color: var(--muted);
+  cursor: pointer;
+  margin: 0;
+}
+
+.cron-task-toggle .agent-tools-switch {
+  flex-shrink: 0;
+}
+
+.cron-form-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--muted);
+  font-size: 0.88rem;
+}
+
+.cron-form-toggle .agent-tools-switch {
+  flex-shrink: 0;
+}
+
+/* ── End Cron Tab ─────────────────────────────────────── */
 
 .agent-status-line {
   margin: 0;
@@ -6319,6 +6427,7 @@ pre {
     grid-template-columns: repeat(2, 1fr);
   }
 }
+
 /* ═══════════════════════════════════════════════════
    RUNTIME OVERVIEW VIEW
 ═══════════════════════════════════════════════════ */
@@ -6365,8 +6474,17 @@ pre {
 }
 
 @keyframes pulse-dot {
-  0%, 100% { opacity: 1; transform: scale(1); }
-  50% { opacity: 0.4; transform: scale(0.6); }
+
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+
+  50% {
+    opacity: 0.4;
+    transform: scale(0.6);
+  }
 }
 
 .overview-section {
@@ -6691,12 +6809,25 @@ pre {
 }
 
 @media (max-width: 900px) {
-  .stat-row { grid-template-columns: repeat(2, 1fr); }
-  .active-channels-grid { grid-template-columns: 1fr 1fr; }
+  .stat-row {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .active-channels-grid {
+    grid-template-columns: 1fr 1fr;
+  }
 }
 
 @media (max-width: 600px) {
-  .stat-row { grid-template-columns: 1fr 1fr; }
-  .active-channels-grid { grid-template-columns: 1fr; }
-  .activity-charts-grid { grid-template-columns: 1fr; }
+  .stat-row {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .active-channels-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .activity-charts-grid {
+    grid-template-columns: 1fr;
+  }
 }
