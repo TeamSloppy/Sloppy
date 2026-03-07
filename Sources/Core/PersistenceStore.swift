@@ -129,4 +129,19 @@ public protocol PersistenceStore: Sendable {
 
     /// Deletes one channel plugin record.
     func deleteChannelPlugin(id: String) async
+
+    /// Lists cron tasks for an agent.
+    func listCronTasks(agentId: String) async -> [AgentCronTask]
+
+    /// Lists all cron tasks across all agents.
+    func listAllCronTasks() async -> [AgentCronTask]
+
+    /// Returns one cron task by identifier.
+    func cronTask(id: String) async -> AgentCronTask?
+
+    /// Creates or replaces one cron task record.
+    func saveCronTask(_ task: AgentCronTask) async
+
+    /// Deletes one cron task record.
+    func deleteCronTask(id: String) async
 }

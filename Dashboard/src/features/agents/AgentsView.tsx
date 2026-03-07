@@ -10,6 +10,7 @@ import { AgentChannelsTab } from "./components/AgentChannelsTab";
 import { AgentConfigTab } from "./components/AgentConfigTab";
 import { AgentToolsTab } from "./components/AgentToolsTab";
 import { AgentSkillsTab } from "./components/AgentSkillsTab";
+import { AgentCronTab } from "./components/AgentCronTab";
 
 const AGENT_TABS = [
   { id: "overview", title: "Overview" },
@@ -607,10 +608,9 @@ export function AgentsView({ routeAgentId = null, routeTab = "overview", onRoute
 
     if (tab === "cron") {
       return (
-        <AgentPlaceholderTab
-          title="Cron"
-          description="Scheduled jobs for this agent will be managed here."
-        />
+        <section className="entry-editor-card agent-content-card">
+          <AgentCronTab agentId={agent.id} />
+        </section>
       );
     }
 

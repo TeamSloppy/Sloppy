@@ -398,9 +398,8 @@ function buildTechnicalRecord(eventItem, index) {
   if (eventItem?.type === "run_control" && eventItem.runControl) {
     const action = eventItem.runControl.action || "control";
     const title = `Control: ${action}`;
-    const detail = `Action: ${action}\nRequested by: ${eventItem.runControl.requestedBy || "unknown"}${
-      eventItem.runControl.reason ? `\nReason: ${eventItem.runControl.reason}` : ""
-    }`;
+    const detail = `Action: ${action}\nRequested by: ${eventItem.runControl.requestedBy || "unknown"}${eventItem.runControl.reason ? `\nReason: ${eventItem.runControl.reason}` : ""
+      }`;
 
     return {
       id: `${eventKey}-run-control`,
@@ -678,7 +677,7 @@ function setCaretOffsetInEditor(root, offset) {
       }
       if (isBlockElementNode(child) && index < children.length - 1) {
         if (remaining <= 1) {
-          range.setStartAfter(child);
+          range.setStartAfter(child as Node);
           range.collapse(true);
           return true;
         }
@@ -1136,7 +1135,7 @@ function AgentChatComposer({
                 const tagElement = findInlineTaskTagElement(event.target);
                 if (tagElement) {
                   event.preventDefault();
-                  const reference = normalizeTaskReference(tagElement.dataset.taskReference);
+                  const reference = normalizeTaskReference((tagElement as HTMLElement).dataset.taskReference);
                   if (reference) {
                     onTaskTagClick(reference);
                   }
@@ -1153,7 +1152,7 @@ function AgentChatComposer({
                 if (relatedElement === tagElement) {
                   return;
                 }
-                const reference = normalizeTaskReference(tagElement.dataset.taskReference);
+                const reference = normalizeTaskReference((tagElement as HTMLElement).dataset.taskReference);
                 if (!reference) {
                   return;
                 }
@@ -1330,7 +1329,7 @@ export function AgentChatTab({ agentId }) {
   const fileInputRef = useRef(null);
   const composeInputRef = useRef(null);
   const runStateRef = useRef({ sessionId: null, abortController: null });
-  const streamCleanupRef = useRef(() => {});
+  const streamCleanupRef = useRef(() => { });
   const taskRecordCacheRef = useRef(new Map());
   const taskRecordInflightRef = useRef(new Map());
   const activeModelOption = useMemo(
@@ -1346,7 +1345,7 @@ export function AgentChatTab({ agentId }) {
     document.body.classList.add("agent-chat-no-page-scroll");
     return () => {
       streamCleanupRef.current?.();
-      streamCleanupRef.current = () => {};
+      streamCleanupRef.current = () => { };
       document.body.classList.remove("agent-chat-no-page-scroll");
     };
   }, []);
@@ -1481,7 +1480,7 @@ export function AgentChatTab({ agentId }) {
       setKnownTaskRecords(mergeTaskRecords([], normalized));
     }
 
-    loadKnownTasks().catch(() => {});
+    loadKnownTasks().catch(() => { });
 
     return () => {
       isCancelled = true;
@@ -1510,7 +1509,7 @@ export function AgentChatTab({ agentId }) {
       setReasoningEffort(DEFAULT_REASONING_EFFORT);
       setIsSending(false);
       streamCleanupRef.current?.();
-      streamCleanupRef.current = () => {};
+      streamCleanupRef.current = () => { };
       runStateRef.current.abortController?.abort();
       runStateRef.current.sessionId = null;
       runStateRef.current.abortController = null;
@@ -1555,7 +1554,7 @@ export function AgentChatTab({ agentId }) {
     return () => {
       isCancelled = true;
       streamCleanupRef.current?.();
-      streamCleanupRef.current = () => {};
+      streamCleanupRef.current = () => { };
       runStateRef.current.abortController?.abort();
       runStateRef.current.sessionId = null;
       runStateRef.current.abortController = null;
@@ -1718,7 +1717,7 @@ export function AgentChatTab({ agentId }) {
 
   useEffect(() => {
     streamCleanupRef.current?.();
-    streamCleanupRef.current = () => {};
+    streamCleanupRef.current = () => { };
 
     if (!activeSessionId) {
       return;
@@ -1742,7 +1741,7 @@ export function AgentChatTab({ agentId }) {
     return () => {
       disconnect();
       if (streamCleanupRef.current === disconnect) {
-        streamCleanupRef.current = () => {};
+        streamCleanupRef.current = () => { };
       }
     };
   }, [agentId, activeSessionId]);

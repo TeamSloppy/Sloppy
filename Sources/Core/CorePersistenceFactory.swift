@@ -45,7 +45,6 @@ public actor InMemoryPersistenceStore: PersistenceStore {
 
     public func listTokenUsage(channelId: String?, taskId: String?, from: Date?, to: Date?) async -> [TokenUsageRecord] {
         var result: [TokenUsageRecord] = []
-        let formatter = ISO8601DateFormatter()
 
         for (index, entry) in tokenUsages.enumerated() {
             // Apply filters
@@ -170,6 +169,28 @@ public actor InMemoryPersistenceStore: PersistenceStore {
 
     public func deleteProject(id: String) async {
         projects[id] = nil
+    }
+
+    private var cronTasks: [String: AgentCronTask] = [:]
+
+    public func listCronTasks(agentId: String) async -> [AgentCronTask] {
+        cronTasks.values.filter { $0.agentId == agentId }.sorted { $0.createdAt < $1.createdAt }
+    }
+
+    public func listAllCronTasks() async -> [AgentCronTask] {
+        cronTasks.values.sorted { $0.createdAt < $1.createdAt }
+    }
+
+    public func cronTask(id: String) async -> AgentCronTask? {
+        cronTasks[id]
+    }
+
+    public func saveCronTask(_ task: AgentCronTask) async {
+        cronTasks[task.id] = task
+    }
+
+    public func deleteCronTask(id: String) async {
+        cronTasks[id] = nil
     }
 
     private var channelPlugins: [String: ChannelPluginRecord] = [:]
