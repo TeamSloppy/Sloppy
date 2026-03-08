@@ -642,7 +642,7 @@ body.mobile-menu-open {
   margin: 0;
   padding: 4px 0;
   list-style: none;
-  background: var(--surface2, #1e2130);
+  background: var(--surface-2);
   border: 1px solid var(--line);
   border-radius: 0;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
@@ -778,6 +778,7 @@ body.mobile-menu-open {
   flex-direction: column;
   gap: 12px;
   overflow: hidden;
+  background: var(--bg);
   transition: width 240ms cubic-bezier(0.22, 0.61, 0.36, 1), padding 240ms cubic-bezier(0.22, 0.61, 0.36, 1);
 }
 
@@ -4537,8 +4538,7 @@ body.agent-chat-no-page-scroll .page {
 }
 
 .settings-side {
-  background: var(--surface);
-  border: 1px solid var(--line);
+  border-right: 1px solid var(--line);
   border-radius: 0;
   padding: 10px;
   display: flex;
@@ -5719,7 +5719,6 @@ pre {
 .entry-list,
 .entry-list-item,
 .entry-editor-card,
-.settings-side,
 .settings-main,
 .provider-model-option,
 .log-item,
@@ -5865,6 +5864,43 @@ pre {
   .providers-list,
   .provider-modal-form {
     grid-template-columns: 1fr;
+  }
+
+  .settings-shell {
+    align-content: start;
+  }
+
+  .settings-side {
+    border-right: none;
+    border-bottom: 1px solid var(--line);
+    max-height: 100px;
+  }
+
+  .settings-nav {
+    display: flex;
+    flex-direction: row;
+    overflow-x: auto;
+    gap: 8px;
+    padding-bottom: 4px;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .settings-nav::-webkit-scrollbar {
+    height: 4px;
+  }
+
+  .settings-nav::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .settings-nav::-webkit-scrollbar-thumb {
+    background: var(--line);
+  }
+
+  .settings-nav-item {
+    width: auto;
+    white-space: nowrap;
+    justify-content: center;
   }
 
   .project-workspace-head,
@@ -6198,7 +6234,7 @@ pre {
 
 /* Skill Card */
 .skill-card {
-  background: var(--surface);
+  background: var(--surface-2);
   border: 1px solid var(--line);
   border-radius: 0;
   padding: 16px;
@@ -6209,7 +6245,7 @@ pre {
 
 .skill-card:hover {
   border-color: var(--line-strong);
-  background: var(--surface-2);
+  background: var(--surface-3);
 }
 
 .skill-card-header {

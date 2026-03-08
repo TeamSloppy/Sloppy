@@ -516,7 +516,7 @@ public actor SQLiteStore: PersistenceStore {
 
         let sql =
             """
-            SELECT id, name, description, created_at, updated_at
+            SELECT id, name, description, actors_json, teams_json, created_at, updated_at
             FROM dashboard_projects
             ORDER BY created_at ASC;
             """
@@ -533,8 +533,10 @@ public actor SQLiteStore: PersistenceStore {
                 let idPtr = sqlite3_column_text(statement, 0),
                 let namePtr = sqlite3_column_text(statement, 1),
                 let descriptionPtr = sqlite3_column_text(statement, 2),
-                let createdAtPtr = sqlite3_column_text(statement, 3),
-                let updatedAtPtr = sqlite3_column_text(statement, 4)
+                let actorsPtr = sqlite3_column_text(statement, 3),
+                let teamsPtr = sqlite3_column_text(statement, 4),
+                let createdAtPtr = sqlite3_column_text(statement, 5),
+                let updatedAtPtr = sqlite3_column_text(statement, 6)
             else {
                 continue
             }
@@ -542,8 +544,12 @@ public actor SQLiteStore: PersistenceStore {
             let id = String(cString: idPtr)
             let name = String(cString: namePtr)
             let description = String(cString: descriptionPtr)
+            let actorsJSON = String(cString: actorsPtr)
+            let teamsJSON = String(cString: teamsPtr)
             let createdAt = isoFormatter.date(from: String(cString: createdAtPtr)) ?? Date()
             let updatedAt = isoFormatter.date(from: String(cString: updatedAtPtr)) ?? createdAt
+            let actors = (try? JSONDecoder().decode([String].self, from: Data(actorsJSON.utf8))) ?? []
+            let teams = (try? JSONDecoder().decode([String].self, from: Data(teamsJSON.utf8))) ?? []
             let channels = loadProjectChannels(db: db, projectID: id)
             let tasks = loadProjectTasks(db: db, projectID: id)
             result.append(
@@ -553,6 +559,8 @@ public actor SQLiteStore: PersistenceStore {
                     description: description,
                     channels: channels,
                     tasks: tasks,
+                    actors: actors,
+                    teams: teams,
                     createdAt: createdAt,
                     updatedAt: updatedAt
                 )
@@ -570,7 +578,7 @@ public actor SQLiteStore: PersistenceStore {
         if let db {
             let sql =
                 """
-                SELECT id, name, description, created_at, updated_at
+                SELECT id, name, description, actors_json, teams_json, created_at, updated_at
                 FROM dashboard_projects
                 WHERE id = ?
                 LIMIT 1;
@@ -587,17 +595,25 @@ public actor SQLiteStore: PersistenceStore {
                let idPtr = sqlite3_column_text(statement, 0),
                let namePtr = sqlite3_column_text(statement, 1),
                let descriptionPtr = sqlite3_column_text(statement, 2),
-               let createdAtPtr = sqlite3_column_text(statement, 3),
-               let updatedAtPtr = sqlite3_column_text(statement, 4) {
+               let actorsPtr = sqlite3_column_text(statement, 3),
+               let teamsPtr = sqlite3_column_text(statement, 4),
+               let createdAtPtr = sqlite3_column_text(statement, 5),
+               let updatedAtPtr = sqlite3_column_text(statement, 6) {
                 let projectID = String(cString: idPtr)
+                let actorsJSON = String(cString: actorsPtr)
+                let teamsJSON = String(cString: teamsPtr)
                 let createdAt = isoFormatter.date(from: String(cString: createdAtPtr)) ?? Date()
                 let updatedAt = isoFormatter.date(from: String(cString: updatedAtPtr)) ?? createdAt
+                let actors = (try? JSONDecoder().decode([String].self, from: Data(actorsJSON.utf8))) ?? []
+                let teams = (try? JSONDecoder().decode([String].self, from: Data(teamsJSON.utf8))) ?? []
                 return ProjectRecord(
                     id: projectID,
                     name: String(cString: namePtr),
                     description: String(cString: descriptionPtr),
                     channels: loadProjectChannels(db: db, projectID: projectID),
                     tasks: loadProjectTasks(db: db, projectID: projectID),
+                    actors: actors,
+                    teams: teams,
                     createdAt: createdAt,
                     updatedAt: updatedAt
                 )
@@ -622,9 +638,11 @@ public actor SQLiteStore: PersistenceStore {
                 id,
                 name,
                 description,
+                actors_json,
+                teams_json,
                 created_at,
                 updated_at
-            ) VALUES(?, ?, ?, ?, ?);
+            ) VALUES(?, ?, ?, ?, ?, ?, ?);
             """
 
         var projectStatement: OpaquePointer?
@@ -633,11 +651,16 @@ public actor SQLiteStore: PersistenceStore {
         }
         defer { sqlite3_finalize(projectStatement) }
 
+        let actorsJSON = (try? String(data: JSONEncoder().encode(project.actors), encoding: .utf8)) ?? "[]"
+        let teamsJSON = (try? String(data: JSONEncoder().encode(project.teams), encoding: .utf8)) ?? "[]"
+
         bindText(project.id, at: 1, statement: projectStatement)
         bindText(project.name, at: 2, statement: projectStatement)
         bindText(project.description, at: 3, statement: projectStatement)
-        bindText(isoFormatter.string(from: project.createdAt), at: 4, statement: projectStatement)
-        bindText(isoFormatter.string(from: project.updatedAt), at: 5, statement: projectStatement)
+        bindText(actorsJSON, at: 4, statement: projectStatement)
+        bindText(teamsJSON, at: 5, statement: projectStatement)
+        bindText(isoFormatter.string(from: project.createdAt), at: 6, statement: projectStatement)
+        bindText(isoFormatter.string(from: project.updatedAt), at: 7, statement: projectStatement)
         guard sqlite3_step(projectStatement) == SQLITE_DONE else {
             return
         }

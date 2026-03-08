@@ -618,7 +618,13 @@ export function ProjectsView({
   }, []);
 
   useEffect(() => {
-    const shouldLoadAssignments = isCreateProjectModalOpen || isCreateTaskModalOpen || Boolean(editingTask);
+    const shouldLoadAssignments =
+      isCreateProjectModalOpen ||
+      isCreateTaskModalOpen ||
+      Boolean(editingTask) ||
+      selectedTab === "settings" ||
+      selectedTab === "tasks";
+
     if (!shouldLoadAssignments) {
       return;
     }
@@ -646,7 +652,7 @@ export function ProjectsView({
     return () => {
       isCancelled = true;
     };
-  }, [isCreateProjectModalOpen, isCreateTaskModalOpen, editingTask]);
+  }, [isCreateProjectModalOpen, isCreateTaskModalOpen, editingTask, selectedTab]);
 
   useEffect(() => {
     if (!selectedProject) {
@@ -1221,6 +1227,21 @@ export function ProjectsView({
     setStatusText("Project settings saved.");
   }
 
+  async function saveProjectMembers(actors, teams) {
+    if (!selectedProject) {
+      return;
+    }
+
+    const updated = await updateProjectRequest(selectedProject.id, { actors, teams });
+    if (!updated) {
+      setStatusText("Failed to save project members.");
+      return;
+    }
+
+    replaceProjectInState(updated);
+    setStatusText("Project members saved.");
+  }
+
   function renderProjectTab(project) {
     if (selectedTab === "overview") {
       const relatedWorkers = workersForProject(project, workers);
@@ -1279,9 +1300,12 @@ export function ProjectsView({
         projectNameDraft={projectNameDraft}
         setProjectNameDraft={setProjectNameDraft}
         saveProjectSettings={saveProjectSettings}
+        saveProjectMembers={saveProjectMembers}
         deleteProject={deleteProject}
         openAddChannelModal={openAddChannelModal}
         removeProjectChannel={removeProjectChannel}
+        actors={createModalActors}
+        teams={createModalTeams}
       />
     );
   }
@@ -1325,12 +1349,12 @@ export function ProjectsView({
       )}
 
       {selectedProject ? renderProjectDetails(selectedProject) : <ProjectList
-          projects={projects}
-          isLoadingProjects={isLoadingProjects}
-          openProject={openProject}
-          openCreateProjectModal={openCreateProjectModal}
-          workers={workers}
-        />}
+        projects={projects}
+        isLoadingProjects={isLoadingProjects}
+        openProject={openProject}
+        openCreateProjectModal={openCreateProjectModal}
+        workers={workers}
+      />}
 
       {statusText && statusText !== "No projects yet." && statusText !== "Loading projects..." && (
         <p className="app-status-text">{statusText}</p>
