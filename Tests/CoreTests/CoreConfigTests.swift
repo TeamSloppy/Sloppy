@@ -154,6 +154,70 @@ func memoryProviderSupportsRemoteAliasAndKeepsSettings() throws {
 }
 
 @Test
+func discordChannelSettingsDecodeWhenPresent() throws {
+    let json =
+        """
+        {
+          "listen": { "host": "0.0.0.0", "port": 25101 },
+          "workspace": { "name": "workspace", "basePath": "~" },
+          "auth": { "token": "dev-token" },
+          "models": [],
+          "memory": { "backend": "sqlite-local-vectors" },
+          "nodes": ["local"],
+          "gateways": [],
+          "plugins": [],
+          "channels": {
+            "discord": {
+              "botToken": "discord-token",
+              "channelDiscordChannelMap": {
+                "general": "123456789012345678"
+              },
+              "allowedGuildIds": ["987654321098765432"],
+              "allowedChannelIds": [],
+              "allowedUserIds": ["555555555555555555"]
+            },
+            "telegram": null
+          },
+          "sqlitePath": "core.sqlite"
+        }
+        """
+
+    let decoded = try JSONDecoder().decode(CoreConfig.self, from: Data(json.utf8))
+
+    #expect(decoded.channels.discord?.botToken == "discord-token")
+    #expect(decoded.channels.discord?.channelDiscordChannelMap["general"] == "123456789012345678")
+    #expect(decoded.channels.discord?.allowedGuildIds == ["987654321098765432"])
+    #expect(decoded.channels.discord?.allowedUserIds == ["555555555555555555"])
+}
+
+@Test
+func discordChannelSettingsRoundTripPreservesStringIDs() throws {
+    var config = CoreConfig.default
+    config.channels = .init(
+        discord: .init(
+            botToken: "discord-token",
+            channelDiscordChannelMap: [
+                "general": "123456789012345678",
+                "ops": "999999999999999999"
+            ],
+            allowedGuildIds: ["111111111111111111"],
+            allowedChannelIds: ["123456789012345678"],
+            allowedUserIds: ["222222222222222222"]
+        )
+    )
+
+    let encoder = JSONEncoder()
+    let data = try encoder.encode(config)
+    let decoded = try JSONDecoder().decode(CoreConfig.self, from: data)
+
+    #expect(decoded.channels.discord?.channelDiscordChannelMap["general"] == "123456789012345678")
+    #expect(decoded.channels.discord?.channelDiscordChannelMap["ops"] == "999999999999999999")
+    #expect(decoded.channels.discord?.allowedGuildIds == ["111111111111111111"])
+    #expect(decoded.channels.discord?.allowedChannelIds == ["123456789012345678"])
+    #expect(decoded.channels.discord?.allowedUserIds == ["222222222222222222"])
+}
+
+@Test
 func gitSyncSettingsDecodeWhenPresent() throws {
     let json =
         """

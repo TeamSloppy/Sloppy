@@ -1,4 +1,5 @@
 import Foundation
+import ChannelPluginSupport
 import Logging
 import PluginSDK
 
@@ -7,7 +8,7 @@ actor TelegramPoller {
     private let bot: TelegramBotAPI
     private let receiver: any InboundMessageReceiver
     private let config: TelegramPluginConfig
-    private let commands: CommandHandler
+    private let commands: ChannelCommandHandler
     private let logger: Logger
     private var offset: Int64? = nil
 
@@ -20,7 +21,7 @@ actor TelegramPoller {
         self.bot = bot
         self.receiver = receiver
         self.config = config
-        self.commands = CommandHandler()
+        self.commands = ChannelCommandHandler(platformName: "Telegram")
         self.logger = logger
     }
 
