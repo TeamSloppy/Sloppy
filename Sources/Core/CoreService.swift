@@ -2684,6 +2684,15 @@ public actor CoreService {
         return project.channels.sorted(by: { $0.createdAt < $1.createdAt }).first?.channelId
     }
 
+    /// Stops background tasks and waits for pending work.
+    public func stop() async {
+        eventTask?.cancel()
+        eventTask = nil
+        await memoryOutboxIndexer?.stop()
+    }
+
+
+
     private struct TaskDelegation {
         let actorID: String?
         let agentID: String?
@@ -3421,6 +3430,9 @@ public actor CoreService {
             allowed.formUnion(recipients)
         }
 
+        // If we have a board and detected task-specific routes, we must respect them.
+        // Returning an empty set instead of nil ensures that we don't fall back to 'allow all'
+        // when a board is present but the specific actor is not in the allowed set.
         guard hasTaskRoutes else {
             return nil
         }
@@ -5424,12 +5436,29 @@ public actor CoreService {
             return nil
         }
 
-        guard case .number(let prompt)? = tokenUsageObj["prompt"],
-              case .number(let completion)? = tokenUsageObj["completion"] else {
+        let prompt: Double?
+        if case .number(let val) = tokenUsageObj["prompt"] {
+            prompt = val
+        } else if case .string(let str) = tokenUsageObj["prompt"] {
+            prompt = Double(str)
+        } else {
+            prompt = nil
+        }
+
+        let completion: Double?
+        if case .number(let val) = tokenUsageObj["completion"] {
+            completion = val
+        } else if case .string(let str) = tokenUsageObj["completion"] {
+            completion = Double(str)
+        } else {
+            completion = nil
+        }
+
+        guard let p = prompt, let c = completion else {
             return nil
         }
 
-        return TokenUsage(prompt: Int(prompt), completion: Int(completion))
+        return TokenUsage(prompt: Int(p), completion: Int(c))
     }
 }
 
