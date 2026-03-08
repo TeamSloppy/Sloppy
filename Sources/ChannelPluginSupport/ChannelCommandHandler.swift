@@ -1,15 +1,19 @@
 import Foundation
 
-/// Handles Telegram bot commands (/start, /help, /task, /status).
-/// Returns a response string if the command was handled locally, or nil if it
-/// should be forwarded to Core as a regular message.
-struct CommandHandler: Sendable {
-    func handle(text: String, from displayName: String) -> String? {
+/// Handles shared channel bot commands across built-in gateway plugins.
+public struct ChannelCommandHandler: Sendable {
+    private let platformName: String
+
+    public init(platformName: String) {
+        self.platformName = platformName
+    }
+
+    public func handle(text: String, from displayName: String) -> String? {
         let lower = text.lowercased()
 
         if lower == "/start" || lower == "/help" {
             return """
-            Sloppy Channel Plugin (Telegram)
+            Sloppy Channel Plugin (\(platformName))
 
             Available commands:
             /help   — show this message
@@ -36,7 +40,7 @@ struct CommandHandler: Sendable {
     }
 
     /// Transforms /task commands into plain content suitable for Core.
-    func transformForCore(text: String, from displayName: String) -> String {
+    public func transformForCore(text: String, from displayName: String) -> String {
         let lower = text.lowercased()
         if lower.hasPrefix("/task ") {
             let description = String(text.dropFirst(6)).trimmingCharacters(in: .whitespacesAndNewlines)

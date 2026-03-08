@@ -17,6 +17,7 @@ This guide explains how to work on Sloppy in development and which repository ru
 | `Sources/PluginSDK` | Plugin contracts for models, tools, memory, and gateways |
 | `Sources/Node` | Node daemon executable |
 | `Sources/App` | App executable placeholder |
+| `Sources/ChannelPluginDiscord` | Discord gateway integration |
 | `Sources/ChannelPluginTelegram` | Telegram gateway integration |
 | `Dashboard/` | React/Vite frontend |
 | `Tests/` | Swift Testing suites |
@@ -118,6 +119,28 @@ swift build -c release --product Core
 swift build -c release --product Node
 swift build -c release --product App
 cd Dashboard
+
+## Built-in channel config
+
+Core can bootstrap built-in channel gateways directly from `sloppy.json`.
+
+Example Discord configuration:
+
+```json
+{
+  "channels": {
+    "discord": {
+      "botToken": "discord-bot-token",
+      "channelDiscordChannelMap": {
+        "general": "123456789012345678"
+      },
+      "allowedGuildIds": ["987654321098765432"],
+      "allowedChannelIds": [],
+      "allowedUserIds": []
+    }
+  }
+}
+```
 npm install
 npm run build
 ```
