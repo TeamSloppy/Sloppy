@@ -183,6 +183,8 @@ public struct ProjectRecord: Codable, Sendable, Equatable {
     public var description: String
     public var channels: [ProjectChannel]
     public var tasks: [ProjectTask]
+    public var actors: [String]
+    public var teams: [String]
     public var createdAt: Date
     public var updatedAt: Date
 
@@ -192,6 +194,8 @@ public struct ProjectRecord: Codable, Sendable, Equatable {
         description: String,
         channels: [ProjectChannel],
         tasks: [ProjectTask],
+        actors: [String] = [],
+        teams: [String] = [],
         createdAt: Date = Date(),
         updatedAt: Date = Date()
     ) {
@@ -200,6 +204,8 @@ public struct ProjectRecord: Codable, Sendable, Equatable {
         self.description = description
         self.channels = channels
         self.tasks = tasks
+        self.actors = actors
+        self.teams = teams
         self.createdAt = createdAt
         self.updatedAt = updatedAt
     }
@@ -210,22 +216,30 @@ public struct ProjectCreateRequest: Codable, Sendable {
     public var name: String
     public var description: String?
     public var channels: [ProjectChannelCreateRequest]
+    public var actors: [String]?
+    public var teams: [String]?
 
-    public init(id: String? = nil, name: String, description: String? = nil, channels: [ProjectChannelCreateRequest] = []) {
+    public init(id: String? = nil, name: String, description: String? = nil, channels: [ProjectChannelCreateRequest] = [], actors: [String]? = nil, teams: [String]? = nil) {
         self.id = id
         self.name = name
         self.description = description
         self.channels = channels
+        self.actors = actors
+        self.teams = teams
     }
 }
 
 public struct ProjectUpdateRequest: Codable, Sendable {
     public var name: String?
     public var description: String?
+    public var actors: [String]?
+    public var teams: [String]?
 
-    public init(name: String? = nil, description: String? = nil) {
+    public init(name: String? = nil, description: String? = nil, actors: [String]? = nil, teams: [String]? = nil) {
         self.name = name
         self.description = description
+        self.actors = actors
+        self.teams = teams
     }
 }
 

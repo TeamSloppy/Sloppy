@@ -110,7 +110,9 @@ export function normalizeProject(project, index = 0) {
     createdAt: String(project?.createdAt || new Date().toISOString()),
     updatedAt: String(project?.updatedAt || project?.createdAt || new Date().toISOString()),
     chats,
-    tasks
+    tasks,
+    actors: Array.isArray(project?.actors) ? project.actors : [],
+    teams: Array.isArray(project?.teams) ? project.teams : []
   };
 }
 
