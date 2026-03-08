@@ -29,6 +29,7 @@ struct CoreMain: AsyncParsableCommand {
     var oneshot: Bool = false
 
     mutating func run() async throws {
+        print("Starting Sloppy Core...")
         var runtimeLogger: Logger?
 
         do {
@@ -123,8 +124,12 @@ struct CoreMain: AsyncParsableCommand {
                     }
                 }
                 try server.waitUntilClosed()
+                print("Core HTTP server stopped")
             }
+
+            print("Core is exiting")
         } catch {
+            print("Core is exiting because of an unrecoverable error: \(String(describing: error))")
             if let runtimeLogger {
                 runtimeLogger.critical("Core is exiting because of an unrecoverable error: \(String(describing: error))")
             } else {
