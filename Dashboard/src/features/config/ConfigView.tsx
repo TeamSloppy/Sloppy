@@ -8,6 +8,7 @@ import { SettingsMainHeader } from "./components/SettingsMainHeader";
 import { SettingsPlaceholder } from "./components/SettingsPlaceholder";
 import { SettingsSidebar } from "./components/SettingsSidebar";
 import { TelegramEditor } from "./components/TelegramEditor";
+import { DiscordEditor } from "./components/DiscordEditor";
 
 const SETTINGS_ITEMS = [
   { id: "providers", title: "Providers", icon: "hub" },
@@ -125,7 +126,7 @@ const EMPTY_CONFIG = {
   nodes: ["local"],
   gateways: [],
   plugins: [],
-  channels: { telegram: null },
+  channels: { telegram: null, discord: null },
   searchTools: {
     activeProvider: "perplexity",
     providers: {
@@ -333,18 +334,25 @@ function normalizeConfig(config) {
   normalized.plugins = plugins.map(normalizePlugin);
 
   const tg = config?.channels?.telegram;
-  if (tg && typeof tg === "object") {
-    normalized.channels = {
-      telegram: {
+  const dc = config?.channels?.discord;
+
+  normalized.channels = {
+    telegram: tg && typeof tg === "object"
+      ? {
         botToken: String(tg.botToken || ""),
         channelChatMap: tg.channelChatMap && typeof tg.channelChatMap === "object" ? tg.channelChatMap : {},
         allowedUserIds: Array.isArray(tg.allowedUserIds) ? tg.allowedUserIds : [],
         allowedChatIds: Array.isArray(tg.allowedChatIds) ? tg.allowedChatIds : []
       }
-    };
-  } else {
-  normalized.channels = { telegram: null };
-  }
+      : null,
+    discord: dc && typeof dc === "object"
+      ? {
+        botToken: String(dc.botToken || ""),
+        guildId: String(dc.guildId || ""),
+        channelAgentMap: dc.channelAgentMap && typeof dc.channelAgentMap === "object" ? dc.channelAgentMap : {}
+      }
+      : null
+  };
 
   normalized.searchTools.activeProvider =
     String(config?.searchTools?.activeProvider || normalized.searchTools.activeProvider).trim().toLowerCase() === "brave"
@@ -906,6 +914,7 @@ export function ConfigView({ sectionId = "providers", onSectionChange = null }) 
       return (
         <div className="tg-settings-shell">
           <TelegramEditor draftConfig={draftConfig} mutateDraft={mutateDraft} />
+          <DiscordEditor draftConfig={draftConfig} mutateDraft={mutateDraft} />
         </div>
       );
     }
