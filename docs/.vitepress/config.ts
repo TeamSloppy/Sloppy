@@ -13,6 +13,7 @@ export default defineConfig({
     logo: "/so_logo.svg",
     nav: [
       { text: "Guides", link: "/guides/build-from-terminal" },
+      { text: "Design", link: "/architecture/project-design" },
       { text: "Specs", link: "/specs/protocol-v1" },
       { text: "ADR", link: "/adr/0001-runtime-architecture" },
       { text: "Dashboard", link: "/dashboard-style" }
@@ -34,6 +35,13 @@ export default defineConfig({
         ]
       },
       {
+        text: "Architecture",
+        items: [
+          { text: "Project Design", link: "/architecture/project-design" },
+          { text: "ADR-0001 Runtime Architecture", link: "/adr/0001-runtime-architecture" }
+        ]
+      },
+      {
         text: "Specifications",
         items: [
           { text: "Protocol v1", link: "/specs/protocol-v1" },
@@ -41,12 +49,6 @@ export default defineConfig({
           { text: "Channel Plugin Protocol v1", link: "/specs/channel-plugin-protocol" },
           { text: "PRD Runtime v1", link: "/specs/prd-runtime-v1" },
           { text: "Runtime v1 Gap Analysis", link: "/specs/runtime-v1-gap-analysis" }
-        ]
-      },
-      {
-        text: "Architecture Decisions",
-        items: [
-          { text: "ADR-0001 Runtime Architecture", link: "/adr/0001-runtime-architecture" }
         ]
       }
     ],

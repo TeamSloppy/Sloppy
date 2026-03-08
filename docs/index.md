@@ -13,12 +13,14 @@ hero:
       text: Open Specs
       link: /specs/protocol-v1
     - theme: alt
-      text: Review Architecture
-      link: /adr/0001-runtime-architecture
+      text: Review Design
+      link: /architecture/project-design
 
 features:
   - title: Build Guides
     details: Step-by-step docs explain how to run Sloppy from the terminal, how to use Docker Compose, and what checks to run before opening a PR.
+  - title: Project Design
+    details: A detailed architecture document explains module boundaries, runtime flows, persistence, integrations, and current implementation tradeoffs.
   - title: Runtime Specs
     details: Protocol, runtime model, plugin contracts, PRD, and gap analysis stay published directly from the repository Markdown files.
   - title: Dashboard Palette
