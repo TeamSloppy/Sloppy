@@ -73,7 +73,7 @@ const STEP_TITLES = [
 ];
 
 const DEFAULT_PROMPT =
-  "Setup yourself as the CEO. Use the ceo persona found here: https://github.com/paperclipai/companies/blob/main/default/ceo/AGENTS.md\n\n" +
+  "Setup yourself as the CEO. Use the ceo persona found here: https://github.com/TeamSloppy/Sloppy/blob/main/Assets/Agents/ceo/AGENTS.md\n\n" +
   "Ensure you have a folder agents/ceo and then download this AGENTS.md as well as the sibling HEARTBEAT.md, SOUL.md, and TOOLS.md. and set that AGENTS.md as the path to your agents instruction file\n\n" +
   "And after you've finished that, hire yourself a Founding Engineer agent";
 
