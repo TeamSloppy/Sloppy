@@ -1,5 +1,6 @@
 import Foundation
 import AgentRuntime
+import ChannelPluginDiscord
 import ChannelPluginTelegram
 import Logging
 import Protocols
@@ -38,6 +39,33 @@ public struct AgentSessionStreamUpdate: Codable, Sendable {
         self.message = message
         self.createdAt = createdAt
     }
+}
+
+struct BuiltInGatewayPluginFactory: Sendable {
+    let makeTelegram: @Sendable (CoreConfig.ChannelConfig.Telegram) -> any GatewayPlugin
+    let makeDiscord: @Sendable (CoreConfig.ChannelConfig.Discord) -> any GatewayPlugin
+
+    static let live = BuiltInGatewayPluginFactory(
+        makeTelegram: { config in
+            TelegramGatewayPlugin(
+                botToken: config.botToken,
+                channelChatMap: config.channelChatMap,
+                allowedUserIds: config.allowedUserIds,
+                allowedChatIds: config.allowedChatIds,
+                logger: Logger(label: "sloppy.plugin.telegram")
+            )
+        },
+        makeDiscord: { config in
+            DiscordGatewayPlugin(
+                botToken: config.botToken,
+                channelDiscordChannelMap: config.channelDiscordChannelMap,
+                allowedGuildIds: config.allowedGuildIds,
+                allowedChannelIds: config.allowedChannelIds,
+                allowedUserIds: config.allowedUserIds,
+                logger: Logger(label: "sloppy.plugin.discord")
+            )
+        }
+    )
 }
 
 public actor CoreService {
@@ -154,6 +182,7 @@ public actor CoreService {
     private let swarmPlanner: SwarmPlanner
     private let logger: Logger
     private let configPath: String
+    private let builtInGatewayPluginFactory: BuiltInGatewayPluginFactory
     private var workspaceRootURL: URL
     private var agentsRootURL: URL
     private var currentConfig: CoreConfig
@@ -173,6 +202,20 @@ public actor CoreService {
         configPath: String = CoreConfig.defaultConfigPath,
         persistenceBuilder: any CorePersistenceBuilding = DefaultCorePersistenceBuilder(),
         searchProviderService: SearchProviderService? = nil
+    ) {
+        self.init(
+            config: config,
+            configPath: configPath,
+            persistenceBuilder: persistenceBuilder,
+            builtInGatewayPluginFactory: .live
+        )
+    }
+
+    init(
+        config: CoreConfig,
+        configPath: String = CoreConfig.defaultConfigPath,
+        persistenceBuilder: any CorePersistenceBuilding = DefaultCorePersistenceBuilder(),
+        builtInGatewayPluginFactory: BuiltInGatewayPluginFactory
     ) {
         let resolvedModels = CoreModelProviderFactory.resolveModelIdentifiers(config: config)
         let modelProvider = CoreModelProviderFactory.buildModelProvider(config: config, resolvedModels: resolvedModels)
@@ -240,6 +283,7 @@ public actor CoreService {
             searchProviderService: self.searchProviderService
         )
         self.logger = Logger(label: "sloppy.core.visor")
+        self.builtInGatewayPluginFactory = builtInGatewayPluginFactory
         if let hybridMemoryStore {
             self.memoryOutboxIndexer = MemoryOutboxIndexer(
                 store: hybridMemoryStore,
@@ -290,24 +334,23 @@ public actor CoreService {
     /// Must be called after `CoreService.init` from an async context (e.g. CoreMain).
     public func bootstrapChannelPlugins() async {
         if let telegramConfig = currentConfig.channels.telegram {
-            let plugin = TelegramGatewayPlugin(
-                botToken: telegramConfig.botToken,
-                channelChatMap: telegramConfig.channelChatMap,
-                allowedUserIds: telegramConfig.allowedUserIds,
-                allowedChatIds: telegramConfig.allowedChatIds,
-                logger: Logger(label: "sloppy.plugin.telegram")
+            let plugin = builtInGatewayPluginFactory.makeTelegram(telegramConfig)
+            await startBuiltInPlugin(
+                plugin,
+                id: "telegram",
+                type: "telegram",
+                channelIds: Array(telegramConfig.channelChatMap.keys)
             )
-            await channelDelivery.registerPlugin(plugin)
-            activeGatewayPlugins.append(plugin)
+        }
 
-            await seedTelegramPluginRecord(plugin: plugin, config: telegramConfig)
-
-            do {
-                try await plugin.start(inboundReceiver: self)
-                logger.info("Telegram gateway plugin started.")
-            } catch {
-                logger.error("Failed to start Telegram gateway plugin: \(error)")
-            }
+        if let discordConfig = currentConfig.channels.discord {
+            let plugin = builtInGatewayPluginFactory.makeDiscord(discordConfig)
+            await startBuiltInPlugin(
+                plugin,
+                id: "discord",
+                type: "discord",
+                channelIds: Array(discordConfig.channelDiscordChannelMap.keys)
+            )
         }
 
         let pluginsDir = workspaceRootURL.appendingPathComponent("plugins", isDirectory: true)
@@ -377,17 +420,16 @@ public actor CoreService {
         await heartbeatRunner?.stop()
     }
 
-    private func seedTelegramPluginRecord(
-        plugin: TelegramGatewayPlugin,
-        config: CoreConfig.ChannelConfig.Telegram
+    private func seedBuiltInPluginRecord(
+        id pluginId: String,
+        type: String,
+        channelIds: [String]
     ) async {
-        let channelIds = Array(config.channelChatMap.keys)
-        let pluginId = "telegram"
         let existing = await store.channelPlugin(id: pluginId)
         let now = Date()
         let record = ChannelPluginRecord(
             id: pluginId,
-            type: "telegram",
+            type: type,
             baseUrl: "",
             channelIds: channelIds,
             config: [:],
@@ -2356,42 +2398,85 @@ public actor CoreService {
         await sessionOrchestrator.updateAvailableModels(Self.availableAgentModels(config: config))
 
         if previousChannels.telegram != config.channels.telegram {
-            await reloadTelegramPlugin(newConfig: config.channels.telegram)
+            var plugin: (any GatewayPlugin)?
+            if let telegramConfig = config.channels.telegram {
+                let token = telegramConfig.botToken.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !token.isEmpty {
+                    plugin = builtInGatewayPluginFactory.makeTelegram(telegramConfig)
+                }
+            }
+            let channelIds = config.channels.telegram.map { Array($0.channelChatMap.keys) } ?? []
+            await reloadBuiltInPlugin(
+                id: "telegram",
+                type: "telegram",
+                newPlugin: plugin,
+                channelIds: channelIds,
+                removedBecauseEmptyToken: config.channels.telegram?.botToken.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == true
+            )
+        }
+
+        if previousChannels.discord != config.channels.discord {
+            var plugin: (any GatewayPlugin)?
+            if let discordConfig = config.channels.discord {
+                let token = discordConfig.botToken.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !token.isEmpty {
+                    plugin = builtInGatewayPluginFactory.makeDiscord(discordConfig)
+                }
+            }
+            let channelIds = config.channels.discord.map { Array($0.channelDiscordChannelMap.keys) } ?? []
+            await reloadBuiltInPlugin(
+                id: "discord",
+                type: "discord",
+                newPlugin: plugin,
+                channelIds: channelIds,
+                removedBecauseEmptyToken: config.channels.discord?.botToken.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == true
+            )
         }
 
         return currentConfig
     }
 
-    private func reloadTelegramPlugin(newConfig: CoreConfig.ChannelConfig.Telegram?) async {
-        if let existing = activeGatewayPlugins.first(where: { $0.id == "telegram" }) {
-            logger.info("Telegram config changed — stopping existing plugin.")
+    private func startBuiltInPlugin(
+        _ plugin: any GatewayPlugin,
+        id: String,
+        type: String,
+        channelIds: [String]
+    ) async {
+        await channelDelivery.registerPlugin(plugin)
+        activeGatewayPlugins.append(plugin)
+        await seedBuiltInPluginRecord(id: id, type: type, channelIds: channelIds)
+
+        do {
+            try await plugin.start(inboundReceiver: self)
+            logger.info("\(type.capitalized) gateway plugin started.")
+        } catch {
+            logger.error("Failed to start \(type) gateway plugin: \(error)")
+        }
+    }
+
+    private func reloadBuiltInPlugin(
+        id: String,
+        type: String,
+        newPlugin: (any GatewayPlugin)?,
+        channelIds: [String],
+        removedBecauseEmptyToken: Bool
+    ) async {
+        if let existing = activeGatewayPlugins.first(where: { $0.id == id }) {
+            logger.info("\(type.capitalized) config changed — stopping existing plugin.")
             await existing.stop()
             await channelDelivery.unregisterPlugin(existing)
-            activeGatewayPlugins.removeAll { $0.id == "telegram" }
+            activeGatewayPlugins.removeAll { $0.id == id }
         }
 
-        guard let telegramConfig = newConfig, !telegramConfig.botToken.isEmpty else {
-            logger.info("Telegram plugin removed (no config or empty token).")
+        guard let newPlugin else {
+            let reason = removedBecauseEmptyToken ? "empty token" : "no config"
+            await store.deleteChannelPlugin(id: id)
+            logger.info("\(type.capitalized) plugin removed (\(reason)).")
             return
         }
 
-        logger.info("Telegram config changed — starting new plugin.")
-        let plugin = TelegramGatewayPlugin(
-            botToken: telegramConfig.botToken,
-            channelChatMap: telegramConfig.channelChatMap,
-            allowedUserIds: telegramConfig.allowedUserIds,
-            allowedChatIds: telegramConfig.allowedChatIds,
-            logger: Logger(label: "sloppy.plugin.telegram")
-        )
-        await channelDelivery.registerPlugin(plugin)
-        activeGatewayPlugins.append(plugin)
-        await seedTelegramPluginRecord(plugin: plugin, config: telegramConfig)
-        do {
-            try await plugin.start(inboundReceiver: self)
-            logger.info("Telegram plugin reloaded successfully.")
-        } catch {
-            logger.error("Failed to reload Telegram plugin: \(error)")
-        }
+        logger.info("\(type.capitalized) config changed — starting new plugin.")
+        await startBuiltInPlugin(newPlugin, id: id, type: type, channelIds: channelIds)
     }
 
     private func handleTaskApprovalCommand(channelId: String, reference: TaskApprovalReference) async -> ChannelRouteDecision {

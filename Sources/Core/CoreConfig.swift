@@ -324,6 +324,33 @@ public struct CoreConfig: Codable, Sendable {
     }
 
     public struct ChannelConfig: Codable, Sendable, Equatable {
+        public struct Discord: Codable, Sendable, Equatable {
+            /// Discord bot token.
+            public var botToken: String
+            /// Maps Sloppy channelId -> Discord channel ID.
+            public var channelDiscordChannelMap: [String: String]
+            /// When non-empty, only these guild IDs are allowed.
+            public var allowedGuildIds: [String]
+            /// When non-empty, only these channel IDs are allowed.
+            public var allowedChannelIds: [String]
+            /// When non-empty, only these Discord user IDs are allowed.
+            public var allowedUserIds: [String]
+
+            public init(
+                botToken: String,
+                channelDiscordChannelMap: [String: String] = [:],
+                allowedGuildIds: [String] = [],
+                allowedChannelIds: [String] = [],
+                allowedUserIds: [String] = []
+            ) {
+                self.botToken = botToken
+                self.channelDiscordChannelMap = channelDiscordChannelMap
+                self.allowedGuildIds = allowedGuildIds
+                self.allowedChannelIds = allowedChannelIds
+                self.allowedUserIds = allowedUserIds
+            }
+        }
+
         public struct Telegram: Codable, Sendable, Equatable {
             /// Telegram Bot API token.
             public var botToken: String
@@ -347,9 +374,14 @@ public struct CoreConfig: Codable, Sendable {
             }
         }
 
+        public var discord: Discord?
         public var telegram: Telegram?
 
-        public init(telegram: Telegram? = nil) {
+        public init(
+            discord: Discord? = nil,
+            telegram: Telegram? = nil
+        ) {
+            self.discord = discord
             self.telegram = telegram
         }
     }

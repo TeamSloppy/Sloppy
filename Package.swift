@@ -10,7 +10,9 @@ let package = Package(
         .library(name: "Protocols", targets: ["Protocols"]),
         .library(name: "PluginSDK", targets: ["PluginSDK"]),
         .library(name: "AgentRuntime", targets: ["AgentRuntime"]),
+        .library(name: "ChannelPluginSupport", targets: ["ChannelPluginSupport"]),
         .library(name: "ChannelPluginTelegram", targets: ["ChannelPluginTelegram"]),
+        .library(name: "ChannelPluginDiscord", targets: ["ChannelPluginDiscord"]),
         .executable(name: "Core", targets: ["Core"]),
         .executable(name: "Node", targets: ["Node"]),
         .executable(name: "App", targets: ["App"])
@@ -37,6 +39,10 @@ let package = Package(
             path: "Sources/PluginSDK"
         ),
         .target(
+            name: "ChannelPluginSupport",
+            path: "Sources/ChannelPluginSupport"
+        ),
+        .target(
             name: "AgentRuntime",
             dependencies: ["Protocols", "PluginSDK"],
             path: "Sources/AgentRuntime"
@@ -45,6 +51,7 @@ let package = Package(
             name: "Core",
             dependencies: [
                 "AgentRuntime",
+                "ChannelPluginDiscord",
                 "ChannelPluginTelegram",
                 "Protocols",
                 "PluginSDK",
@@ -88,11 +95,22 @@ let package = Package(
         .target(
             name: "ChannelPluginTelegram",
             dependencies: [
+                "ChannelPluginSupport",
                 "Protocols",
                 "PluginSDK",
                 .product(name: "Logging", package: "swift-log")
             ],
             path: "Sources/ChannelPluginTelegram"
+        ),
+        .target(
+            name: "ChannelPluginDiscord",
+            dependencies: [
+                "ChannelPluginSupport",
+                "Protocols",
+                "PluginSDK",
+                .product(name: "Logging", package: "swift-log")
+            ],
+            path: "Sources/ChannelPluginDiscord"
         ),
         .testTarget(
             name: "ProtocolsTests",
@@ -106,7 +124,13 @@ let package = Package(
         ),
         .testTarget(
             name: "CoreTests",
-            dependencies: ["Core", "AgentRuntime", "Protocols", "PluginSDK"],
+            dependencies: [
+                "Core",
+                "AgentRuntime",
+                "ChannelPluginDiscord",
+                "Protocols",
+                "PluginSDK"
+            ],
             path: "Tests/CoreTests"
         )
     ]

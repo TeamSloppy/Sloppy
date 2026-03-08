@@ -156,7 +156,7 @@ the Core configuration file. Each registration record contains:
 | Field        | Type     | Description                                      |
 |-------------|----------|--------------------------------------------------|
 | id          | string   | Unique plugin identifier (auto-generated or set) |
-| type        | string   | Plugin kind, e.g. `"telegram"`, `"slack"`        |
+| type        | string   | Plugin kind, e.g. `"telegram"`, `"discord"`, `"slack"` |
 | baseUrl     | string   | Root URL of the plugin HTTP server               |
 | channelIds  | [string] | Sloppy channel IDs served by this plugin   |
 | config      | object   | Arbitrary settings (tokens, allow-lists, etc.)   |
