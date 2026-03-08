@@ -14,401 +14,42 @@ import {
 } from "../api";
 import { Breadcrumbs } from "../components/Breadcrumbs/Breadcrumbs";
 
-const ACTIVE_WORKER_STATUSES = new Set(["queued", "running", "waitinginput", "waiting_input"]);
-
-const PROJECT_TABS = [
-  { id: "overview", title: "Overview" },
-  { id: "tasks", title: "Tasks" },
-  { id: "workers", title: "Workers" },
-  { id: "memories", title: "Memories" },
-  { id: "visor", title: "Visor" },
-  { id: "settings", title: "Settings" }
-];
-
-const TASK_STATUSES = [
-  { id: "backlog", title: "Backlog" },
-  { id: "ready", title: "Ready to work" },
-  { id: "in_progress", title: "In progress" },
-  { id: "blocked", title: "Blocked" },
-  { id: "done", title: "Done" }
-];
-
-const TASK_PRIORITIES = ["low", "medium", "high"];
-const TASK_PRIORITY_LABELS = {
-  low: "Low",
-  medium: "Medium",
-  high: "High"
-};
-
-const PROJECT_TAB_SET = new Set(PROJECT_TABS.map((tab) => tab.id));
-const TASK_STATUS_SET = new Set(TASK_STATUSES.map((status) => status.id));
-const TASK_PRIORITY_SET = new Set(TASK_PRIORITIES);
-
-function createId(prefix) {
-  return `${prefix}-${Date.now()}-${Math.floor(Math.random() * 100000)}`;
-}
-
-function toSlug(value) {
-  return String(value || "")
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/(^-|-$)/g, "");
-}
-
-function emptyTaskDraft(initialStatus = "backlog") {
-  return {
-    title: "",
-    description: "",
-    priority: "medium",
-    status: TASK_STATUS_SET.has(initialStatus) ? initialStatus : "backlog",
-    actorId: "",
-    teamId: ""
-  };
-}
-
-function normalizeChat(chat, index = 0) {
-  const fallback = `channel-${index + 1}`;
-  return {
-    id: String(chat?.id || createId("chat")).trim(),
-    title: String(chat?.title || `Channel ${index + 1}`).trim(),
-    channelId: String(chat?.channelId || fallback).trim() || fallback
-  };
-}
-
-function normalizeTask(task, index = 0) {
-  const status = String(task?.status || "backlog").trim().toLowerCase();
-  const priority = String(task?.priority || "medium").trim().toLowerCase();
-
-  return {
-    id: String(task?.id || createId("task")).trim() || createId(`task-${index + 1}`),
-    title: String(task?.title || `Task ${index + 1}`).trim(),
-    description: String(task?.description || "").trim(),
-    status: TASK_STATUS_SET.has(status) ? status : "backlog",
-    priority: TASK_PRIORITY_SET.has(priority) ? priority : "medium",
-    actorId: String(task?.actorId || "").trim(),
-    teamId: String(task?.teamId || "").trim(),
-    claimedActorId: String(task?.claimedActorId || "").trim(),
-    claimedAgentId: String(task?.claimedAgentId || "").trim(),
-    swarmId: String(task?.swarmId || "").trim(),
-    swarmTaskId: String(task?.swarmTaskId || "").trim(),
-    swarmParentTaskId: String(task?.swarmParentTaskId || "").trim(),
-    swarmDependencyIds: Array.isArray(task?.swarmDependencyIds)
-      ? task.swarmDependencyIds.map((id) => String(id).trim()).filter(Boolean)
-      : [],
-    swarmDepth: Number.isFinite(Number(task?.swarmDepth)) ? Number(task.swarmDepth) : null,
-    swarmActorPath: Array.isArray(task?.swarmActorPath)
-      ? task.swarmActorPath.map((id) => String(id).trim()).filter(Boolean)
-      : [],
-    createdAt: String(task?.createdAt || new Date().toISOString()),
-    updatedAt: String(task?.updatedAt || task?.createdAt || new Date().toISOString())
-  };
-}
-
-function normalizeProject(project, index = 0) {
-  const id = String(project?.id || createId("project")).trim() || createId(`project-${index + 1}`);
-  const fallbackName = `Project ${index + 1}`;
-  const name = String(project?.name || fallbackName).trim() || fallbackName;
-  const channelsSource = Array.isArray(project?.channels) ? project.channels : project?.chats;
-
-  const chats = Array.isArray(channelsSource)
-    ? channelsSource.map((chat, chatIndex) => normalizeChat(chat, chatIndex)).filter((chat) => chat.channelId.length > 0)
-    : [];
-
-  const tasks = Array.isArray(project?.tasks)
-    ? project.tasks.map((task, taskIndex) => normalizeTask(task, taskIndex)).filter((task) => task.title.length > 0)
-    : [];
-
-  return {
-    id,
-    name,
-    description: String(project?.description || "").trim(),
-    createdAt: String(project?.createdAt || new Date().toISOString()),
-    updatedAt: String(project?.updatedAt || project?.createdAt || new Date().toISOString()),
-    chats,
-    tasks
-  };
-}
-
-function sortTasksByDate(tasks) {
-  return [...tasks].sort((left, right) => {
-    return new Date(left.createdAt).getTime() - new Date(right.createdAt).getTime();
-  });
-}
-
-function buildTaskReference(projectId, taskId) {
-  const normalizedProjectId = String(projectId || "").trim();
-  const normalizedTaskId = String(taskId || "").trim();
-  if (!normalizedProjectId || !normalizedTaskId) {
-    return normalizedTaskId;
-  }
-  return `${normalizedProjectId}-${normalizedTaskId}`;
-}
-
-function resolveTaskByReference(projectId, tasks, taskReference) {
-  const normalizedReference = String(taskReference || "").trim();
-  if (!normalizedReference) {
-    return null;
-  }
-
-  const normalizedProjectId = String(projectId || "").trim();
-  const projectPrefix = normalizedProjectId ? `${normalizedProjectId}-` : "";
-  const taskList = Array.isArray(tasks) ? tasks : [];
-
-  const exact = taskList.find((task) => String(task?.id || "").trim() === normalizedReference);
-  if (exact) {
-    return exact;
-  }
-
-  const prefixed = taskList.find((task) => buildTaskReference(normalizedProjectId, task?.id) === normalizedReference);
-  if (prefixed) {
-    return prefixed;
-  }
-
-  if (projectPrefix && normalizedReference.startsWith(projectPrefix)) {
-    const plainTaskId = normalizedReference.slice(projectPrefix.length).trim();
-    if (!plainTaskId) {
-      return null;
-    }
-    return taskList.find((task) => String(task?.id || "").trim() === plainTaskId) || null;
-  }
-
-  return null;
-}
-
-function workersForProject(project, workers) {
-  if (!project) {
-    return [];
-  }
-
-  const projectChannels = new Set(project.chats.map((chat) => String(chat.channelId || "").trim()));
-  return (Array.isArray(workers) ? workers : []).filter((worker) => {
-    const channelId = String(worker?.channelId || "").trim();
-    return channelId.length > 0 && projectChannels.has(channelId);
-  });
-}
-
-function activeWorkersForProject(project, workers) {
-  return workersForProject(project, workers).filter((worker) => {
-    const status = String(worker?.status || "").trim().toLowerCase();
-    return ACTIVE_WORKER_STATUSES.has(status);
-  });
-}
-
-function buildTaskCounts(tasks) {
-  const counts = { total: tasks.length };
-  for (const status of TASK_STATUSES) {
-    counts[status.id] = tasks.filter((task) => task.status === status.id).length;
-  }
-  return counts;
-}
-
-function buildSwarmGroups(tasks) {
-  const bySwarmId = new Map();
-  for (const task of tasks) {
-    if (!task.swarmId) {
-      continue;
-    }
-    if (!bySwarmId.has(task.swarmId)) {
-      bySwarmId.set(task.swarmId, []);
-    }
-    bySwarmId.get(task.swarmId).push(task);
-  }
-
-  return Array.from(bySwarmId.entries())
-    .sort((left, right) => left[0].localeCompare(right[0]))
-    .map(([swarmId, swarmTasks]) => {
-      const taskBySwarmTaskId = new Map();
-      for (const task of swarmTasks) {
-        if (task.swarmTaskId) {
-          taskBySwarmTaskId.set(task.swarmTaskId, task);
-        }
-      }
-
-      const childrenByParent = new Map();
-      for (const task of swarmTasks) {
-        if (task.swarmTaskId === "root") {
-          continue;
-        }
-        const parentKey = task.swarmParentTaskId && taskBySwarmTaskId.has(task.swarmParentTaskId)
-          ? task.swarmParentTaskId
-          : "root";
-        if (!childrenByParent.has(parentKey)) {
-          childrenByParent.set(parentKey, []);
-        }
-        childrenByParent.get(parentKey).push(task);
-      }
-
-      for (const [parentKey, children] of childrenByParent.entries()) {
-        childrenByParent.set(parentKey, [...children].sort((left, right) => {
-          if ((left.swarmDepth ?? 0) !== (right.swarmDepth ?? 0)) {
-            return (left.swarmDepth ?? 0) - (right.swarmDepth ?? 0);
-          }
-          return new Date(left.createdAt).getTime() - new Date(right.createdAt).getTime();
-        }));
-      }
-
-      const rootTask = swarmTasks.find((task) => task.swarmTaskId === "root") || null;
-      const roots = rootTask ? [rootTask] : (childrenByParent.get("root") || []);
-
-      return {
-        swarmId,
-        tasks: swarmTasks,
-        roots,
-        childrenByParent
-      };
-    });
-}
-
-function formatRelativeTime(dateValue) {
-  const date = new Date(dateValue);
-  if (Number.isNaN(date.getTime())) {
-    return "just now";
-  }
-
-  const diffMs = Date.now() - date.getTime();
-  const diffMinutes = Math.round(diffMs / 60000);
-  if (Math.abs(diffMinutes) < 1) {
-    return "just now";
-  }
-
-  if (Math.abs(diffMinutes) < 60) {
-    return `${diffMinutes}m ago`;
-  }
-
-  const diffHours = Math.round(diffMinutes / 60);
-  if (Math.abs(diffHours) < 24) {
-    return `${diffHours}h ago`;
-  }
-
-  const diffDays = Math.round(diffHours / 24);
-  return `${diffDays}d ago`;
-}
-
-function extractCreatedItems(project, snapshotsByChannel) {
-  const result = [];
-  const seen = new Set();
-
-  for (const chat of project.chats) {
-    const snapshot = snapshotsByChannel[chat.channelId];
-    const messages = Array.isArray(snapshot?.messages) ? snapshot.messages : [];
-
-    for (const message of messages) {
-      const content = String(message?.content || "");
-      if (!content) {
-        continue;
-      }
-
-      const artifactRegex = /\bartifact\s+([a-f0-9-]{8,})/gi;
-      let artifactMatch = artifactRegex.exec(content);
-      while (artifactMatch) {
-        const artifactId = artifactMatch[1];
-        const key = `artifact:${artifactId}`;
-        if (!seen.has(key)) {
-          seen.add(key);
-          result.push({
-            key,
-            type: "artifact",
-            value: artifactId,
-            channelId: chat.channelId
-          });
-        }
-        artifactMatch = artifactRegex.exec(content);
-      }
-
-      const fileRegex = /(?:^|[\s"'`])((?:\.?\/?[\w-]+(?:\/[\w.-]+)*)\.[a-zA-Z0-9]{1,8})(?=$|[\s"'`])/g;
-      let fileMatch = fileRegex.exec(content);
-      while (fileMatch) {
-        const filePath = fileMatch[1];
-        if (filePath.length < 3) {
-          fileMatch = fileRegex.exec(content);
-          continue;
-        }
-
-        const key = `file:${filePath}`;
-        if (!seen.has(key)) {
-          seen.add(key);
-          result.push({
-            key,
-            type: "file",
-            value: filePath,
-            channelId: chat.channelId
-          });
-        }
-        fileMatch = fileRegex.exec(content);
-      }
-    }
-  }
-
-  return result.slice(0, 24);
-}
-
-function normalizeProjectIdentifier(value) {
-  return String(value || "")
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9-_.]+/g, "-")
-    .replace(/^[-_.]+|[-_.]+$/g, "");
-}
-
-function parseListInput(value) {
-  if (typeof value !== "string") {
-    return [];
-  }
-  const unique = new Set();
-  const parsed = [];
-  for (const rawItem of value.split(/[\n,]+/g)) {
-    const item = rawItem.trim();
-    if (!item || unique.has(item.toLowerCase())) {
-      continue;
-    }
-    unique.add(item.toLowerCase());
-    parsed.push(item);
-  }
-  return parsed;
-}
-
-function buildProjectChannels(projectId, actors = [], teams = []) {
-  const base = normalizeProjectIdentifier(projectId) || "project";
-  const channels = [{ title: "Main channel", channelId: `${base}-main` }];
-  const used = new Set(channels.map((channel) => channel.channelId));
-
-  for (const actor of actors) {
-    const actorSlug = toSlug(actor);
-    const channelId = `${base}-actor-${actorSlug || createId("actor")}`;
-    if (!used.has(channelId)) {
-      used.add(channelId);
-      channels.push({
-        title: `Actor · ${actor}`,
-        channelId
-      });
-    }
-  }
-
-  for (const team of teams) {
-    const teamSlug = toSlug(team);
-    const channelId = `${base}-team-${teamSlug || createId("team")}`;
-    if (!used.has(channelId)) {
-      used.add(channelId);
-      channels.push({
-        title: `Team · ${team}`,
-        channelId
-      });
-    }
-  }
-
-  return channels;
-}
-
-function emptyProjectDraft(index = 1) {
-  return {
-    projectId: `project-${index}`,
-    displayName: `Project ${index}`,
-    description: "",
-    actors: "",
-    teams: ""
-  };
-}
+import {
+  ACTIVE_WORKER_STATUSES,
+  PROJECT_TABS,
+  TASK_STATUSES,
+  TASK_PRIORITIES,
+  TASK_PRIORITY_LABELS,
+  PROJECT_TAB_SET,
+  TASK_STATUS_SET,
+  TASK_PRIORITY_SET,
+  createId,
+  toSlug,
+  emptyTaskDraft,
+  normalizeChat,
+  normalizeTask,
+  normalizeProject,
+  sortTasksByDate,
+  buildTaskReference,
+  resolveTaskByReference,
+  workersForProject,
+  activeWorkersForProject,
+  buildTaskCounts,
+  buildSwarmGroups,
+  formatRelativeTime,
+  extractCreatedItems,
+  normalizeProjectIdentifier,
+  parseListInput,
+  buildProjectChannels,
+  emptyProjectDraft
+} from "./Projects/utils";
+import { ProjectOverviewTab } from "./Projects/ProjectOverviewTab";
+import { ProjectTasksTab } from "./Projects/ProjectTasksTab";
+import { ProjectWorkersTab } from "./Projects/ProjectWorkersTab";
+import { ProjectMemoriesTab } from "./Projects/ProjectMemoriesTab";
+import { ProjectVisorTab } from "./Projects/ProjectVisorTab";
+import { ProjectSettingsTab } from "./Projects/ProjectSettingsTab";
+import { ProjectList } from "./Projects/ProjectList";
 
 function ProjectCreateModal({ isOpen, draft, onChange, onClose, onCreate, actors = [], teams = [] }) {
   const [actorSearch, setActorSearch] = useState("");
@@ -1580,761 +1221,69 @@ export function ProjectsView({
     setStatusText("Project settings saved.");
   }
 
-  function renderProjectList() {
-    if (isLoadingProjects) {
-      return (
-        <section className="project-board-list">
-          <article className="project-board-card">
-            <p className="app-status-text">Loading projects from Core...</p>
-          </article>
-        </section>
-      );
-    }
-
-    if (projects.length === 0) {
-      return (
-        <section className="project-board-list project-board-list--empty">
-          <article className="project-board-empty">
-            <div className="project-board-empty-actions">
-              <p className="project-new-action-subtitle">
-                Start your first project!
-              </p>
-              <button type="button" className="project-new-action hover-levitate" onClick={openCreateProjectModal}>
-                New Projects
-              </button>
-            </div>
-          </article>
-        </section>
-      );
-    }
-
-    return (
-      <section className="project-board-list">
-        {projects.map((project) => {
-          const relatedWorkers = workersForProject(project, workers);
-          const activeWorkers = activeWorkersForProject(project, workers);
-          const taskCounts = buildTaskCounts(project.tasks);
-
-          return (
-            <article
-              key={project.id}
-              className="project-board-card project-board-card--clickable"
-              role="button"
-              tabIndex={0}
-              onClick={() => openProject(project.id)}
-              onKeyDown={(event) => {
-                if (event.key === "Enter" || event.key === " ") {
-                  event.preventDefault();
-                  openProject(project.id);
-                }
-              }}
-            >
-              <div className="project-board-card-head">
-                <h3>{project.name}</h3>
-                <span className="project-board-updated">{formatRelativeTime(project.updatedAt)}</span>
-              </div>
-
-              <p className="project-board-description placeholder-text">
-                {project.description || "No description"}
-              </p>
-
-              <div className="project-board-stats">
-                <span className="project-badge project-badge--tasks">{taskCounts.total} tasks</span>
-                <span className="project-badge project-badge--progress">{taskCounts.in_progress} in progress</span>
-                <span className="project-badge project-badge--active">{activeWorkers.length} active workers</span>
-                <span className="project-badge project-badge--workers">{relatedWorkers.length} workers total</span>
-              </div>
-            </article>
-          );
-        })}
-      </section>
-    );
-  }
-
-  function renderOverviewTab(project) {
-    const relatedWorkers = workersForProject(project, workers);
-    const activeWorkers = activeWorkersForProject(project, workers);
-    const taskCounts = buildTaskCounts(project.tasks);
-    const createdItems = extractCreatedItems(project, chatSnapshots);
-
-    return (
-      <section className="project-tab-layout">
-        <section className="project-overview-metrics">
-          <article className="project-metric-card">
-            <p>Total tasks</p>
-            <strong>{taskCounts.total}</strong>
-          </article>
-          <article className="project-metric-card">
-            <p>In progress</p>
-            <strong>{taskCounts.in_progress}</strong>
-          </article>
-          <article className="project-metric-card">
-            <p>Active agents</p>
-            <strong>{activeWorkers.length}</strong>
-          </article>
-          <article className="project-metric-card">
-            <p>Channels</p>
-            <strong>{project.chats.length}</strong>
-          </article>
-        </section>
-
-        <section className="project-pane">
-          <div className="project-pane-head">
-            <h4>Working Agents</h4>
-          </div>
-
-          {activeWorkers.length === 0 ? (
-            <p className="placeholder-text">No active workers for this project right now.</p>
-          ) : (
-            <div className="project-workers-list">
-              {activeWorkers.map((worker, index) => (
-                <article key={String(worker?.workerId || `worker-${index}`)} className="project-worker-item">
-                  <strong>{String(worker?.workerId || "worker")}</strong>
-                  <p>Task: {String(worker?.taskId || "unknown")}</p>
-                  <p>Status: {String(worker?.status || "unknown")}</p>
-                  <p>Mode: {String(worker?.mode || "unknown")}</p>
-                  {worker?.latestReport ? <p>Report: {String(worker.latestReport)}</p> : null}
-                </article>
-              ))}
-            </div>
-          )}
-
-          {activeWorkers.length === 0 && relatedWorkers.length > 0 ? (
-            <p className="placeholder-text">Workers exist, but none are currently active.</p>
-          ) : null}
-        </section>
-
-        <section className="project-pane">
-          <div className="project-pane-head">
-            <h4>Created Files / Artifacts</h4>
-          </div>
-
-          {createdItems.length === 0 ? (
-            <p className="placeholder-text">No files or artifacts detected in project runtime messages yet.</p>
-          ) : (
-            <div className="project-created-list">
-              {createdItems.map((item) => (
-                <article key={item.key} className="project-created-item">
-                  <strong>{item.type === "artifact" ? "Artifact" : "File"}</strong>
-                  <p>{item.value}</p>
-                  <p className="placeholder-text">Channel: {item.channelId}</p>
-                </article>
-              ))}
-            </div>
-          )}
-        </section>
-      </section>
-    );
-  }
-
-  function renderTasksTab(project) {
-    const taskCounts = buildTaskCounts(project.tasks);
-    const swarmGroups = buildSwarmGroups(project.tasks);
-    const selectedTaskId = selectedTask ? String(selectedTask.id || "").trim() : "";
-
-    const renderTaskDetail = (task, isFullscreen = false) => {
-      const taskReference = String(task.id || "").trim();
-      const statusTitle = TASK_STATUSES.find((status) => status.id === editDraft.status)?.title || editDraft.status;
-      const priorityTitle = TASK_PRIORITY_LABELS[editDraft.priority] || "Medium";
-      const assigneeToken = editDraft.actorId
-        ? `actor:${editDraft.actorId}`
-        : editDraft.teamId
-          ? `team:${editDraft.teamId}`
-          : "";
-      const assigneeLabel = editDraft.actorId || editDraft.teamId || "Unassigned";
-
-      return (
-        <article className={`project-task-composer ${isFullscreen ? "project-task-composer--fullscreen" : ""}`}>
-          <header className="project-task-composer-head">
-            <div className="project-task-composer-breadcrumbs">
-              <span className="project-task-composer-badge">{project.id}</span>
-              <span className="material-symbols-rounded" aria-hidden="true">
-                chevron_right
-              </span>
-              <span className="project-task-composer-badge">Task</span>
-            </div>
-
-            <div className="project-task-composer-actions">
-              <button
-                type="button"
-                className="project-task-composer-save"
-                onClick={saveTaskEdit}
-                disabled={!String(editDraft.title || "").trim()}
-              >
-                Save as draft
-              </button>
-              <button
-                type="button"
-                className="project-task-detail-icon-button"
-                onClick={() => setIsTaskDetailFullscreen((value) => !value)}
-                aria-label={isTaskDetailFullscreen ? "Exit fullscreen task card" : "Expand task card fullscreen"}
-                title={isTaskDetailFullscreen ? "Exit fullscreen" : "Fullscreen"}
-              >
-                <span className="material-symbols-rounded" aria-hidden="true">
-                  {isTaskDetailFullscreen ? "close_fullscreen" : "open_in_full"}
-                </span>
-              </button>
-              <button
-                type="button"
-                className="project-task-detail-icon-button"
-                onClick={closeTaskDetails}
-                aria-label="Close task detail"
-                title="Close task detail"
-              >
-                <span className="material-symbols-rounded" aria-hidden="true">
-                  close
-                </span>
-              </button>
-            </div>
-          </header>
-
-          <div className="project-task-composer-editor">
-            <input
-              className="project-task-composer-title-input"
-              value={editDraft.title}
-              onChange={(event) => updateEditDraft("title", event.target.value)}
-              placeholder="Task title..."
-              autoFocus
-            />
-            <textarea
-              className="project-task-composer-desc-input"
-              value={editDraft.description}
-              onChange={(event) => updateEditDraft("description", event.target.value)}
-              rows={2}
-              placeholder="Write a task note..."
-            />
-          </div>
-
-          <div className="project-task-composer-row">
-            <label className="project-task-composer-chip">
-              <span className="material-symbols-rounded" aria-hidden="true">
-                radio_button_unchecked
-              </span>
-              <select value={editDraft.status} onChange={(event) => updateEditDraft("status", event.target.value)} aria-label="Task status">
-                {TASK_STATUSES.map((status) => (
-                  <option key={status.id} value={status.id}>
-                    {status.title}
-                  </option>
-                ))}
-              </select>
-            </label>
-
-            <label className="project-task-composer-chip">
-              <span className="material-symbols-rounded" aria-hidden="true">
-                flag
-              </span>
-              <select value={editDraft.priority} onChange={(event) => updateEditDraft("priority", event.target.value)} aria-label="Task priority">
-                {TASK_PRIORITIES.map((priority) => (
-                  <option key={priority} value={priority}>
-                    {TASK_PRIORITY_LABELS[priority]}
-                  </option>
-                ))}
-              </select>
-            </label>
-
-            <label className="project-task-composer-chip">
-              <span className="material-symbols-rounded" aria-hidden="true">
-                person
-              </span>
-              <select value={assigneeToken} onChange={(event) => updateDetailAssignee(event.target.value)} aria-label="Task assignee">
-                <option value="">Unassigned</option>
-                {createModalActors.map((actor) => (
-                  <option key={`actor-${actor.id}`} value={`actor:${actor.id}`}>
-                    {actor.displayName}
-                  </option>
-                ))}
-                {createModalTeams.map((team) => (
-                  <option key={`team-${team.id}`} value={`team:${team.id}`}>
-                    {team.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-          </div>
-
-          <footer className="project-task-composer-footer">
-            <span className="project-task-composer-meta">/tasks/{taskReference}</span>
-            <span className="project-task-composer-meta">{statusTitle}</span>
-            <span className="project-task-composer-meta">{priorityTitle}</span>
-            <span className="project-task-composer-meta">{assigneeLabel}</span>
-            <button type="button" className="danger" onClick={deleteTaskFromModal}>
-              Delete task
-            </button>
-          </footer>
-        </article>
-      );
-    };
-
-    const renderSwarmNode = (task, group, level = 0, visited = new Set()) => {
-      const taskKey = task.swarmTaskId || `task:${task.id}`;
-      if (visited.has(taskKey)) {
-        return null;
-      }
-      const nextVisited = new Set(visited);
-      nextVisited.add(taskKey);
-
-      const children = group.childrenByParent.get(taskKey) || [];
-      return (
-        <div key={task.id} className="project-swarm-node" style={{ marginLeft: `${Math.min(level, 8) * 16}px` }}>
-          <button
-            type="button"
-            className="project-swarm-node-main"
-            onClick={() => openTaskDetails(task)}
-            title={`Open task ${task.id}`}
-          >
-            <span className={`project-swarm-status project-swarm-status--${task.status}`}>{task.status}</span>
-            <span className="project-swarm-node-title">{task.title}</span>
-            <span className="project-task-id">#{task.id}</span>
-            {Number.isFinite(task.swarmDepth) ? <span className="project-swarm-node-meta">Depth {task.swarmDepth}</span> : null}
-            {task.swarmTaskId ? <span className="project-swarm-node-meta">{task.swarmTaskId}</span> : null}
-          </button>
-          {children.length > 0 ? (
-            <div className="project-swarm-node-children">
-              {children.map((child) => renderSwarmNode(child, group, level + 1, nextVisited))}
-            </div>
-          ) : null}
-        </div>
-      );
-    };
-
-    return (
-      <section className="project-tab-layout">
-        <section className="project-pane project-kanban-pane">
-          <div className="project-kanban-head">
-            <div className="project-kanban-summary">
-              <span>
-                <span className="material-symbols-rounded" aria-hidden="true">
-                  list_alt
-                </span>
-                {taskCounts.total} task{taskCounts.total === 1 ? "" : "s"}
-              </span>
-              <span>
-                <span className="material-symbols-rounded" aria-hidden="true">
-                  pending_actions
-                </span>
-                {taskCounts.in_progress} in progress
-              </span>
-            </div>
-            <button type="button" className="project-primary hover-levitate" onClick={() => openCreateTaskModal("backlog")}>
-              Create Task
-            </button>
-          </div>
-
-          {swarmGroups.length > 0 ? (
-            <section className="project-swarm-overview">
-              <div className="project-pane-head">
-                <h4>Swarm Tree</h4>
-              </div>
-              <div className="project-swarm-list">
-                {swarmGroups.map((group) => {
-                  const counts = buildTaskCounts(group.tasks);
-                  return (
-                    <article key={group.swarmId} className="project-swarm-card">
-                      <header className="project-swarm-card-head">
-                        <strong>{group.swarmId}</strong>
-                        <span>{counts.total} tasks</span>
-                        <span>{counts.blocked || 0} blocked</span>
-                      </header>
-                      <div className="project-swarm-tree">
-                        {group.roots.length === 0 ? (
-                          <p className="placeholder-text">No root nodes detected.</p>
-                        ) : (
-                          group.roots.map((rootNode) => renderSwarmNode(rootNode, group))
-                        )}
-                      </div>
-                    </article>
-                  );
-                })}
-              </div>
-            </section>
-          ) : null}
-
-          <div className="project-kanban-board">
-            {TASK_STATUSES.map((column) => {
-              const tasks = sortTasksByDate(project.tasks.filter((task) => task.status === column.id)).sort((left, right) => {
-                if (left.swarmId && right.swarmId && left.swarmId !== right.swarmId) {
-                  return left.swarmId.localeCompare(right.swarmId);
-                }
-                if (left.swarmId && !right.swarmId) {
-                  return -1;
-                }
-                if (!left.swarmId && right.swarmId) {
-                  return 1;
-                }
-                if ((left.swarmDepth ?? 0) !== (right.swarmDepth ?? 0)) {
-                  return (left.swarmDepth ?? 0) - (right.swarmDepth ?? 0);
-                }
-                return new Date(left.createdAt).getTime() - new Date(right.createdAt).getTime();
-              });
-
-              return (
-                <section
-                  key={column.id}
-                  className="project-kanban-column"
-                  onDragOver={(event) => event.preventDefault()}
-                  onDrop={(event) => {
-                    event.preventDefault();
-                    const taskId = event.dataTransfer.getData("text/project-task-id");
-                    if (taskId) {
-                      moveTask(taskId, column.id);
-                    }
-                  }}
-                >
-                  <header className={`project-kanban-column-head project-kanban-column-head--${column.id}`}>
-                    <span>{column.title}</span>
-                    <strong>{tasks.length}</strong>
-                  </header>
-
-                  <div className="project-kanban-column-body">
-                    {tasks.length === 0 ? (
-                      <p className="placeholder-text">No tasks</p>
-                    ) : (
-                      tasks.map((task, index) => {
-                        const previous = index > 0 ? tasks[index - 1] : null;
-                        const showSwarmHeader = task.swarmId && (!previous || previous.swarmId !== task.swarmId);
-                        return (
-                          <React.Fragment key={task.id}>
-                            {showSwarmHeader ? (
-                              <p className="project-task-assignee-badge">Swarm: {task.swarmId}</p>
-                            ) : null}
-                            <article
-                              className={`project-kanban-task project-kanban-task--clickable hover-levitate ${selectedTaskId && selectedTaskId === String(task.id || "").trim() ? "project-kanban-task--selected" : ""
-                                }`}
-                              role="button"
-                              tabIndex={0}
-                              draggable
-                              onClick={() => openTaskDetails(task)}
-                              onKeyDown={(event) => {
-                                if (event.key === "Enter" || event.key === " ") {
-                                  event.preventDefault();
-                                  openTaskDetails(task);
-                                }
-                              }}
-                              onDragStart={(event) => {
-                                event.dataTransfer.setData("text/project-task-id", task.id);
-                                event.dataTransfer.effectAllowed = "move";
-                              }}
-                            >
-                              <div className="project-task-card-top">
-                                <span className="project-task-id">#{task.id}</span>
-                                <span className="project-task-card-open">
-                                  <span className="material-symbols-rounded" aria-hidden="true">
-                                    open_in_new
-                                  </span>
-                                  Open
-                                </span>
-                              </div>
-                              <h5>{task.title}</h5>
-                              {task.description ? <p>{task.description}</p> : null}
-
-                              <div className="project-task-meta">
-                                <span className={`project-priority-badge ${task.priority}`}>
-                                  <span className="material-symbols-rounded" aria-hidden="true">
-                                    flag
-                                  </span>
-                                  {TASK_PRIORITY_LABELS[task.priority] || "Medium"}
-                                </span>
-                                {task.swarmTaskId ? (
-                                  <span className="project-task-claim-badge">
-                                    <span className="material-symbols-rounded" aria-hidden="true">
-                                      route
-                                    </span>
-                                    Swarm task: {task.swarmTaskId}
-                                  </span>
-                                ) : null}
-                                {Number.isFinite(task.swarmDepth) ? (
-                                  <span className="project-task-assignee-badge">
-                                    <span className="material-symbols-rounded" aria-hidden="true">
-                                      account_tree
-                                    </span>
-                                    Depth: {task.swarmDepth}
-                                  </span>
-                                ) : null}
-                                {task.swarmParentTaskId ? (
-                                  <span className="project-task-assignee-badge">
-                                    <span className="material-symbols-rounded" aria-hidden="true">
-                                      call_split
-                                    </span>
-                                    Parent: {task.swarmParentTaskId}
-                                  </span>
-                                ) : null}
-                                {task.swarmDependencyIds.length > 0 ? (
-                                  <span className="project-task-assignee-badge">
-                                    <span className="material-symbols-rounded" aria-hidden="true">
-                                      link
-                                    </span>
-                                    Deps: {task.swarmDependencyIds.join(", ")}
-                                  </span>
-                                ) : null}
-                                {task.swarmActorPath.length > 0 ? (
-                                  <span className="project-task-assignee-badge">
-                                    <span className="material-symbols-rounded" aria-hidden="true">
-                                      alt_route
-                                    </span>
-                                    Path: {task.swarmActorPath.join(" -> ")}
-                                  </span>
-                                ) : null}
-                                {task.claimedAgentId ? (
-                                  <span className="project-task-claim-badge">
-                                    <span className="material-symbols-rounded" aria-hidden="true">
-                                      smart_toy
-                                    </span>
-                                    Agent: {task.claimedAgentId}
-                                  </span>
-                                ) : null}
-                                {!task.claimedAgentId && task.claimedActorId ? (
-                                  <span className="project-task-claim-badge">
-                                    <span className="material-symbols-rounded" aria-hidden="true">
-                                      person
-                                    </span>
-                                    Actor: {task.claimedActorId}
-                                  </span>
-                                ) : null}
-                                {!task.claimedAgentId && !task.claimedActorId && task.actorId ? (
-                                  <span className="project-task-assignee-badge">
-                                    <span className="material-symbols-rounded" aria-hidden="true">
-                                      assignment_ind
-                                    </span>
-                                    Assigned actor: {task.actorId}
-                                  </span>
-                                ) : null}
-                                {!task.claimedAgentId && !task.claimedActorId && !task.actorId && task.teamId ? (
-                                  <span className="project-task-assignee-badge">
-                                    <span className="material-symbols-rounded" aria-hidden="true">
-                                      groups
-                                    </span>
-                                    Assigned team: {task.teamId}
-                                  </span>
-                                ) : null}
-                                <span className="project-task-age">
-                                  <span className="material-symbols-rounded" aria-hidden="true">
-                                    schedule
-                                  </span>
-                                  {formatRelativeTime(task.createdAt)}
-                                </span>
-                              </div>
-                            </article>
-                          </React.Fragment>
-                        );
-                      })
-                    )}
-                  </div>
-                </section>
-              );
-            })}
-          </div>
-        </section>
-
-        {selectedTask ? (
-          <div className={`project-task-detail-overlay ${isTaskDetailFullscreen ? "project-task-detail-overlay--fullscreen" : ""}`} onClick={closeTaskDetails}>
-            <div onClick={(event) => event.stopPropagation()}>{renderTaskDetail(selectedTask, isTaskDetailFullscreen)}</div>
-          </div>
-        ) : null}
-      </section>
-    );
-  }
-
-  function renderWorkersTab(project) {
-    const projectWorkers = workersForProject(project, workers);
-
-    if (projectWorkers.length === 0) {
-      return <ProjectTabPlaceholder title="Workers" text="No workers are linked to this project yet." />;
-    }
-
-    return (
-      <section className="project-tab-layout">
-        <section className="project-pane">
-          <h4>Workers</h4>
-          <div className="project-workers-list">
-            {projectWorkers.map((worker, index) => (
-              <article key={String(worker?.workerId || `worker-${index}`)} className="project-worker-item">
-                <strong>{String(worker?.workerId || "worker")}</strong>
-                <p>Task: {String(worker?.taskId || "unknown")}</p>
-                <p>Status: {String(worker?.status || "unknown")}</p>
-                <p>Mode: {String(worker?.mode || "unknown")}</p>
-                {Array.isArray(worker?.tools) ? <p>Tools: {worker.tools.join(", ") || "none"}</p> : null}
-                {worker?.latestReport ? <p>Report: {String(worker.latestReport)}</p> : null}
-              </article>
-            ))}
-          </div>
-        </section>
-      </section>
-    );
-  }
-
-  function renderMemoriesTab(project) {
-    return (
-      <section className="project-tab-layout">
-        <section className="project-pane">
-          <h4>Memories</h4>
-
-          {project.chats.map((chat) => {
-            const snapshot = chatSnapshots[chat.channelId];
-            const messages = Array.isArray(snapshot?.messages) ? snapshot.messages : [];
-            const recent = messages.slice(-5).reverse();
-
-            return (
-              <article key={chat.id} className="project-memory-channel">
-                <header>
-                  <strong>{chat.title}</strong>
-                  <span className="placeholder-text">{chat.channelId}</span>
-                </header>
-
-                {recent.length === 0 ? (
-                  <p className="placeholder-text">No messages in this channel yet.</p>
-                ) : (
-                  <div className="project-memory-messages">
-                    {recent.map((message, index) => (
-                      <div key={String(message?.id || `message-${chat.id}-${index}`)} className="project-memory-message">
-                        <strong>{String(message?.userId || "user")}</strong>
-                        <p>{String(message?.content || "")}</p>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </article>
-            );
-          })}
-        </section>
-      </section>
-    );
-  }
-
-  function renderVisorTab(project) {
-    const decisions = project.chats
-      .map((chat) => ({
-        chat,
-        decision: chatSnapshots[chat.channelId]?.lastDecision || null
-      }))
-      .filter((entry) => entry.decision);
-
-    return (
-      <section className="project-tab-layout">
-        <section className="project-pane">
-          <h4>Visor</h4>
-
-          {decisions.length === 0 ? (
-            <p className="placeholder-text">No channel decisions available yet.</p>
-          ) : (
-            <div className="project-created-list">
-              {decisions.map((entry) => (
-                <article key={entry.chat.id} className="project-created-item">
-                  <strong>{entry.chat.title}</strong>
-                  <p>Action: {String(entry.decision.action || "unknown")}</p>
-                  <p>Reason: {String(entry.decision.reason || "unknown")}</p>
-                  <p>
-                    Confidence:{" "}
-                    {typeof entry.decision.confidence === "number"
-                      ? entry.decision.confidence.toFixed(2)
-                      : String(entry.decision.confidence || "n/a")}
-                  </p>
-                </article>
-              ))}
-            </div>
-          )}
-        </section>
-
-        <section className="project-pane">
-          <h4>Bulletins</h4>
-          {Array.isArray(bulletins) && bulletins.length > 0 ? (
-            <div className="project-created-list">
-              {bulletins.slice(0, 8).map((bulletin, index) => (
-                <article key={String(bulletin?.id || `bulletin-${index}`)} className="project-created-item">
-                  <strong>{String(bulletin?.headline || "Runtime bulletin")}</strong>
-                  <p>{String(bulletin?.digest || "")}</p>
-                </article>
-              ))}
-            </div>
-          ) : (
-            <p className="placeholder-text">No bulletins available.</p>
-          )}
-        </section>
-      </section>
-    );
-  }
-
-  function renderSettingsTab(project) {
-    return (
-      <section className="project-tab-layout">
-        <section className="project-pane">
-          <h4>Project Settings</h4>
-
-          <form
-            className="project-settings-form"
-            onSubmit={(event) => {
-              event.preventDefault();
-              saveProjectSettings();
-            }}
-          >
-            <label>
-              Project name
-              <input value={projectNameDraft} onChange={(event) => setProjectNameDraft(event.target.value)} />
-            </label>
-
-            <div className="project-settings-actions">
-              <button type="submit" className="project-primary hover-levitate">
-                Save Name
-              </button>
-              <button type="button" className="danger" onClick={() => deleteProject(project.id)}>
-                Delete Project
-              </button>
-            </div>
-          </form>
-        </section>
-
-        <section className="project-pane">
-          <div className="project-pane-head">
-            <h4>Channels</h4>
-            <button type="button" onClick={openAddChannelModal}>
-              Add Channel
-            </button>
-          </div>
-
-          <div className="project-created-list">
-            {project.chats.map((chat) => (
-              <article key={chat.id} className="project-created-item">
-                <strong>{chat.title}</strong>
-                <p>{chat.channelId}</p>
-                <div className="project-settings-actions">
-                  <button
-                    type="button"
-                    className="danger"
-                    disabled={project.chats.length <= 1}
-                    onClick={() => removeProjectChannel(chat.id)}
-                  >
-                    Remove
-                  </button>
-                </div>
-              </article>
-            ))}
-          </div>
-        </section>
-      </section>
-    );
-  }
-
   function renderProjectTab(project) {
     if (selectedTab === "overview") {
-      return renderOverviewTab(project);
+      const relatedWorkers = workersForProject(project, workers);
+      const activeWorkers = activeWorkersForProject(project, workers);
+      const taskCounts = buildTaskCounts(project.tasks);
+      const createdItems = extractCreatedItems(project, chatSnapshots);
+
+      return (
+        <ProjectOverviewTab
+          project={project}
+          taskCounts={taskCounts}
+          activeWorkers={activeWorkers}
+          relatedWorkers={relatedWorkers}
+          createdItems={createdItems}
+        />
+      );
     }
 
     if (selectedTab === "tasks") {
-      return renderTasksTab(project);
+      return (
+        <ProjectTasksTab
+          project={project}
+          selectedTask={selectedTask}
+          editDraft={editDraft}
+          isTaskDetailFullscreen={isTaskDetailFullscreen}
+          updateEditDraft={updateEditDraft}
+          saveTaskEdit={saveTaskEdit}
+          setIsTaskDetailFullscreen={setIsTaskDetailFullscreen}
+          closeTaskDetails={closeTaskDetails}
+          updateDetailAssignee={updateDetailAssignee}
+          deleteTaskFromModal={deleteTaskFromModal}
+          openTaskDetails={openTaskDetails}
+          openCreateTaskModal={openCreateTaskModal}
+          moveTask={moveTask}
+          createModalActors={createModalActors}
+          createModalTeams={createModalTeams}
+        />
+      );
     }
 
     if (selectedTab === "workers") {
-      return renderWorkersTab(project);
+      return <ProjectWorkersTab project={project} workers={workers} />;
     }
 
     if (selectedTab === "memories") {
-      return renderMemoriesTab(project);
+      return <ProjectMemoriesTab project={project} chatSnapshots={chatSnapshots} />;
     }
 
     if (selectedTab === "visor") {
-      return renderVisorTab(project);
+      return <ProjectVisorTab project={project} chatSnapshots={chatSnapshots} bulletins={bulletins} />;
     }
 
-    return renderSettingsTab(project);
+    return (
+      <ProjectSettingsTab
+        project={project}
+        projectNameDraft={projectNameDraft}
+        setProjectNameDraft={setProjectNameDraft}
+        saveProjectSettings={saveProjectSettings}
+        deleteProject={deleteProject}
+        openAddChannelModal={openAddChannelModal}
+        removeProjectChannel={removeProjectChannel}
+      />
+    );
   }
 
   function renderProjectDetails(project) {
@@ -2375,7 +1324,13 @@ export function ProjectsView({
         />
       )}
 
-      {selectedProject ? renderProjectDetails(selectedProject) : renderProjectList()}
+      {selectedProject ? renderProjectDetails(selectedProject) : <ProjectList
+          projects={projects}
+          isLoadingProjects={isLoadingProjects}
+          openProject={openProject}
+          openCreateProjectModal={openCreateProjectModal}
+          workers={workers}
+        />}
 
       {statusText && statusText !== "No projects yet." && statusText !== "Loading projects..." && (
         <p className="app-status-text">{statusText}</p>
