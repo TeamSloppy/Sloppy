@@ -193,6 +193,75 @@ public struct CoreConfig: Codable, Sendable {
         }
     }
 
+    public struct GitSync: Codable, Sendable, Equatable {
+        public struct Schedule: Codable, Sendable, Equatable {
+            public enum Frequency: String, Codable, Sendable, Equatable {
+                case manual
+                case daily
+                case weekdays
+            }
+
+            public var frequency: Frequency
+            public var time: String
+
+            public init(
+                frequency: Frequency = .daily,
+                time: String = "18:00"
+            ) {
+                self.frequency = frequency
+                self.time = time
+            }
+        }
+
+        public enum ConflictStrategy: String, Codable, Sendable, Equatable {
+            case remoteWins = "remote_wins"
+            case localWins = "local_wins"
+            case manual
+        }
+
+        public var enabled: Bool
+        public var authToken: String
+        public var repository: String
+        public var branch: String
+        public var schedule: Schedule
+        public var conflictStrategy: ConflictStrategy
+
+        public init(
+            enabled: Bool = false,
+            authToken: String = "",
+            repository: String = "",
+            branch: String = "main",
+            schedule: Schedule = Schedule(),
+            conflictStrategy: ConflictStrategy = .remoteWins
+        ) {
+            self.enabled = enabled
+            self.authToken = authToken
+            self.repository = repository
+            self.branch = branch
+            self.schedule = schedule
+            self.conflictStrategy = conflictStrategy
+        }
+
+        private enum CodingKeys: String, CodingKey {
+            case enabled
+            case authToken
+            case repository
+            case branch
+            case schedule
+            case conflictStrategy
+        }
+
+        public init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            enabled = try container.decodeIfPresent(Bool.self, forKey: .enabled) ?? false
+            authToken = try container.decodeIfPresent(String.self, forKey: .authToken) ?? ""
+            repository = try container.decodeIfPresent(String.self, forKey: .repository) ?? ""
+            branch = try container.decodeIfPresent(String.self, forKey: .branch) ?? "main"
+            schedule = try container.decodeIfPresent(Schedule.self, forKey: .schedule) ?? Schedule()
+            conflictStrategy = try container.decodeIfPresent(ConflictStrategy.self, forKey: .conflictStrategy) ?? .remoteWins
+        }
+    }
+
     public struct ChannelConfig: Codable, Sendable, Equatable {
         public struct Telegram: Codable, Sendable, Equatable {
             /// Telegram Bot API token.
@@ -233,6 +302,7 @@ public struct CoreConfig: Codable, Sendable {
     public var gateways: [String]
     public var plugins: [PluginConfig]
     public var channels: ChannelConfig
+    public var gitSync: GitSync
     public var sqlitePath: String
 
     public init(
@@ -245,6 +315,7 @@ public struct CoreConfig: Codable, Sendable {
         gateways: [String],
         plugins: [PluginConfig],
         channels: ChannelConfig = ChannelConfig(),
+        gitSync: GitSync = GitSync(),
         sqlitePath: String
     ) {
         self.listen = listen
@@ -256,6 +327,7 @@ public struct CoreConfig: Codable, Sendable {
         self.gateways = gateways
         self.plugins = plugins
         self.channels = channels
+        self.gitSync = gitSync
         self.sqlitePath = sqlitePath
     }
 
@@ -283,6 +355,7 @@ public struct CoreConfig: Codable, Sendable {
             gateways: [],
             plugins: [],
             channels: .init(),
+            gitSync: .init(),
             sqlitePath: CoreConfig.defaultSQLiteFileName
         )
     }
@@ -350,6 +423,7 @@ public struct CoreConfig: Codable, Sendable {
         case gateways
         case plugins
         case channels
+        case gitSync
         case sqlitePath
     }
 
@@ -363,6 +437,7 @@ public struct CoreConfig: Codable, Sendable {
         nodes = try container.decodeIfPresent([String].self, forKey: .nodes) ?? []
         gateways = try container.decodeIfPresent([String].self, forKey: .gateways) ?? []
         channels = try container.decodeIfPresent(ChannelConfig.self, forKey: .channels) ?? .init()
+        gitSync = try container.decodeIfPresent(GitSync.self, forKey: .gitSync) ?? .init()
         sqlitePath = try container.decode(String.self, forKey: .sqlitePath)
         if sqlitePath == CoreConfig.legacyDefaultSQLitePath {
             sqlitePath = CoreConfig.defaultSQLiteFileName
