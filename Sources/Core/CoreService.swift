@@ -636,6 +636,8 @@ public actor CoreService {
             description: normalizedDescription,
             channels: channels,
             tasks: [],
+            actors: request.actors ?? [],
+            teams: request.teams ?? [],
             createdAt: now,
             updatedAt: now
         )
@@ -658,6 +660,12 @@ public actor CoreService {
         }
         if let nextDescription = request.description {
             project.description = normalizeProjectDescription(nextDescription)
+        }
+        if let nextActors = request.actors {
+            project.actors = nextActors
+        }
+        if let nextTeams = request.teams {
+            project.teams = nextTeams
         }
 
         project.updatedAt = Date()
