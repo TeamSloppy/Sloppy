@@ -9,12 +9,6 @@ export function SettingsMainHeader({ hasChanges, statusText, onReload, onSave })
       </div>
 
       <div className="settings-main-actions">
-        <button type="button" className="hover-levitate" onClick={onReload}>
-          Reload
-        </button>
-        <button type="button" className="hover-levitate" onClick={onSave}>
-          Save
-        </button>
         <button type="button" className="hover-levitate" onClick={onSave}>
           Apply
         </button>
