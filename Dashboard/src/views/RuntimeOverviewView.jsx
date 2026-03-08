@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { fetchAgents, fetchProjects } from "../api";
+import { fetchAgents, fetchProjects, fetchAgentSessions } from "../api";
 import { Breadcrumbs } from "../components/Breadcrumbs/Breadcrumbs";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -18,15 +18,24 @@ function formatRelativeTime(dateValue) {
   return `${Math.round(diffHours / 24)}d ago`;
 }
 
-function generateActivityData(days = 14) {
+function buildActivityData(sessions, agentId, days = 14) {
   const today = new Date();
+  today.setHours(0, 0, 0, 0);
   return Array.from({ length: days }, (_, i) => {
     const d = new Date(today);
     d.setDate(today.getDate() - (days - 1 - i));
-    return {
-      dateStr: `${d.getMonth() + 1}/${d.getDate()}`,
-      value: Math.floor(Math.random() * 100)
-    };
+    const count = (sessions || []).filter((s) => {
+      if (String(s?.agentId || "") !== String(agentId)) return false;
+      const ts = s?.createdAt;
+      if (!ts) return false;
+      const sd = new Date(ts);
+      return (
+        sd.getFullYear() === d.getFullYear() &&
+        sd.getMonth() === d.getMonth() &&
+        sd.getDate() === d.getDate()
+      );
+    }).length;
+    return { dateStr: `${d.getMonth() + 1}/${d.getDate()}`, value: count };
   });
 }
 
@@ -223,13 +232,13 @@ function CountersSection({ agents, workers }) {
 
 // ─── Section 3 — Bot Activity ─────────────────────────────────────────────────
 
-function BotActivitySection({ agents }) {
+function BotActivitySection({ agents, sessions }) {
   const agentActivity = useMemo(() => {
     return agents.map((agent) => ({
       ...agent,
-      activity: generateActivityData(14)
+      activity: buildActivityData(sessions, agent.id, 14)
     }));
-  }, [agents]);
+  }, [agents, sessions]);
 
   if (agents.length === 0) {
     return (
@@ -368,6 +377,7 @@ function ClosedTasksSection({ projects }) {
 export function RuntimeOverviewView({ workers, events, onNavigateToProject }) {
   const [agents, setAgents] = useState([]);
   const [projects, setProjects] = useState([]);
+  const [sessions, setSessions] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
@@ -379,9 +389,22 @@ export function RuntimeOverviewView({ workers, events, onNavigateToProject }) {
         fetchProjects().catch(() => null)
       ]);
       if (cancelled) return;
-      setAgents(Array.isArray(agentsRes) ? agentsRes : []);
+      const loadedAgents = Array.isArray(agentsRes) ? agentsRes : [];
+      setAgents(loadedAgents);
       setProjects(Array.isArray(projectsRes) ? projectsRes : []);
-      setIsLoading(false);
+
+      // Load sessions for all agents concurrently
+      if (loadedAgents.length > 0) {
+        const allSessionArrays = await Promise.all(
+          loadedAgents.map((a) => fetchAgentSessions(a.id).catch(() => null))
+        );
+        if (!cancelled) {
+          const flat = allSessionArrays.flatMap((res) => (Array.isArray(res) ? res : []));
+          setSessions(flat);
+        }
+      }
+
+      if (!cancelled) setIsLoading(false);
     }
     load();
     return () => { cancelled = true; };
@@ -406,7 +429,7 @@ export function RuntimeOverviewView({ workers, events, onNavigateToProject }) {
 
       <CountersSection agents={agents} workers={normalizedWorkers} />
 
-      <BotActivitySection agents={agents} />
+      <BotActivitySection agents={agents} sessions={sessions} />
 
       <ClosedTasksSection projects={projects} />
     </main>

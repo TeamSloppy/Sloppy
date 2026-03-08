@@ -106,14 +106,14 @@ export function App() {
       )
     },
     {
-      id: "actors",
-      label: { icon: "smart_toy", title: "Actors" },
-      content: <ActorsView />
-    },
-    {
       id: "agents",
       label: { icon: "support_agent", title: "Agents" },
       content: <AgentsView routeAgentId={route.agentId} routeTab={route.agentTab} onRouteChange={onAgentRouteChange} />
+    },
+    {
+      id: "actors",
+      label: { icon: "group", title: "Actors" },
+      content: <ActorsView />
     },
     // {
     //   id: "nodes",
