@@ -207,6 +207,7 @@ public actor CoreService {
             config: config,
             configPath: configPath,
             persistenceBuilder: persistenceBuilder,
+            searchProviderService: searchProviderService,
             builtInGatewayPluginFactory: .live
         )
     }
@@ -215,6 +216,7 @@ public actor CoreService {
         config: CoreConfig,
         configPath: String = CoreConfig.defaultConfigPath,
         persistenceBuilder: any CorePersistenceBuilding = DefaultCorePersistenceBuilder(),
+        searchProviderService: SearchProviderService? = nil,
         builtInGatewayPluginFactory: BuiltInGatewayPluginFactory
     ) {
         let resolvedModels = CoreModelProviderFactory.resolveModelIdentifiers(config: config)

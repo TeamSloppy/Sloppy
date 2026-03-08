@@ -5,7 +5,6 @@ WORKDIR /workspace
 ARG SWIFT_BUILD_CONFIGURATION=release
 COPY Package.swift ./
 COPY Package.resolved ./
-COPY Vendor ./Vendor
 RUN --mount=type=cache,id=sloppy-swiftpm,target=/root/.swiftpm \
     --mount=type=cache,id=sloppy-swift-cache,target=/root/.cache \
     swift package resolve

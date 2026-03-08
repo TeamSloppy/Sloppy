@@ -23,7 +23,7 @@ let package = Package(
         .package(url: "https://github.com/apple/swift-log.git", from: "1.6.0"),
         .package(url: "https://github.com/apple/swift-nio.git", from: "2.74.0"),
         .package(url: "https://github.com/mattt/AnyLanguageModel.git", branch: "main"),
-        .package(path: "Vendor/CodexBar")
+        .package(url: "https://github.com/TeamSloppy/CodexBar.git", branch: "main")
     ],
     targets: [
         .target(
