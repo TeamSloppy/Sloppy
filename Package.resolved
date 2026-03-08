@@ -1,5 +1,5 @@
 {
-  "originHash" : "08f2aa65f704b59a74cdde0fefd7351a90af37beb0afa910e9cf92f2f1714e9f",
+  "originHash" : "64e30047d87a40331a7f870c3e6aa74fc8434a156d7e6368c62499f7437a0a1a",
   "pins" : [
     {
       "identity" : "anylanguagemodel",
@@ -35,6 +35,15 @@
       "state" : {
         "revision" : "e4d389e6bcc6771bb988d1a8a17695d8bfa97172",
         "version" : "1.0.0"
+      }
+    },
+    {
+      "identity" : "sweetcookiekit",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/steipete/SweetCookieKit",
+      "state" : {
+        "revision" : "4d5b71ffbb296937dc5ee8472f64721bca771cf0",
+        "version" : "0.4.0"
       }
     },
     {
@@ -112,7 +121,7 @@
     {
       "identity" : "swift-syntax",
       "kind" : "remoteSourceControl",
-      "location" : "https://github.com/swiftlang/swift-syntax",
+      "location" : "https://github.com/apple/swift-syntax",
       "state" : {
         "revision" : "0687f71944021d616d34d922343dcef086855920",
         "version" : "600.0.1"

@@ -20,7 +20,8 @@ let package = Package(
         .package(url: "https://github.com/apple/swift-configuration.git", from: "0.2.0"),
         .package(url: "https://github.com/apple/swift-log.git", from: "1.6.0"),
         .package(url: "https://github.com/apple/swift-nio.git", from: "2.74.0"),
-        .package(url: "https://github.com/mattt/AnyLanguageModel.git", branch: "main")
+        .package(url: "https://github.com/mattt/AnyLanguageModel.git", branch: "main"),
+        .package(path: "Vendor/CodexBar")
     ],
     targets: [
         .target(
@@ -52,7 +53,8 @@ let package = Package(
                 .product(name: "Logging", package: "swift-log"),
                 .product(name: "NIOCore", package: "swift-nio"),
                 .product(name: "NIOPosix", package: "swift-nio"),
-                .product(name: "NIOHTTP1", package: "swift-nio")
+                .product(name: "NIOHTTP1", package: "swift-nio"),
+                .product(name: "CodexBarCore", package: "CodexBar")
             ],
             path: "Sources/Core",
             resources: [

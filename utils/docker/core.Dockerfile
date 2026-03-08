@@ -5,6 +5,7 @@ WORKDIR /workspace
 ARG SWIFT_BUILD_CONFIGURATION=release
 COPY Package.swift ./
 COPY Package.resolved ./
+COPY Vendor ./Vendor
 RUN --mount=type=cache,id=sloppy-swiftpm,target=/root/.swiftpm \
     --mount=type=cache,id=sloppy-swift-cache,target=/root/.cache \
     swift package resolve
@@ -23,7 +24,7 @@ RUN --mount=type=cache,id=sloppy-swiftpm,target=/root/.swiftpm \
     cp "$CORE_BIN" /artifacts/sloppy-core; \
     RESOURCE_DIR="$(find .build -type d \( -name 'Sloppy_Core.resources' -o -name 'Sloppy_Core.bundle' \) | head -n 1 || true)"; \
     if [ -n "${RESOURCE_DIR}" ]; then \
-      cp -R "$RESOURCE_DIR"/. "/artifacts/$(basename "$RESOURCE_DIR")"; \
+    cp -R "$RESOURCE_DIR"/. "/artifacts/$(basename "$RESOURCE_DIR")"; \
     fi
 
 FROM ubuntu:22.04

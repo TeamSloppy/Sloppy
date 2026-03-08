@@ -3500,7 +3500,7 @@ body.agent-chat-no-page-scroll .page {
 .agent-config-docs textarea {
   min-height: 180px;
   resize: vertical;
-  font-family: "JetBrains Mono", "SFMono-Regular", Menlo, Consolas, monospace;
+  font-family: "Fira Code", monospace;
   font-size: 0.84rem;
 }
 
@@ -3587,7 +3587,7 @@ body.agent-chat-no-page-scroll .page {
 .agent-channel-node-id {
   font-size: 0.75rem;
   color: var(--muted);
-  font-family: "JetBrains Mono", "SFMono-Regular", Menlo, Consolas, monospace;
+  font-family: "Fira Code", monospace;
 }
 
 .agent-channel-remove {
@@ -4233,7 +4233,7 @@ body.agent-chat-no-page-scroll .page {
 .agent-tools-textarea-grid textarea {
   min-height: 152px;
   resize: vertical;
-  font-family: "JetBrains Mono", "SFMono-Regular", Menlo, Consolas, monospace;
+  font-family: "Fira Code", monospace;
   font-size: 0.82rem;
 }
 
@@ -4464,7 +4464,7 @@ body.agent-chat-no-page-scroll .page {
   background: var(--surface-2);
   padding: 8px;
   color: #c5cde0;
-  font-family: "JetBrains Mono", "SFMono-Regular", Menlo, Consolas, monospace;
+  font-family: "Fira Code", monospace;
   font-size: 0.76rem;
   white-space: pre-wrap;
   word-break: break-word;
@@ -4694,7 +4694,7 @@ body.agent-chat-no-page-scroll .page {
 .settings-raw-editor {
   width: 100%;
   min-height: 520px;
-  font-family: "JetBrains Mono", "SFMono-Regular", Menlo, Monaco, Consolas, monospace;
+  font-family: "Fira Code", monospace;
   line-height: 1.4;
 }
 
@@ -5001,7 +5001,7 @@ body.agent-chat-no-page-scroll .page {
 .tg-token-field input {
   flex: 1;
   min-width: 0;
-  font-family: monospace;
+  font-family: "Fira Code", monospace;
   font-size: 0.82rem;
 }
 
@@ -6543,7 +6543,7 @@ pre {
 }
 
 .run-id {
-  font-family: monospace;
+  font-family: "Fira Code", monospace;
   color: var(--muted);
   font-size: 0.9rem;
 }
@@ -6703,7 +6703,7 @@ pre {
 }
 
 .issue-id {
-  font-family: monospace;
+  font-family: "Fira Code", monospace;
   color: var(--muted);
   font-size: 0.85rem;
   width: 60px;
@@ -7147,6 +7147,7 @@ pre {
 }
 
 @media (max-width: 1000px) {
+
   .agent-memories-toolbar,
   .agent-memories-body {
     grid-template-columns: 1fr;

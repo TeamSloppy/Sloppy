@@ -549,6 +549,20 @@ public actor CoreRouter {
             return Self.encodable(status: HTTPStatus.ok, payload: catalog)
         }
 
+        add(.get, "/v1/agents/:agentId/token-usage") { request in
+            let agentId = request.pathParam("agentId") ?? ""
+            do {
+                let usage = try await service.getAgentTokenUsage(agentID: agentId)
+                return Self.encodable(status: HTTPStatus.ok, payload: usage)
+            } catch CoreService.AgentStorageError.invalidID {
+                return Self.json(status: HTTPStatus.badRequest, payload: ["error": ErrorCode.invalidAgentId])
+            } catch CoreService.AgentStorageError.notFound {
+                return Self.json(status: HTTPStatus.notFound, payload: ["error": ErrorCode.agentNotFound])
+            } catch {
+                return Self.json(status: HTTPStatus.internalServerError, payload: ["error": ErrorCode.tokenUsageReadFailed])
+            }
+        }
+
         add(.get, "/v1/agents/:agentId/cron") { request in
             let agentId = request.pathParam("agentId") ?? ""
             do {

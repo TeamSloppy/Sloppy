@@ -90,6 +90,7 @@ export interface CoreApi {
   deleteAgentSession: (agentId: string, sessionId: string) => Promise<boolean>;
   fetchAgentConfig: (agentId: string) => Promise<AnyRecord | null>;
   updateAgentConfig: (agentId: string, payload: AnyRecord) => Promise<AnyRecord | null>;
+  fetchAgentTokenUsage: (agentId: string) => Promise<AnyRecord | null>;
   fetchAgentToolsCatalog: (agentId: string) => Promise<AnyRecord[] | null>;
   fetchAgentToolsPolicy: (agentId: string) => Promise<AnyRecord | null>;
   updateAgentToolsPolicy: (agentId: string, payload: AnyRecord) => Promise<AnyRecord | null>;
@@ -706,6 +707,16 @@ export function createCoreApi(): CoreApi {
         path: `/v1/agents/${encodeURIComponent(agentId)}/config`,
         method: "PUT",
         body: payload
+      });
+      if (!response.ok) {
+        return null;
+      }
+      return response.data;
+    },
+
+    fetchAgentTokenUsage: async (agentId) => {
+      const response = await requestJson<AnyRecord>({
+        path: `/v1/agents/${encodeURIComponent(agentId)}/token-usage`
       });
       if (!response.ok) {
         return null;

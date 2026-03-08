@@ -610,6 +610,20 @@ public struct AgentConfigUpdateRequest: Codable, Sendable {
     }
 }
 
+public struct AgentTokenUsageResponse: Codable, Sendable, Equatable {
+    public var inputTokens: Int
+    public var outputTokens: Int
+    public var cachedTokens: Int
+    public var totalCostUSD: Double
+
+    public init(inputTokens: Int, outputTokens: Int, cachedTokens: Int, totalCostUSD: Double) {
+        self.inputTokens = inputTokens
+        self.outputTokens = outputTokens
+        self.cachedTokens = cachedTokens
+        self.totalCostUSD = totalCostUSD
+    }
+}
+
 // MARK: - Channel Plugins
 
 public struct ChannelPluginRecord: Codable, Sendable, Equatable {

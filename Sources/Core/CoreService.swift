@@ -4,6 +4,7 @@ import ChannelPluginTelegram
 import Logging
 import Protocols
 import PluginSDK
+import CodexBarCore
 
 public enum AgentSessionStreamUpdateKind: String, Codable, Sendable {
     case sessionReady = "session_ready"
@@ -1082,6 +1083,41 @@ public actor CoreService {
             )
         } catch {
             throw mapAgentConfigError(error)
+        }
+    }
+
+    /// Fetches token usage and estimated cost for the agent's selected model provider.
+    public func getAgentTokenUsage(agentID: String) async throws -> AgentTokenUsageResponse {
+        guard let normalizedID = normalizedAgentID(agentID) else {
+            throw AgentStorageError.invalidID
+        }
+        let config = try getAgentConfig(agentID: normalizedID)
+        
+        // Approximate provider from the selected model string
+        let provider: UsageProvider
+        let model = config.selectedModel.lowercased()
+        if model.contains("claude") {
+            provider = .claude
+        } else if model.contains("gemini") {
+            provider = .gemini
+        } else if model.contains("vertex") {
+            provider = .vertexai
+        } else {
+            provider = .codex
+        }
+        
+        let fetcher = CostUsageFetcher()
+        do {
+            let snapshot = try await fetcher.loadTokenSnapshot(provider: provider)
+            return AgentTokenUsageResponse(
+                inputTokens: snapshot.last30DaysTokens ?? 0,
+                outputTokens: 0,
+                cachedTokens: 0,
+                totalCostUSD: snapshot.last30DaysCostUSD ?? 0.0
+            )
+        } catch {
+            // If the provider isn't configured in CodexBar, return zeros instead of failing
+            return AgentTokenUsageResponse(inputTokens: 0, outputTokens: 0, cachedTokens: 0, totalCostUSD: 0.0)
         }
     }
 
