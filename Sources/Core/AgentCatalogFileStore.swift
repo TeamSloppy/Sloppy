@@ -18,6 +18,7 @@ final class AgentCatalogFileStore {
         let createdAt: Date
         let selectedModel: String?
         let heartbeat: AgentHeartbeatSettings?
+        let channelSessions: AgentChannelSessionSettings?
     }
 
     private struct AgentHeartbeatStatusFile: Codable {
@@ -134,6 +135,7 @@ final class AgentCatalogFileStore {
             availableModels: availableModels,
             documents: documents,
             heartbeat: configFile.heartbeat ?? AgentHeartbeatSettings(),
+            channelSessions: configFile.channelSessions ?? AgentChannelSessionSettings(),
             heartbeatStatus: heartbeatStatus
         )
     }
@@ -179,6 +181,10 @@ final class AgentCatalogFileStore {
         if heartbeat.enabled && heartbeat.intervalMinutes < 1 {
             throw StoreError.invalidPayload
         }
+        let channelSessions = request.channelSessions
+        if channelSessions.autoCloseEnabled && channelSessions.autoCloseAfterMinutes < 1 {
+            throw StoreError.invalidPayload
+        }
 
         do {
             try writeAgentConfigFile(
@@ -188,7 +194,8 @@ final class AgentCatalogFileStore {
                     role: summary.role,
                     createdAt: summary.createdAt,
                     selectedModel: selectedModel,
-                    heartbeat: heartbeat
+                    heartbeat: heartbeat,
+                    channelSessions: channelSessions
                 )
             )
 
@@ -211,6 +218,7 @@ final class AgentCatalogFileStore {
             availableModels: availableModels,
             documents: normalizedDocuments,
             heartbeat: heartbeat,
+            channelSessions: channelSessions,
             heartbeatStatus: try readHeartbeatStatus(agentID: normalizedAgentID)
         )
     }
@@ -370,7 +378,8 @@ final class AgentCatalogFileStore {
                 role: summary.role,
                 createdAt: summary.createdAt,
                 selectedModel: availableModels.first?.id,
-                heartbeat: AgentHeartbeatSettings()
+                heartbeat: AgentHeartbeatSettings(),
+                channelSessions: AgentChannelSessionSettings()
             )
         )
 
@@ -413,7 +422,8 @@ final class AgentCatalogFileStore {
                 role: summary.role,
                 createdAt: summary.createdAt,
                 selectedModel: availableModels.first?.id,
-                heartbeat: AgentHeartbeatSettings()
+                heartbeat: AgentHeartbeatSettings(),
+                channelSessions: AgentChannelSessionSettings()
             )
             try writeAgentConfigFile(fallback)
             return fallback
@@ -432,17 +442,19 @@ final class AgentCatalogFileStore {
                 role: decoded.role,
                 createdAt: decoded.createdAt,
                 selectedModel: availableModels.first?.id,
-                heartbeat: decoded.heartbeat ?? AgentHeartbeatSettings()
+                heartbeat: decoded.heartbeat ?? AgentHeartbeatSettings(),
+                channelSessions: decoded.channelSessions ?? AgentChannelSessionSettings()
             )
             try writeAgentConfigFile(decoded)
-        } else if decoded.heartbeat == nil {
+        } else if decoded.heartbeat == nil || decoded.channelSessions == nil {
             decoded = AgentConfigFile(
                 id: decoded.id,
                 displayName: decoded.displayName,
                 role: decoded.role,
                 createdAt: decoded.createdAt,
                 selectedModel: decoded.selectedModel,
-                heartbeat: AgentHeartbeatSettings()
+                heartbeat: decoded.heartbeat ?? AgentHeartbeatSettings(),
+                channelSessions: decoded.channelSessions ?? AgentChannelSessionSettings()
             )
             try writeAgentConfigFile(decoded)
         }

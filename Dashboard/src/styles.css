@@ -4115,6 +4115,47 @@ body.agent-chat-no-page-scroll .page {
   font-variation-settings: "FILL" 0, "wght" 400, "GRAD" 0, "opsz" 20;
 }
 
+.agent-channel-sessions-panel {
+  display: grid;
+  gap: 10px;
+}
+
+.agent-channel-sessions-list {
+  display: grid;
+  gap: 8px;
+}
+
+.agent-channel-session-card {
+  border: 1px solid var(--line);
+  background: var(--surface);
+  padding: 12px;
+  display: grid;
+  gap: 8px;
+}
+
+.agent-channel-session-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.agent-channel-session-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  font-size: 0.78rem;
+  color: var(--muted);
+  font-family: "Fira Code", monospace;
+}
+
+.agent-channel-session-preview {
+  margin: 0;
+  font-size: 0.84rem;
+  color: var(--text);
+  line-height: 1.4;
+}
+
 .agent-memories-shell {
   display: grid;
   gap: 14px;
@@ -7399,6 +7440,15 @@ pre {
   border-color: var(--accent);
 }
 
+.channel-card:disabled {
+  cursor: default;
+  opacity: 0.86;
+}
+
+.channel-card:disabled:hover {
+  border-color: var(--line);
+}
+
 .channel-card-head {
   display: flex;
   align-items: center;
@@ -7440,6 +7490,13 @@ pre {
   flex-wrap: wrap;
 }
 
+.channel-card-preview {
+  min-height: 2.6em;
+  font-size: 0.78rem;
+  color: #c9d2e4;
+  line-height: 1.35;
+}
+
 .channel-agent-avatar {
   display: inline-flex;
   align-items: center;
@@ -7468,6 +7525,11 @@ pre {
 }
 
 .channel-worker-count {
+  font-size: 0.72rem;
+  color: var(--muted);
+}
+
+.channel-session-time {
   font-size: 0.72rem;
   color: var(--muted);
 }

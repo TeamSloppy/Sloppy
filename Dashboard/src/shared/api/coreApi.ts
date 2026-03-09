@@ -13,6 +13,11 @@ interface ChannelEventsQuery {
   after?: string;
 }
 
+interface ChannelSessionsQuery {
+  status?: string;
+  agentId?: string;
+}
+
 interface AgentMemoryQuery {
   search?: string;
   filter?: string;
@@ -30,6 +35,7 @@ export interface CoreApi {
   sendChannelMessage: (channelId: string, payload: AnyRecord) => Promise<AnyRecord | null>;
   fetchChannelState: (channelId: string) => Promise<AnyRecord | null>;
   fetchChannelEvents: (channelId: string, query?: ChannelEventsQuery) => Promise<AnyRecord | null>;
+  fetchChannelSessions: (query?: ChannelSessionsQuery) => Promise<AnyRecord[] | null>;
   fetchBulletins: () => Promise<AnyRecord[]>;
   fetchWorkers: () => Promise<AnyRecord[]>;
   fetchArtifact: (id: string) => Promise<AnyRecord | null>;
@@ -153,6 +159,25 @@ export function createCoreApi(): CoreApi {
         path: `/v1/channels/${encodeURIComponent(channelId)}/events${queryString ? `?${queryString}` : ""}`
       });
       if (!response.ok) {
+        return null;
+      }
+      return response.data;
+    },
+
+    fetchChannelSessions: async (query = {}) => {
+      const params = new URLSearchParams();
+      if (typeof query.status === "string" && query.status.length > 0) {
+        params.set("status", query.status);
+      }
+      if (typeof query.agentId === "string" && query.agentId.length > 0) {
+        params.set("agentId", query.agentId);
+      }
+
+      const queryString = params.toString();
+      const response = await requestJson<AnyRecord[]>({
+        path: `/v1/channel-sessions${queryString ? `?${queryString}` : ""}`
+      });
+      if (!response.ok || !Array.isArray(response.data)) {
         return null;
       }
       return response.data;

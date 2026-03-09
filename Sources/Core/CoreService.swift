@@ -625,6 +625,35 @@ public actor CoreService {
         return ChannelEventsResponse(channelId: channelId, items: events, nextCursor: nextCursor)
     }
 
+    public func listChannelSessions(
+        status: ChannelSessionStatus? = nil,
+        agentID: String? = nil
+    ) async throws -> [ChannelSessionSummary] {
+        await waitForStartup()
+
+        let board = try? getActorBoard()
+        let filteredChannelIDs: Set<String>?
+        if let agentID {
+            guard let normalizedAgentID = normalizedAgentID(agentID) else {
+                throw AgentStorageError.invalidID
+            }
+            _ = try getAgent(id: normalizedAgentID)
+            filteredChannelIDs = boundChannelIDs(agentID: normalizedAgentID, board: board)
+        } else {
+            filteredChannelIDs = nil
+        }
+
+        let timeoutByChannel = channelSessionTimeouts(
+            board: board,
+            limitToChannelIDs: filteredChannelIDs
+        )
+        _ = try await channelSessionStore.expireInactiveSessions(timeoutByChannel: timeoutByChannel)
+        return try await channelSessionStore.listSessions(
+            status: status,
+            channelIds: filteredChannelIDs
+        )
+    }
+
     // MARK: - Cron Tasks
 
     public func listAgentCronTasks(agentID: String) async throws -> [AgentCronTask] {
@@ -4441,6 +4470,77 @@ public actor CoreService {
             .first
     }
 
+    private func prepareChannelSession(channelId: String) async throws {
+        let normalizedChannelID = normalizeWhitespace(channelId)
+        guard !normalizedChannelID.isEmpty else {
+            return
+        }
+
+        let board = try? getActorBoard()
+        let timeoutByChannel = channelSessionTimeouts(
+            board: board,
+            limitToChannelIDs: Set([normalizedChannelID])
+        )
+        _ = try await channelSessionStore.expireInactiveSessions(timeoutByChannel: timeoutByChannel)
+    }
+
+    private func channelSessionTimeouts(
+        board: ActorBoardSnapshot?,
+        limitToChannelIDs: Set<String>? = nil
+    ) -> [String: Int] {
+        guard let board else {
+            return [:]
+        }
+
+        var timeoutByChannel: [String: Int] = [:]
+        let sortedNodes = board.nodes.sorted { left, right in
+            if left.createdAt == right.createdAt {
+                return left.id < right.id
+            }
+            return left.createdAt < right.createdAt
+        }
+
+        for node in sortedNodes {
+            let channelID = normalizeWhitespace(node.channelId ?? "")
+            let agentID = normalizeWhitespace(node.linkedAgentId ?? "")
+            guard !channelID.isEmpty, !agentID.isEmpty else {
+                continue
+            }
+            if let limitToChannelIDs, !limitToChannelIDs.contains(channelID) {
+                continue
+            }
+            if timeoutByChannel[channelID] != nil {
+                continue
+            }
+
+            guard let config = try? getAgentConfig(agentID: agentID) else {
+                continue
+            }
+            guard config.channelSessions.autoCloseEnabled else {
+                continue
+            }
+            timeoutByChannel[channelID] = max(1, config.channelSessions.autoCloseAfterMinutes)
+        }
+
+        return timeoutByChannel
+    }
+
+    private func boundChannelIDs(agentID: String, board: ActorBoardSnapshot?) -> Set<String> {
+        guard let board else {
+            return []
+        }
+
+        return Set(
+            board.nodes.compactMap { node in
+                guard normalizeWhitespace(node.linkedAgentId ?? "") == agentID else {
+                    return nil
+                }
+                let channelID = normalizeWhitespace(node.channelId ?? "")
+                return channelID.isEmpty ? nil : channelID
+            }
+        )
+    }
+
     private func normalizeWhitespace(_ value: String) -> String {
         value
             .replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
@@ -5518,6 +5618,12 @@ extension CoreService: InboundMessageReceiver {
     /// Routes through the runtime, collects the response, persists to channel session,
     /// and delivers it back to the channel plugin.
     public func postMessage(channelId: String, userId: String, content: String) async -> Bool {
+        do {
+            try await prepareChannelSession(channelId: channelId)
+        } catch {
+            logger.warning("Failed to prepare channel session for \(channelId): \(error)")
+        }
+
         // Persist user message to channel session
         do {
             try await channelSessionStore.recordUserMessage(

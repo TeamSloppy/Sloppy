@@ -17,6 +17,10 @@ function emptyAgentConfigDraft(agentId) {
       enabled: false,
       intervalMinutes: 5
     },
+    channelSessions: {
+      autoCloseEnabled: false,
+      autoCloseAfterMinutes: 30
+    },
     heartbeatStatus: {
       lastRunAt: null,
       lastSuccessAt: null,
@@ -43,6 +47,10 @@ function normalizeConfigDraft(agentId, config) {
     heartbeat: {
       enabled: Boolean(config.heartbeat?.enabled),
       intervalMinutes: Number.parseInt(String(config.heartbeat?.intervalMinutes ?? 5), 10) || 5
+    },
+    channelSessions: {
+      autoCloseEnabled: Boolean(config.channelSessions?.autoCloseEnabled),
+      autoCloseAfterMinutes: Number.parseInt(String(config.channelSessions?.autoCloseAfterMinutes ?? 30), 10) || 30
     },
     heartbeatStatus: {
       lastRunAt: config.heartbeatStatus?.lastRunAt || null,
@@ -147,6 +155,16 @@ export function AgentConfigTab({ agentId }) {
     }));
   }
 
+  function updateChannelSessionField(field, value) {
+    setDraft((previous) => ({
+      ...previous,
+      channelSessions: {
+        ...previous.channelSessions,
+        [field]: value
+      }
+    }));
+  }
+
   async function saveConfig(event) {
     event.preventDefault();
     if (isSaving) {
@@ -164,6 +182,11 @@ export function AgentConfigTab({ agentId }) {
       setStatusText("Heartbeat interval must be at least 1 minute.");
       return;
     }
+    const autoCloseAfterMinutes = Number.parseInt(String(draft.channelSessions.autoCloseAfterMinutes || 0), 10);
+    if (draft.channelSessions.autoCloseEnabled && (!Number.isFinite(autoCloseAfterMinutes) || autoCloseAfterMinutes < 1)) {
+      setStatusText("Channel session timeout must be at least 1 minute.");
+      return;
+    }
 
     const payload = {
       selectedModel,
@@ -177,6 +200,10 @@ export function AgentConfigTab({ agentId }) {
       heartbeat: {
         enabled: Boolean(draft.heartbeat.enabled),
         intervalMinutes: intervalMinutes || 5
+      },
+      channelSessions: {
+        autoCloseEnabled: Boolean(draft.channelSessions.autoCloseEnabled),
+        autoCloseAfterMinutes: autoCloseAfterMinutes || 30
       }
     };
 
@@ -252,6 +279,40 @@ export function AgentConfigTab({ agentId }) {
               />
             </label>
           </div>
+
+          <section className="agent-config-heartbeat">
+            <div className="agent-config-head">
+              <div className="agent-tools-head-copy">
+                <h4>Channel Sessions</h4>
+                <p className="placeholder-text">
+                  Automatically close inactive incoming channel sessions and start a new one on the next message.
+                </p>
+              </div>
+            </div>
+
+            <label className="cron-form-toggle">
+              <span>Close session after</span>
+              <span className="agent-tools-switch">
+                <input
+                  type="checkbox"
+                  checked={draft.channelSessions.autoCloseEnabled}
+                  onChange={(event) => updateChannelSessionField("autoCloseEnabled", event.target.checked)}
+                />
+                <span className="agent-tools-switch-track" />
+              </span>
+            </label>
+
+            <label>
+              Timeout (minutes)
+              <input
+                type="number"
+                min="1"
+                step="1"
+                value={draft.channelSessions.autoCloseAfterMinutes}
+                onChange={(event) => updateChannelSessionField("autoCloseAfterMinutes", event.target.value)}
+              />
+            </label>
+          </section>
 
           <section className="agent-config-heartbeat">
             <div className="agent-config-head">
