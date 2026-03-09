@@ -1,4 +1,8 @@
 import React, { useEffect, useMemo, useState } from "react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
+import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
+import { oneDark } from "react-syntax-highlighter/dist/esm/styles/prism";
 import { fetchActorsBoard, fetchAgents, fetchChannelEvents, fetchChannelSession, fetchProjects } from "../api";
 import { Breadcrumbs } from "../components/Breadcrumbs/Breadcrumbs";
 
@@ -413,9 +417,9 @@ export function ChannelSessionView({ sessionId, onNavigateBack }) {
       setRuntimeEvents(filteredRuntimeEvents);
     }
 
-    refreshLive(true).catch(() => {});
+    refreshLive(true).catch(() => { });
     const timerId = window.setInterval(() => {
-      refreshLive(true).catch(() => {});
+      refreshLive(true).catch(() => { });
     }, 2000);
 
     return () => {
@@ -679,7 +683,32 @@ export function ChannelSessionView({ sessionId, onNavigateBack }) {
                         <span>{formatEventTime(item.createdAt)}</span>
                       </div>
                       <div className="agent-chat-message-body">
-                        <p>{item.content || "No message content."}</p>
+                        <div className="markdown-body">
+                          <ReactMarkdown
+                            remarkPlugins={[remarkGfm]}
+                            components={{
+                              code({ node, inline, className, children, ...props }) {
+                                const match = /language-(\w+)/.exec(className || "");
+                                return !inline && match ? (
+                                  <SyntaxHighlighter
+                                    style={oneDark}
+                                    language={match[1]}
+                                    PreTag="div"
+                                    {...props}
+                                  >
+                                    {String(children).replace(/\n$/, "")}
+                                  </SyntaxHighlighter>
+                                ) : (
+                                  <code className={className} {...props}>
+                                    {children}
+                                  </code>
+                                );
+                              }
+                            }}
+                          >
+                            {item.content || "No message content."}
+                          </ReactMarkdown>
+                        </div>
                         {item.metadata ? (
                           <pre className="agent-chat-expandable-pre">
                             {previewText(formatStructuredData(item.metadata), "No metadata")}

@@ -12,6 +12,10 @@ import {
   postAgentSessionMessage,
   subscribeAgentSessionStream
 } from "../../../api";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
+import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
+import { oneDark } from "react-syntax-highlighter/dist/esm/styles/prism";
 
 const INLINE_ATTACHMENT_MAX_BYTES = 2 * 1024 * 1024;
 const TASK_TAG_PATTERN = /#([A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?)/g;
@@ -834,14 +838,49 @@ function AgentChatEvents({
                         isExpanded={Boolean(expandedRecordIds[thoughtId])}
                         onToggle={onToggleRecord}
                       >
-                        <p className="agent-chat-expandable-text">
-                          <TaskTaggedText
-                            text={thoughtText || "No details."}
-                            onTaskTagClick={onTaskTagClick}
-                            onTaskTagHoverStart={onTaskTagHoverStart}
-                            onTaskTagHoverEnd={onTaskTagHoverEnd}
-                          />
-                        </p>
+                        <div className="markdown-body">
+                          <ReactMarkdown
+                            remarkPlugins={[remarkGfm]}
+                            components={{
+                              code(props: any) {
+                                const { inline, className, children, ...rest } = props;
+                                const match = /language-(\w+)/.exec(className || "");
+                                return !inline && match ? (
+                                  <SyntaxHighlighter
+                                    style={oneDark as any}
+                                    language={match[1]}
+                                    PreTag="div"
+                                    {...rest}
+                                  >
+                                    {String(children).replace(/\n$/, "")}
+                                  </SyntaxHighlighter>
+                                ) : (
+                                  <code className={className} {...rest}>
+                                    {children}
+                                  </code>
+                                );
+                              },
+                              p: ({ children }) => (
+                                <p>
+                                  {React.Children.map(children, (child) =>
+                                    typeof child === "string" ? (
+                                      <TaskTaggedText
+                                        text={child}
+                                        onTaskTagClick={onTaskTagClick}
+                                        onTaskTagHoverStart={onTaskTagHoverStart}
+                                        onTaskTagHoverEnd={onTaskTagHoverEnd}
+                                      />
+                                    ) : (
+                                      child
+                                    )
+                                  )}
+                                </p>
+                              )
+                            }}
+                          >
+                            {thoughtText || "No details."}
+                          </ReactMarkdown>
+                        </div>
                       </AgentChatExpandable>
                     );
                   })}
@@ -858,14 +897,49 @@ function AgentChatEvents({
                     }
 
                     return (
-                      <p key={key}>
-                        <TaskTaggedText
-                          text={segment.text || ""}
-                          onTaskTagClick={onTaskTagClick}
-                          onTaskTagHoverStart={onTaskTagHoverStart}
-                          onTaskTagHoverEnd={onTaskTagHoverEnd}
-                        />
-                      </p>
+                      <div key={key} className="markdown-body">
+                        <ReactMarkdown
+                          remarkPlugins={[remarkGfm]}
+                          components={{
+                            code(props: any) {
+                              const { inline, className, children, ...rest } = props;
+                              const match = /language-(\w+)/.exec(className || "");
+                              return !inline && match ? (
+                                <SyntaxHighlighter
+                                  style={oneDark as any}
+                                  language={match[1]}
+                                  PreTag="div"
+                                  {...rest}
+                                >
+                                  {String(children).replace(/\n$/, "")}
+                                </SyntaxHighlighter>
+                              ) : (
+                                <code className={className} {...rest}>
+                                  {children}
+                                </code>
+                              );
+                            },
+                            p: ({ children }) => (
+                              <p>
+                                {React.Children.map(children, (child) =>
+                                  typeof child === "string" ? (
+                                    <TaskTaggedText
+                                      text={child}
+                                      onTaskTagClick={onTaskTagClick}
+                                      onTaskTagHoverStart={onTaskTagHoverStart}
+                                      onTaskTagHoverEnd={onTaskTagHoverEnd}
+                                    />
+                                  ) : (
+                                    child
+                                  )
+                                )}
+                              </p>
+                            )
+                          }}
+                        >
+                          {segment.text || ""}
+                        </ReactMarkdown>
+                      </div>
                     );
                   })}
                 </div>
