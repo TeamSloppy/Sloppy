@@ -43,6 +43,7 @@ func openAIOAuthStartLoginPersistsPendingSession() throws {
     #expect(components.host == "auth.openai.com")
     #expect(queryItems.first(where: { $0.name == "client_id" })?.value == "app_EMoamEEZ73f0CkXaXp7hrann")
     #expect(queryItems.first(where: { $0.name == "redirect_uri" })?.value == "http://127.0.0.1:4173/config")
+    #expect(queryItems.first(where: { $0.name == "originator" })?.value == "codex_vscode")
     #expect(queryItems.first(where: { $0.name == "code_challenge_method" })?.value == "S256")
     #expect(queryItems.first(where: { $0.name == "state" })?.value == response.state)
 

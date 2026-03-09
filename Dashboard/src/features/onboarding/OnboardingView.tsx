@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import type { CoreApi } from "../../shared/api/coreApi";
 import {
   OPENAI_OAUTH_MESSAGE_TYPE,
+  OPENAI_OAUTH_REDIRECT_URI,
   buildOpenAIOAuthRedirectURI,
   clearOpenAIOAuthCallbackParams,
   openOpenAIOAuthPopup,
@@ -289,6 +290,7 @@ export function OnboardingView({ coreApi, initialConfig, onCompleted }: Onboardi
   const [providerApiKey, setProviderApiKey] = useState(initialProvider.apiKey);
   const [providerApiUrl, setProviderApiUrl] = useState(initialProvider.apiUrl);
   const [selectedModel, setSelectedModel] = useState(initialProvider.selectedModel);
+  const [oauthCallbackURL, setOAuthCallbackURL] = useState("");
   const [probeStatus, setProbeStatus] = useState("Pick a provider and test the connection.");
   const [probeOk, setProbeOk] = useState(false);
   const [probeModels, setProbeModels] = useState<AnyRecord[]>([]);
@@ -362,7 +364,33 @@ export function OnboardingView({ coreApi, initialConfig, onCompleted }: Onboardi
       return;
     }
 
-    setProbeStatus("OpenAI OAuth opened. Finish sign-in in the popup, then test connection.");
+    setProbeStatus(
+      `OpenAI OAuth opened. After redirect to ${OPENAI_OAUTH_REDIRECT_URI}, copy the full URL from the popup and paste it below.`
+    );
+  }
+
+  async function submitOAuthCallback() {
+    const callbackURL = oauthCallbackURL.trim();
+    if (!callbackURL) {
+      setProbeStatus("Paste the full callback URL first.");
+      return;
+    }
+
+    setProbeStatus("Completing OpenAI OAuth...");
+    const response = await coreApi.completeOpenAIOAuth({ callbackURL });
+    const ok = Boolean(response?.ok);
+    const message = String(response?.message || "Failed to complete OpenAI OAuth.");
+    setProbeStatus(message);
+    if (!ok) {
+      setProbeOk(false);
+      return;
+    }
+
+    setOAuthCallbackURL("");
+    setProviderId("openai-oauth");
+    const oauthApiUrl = PROVIDERS.find((provider) => provider.id === "openai-oauth")?.defaultEntry.apiUrl || providerApiUrl;
+    setProviderApiUrl(oauthApiUrl);
+    await runProviderProbe("openai-oauth", "", oauthApiUrl);
   }
 
   async function testProviderConnection() {
@@ -690,6 +718,7 @@ export function OnboardingView({ coreApi, initialConfig, onCompleted }: Onboardi
                       setProviderId(provider.id);
                       setProviderApiKey(provider.defaultEntry.apiKey);
                       setProviderApiUrl(provider.defaultEntry.apiUrl);
+                      setOAuthCallbackURL("");
                     }}
                   >
                     <span className="material-symbols-rounded" aria-hidden="true">
@@ -732,6 +761,27 @@ export function OnboardingView({ coreApi, initialConfig, onCompleted }: Onboardi
                   {isProbing ? "Testing..." : "Test connection"}
                 </button>
               </div>
+
+              {activeProvider.id === "openai-oauth" ? (
+                <div className="onboarding-form-block">
+                  <label>
+                    Callback URL
+                    <input
+                      value={oauthCallbackURL}
+                      onChange={(event) => setOAuthCallbackURL(event.target.value)}
+                      placeholder={`${OPENAI_OAUTH_REDIRECT_URI}?code=...&state=...`}
+                    />
+                  </label>
+                  <div className="onboarding-inline-note">
+                    After OpenAI redirects to <strong>{OPENAI_OAUTH_REDIRECT_URI}</strong>, copy the full URL from the popup into this field.
+                  </div>
+                  <div className="onboarding-provider-actions">
+                    <button type="button" className="onboarding-ghost-button hover-levitate" onClick={() => void submitOAuthCallback()}>
+                      Complete OAuth
+                    </button>
+                  </div>
+                </div>
+              ) : null}
 
               <div className={`onboarding-provider-status ${probeOk ? "ok" : "warn"}`}>
                 <strong>{probeOk ? "Ready" : "Pending"}</strong>

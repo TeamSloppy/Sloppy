@@ -31,8 +31,12 @@ export function ProviderEditor({
   onCloseProviderModal,
   onUpdateProviderForm,
   onOpenOAuth,
+  onSubmitOAuthCallback,
+  onUpdateOAuthCallbackURL,
   onRemoveProvider,
   onSaveProvider,
+  openAIOAuthRedirectURI,
+  openAIOAuthCallbackURL,
   onSetProviderModelMenuOpen,
   onSetProviderModelMenuRect,
   getProviderEntry,
@@ -163,6 +167,26 @@ export function ProviderEditor({
                     <button type="button" onClick={onOpenOAuth}>
                       {openAIProviderStatus.hasOAuthCredentials ? "Reconnect OpenAI" : "Connect OpenAI"}
                     </button>
+                  </div>
+                ) : null}
+                {providerModalMeta.id === "openai-oauth" ? (
+                  <div className="provider-modal-form">
+                    <label>
+                      Callback URL
+                      <input
+                        value={openAIOAuthCallbackURL}
+                        onChange={(event) => onUpdateOAuthCallbackURL(event.target.value)}
+                        placeholder={`${openAIOAuthRedirectURI}?code=...&state=...`}
+                      />
+                      <span className="placeholder-text">
+                        After OpenAI redirects to {openAIOAuthRedirectURI}, copy the full URL from the popup here.
+                      </span>
+                    </label>
+                    <div className="provider-modal-actions">
+                      <button type="button" onClick={onSubmitOAuthCallback}>
+                        Complete OAuth
+                      </button>
+                    </div>
                   </div>
                 ) : null}
                 {providerModalMeta.id === "openai-oauth" && openAIProviderStatus.hasOAuthCredentials ? (
