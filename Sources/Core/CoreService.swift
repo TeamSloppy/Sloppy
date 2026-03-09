@@ -328,6 +328,17 @@ public actor CoreService {
                 }
                 await self.publishLiveSessionDelta(agentID: agentID, sessionID: sessionID, chunk: chunk)
             }
+            await self.sessionOrchestrator.updateEventAppendObserver { [weak self] agentID, sessionID, summary, events in
+                guard let self else {
+                    return
+                }
+                await self.publishLiveSessionEvents(
+                    agentID: agentID,
+                    sessionID: sessionID,
+                    summary: summary,
+                    events: events
+                )
+            }
         }
     }
 
@@ -1971,119 +1982,62 @@ public actor CoreService {
         }
     }
 
+    public func canStreamAgentSessionEvents(agentID: String, sessionID: String) -> Bool {
+        do {
+            let identifiers = try validatedStreamIdentifiers(agentID: agentID, sessionID: sessionID)
+            _ = try getAgentSession(agentID: identifiers.agentID, sessionID: identifiers.sessionID)
+            return true
+        } catch {
+            return false
+        }
+    }
+
     /// Streams incremental session updates over a long-lived connection.
     public func streamAgentSessionEvents(agentID: String, sessionID: String) throws -> AsyncStream<AgentSessionStreamUpdate> {
-        guard let normalizedAgentID = normalizedAgentID(agentID) else {
-            throw AgentSessionError.invalidAgentID
-        }
-
-        guard let normalizedSessionID = normalizedSessionID(sessionID) else {
-            throw AgentSessionError.invalidSessionID
-        }
-
-        _ = try getAgent(id: normalizedAgentID)
-        _ = try getAgentSession(agentID: normalizedAgentID, sessionID: normalizedSessionID)
-        let streamKey = sessionStreamKey(agentID: normalizedAgentID, sessionID: normalizedSessionID)
+        let identifiers = try validatedStreamIdentifiers(agentID: agentID, sessionID: sessionID)
+        let detail = try getAgentSession(agentID: identifiers.agentID, sessionID: identifiers.sessionID)
+        let streamKey = sessionStreamKey(agentID: identifiers.agentID, sessionID: identifiers.sessionID)
 
         return AsyncStream(bufferingPolicy: .bufferingNewest(128)) { continuation in
             let listenerID = UUID()
-            let task = Task { [normalizedAgentID, normalizedSessionID, streamKey] in
-                self.registerLiveSessionStreamContinuation(
-                    key: streamKey,
-                    listenerID: listenerID,
-                    continuation: continuation
+            let readyCursor = max(detail.events.count, currentLiveSessionStreamCursor(for: streamKey))
+            setLiveSessionStreamCursor(readyCursor, for: streamKey)
+            registerLiveSessionStreamContinuation(
+                key: streamKey,
+                listenerID: listenerID,
+                continuation: continuation
+            )
+
+            continuation.yield(
+                AgentSessionStreamUpdate(
+                    kind: .sessionReady,
+                    cursor: readyCursor,
+                    summary: detail.summary
                 )
+            )
 
-                var deliveredCount = 0
-                var lastHeartbeatAt = Date.distantPast
-
+            let heartbeatTask = Task {
                 while !Task.isCancelled {
-                    do {
-                        let detail = try self.getAgentSession(
-                            agentID: normalizedAgentID,
-                            sessionID: normalizedSessionID
-                        )
-
-                        if deliveredCount == 0 {
-                            deliveredCount = detail.events.count
-                            continuation.yield(
-                                AgentSessionStreamUpdate(
-                                    kind: .sessionReady,
-                                    cursor: deliveredCount,
-                                    summary: detail.summary
-                                )
-                            )
-                            lastHeartbeatAt = Date()
-                        }
-
-                        if detail.events.count > deliveredCount {
-                            for index in deliveredCount..<detail.events.count {
-                                continuation.yield(
-                                    AgentSessionStreamUpdate(
-                                        kind: .sessionEvent,
-                                        cursor: index + 1,
-                                        summary: detail.summary,
-                                        event: detail.events[index]
-                                    )
-                                )
-                            }
-                            deliveredCount = detail.events.count
-                            lastHeartbeatAt = Date()
-                        } else {
-                            let now = Date()
-                            if now.timeIntervalSince(lastHeartbeatAt) >= 12 {
-                                continuation.yield(
-                                    AgentSessionStreamUpdate(
-                                        kind: .heartbeat,
-                                        cursor: deliveredCount,
-                                        summary: detail.summary,
-                                        createdAt: now
-                                    )
-                                )
-                                lastHeartbeatAt = now
-                            }
-                        }
-                    } catch let error as AgentSessionError {
-                        switch error {
-                        case .sessionNotFound:
-                            continuation.yield(
-                                AgentSessionStreamUpdate(
-                                    kind: .sessionClosed,
-                                    cursor: deliveredCount,
-                                    message: "Session was deleted."
-                                )
-                            )
-                        default:
-                            continuation.yield(
-                                AgentSessionStreamUpdate(
-                                    kind: .sessionError,
-                                    cursor: deliveredCount,
-                                    message: "Failed to stream session updates."
-                                )
-                            )
-                        }
-                        continuation.finish()
-                        return
-                    } catch {
-                        continuation.yield(
-                            AgentSessionStreamUpdate(
-                                kind: .sessionError,
-                                cursor: deliveredCount,
-                                message: "Failed to stream session updates."
-                            )
-                        )
-                        continuation.finish()
-                        return
+                    try? await Task.sleep(nanoseconds: 12_000_000_000)
+                    if Task.isCancelled {
+                        break
+                    }
+                    guard isLiveSessionStreamContinuationRegistered(key: streamKey, listenerID: listenerID) else {
+                        break
                     }
 
-                    try? await Task.sleep(nanoseconds: 250_000_000)
+                    continuation.yield(
+                        AgentSessionStreamUpdate(
+                            kind: .heartbeat,
+                            cursor: nextLiveSessionStreamCursor(for: streamKey),
+                            summary: detail.summary
+                        )
+                    )
                 }
-
-                continuation.finish()
             }
 
             continuation.onTermination = { _ in
-                task.cancel()
+                heartbeatTask.cancel()
                 Task {
                     await self.unregisterLiveSessionStreamContinuation(key: streamKey, listenerID: listenerID)
                 }
@@ -2098,20 +2052,63 @@ public actor CoreService {
             return
         }
 
+        publishLiveSessionUpdate(
+            agentID: agentID,
+            sessionID: sessionID,
+            update: AgentSessionStreamUpdate(
+            kind: .sessionDelta,
+            cursor: 0,
+            message: normalized
+            )
+        )
+    }
+
+    private func publishLiveSessionEvents(
+        agentID: String,
+        sessionID: String,
+        summary: AgentSessionSummary,
+        events: [AgentSessionEvent]
+    ) {
+        for event in events {
+            publishLiveSessionUpdate(
+                agentID: agentID,
+                sessionID: sessionID,
+                update: AgentSessionStreamUpdate(
+                    kind: .sessionEvent,
+                    cursor: 0,
+                    summary: summary,
+                    event: event
+                )
+            )
+        }
+    }
+
+    private func publishLiveSessionClosed(agentID: String, sessionID: String, message: String) {
+        publishLiveSessionUpdate(
+            agentID: agentID,
+            sessionID: sessionID,
+            update: AgentSessionStreamUpdate(
+                kind: .sessionClosed,
+                cursor: 0,
+                message: message
+            )
+        )
+    }
+
+    private func publishLiveSessionUpdate(
+        agentID: String,
+        sessionID: String,
+        update: AgentSessionStreamUpdate
+    ) {
         let key = sessionStreamKey(agentID: agentID, sessionID: sessionID)
         guard let listeners = liveSessionStreamContinuations[key], !listeners.isEmpty else {
             return
         }
 
-        let cursor = nextLiveSessionStreamCursor(for: key)
-        let update = AgentSessionStreamUpdate(
-            kind: .sessionDelta,
-            cursor: cursor,
-            message: normalized
-        )
-
+        var published = update
+        published.cursor = nextLiveSessionStreamCursor(for: key)
         for continuation in listeners.values {
-            continuation.yield(update)
+            continuation.yield(published)
         }
     }
 
@@ -2139,6 +2136,18 @@ public actor CoreService {
         }
     }
 
+    private func isLiveSessionStreamContinuationRegistered(key: String, listenerID: UUID) -> Bool {
+        liveSessionStreamContinuations[key]?[listenerID] != nil
+    }
+
+    private func currentLiveSessionStreamCursor(for key: String) -> Int {
+        liveSessionStreamCursor[key] ?? 0
+    }
+
+    private func setLiveSessionStreamCursor(_ value: Int, for key: String) {
+        liveSessionStreamCursor[key] = value
+    }
+
     private func nextLiveSessionStreamCursor(for key: String) -> Int {
         let baseline = max(1_000_000, liveSessionStreamCursor[key] ?? 1_000_000)
         let next = baseline + 1
@@ -2148,6 +2157,22 @@ public actor CoreService {
 
     private func sessionStreamKey(agentID: String, sessionID: String) -> String {
         "\(agentID)::\(sessionID)"
+    }
+
+    private func validatedStreamIdentifiers(
+        agentID: String,
+        sessionID: String
+    ) throws -> (agentID: String, sessionID: String) {
+        guard let normalizedAgentID = normalizedAgentID(agentID) else {
+            throw AgentSessionError.invalidAgentID
+        }
+
+        guard let normalizedSessionID = normalizedSessionID(sessionID) else {
+            throw AgentSessionError.invalidSessionID
+        }
+
+        _ = try getAgent(id: normalizedAgentID)
+        return (normalizedAgentID, normalizedSessionID)
     }
 
     /// Deletes one session and its attachment directory.
@@ -2164,6 +2189,11 @@ public actor CoreService {
 
         do {
             try sessionStore.deleteSession(agentID: normalizedAgentID, sessionID: normalizedSessionID)
+            publishLiveSessionClosed(
+                agentID: normalizedAgentID,
+                sessionID: normalizedSessionID,
+                message: "Session was deleted."
+            )
             await toolExecution.cleanupSessionProcesses(normalizedSessionID)
         } catch {
             throw mapSessionStoreError(error)
@@ -2331,22 +2361,28 @@ public actor CoreService {
             )
         }
 
+        let toolCallEvent = AgentSessionEvent(
+            agentId: normalizedAgentID,
+            sessionId: normalizedSessionID,
+            type: .toolCall,
+            toolCall: AgentToolCallEvent(
+                tool: request.tool,
+                arguments: request.arguments,
+                reason: request.reason
+            )
+        )
+
         do {
-            _ = try sessionStore.appendEvents(
+            let summary = try sessionStore.appendEvents(
                 agentID: normalizedAgentID,
                 sessionID: normalizedSessionID,
-                events: [
-                    AgentSessionEvent(
-                        agentId: normalizedAgentID,
-                        sessionId: normalizedSessionID,
-                        type: .toolCall,
-                        toolCall: AgentToolCallEvent(
-                            tool: request.tool,
-                            arguments: request.arguments,
-                            reason: request.reason
-                        )
-                    )
-                ]
+                events: [toolCallEvent]
+            )
+            publishLiveSessionEvents(
+                agentID: normalizedAgentID,
+                sessionID: normalizedSessionID,
+                summary: summary,
+                events: [toolCallEvent]
             )
         } catch {
             return .init(
@@ -2378,24 +2414,30 @@ public actor CoreService {
             )
         }
 
+        let toolResultEvent = AgentSessionEvent(
+            agentId: normalizedAgentID,
+            sessionId: normalizedSessionID,
+            type: .toolResult,
+            toolResult: AgentToolResultEvent(
+                tool: request.tool,
+                ok: result.ok,
+                data: result.data,
+                error: result.error,
+                durationMs: result.durationMs
+            )
+        )
+
         do {
-            _ = try sessionStore.appendEvents(
+            let summary = try sessionStore.appendEvents(
                 agentID: normalizedAgentID,
                 sessionID: normalizedSessionID,
-                events: [
-                    AgentSessionEvent(
-                        agentId: normalizedAgentID,
-                        sessionId: normalizedSessionID,
-                        type: .toolResult,
-                        toolResult: AgentToolResultEvent(
-                            tool: request.tool,
-                            ok: result.ok,
-                            data: result.data,
-                            error: result.error,
-                            durationMs: result.durationMs
-                        )
-                    )
-                ]
+                events: [toolResultEvent]
+            )
+            publishLiveSessionEvents(
+                agentID: normalizedAgentID,
+                sessionID: normalizedSessionID,
+                summary: summary,
+                events: [toolResultEvent]
             )
         } catch {
             return .init(

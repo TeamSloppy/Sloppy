@@ -1,4 +1,4 @@
-import { buildApiURL, requestJson } from "./httpClient";
+import { buildApiURL, buildWebSocketURL, requestJson } from "./httpClient";
 
 type AnyRecord = Record<string, unknown>;
 
@@ -693,43 +693,67 @@ export function createCoreApi(): CoreApi {
     },
 
     subscribeAgentSessionStream: (agentId, sessionId, handlers = {}) => {
-      const source = new EventSource(
-        buildApiURL(`/v1/agents/${encodeURIComponent(agentId)}/sessions/${encodeURIComponent(sessionId)}/stream`)
-      );
+      let socket: WebSocket | null = null;
+      let reconnectTimer: number | null = null;
+      let disposed = false;
 
-      const eventNames = ["session_ready", "session_event", "session_delta", "heartbeat", "session_closed", "session_error"];
-      const onMessage = (event: MessageEvent) => {
-        if (!event?.data || typeof handlers.onUpdate !== "function") {
+      const connect = () => {
+        if (disposed) {
           return;
         }
 
-        try {
-          const payload = JSON.parse(event.data);
-          if (payload && typeof payload === "object") {
-            handlers.onUpdate(payload as AnyRecord);
+        socket = new WebSocket(
+          buildWebSocketURL(`/v1/agents/${encodeURIComponent(agentId)}/sessions/${encodeURIComponent(sessionId)}/ws`)
+        );
+
+        socket.onopen = () => {
+          handlers.onOpen?.();
+        };
+
+        socket.onmessage = (event) => {
+          if (!event?.data || typeof handlers.onUpdate !== "function") {
+            return;
           }
-        } catch {
-          // Ignore malformed stream chunks and keep connection alive.
-        }
+
+          try {
+            const payload = JSON.parse(String(event.data));
+            if (payload && typeof payload === "object") {
+              handlers.onUpdate(payload as AnyRecord);
+            }
+          } catch {
+            // Ignore malformed chunks and keep the socket open.
+          }
+        };
+
+        socket.onerror = () => {
+          handlers.onError?.();
+        };
+
+        socket.onclose = () => {
+          socket = null;
+          if (disposed) {
+            return;
+          }
+          handlers.onError?.();
+          reconnectTimer = window.setTimeout(() => {
+            reconnectTimer = null;
+            connect();
+          }, 500);
+        };
       };
 
-      for (const eventName of eventNames) {
-        source.addEventListener(eventName, onMessage as EventListener);
-      }
-
-      source.onopen = () => {
-        handlers.onOpen?.();
-      };
-
-      source.onerror = () => {
-        handlers.onError?.();
-      };
+      connect();
 
       return () => {
-        for (const eventName of eventNames) {
-          source.removeEventListener(eventName, onMessage as EventListener);
+        disposed = true;
+        if (reconnectTimer != null) {
+          window.clearTimeout(reconnectTimer);
+          reconnectTimer = null;
         }
-        source.close();
+        if (socket) {
+          socket.close();
+          socket = null;
+        }
       };
     },
 

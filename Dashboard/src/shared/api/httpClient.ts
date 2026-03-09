@@ -30,6 +30,12 @@ export function buildApiURL(path: string) {
   return `${base}${normalizedPath}`;
 }
 
+export function buildWebSocketURL(path: string) {
+  const apiURL = new URL(buildApiURL(path));
+  apiURL.protocol = apiURL.protocol === "https:" ? "wss:" : "ws:";
+  return apiURL.toString();
+}
+
 async function parseJSONSafely<TData>(response: Response): Promise<TData | null> {
   try {
     return (await response.json()) as TData;

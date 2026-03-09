@@ -2360,6 +2360,16 @@ func agentSessionLifecycleEndpoints() async throws {
         #expect(streamUpdate.summary?.id == sessionSummary.id)
     }
 
+    let canHandleWebSocket = await router.canHandleWebSocket(
+        path: "/v1/agents/agent-chat/sessions/\(sessionSummary.id)/ws"
+    )
+    #expect(canHandleWebSocket == true)
+
+    let rejectsMissingSession = await router.canHandleWebSocket(
+        path: "/v1/agents/agent-chat/sessions/missing-session/ws"
+    )
+    #expect(rejectsMissingSession == false)
+
     let attachmentPayload = AgentAttachmentUpload(
         name: "note.txt",
         mimeType: "text/plain",
