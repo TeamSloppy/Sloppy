@@ -1492,17 +1492,75 @@ public struct OpenAIProviderStatusResponse: Codable, Sendable {
     public var hasEnvironmentKey: Bool
     public var hasConfiguredKey: Bool
     public var hasAnyKey: Bool
+    public var hasOAuthCredentials: Bool
+    public var oauthAccountId: String?
+    public var oauthPlanType: String?
+    public var oauthExpiresAt: String?
 
     public init(
         provider: String,
         hasEnvironmentKey: Bool,
         hasConfiguredKey: Bool,
-        hasAnyKey: Bool
+        hasAnyKey: Bool,
+        hasOAuthCredentials: Bool = false,
+        oauthAccountId: String? = nil,
+        oauthPlanType: String? = nil,
+        oauthExpiresAt: String? = nil
     ) {
         self.provider = provider
         self.hasEnvironmentKey = hasEnvironmentKey
         self.hasConfiguredKey = hasConfiguredKey
         self.hasAnyKey = hasAnyKey
+        self.hasOAuthCredentials = hasOAuthCredentials
+        self.oauthAccountId = oauthAccountId
+        self.oauthPlanType = oauthPlanType
+        self.oauthExpiresAt = oauthExpiresAt
+    }
+}
+
+public struct OpenAIOAuthStartRequest: Codable, Sendable {
+    public var redirectURI: String
+
+    public init(redirectURI: String) {
+        self.redirectURI = redirectURI
+    }
+}
+
+public struct OpenAIOAuthStartResponse: Codable, Sendable {
+    public var authorizationURL: String
+    public var redirectURI: String
+    public var state: String
+
+    public init(authorizationURL: String, redirectURI: String, state: String) {
+        self.authorizationURL = authorizationURL
+        self.redirectURI = redirectURI
+        self.state = state
+    }
+}
+
+public struct OpenAIOAuthCompleteRequest: Codable, Sendable {
+    public var callbackURL: String?
+    public var code: String?
+    public var state: String?
+
+    public init(callbackURL: String? = nil, code: String? = nil, state: String? = nil) {
+        self.callbackURL = callbackURL
+        self.code = code
+        self.state = state
+    }
+}
+
+public struct OpenAIOAuthCompleteResponse: Codable, Sendable {
+    public var ok: Bool
+    public var message: String
+    public var accountId: String?
+    public var planType: String?
+
+    public init(ok: Bool, message: String, accountId: String? = nil, planType: String? = nil) {
+        self.ok = ok
+        self.message = message
+        self.accountId = accountId
+        self.planType = planType
     }
 }
 

@@ -6,7 +6,7 @@ function providerIcon(providerId) {
     return "auto_awesome";
   }
   if (providerId === "openai-oauth") {
-    return "key";
+    return "login";
   }
   if (providerId === "ollama") {
     return "deployed_code";
@@ -71,9 +71,17 @@ export function ProviderEditor({
             openAIProviderStatus.hasEnvironmentKey &&
             !Boolean(String(providerEntry?.apiKey || "").trim()) &&
             Boolean(entryModel && entryURL);
-          const configured = configuredViaEnvironment || providerIsConfigured(provider, providerEntry);
-          const actionText = configured ? "Manage" : provider.requiresApiKey ? "Add key" : "Setup";
-          const configuredBadgeText = configuredViaEnvironment ? "env" : configured ? "configured" : "not set";
+          const configuredViaOAuth =
+            provider.id === "openai-oauth" &&
+            openAIProviderStatus.hasOAuthCredentials &&
+            Boolean(entryModel && entryURL);
+          const configured =
+            configuredViaEnvironment ||
+            configuredViaOAuth ||
+            (provider.id === "openai-oauth" ? false : providerIsConfigured(provider, providerEntry));
+          const actionText = configured ? "Manage" : provider.id === "openai-oauth" ? "Connect" : provider.requiresApiKey ? "Add key" : "Setup";
+          const configuredBadgeText =
+            configuredViaEnvironment ? "env" : configuredViaOAuth ? "oauth" : configured ? "configured" : "not set";
 
           return (
             <button
@@ -153,9 +161,16 @@ export function ProviderEditor({
                 {providerModalMeta.id === "openai-oauth" ? (
                   <div className="provider-modal-actions">
                     <button type="button" onClick={onOpenOAuth}>
-                      Open OAuth in Codex
+                      {openAIProviderStatus.hasOAuthCredentials ? "Reconnect OpenAI" : "Connect OpenAI"}
                     </button>
                   </div>
+                ) : null}
+                {providerModalMeta.id === "openai-oauth" && openAIProviderStatus.hasOAuthCredentials ? (
+                  <p className="placeholder-text">
+                    Connected
+                    {openAIProviderStatus.oauthPlanType ? ` as ${openAIProviderStatus.oauthPlanType}` : ""}
+                    {openAIProviderStatus.oauthAccountId ? ` (${openAIProviderStatus.oauthAccountId})` : ""}.
+                  </p>
                 ) : null}
               </div>
             ) : null}

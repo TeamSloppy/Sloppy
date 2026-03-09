@@ -1,5 +1,14 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import type { CoreApi } from "../../shared/api/coreApi";
+import {
+  OPENAI_OAUTH_MESSAGE_TYPE,
+  buildOpenAIOAuthRedirectURI,
+  clearOpenAIOAuthCallbackParams,
+  openOpenAIOAuthPopup,
+  postOpenAIOAuthMessage,
+  readOpenAIOAuthCallbackError,
+  readOpenAIOAuthCallbackURL
+} from "../../shared/openaiOAuth";
 
 type AnyRecord = Record<string, unknown>;
 
@@ -39,15 +48,15 @@ const PROVIDERS: ProviderDefinition[] = [
   },
   {
     id: "openai-oauth",
-    title: "OpenAI OAuth",
-    description: "Codex/OpenAI login-backed flow using Core environment.",
+    title: "OpenAI Codex",
+    description: "ChatGPT/Codex login via OpenAI OAuth.",
     requiresApiKey: false,
-    authHint: "Requires Core to have OPENAI_API_KEY after OAuth login.",
+    authHint: "Uses OAuth tokens stored by Core. Connection test loads Codex models from the ChatGPT backend.",
     defaultEntry: {
       title: "openai-oauth",
       apiKey: "",
-      apiUrl: "https://api.openai.com/v1",
-      model: "gpt-4.1-mini"
+      apiUrl: "https://chatgpt.com/backend-api",
+      model: "gpt-5.3-codex"
     }
   },
   {
@@ -166,7 +175,7 @@ function providerCardIcon(providerId: string) {
     return "auto_awesome";
   }
   if (providerId === "openai-oauth") {
-    return "key";
+    return "login";
   }
   return "deployed_code";
 }
@@ -289,6 +298,7 @@ export function OnboardingView({ coreApi, initialConfig, onCompleted }: Onboardi
   const [statusText, setStatusText] = useState("Preparing first-run setup.");
   const [isProbing, setIsProbing] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const oauthCallbackHandledRef = useRef(false);
 
   const activeProvider = useMemo(
     () => PROVIDERS.find((provider) => provider.id === providerId) || PROVIDERS[0],
@@ -308,22 +318,13 @@ export function OnboardingView({ coreApi, initialConfig, onCompleted }: Onboardi
     setProbeStatus("Connection parameters changed. Test the provider again.");
   }, [providerId, providerApiKey, providerApiUrl]);
 
-  function openOAuth() {
-    window.location.href = "codex://auth/openai?source=sloppy-onboarding";
-    setProbeStatus("OAuth deeplink opened. Complete login there, then return and test again.");
-  }
-
-  async function testProviderConnection() {
-    if (isProbing) {
-      return;
-    }
-
+  async function runProviderProbe(nextProviderId = activeProvider.id, nextApiKey = providerApiKey, nextApiUrl = providerApiUrl) {
     setIsProbing(true);
-    setProbeStatus(`Testing ${activeProvider.title}...`);
+    setProbeStatus(`Testing ${nextProviderId === "openai-oauth" ? "OpenAI Codex" : activeProvider.title}...`);
     const response = await coreApi.probeProvider({
-      providerId: activeProvider.id,
-      apiKey: activeProvider.requiresApiKey ? providerApiKey : undefined,
-      apiUrl: providerApiUrl
+      providerId: nextProviderId,
+      apiKey: nextProviderId === "openai-api" ? nextApiKey : undefined,
+      apiUrl: nextApiUrl
     });
     setIsProbing(false);
 
@@ -343,6 +344,116 @@ export function OnboardingView({ coreApi, initialConfig, onCompleted }: Onboardi
       setSelectedModel(String(models[0]?.id || ""));
     }
   }
+
+  async function openOAuth() {
+    setProbeStatus("Preparing OpenAI OAuth...");
+    const response = await coreApi.startOpenAIOAuth({
+      redirectURI: buildOpenAIOAuthRedirectURI()
+    });
+
+    if (!response || typeof response.authorizationURL !== "string" || !response.authorizationURL) {
+      setProbeStatus("Failed to start OpenAI OAuth.");
+      return;
+    }
+
+    const popup = openOpenAIOAuthPopup(response.authorizationURL);
+    if (!popup) {
+      window.location.assign(response.authorizationURL);
+      return;
+    }
+
+    setProbeStatus("OpenAI OAuth opened. Finish sign-in in the popup, then test connection.");
+  }
+
+  async function testProviderConnection() {
+    if (isProbing) {
+      return;
+    }
+    await runProviderProbe();
+  }
+
+  useEffect(() => {
+    async function completeOAuthFromCallback() {
+      const callbackURL = readOpenAIOAuthCallbackURL();
+      if (!callbackURL || oauthCallbackHandledRef.current) {
+        return;
+      }
+
+      oauthCallbackHandledRef.current = true;
+      const callbackError = readOpenAIOAuthCallbackError();
+      if (callbackError) {
+        clearOpenAIOAuthCallbackParams();
+        postOpenAIOAuthMessage({
+          ok: false,
+          message: `OpenAI OAuth failed: ${callbackError}`
+        });
+        setProbeOk(false);
+        setProbeStatus(`OpenAI OAuth failed: ${callbackError}`);
+        return;
+      }
+
+      setProbeStatus("Completing OpenAI OAuth...");
+      const response = await coreApi.completeOpenAIOAuth({ callbackURL });
+      clearOpenAIOAuthCallbackParams();
+
+      const ok = Boolean(response?.ok);
+      const message = String(response?.message || "Failed to complete OpenAI OAuth.");
+      postOpenAIOAuthMessage({
+        ok,
+        message,
+        accountId: typeof response?.accountId === "string" ? response.accountId : null,
+        planType: typeof response?.planType === "string" ? response.planType : null
+      });
+
+      setProviderId("openai-oauth");
+      setProviderApiUrl(PROVIDERS.find((provider) => provider.id === "openai-oauth")?.defaultEntry.apiUrl || providerApiUrl);
+      if (!ok) {
+        setProbeOk(false);
+        setProbeStatus(message);
+        return;
+      }
+
+      if (window.opener && window.opener !== window) {
+        window.close();
+        return;
+      }
+
+      await runProviderProbe("openai-oauth", "", PROVIDERS.find((provider) => provider.id === "openai-oauth")?.defaultEntry.apiUrl || providerApiUrl);
+    }
+
+    completeOAuthFromCallback().catch(() => {
+      setProbeOk(false);
+      setProbeStatus("Failed to complete OpenAI OAuth.");
+    });
+  }, [coreApi, providerApiUrl]);
+
+  useEffect(() => {
+    function handleOAuthMessage(event: MessageEvent) {
+      if (event.origin !== window.location.origin) {
+        return;
+      }
+      const payload = event.data;
+      if (!payload || payload.type !== OPENAI_OAUTH_MESSAGE_TYPE) {
+        return;
+      }
+
+      setProviderId("openai-oauth");
+      setProviderApiUrl(PROVIDERS.find((provider) => provider.id === "openai-oauth")?.defaultEntry.apiUrl || providerApiUrl);
+      setProbeStatus(String(payload.message || "OpenAI OAuth updated."));
+      if (!payload.ok) {
+        setProbeOk(false);
+        return;
+      }
+      void runProviderProbe(
+        "openai-oauth",
+        "",
+        PROVIDERS.find((provider) => provider.id === "openai-oauth")?.defaultEntry.apiUrl || providerApiUrl
+      );
+    }
+
+    window.addEventListener("message", handleOAuthMessage);
+    return () => window.removeEventListener("message", handleOAuthMessage);
+  }, [providerApiUrl]);
 
   function canAdvance() {
     if (stepIndex === 0) {
@@ -412,6 +523,12 @@ export function OnboardingView({ coreApi, initialConfig, onCompleted }: Onboardi
     setIsSubmitting(true);
 
     try {
+      if (providerId === "openai-oauth") {
+        throw new Error(
+          "OpenAI OAuth is connected, but agent runtime still uses the API-key-backed OpenAI path. Finish setup from Config after adding runtime support, or use OpenAI API/Ollama for onboarding."
+        );
+      }
+
       setStatusText("Saving provider configuration...");
       const draftConfig = createConfigWithProvider(
         initialConfig,
@@ -608,7 +725,7 @@ export function OnboardingView({ coreApi, initialConfig, onCompleted }: Onboardi
               <div className="onboarding-provider-actions">
                 {activeProvider.id === "openai-oauth" ? (
                   <button type="button" className="onboarding-ghost-button hover-levitate" onClick={openOAuth}>
-                    Open OAuth in Codex
+                    Connect OpenAI
                   </button>
                 ) : null}
                 <button type="button" className="onboarding-primary-button hover-levitate" onClick={() => void testProviderConnection()} disabled={isProbing}>

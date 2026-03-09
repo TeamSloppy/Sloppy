@@ -167,6 +167,7 @@ public actor CoreService {
     private let persistenceBuilder: any CorePersistenceBuilding
     private var store: any PersistenceStore
     private let openAIProviderCatalog: OpenAIProviderCatalogService
+    private let openAIOAuthService: OpenAIOAuthService
     private let providerProbeService: ProviderProbeService
     private let searchProviderService: SearchProviderService
     private let agentCatalogStore: AgentCatalogFileStore
@@ -244,12 +245,13 @@ public actor CoreService {
         self.hybridMemoryStore = hybridMemoryStore
         self.persistenceBuilder = persistenceBuilder
         self.store = persistenceBuilder.makeStore(config: config)
+        self.workspaceRootURL = config
+            .resolvedWorkspaceRootURL(currentDirectory: FileManager.default.currentDirectoryPath)
         self.openAIProviderCatalog = OpenAIProviderCatalogService()
+        self.openAIOAuthService = OpenAIOAuthService(workspaceRootURL: self.workspaceRootURL)
         self.providerProbeService = providerProbeService ?? ProviderProbeService()
         self.searchProviderService = searchProviderService ?? SearchProviderService(config: config.searchTools)
         self.configPath = configPath
-        self.workspaceRootURL = config
-            .resolvedWorkspaceRootURL(currentDirectory: FileManager.default.currentDirectoryPath)
         self.agentsRootURL = self.workspaceRootURL
             .appendingPathComponent("agents", isDirectory: true)
         self.agentCatalogStore = AgentCatalogFileStore(agentsRootURL: self.agentsRootURL)
@@ -2263,17 +2265,62 @@ public actor CoreService {
 
     /// Returns OpenAI model catalog using API key auth or environment fallback.
     public func listOpenAIModels(request: OpenAIProviderModelsRequest) async -> OpenAIProviderModelsResponse {
-        await openAIProviderCatalog.listModels(config: currentConfig, request: request)
+        if request.authMethod == .deeplink {
+            do {
+                let models = try await openAIOAuthService.fetchModels()
+                return OpenAIProviderModelsResponse(
+                    provider: "openai",
+                    authMethod: request.authMethod,
+                    usedEnvironmentKey: false,
+                    source: "remote",
+                    warning: models.isEmpty ? "OpenAI OAuth returned no Codex models." : nil,
+                    models: models
+                )
+            } catch {
+                return OpenAIProviderModelsResponse(
+                    provider: "openai",
+                    authMethod: request.authMethod,
+                    usedEnvironmentKey: false,
+                    source: "fallback",
+                    warning: error.localizedDescription,
+                    models: []
+                )
+            }
+        }
+
+        return await openAIProviderCatalog.listModels(config: currentConfig, request: request)
     }
 
     /// Returns OpenAI provider key availability without fetching remote model catalog.
     public func openAIProviderStatus() -> OpenAIProviderStatusResponse {
-        openAIProviderCatalog.status(config: currentConfig)
+        let apiStatus = openAIProviderCatalog.status(config: currentConfig)
+        let oauthStatus = openAIOAuthService.status()
+        return OpenAIProviderStatusResponse(
+            provider: apiStatus.provider,
+            hasEnvironmentKey: apiStatus.hasEnvironmentKey,
+            hasConfiguredKey: apiStatus.hasConfiguredKey,
+            hasAnyKey: apiStatus.hasAnyKey,
+            hasOAuthCredentials: oauthStatus.hasCredentials,
+            oauthAccountId: oauthStatus.accountId,
+            oauthPlanType: oauthStatus.planType,
+            oauthExpiresAt: oauthStatus.expiresAt
+        )
     }
 
     /// Probes provider connectivity and returns remote model options on success.
     public func probeProvider(request: ProviderProbeRequest) async -> ProviderProbeResponse {
-        await providerProbeService.probe(config: currentConfig, request: request)
+        if request.providerId == .openAIOAuth {
+            return await openAIOAuthService.probe()
+        }
+        return await providerProbeService.probe(config: currentConfig, request: request)
+    }
+
+    public func startOpenAIOAuth(request: OpenAIOAuthStartRequest) throws -> OpenAIOAuthStartResponse {
+        try openAIOAuthService.startLogin(redirectURI: request.redirectURI)
+    }
+
+    public func completeOpenAIOAuth(request: OpenAIOAuthCompleteRequest) async throws -> OpenAIOAuthCompleteResponse {
+        try await openAIOAuthService.completeLogin(request: request)
     }
 
     /// Returns search provider key availability for configured web search providers.
