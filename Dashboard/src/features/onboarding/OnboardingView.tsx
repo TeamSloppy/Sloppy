@@ -449,7 +449,8 @@ export function OnboardingView({ coreApi, initialConfig, onCompleted }: Onboardi
       const updatedAgentConfig = await coreApi.updateAgentConfig(agentId, {
         selectedModel: selectedRuntimeModel,
         documents: nextDocuments,
-        heartbeat: agentConfig.heartbeat
+        heartbeat: agentConfig.heartbeat,
+        channelSessions: agentConfig.channelSessions
       });
       if (!updatedAgentConfig) {
         throw new Error("Failed to update the first agent config.");

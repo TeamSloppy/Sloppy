@@ -343,6 +343,31 @@ public actor CoreRouter {
             return Self.encodable(status: HTTPStatus.ok, payload: response)
         }
 
+        add(.get, "/v1/channel-sessions") { request in
+            let agentId = request.queryParam("agentId")
+            let statusValue = request.queryParam("status")?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            let status: ChannelSessionStatus?
+            if let statusValue, !statusValue.isEmpty {
+                guard let parsedStatus = ChannelSessionStatus(rawValue: statusValue) else {
+                    return Self.json(status: HTTPStatus.badRequest, payload: ["error": ErrorCode.invalidBody])
+                }
+                status = parsedStatus
+            } else {
+                status = nil
+            }
+
+            do {
+                let sessions = try await service.listChannelSessions(status: status, agentID: agentId)
+                return Self.encodable(status: HTTPStatus.ok, payload: sessions)
+            } catch CoreService.AgentStorageError.invalidID {
+                return Self.json(status: HTTPStatus.badRequest, payload: ["error": ErrorCode.invalidAgentId])
+            } catch CoreService.AgentStorageError.notFound {
+                return Self.json(status: HTTPStatus.notFound, payload: ["error": ErrorCode.agentNotFound])
+            } catch {
+                return Self.json(status: HTTPStatus.internalServerError, payload: ["error": ErrorCode.sessionListFailed])
+            }
+        }
+
         add(.get, "/v1/bulletins") { _ in
             let bulletins = await service.getBulletins()
             return Self.encodable(status: HTTPStatus.ok, payload: bulletins)

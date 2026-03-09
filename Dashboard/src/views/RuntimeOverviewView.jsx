@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { fetchAgents, fetchProjects, fetchAgentSessions } from "../api";
+import { fetchActorsBoard, fetchAgents, fetchProjects, fetchAgentSessions, fetchChannelSessions } from "../api";
 import { Breadcrumbs } from "../components/Breadcrumbs/Breadcrumbs";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -51,49 +51,73 @@ function agentInitials(name) {
 
 // ─── Section 1 — Active Channels ─────────────────────────────────────────────
 
-function ActiveChannelsSection({ workers, projects, onNavigateToProject }) {
+function ActiveChannelsSection({ agents, channelSessions, projects, actorBoard, onNavigateToProject }) {
   const activeChannels = useMemo(() => {
-    if (!Array.isArray(workers) || !Array.isArray(projects)) return [];
-
-    const activeWorkersByChannel = new Map();
-    for (const worker of workers) {
-      const status = String(worker?.status || "").toLowerCase();
-      if (!ACTIVE_WORKER_STATUSES.has(status)) continue;
-      const channelId = String(worker?.channelId || "").trim();
-      if (!channelId) continue;
-      if (!activeWorkersByChannel.has(channelId)) {
-        activeWorkersByChannel.set(channelId, []);
-      }
-      activeWorkersByChannel.get(channelId).push(worker);
+    if (!Array.isArray(channelSessions) || channelSessions.length === 0) {
+      return [];
     }
 
-    const result = [];
+    const projectByChannel = new Map();
     for (const project of projects) {
       const channels = Array.isArray(project?.channels)
         ? project.channels
         : Array.isArray(project?.chats)
           ? project.chats
           : [];
-
       for (const channel of channels) {
         const channelId = String(channel?.channelId || "").trim();
-        if (!channelId) continue;
-        const channelWorkers = activeWorkersByChannel.get(channelId) || [];
-        if (channelWorkers.length === 0) continue;
-
-        result.push({
-          key: `${project.id}-${channelId}`,
+        if (!channelId || projectByChannel.has(channelId)) {
+          continue;
+        }
+        projectByChannel.set(channelId, {
           projectId: String(project.id || ""),
           projectName: String(project.name || project.id || "Project"),
-          channelId,
-          channelTitle: String(channel?.title || channelId),
-          workers: channelWorkers
+          channelTitle: String(channel?.title || channelId)
         });
       }
     }
 
-    return result;
-  }, [workers, projects]);
+    const agentNameById = new Map(
+      agents.map((agent) => [String(agent.id || ""), String(agent.displayName || agent.id || "")])
+    );
+    const agentsByChannel = new Map();
+    const nodes = Array.isArray(actorBoard?.nodes) ? actorBoard.nodes : [];
+    for (const node of nodes) {
+      const channelId = String(node?.channelId || "").trim();
+      const agentId = String(node?.linkedAgentId || "").trim();
+      if (!channelId || !agentId) {
+        continue;
+      }
+      if (!agentsByChannel.has(channelId)) {
+        agentsByChannel.set(channelId, []);
+      }
+      const existing = agentsByChannel.get(channelId);
+      if (existing.some((entry) => entry.id === agentId)) {
+        continue;
+      }
+      existing.push({
+        id: agentId,
+        name: agentNameById.get(agentId) || agentId
+      });
+    }
+
+    return channelSessions.map((session) => {
+      const channelId = String(session?.channelId || "").trim();
+      const projectMeta = projectByChannel.get(channelId);
+      return {
+        key: String(session?.sessionId || channelId),
+        sessionId: String(session?.sessionId || ""),
+        channelId,
+        channelTitle: projectMeta?.channelTitle || channelId || "Channel",
+        projectId: projectMeta?.projectId || "",
+        projectName: projectMeta?.projectName || "Unassigned",
+        updatedAt: session?.updatedAt || session?.createdAt || "",
+        messageCount: Number(session?.messageCount || 0),
+        lastMessagePreview: String(session?.lastMessagePreview || ""),
+        agents: agentsByChannel.get(channelId) || []
+      };
+    });
+  }, [actorBoard, agents, channelSessions, projects]);
 
   return (
     <section className="overview-section">
@@ -108,7 +132,7 @@ function ActiveChannelsSection({ workers, projects, onNavigateToProject }) {
       {activeChannels.length === 0 ? (
         <div className="overview-empty-state">
           <span className="material-symbols-rounded overview-empty-icon">chat_bubble_outline</span>
-          <p>No active channels right now. Agents are idle.</p>
+          <p>No active channel sessions right now.</p>
         </div>
       ) : (
         <div className="active-channels-grid">
@@ -117,7 +141,8 @@ function ActiveChannelsSection({ workers, projects, onNavigateToProject }) {
               key={ch.key}
               type="button"
               className="channel-card hover-levitate"
-              onClick={() => onNavigateToProject && onNavigateToProject(ch.projectId)}
+              disabled={!ch.projectId}
+              onClick={() => ch.projectId && onNavigateToProject && onNavigateToProject(ch.projectId)}
             >
               <div className="channel-card-head">
                 <span className="channel-card-dot channel-dot-active" />
@@ -125,25 +150,30 @@ function ActiveChannelsSection({ workers, projects, onNavigateToProject }) {
                 <span className="channel-card-project">{ch.projectName}</span>
               </div>
               <div className="channel-card-agents">
-                {ch.workers.slice(0, 5).map((w, i) => {
-                  const name = String(w?.agentId || w?.id || `Agent ${i + 1}`);
+                {ch.agents.slice(0, 5).map((agent, i) => {
+                  const name = String(agent?.name || agent?.id || `Agent ${i + 1}`);
                   return (
-                    <span key={i} className="channel-agent-avatar" title={name}>
+                    <span key={agent.id || i} className="channel-agent-avatar" title={name}>
                       {agentInitials(name)}
                     </span>
                   );
                 })}
-                {ch.workers.length > 5 && (
+                {ch.agents.length > 5 && (
                   <span className="channel-agent-avatar channel-agent-more">
-                    +{ch.workers.length - 5}
+                    +{ch.agents.length - 5}
                   </span>
                 )}
               </div>
+              {ch.lastMessagePreview ? (
+                <div className="channel-card-preview">{ch.lastMessagePreview}</div>
+              ) : null}
               <div className="channel-card-footer">
                 <span className="channel-worker-count">
-                  {ch.workers.length} agent{ch.workers.length !== 1 ? "s" : ""} running
+                  {ch.messageCount} message{ch.messageCount !== 1 ? "s" : ""}
                 </span>
-                <span className="material-symbols-rounded channel-card-arrow">arrow_forward</span>
+                <span className="channel-session-time">
+                  {ch.updatedAt ? `Active ${formatRelativeTime(ch.updatedAt)}` : "Active now"}
+                </span>
               </div>
             </button>
           ))}
@@ -378,20 +408,26 @@ export function RuntimeOverviewView({ workers, events, onNavigateToProject }) {
   const [agents, setAgents] = useState([]);
   const [projects, setProjects] = useState([]);
   const [sessions, setSessions] = useState([]);
+  const [channelSessions, setChannelSessions] = useState([]);
+  const [actorBoard, setActorBoard] = useState({ nodes: [], links: [], teams: [] });
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
     let cancelled = false;
     async function load() {
       setIsLoading(true);
-      const [agentsRes, projectsRes] = await Promise.all([
+      const [agentsRes, projectsRes, boardRes, channelSessionsRes] = await Promise.all([
         fetchAgents().catch(() => null),
-        fetchProjects().catch(() => null)
+        fetchProjects().catch(() => null),
+        fetchActorsBoard().catch(() => null),
+        fetchChannelSessions({ status: "open" }).catch(() => null)
       ]);
       if (cancelled) return;
       const loadedAgents = Array.isArray(agentsRes) ? agentsRes : [];
       setAgents(loadedAgents);
       setProjects(Array.isArray(projectsRes) ? projectsRes : []);
+      setActorBoard(boardRes && Array.isArray(boardRes.nodes) ? boardRes : { nodes: [], links: [], teams: [] });
+      setChannelSessions(Array.isArray(channelSessionsRes) ? channelSessionsRes : []);
 
       // Load sessions for all agents concurrently
       if (loadedAgents.length > 0) {
@@ -422,8 +458,10 @@ export function RuntimeOverviewView({ workers, events, onNavigateToProject }) {
       />
 
       <ActiveChannelsSection
-        workers={normalizedWorkers}
+        agents={agents}
+        channelSessions={channelSessions}
         projects={projects}
+        actorBoard={actorBoard}
         onNavigateToProject={onNavigateToProject}
       />
 
