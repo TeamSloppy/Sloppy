@@ -5,15 +5,18 @@ import Testing
 @testable import Protocols
 
 @Test
-func routingDecisionForWorkerIntent() async {
+func routingDoesNotUseKeywordHeuristicsForBranchingOrWorkers() async {
     let system = RuntimeSystem()
 
     let decision = await system.postMessage(
         channelId: "general",
-        request: ChannelMessageRequest(userId: "u1", content: "please implement and run tests")
+        request: ChannelMessageRequest(
+            userId: "u1",
+            content: "please implement and run tests, oppure analizza l'architettura"
+        )
     )
 
-    #expect(decision.action == .spawnWorker)
+    #expect(decision.action == .respond)
 }
 
 @Test

@@ -2632,14 +2632,33 @@ func tokenUsageEndpointPersistsBranchConclusionUsage() async throws {
     let service = CoreService(config: config)
     let router = CoreRouter(service: service)
 
-    let decision = await service.postChannelMessage(
-        channelId: "branch-usage-channel",
-        request: ChannelMessageRequest(userId: "u1", content: "research architecture options")
+    _ = try await service.createAgent(
+        AgentCreateRequest(
+            id: "branch-usage-agent",
+            displayName: "Branch Usage Agent",
+            role: "Token usage test"
+        )
     )
-    #expect(decision.action == .spawnBranch)
+    let session = try await service.createAgentSession(
+        agentID: "branch-usage-agent",
+        request: AgentSessionCreateRequest(title: "Branch usage session")
+    )
+
+    let toolResult = await service.invokeToolFromRuntime(
+        agentID: "branch-usage-agent",
+        sessionID: session.id,
+        request: ToolInvocationRequest(
+            tool: "branches.spawn",
+            arguments: [
+                "prompt": .string("Research architecture options and summarize the tradeoffs.")
+            ],
+            reason: "Need a focused side branch for token usage regression coverage"
+        )
+    )
+    #expect(toolResult.ok)
 
     let hasPersistedBranchUsage = await waitForCondition(timeoutSeconds: 3) {
-        let usage = await service.listTokenUsage(channelId: "branch-usage-channel")
+        let usage = await service.listTokenUsage(channelId: "agent:branch-usage-agent:session:\(session.id)")
         return usage.items.contains(where: { item in
             item.promptTokens == 300 && item.completionTokens == 120
         })
@@ -2648,16 +2667,16 @@ func tokenUsageEndpointPersistsBranchConclusionUsage() async throws {
 
     let response = await router.handle(
         method: "GET",
-        path: "/v1/token-usage?channelId=branch-usage-channel",
+        path: "/v1/token-usage?channelId=agent:branch-usage-agent:session:\(session.id)",
         body: nil
     )
     #expect(response.status == 200)
 
     let decoder = JSONDecoder()
     decoder.dateDecodingStrategy = .iso8601
-    let result = try decoder.decode(TokenUsageResponse.self, from: response.body)
-    #expect(result.items.contains(where: { $0.promptTokens == 300 && $0.completionTokens == 120 }))
-    #expect(result.totalTokens >= 420)
+    let usageResponse = try decoder.decode(TokenUsageResponse.self, from: response.body)
+    #expect(usageResponse.items.contains(where: { $0.promptTokens == 300 && $0.completionTokens == 120 }))
+    #expect(usageResponse.totalTokens >= 420)
 }
 
 @Test

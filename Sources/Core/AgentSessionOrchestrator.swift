@@ -744,6 +744,17 @@ actor AgentSessionOrchestrator {
                 - Blend your own concrete suggestions based on the user's goal, not only direct execution.
                 """
         )
+        let branchingRulesSection = renderedFallbackPromptPartial(
+            named: "branching_rules",
+            fallback:
+                """
+                [Branching rules]
+                - Decide yourself when a request needs a focused side branch for deeper analysis, isolated investigation, or a separate execution thread.
+                - Do not rely on keywords or a specific language when making that decision. Judge the user's intent semantically.
+                - If a side branch would help, call `{"tool":"branches.spawn","arguments":{"prompt":"<focused standalone branch objective>"},"reason":"<why the branch is useful>"}`.
+                - After `branches.spawn` returns, use its conclusion in your answer.
+                """
+        )
         let toolsInstructionSection = renderedFallbackPromptPartial(
             named: "tools_instruction",
             fallback:
@@ -776,6 +787,8 @@ actor AgentSessionOrchestrator {
         \(capabilitiesSection)
 
         \(runtimeRulesSection)
+
+        \(branchingRulesSection)
         
         \(toolsInstructionSection)
         """

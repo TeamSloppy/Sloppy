@@ -80,6 +80,8 @@ final class ToolExecutionService: @unchecked Sendable {
             result = await executeRuntimeExec(request: request, policy: policy)
         case "runtime.process":
             result = await executeRuntimeProcess(sessionID: sessionID, request: request, policy: policy)
+        case "branches.spawn":
+            result = await executeBranchesSpawn(agentID: agentID, sessionID: sessionID, request: request)
         case "sessions.spawn":
             result = await executeSessionsSpawn(agentID: agentID, request: request)
         case "sessions.list":
@@ -395,6 +397,52 @@ final class ToolExecutionService: @unchecked Sendable {
             )
             return failed(tool: request.tool, code: "session_spawn_failed", message: "Failed to create session.", retryable: true)
         }
+    }
+
+    private func executeBranchesSpawn(
+        agentID: String,
+        sessionID: String,
+        request: ToolInvocationRequest
+    ) async -> ToolInvocationResult {
+        let prompt = request.arguments["prompt"]?.asString?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let title = request.arguments["title"]?.asString?.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        guard !prompt.isEmpty else {
+            return failed(tool: request.tool, code: "invalid_arguments", message: "`prompt` is required.", retryable: false)
+        }
+
+        let channelID = sessionChannelID(agentID: agentID, sessionID: sessionID)
+        logger.info(
+            "Tool requested branch spawn",
+            metadata: [
+                "agent_id": .string(agentID),
+                "session_id": .string(sessionID),
+                "channel_id": .string(channelID),
+                "title": .string(optionalString(title)),
+                "prompt": .string(optionalString(prompt))
+            ]
+        )
+
+        let branchTitle = (title?.isEmpty == false ? title : nil) ?? "Branch analysis"
+
+        guard let execution = await runtime.executeBranch(
+            channelId: channelID,
+            prompt: prompt,
+            title: branchTitle
+        ) else {
+            return failed(
+                tool: request.tool,
+                code: "branch_spawn_failed",
+                message: "Failed to complete branch execution.",
+                retryable: true
+            )
+        }
+
+        return success(tool: request.tool, data: .object([
+            "branchId": .string(execution.branchId),
+            "workerId": .string(execution.workerId),
+            "conclusion": encodeJSONValue(execution.conclusion)
+        ]))
     }
 
     private func executeSessionsList(agentID: String) -> ToolInvocationResult {

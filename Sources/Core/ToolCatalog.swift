@@ -60,6 +60,13 @@ enum ToolCatalog {
             description: "Start, inspect, list, and stop background session processes."
         ),
         .init(
+            id: "branches.spawn",
+            domain: "branch",
+            title: "Spawn branch",
+            status: "fully_functional",
+            description: "Run a focused side branch for the current session and return its conclusion."
+        ),
+        .init(
             id: "memory.get",
             domain: "memory",
             title: "Memory semantic search",
@@ -268,6 +275,14 @@ enum ToolCatalog {
                 "processId": .object(["type": .string("string")])
             ]),
             "required": .array([.string("action")])
+        ]),
+        "branches.spawn": .object([
+            "type": .string("object"),
+            "properties": .object([
+                "prompt": .object(["type": .string("string")]),
+                "title": .object(["type": .string("string")])
+            ]),
+            "required": .array([.string("prompt")])
         ]),
         "sessions.spawn": .object([
             "type": .string("object"),

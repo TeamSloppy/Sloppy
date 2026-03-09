@@ -46,6 +46,10 @@ struct AgentPromptComposer {
             named: "runtime_rules",
             values: [:]
         )
+        let branchingRulesSection = try renderPartial(
+            named: "branching_rules",
+            values: [:]
+        )
         let toolsInstructionSection = try renderPartial(
             named: "tools_instruction",
             values: [:]
@@ -66,6 +70,7 @@ struct AgentPromptComposer {
                 "skills_section": skillsSection,
                 "process_capabilities_section": capabilitiesSection,
                 "runtime_rules_section": runtimeRulesSection,
+                "branching_rules_section": branchingRulesSection,
                 "tools_instruction_section": toolsInstructionSection
             ]
         )
