@@ -3,11 +3,11 @@ import AgentRuntime
 import Protocols
 
 /// File-based persistence store for channel sessions.
-/// Stores sessions at: workspace/channel-sessions/session-{channelId}.jsonl
-/// Session ID format: session-{CHANNEL_ID}
+/// Stores sessions at: workspace/channel-sessions/{sessionId}.jsonl
 actor ChannelSessionFileStore {
     enum StoreError: Error {
         case invalidChannelID
+        case invalidSessionID
         case sessionNotFound
         case storageFailure
     }
@@ -31,7 +31,6 @@ actor ChannelSessionFileStore {
         decoder.dateDecodingStrategy = .iso8601
         self.decoder = decoder
 
-        // Ensure sessions directory exists
         try? fileManager.createDirectory(
             at: sessionsRootURL,
             withIntermediateDirectories: true,
@@ -39,98 +38,156 @@ actor ChannelSessionFileStore {
         )
     }
 
-    /// Returns the session ID for a channel (format: session-{channelId})
-    func sessionID(for channelId: String) -> String {
-        return "session-\(channelId)"
-    }
+    func listSessions(
+        status: ChannelSessionStatus? = nil,
+        channelIds: Set<String>? = nil
+    ) throws -> [ChannelSessionSummary] {
+        let files = try sessionFiles()
+        var summaries: [ChannelSessionSummary] = []
+        summaries.reserveCapacity(files.count)
 
-    /// Returns the file URL for a channel session
-    private func sessionFileURL(channelId: String) -> URL {
-        let sessionId = sessionID(for: channelId)
-        return sessionsRootURL.appendingPathComponent("\(sessionId).jsonl")
-    }
-
-    /// Checks if a session exists for the channel
-    func sessionExists(channelId: String) -> Bool {
-        let fileURL = sessionFileURL(channelId: channelId)
-        return fileManager.fileExists(atPath: fileURL.path)
-    }
-
-    /// Loads session events for a channel, returns empty array if session doesn't exist
-    func loadSession(channelId: String) throws -> [ChannelSessionEvent] {
-        let fileURL = sessionFileURL(channelId: channelId)
-        guard fileManager.fileExists(atPath: fileURL.path) else {
-            return []
-        }
-
-        guard let data = fileManager.contents(atPath: fileURL.path),
-              let content = String(data: data, encoding: .utf8) else {
-            return []
-        }
-
-        let lines = content.split(separator: "\n", omittingEmptySubsequences: true)
-        var events: [ChannelSessionEvent] = []
-
-        for line in lines {
-            guard let lineData = line.data(using: .utf8) else { continue }
-            if let event = try? decoder.decode(ChannelSessionEvent.self, from: lineData) {
-                events.append(event)
+        for fileURL in files {
+            guard let summary = try? loadSessionSummary(fileURL: fileURL) else {
+                continue
             }
+            if let status, summary.status != status {
+                continue
+            }
+            if let channelIds, !channelIds.contains(summary.channelId) {
+                continue
+            }
+            summaries.append(summary)
         }
 
-        return events
+        return summaries.sorted { left, right in
+            if left.updatedAt == right.updatedAt {
+                return left.createdAt > right.createdAt
+            }
+            return left.updatedAt > right.updatedAt
+        }
     }
 
-    /// Appends events to a channel session (creates session if it doesn't exist)
-    func appendEvents(channelId: String, events: [ChannelSessionEvent]) throws {
-        guard !events.isEmpty else { return }
-
-        let fileURL = sessionFileURL(channelId: channelId)
-        let createIfMissing = !fileManager.fileExists(atPath: fileURL.path)
-
-        try append(events: events, to: fileURL, createIfMissing: createIfMissing)
+    func loadSession(sessionID: String) throws -> [ChannelSessionEvent] {
+        let normalizedSessionID = try normalizedSessionID(sessionID)
+        let fileURL = sessionFileURL(sessionId: normalizedSessionID)
+        if fileManager.fileExists(atPath: fileURL.path) {
+            return try readEvents(fileURL: fileURL)
+        }
+        throw StoreError.sessionNotFound
     }
 
-    /// Records a user message in the channel session
-    func recordUserMessage(channelId: String, userId: String, content: String) throws {
+    func closeSession(
+        sessionID: String,
+        reason: String = "inactive_timeout",
+        closedAt: Date = Date()
+    ) throws -> ChannelSessionSummary {
+        let normalizedSessionID = try normalizedSessionID(sessionID)
+        let fileURL = try existingSessionFileURL(sessionID: normalizedSessionID)
+        let summary = try loadSessionSummary(fileURL: fileURL)
+        if summary.status == .closed {
+            return summary
+        }
+
         let event = ChannelSessionEvent(
-            channelId: channelId,
-            type: .userMessage,
-            userId: userId,
-            content: content
-        )
-        try appendEvents(channelId: channelId, events: [event])
-    }
-
-    /// Records an assistant (bot) message in the channel session
-    func recordAssistantMessage(channelId: String, content: String) throws {
-        let event = ChannelSessionEvent(
-            channelId: channelId,
-            type: .assistantMessage,
-            userId: "assistant",
-            content: content
-        )
-        try appendEvents(channelId: channelId, events: [event])
-    }
-
-    /// Records a system message in the channel session
-    func recordSystemMessage(channelId: String, content: String) throws {
-        let event = ChannelSessionEvent(
-            channelId: channelId,
-            type: .systemMessage,
+            channelId: summary.channelId,
+            type: .sessionClosed,
             userId: "system",
-            content: content
+            content: "Session closed automatically after inactivity.",
+            createdAt: closedAt,
+            metadata: ["reason": reason]
         )
-        try appendEvents(channelId: channelId, events: [event])
+        try append(events: [event], to: fileURL, createIfMissing: false)
+        return try loadSessionSummary(fileURL: fileURL)
     }
 
-    /// Returns recent message history formatted for LLM context
+    @discardableResult
+    func expireInactiveSessions(
+        timeoutByChannel: [String: Int],
+        referenceDate: Date = Date()
+    ) throws -> [ChannelSessionSummary] {
+        guard !timeoutByChannel.isEmpty else {
+            return []
+        }
+
+        let openSessions = try listSessions(status: .open)
+        var closed: [ChannelSessionSummary] = []
+
+        for summary in openSessions {
+            guard let timeoutMinutes = timeoutByChannel[summary.channelId], timeoutMinutes > 0 else {
+                continue
+            }
+            let timeoutSeconds = TimeInterval(timeoutMinutes * 60)
+            guard referenceDate.timeIntervalSince(summary.updatedAt) >= timeoutSeconds else {
+                continue
+            }
+            closed.append(
+                try closeSession(
+                    sessionID: summary.sessionId,
+                    reason: "inactive_timeout",
+                    closedAt: referenceDate
+                )
+            )
+        }
+
+        return closed
+    }
+
+    @discardableResult
+    func recordUserMessage(
+        channelId: String,
+        userId: String,
+        content: String,
+        createdAt: Date = Date()
+    ) throws -> ChannelSessionSummary {
+        try appendMessage(
+            channelId: channelId,
+            userId: userId,
+            content: content,
+            type: .userMessage,
+            createdAt: createdAt
+        )
+    }
+
+    @discardableResult
+    func recordAssistantMessage(
+        channelId: String,
+        content: String,
+        createdAt: Date = Date()
+    ) throws -> ChannelSessionSummary {
+        try appendMessage(
+            channelId: channelId,
+            userId: "assistant",
+            content: content,
+            type: .assistantMessage,
+            createdAt: createdAt
+        )
+    }
+
+    @discardableResult
+    func recordSystemMessage(
+        channelId: String,
+        content: String,
+        createdAt: Date = Date()
+    ) throws -> ChannelSessionSummary {
+        try appendMessage(
+            channelId: channelId,
+            userId: "system",
+            content: content,
+            type: .systemMessage,
+            createdAt: createdAt
+        )
+    }
+
     func getMessageHistory(channelId: String, limit: Int = 50) throws -> [ChannelMessageEntry] {
-        let events = try loadSession(channelId: channelId)
+        guard let openSession = try currentOpenSession(channelId: channelId) else {
+            return []
+        }
+
+        let events = try loadSession(sessionID: openSession.sessionId)
         let messageEvents = events.filter {
             $0.type == .userMessage || $0.type == .assistantMessage
         }
-        let recent = messageEvents.suffix(limit)
+        let recent = messageEvents.suffix(max(1, limit))
 
         return recent.map { event in
             ChannelMessageEntry(
@@ -142,47 +199,217 @@ actor ChannelSessionFileStore {
         }
     }
 
-    /// Deletes a channel session
-    func deleteSession(channelId: String) throws {
-        let fileURL = sessionFileURL(channelId: channelId)
+    private func appendMessage(
+        channelId: String,
+        userId: String,
+        content: String,
+        type: ChannelSessionEventType,
+        createdAt: Date
+    ) throws -> ChannelSessionSummary {
+        let normalizedChannelID = try normalizedChannelID(channelId)
+        let summary = try currentOpenSession(channelId: normalizedChannelID)
+            ?? createSession(channelId: normalizedChannelID, createdAt: createdAt)
+        let fileURL = sessionFileURL(sessionId: summary.sessionId)
+        let event = ChannelSessionEvent(
+            channelId: normalizedChannelID,
+            type: type,
+            userId: userId,
+            content: content,
+            createdAt: createdAt
+        )
+        try append(events: [event], to: fileURL, createIfMissing: false)
+        return try loadSessionSummary(fileURL: fileURL)
+    }
+
+    private func createSession(channelId: String, createdAt: Date) throws -> ChannelSessionSummary {
+        let sessionId = "session-\(UUID().uuidString.lowercased())"
+        let fileURL = sessionFileURL(sessionId: sessionId)
+        let openedEvent = ChannelSessionEvent(
+            channelId: channelId,
+            type: .sessionOpened,
+            userId: "system",
+            content: "Session opened.",
+            createdAt: createdAt
+        )
+        try append(events: [openedEvent], to: fileURL, createIfMissing: true)
+        return try loadSessionSummary(fileURL: fileURL)
+    }
+
+    private func currentOpenSession(channelId: String) throws -> ChannelSessionSummary? {
+        try listSessions(status: .open, channelIds: Set([channelId])).first
+    }
+
+    private func sessionFiles() throws -> [URL] {
+        guard fileManager.fileExists(atPath: sessionsRootURL.path) else {
+            return []
+        }
+
+        return try fileManager.contentsOfDirectory(
+            at: sessionsRootURL,
+            includingPropertiesForKeys: [.isRegularFileKey],
+            options: [.skipsHiddenFiles]
+        ).filter { $0.pathExtension == "jsonl" }
+    }
+
+    private func existingSessionFileURL(sessionID: String) throws -> URL {
+        let directURL = sessionFileURL(sessionId: sessionID)
+        if fileManager.fileExists(atPath: directURL.path) {
+            return directURL
+        }
+        throw StoreError.sessionNotFound
+    }
+
+    private func sessionFileURL(sessionId: String) -> URL {
+        sessionsRootURL.appendingPathComponent("\(sessionId).jsonl")
+    }
+
+    private func loadSessionSummary(fileURL: URL) throws -> ChannelSessionSummary {
+        let events = try readEvents(fileURL: fileURL)
+        let sessionID = fileURL.deletingPathExtension().lastPathComponent
+        return summaryForSession(
+            sessionID: sessionID,
+            events: events,
+            fallbackChannelId: legacyChannelID(fromSessionID: sessionID)
+        )
+    }
+
+    private func summaryForSession(
+        sessionID: String,
+        events: [ChannelSessionEvent],
+        fallbackChannelId: String?
+    ) -> ChannelSessionSummary {
+        let sortedEvents = events.sorted { $0.createdAt < $1.createdAt }
+        let firstEvent = sortedEvents.first
+        let lastEvent = sortedEvents.last
+
+        var channelId = fallbackChannelId ?? firstEvent?.channelId ?? ""
+        var messageCount = 0
+        var lastPreview: String?
+        var closedAt: Date?
+
+        for event in sortedEvents {
+            if channelId.isEmpty {
+                channelId = event.channelId
+            }
+            switch event.type {
+            case .userMessage, .assistantMessage:
+                messageCount += 1
+                if let preview = previewText(for: event.content), !preview.isEmpty {
+                    lastPreview = preview
+                }
+            case .sessionClosed:
+                closedAt = event.createdAt
+            default:
+                continue
+            }
+        }
+
+        let createdAt = firstEvent?.createdAt ?? Date()
+        let updatedAt = lastEvent?.createdAt ?? createdAt
+
+        return ChannelSessionSummary(
+            channelId: channelId,
+            sessionId: sessionID,
+            messageCount: messageCount,
+            createdAt: createdAt,
+            updatedAt: updatedAt,
+            closedAt: closedAt,
+            status: closedAt == nil ? .open : .closed,
+            lastMessagePreview: lastPreview
+        )
+    }
+
+    private func readEvents(fileURL: URL) throws -> [ChannelSessionEvent] {
         guard fileManager.fileExists(atPath: fileURL.path) else {
             throw StoreError.sessionNotFound
         }
-        try fileManager.removeItem(at: fileURL)
-    }
 
-    // MARK: - Private Helpers
+        let data = try Data(contentsOf: fileURL)
+        guard let content = String(data: data, encoding: .utf8) else {
+            throw StoreError.storageFailure
+        }
 
-    private func append(events: [ChannelSessionEvent], to fileURL: URL, createIfMissing: Bool) throws {
-        var lines: [String] = []
-        for event in events {
-            guard let data = try? encoder.encode(event),
-                  let line = String(data: data, encoding: .utf8) else {
+        let lines = content
+            .split(whereSeparator: \.isNewline)
+            .map(String.init)
+            .filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+
+        var events: [ChannelSessionEvent] = []
+        events.reserveCapacity(lines.count)
+
+        for line in lines {
+            guard let lineData = line.data(using: .utf8),
+                  let event = try? decoder.decode(ChannelSessionEvent.self, from: lineData)
+            else {
                 continue
             }
-            lines.append(line)
+            events.append(event)
         }
 
-        guard !lines.isEmpty else { return }
+        guard !events.isEmpty else {
+            throw StoreError.sessionNotFound
+        }
 
-        let content = lines.joined(separator: "\n") + "\n"
-        guard let data = content.data(using: .utf8) else {
+        return events
+    }
+
+    private func append(events: [ChannelSessionEvent], to fileURL: URL, createIfMissing: Bool) throws {
+        if createIfMissing && !fileManager.fileExists(atPath: fileURL.path) {
+            fileManager.createFile(atPath: fileURL.path, contents: Data(), attributes: nil)
+        }
+
+        guard fileManager.fileExists(atPath: fileURL.path) else {
             throw StoreError.storageFailure
         }
 
-        if createIfMissing {
-            fileManager.createFile(atPath: fileURL.path, contents: data, attributes: nil)
-        } else if let handle = FileHandle(forWritingAtPath: fileURL.path) {
-            defer { handle.closeFile() }
-            handle.seekToEndOfFile()
-            handle.write(data)
-        } else {
-            throw StoreError.storageFailure
+        let handle = try FileHandle(forWritingTo: fileURL)
+        defer {
+            try? handle.close()
+        }
+
+        try handle.seekToEnd()
+        for event in events {
+            var payload = try encoder.encode(event)
+            payload.append(0x0A)
+            try handle.write(contentsOf: payload)
         }
     }
-}
 
-// MARK: - Channel Session Event Types
+    private func previewText(for content: String) -> String? {
+        let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            return nil
+        }
+        return trimmed.count > 120 ? String(trimmed.prefix(120)) : trimmed
+    }
+
+    private func normalizedChannelID(_ raw: String) throws -> String {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            throw StoreError.invalidChannelID
+        }
+        return trimmed
+    }
+
+    private func normalizedSessionID(_ raw: String) throws -> String {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            throw StoreError.invalidSessionID
+        }
+        return trimmed
+    }
+
+    private func legacyChannelID(fromSessionID sessionID: String) -> String? {
+        guard sessionID.hasPrefix("session-") else {
+            return nil
+        }
+        let channelId = String(sessionID.dropFirst("session-".count))
+        if UUID(uuidString: channelId) != nil {
+            return nil
+        }
+        return channelId.isEmpty ? nil : channelId
+    }
+}
 
 public struct ChannelSessionEvent: Codable, Sendable, Equatable {
     public var id: String
@@ -213,6 +440,8 @@ public struct ChannelSessionEvent: Codable, Sendable, Equatable {
 }
 
 public enum ChannelSessionEventType: String, Codable, Sendable {
+    case sessionOpened = "session_opened"
+    case sessionClosed = "session_closed"
     case userMessage = "user_message"
     case assistantMessage = "assistant_message"
     case systemMessage = "system_message"
@@ -220,13 +449,19 @@ public enum ChannelSessionEventType: String, Codable, Sendable {
     case toolResult = "tool_result"
 }
 
-/// Summary of a channel session
+public enum ChannelSessionStatus: String, Codable, Sendable, Equatable {
+    case open = "open"
+    case closed = "closed"
+}
+
 public struct ChannelSessionSummary: Codable, Sendable, Equatable {
     public var channelId: String
     public var sessionId: String
     public var messageCount: Int
     public var createdAt: Date
     public var updatedAt: Date
+    public var closedAt: Date?
+    public var status: ChannelSessionStatus
     public var lastMessagePreview: String?
 
     public init(
@@ -235,6 +470,8 @@ public struct ChannelSessionSummary: Codable, Sendable, Equatable {
         messageCount: Int,
         createdAt: Date,
         updatedAt: Date,
+        closedAt: Date? = nil,
+        status: ChannelSessionStatus = .open,
         lastMessagePreview: String? = nil
     ) {
         self.channelId = channelId
@@ -242,6 +479,8 @@ public struct ChannelSessionSummary: Codable, Sendable, Equatable {
         self.messageCount = messageCount
         self.createdAt = createdAt
         self.updatedAt = updatedAt
+        self.closedAt = closedAt
+        self.status = status
         self.lastMessagePreview = lastMessagePreview
     }
 }

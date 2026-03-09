@@ -1317,6 +1317,8 @@ func agentConfigEndpointsReadAndUpdate() async throws {
     #expect(!fetched.availableModels.isEmpty)
     #expect(fetched.heartbeat.enabled == false)
     #expect(fetched.heartbeat.intervalMinutes == 5)
+    #expect(fetched.channelSessions.autoCloseEnabled == false)
+    #expect(fetched.channelSessions.autoCloseAfterMinutes == 30)
     #expect(fetched.documents.heartbeatMarkdown.isEmpty)
     #expect(fetched.heartbeatStatus.lastRunAt == nil)
 
@@ -1330,7 +1332,11 @@ func agentConfigEndpointsReadAndUpdate() async throws {
             identityMarkdown: "# Identity\nagent-config-v2\n",
             heartbeatMarkdown: "- verify onboarding checklist\n"
         ),
-        heartbeat: AgentHeartbeatSettings(enabled: true, intervalMinutes: 15)
+        heartbeat: AgentHeartbeatSettings(enabled: true, intervalMinutes: 15),
+        channelSessions: AgentChannelSessionSettings(
+            autoCloseEnabled: true,
+            autoCloseAfterMinutes: 45
+        )
     )
     let updateBody = try JSONEncoder().encode(updateRequest)
     let updateResponse = await router.handle(method: "PUT", path: "/v1/agents/agent-config/config", body: updateBody)
@@ -1345,6 +1351,8 @@ func agentConfigEndpointsReadAndUpdate() async throws {
     #expect(updated.documents.heartbeatMarkdown.contains("verify onboarding checklist"))
     #expect(updated.heartbeat.enabled == true)
     #expect(updated.heartbeat.intervalMinutes == 15)
+    #expect(updated.channelSessions.autoCloseEnabled == true)
+    #expect(updated.channelSessions.autoCloseAfterMinutes == 45)
 
     let agentDirectory = config
         .resolvedWorkspaceRootURL()
@@ -1364,6 +1372,7 @@ func agentConfigEndpointsReadAndUpdate() async throws {
     #expect(userFileText.contains("Updated user profile"))
     #expect(configFileText.contains(nextModel))
     #expect(configFileText.contains("\"intervalMinutes\" : 15"))
+    #expect(configFileText.contains("\"autoCloseAfterMinutes\" : 45"))
 }
 
 @Test
@@ -1413,11 +1422,38 @@ func agentConfigHeartbeatValidationAndBackfill() async throws {
             identityMarkdown: "# Identity\nagent-heartbeat\n",
             heartbeatMarkdown: "- verify\n"
         ),
-        heartbeat: AgentHeartbeatSettings(enabled: true, intervalMinutes: 0)
+        heartbeat: AgentHeartbeatSettings(enabled: true, intervalMinutes: 0),
+        channelSessions: AgentChannelSessionSettings(
+            autoCloseEnabled: true,
+            autoCloseAfterMinutes: 0
+        )
     )
     let invalidBody = try JSONEncoder().encode(invalidUpdate)
     let invalidResponse = await router.handle(method: "PUT", path: "/v1/agents/agent-heartbeat/config", body: invalidBody)
     #expect(invalidResponse.status == 400)
+
+    let invalidChannelSessionUpdate = AgentConfigUpdateRequest(
+        selectedModel: "openai:gpt-4.1-mini",
+        documents: AgentDocumentBundle(
+            userMarkdown: "# User\nA\n",
+            agentsMarkdown: "# Agent\nB\n",
+            soulMarkdown: "# Soul\nC\n",
+            identityMarkdown: "# Identity\nagent-heartbeat\n",
+            heartbeatMarkdown: "- verify\n"
+        ),
+        heartbeat: AgentHeartbeatSettings(enabled: true, intervalMinutes: 5),
+        channelSessions: AgentChannelSessionSettings(
+            autoCloseEnabled: true,
+            autoCloseAfterMinutes: 0
+        )
+    )
+    let invalidChannelSessionBody = try JSONEncoder().encode(invalidChannelSessionUpdate)
+    let invalidChannelSessionResponse = await router.handle(
+        method: "PUT",
+        path: "/v1/agents/agent-heartbeat/config",
+        body: invalidChannelSessionBody
+    )
+    #expect(invalidChannelSessionResponse.status == 400)
 }
 
 @Test
@@ -1478,6 +1514,125 @@ func agentToolsEndpointsReadAndUpdate() async throws {
         .appendingPathComponent("tools", isDirectory: true)
         .appendingPathComponent("tools.json")
     #expect(FileManager.default.fileExists(atPath: toolsFileURL.path))
+}
+
+@Test
+func channelSessionEndpointsFilterByAgentAndExpireStaleSessions() async throws {
+    let workspaceName = "workspace-channel-sessions-\(UUID().uuidString)"
+    let sqlitePath = FileManager.default.temporaryDirectory
+        .appendingPathComponent("core-channel-sessions-\(UUID().uuidString).sqlite")
+        .path
+
+    var config = CoreConfig.default
+    config.workspace = .init(name: workspaceName, basePath: FileManager.default.temporaryDirectory.path)
+    config.sqlitePath = sqlitePath
+
+    let service = CoreService(config: config)
+    let router = CoreRouter(service: service)
+
+    _ = try await service.createAgent(
+        AgentCreateRequest(
+            id: "agent-channel-owner",
+            displayName: "Channel Owner",
+            role: "Owns support channel"
+        )
+    )
+    _ = try await service.createAgent(
+        AgentCreateRequest(
+            id: "agent-channel-other",
+            displayName: "Other Channel Agent",
+            role: "Owns ops channel"
+        )
+    )
+
+    let ownerConfig = try await service.getAgentConfig(agentID: "agent-channel-owner")
+    _ = try await service.updateAgentConfig(
+        agentID: "agent-channel-owner",
+        request: AgentConfigUpdateRequest(
+            selectedModel: ownerConfig.selectedModel,
+            documents: ownerConfig.documents,
+            heartbeat: ownerConfig.heartbeat,
+            channelSessions: AgentChannelSessionSettings(
+                autoCloseEnabled: true,
+                autoCloseAfterMinutes: 1
+            )
+        )
+    )
+
+    _ = try await service.createActorNode(
+        node: ActorNode(
+            id: "actor:agent-channel-owner:support",
+            displayName: "Channel Owner",
+            kind: .agent,
+            linkedAgentId: "agent-channel-owner",
+            channelId: "support"
+        )
+    )
+    _ = try await service.createActorNode(
+        node: ActorNode(
+            id: "actor:agent-channel-other:ops",
+            displayName: "Other Channel Agent",
+            kind: .agent,
+            linkedAgentId: "agent-channel-other",
+            channelId: "ops"
+        )
+    )
+
+    let sessionStore = ChannelSessionFileStore(workspaceRootURL: config.resolvedWorkspaceRootURL())
+    let staleStartedAt = Date(timeIntervalSinceNow: -360)
+    _ = try await sessionStore.recordUserMessage(
+        channelId: "support",
+        userId: "user-1",
+        content: "Need help with a stale thread",
+        createdAt: staleStartedAt
+    )
+    _ = try await sessionStore.recordAssistantMessage(
+        channelId: "support",
+        content: "Stale response",
+        createdAt: staleStartedAt.addingTimeInterval(5)
+    )
+
+    _ = try await sessionStore.recordUserMessage(
+        channelId: "ops",
+        userId: "user-2",
+        content: "Fresh ops thread",
+        createdAt: Date()
+    )
+
+    let decoder = JSONDecoder()
+    decoder.dateDecodingStrategy = .iso8601
+
+    let openOwnerResponse = await router.handle(
+        method: "GET",
+        path: "/v1/channel-sessions?status=open&agentId=agent-channel-owner",
+        body: nil
+    )
+    #expect(openOwnerResponse.status == 200)
+    let openOwnerSessions = try decoder.decode([ChannelSessionSummary].self, from: openOwnerResponse.body)
+    #expect(openOwnerSessions.isEmpty)
+
+    let closedOwnerResponse = await router.handle(
+        method: "GET",
+        path: "/v1/channel-sessions?status=closed&agentId=agent-channel-owner",
+        body: nil
+    )
+    #expect(closedOwnerResponse.status == 200)
+    let closedOwnerSessions = try decoder.decode([ChannelSessionSummary].self, from: closedOwnerResponse.body)
+    #expect(closedOwnerSessions.count == 1)
+    #expect(closedOwnerSessions.first?.channelId == "support")
+    #expect(closedOwnerSessions.first?.status == .closed)
+    #expect(closedOwnerSessions.first?.closedAt != nil)
+
+    let openOtherResponse = await router.handle(
+        method: "GET",
+        path: "/v1/channel-sessions?status=open&agentId=agent-channel-other",
+        body: nil
+    )
+    #expect(openOtherResponse.status == 200)
+    let openOtherSessions = try decoder.decode([ChannelSessionSummary].self, from: openOtherResponse.body)
+    #expect(openOtherSessions.count == 1)
+    #expect(openOtherSessions.first?.channelId == "ops")
+    #expect(openOtherSessions.first?.status == .open)
 }
 
 @Test

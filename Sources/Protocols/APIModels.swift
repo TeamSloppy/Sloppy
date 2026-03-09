@@ -556,12 +556,26 @@ public struct AgentHeartbeatStatus: Codable, Sendable, Equatable {
     }
 }
 
+public struct AgentChannelSessionSettings: Codable, Sendable, Equatable {
+    public var autoCloseEnabled: Bool
+    public var autoCloseAfterMinutes: Int
+
+    public init(
+        autoCloseEnabled: Bool = false,
+        autoCloseAfterMinutes: Int = 30
+    ) {
+        self.autoCloseEnabled = autoCloseEnabled
+        self.autoCloseAfterMinutes = autoCloseAfterMinutes
+    }
+}
+
 public struct AgentConfigDetail: Codable, Sendable, Equatable {
     public var agentId: String
     public var selectedModel: String
     public var availableModels: [ProviderModelOption]
     public var documents: AgentDocumentBundle
     public var heartbeat: AgentHeartbeatSettings
+    public var channelSessions: AgentChannelSessionSettings
     public var heartbeatStatus: AgentHeartbeatStatus
 
     public init(
@@ -570,6 +584,7 @@ public struct AgentConfigDetail: Codable, Sendable, Equatable {
         availableModels: [ProviderModelOption],
         documents: AgentDocumentBundle,
         heartbeat: AgentHeartbeatSettings = AgentHeartbeatSettings(),
+        channelSessions: AgentChannelSessionSettings = AgentChannelSessionSettings(),
         heartbeatStatus: AgentHeartbeatStatus = AgentHeartbeatStatus()
     ) {
         self.agentId = agentId
@@ -577,6 +592,7 @@ public struct AgentConfigDetail: Codable, Sendable, Equatable {
         self.availableModels = availableModels
         self.documents = documents
         self.heartbeat = heartbeat
+        self.channelSessions = channelSessions
         self.heartbeatStatus = heartbeatStatus
     }
 
@@ -586,6 +602,7 @@ public struct AgentConfigDetail: Codable, Sendable, Equatable {
         case availableModels
         case documents
         case heartbeat
+        case channelSessions
         case heartbeatStatus
     }
 
@@ -596,6 +613,7 @@ public struct AgentConfigDetail: Codable, Sendable, Equatable {
         availableModels = try container.decode([ProviderModelOption].self, forKey: .availableModels)
         documents = try container.decode(AgentDocumentBundle.self, forKey: .documents)
         heartbeat = try container.decodeIfPresent(AgentHeartbeatSettings.self, forKey: .heartbeat) ?? AgentHeartbeatSettings()
+        channelSessions = try container.decodeIfPresent(AgentChannelSessionSettings.self, forKey: .channelSessions) ?? AgentChannelSessionSettings()
         heartbeatStatus = try container.decodeIfPresent(AgentHeartbeatStatus.self, forKey: .heartbeatStatus) ?? AgentHeartbeatStatus()
     }
 }
@@ -604,21 +622,25 @@ public struct AgentConfigUpdateRequest: Codable, Sendable {
     public var selectedModel: String
     public var documents: AgentDocumentBundle
     public var heartbeat: AgentHeartbeatSettings
+    public var channelSessions: AgentChannelSessionSettings
 
     public init(
         selectedModel: String,
         documents: AgentDocumentBundle,
-        heartbeat: AgentHeartbeatSettings = AgentHeartbeatSettings()
+        heartbeat: AgentHeartbeatSettings = AgentHeartbeatSettings(),
+        channelSessions: AgentChannelSessionSettings = AgentChannelSessionSettings()
     ) {
         self.selectedModel = selectedModel
         self.documents = documents
         self.heartbeat = heartbeat
+        self.channelSessions = channelSessions
     }
 
     enum CodingKeys: String, CodingKey {
         case selectedModel
         case documents
         case heartbeat
+        case channelSessions
     }
 
     public init(from decoder: Decoder) throws {
@@ -626,6 +648,7 @@ public struct AgentConfigUpdateRequest: Codable, Sendable {
         selectedModel = try container.decode(String.self, forKey: .selectedModel)
         documents = try container.decode(AgentDocumentBundle.self, forKey: .documents)
         heartbeat = try container.decodeIfPresent(AgentHeartbeatSettings.self, forKey: .heartbeat) ?? AgentHeartbeatSettings()
+        channelSessions = try container.decodeIfPresent(AgentChannelSessionSettings.self, forKey: .channelSessions) ?? AgentChannelSessionSettings()
     }
 }
 
