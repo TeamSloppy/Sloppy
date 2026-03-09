@@ -1,4 +1,5 @@
 import Foundation
+import Protocols
 import Testing
 @testable import Core
 
@@ -60,4 +61,62 @@ func channelSessionStoreCreatesClosesAndReopensSessions() async throws {
 
     let allSessions = try await store.listSessions()
     #expect(allSessions.count == 2)
+}
+
+@Test
+func channelSessionStorePersistsTechnicalEventsWithoutAffectingMessageCounters() async throws {
+    let workspaceRootURL = FileManager.default.temporaryDirectory
+        .appendingPathComponent("channel-session-technical-\(UUID().uuidString)", isDirectory: true)
+    let store = ChannelSessionFileStore(workspaceRootURL: workspaceRootURL)
+
+    let startedAt = Date(timeIntervalSince1970: 1_700_000_500)
+    let initialSummary = try await store.recordUserMessage(
+        channelId: "engineering",
+        userId: "user-42",
+        content: "Check deployment status",
+        createdAt: startedAt
+    )
+
+    let afterThinking = try await store.recordThinking(
+        channelId: "engineering",
+        content: "Evaluating route and deciding whether tools are needed.",
+        createdAt: startedAt.addingTimeInterval(2)
+    )
+    #expect(afterThinking.sessionId == initialSummary.sessionId)
+    #expect(afterThinking.messageCount == 1)
+    #expect(afterThinking.lastMessagePreview == "Check deployment status")
+
+    let afterToolCall = try await store.recordToolCall(
+        channelId: "engineering",
+        tool: "web.search",
+        arguments: .object(["query": .string("deployment health")]),
+        reason: "Need latest service status",
+        createdAt: startedAt.addingTimeInterval(4)
+    )
+    #expect(afterToolCall.messageCount == 1)
+    #expect(afterToolCall.lastMessagePreview == "Check deployment status")
+
+    let afterToolResult = try await store.recordToolResult(
+        channelId: "engineering",
+        tool: "web.search",
+        ok: true,
+        data: .object(["resultCount": .number(3)]),
+        error: nil,
+        durationMs: 120,
+        createdAt: startedAt.addingTimeInterval(6)
+    )
+    #expect(afterToolResult.messageCount == 1)
+    #expect(afterToolResult.lastMessagePreview == "Check deployment status")
+
+    let finalSummary = try await store.recordAssistantMessage(
+        channelId: "engineering",
+        content: "Deployment looks healthy.",
+        createdAt: startedAt.addingTimeInterval(8)
+    )
+    #expect(finalSummary.messageCount == 2)
+    #expect(finalSummary.lastMessagePreview == "Deployment looks healthy.")
+
+    let detail = try await store.loadSessionDetail(sessionID: initialSummary.sessionId)
+    let eventTypes = detail.events.map(\.type)
+    #expect(eventTypes == [.sessionOpened, .userMessage, .thinking, .toolCall, .toolResult, .assistantMessage])
 }

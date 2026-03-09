@@ -54,6 +54,12 @@ public struct RecoveryArtifactState: Sendable, Equatable {
     }
 }
 
+public enum RuntimeResponseObservation: Sendable {
+    case thinking(String)
+    case toolCall(ToolInvocationRequest)
+    case toolResult(ToolInvocationResult)
+}
+
 public actor RuntimeSystem {
     public nonisolated let eventBus: EventBus
 
@@ -116,7 +122,8 @@ public actor RuntimeSystem {
         channelId: String,
         request: ChannelMessageRequest,
         onResponseChunk: (@Sendable (String) async -> Bool)? = nil,
-        toolInvoker: (@Sendable (ToolInvocationRequest) async -> ToolInvocationResult)? = nil
+        toolInvoker: (@Sendable (ToolInvocationRequest) async -> ToolInvocationResult)? = nil,
+        observationHandler: (@Sendable (RuntimeResponseObservation) async -> Void)? = nil
     ) async -> ChannelRouteDecision {
         let ingest = await channels.ingest(channelId: channelId, request: request)
 
@@ -128,7 +135,8 @@ public actor RuntimeSystem {
                 model: request.model,
                 reasoningEffort: request.reasoningEffort,
                 onResponseChunk: onResponseChunk,
-                toolInvoker: toolInvoker
+                toolInvoker: toolInvoker,
+                observationHandler: observationHandler
             )
 
         case .spawnBranch:
@@ -186,13 +194,17 @@ public actor RuntimeSystem {
         model: String?,
         reasoningEffort: ReasoningEffort?,
         onResponseChunk: (@Sendable (String) async -> Bool)?,
-        toolInvoker: (@Sendable (ToolInvocationRequest) async -> ToolInvocationResult)?
+        toolInvoker: (@Sendable (ToolInvocationRequest) async -> ToolInvocationResult)?,
+        observationHandler: (@Sendable (RuntimeResponseObservation) async -> Void)?
     ) async {
         let normalizedModel = model?.trimmingCharacters(in: .whitespacesAndNewlines)
         let activeModel = (normalizedModel?.isEmpty == false ? normalizedModel : nil) ?? defaultModel
 
         guard let modelProvider, let activeModel else {
             let fallback = "Responded inline"
+            if let observationHandler {
+                await observationHandler(.thinking("Using fallback inline response because no model provider is configured."))
+            }
             if let onResponseChunk {
                 _ = await onResponseChunk(fallback)
             }
@@ -205,6 +217,17 @@ public actor RuntimeSystem {
                 channelId: channelId,
                 fallbackUserMessage: userMessage
             )
+
+            if let observationHandler {
+                let thinkingText =
+                    """
+                    Preparing inline response.
+                    - Channel: \(channelId)
+                    - Model: \(activeModel)
+                    - Tools: \(toolInvoker == nil ? "disabled" : "enabled")
+                    """
+                await observationHandler(.thinking(thinkingText))
+            }
 
             if let toolInvoker {
                 let basePrompt = contextualPrompt
@@ -253,7 +276,13 @@ public actor RuntimeSystem {
                     let trimmed = latest.trimmingCharacters(in: .whitespacesAndNewlines)
 
                     if let call = parseToolCall(from: trimmed) {
+                        if let observationHandler {
+                            await observationHandler(.toolCall(call))
+                        }
                         let result = await toolInvoker(call)
+                        if let observationHandler {
+                            await observationHandler(.toolResult(result))
+                        }
                         let resultJSON = encodedToolResult(result)
                         currentPrompt =
                             """

@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { fetchActorsBoard, fetchAgents, fetchChannelSession, fetchProjects } from "../api";
+import { fetchActorsBoard, fetchAgents, fetchChannelEvents, fetchChannelSession, fetchProjects } from "../api";
 import { Breadcrumbs } from "../components/Breadcrumbs/Breadcrumbs";
 
 function formatRelativeTime(value) {
@@ -92,12 +92,179 @@ function formatStructuredData(value) {
   }
 }
 
+function normalizeRuntimeEvents(payload) {
+  if (!payload || typeof payload !== "object") {
+    return [];
+  }
+
+  const items = payload.items;
+  if (!Array.isArray(items)) {
+    return [];
+  }
+
+  const result = [];
+  for (const entry of items) {
+    if (!entry || typeof entry !== "object") {
+      continue;
+    }
+    const id = String(entry.messageId || "").trim();
+    const messageType = String(entry.messageType || "").trim();
+    const ts = String(entry.ts || "").trim();
+    if (!id || !messageType || !ts) {
+      continue;
+    }
+
+    result.push({
+      id,
+      messageType,
+      ts,
+      taskId: typeof entry.taskId === "string" ? entry.taskId : "",
+      branchId: typeof entry.branchId === "string" ? entry.branchId : "",
+      workerId: typeof entry.workerId === "string" ? entry.workerId : "",
+      payload: entry.payload,
+      extensions: entry.extensions && typeof entry.extensions === "object" ? entry.extensions : null
+    });
+  }
+
+  return result;
+}
+
 function normalizeEventTypeLabel(type) {
   const normalized = String(type || "").replace(/_/g, " ").trim();
   if (!normalized) {
     return "event";
   }
   return normalized;
+}
+
+function normalizeMessageTypeLabel(type) {
+  return String(type || "")
+    .split(".")
+    .join(" ")
+    .replace(/_/g, " ")
+    .trim();
+}
+
+function buildTechnicalEventSummary(event) {
+  const payload = event?.payload && typeof event.payload === "object" ? event.payload : {};
+  const extensions = event?.extensions && typeof event.extensions === "object" ? event.extensions : {};
+  const type = String(event?.messageType || "");
+
+  if (type === "channel.route.decided") {
+    const action = String(payload.action || "").trim();
+    const reason = String(payload.reason || "").trim();
+    const confidence = payload.confidence != null ? `Confidence: ${payload.confidence}` : "";
+    return {
+      title: action ? `Route: ${action}` : "Route decided",
+      summary: previewText(reason || action, "Route decided"),
+      detail: [reason ? `Reason: ${reason}` : "", confidence].filter(Boolean).join("\n")
+    };
+  }
+
+  if (type === "branch.spawned") {
+    const prompt = String(payload.prompt || "").trim();
+    const todos = Array.isArray(extensions.todos) ? extensions.todos.join("\n") : "";
+    return {
+      title: "Branch spawned",
+      summary: previewText(prompt, "Branch created"),
+      detail: [prompt ? `Prompt:\n${prompt}` : "", todos ? `Todos:\n${todos}` : ""].filter(Boolean).join("\n\n")
+    };
+  }
+
+  if (type === "branch.conclusion") {
+    const summary = String(payload.summary || "").trim();
+    const tokenUsage = payload.tokenUsage ? `Token usage:\n${formatStructuredData(payload.tokenUsage)}` : "";
+    const artifactRefs = Array.isArray(payload.artifactRefs) ? `Artifacts:\n${formatStructuredData(payload.artifactRefs)}` : "";
+    const memoryRefs = Array.isArray(payload.memoryRefs) ? `Memories:\n${formatStructuredData(payload.memoryRefs)}` : "";
+    return {
+      title: "Branch conclusion",
+      summary: previewText(summary, "Conclusion stored"),
+      detail: [summary ? `Summary:\n${summary}` : "", tokenUsage, artifactRefs, memoryRefs].filter(Boolean).join("\n\n")
+    };
+  }
+
+  if (type === "worker.spawned") {
+    const title = String(payload.title || "").trim();
+    const mode = String(payload.mode || "").trim();
+    return {
+      title: "Worker spawned",
+      summary: previewText(title || mode, "Worker queued"),
+      detail: [
+        title ? `Title: ${title}` : "",
+        mode ? `Mode: ${mode}` : "",
+        event.taskId ? `Task: ${event.taskId}` : "",
+        event.workerId ? `Worker: ${event.workerId}` : ""
+      ]
+        .filter(Boolean)
+        .join("\n")
+    };
+  }
+
+  if (type === "worker.progress") {
+    const progress = String(payload.progress || "").trim();
+    return {
+      title: "Worker progress",
+      summary: previewText(progress, "Worker updated"),
+      detail: [
+        progress ? `Progress: ${progress}` : "",
+        event.taskId ? `Task: ${event.taskId}` : "",
+        event.workerId ? `Worker: ${event.workerId}` : ""
+      ]
+        .filter(Boolean)
+        .join("\n")
+    };
+  }
+
+  if (type === "worker.completed") {
+    const summary = String(payload.summary || "").trim();
+    const artifactId = String(payload.artifactId || "").trim();
+    return {
+      title: "Worker completed",
+      summary: previewText(summary || artifactId, "Worker completed"),
+      detail: [summary ? `Summary:\n${summary}` : "", artifactId ? `Artifact: ${artifactId}` : ""].filter(Boolean).join("\n\n")
+    };
+  }
+
+  if (type === "worker.failed") {
+    const error = String(payload.error || "").trim();
+    const reason = String(payload.reason || "").trim();
+    return {
+      title: "Worker failed",
+      summary: previewText(error || reason, "Worker failed"),
+      detail: [error ? `Error:\n${error}` : "", reason ? `Reason: ${reason}` : ""].filter(Boolean).join("\n\n")
+    };
+  }
+
+  if (type === "actor.discussion.started") {
+    const targetActorId = String(payload.targetActorId || "").trim();
+    const topic = String(payload.topic || "").trim();
+    const message = String(payload.message || "").trim();
+    return {
+      title: "Actor discussion",
+      summary: previewText(topic || message, "Discussion started"),
+      detail: [
+        targetActorId ? `Target actor: ${targetActorId}` : "",
+        topic ? `Topic: ${topic}` : "",
+        message ? `Message:\n${message}` : ""
+      ]
+        .filter(Boolean)
+        .join("\n\n")
+    };
+  }
+
+  return {
+    title: normalizeMessageTypeLabel(type) || "Technical event",
+    summary: previewText(formatStructuredData(payload), "Technical event"),
+    detail: [
+      event.taskId ? `Task: ${event.taskId}` : "",
+      event.branchId ? `Branch: ${event.branchId}` : "",
+      event.workerId ? `Worker: ${event.workerId}` : "",
+      `Payload:\n${formatStructuredData(payload)}`,
+      extensions && Object.keys(extensions).length > 0 ? `Extensions:\n${formatStructuredData(extensions)}` : ""
+    ]
+      .filter(Boolean)
+      .join("\n\n")
+  };
 }
 
 function isMessageEvent(type) {
@@ -149,6 +316,7 @@ function buildProjectByChannel(projects) {
 
 export function ChannelSessionView({ sessionId, onNavigateBack }) {
   const [sessionDetail, setSessionDetail] = useState(null);
+  const [runtimeEvents, setRuntimeEvents] = useState([]);
   const [projects, setProjects] = useState([]);
   const [agents, setAgents] = useState([]);
   const [actorBoard, setActorBoard] = useState({ nodes: [], links: [], teams: [] });
@@ -206,6 +374,56 @@ export function ChannelSessionView({ sessionId, onNavigateBack }) {
     };
   }, [sessionId]);
 
+  useEffect(() => {
+    const channelId = String(sessionDetail?.summary?.channelId || "").trim();
+    const createdAt = sessionDetail?.summary?.createdAt || "";
+    const closedAt = sessionDetail?.summary?.closedAt || "";
+    if (!sessionId || !channelId) {
+      return undefined;
+    }
+
+    let cancelled = false;
+
+    async function refreshLive(silent = false) {
+      const [detail, channelEventsResponse] = await Promise.all([
+        fetchChannelSession(sessionId).catch(() => null),
+        fetchChannelEvents(channelId, { limit: 200 }).catch(() => null)
+      ]);
+
+      if (cancelled) {
+        return;
+      }
+
+      if (detail) {
+        setSessionDetail(detail);
+      } else if (!silent) {
+        setErrorText("Failed to refresh channel session.");
+      }
+
+      const allRuntimeEvents = normalizeRuntimeEvents(channelEventsResponse);
+      const windowStart = createdAt ? new Date(createdAt).getTime() : Number.NEGATIVE_INFINITY;
+      const windowEnd = closedAt ? new Date(closedAt).getTime() : Number.POSITIVE_INFINITY;
+      const filteredRuntimeEvents = allRuntimeEvents.filter((event) => {
+        const eventTs = new Date(event.ts).getTime();
+        if (Number.isNaN(eventTs)) {
+          return false;
+        }
+        return eventTs >= windowStart && eventTs <= windowEnd;
+      });
+      setRuntimeEvents(filteredRuntimeEvents);
+    }
+
+    refreshLive(true).catch(() => {});
+    const timerId = window.setInterval(() => {
+      refreshLive(true).catch(() => {});
+    }, 2000);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(timerId);
+    };
+  }, [sessionDetail?.summary?.channelId, sessionDetail?.summary?.closedAt, sessionDetail?.summary?.createdAt, sessionId]);
+
   const summary = sessionDetail?.summary || null;
   const events = Array.isArray(sessionDetail?.events) ? sessionDetail.events : [];
 
@@ -254,6 +472,15 @@ export function ChannelSessionView({ sessionId, onNavigateBack }) {
       isMessage: isMessageEvent(String(eventItem?.type || ""))
     }));
   }, [events]);
+
+  const technicalTimeline = useMemo(() => {
+    return runtimeEvents
+      .filter((event) => event.messageType !== "channel.message.received")
+      .map((event) => ({
+        ...event,
+        ...buildTechnicalEventSummary(event)
+      }));
+  }, [runtimeEvents]);
 
   const breadcrumbItems = [
     { id: "overview", label: "Overview", onClick: onNavigateBack },
@@ -377,6 +604,38 @@ export function ChannelSessionView({ sessionId, onNavigateBack }) {
         </aside>
 
         <section className="channel-session-main">
+          <div className="overview-section-header">
+            <h2>
+              <span className="material-symbols-rounded">memory</span>
+              Technical Timeline
+            </h2>
+            <span className="overview-section-count">{technicalTimeline.length}</span>
+          </div>
+
+          <div className="channel-session-transcript-panel channel-session-technical-panel">
+            <div className="agent-chat-events channel-session-events">
+              {technicalTimeline.length === 0 ? (
+                <div className="overview-empty-state channel-session-inline-empty">
+                  <span className="material-symbols-rounded overview-empty-icon">manufacturing</span>
+                  <p>No runtime events captured for this channel session yet.</p>
+                </div>
+              ) : (
+                technicalTimeline.map((event) => (
+                  <article key={event.id} className="agent-chat-technical">
+                    <div className="agent-chat-technical-body">
+                      <div className="channel-session-technical-copy">
+                        <strong>{event.title}</strong>
+                        <small>{formatEventTime(event.ts)}</small>
+                      </div>
+                      <p className="channel-session-technical-summary">{event.summary}</p>
+                      <pre className="agent-chat-expandable-pre">{event.detail || "No details."}</pre>
+                    </div>
+                  </article>
+                ))
+              )}
+            </div>
+          </div>
+
           <div className="overview-section-header">
             <h2>
               <span className="material-symbols-rounded">article</span>

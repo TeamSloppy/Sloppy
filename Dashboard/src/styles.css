@@ -7701,6 +7701,10 @@ pre {
   padding: 18px;
 }
 
+.channel-session-technical-panel {
+  min-height: 280px;
+}
+
 .channel-session-events {
   padding-top: 0;
 }
@@ -7735,6 +7739,17 @@ pre {
 .channel-session-technical-copy small {
   font-size: 0.72rem;
   color: var(--muted);
+}
+
+.channel-session-technical-summary {
+  margin: 0;
+  color: var(--text);
+  font-size: 0.82rem;
+  line-height: 1.4;
+}
+
+.channel-session-inline-empty {
+  padding: 16px;
 }
 
 /* ── Stat Row ── */
