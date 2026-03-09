@@ -238,6 +238,31 @@ public struct WorkerTaskSpec: Codable, Sendable, Equatable {
     }
 }
 
+public enum WorkerRouteCommandAction: String, Codable, Sendable {
+    case `continue`
+    case complete
+    case fail
+}
+
+public struct WorkerRouteCommand: Codable, Sendable, Equatable {
+    public var command: WorkerRouteCommandAction
+    public var summary: String?
+    public var error: String?
+    public var report: String?
+
+    public init(
+        command: WorkerRouteCommandAction,
+        summary: String? = nil,
+        error: String? = nil,
+        report: String? = nil
+    ) {
+        self.command = command
+        self.summary = summary
+        self.error = error
+        self.report = report
+    }
+}
+
 public enum CompactionLevel: String, Codable, Sendable {
     case soft
     case aggressive

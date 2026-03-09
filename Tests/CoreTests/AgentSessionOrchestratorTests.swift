@@ -101,6 +101,7 @@ private func expectedFallbackBootstrapMessage(
     let capabilities = try renderer.render(template: try loader.loadPartial(named: "session_capabilities"), values: [:])
     let runtimeRules = try renderer.render(template: try loader.loadPartial(named: "runtime_rules"), values: [:])
     let branchingRules = try renderer.render(template: try loader.loadPartial(named: "branching_rules"), values: [:])
+    let workerRules = try renderer.render(template: try loader.loadPartial(named: "worker_rules"), values: [:])
     let toolsInstruction = try renderer.render(template: try loader.loadPartial(named: "tools_instruction"), values: [:])
 
     return """
@@ -126,6 +127,8 @@ private func expectedFallbackBootstrapMessage(
     \(runtimeRules)
 
     \(branchingRules)
+
+    \(workerRules)
 
     \(toolsInstruction)
     """
@@ -302,7 +305,10 @@ func agentSessionBootstrapIncludesToolCallProtocol() async throws {
     #expect(bootstrapMessage.contains("`runtime.exec`"))
     #expect(bootstrapMessage.contains("`files.write`"))
     #expect(bootstrapMessage.contains("`branches.spawn`"))
+    #expect(bootstrapMessage.contains("`workers.spawn`"))
+    #expect(bootstrapMessage.contains("`workers.route`"))
     #expect(bootstrapMessage.contains("[Branching rules]"))
+    #expect(bootstrapMessage.contains("[Worker rules]"))
 }
 
 @Test

@@ -67,6 +67,20 @@ enum ToolCatalog {
             description: "Run a focused side branch for the current session and return its conclusion."
         ),
         .init(
+            id: "workers.spawn",
+            domain: "worker",
+            title: "Spawn worker",
+            status: "fully_functional",
+            description: "Create a worker for the current session channel and start its execution."
+        ),
+        .init(
+            id: "workers.route",
+            domain: "worker",
+            title: "Route worker",
+            status: "fully_functional",
+            description: "Send a structured continuation, completion, or failure command to an interactive worker."
+        ),
+        .init(
             id: "memory.get",
             domain: "memory",
             title: "Memory semantic search",
@@ -283,6 +297,37 @@ enum ToolCatalog {
                 "title": .object(["type": .string("string")])
             ]),
             "required": .array([.string("prompt")])
+        ]),
+        "workers.spawn": .object([
+            "type": .string("object"),
+            "properties": .object([
+                "title": .object(["type": .string("string")]),
+                "objective": .object(["type": .string("string")]),
+                "mode": .object([
+                    "type": .string("string"),
+                    "enum": .array([.string("fire_and_forget"), .string("interactive")])
+                ]),
+                "taskId": .object(["type": .string("string")]),
+                "tools": .object([
+                    "type": .string("array"),
+                    "items": .object(["type": .string("string")])
+                ])
+            ]),
+            "required": .array([.string("objective")])
+        ]),
+        "workers.route": .object([
+            "type": .string("object"),
+            "properties": .object([
+                "workerId": .object(["type": .string("string")]),
+                "command": .object([
+                    "type": .string("string"),
+                    "enum": .array([.string("continue"), .string("complete"), .string("fail")])
+                ]),
+                "summary": .object(["type": .string("string")]),
+                "error": .object(["type": .string("string")]),
+                "report": .object(["type": .string("string")])
+            ]),
+            "required": .array([.string("workerId"), .string("command")])
         ]),
         "sessions.spawn": .object([
             "type": .string("object"),

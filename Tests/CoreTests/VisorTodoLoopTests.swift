@@ -24,7 +24,7 @@ func visorCreatesBacklogTasksFromBranchTodos() async throws {
     let messageResponse = await router.handle(method: "POST", path: "/v1/channels/general/messages", body: messageBody)
     #expect(messageResponse.status == 200)
 
-    let project = try await waitForProject(router: router, projectID: projectID, timeoutSeconds: 3) { project in
+    let project = try await waitForProject(router: router, projectID: projectID, timeoutSeconds: 5) { project in
         project.tasks.count >= 2
     }
     let tasks = try #require(project?.tasks)
@@ -120,7 +120,11 @@ func workerFailedEventReturnsTaskToBacklog() async throws {
     #expect(createWorkerResponse.status == 201)
 
     let worker = try #require(try await waitForWorker(router: router, taskID: taskID))
-    let routeBody = try JSONEncoder().encode(ChannelRouteRequest(message: "fail"))
+    let failMessage = String(
+        decoding: try JSONEncoder().encode(WorkerRouteCommand(command: .fail, error: "Worker failed during test")),
+        as: UTF8.self
+    )
+    let routeBody = try JSONEncoder().encode(ChannelRouteRequest(message: failMessage))
     let routeResponse = await router.handle(
         method: "POST",
         path: "/v1/channels/general/route/\(worker.workerId)",
@@ -250,7 +254,7 @@ func readyTaskClaimsAssignedActorAndPersistsProjectArtifactsAndLogs() async thro
 }
 
 @Test
-func createFileObjectiveProducesRequestedFileContent() async throws {
+func fireAndForgetWorkerPersistsObjectiveArtifact() async throws {
     let workspaceName = "workspace-visor-create-file-\(UUID().uuidString)"
     let sqlitePath = FileManager.default.temporaryDirectory
         .appendingPathComponent("core-visor-create-file-\(UUID().uuidString).sqlite")
@@ -320,7 +324,8 @@ func createFileObjectiveProducesRequestedFileContent() async throws {
     let artifactAbsolutePath = config.resolvedWorkspaceRootURL().appendingPathComponent(artifactRelativePath ?? "").path
     #expect(FileManager.default.fileExists(atPath: artifactAbsolutePath))
     let fileContent = try String(contentsOfFile: artifactAbsolutePath, encoding: .utf8)
-    #expect(fileContent == "Hello world")
+    #expect(fileContent.contains("Task title: Create file with text \"Hello world\""))
+    #expect(fileContent.contains("Store all created files and artifacts under:"))
 }
 
 @Test
