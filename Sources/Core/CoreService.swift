@@ -665,6 +665,11 @@ public actor CoreService {
         )
     }
 
+    public func getChannelSession(sessionID: String) async throws -> ChannelSessionDetail {
+        await waitForStartup()
+        return try await channelSessionStore.loadSessionDetail(sessionID: sessionID)
+    }
+
     // MARK: - Cron Tasks
 
     public func listAgentCronTasks(agentID: String) async throws -> [AgentCronTask] {

@@ -17,7 +17,7 @@ interface DashboardRouteController {
   setConfigSection: (sectionId: string | null) => void;
   setProjectRoute: (projectId: string | null, projectTab?: string | null, projectTaskReference?: string | null) => void;
   setAgentRoute: (agentId: string | null, agentTab?: string | null) => void;
-  setSessionRoute: (agentId: string | null, sessionId: string | null) => void;
+  setSessionRoute: (sessionId: string | null) => void;
 }
 
 export function useDashboardRoute(): DashboardRouteController {
@@ -94,15 +94,14 @@ export function useDashboardRoute(): DashboardRouteController {
     }));
   }, []);
 
-  const setSessionRoute = useCallback((agentId: string | null, sessionId: string | null) => {
-    const normalizedAgentID = typeof agentId === "string" && agentId.trim().length > 0 ? agentId : null;
+  const setSessionRoute = useCallback((sessionId: string | null) => {
     const normalizedSessionID = typeof sessionId === "string" && sessionId.trim().length > 0 ? sessionId : null;
 
     setRoute((current) => ({
       ...current,
       section: "sessions",
-      sessionAgentId: normalizedAgentID,
-      sessionId: normalizedAgentID ? normalizedSessionID : null
+      sessionAgentId: null,
+      sessionId: normalizedSessionID
     }));
   }, []);
 

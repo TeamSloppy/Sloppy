@@ -1,12 +1,5 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
-import {
-  fetchAgent,
-  fetchAgentSession,
-  fetchActorsBoard,
-  fetchChannelSessions,
-  fetchProjects,
-  subscribeAgentSessionStream
-} from "../api";
+import React, { useEffect, useMemo, useState } from "react";
+import { fetchActorsBoard, fetchAgents, fetchChannelSession, fetchProjects } from "../api";
 import { Breadcrumbs } from "../components/Breadcrumbs/Breadcrumbs";
 
 function formatRelativeTime(value) {
@@ -53,7 +46,11 @@ function formatEventTime(value) {
   if (Number.isNaN(date.getTime())) {
     return "";
   }
-  return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+  return date.toLocaleTimeString([], {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit"
+  });
 }
 
 function agentInitials(name) {
@@ -75,8 +72,8 @@ function previewText(value, fallback = "No details") {
   if (!normalized) {
     return fallback;
   }
-  if (normalized.length > 120) {
-    return `${normalized.slice(0, 120)}...`;
+  if (normalized.length > 140) {
+    return `${normalized.slice(0, 140)}...`;
   }
   return normalized;
 }
@@ -95,186 +92,74 @@ function formatStructuredData(value) {
   }
 }
 
-function extractEventKey(event, index) {
-  return event?.id || `${event?.type || "event"}-${index}`;
+function normalizeEventTypeLabel(type) {
+  const normalized = String(type || "").replace(/_/g, " ").trim();
+  if (!normalized) {
+    return "event";
+  }
+  return normalized;
 }
 
-function segmentsToPlainText(segments) {
-  return (segments || [])
-    .map((segment) => {
-      if (segment.kind === "text") {
-        return String(segment.text || "").trim();
+function isMessageEvent(type) {
+  return type === "user_message" || type === "assistant_message" || type === "system_message";
+}
+
+function eventRole(type, userId) {
+  if (type === "assistant_message") {
+    return "assistant";
+  }
+  if (type === "user_message") {
+    return "user";
+  }
+  if (type === "system_message") {
+    return "system";
+  }
+  const normalizedUserId = String(userId || "").trim().toLowerCase();
+  if (normalizedUserId === "assistant") {
+    return "assistant";
+  }
+  if (normalizedUserId === "system") {
+    return "system";
+  }
+  return "system";
+}
+
+function buildProjectByChannel(projects) {
+  const projectByChannel = new Map();
+  for (const project of Array.isArray(projects) ? projects : []) {
+    const channels = Array.isArray(project?.channels)
+      ? project.channels
+      : Array.isArray(project?.chats)
+        ? project.chats
+        : [];
+    for (const channel of channels) {
+      const channelId = String(channel?.channelId || "").trim();
+      if (!channelId || projectByChannel.has(channelId)) {
+        continue;
       }
-      if (segment.kind === "attachment" && segment.attachment?.name) {
-        return `[Attachment: ${segment.attachment.name}]`;
-      }
-      return "";
-    })
-    .filter(Boolean)
-    .join("\n")
-    .trim();
+      projectByChannel.set(channelId, {
+        projectId: String(project?.id || ""),
+        projectName: String(project?.name || project?.id || "Project"),
+        channelTitle: String(channel?.title || channelId)
+      });
+    }
+  }
+  return projectByChannel;
 }
 
-function latestRunStatusFromEvents(events) {
-  return [...(Array.isArray(events) ? events : [])]
-    .reverse()
-    .find((eventItem) => eventItem?.type === "run_status" && eventItem?.runStatus)?.runStatus;
-}
-
-function getSessionDisplayLabel(session) {
-  const title = String(session?.title || "").trim();
-  const preview = String(session?.lastMessagePreview || "").trim();
-  const isDefaultTitle = /^Session\s+session-/i.test(title);
-  if (isDefaultTitle && preview) {
-    return preview.length > 80 ? `${preview.slice(0, 80)}...` : preview;
-  }
-  return title || preview || "Session";
-}
-
-function buildTechnicalRecord(eventItem, index) {
-  const eventKey = extractEventKey(eventItem, index);
-
-  if (eventItem?.type === "run_status" && eventItem.runStatus) {
-    const stage = String(eventItem.runStatus.stage || "").toLowerCase();
-    if (stage === "responding" || stage === "done") {
-      return null;
-    }
-
-    const label = eventItem.runStatus.label || eventItem.runStatus.stage || "Status";
-    const summary = eventItem.runStatus.details || eventItem.runStatus.expandedText || label;
-    const detailParts = [];
-    if (eventItem.runStatus.stage) {
-      detailParts.push(`Stage: ${eventItem.runStatus.stage}`);
-    }
-    if (eventItem.runStatus.details) {
-      detailParts.push(eventItem.runStatus.details);
-    }
-    if (eventItem.runStatus.expandedText) {
-      detailParts.push(eventItem.runStatus.expandedText);
-    }
-
-    return {
-      id: `${eventKey}-run-status`,
-      title: label,
-      summary: previewText(summary, label),
-      detail: detailParts.join("\n\n"),
-      createdAt: eventItem.createdAt || eventItem.runStatus.createdAt,
-      isActive: stage === "thinking" || stage === "searching"
-    };
-  }
-
-  if (eventItem?.type === "run_control" && eventItem.runControl) {
-    const action = eventItem.runControl.action || "control";
-    return {
-      id: `${eventKey}-run-control`,
-      title: `Control: ${action}`,
-      summary: previewText(eventItem.runControl.reason, action),
-      detail: [
-        `Action: ${action}`,
-        `Requested by: ${eventItem.runControl.requestedBy || "unknown"}`,
-        eventItem.runControl.reason ? `Reason: ${eventItem.runControl.reason}` : ""
-      ]
-        .filter(Boolean)
-        .join("\n"),
-      createdAt: eventItem.createdAt
-    };
-  }
-
-  if (eventItem?.type === "tool_call" && eventItem.toolCall) {
-    const reason = String(eventItem.toolCall.reason || "").trim();
-    const argumentsText = formatStructuredData(eventItem.toolCall.arguments);
-    return {
-      id: `${eventKey}-tool-call`,
-      title: `Tool call: ${eventItem.toolCall.tool || "tool"}`,
-      summary: previewText(reason || argumentsText, "Tool call"),
-      detail: `${reason ? `Reason: ${reason}\n\n` : ""}Arguments:\n${argumentsText || "{}"}`,
-      createdAt: eventItem.createdAt
-    };
-  }
-
-  if (eventItem?.type === "tool_result" && eventItem.toolResult) {
-    const statusText = eventItem.toolResult.ok ? "success" : "failed";
-    const dataText = formatStructuredData(eventItem.toolResult.data);
-    const errorText = formatStructuredData(eventItem.toolResult.error);
-    const parts = [`Status: ${statusText}`];
-    if (Number.isFinite(eventItem.toolResult.durationMs)) {
-      parts.push(`Duration: ${eventItem.toolResult.durationMs} ms`);
-    }
-    if (dataText) {
-      parts.push(`Data:\n${dataText}`);
-    }
-    if (errorText) {
-      parts.push(`Error:\n${errorText}`);
-    }
-
-    return {
-      id: `${eventKey}-tool-result`,
-      title: `Tool result: ${eventItem.toolResult.tool || "tool"}`,
-      summary: previewText(errorText || dataText, `Result: ${statusText}`),
-      detail: parts.join("\n\n"),
-      createdAt: eventItem.createdAt
-    };
-  }
-
-  if (eventItem?.type === "sub_session" && eventItem.subSession) {
-    const childSessionId = String(eventItem.subSession.childSessionId || "").trim();
-    const title = eventItem.subSession.title || "Sub-session";
-    return {
-      id: `${eventKey}-sub-session`,
-      title,
-      summary: previewText(childSessionId, "Session created"),
-      detail: `Session: ${childSessionId}\nTitle: ${title}`,
-      createdAt: eventItem.createdAt,
-      childSessionId
-    };
-  }
-
-  return null;
-}
-
-function SessionExpandable({ recordId, title, summary, children, isExpanded, onToggle }) {
-  return (
-    <section className={`agent-chat-expandable ${isExpanded ? "open" : ""}`}>
-      <button
-        type="button"
-        className="agent-chat-expandable-toggle"
-        onClick={() => onToggle(recordId)}
-        aria-expanded={isExpanded}
-      >
-        <span className="agent-chat-expandable-left">
-          <span className="material-symbols-rounded" aria-hidden="true">
-            psychology_alt
-          </span>
-          <span className="agent-chat-expandable-copy">
-            <strong>{title}</strong>
-            {summary ? <small>{summary}</small> : null}
-          </span>
-        </span>
-        <span className="material-symbols-rounded agent-chat-expandable-chevron" aria-hidden="true">
-          expand_more
-        </span>
-      </button>
-      {isExpanded ? <div className="agent-chat-expandable-body">{children}</div> : null}
-    </section>
-  );
-}
-
-export function ChannelSessionView({ agentId, sessionId, onNavigateBack, onOpenSession }) {
-  const [agent, setAgent] = useState(null);
+export function ChannelSessionView({ sessionId, onNavigateBack }) {
   const [sessionDetail, setSessionDetail] = useState(null);
   const [projects, setProjects] = useState([]);
+  const [agents, setAgents] = useState([]);
   const [actorBoard, setActorBoard] = useState({ nodes: [], links: [], teams: [] });
-  const [channelSummary, setChannelSummary] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
   const [errorText, setErrorText] = useState("");
-  const [expandedRecordIds, setExpandedRecordIds] = useState({});
-  const syncStateRef = useRef({ timerId: null, inflight: false, queued: false });
 
   useEffect(() => {
     let cancelled = false;
 
     async function load() {
-      if (!agentId || !sessionId) {
+      if (!sessionId) {
         setErrorText("Session route is incomplete.");
         setIsLoading(false);
         return;
@@ -283,13 +168,11 @@ export function ChannelSessionView({ agentId, sessionId, onNavigateBack, onOpenS
       setIsLoading(true);
       setErrorText("");
 
-      const [detail, agentResponse, projectsResponse, boardResponse, openSessions, closedSessions] = await Promise.all([
-        fetchAgentSession(agentId, sessionId).catch(() => null),
-        fetchAgent(agentId).catch(() => null),
+      const [detail, projectsResponse, agentsResponse, boardResponse] = await Promise.all([
+        fetchChannelSession(sessionId).catch(() => null),
         fetchProjects().catch(() => null),
-        fetchActorsBoard().catch(() => null),
-        fetchChannelSessions({ status: "open" }).catch(() => null),
-        fetchChannelSessions({ status: "closed" }).catch(() => null)
+        fetchAgents().catch(() => null),
+        fetchActorsBoard().catch(() => null)
       ]);
 
       if (cancelled) {
@@ -298,222 +181,83 @@ export function ChannelSessionView({ agentId, sessionId, onNavigateBack, onOpenS
 
       if (!detail) {
         setSessionDetail(null);
-        setErrorText("Failed to load session.");
+        setErrorText("Failed to load channel session.");
         setIsLoading(false);
         return;
       }
 
-      const allChannelSessions = [
-        ...(Array.isArray(openSessions) ? openSessions : []),
-        ...(Array.isArray(closedSessions) ? closedSessions : [])
-      ];
-      const matchedChannelSession =
-        allChannelSessions.find((item) => String(item?.sessionId || "") === String(sessionId || "")) || null;
-
-      setAgent(agentResponse);
       setSessionDetail(detail);
       setProjects(Array.isArray(projectsResponse) ? projectsResponse : []);
+      setAgents(Array.isArray(agentsResponse) ? agentsResponse : []);
       setActorBoard(boardResponse && Array.isArray(boardResponse.nodes) ? boardResponse : { nodes: [], links: [], teams: [] });
-      setChannelSummary(matchedChannelSession);
       setIsLoading(false);
     }
 
     load().catch(() => {
       if (!cancelled) {
         setSessionDetail(null);
-        setErrorText("Failed to load session.");
+        setErrorText("Failed to load channel session.");
         setIsLoading(false);
       }
     });
 
     return () => {
       cancelled = true;
-      const syncState = syncStateRef.current;
-      if (syncState.timerId) {
-        window.clearTimeout(syncState.timerId);
-      }
-      syncStateRef.current = { timerId: null, inflight: false, queued: false };
     };
-  }, [agentId, sessionId]);
+  }, [sessionId]);
 
-  useEffect(() => {
-    if (!agentId || !sessionId) {
-      return undefined;
-    }
-
-    async function syncSessionDetail() {
-      const detail = await fetchAgentSession(agentId, sessionId).catch(() => null);
-      if (detail) {
-        setSessionDetail(detail);
-      }
-    }
-
-    function scheduleSessionSync(delayMs = 120) {
-      const state = syncStateRef.current;
-      if (state.timerId) {
-        window.clearTimeout(state.timerId);
-      }
-
-      state.timerId = window.setTimeout(async () => {
-        state.timerId = null;
-
-        if (state.inflight) {
-          state.queued = true;
-          return;
-        }
-
-        state.inflight = true;
-        try {
-          await syncSessionDetail();
-        } finally {
-          state.inflight = false;
-          if (state.queued) {
-            state.queued = false;
-            scheduleSessionSync(0);
-          }
-        }
-      }, delayMs);
-    }
-
-    function handleSessionStreamUpdate(update) {
-      if (!update || typeof update !== "object") {
-        return;
-      }
-
-      const kind = String(update.kind || "");
-      const summary = update.summary && typeof update.summary === "object" ? update.summary : null;
-      const streamEvent = update.event && typeof update.event === "object" ? update.event : null;
-
-      if (summary?.id === sessionId) {
-        setSessionDetail((previous) => {
-          if (!previous?.summary) {
-            return previous;
-          }
-          return {
-            ...previous,
-            summary: {
-              ...previous.summary,
-              ...summary
-            }
-          };
-        });
-      }
-
-      if (streamEvent?.id && streamEvent?.sessionId === sessionId) {
-        setSessionDetail((previous) => {
-          if (!previous) {
-            return previous;
-          }
-          const existingEvents = Array.isArray(previous.events) ? previous.events : [];
-          if (existingEvents.some((item) => item?.id === streamEvent.id)) {
-            return previous;
-          }
-          return {
-            ...previous,
-            events: [...existingEvents, streamEvent]
-          };
-        });
-      }
-
-      if (kind === "session_ready" || kind === "session_event" || kind === "heartbeat" || kind === "session_delta") {
-        scheduleSessionSync(kind === "heartbeat" ? 200 : 0);
-      }
-    }
-
-    const disconnect = subscribeAgentSessionStream(agentId, sessionId, {
-      onUpdate: handleSessionStreamUpdate
-    });
-
-    return () => {
-      disconnect();
-      const state = syncStateRef.current;
-      if (state.timerId) {
-        window.clearTimeout(state.timerId);
-      }
-      syncStateRef.current = { timerId: null, inflight: false, queued: false };
-    };
-  }, [agentId, sessionId]);
+  const summary = sessionDetail?.summary || null;
+  const events = Array.isArray(sessionDetail?.events) ? sessionDetail.events : [];
 
   const channelMeta = useMemo(() => {
-    const channelId = String(channelSummary?.channelId || "").trim();
-    const nodes = Array.isArray(actorBoard?.nodes) ? actorBoard.nodes : [];
-    const linkedNode = nodes.find(
-      (node) => String(node?.linkedAgentId || "") === String(agentId || "") && String(node?.channelId || "") === channelId
+    const channelId = String(summary?.channelId || "").trim();
+    const projectByChannel = buildProjectByChannel(projects);
+    const projectMeta = projectByChannel.get(channelId);
+
+    const agentNameById = new Map(
+      (Array.isArray(agents) ? agents : []).map((agent) => [
+        String(agent?.id || ""),
+        String(agent?.displayName || agent?.id || "")
+      ])
     );
-    const fallbackNode = nodes.find((node) => String(node?.linkedAgentId || "") === String(agentId || ""));
 
-    const projectByChannel = new Map();
-    for (const project of Array.isArray(projects) ? projects : []) {
-      const channels = Array.isArray(project?.channels)
-        ? project.channels
-        : Array.isArray(project?.chats)
-          ? project.chats
-          : [];
-      for (const channel of channels) {
-        const currentChannelId = String(channel?.channelId || "").trim();
-        if (!currentChannelId || projectByChannel.has(currentChannelId)) {
-          continue;
-        }
-        projectByChannel.set(currentChannelId, {
-          projectId: String(project?.id || ""),
-          projectName: String(project?.name || project?.id || "Project"),
-          channelTitle: String(channel?.title || currentChannelId)
-        });
-      }
-    }
-
-    const resolvedChannelId = channelId || String(linkedNode?.channelId || fallbackNode?.channelId || "").trim();
-    const projectMeta = projectByChannel.get(resolvedChannelId);
+    const nodes = Array.isArray(actorBoard?.nodes) ? actorBoard.nodes : [];
+    const linkedAgents = nodes
+      .filter((node) => String(node?.channelId || "").trim() === channelId && String(node?.linkedAgentId || "").trim())
+      .map((node) => {
+        const agentId = String(node?.linkedAgentId || "").trim();
+        return {
+          id: agentId,
+          name: agentNameById.get(agentId) || agentId
+        };
+      })
+      .filter((value, index, array) => array.findIndex((item) => item.id === value.id) === index);
 
     return {
-      channelId: resolvedChannelId,
-      channelTitle: projectMeta?.channelTitle || resolvedChannelId || "Channel",
-      projectId: projectMeta?.projectId || "",
+      channelId,
+      channelTitle: projectMeta?.channelTitle || channelId || "Channel",
       projectName: projectMeta?.projectName || "",
-      actorNodeId: String(linkedNode?.id || fallbackNode?.id || "")
+      linkedAgents
     };
-  }, [actorBoard, agentId, channelSummary, projects]);
+  }, [actorBoard, agents, projects, summary?.channelId]);
 
-  const events = Array.isArray(sessionDetail?.events) ? sessionDetail.events : [];
-  const latestRunStatus = latestRunStatusFromEvents(events);
-  const timelineItems = useMemo(() => {
-    const nextTimeline = [];
-    for (let index = 0; index < events.length; index += 1) {
-      const eventItem = events[index];
-      if (eventItem?.type === "message" && eventItem.message) {
-        nextTimeline.push({
-          id: extractEventKey(eventItem, index),
-          kind: "message",
-          event: eventItem
-        });
-      }
-
-      const technicalRecord = buildTechnicalRecord(eventItem, index);
-      if (technicalRecord) {
-        nextTimeline.push({
-          id: technicalRecord.id,
-          kind: "technical",
-          record: technicalRecord
-        });
-      }
-    }
-    return nextTimeline;
-  }, [events]);
-
-  const agentName = String(agent?.displayName || agent?.id || agentId || "Agent");
-  const summary = sessionDetail?.summary || null;
-  const sessionLabel = getSessionDisplayLabel(summary);
-
-  function toggleRecord(recordId) {
-    setExpandedRecordIds((previous) => ({
-      ...previous,
-      [recordId]: !previous[recordId]
+  const transcriptItems = useMemo(() => {
+    return events.map((eventItem, index) => ({
+      id: String(eventItem?.id || `event-${index}`),
+      index,
+      type: String(eventItem?.type || ""),
+      role: eventRole(eventItem?.type, eventItem?.userId),
+      userId: String(eventItem?.userId || ""),
+      content: String(eventItem?.content || ""),
+      createdAt: eventItem?.createdAt || "",
+      metadata: eventItem?.metadata || null,
+      isMessage: isMessageEvent(String(eventItem?.type || ""))
     }));
-  }
+  }, [events]);
 
   const breadcrumbItems = [
     { id: "overview", label: "Overview", onClick: onNavigateBack },
-    { id: "session", label: channelMeta.channelTitle || sessionLabel }
+    { id: "session", label: channelMeta.channelTitle || "Channel Session" }
   ];
 
   if (isLoading) {
@@ -546,18 +290,20 @@ export function ChannelSessionView({ agentId, sessionId, onNavigateBack, onOpenS
 
       <section className="channel-session-hero">
         <div className="channel-session-titlebar">
-          <div className="channel-session-avatar">{agentInitials(agentName)}</div>
+          <div className="channel-session-avatar">
+            {agentInitials(channelMeta.linkedAgents[0]?.name || channelMeta.channelTitle)}
+          </div>
           <div className="channel-session-copy">
             <h1>{channelMeta.channelTitle || "Channel Session"}</h1>
             <p>
-              {agentName}
+              {channelMeta.channelId}
               {channelMeta.projectName ? ` · ${channelMeta.projectName}` : ""}
             </p>
           </div>
         </div>
         <div className="channel-session-badges">
-          {channelMeta.channelId ? <span className="channel-session-badge">{channelMeta.channelId}</span> : null}
-          <span className="channel-session-badge">{summary.kind || "chat"}</span>
+          <span className="channel-session-badge">{summary.status || "open"}</span>
+          <span className="channel-session-badge">{summary.messageCount || 0} messages</span>
           <span className="channel-session-badge">Updated {formatRelativeTime(summary.updatedAt)}</span>
         </div>
       </section>
@@ -573,16 +319,16 @@ export function ChannelSessionView({ agentId, sessionId, onNavigateBack, onOpenS
             </div>
             <dl className="channel-session-meta-list">
               <div>
-                <dt>Title</dt>
-                <dd>{sessionLabel}</dd>
-              </div>
-              <div>
                 <dt>Session ID</dt>
-                <dd>{summary.id}</dd>
+                <dd>{summary.sessionId}</dd>
               </div>
               <div>
-                <dt>Agent</dt>
-                <dd>{agentName}</dd>
+                <dt>Channel</dt>
+                <dd>{channelMeta.channelId}</dd>
+              </div>
+              <div>
+                <dt>Status</dt>
+                <dd>{summary.status || "open"}</dd>
               </div>
               <div>
                 <dt>Messages</dt>
@@ -596,22 +342,22 @@ export function ChannelSessionView({ agentId, sessionId, onNavigateBack, onOpenS
                 <dt>Updated</dt>
                 <dd>{formatDateTime(summary.updatedAt)}</dd>
               </div>
+              {summary.closedAt ? (
+                <div>
+                  <dt>Closed</dt>
+                  <dd>{formatDateTime(summary.closedAt)}</dd>
+                </div>
+              ) : null}
               {channelMeta.projectName ? (
                 <div>
                   <dt>Project</dt>
                   <dd>{channelMeta.projectName}</dd>
                 </div>
               ) : null}
-              {channelMeta.actorNodeId ? (
+              {channelMeta.linkedAgents.length > 0 ? (
                 <div>
-                  <dt>Actor Node</dt>
-                  <dd>{channelMeta.actorNodeId}</dd>
-                </div>
-              ) : null}
-              {latestRunStatus?.label || latestRunStatus?.stage ? (
-                <div>
-                  <dt>Status</dt>
-                  <dd>{latestRunStatus.label || latestRunStatus.stage}</dd>
+                  <dt>Agents</dt>
+                  <dd>{channelMeta.linkedAgents.map((agent) => agent.name).join(", ")}</dd>
                 </div>
               ) : null}
             </dl>
@@ -636,108 +382,49 @@ export function ChannelSessionView({ agentId, sessionId, onNavigateBack, onOpenS
               <span className="material-symbols-rounded">article</span>
               Full Session
             </h2>
-            <span className="overview-section-count">{timelineItems.length}</span>
+            <span className="overview-section-count">{transcriptItems.length}</span>
           </div>
 
           <div className="channel-session-transcript-panel">
             <div className="agent-chat-events channel-session-events">
-              {timelineItems.length === 0 ? (
+              {transcriptItems.length === 0 ? (
                 <p className="placeholder-text">No transcript available yet.</p>
               ) : (
-                timelineItems.map((timelineItem, index) => {
-                  if (timelineItem.kind === "technical" && timelineItem.record) {
-                    const record = timelineItem.record;
-                    const isExpanded = Boolean(expandedRecordIds[record.id]);
-                    const isLatestActive =
-                      latestRunStatus &&
-                      record.isActive &&
-                      record.id.includes(latestRunStatus.id || "");
-
+                transcriptItems.map((item) => {
+                  if (!item.isMessage) {
                     return (
-                      <div key={timelineItem.id || `tech-${index}`} className="agent-chat-tech-entry">
-                        <button
-                          type="button"
-                          className={`agent-chat-tech-trigger ${isExpanded ? "expanded" : ""} ${isLatestActive ? "shimmer" : ""}`}
-                          onClick={() => toggleRecord(record.id)}
-                          aria-expanded={isExpanded}
-                        >
-                          <span className="channel-session-technical-copy">
-                            <span className="agent-chat-tech-trigger-label">{record.title || "Technical event"}</span>
-                            <small>{record.createdAt ? formatEventTime(record.createdAt) : record.summary}</small>
-                          </span>
-                          <span className="material-symbols-rounded agent-chat-tech-trigger-arrow" aria-hidden="true">
-                            chevron_right
-                          </span>
-                        </button>
-                        {isExpanded ? (
-                          <article className="agent-chat-technical">
-                            <div className="agent-chat-technical-body">
-                              <pre className="agent-chat-expandable-pre">{record.detail || "No details."}</pre>
-                              {record.childSessionId ? (
-                                <button
-                                  type="button"
-                                  className="agent-chat-technical-link"
-                                  onClick={() => onOpenSession && onOpenSession(agentId, record.childSessionId)}
-                                >
-                                  Open sub-session
-                                </button>
-                              ) : null}
-                            </div>
-                          </article>
-                        ) : null}
-                      </div>
+                      <article key={item.id} className="agent-chat-technical">
+                        <div className="agent-chat-technical-body">
+                          <div className="channel-session-technical-copy">
+                            <strong>{normalizeEventTypeLabel(item.type)}</strong>
+                            <small>{formatEventTime(item.createdAt)}</small>
+                          </div>
+                          <pre className="agent-chat-expandable-pre">
+                            {[
+                              item.content ? `Content:\n${item.content}` : "",
+                              item.userId ? `User: ${item.userId}` : "",
+                              item.metadata ? `Metadata:\n${formatStructuredData(item.metadata)}` : ""
+                            ]
+                              .filter(Boolean)
+                              .join("\n\n") || "No details."}
+                          </pre>
+                        </div>
+                      </article>
                     );
                   }
 
-                  const eventItem = timelineItem.event;
-                  const eventKey = timelineItem.id || extractEventKey(eventItem, index);
-                  const role = String(eventItem?.message?.role || "system");
-                  const segments = Array.isArray(eventItem?.message?.segments) ? eventItem.message.segments : [];
-                  const thinkingSegments = segments
-                    .map((segment, segmentIndex) => ({ ...segment, segmentIndex }))
-                    .filter((segment) => segment.kind === "thinking");
-                  const visibleSegments = segments.filter((segment) => segment.kind !== "thinking");
-
                   return (
-                    <article key={eventKey} className={`agent-chat-message ${role} channel-session-message`}>
+                    <article key={item.id} className={`agent-chat-message ${item.role} channel-session-message`}>
                       <div className="agent-chat-message-head">
-                        <strong>{role}</strong>
-                        <span>{formatEventTime(eventItem?.message?.createdAt || eventItem?.createdAt)}</span>
+                        <strong>{item.userId || item.role}</strong>
+                        <span>{formatEventTime(item.createdAt)}</span>
                       </div>
                       <div className="agent-chat-message-body">
-                        {thinkingSegments.map((segment) => {
-                          const thoughtId = `${eventKey}-thinking-${segment.segmentIndex}`;
-                          const thoughtText = String(segment.text || "").trim();
-                          return (
-                            <SessionExpandable
-                              key={thoughtId}
-                              recordId={thoughtId}
-                              title="Thinking"
-                              summary={previewText(thoughtText, "No details")}
-                              isExpanded={Boolean(expandedRecordIds[thoughtId])}
-                              onToggle={toggleRecord}
-                            >
-                              <p className="agent-chat-expandable-text">{thoughtText || "No details."}</p>
-                            </SessionExpandable>
-                          );
-                        })}
-
-                        {visibleSegments.map((segment, segmentIndex) => {
-                          const key = `${eventKey}-segment-${segmentIndex}`;
-                          if (segment.kind === "attachment" && segment.attachment) {
-                            return (
-                              <div key={key} className="agent-chat-attachment">
-                                <strong>{segment.attachment.name}</strong>
-                                <span>{segment.attachment.mimeType}</span>
-                              </div>
-                            );
-                          }
-
-                          return <p key={key}>{segment.text || ""}</p>;
-                        })}
-
-                        {visibleSegments.length === 0 && segmentsToPlainText(segments).length === 0 ? (
-                          <p>No message content.</p>
+                        <p>{item.content || "No message content."}</p>
+                        {item.metadata ? (
+                          <pre className="agent-chat-expandable-pre">
+                            {previewText(formatStructuredData(item.metadata), "No metadata")}
+                          </pre>
                         ) : null}
                       </div>
                     </article>

@@ -123,8 +123,11 @@ export function parseRouteFromPath(pathname: string): DashboardRoute {
   const projectTaskReference = section === "projects" && projectTab === "tasks" ? sectionArg3 || null : null;
   const agentId = section === "agents" && sectionArg ? sectionArg : null;
   const agentTab = section === "agents" && agentId ? normalizeAgentTab(sectionArg2Lower) : null;
-  const sessionAgentId = section === "sessions" && sectionArg ? sectionArg : null;
-  const sessionId = section === "sessions" && sessionAgentId && sectionArg2 ? sectionArg2 : null;
+  const legacySessionAgentId = section === "sessions" && sectionArg2 ? sectionArg : null;
+  const sessionId = section === "sessions"
+    ? (sectionArg2 ? sectionArg2 : sectionArg || null)
+    : null;
+  const sessionAgentId = legacySessionAgentId;
 
   return {
     section,
@@ -169,8 +172,8 @@ export function buildPathFromRoute(route: DashboardRoute) {
 
   if (route.section === "sessions") {
     nextPathname = "/sessions";
-    if (route.sessionAgentId && route.sessionId) {
-      nextPathname = `/sessions/${encodeURIComponent(route.sessionAgentId)}/${encodeURIComponent(route.sessionId)}`;
+    if (route.sessionId) {
+      nextPathname = `/sessions/${encodeURIComponent(route.sessionId)}`;
     }
   }
 

@@ -140,6 +140,7 @@ private enum ErrorCode {
     static let sessionNotFound = "session_not_found"
     static let sessionCreateFailed = "session_create_failed"
     static let sessionListFailed = "session_list_failed"
+    static let sessionLoadFailed = "session_load_failed"
     static let sessionDeleteFailed = "session_delete_failed"
     static let sessionWriteFailed = "session_write_failed"
     static let sessionStreamFailed = "session_stream_failed"
@@ -424,6 +425,21 @@ public actor CoreRouter {
                 return Self.json(status: HTTPStatus.notFound, payload: ["error": ErrorCode.agentNotFound])
             } catch {
                 return Self.json(status: HTTPStatus.internalServerError, payload: ["error": ErrorCode.sessionListFailed])
+            }
+        }
+
+        add(.get, "/v1/channel-sessions/:sessionId") { request in
+            let sessionId = request.pathParam("sessionId") ?? ""
+
+            do {
+                let session = try await service.getChannelSession(sessionID: sessionId)
+                return Self.encodable(status: HTTPStatus.ok, payload: session)
+            } catch ChannelSessionFileStore.StoreError.invalidSessionID {
+                return Self.json(status: HTTPStatus.badRequest, payload: ["error": ErrorCode.invalidBody])
+            } catch ChannelSessionFileStore.StoreError.sessionNotFound {
+                return Self.json(status: HTTPStatus.notFound, payload: ["error": ErrorCode.sessionNotFound])
+            } catch {
+                return Self.json(status: HTTPStatus.internalServerError, payload: ["error": ErrorCode.sessionLoadFailed])
             }
         }
 

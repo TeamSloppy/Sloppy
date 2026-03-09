@@ -164,7 +164,7 @@ function ActiveChannelsSection({
               disabled={!ch.canOpenSession && !ch.projectId}
               onClick={() => {
                 if (ch.canOpenSession && onNavigateToChannelSession) {
-                  onNavigateToChannelSession(ch.agentId, ch.sessionId);
+                  onNavigateToChannelSession(ch.sessionId);
                   return;
                 }
                 if (ch.projectId && onNavigateToProject) {

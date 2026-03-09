@@ -83,8 +83,8 @@ function DashboardShell({ dependencies }: { dependencies: ReturnType<typeof crea
           onProjectRouteChange(projectId, DEFAULT_PROJECT_TAB, null);
         }
       }}
-      onNavigateToChannelSession={(agentId: string, sessionId: string) => {
-        setSessionRoute(agentId, sessionId);
+      onNavigateToChannelSession={(sessionId: string) => {
+        setSessionRoute(sessionId);
       }}
     />
   );
@@ -138,10 +138,8 @@ function DashboardShell({ dependencies }: { dependencies: ReturnType<typeof crea
     <NotFoundView />
   ) : route.section === "sessions" ? (
     <ChannelSessionView
-      agentId={route.sessionAgentId}
       sessionId={route.sessionId}
       onNavigateBack={() => setSection("overview")}
-      onOpenSession={(nextAgentId: string, nextSessionId: string) => setSessionRoute(nextAgentId, nextSessionId)}
     />
   ) : (
     activeItem.content
