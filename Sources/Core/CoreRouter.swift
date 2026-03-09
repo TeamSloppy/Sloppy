@@ -411,7 +411,7 @@ public actor CoreRouter {
             return Self.encodable(status: HTTPStatus.ok, payload: state)
         }
 
-        add(.get, "/v1/channels/:channelId/events") { request in
+        add(.get, "/v1/channels/:channelId/events", metadata: RouteMetadata(summary: "List channel events", description: "Returns a paginated list of events for a specific channel", tags: ["Channels"])) { request in
             let channelId = request.pathParam("channelId") ?? ""
             let parsedLimit = Int(request.queryParam("limit") ?? "") ?? 50
             let limit = max(1, min(parsedLimit, 200))
@@ -428,7 +428,7 @@ public actor CoreRouter {
             return Self.encodable(status: HTTPStatus.ok, payload: response)
         }
 
-        add(.get, "/v1/channel-sessions") { request in
+        add(.get, "/v1/channel-sessions", metadata: RouteMetadata(summary: "List channel sessions", description: "Returns a list of all active channel sessions", tags: ["Sessions"])) { request in
             let agentId = request.queryParam("agentId")
             let statusValue = request.queryParam("status")?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
             let status: ChannelSessionStatus?
@@ -453,7 +453,7 @@ public actor CoreRouter {
             }
         }
 
-        add(.get, "/v1/channel-sessions/:sessionId") { request in
+        add(.get, "/v1/channel-sessions/:sessionId", metadata: RouteMetadata(summary: "Get channel session", description: "Returns details of a specific channel session", tags: ["Sessions"])) { request in
             let sessionId = request.pathParam("sessionId") ?? ""
 
             do {
@@ -468,12 +468,12 @@ public actor CoreRouter {
             }
         }
 
-        add(.get, "/v1/bulletins") { _ in
+        add(.get, "/v1/bulletins", metadata: RouteMetadata(summary: "List bulletins", description: "Returns a list of active system bulletins", tags: ["System"])) { _ in
             let bulletins = await service.getBulletins()
             return Self.encodable(status: HTTPStatus.ok, payload: bulletins)
         }
 
-        add(.get, "/v1/workers") { _ in
+        add(.get, "/v1/workers", metadata: RouteMetadata(summary: "List workers", description: "Returns a list of active worker runtimes", tags: ["System"])) { _ in
             let workers = await service.workerSnapshots()
             return Self.encodable(status: HTTPStatus.ok, payload: workers)
         }
@@ -483,7 +483,7 @@ public actor CoreRouter {
             return Self.encodable(status: HTTPStatus.ok, payload: projects)
         }
 
-        add(.get, "/v1/projects/:projectId") { request in
+        add(.get, "/v1/projects/:projectId", metadata: RouteMetadata(summary: "Get project", description: "Returns details of a specific project", tags: ["Projects"])) { request in
             let projectId = request.pathParam("projectId") ?? ""
             do {
                 let project = try await service.getProject(id: projectId)
@@ -507,20 +507,20 @@ public actor CoreRouter {
             }
         }
 
-        add(.get, "/v1/tasks/:taskReference", taskLookupHandler)
-        add(.get, "/tasks/:taskReference", taskLookupHandler)
+        add(.get, "/v1/tasks/:taskReference", metadata: RouteMetadata(summary: "Get task", description: "Returns details of a specific task by its reference", tags: ["Tasks"]), taskLookupHandler)
+        add(.get, "/tasks/:taskReference", metadata: RouteMetadata(summary: "Get task (legacy)", description: "Returns details of a specific task by its reference (legacy path)", tags: ["Tasks"]), taskLookupHandler)
 
-        add(.get, "/v1/providers/openai/status") { _ in
+        add(.get, "/v1/providers/openai/status", metadata: RouteMetadata(summary: "OpenAI status", description: "Returns the current status of the OpenAI provider", tags: ["Providers"])) { _ in
             let status = await service.openAIProviderStatus()
             return Self.encodable(status: HTTPStatus.ok, payload: status)
         }
 
-        add(.get, "/v1/providers/search/status") { _ in
+        add(.get, "/v1/providers/search/status", metadata: RouteMetadata(summary: "Search status", description: "Returns the current status of the search provider", tags: ["Providers"])) { _ in
             let status = await service.searchProviderStatus()
             return Self.encodable(status: HTTPStatus.ok, payload: status)
         }
 
-        add(.post, "/v1/providers/probe") { request in
+        add(.post, "/v1/providers/probe", metadata: RouteMetadata(summary: "Probe provider", description: "Tests a specific provider configuration", tags: ["Providers"])) { request in
             guard let body = request.body,
                   let payload = Self.decode(body, as: ProviderProbeRequest.self)
             else {
@@ -531,12 +531,12 @@ public actor CoreRouter {
             return Self.encodable(status: HTTPStatus.ok, payload: response)
         }
 
-        add(.get, "/v1/config") { _ in
+        add(.get, "/v1/config", metadata: RouteMetadata(summary: "Get config", description: "Returns the current core configuration", tags: ["System"])) { _ in
             let config = await service.getConfig()
             return Self.encodable(status: HTTPStatus.ok, payload: config)
         }
 
-        add(.get, "/v1/logs") { _ in
+        add(.get, "/v1/logs", metadata: RouteMetadata(summary: "Get logs", description: "Returns the system logs", tags: ["System"])) { _ in
             do {
                 let response = try await service.getSystemLogs()
                 return Self.encodable(status: HTTPStatus.ok, payload: response)
@@ -547,7 +547,7 @@ public actor CoreRouter {
             }
         }
 
-        add(.get, "/v1/agents") { _ in
+        add(.get, "/v1/agents", metadata: RouteMetadata(summary: "List agents", description: "Returns a list of all available agents", tags: ["Agents"])) { _ in
             do {
                 let agents = try await service.listAgents()
                 return Self.encodable(status: HTTPStatus.ok, payload: agents)
@@ -556,7 +556,7 @@ public actor CoreRouter {
             }
         }
 
-        add(.get, "/v1/actors/board") { _ in
+        add(.get, "/v1/actors/board", metadata: RouteMetadata(summary: "Get actor board", description: "Returns the current state of the actor board", tags: ["Actors"])) { _ in
             do {
                 let board = try await service.getActorBoard()
                 return Self.encodable(status: HTTPStatus.ok, payload: board)
@@ -567,7 +567,7 @@ public actor CoreRouter {
             }
         }
 
-        add(.get, "/v1/agents/:agentId") { request in
+        add(.get, "/v1/agents/:agentId", metadata: RouteMetadata(summary: "Get agent", description: "Returns details of a specific agent", tags: ["Agents"])) { request in
             let agentId = request.pathParam("agentId") ?? ""
             do {
                 let agent = try await service.getAgent(id: agentId)
@@ -581,7 +581,7 @@ public actor CoreRouter {
             }
         }
 
-        add(.get, "/v1/agents/:agentId/tasks") { request in
+        add(.get, "/v1/agents/:agentId/tasks", metadata: RouteMetadata(summary: "List agent tasks", description: "Returns a list of tasks assigned to a specific agent", tags: ["Agents"])) { request in
             let agentId = request.pathParam("agentId") ?? ""
             do {
                 let tasks = try await service.listAgentTasks(agentID: agentId)
@@ -595,7 +595,7 @@ public actor CoreRouter {
             }
         }
 
-        add(.get, "/v1/agents/:agentId/memories") { request in
+        add(.get, "/v1/agents/:agentId/memories", metadata: RouteMetadata(summary: "List agent memories", description: "Returns a list of memories for a specific agent", tags: ["Agents"])) { request in
             let agentId = request.pathParam("agentId") ?? ""
             let search = request.queryParam("search")
             let rawFilter = request.queryParam("filter")?.lowercased() ?? AgentMemoryFilter.all.rawValue
@@ -625,7 +625,7 @@ public actor CoreRouter {
             }
         }
 
-        add(.get, "/v1/agents/:agentId/memories/graph") { request in
+        add(.get, "/v1/agents/:agentId/memories/graph", metadata: RouteMetadata(summary: "Get agent memory graph", description: "Returns a graph representation of agent memories", tags: ["Agents"])) { request in
             let agentId = request.pathParam("agentId") ?? ""
             let search = request.queryParam("search")
             let rawFilter = request.queryParam("filter")?.lowercased() ?? AgentMemoryFilter.all.rawValue
@@ -649,7 +649,7 @@ public actor CoreRouter {
             }
         }
 
-        add(.get, "/v1/agents/:agentId/sessions") { request in
+        add(.get, "/v1/agents/:agentId/sessions", metadata: RouteMetadata(summary: "List agent sessions", description: "Returns a list of sessions for a specific agent", tags: ["Agents"])) { request in
             let agentId = request.pathParam("agentId") ?? ""
             do {
                 let sessions = try await service.listAgentSessions(agentID: agentId)
@@ -661,7 +661,7 @@ public actor CoreRouter {
             }
         }
 
-        add(.get, "/v1/agents/:agentId/config") { request in
+        add(.get, "/v1/agents/:agentId/config", metadata: RouteMetadata(summary: "Get agent config", description: "Returns the configuration for a specific agent", tags: ["Agents"])) { request in
             let agentId = request.pathParam("agentId") ?? ""
             do {
                 let detail = try await service.getAgentConfig(agentID: agentId)
@@ -673,7 +673,7 @@ public actor CoreRouter {
             }
         }
 
-        add(.get, "/v1/agents/:agentId/tools") { request in
+        add(.get, "/v1/agents/:agentId/tools", metadata: RouteMetadata(summary: "Get agent tools", description: "Returns the tool policy for a specific agent", tags: ["Agents"])) { request in
             let agentId = request.pathParam("agentId") ?? ""
             do {
                 let policy = try await service.getAgentToolsPolicy(agentID: agentId)
@@ -685,12 +685,12 @@ public actor CoreRouter {
             }
         }
 
-        add(.get, "/v1/agents/:agentId/tools/catalog") { _ in
+        add(.get, "/v1/agents/:agentId/tools/catalog", metadata: RouteMetadata(summary: "Get tool catalog", description: "Returns the catalog of available tools for an agent", tags: ["Agents"])) { _ in
             let catalog = await service.toolCatalog()
             return Self.encodable(status: HTTPStatus.ok, payload: catalog)
         }
 
-        add(.get, "/v1/agents/:agentId/token-usage") { request in
+        add(.get, "/v1/agents/:agentId/token-usage", metadata: RouteMetadata(summary: "Get agent token usage", description: "Returns token usage statistics for a specific agent", tags: ["Agents"])) { request in
             let agentId = request.pathParam("agentId") ?? ""
             do {
                 let usage = try await service.getAgentTokenUsage(agentID: agentId)
@@ -704,7 +704,7 @@ public actor CoreRouter {
             }
         }
 
-        add(.get, "/v1/agents/:agentId/cron") { request in
+        add(.get, "/v1/agents/:agentId/cron", metadata: RouteMetadata(summary: "List agent cron tasks", description: "Returns a list of scheduled cron tasks for an agent", tags: ["Cron"])) { request in
             let agentId = request.pathParam("agentId") ?? ""
             do {
                 let tasks = try await service.listAgentCronTasks(agentID: agentId)
@@ -716,7 +716,7 @@ public actor CoreRouter {
             }
         }
 
-        add(.post, "/v1/agents/:agentId/cron") { request in
+        add(.post, "/v1/agents/:agentId/cron", metadata: RouteMetadata(summary: "Create agent cron task", description: "Creates a new scheduled cron task for an agent", tags: ["Cron"])) { request in
             let agentId = request.pathParam("agentId") ?? ""
             guard let body = request.body,
                   let payload = Self.decode(body, as: AgentCronTaskCreateRequest.self)
@@ -734,7 +734,7 @@ public actor CoreRouter {
             }
         }
 
-        add(.put, "/v1/agents/:agentId/cron/:cronId") { request in
+        add(.put, "/v1/agents/:agentId/cron/:cronId", metadata: RouteMetadata(summary: "Update agent cron task", description: "Updates an existing scheduled cron task", tags: ["Cron"])) { request in
             let agentId = request.pathParam("agentId") ?? ""
             let cronId = request.pathParam("cronId") ?? ""
             guard let body = request.body,
@@ -753,7 +753,7 @@ public actor CoreRouter {
             }
         }
 
-        add(.delete, "/v1/agents/:agentId/cron/:cronId") { request in
+        add(.delete, "/v1/agents/:agentId/cron/:cronId", metadata: RouteMetadata(summary: "Delete agent cron task", description: "Deletes a scheduled cron task", tags: ["Cron"])) { request in
             let agentId = request.pathParam("agentId") ?? ""
             let cronId = request.pathParam("cronId") ?? ""
             do {
@@ -766,7 +766,7 @@ public actor CoreRouter {
             }
         }
 
-        add(.get, "/v1/agents/:agentId/sessions/:sessionId") { request in
+        add(.get, "/v1/agents/:agentId/sessions/:sessionId", metadata: RouteMetadata(summary: "Get agent session", description: "Returns details of a specific agent session", tags: ["Agents"])) { request in
             let agentId = request.pathParam("agentId") ?? ""
             let sessionId = request.pathParam("sessionId") ?? ""
             do {
@@ -779,7 +779,7 @@ public actor CoreRouter {
             }
         }
 
-        add(.get, "/v1/agents/:agentId/sessions/:sessionId/stream") { request in
+        add(.get, "/v1/agents/:agentId/sessions/:sessionId/stream", metadata: RouteMetadata(summary: "Stream agent session", description: "Open a server-sent events stream for session updates", tags: ["Agents"])) { request in
             let agentId = request.pathParam("agentId") ?? ""
             let sessionId = request.pathParam("sessionId") ?? ""
             do {
@@ -792,7 +792,7 @@ public actor CoreRouter {
             }
         }
 
-        add(.get, "/v1/artifacts/:artifactId/content") { request in
+        add(.get, "/v1/artifacts/:artifactId/content", metadata: RouteMetadata(summary: "Get artifact content", description: "Returns the content of a specific artifact", tags: ["Artifacts"])) { request in
             let artifactId = request.pathParam("artifactId") ?? ""
             guard let response = await service.getArtifactContent(id: artifactId) else {
                 return Self.json(status: HTTPStatus.notFound, payload: ["error": ErrorCode.artifactNotFound])
@@ -800,7 +800,7 @@ public actor CoreRouter {
             return Self.encodable(status: HTTPStatus.ok, payload: response)
         }
 
-        add(.put, "/v1/config") { request in
+        add(.put, "/v1/config", metadata: RouteMetadata(summary: "Update config", description: "Updates the core configuration", tags: ["System"])) { request in
             guard let body = request.body,
                   let payload = Self.decode(body, as: CoreConfig.self)
             else {
@@ -815,7 +815,7 @@ public actor CoreRouter {
             }
         }
 
-        add(.put, "/v1/agents/:agentId/config") { request in
+        add(.put, "/v1/agents/:agentId/config", metadata: RouteMetadata(summary: "Update agent config", description: "Updates the configuration for a specific agent", tags: ["Agents"])) { request in
             let agentId = request.pathParam("agentId") ?? ""
             guard let body = request.body,
                   let payload = Self.decode(body, as: AgentConfigUpdateRequest.self)
@@ -833,7 +833,7 @@ public actor CoreRouter {
             }
         }
 
-        add(.put, "/v1/agents/:agentId/tools") { request in
+        add(.put, "/v1/agents/:agentId/tools", metadata: RouteMetadata(summary: "Update agent tools", description: "Updates the tool policy for a specific agent", tags: ["Agents"])) { request in
             let agentId = request.pathParam("agentId") ?? ""
             guard let body = request.body,
                   let payload = Self.decode(body, as: AgentToolsUpdateRequest.self)
@@ -853,7 +853,7 @@ public actor CoreRouter {
 
         // MARK: - Skills Routes
 
-        add(.get, "/v1/skills/registry") { request in
+        add(.get, "/v1/skills/registry", metadata: RouteMetadata(summary: "List skills registry", description: "Returns a list of skills available in the registry", tags: ["Skills"])) { request in
             let search = request.queryParam("search")
             let sort = request.queryParam("sort") ?? "installs"
             let limit = Int(request.queryParam("limit") ?? "") ?? 20
@@ -867,7 +867,7 @@ public actor CoreRouter {
             }
         }
 
-        add(.get, "/v1/agents/:agentId/skills") { request in
+        add(.get, "/v1/agents/:agentId/skills", metadata: RouteMetadata(summary: "List agent skills", description: "Returns a list of skills installed for an agent", tags: ["Skills"])) { request in
             let agentId = request.pathParam("agentId") ?? ""
             do {
                 let response = try await service.listAgentSkills(agentID: agentId)
@@ -879,7 +879,7 @@ public actor CoreRouter {
             }
         }
 
-        add(.post, "/v1/agents/:agentId/skills") { request in
+        add(.post, "/v1/agents/:agentId/skills", metadata: RouteMetadata(summary: "Install agent skill", description: "Installs a new skill for an agent", tags: ["Skills"])) { request in
             let agentId = request.pathParam("agentId") ?? ""
             guard let body = request.body,
                   let payload = Self.decode(body, as: SkillInstallRequest.self)
@@ -897,7 +897,7 @@ public actor CoreRouter {
             }
         }
 
-        add(.delete, "/v1/agents/:agentId/skills/:skillId") { request in
+        add(.delete, "/v1/agents/:agentId/skills/:skillId", metadata: RouteMetadata(summary: "Uninstall agent skill", description: "Uninstalls a specific skill from an agent", tags: ["Skills"])) { request in
             let agentId = request.pathParam("agentId") ?? ""
             let skillId = request.pathParam("skillId") ?? ""
             do {
@@ -910,7 +910,7 @@ public actor CoreRouter {
             }
         }
 
-        add(.put, "/v1/actors/board") { request in
+        add(.put, "/v1/actors/board", metadata: RouteMetadata(summary: "Update actor board", description: "Updates the current state of the actor board", tags: ["Actors"])) { request in
             guard let body = request.body,
                   let payload = Self.decode(body, as: ActorBoardUpdateRequest.self)
             else {
@@ -927,7 +927,7 @@ public actor CoreRouter {
             }
         }
 
-        add(.put, "/v1/actors/nodes/:actorId") { request in
+        add(.put, "/v1/actors/nodes/:actorId", metadata: RouteMetadata(summary: "Update actor node", description: "Updates a specific actor node", tags: ["Actors"])) { request in
             let actorId = request.pathParam("actorId") ?? ""
             guard let body = request.body,
                   let payload = Self.decode(body, as: ActorNode.self)
@@ -945,7 +945,7 @@ public actor CoreRouter {
             }
         }
 
-        add(.put, "/v1/actors/links/:linkId") { request in
+        add(.put, "/v1/actors/links/:linkId", metadata: RouteMetadata(summary: "Update actor link", description: "Updates a specific actor link", tags: ["Actors"])) { request in
             let linkId = request.pathParam("linkId") ?? ""
             guard let body = request.body,
                   let payload = Self.decode(body, as: ActorLink.self)
@@ -963,7 +963,7 @@ public actor CoreRouter {
             }
         }
 
-        add(.put, "/v1/actors/teams/:teamId") { request in
+        add(.put, "/v1/actors/teams/:teamId", metadata: RouteMetadata(summary: "Update actor team", description: "Updates a specific actor team", tags: ["Actors"])) { request in
             let teamId = request.pathParam("teamId") ?? ""
             guard let body = request.body,
                   let payload = Self.decode(body, as: ActorTeam.self)
@@ -981,7 +981,7 @@ public actor CoreRouter {
             }
         }
 
-        add(.post, "/v1/providers/openai/models") { request in
+        add(.post, "/v1/providers/openai/models", metadata: RouteMetadata(summary: "List OpenAI models", description: "Returns a list of available models for OpenAI", tags: ["Providers"])) { request in
             guard let body = request.body,
                   let payload = Self.decode(body, as: OpenAIProviderModelsRequest.self)
             else {
@@ -992,7 +992,7 @@ public actor CoreRouter {
             return Self.encodable(status: HTTPStatus.ok, payload: response)
         }
 
-        add(.post, "/v1/projects") { request in
+        add(.post, "/v1/projects", metadata: RouteMetadata(summary: "Create project", description: "Creates a new project", tags: ["Projects"])) { request in
             guard let body = request.body,
                   let payload = Self.decode(body, as: ProjectCreateRequest.self)
             else {
@@ -1009,7 +1009,7 @@ public actor CoreRouter {
             }
         }
 
-        add(.post, "/v1/projects/:projectId/channels") { request in
+        add(.post, "/v1/projects/:projectId/channels", metadata: RouteMetadata(summary: "Create project channel", description: "Adds a new communication channel to a project", tags: ["Projects"])) { request in
             let projectId = request.pathParam("projectId") ?? ""
             guard let body = request.body,
                   let payload = Self.decode(body, as: ProjectChannelCreateRequest.self)
@@ -1027,7 +1027,7 @@ public actor CoreRouter {
             }
         }
 
-        add(.post, "/v1/projects/:projectId/tasks") { request in
+        add(.post, "/v1/projects/:projectId/tasks", metadata: RouteMetadata(summary: "Create project task", description: "Adds a new task to a project", tags: ["Projects"])) { request in
             let projectId = request.pathParam("projectId") ?? ""
             guard let body = request.body,
                   let payload = Self.decode(body, as: ProjectTaskCreateRequest.self)
@@ -1045,7 +1045,7 @@ public actor CoreRouter {
             }
         }
 
-        add(.post, "/v1/agents") { request in
+        add(.post, "/v1/agents", metadata: RouteMetadata(summary: "Create agent", description: "Creates a new agent", tags: ["Agents"])) { request in
             guard let body = request.body,
                   let payload = Self.decode(body, as: AgentCreateRequest.self)
             else {
@@ -1066,7 +1066,7 @@ public actor CoreRouter {
             }
         }
 
-        add(.post, "/v1/actors/nodes") { request in
+        add(.post, "/v1/actors/nodes", metadata: RouteMetadata(summary: "Create actor node", description: "Creates a new node in the actor board", tags: ["Actors"])) { request in
             guard let body = request.body,
                   let payload = Self.decode(body, as: ActorNode.self)
             else {
@@ -1083,7 +1083,7 @@ public actor CoreRouter {
             }
         }
 
-        add(.post, "/v1/actors/links") { request in
+        add(.post, "/v1/actors/links", metadata: RouteMetadata(summary: "Create actor link", description: "Creates a new link between actor nodes", tags: ["Actors"])) { request in
             guard let body = request.body,
                   let payload = Self.decode(body, as: ActorLink.self)
             else {
@@ -1100,7 +1100,7 @@ public actor CoreRouter {
             }
         }
 
-        add(.post, "/v1/actors/teams") { request in
+        add(.post, "/v1/actors/teams", metadata: RouteMetadata(summary: "Create actor team", description: "Creates a new team of actors", tags: ["Actors"])) { request in
             guard let body = request.body,
                   let payload = Self.decode(body, as: ActorTeam.self)
             else {
@@ -1117,7 +1117,7 @@ public actor CoreRouter {
             }
         }
 
-        add(.post, "/v1/agents/:agentId/sessions") { request in
+        add(.post, "/v1/agents/:agentId/sessions", metadata: RouteMetadata(summary: "Create agent session", description: "Starts a new session with an agent", tags: ["Agents"])) { request in
             let agentId = request.pathParam("agentId") ?? ""
             let payload: AgentSessionCreateRequest
 
@@ -1140,7 +1140,7 @@ public actor CoreRouter {
             }
         }
 
-        add(.post, "/v1/agents/:agentId/sessions/:sessionId/messages") { request in
+        add(.post, "/v1/agents/:agentId/sessions/:sessionId/messages", metadata: RouteMetadata(summary: "Post session message", description: "Sends a new message to an active agent session", tags: ["Agents"])) { request in
             let agentId = request.pathParam("agentId") ?? ""
             let sessionId = request.pathParam("sessionId") ?? ""
             guard let body = request.body,
@@ -1163,7 +1163,7 @@ public actor CoreRouter {
             }
         }
 
-        add(.post, "/v1/agents/:agentId/sessions/:sessionId/control") { request in
+        add(.post, "/v1/agents/:agentId/sessions/:sessionId/control", metadata: RouteMetadata(summary: "Control agent session", description: "Sends a control command (e.g., interrupt) to an agent session", tags: ["Agents"])) { request in
             let agentId = request.pathParam("agentId") ?? ""
             let sessionId = request.pathParam("sessionId") ?? ""
             guard let body = request.body,
@@ -1186,7 +1186,7 @@ public actor CoreRouter {
             }
         }
 
-        add(.post, "/v1/agents/:agentId/sessions/:sessionId/tools/invoke") { request in
+        add(.post, "/v1/agents/:agentId/sessions/:sessionId/tools/invoke", metadata: RouteMetadata(summary: "Invoke tool", description: "Manually invokes a tool for an agent session", tags: ["Agents"])) { request in
             let agentId = request.pathParam("agentId") ?? ""
             let sessionId = request.pathParam("sessionId") ?? ""
             guard let body = request.body,
@@ -1205,7 +1205,7 @@ public actor CoreRouter {
             }
         }
 
-        add(.post, "/v1/channels/:channelId/messages") { request in
+        add(.post, "/v1/channels/:channelId/messages", metadata: RouteMetadata(summary: "Post channel message", description: "Sends a new message to a specific channel", tags: ["Channels"])) { request in
             let channelId = request.pathParam("channelId") ?? ""
             guard let body = request.body,
                   let payload = Self.decode(body, as: ChannelMessageRequest.self)
@@ -1217,7 +1217,7 @@ public actor CoreRouter {
             return Self.encodable(status: HTTPStatus.ok, payload: decision)
         }
 
-        add(.post, "/v1/actors/route") { request in
+        add(.post, "/v1/actors/route", metadata: RouteMetadata(summary: "Route actor request", description: "Resolves the routing for an actor request", tags: ["Actors"])) { request in
             guard let body = request.body,
                   let payload = Self.decode(body, as: ActorRouteRequest.self)
             else {
@@ -1234,7 +1234,7 @@ public actor CoreRouter {
             }
         }
 
-        add(.post, "/v1/channels/:channelId/route/:workerId") { request in
+        add(.post, "/v1/channels/:channelId/route/:workerId", metadata: RouteMetadata(summary: "Route channel to worker", description: "Routes a specific channel to a worker", tags: ["Channels"])) { request in
             let channelId = request.pathParam("channelId") ?? ""
             let workerId = request.pathParam("workerId") ?? ""
             guard let body = request.body,
@@ -1254,7 +1254,7 @@ public actor CoreRouter {
             )
         }
 
-        add(.post, "/v1/workers") { request in
+        add(.post, "/v1/workers", metadata: RouteMetadata(summary: "Create worker", description: "Registers a new worker runtime", tags: ["System"])) { request in
             guard let body = request.body,
                   let payload = Self.decode(body, as: WorkerCreateRequest.self)
             else {
@@ -1265,7 +1265,7 @@ public actor CoreRouter {
             return Self.encodable(status: HTTPStatus.created, payload: WorkerCreateResponse(workerId: workerId))
         }
 
-        add(.get, "/v1/token-usage") { request in
+        add(.get, "/v1/token-usage", metadata: RouteMetadata(summary: "List token usage", description: "Returns token usage statistics across all projects and agents", tags: ["System"])) { request in
             let channelId = request.queryParam("channelId")
             let taskId = request.queryParam("taskId")
             let from: Date? = request.queryParam("from").flatMap { Self.isoDate(from: $0) }
@@ -1275,7 +1275,7 @@ public actor CoreRouter {
             return Self.encodable(status: HTTPStatus.ok, payload: response)
         }
 
-        add(.patch, "/v1/projects/:projectId") { request in
+        add(.patch, "/v1/projects/:projectId", metadata: RouteMetadata(summary: "Update project", description: "Updates the details of an existing project", tags: ["Projects"])) { request in
             let projectId = request.pathParam("projectId") ?? ""
             guard let body = request.body,
                   let payload = Self.decode(body, as: ProjectUpdateRequest.self)
@@ -1293,7 +1293,7 @@ public actor CoreRouter {
             }
         }
 
-        add(.patch, "/v1/projects/:projectId/tasks/:taskId") { request in
+        add(.patch, "/v1/projects/:projectId/tasks/:taskId", metadata: RouteMetadata(summary: "Update project task", description: "Updates an existing task in a project", tags: ["Projects"])) { request in
             let projectId = request.pathParam("projectId") ?? ""
             let taskId = request.pathParam("taskId") ?? ""
             guard let body = request.body,
@@ -1312,7 +1312,7 @@ public actor CoreRouter {
             }
         }
 
-        add(.delete, "/v1/agents/:agentId/sessions/:sessionId") { request in
+        add(.delete, "/v1/agents/:agentId/sessions/:sessionId", metadata: RouteMetadata(summary: "Delete agent session", description: "Deletes a specific agent session", tags: ["Agents"])) { request in
             let agentId = request.pathParam("agentId") ?? ""
             let sessionId = request.pathParam("sessionId") ?? ""
 
@@ -1326,7 +1326,7 @@ public actor CoreRouter {
             }
         }
 
-        add(.delete, "/v1/actors/nodes/:actorId") { request in
+        add(.delete, "/v1/actors/nodes/:actorId", metadata: RouteMetadata(summary: "Delete actor node", description: "Deletes a specific actor node", tags: ["Actors"])) { request in
             let actorId = request.pathParam("actorId") ?? ""
 
             do {
@@ -1339,7 +1339,7 @@ public actor CoreRouter {
             }
         }
 
-        add(.delete, "/v1/actors/links/:linkId") { request in
+        add(.delete, "/v1/actors/links/:linkId", metadata: RouteMetadata(summary: "Delete actor link", description: "Deletes a specific actor link", tags: ["Actors"])) { request in
             let linkId = request.pathParam("linkId") ?? ""
 
             do {
@@ -1352,7 +1352,7 @@ public actor CoreRouter {
             }
         }
 
-        add(.delete, "/v1/actors/teams/:teamId") { request in
+        add(.delete, "/v1/actors/teams/:teamId", metadata: RouteMetadata(summary: "Delete actor team", description: "Deletes a specific actor team", tags: ["Actors"])) { request in
             let teamId = request.pathParam("teamId") ?? ""
 
             do {
@@ -1365,7 +1365,7 @@ public actor CoreRouter {
             }
         }
 
-        add(.delete, "/v1/projects/:projectId") { request in
+        add(.delete, "/v1/projects/:projectId", metadata: RouteMetadata(summary: "Delete project", description: "Deletes a specific project", tags: ["Projects"])) { request in
             let projectId = request.pathParam("projectId") ?? ""
             do {
                 try await service.deleteProject(projectID: projectId)
@@ -1377,7 +1377,7 @@ public actor CoreRouter {
             }
         }
 
-        add(.delete, "/v1/projects/:projectId/channels/:channelId") { request in
+        add(.delete, "/v1/projects/:projectId/channels/:channelId", metadata: RouteMetadata(summary: "Delete project channel", description: "Removes a specific channel from a project", tags: ["Projects"])) { request in
             let projectId = request.pathParam("projectId") ?? ""
             let channelId = request.pathParam("channelId") ?? ""
             do {
@@ -1390,7 +1390,7 @@ public actor CoreRouter {
             }
         }
 
-        add(.delete, "/v1/projects/:projectId/tasks/:taskId") { request in
+        add(.delete, "/v1/projects/:projectId/tasks/:taskId", metadata: RouteMetadata(summary: "Delete project task", description: "Removes a specific task from a project", tags: ["Projects"])) { request in
             let projectId = request.pathParam("projectId") ?? ""
             let taskId = request.pathParam("taskId") ?? ""
             do {
@@ -1403,7 +1403,7 @@ public actor CoreRouter {
             }
         }
 
-        add(.post, "/v1/projects/:projectId/tasks/:taskId/approve") { request in
+        add(.post, "/v1/projects/:projectId/tasks/:taskId/approve", metadata: RouteMetadata(summary: "Approve project task", description: "Marks a project task as ready", tags: ["Projects"])) { request in
             let projectId = request.pathParam("projectId") ?? ""
             let taskId = request.pathParam("taskId") ?? ""
             do {
@@ -1422,12 +1422,12 @@ public actor CoreRouter {
 
         // MARK: - Channel Plugins
 
-        add(.get, "/v1/plugins") { _ in
+        add(.get, "/v1/plugins", metadata: RouteMetadata(summary: "List channel plugins", description: "Returns a list of all available channel plugins", tags: ["Plugins"])) { _ in
             let plugins = await service.listChannelPlugins()
             return Self.encodable(status: HTTPStatus.ok, payload: plugins)
         }
 
-        add(.post, "/v1/plugins") { request in
+        add(.post, "/v1/plugins", metadata: RouteMetadata(summary: "Create channel plugin", description: "Creates a new channel plugin", tags: ["Plugins"])) { request in
             guard let body = request.body,
                   let payload = Self.decode(body, as: ChannelPluginCreateRequest.self)
             else {
@@ -1443,7 +1443,7 @@ public actor CoreRouter {
             }
         }
 
-        add(.get, "/v1/plugins/:pluginId") { request in
+        add(.get, "/v1/plugins/:pluginId", metadata: RouteMetadata(summary: "Get channel plugin", description: "Returns details of a specific channel plugin", tags: ["Plugins"])) { request in
             let pluginId = request.pathParam("pluginId") ?? ""
             do {
                 let plugin = try await service.getChannelPlugin(id: pluginId)
@@ -1455,7 +1455,7 @@ public actor CoreRouter {
             }
         }
 
-        add(.put, "/v1/plugins/:pluginId") { request in
+        add(.put, "/v1/plugins/:pluginId", metadata: RouteMetadata(summary: "Update channel plugin", description: "Updates an existing channel plugin", tags: ["Plugins"])) { request in
             let pluginId = request.pathParam("pluginId") ?? ""
             guard let body = request.body,
                   let payload = Self.decode(body, as: ChannelPluginUpdateRequest.self)
@@ -1472,7 +1472,7 @@ public actor CoreRouter {
             }
         }
 
-        add(.delete, "/v1/plugins/:pluginId") { request in
+        add(.delete, "/v1/plugins/:pluginId", metadata: RouteMetadata(summary: "Delete channel plugin", description: "Deletes a specific channel plugin", tags: ["Plugins"])) { request in
             let pluginId = request.pathParam("pluginId") ?? ""
             do {
                 try await service.deleteChannelPlugin(id: pluginId)

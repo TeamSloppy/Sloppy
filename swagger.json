@@ -21,406 +21,1101 @@
     },
     "\/tasks\/{taskReference}" : {
       "get" : {
+        "description" : "Returns details of a specific task by its reference (legacy path)",
+        "parameters" : [
+          {
+            "in" : "path",
+            "name" : "taskReference",
+            "required" : true,
+            "schema" : {
+              "type" : "string"
+            }
+          }
+        ],
         "responses" : {
           "200" : {
             "description" : "Successful response"
           }
-        }
+        },
+        "summary" : "Get task (legacy)",
+        "tags" : [
+          "Tasks"
+        ]
       }
     },
     "\/v1\/actors\/board" : {
       "get" : {
+        "description" : "Returns the current state of the actor board",
         "responses" : {
           "200" : {
             "description" : "Successful response"
           }
-        }
+        },
+        "summary" : "Get actor board",
+        "tags" : [
+          "Actors"
+        ]
       },
       "put" : {
+        "description" : "Updates the current state of the actor board",
         "responses" : {
           "200" : {
             "description" : "Successful response"
           }
-        }
+        },
+        "summary" : "Update actor board",
+        "tags" : [
+          "Actors"
+        ]
       }
     },
     "\/v1\/actors\/links" : {
       "post" : {
+        "description" : "Creates a new link between actor nodes",
         "responses" : {
           "200" : {
             "description" : "Successful response"
           }
-        }
+        },
+        "summary" : "Create actor link",
+        "tags" : [
+          "Actors"
+        ]
       }
     },
     "\/v1\/actors\/links\/{linkId}" : {
       "delete" : {
+        "description" : "Deletes a specific actor link",
+        "parameters" : [
+          {
+            "in" : "path",
+            "name" : "linkId",
+            "required" : true,
+            "schema" : {
+              "type" : "string"
+            }
+          }
+        ],
         "responses" : {
           "200" : {
             "description" : "Successful response"
           }
-        }
+        },
+        "summary" : "Delete actor link",
+        "tags" : [
+          "Actors"
+        ]
       },
       "put" : {
+        "description" : "Updates a specific actor link",
+        "parameters" : [
+          {
+            "in" : "path",
+            "name" : "linkId",
+            "required" : true,
+            "schema" : {
+              "type" : "string"
+            }
+          }
+        ],
         "responses" : {
           "200" : {
             "description" : "Successful response"
           }
-        }
+        },
+        "summary" : "Update actor link",
+        "tags" : [
+          "Actors"
+        ]
       }
     },
     "\/v1\/actors\/nodes" : {
       "post" : {
+        "description" : "Creates a new node in the actor board",
         "responses" : {
           "200" : {
             "description" : "Successful response"
           }
-        }
+        },
+        "summary" : "Create actor node",
+        "tags" : [
+          "Actors"
+        ]
       }
     },
     "\/v1\/actors\/nodes\/{actorId}" : {
       "delete" : {
+        "description" : "Deletes a specific actor node",
+        "parameters" : [
+          {
+            "in" : "path",
+            "name" : "actorId",
+            "required" : true,
+            "schema" : {
+              "type" : "string"
+            }
+          }
+        ],
         "responses" : {
           "200" : {
             "description" : "Successful response"
           }
-        }
+        },
+        "summary" : "Delete actor node",
+        "tags" : [
+          "Actors"
+        ]
       },
       "put" : {
+        "description" : "Updates a specific actor node",
+        "parameters" : [
+          {
+            "in" : "path",
+            "name" : "actorId",
+            "required" : true,
+            "schema" : {
+              "type" : "string"
+            }
+          }
+        ],
         "responses" : {
           "200" : {
             "description" : "Successful response"
           }
-        }
+        },
+        "summary" : "Update actor node",
+        "tags" : [
+          "Actors"
+        ]
       }
     },
     "\/v1\/actors\/route" : {
       "post" : {
+        "description" : "Resolves the routing for an actor request",
         "responses" : {
           "200" : {
             "description" : "Successful response"
           }
-        }
+        },
+        "summary" : "Route actor request",
+        "tags" : [
+          "Actors"
+        ]
       }
     },
     "\/v1\/actors\/teams" : {
       "post" : {
+        "description" : "Creates a new team of actors",
         "responses" : {
           "200" : {
             "description" : "Successful response"
           }
-        }
+        },
+        "summary" : "Create actor team",
+        "tags" : [
+          "Actors"
+        ]
       }
     },
     "\/v1\/actors\/teams\/{teamId}" : {
       "delete" : {
+        "description" : "Deletes a specific actor team",
+        "parameters" : [
+          {
+            "in" : "path",
+            "name" : "teamId",
+            "required" : true,
+            "schema" : {
+              "type" : "string"
+            }
+          }
+        ],
         "responses" : {
           "200" : {
             "description" : "Successful response"
           }
-        }
+        },
+        "summary" : "Delete actor team",
+        "tags" : [
+          "Actors"
+        ]
       },
       "put" : {
+        "description" : "Updates a specific actor team",
+        "parameters" : [
+          {
+            "in" : "path",
+            "name" : "teamId",
+            "required" : true,
+            "schema" : {
+              "type" : "string"
+            }
+          }
+        ],
         "responses" : {
           "200" : {
             "description" : "Successful response"
           }
-        }
+        },
+        "summary" : "Update actor team",
+        "tags" : [
+          "Actors"
+        ]
       }
     },
     "\/v1\/agents" : {
       "get" : {
+        "description" : "Returns a list of all available agents",
         "responses" : {
           "200" : {
             "description" : "Successful response"
           }
-        }
+        },
+        "summary" : "List agents",
+        "tags" : [
+          "Agents"
+        ]
       },
       "post" : {
+        "description" : "Creates a new agent",
         "responses" : {
           "200" : {
             "description" : "Successful response"
           }
-        }
+        },
+        "summary" : "Create agent",
+        "tags" : [
+          "Agents"
+        ]
       }
     },
     "\/v1\/agents\/{agentId}" : {
       "get" : {
+        "description" : "Returns details of a specific agent",
+        "parameters" : [
+          {
+            "in" : "path",
+            "name" : "agentId",
+            "required" : true,
+            "schema" : {
+              "type" : "string"
+            }
+          }
+        ],
         "responses" : {
           "200" : {
             "description" : "Successful response"
           }
-        }
+        },
+        "summary" : "Get agent",
+        "tags" : [
+          "Agents"
+        ]
       }
     },
     "\/v1\/agents\/{agentId}\/config" : {
       "get" : {
+        "description" : "Returns the configuration for a specific agent",
+        "parameters" : [
+          {
+            "in" : "path",
+            "name" : "agentId",
+            "required" : true,
+            "schema" : {
+              "type" : "string"
+            }
+          }
+        ],
         "responses" : {
           "200" : {
             "description" : "Successful response"
           }
-        }
+        },
+        "summary" : "Get agent config",
+        "tags" : [
+          "Agents"
+        ]
       },
       "put" : {
+        "description" : "Updates the configuration for a specific agent",
+        "parameters" : [
+          {
+            "in" : "path",
+            "name" : "agentId",
+            "required" : true,
+            "schema" : {
+              "type" : "string"
+            }
+          }
+        ],
         "responses" : {
           "200" : {
             "description" : "Successful response"
           }
-        }
+        },
+        "summary" : "Update agent config",
+        "tags" : [
+          "Agents"
+        ]
       }
     },
     "\/v1\/agents\/{agentId}\/cron" : {
       "get" : {
+        "description" : "Returns a list of scheduled cron tasks for an agent",
+        "parameters" : [
+          {
+            "in" : "path",
+            "name" : "agentId",
+            "required" : true,
+            "schema" : {
+              "type" : "string"
+            }
+          }
+        ],
         "responses" : {
           "200" : {
             "description" : "Successful response"
           }
-        }
+        },
+        "summary" : "List agent cron tasks",
+        "tags" : [
+          "Cron"
+        ]
       },
       "post" : {
+        "description" : "Creates a new scheduled cron task for an agent",
+        "parameters" : [
+          {
+            "in" : "path",
+            "name" : "agentId",
+            "required" : true,
+            "schema" : {
+              "type" : "string"
+            }
+          }
+        ],
         "responses" : {
           "200" : {
             "description" : "Successful response"
           }
-        }
+        },
+        "summary" : "Create agent cron task",
+        "tags" : [
+          "Cron"
+        ]
       }
     },
     "\/v1\/agents\/{agentId}\/cron\/{cronId}" : {
       "delete" : {
+        "description" : "Deletes a scheduled cron task",
+        "parameters" : [
+          {
+            "in" : "path",
+            "name" : "agentId",
+            "required" : true,
+            "schema" : {
+              "type" : "string"
+            }
+          },
+          {
+            "in" : "path",
+            "name" : "cronId",
+            "required" : true,
+            "schema" : {
+              "type" : "string"
+            }
+          }
+        ],
         "responses" : {
           "200" : {
             "description" : "Successful response"
           }
-        }
+        },
+        "summary" : "Delete agent cron task",
+        "tags" : [
+          "Cron"
+        ]
       },
       "put" : {
+        "description" : "Updates an existing scheduled cron task",
+        "parameters" : [
+          {
+            "in" : "path",
+            "name" : "agentId",
+            "required" : true,
+            "schema" : {
+              "type" : "string"
+            }
+          },
+          {
+            "in" : "path",
+            "name" : "cronId",
+            "required" : true,
+            "schema" : {
+              "type" : "string"
+            }
+          }
+        ],
         "responses" : {
           "200" : {
             "description" : "Successful response"
           }
-        }
+        },
+        "summary" : "Update agent cron task",
+        "tags" : [
+          "Cron"
+        ]
       }
     },
     "\/v1\/agents\/{agentId}\/memories" : {
       "get" : {
+        "description" : "Returns a list of memories for a specific agent",
+        "parameters" : [
+          {
+            "in" : "path",
+            "name" : "agentId",
+            "required" : true,
+            "schema" : {
+              "type" : "string"
+            }
+          }
+        ],
         "responses" : {
           "200" : {
             "description" : "Successful response"
           }
-        }
+        },
+        "summary" : "List agent memories",
+        "tags" : [
+          "Agents"
+        ]
       }
     },
     "\/v1\/agents\/{agentId}\/memories\/graph" : {
       "get" : {
+        "description" : "Returns a graph representation of agent memories",
+        "parameters" : [
+          {
+            "in" : "path",
+            "name" : "agentId",
+            "required" : true,
+            "schema" : {
+              "type" : "string"
+            }
+          }
+        ],
         "responses" : {
           "200" : {
             "description" : "Successful response"
           }
-        }
+        },
+        "summary" : "Get agent memory graph",
+        "tags" : [
+          "Agents"
+        ]
       }
     },
     "\/v1\/agents\/{agentId}\/sessions" : {
       "get" : {
+        "description" : "Returns a list of sessions for a specific agent",
+        "parameters" : [
+          {
+            "in" : "path",
+            "name" : "agentId",
+            "required" : true,
+            "schema" : {
+              "type" : "string"
+            }
+          }
+        ],
         "responses" : {
           "200" : {
             "description" : "Successful response"
           }
-        }
+        },
+        "summary" : "List agent sessions",
+        "tags" : [
+          "Agents"
+        ]
       },
       "post" : {
+        "description" : "Starts a new session with an agent",
+        "parameters" : [
+          {
+            "in" : "path",
+            "name" : "agentId",
+            "required" : true,
+            "schema" : {
+              "type" : "string"
+            }
+          }
+        ],
         "responses" : {
           "200" : {
             "description" : "Successful response"
           }
-        }
+        },
+        "summary" : "Create agent session",
+        "tags" : [
+          "Agents"
+        ]
       }
     },
     "\/v1\/agents\/{agentId}\/sessions\/{sessionId}" : {
       "delete" : {
+        "description" : "Deletes a specific agent session",
+        "parameters" : [
+          {
+            "in" : "path",
+            "name" : "agentId",
+            "required" : true,
+            "schema" : {
+              "type" : "string"
+            }
+          },
+          {
+            "in" : "path",
+            "name" : "sessionId",
+            "required" : true,
+            "schema" : {
+              "type" : "string"
+            }
+          }
+        ],
         "responses" : {
           "200" : {
             "description" : "Successful response"
           }
-        }
+        },
+        "summary" : "Delete agent session",
+        "tags" : [
+          "Agents"
+        ]
       },
       "get" : {
+        "description" : "Returns details of a specific agent session",
+        "parameters" : [
+          {
+            "in" : "path",
+            "name" : "agentId",
+            "required" : true,
+            "schema" : {
+              "type" : "string"
+            }
+          },
+          {
+            "in" : "path",
+            "name" : "sessionId",
+            "required" : true,
+            "schema" : {
+              "type" : "string"
+            }
+          }
+        ],
         "responses" : {
           "200" : {
             "description" : "Successful response"
           }
-        }
+        },
+        "summary" : "Get agent session",
+        "tags" : [
+          "Agents"
+        ]
       }
     },
     "\/v1\/agents\/{agentId}\/sessions\/{sessionId}\/control" : {
       "post" : {
+        "description" : "Sends a control command (e.g., interrupt) to an agent session",
+        "parameters" : [
+          {
+            "in" : "path",
+            "name" : "agentId",
+            "required" : true,
+            "schema" : {
+              "type" : "string"
+            }
+          },
+          {
+            "in" : "path",
+            "name" : "sessionId",
+            "required" : true,
+            "schema" : {
+              "type" : "string"
+            }
+          }
+        ],
         "responses" : {
           "200" : {
             "description" : "Successful response"
           }
-        }
+        },
+        "summary" : "Control agent session",
+        "tags" : [
+          "Agents"
+        ]
       }
     },
     "\/v1\/agents\/{agentId}\/sessions\/{sessionId}\/messages" : {
       "post" : {
+        "description" : "Sends a new message to an active agent session",
+        "parameters" : [
+          {
+            "in" : "path",
+            "name" : "agentId",
+            "required" : true,
+            "schema" : {
+              "type" : "string"
+            }
+          },
+          {
+            "in" : "path",
+            "name" : "sessionId",
+            "required" : true,
+            "schema" : {
+              "type" : "string"
+            }
+          }
+        ],
         "responses" : {
           "200" : {
             "description" : "Successful response"
           }
-        }
+        },
+        "summary" : "Post session message",
+        "tags" : [
+          "Agents"
+        ]
       }
     },
     "\/v1\/agents\/{agentId}\/sessions\/{sessionId}\/stream" : {
       "get" : {
+        "description" : "Open a server-sent events stream for session updates",
+        "parameters" : [
+          {
+            "in" : "path",
+            "name" : "agentId",
+            "required" : true,
+            "schema" : {
+              "type" : "string"
+            }
+          },
+          {
+            "in" : "path",
+            "name" : "sessionId",
+            "required" : true,
+            "schema" : {
+              "type" : "string"
+            }
+          }
+        ],
         "responses" : {
           "200" : {
             "description" : "Successful response"
           }
-        }
+        },
+        "summary" : "Stream agent session",
+        "tags" : [
+          "Agents"
+        ]
       }
     },
     "\/v1\/agents\/{agentId}\/sessions\/{sessionId}\/tools\/invoke" : {
       "post" : {
+        "description" : "Manually invokes a tool for an agent session",
+        "parameters" : [
+          {
+            "in" : "path",
+            "name" : "agentId",
+            "required" : true,
+            "schema" : {
+              "type" : "string"
+            }
+          },
+          {
+            "in" : "path",
+            "name" : "sessionId",
+            "required" : true,
+            "schema" : {
+              "type" : "string"
+            }
+          }
+        ],
         "responses" : {
           "200" : {
             "description" : "Successful response"
           }
-        }
+        },
+        "summary" : "Invoke tool",
+        "tags" : [
+          "Agents"
+        ]
       }
     },
     "\/v1\/agents\/{agentId}\/skills" : {
       "get" : {
+        "description" : "Returns a list of skills installed for an agent",
+        "parameters" : [
+          {
+            "in" : "path",
+            "name" : "agentId",
+            "required" : true,
+            "schema" : {
+              "type" : "string"
+            }
+          }
+        ],
         "responses" : {
           "200" : {
             "description" : "Successful response"
           }
-        }
+        },
+        "summary" : "List agent skills",
+        "tags" : [
+          "Skills"
+        ]
       },
       "post" : {
+        "description" : "Installs a new skill for an agent",
+        "parameters" : [
+          {
+            "in" : "path",
+            "name" : "agentId",
+            "required" : true,
+            "schema" : {
+              "type" : "string"
+            }
+          }
+        ],
         "responses" : {
           "200" : {
             "description" : "Successful response"
           }
-        }
+        },
+        "summary" : "Install agent skill",
+        "tags" : [
+          "Skills"
+        ]
       }
     },
     "\/v1\/agents\/{agentId}\/skills\/{skillId}" : {
       "delete" : {
+        "description" : "Uninstalls a specific skill from an agent",
+        "parameters" : [
+          {
+            "in" : "path",
+            "name" : "agentId",
+            "required" : true,
+            "schema" : {
+              "type" : "string"
+            }
+          },
+          {
+            "in" : "path",
+            "name" : "skillId",
+            "required" : true,
+            "schema" : {
+              "type" : "string"
+            }
+          }
+        ],
         "responses" : {
           "200" : {
             "description" : "Successful response"
           }
-        }
+        },
+        "summary" : "Uninstall agent skill",
+        "tags" : [
+          "Skills"
+        ]
       }
     },
     "\/v1\/agents\/{agentId}\/tasks" : {
       "get" : {
+        "description" : "Returns a list of tasks assigned to a specific agent",
+        "parameters" : [
+          {
+            "in" : "path",
+            "name" : "agentId",
+            "required" : true,
+            "schema" : {
+              "type" : "string"
+            }
+          }
+        ],
         "responses" : {
           "200" : {
             "description" : "Successful response"
           }
-        }
+        },
+        "summary" : "List agent tasks",
+        "tags" : [
+          "Agents"
+        ]
       }
     },
     "\/v1\/agents\/{agentId}\/token-usage" : {
       "get" : {
+        "description" : "Returns token usage statistics for a specific agent",
+        "parameters" : [
+          {
+            "in" : "path",
+            "name" : "agentId",
+            "required" : true,
+            "schema" : {
+              "type" : "string"
+            }
+          }
+        ],
         "responses" : {
           "200" : {
             "description" : "Successful response"
           }
-        }
+        },
+        "summary" : "Get agent token usage",
+        "tags" : [
+          "Agents"
+        ]
       }
     },
     "\/v1\/agents\/{agentId}\/tools" : {
       "get" : {
+        "description" : "Returns the tool policy for a specific agent",
+        "parameters" : [
+          {
+            "in" : "path",
+            "name" : "agentId",
+            "required" : true,
+            "schema" : {
+              "type" : "string"
+            }
+          }
+        ],
         "responses" : {
           "200" : {
             "description" : "Successful response"
           }
-        }
+        },
+        "summary" : "Get agent tools",
+        "tags" : [
+          "Agents"
+        ]
       },
       "put" : {
+        "description" : "Updates the tool policy for a specific agent",
+        "parameters" : [
+          {
+            "in" : "path",
+            "name" : "agentId",
+            "required" : true,
+            "schema" : {
+              "type" : "string"
+            }
+          }
+        ],
         "responses" : {
           "200" : {
             "description" : "Successful response"
           }
-        }
+        },
+        "summary" : "Update agent tools",
+        "tags" : [
+          "Agents"
+        ]
       }
     },
     "\/v1\/agents\/{agentId}\/tools\/catalog" : {
       "get" : {
+        "description" : "Returns the catalog of available tools for an agent",
+        "parameters" : [
+          {
+            "in" : "path",
+            "name" : "agentId",
+            "required" : true,
+            "schema" : {
+              "type" : "string"
+            }
+          }
+        ],
         "responses" : {
           "200" : {
             "description" : "Successful response"
           }
-        }
+        },
+        "summary" : "Get tool catalog",
+        "tags" : [
+          "Agents"
+        ]
       }
     },
     "\/v1\/artifacts\/{artifactId}\/content" : {
       "get" : {
+        "description" : "Returns the content of a specific artifact",
+        "parameters" : [
+          {
+            "in" : "path",
+            "name" : "artifactId",
+            "required" : true,
+            "schema" : {
+              "type" : "string"
+            }
+          }
+        ],
         "responses" : {
           "200" : {
             "description" : "Successful response"
           }
-        }
+        },
+        "summary" : "Get artifact content",
+        "tags" : [
+          "Artifacts"
+        ]
       }
     },
     "\/v1\/bulletins" : {
       "get" : {
+        "description" : "Returns a list of active system bulletins",
         "responses" : {
           "200" : {
             "description" : "Successful response"
           }
-        }
+        },
+        "summary" : "List bulletins",
+        "tags" : [
+          "System"
+        ]
       }
     },
     "\/v1\/channel-sessions" : {
       "get" : {
+        "description" : "Returns a list of all active channel sessions",
         "responses" : {
           "200" : {
             "description" : "Successful response"
           }
-        }
+        },
+        "summary" : "List channel sessions",
+        "tags" : [
+          "Sessions"
+        ]
       }
     },
     "\/v1\/channel-sessions\/{sessionId}" : {
       "get" : {
+        "description" : "Returns details of a specific channel session",
+        "parameters" : [
+          {
+            "in" : "path",
+            "name" : "sessionId",
+            "required" : true,
+            "schema" : {
+              "type" : "string"
+            }
+          }
+        ],
         "responses" : {
           "200" : {
             "description" : "Successful response"
           }
-        }
+        },
+        "summary" : "Get channel session",
+        "tags" : [
+          "Sessions"
+        ]
       }
     },
     "\/v1\/channels\/{channelId}\/events" : {
       "get" : {
+        "description" : "Returns a paginated list of events for a specific channel",
+        "parameters" : [
+          {
+            "in" : "path",
+            "name" : "channelId",
+            "required" : true,
+            "schema" : {
+              "type" : "string"
+            }
+          }
+        ],
         "responses" : {
           "200" : {
             "description" : "Successful response"
           }
-        }
+        },
+        "summary" : "List channel events",
+        "tags" : [
+          "Channels"
+        ]
       }
     },
     "\/v1\/channels\/{channelId}\/messages" : {
       "post" : {
+        "description" : "Sends a new message to a specific channel",
+        "parameters" : [
+          {
+            "in" : "path",
+            "name" : "channelId",
+            "required" : true,
+            "schema" : {
+              "type" : "string"
+            }
+          }
+        ],
         "responses" : {
           "200" : {
             "description" : "Successful response"
           }
-        }
+        },
+        "summary" : "Post channel message",
+        "tags" : [
+          "Channels"
+        ]
       }
     },
     "\/v1\/channels\/{channelId}\/route\/{workerId}" : {
       "post" : {
+        "description" : "Routes a specific channel to a worker",
+        "parameters" : [
+          {
+            "in" : "path",
+            "name" : "channelId",
+            "required" : true,
+            "schema" : {
+              "type" : "string"
+            }
+          },
+          {
+            "in" : "path",
+            "name" : "workerId",
+            "required" : true,
+            "schema" : {
+              "type" : "string"
+            }
+          }
+        ],
         "responses" : {
           "200" : {
             "description" : "Successful response"
           }
-        }
+        },
+        "summary" : "Route channel to worker",
+        "tags" : [
+          "Channels"
+        ]
       }
     },
     "\/v1\/channels\/{channelId}\/state" : {
       "get" : {
         "description" : "Returns the current state of a communication channel",
+        "parameters" : [
+          {
+            "in" : "path",
+            "name" : "channelId",
+            "required" : true,
+            "schema" : {
+              "type" : "string"
+            }
+          }
+        ],
         "responses" : {
           "200" : {
             "description" : "Successful response"
@@ -434,66 +1129,136 @@
     },
     "\/v1\/config" : {
       "get" : {
+        "description" : "Returns the current core configuration",
         "responses" : {
           "200" : {
             "description" : "Successful response"
           }
-        }
+        },
+        "summary" : "Get config",
+        "tags" : [
+          "System"
+        ]
       },
       "put" : {
+        "description" : "Updates the core configuration",
         "responses" : {
           "200" : {
             "description" : "Successful response"
           }
-        }
+        },
+        "summary" : "Update config",
+        "tags" : [
+          "System"
+        ]
       }
     },
     "\/v1\/logs" : {
       "get" : {
+        "description" : "Returns the system logs",
         "responses" : {
           "200" : {
             "description" : "Successful response"
           }
-        }
+        },
+        "summary" : "Get logs",
+        "tags" : [
+          "System"
+        ]
       }
     },
     "\/v1\/plugins" : {
       "get" : {
+        "description" : "Returns a list of all available channel plugins",
         "responses" : {
           "200" : {
             "description" : "Successful response"
           }
-        }
+        },
+        "summary" : "List channel plugins",
+        "tags" : [
+          "Plugins"
+        ]
       },
       "post" : {
+        "description" : "Creates a new channel plugin",
         "responses" : {
           "200" : {
             "description" : "Successful response"
           }
-        }
+        },
+        "summary" : "Create channel plugin",
+        "tags" : [
+          "Plugins"
+        ]
       }
     },
     "\/v1\/plugins\/{pluginId}" : {
       "delete" : {
+        "description" : "Deletes a specific channel plugin",
+        "parameters" : [
+          {
+            "in" : "path",
+            "name" : "pluginId",
+            "required" : true,
+            "schema" : {
+              "type" : "string"
+            }
+          }
+        ],
         "responses" : {
           "200" : {
             "description" : "Successful response"
           }
-        }
+        },
+        "summary" : "Delete channel plugin",
+        "tags" : [
+          "Plugins"
+        ]
       },
       "get" : {
+        "description" : "Returns details of a specific channel plugin",
+        "parameters" : [
+          {
+            "in" : "path",
+            "name" : "pluginId",
+            "required" : true,
+            "schema" : {
+              "type" : "string"
+            }
+          }
+        ],
         "responses" : {
           "200" : {
             "description" : "Successful response"
           }
-        }
+        },
+        "summary" : "Get channel plugin",
+        "tags" : [
+          "Plugins"
+        ]
       },
       "put" : {
+        "description" : "Updates an existing channel plugin",
+        "parameters" : [
+          {
+            "in" : "path",
+            "name" : "pluginId",
+            "required" : true,
+            "schema" : {
+              "type" : "string"
+            }
+          }
+        ],
         "responses" : {
           "200" : {
             "description" : "Successful response"
           }
-        }
+        },
+        "summary" : "Update channel plugin",
+        "tags" : [
+          "Plugins"
+        ]
       }
     },
     "\/v1\/projects" : {
@@ -510,165 +1275,392 @@
         ]
       },
       "post" : {
+        "description" : "Creates a new project",
         "responses" : {
           "200" : {
             "description" : "Successful response"
           }
-        }
+        },
+        "summary" : "Create project",
+        "tags" : [
+          "Projects"
+        ]
       }
     },
     "\/v1\/projects\/{projectId}" : {
       "delete" : {
+        "description" : "Deletes a specific project",
+        "parameters" : [
+          {
+            "in" : "path",
+            "name" : "projectId",
+            "required" : true,
+            "schema" : {
+              "type" : "string"
+            }
+          }
+        ],
         "responses" : {
           "200" : {
             "description" : "Successful response"
           }
-        }
+        },
+        "summary" : "Delete project",
+        "tags" : [
+          "Projects"
+        ]
       },
       "get" : {
+        "description" : "Returns details of a specific project",
+        "parameters" : [
+          {
+            "in" : "path",
+            "name" : "projectId",
+            "required" : true,
+            "schema" : {
+              "type" : "string"
+            }
+          }
+        ],
         "responses" : {
           "200" : {
             "description" : "Successful response"
           }
-        }
+        },
+        "summary" : "Get project",
+        "tags" : [
+          "Projects"
+        ]
       },
       "patch" : {
+        "description" : "Updates the details of an existing project",
+        "parameters" : [
+          {
+            "in" : "path",
+            "name" : "projectId",
+            "required" : true,
+            "schema" : {
+              "type" : "string"
+            }
+          }
+        ],
         "responses" : {
           "200" : {
             "description" : "Successful response"
           }
-        }
+        },
+        "summary" : "Update project",
+        "tags" : [
+          "Projects"
+        ]
       }
     },
     "\/v1\/projects\/{projectId}\/channels" : {
       "post" : {
+        "description" : "Adds a new communication channel to a project",
+        "parameters" : [
+          {
+            "in" : "path",
+            "name" : "projectId",
+            "required" : true,
+            "schema" : {
+              "type" : "string"
+            }
+          }
+        ],
         "responses" : {
           "200" : {
             "description" : "Successful response"
           }
-        }
+        },
+        "summary" : "Create project channel",
+        "tags" : [
+          "Projects"
+        ]
       }
     },
     "\/v1\/projects\/{projectId}\/channels\/{channelId}" : {
       "delete" : {
+        "description" : "Removes a specific channel from a project",
+        "parameters" : [
+          {
+            "in" : "path",
+            "name" : "projectId",
+            "required" : true,
+            "schema" : {
+              "type" : "string"
+            }
+          },
+          {
+            "in" : "path",
+            "name" : "channelId",
+            "required" : true,
+            "schema" : {
+              "type" : "string"
+            }
+          }
+        ],
         "responses" : {
           "200" : {
             "description" : "Successful response"
           }
-        }
+        },
+        "summary" : "Delete project channel",
+        "tags" : [
+          "Projects"
+        ]
       }
     },
     "\/v1\/projects\/{projectId}\/tasks" : {
       "post" : {
+        "description" : "Adds a new task to a project",
+        "parameters" : [
+          {
+            "in" : "path",
+            "name" : "projectId",
+            "required" : true,
+            "schema" : {
+              "type" : "string"
+            }
+          }
+        ],
         "responses" : {
           "200" : {
             "description" : "Successful response"
           }
-        }
+        },
+        "summary" : "Create project task",
+        "tags" : [
+          "Projects"
+        ]
       }
     },
     "\/v1\/projects\/{projectId}\/tasks\/{taskId}" : {
       "delete" : {
+        "description" : "Removes a specific task from a project",
+        "parameters" : [
+          {
+            "in" : "path",
+            "name" : "projectId",
+            "required" : true,
+            "schema" : {
+              "type" : "string"
+            }
+          },
+          {
+            "in" : "path",
+            "name" : "taskId",
+            "required" : true,
+            "schema" : {
+              "type" : "string"
+            }
+          }
+        ],
         "responses" : {
           "200" : {
             "description" : "Successful response"
           }
-        }
+        },
+        "summary" : "Delete project task",
+        "tags" : [
+          "Projects"
+        ]
       },
       "patch" : {
+        "description" : "Updates an existing task in a project",
+        "parameters" : [
+          {
+            "in" : "path",
+            "name" : "projectId",
+            "required" : true,
+            "schema" : {
+              "type" : "string"
+            }
+          },
+          {
+            "in" : "path",
+            "name" : "taskId",
+            "required" : true,
+            "schema" : {
+              "type" : "string"
+            }
+          }
+        ],
         "responses" : {
           "200" : {
             "description" : "Successful response"
           }
-        }
+        },
+        "summary" : "Update project task",
+        "tags" : [
+          "Projects"
+        ]
       }
     },
     "\/v1\/projects\/{projectId}\/tasks\/{taskId}\/approve" : {
       "post" : {
+        "description" : "Marks a project task as ready",
+        "parameters" : [
+          {
+            "in" : "path",
+            "name" : "projectId",
+            "required" : true,
+            "schema" : {
+              "type" : "string"
+            }
+          },
+          {
+            "in" : "path",
+            "name" : "taskId",
+            "required" : true,
+            "schema" : {
+              "type" : "string"
+            }
+          }
+        ],
         "responses" : {
           "200" : {
             "description" : "Successful response"
           }
-        }
+        },
+        "summary" : "Approve project task",
+        "tags" : [
+          "Projects"
+        ]
       }
     },
     "\/v1\/providers\/openai\/models" : {
       "post" : {
+        "description" : "Returns a list of available models for OpenAI",
         "responses" : {
           "200" : {
             "description" : "Successful response"
           }
-        }
+        },
+        "summary" : "List OpenAI models",
+        "tags" : [
+          "Providers"
+        ]
       }
     },
     "\/v1\/providers\/openai\/status" : {
       "get" : {
+        "description" : "Returns the current status of the OpenAI provider",
         "responses" : {
           "200" : {
             "description" : "Successful response"
           }
-        }
+        },
+        "summary" : "OpenAI status",
+        "tags" : [
+          "Providers"
+        ]
       }
     },
     "\/v1\/providers\/probe" : {
       "post" : {
+        "description" : "Tests a specific provider configuration",
         "responses" : {
           "200" : {
             "description" : "Successful response"
           }
-        }
+        },
+        "summary" : "Probe provider",
+        "tags" : [
+          "Providers"
+        ]
       }
     },
     "\/v1\/providers\/search\/status" : {
       "get" : {
+        "description" : "Returns the current status of the search provider",
         "responses" : {
           "200" : {
             "description" : "Successful response"
           }
-        }
+        },
+        "summary" : "Search status",
+        "tags" : [
+          "Providers"
+        ]
       }
     },
     "\/v1\/skills\/registry" : {
       "get" : {
+        "description" : "Returns a list of skills available in the registry",
         "responses" : {
           "200" : {
             "description" : "Successful response"
           }
-        }
+        },
+        "summary" : "List skills registry",
+        "tags" : [
+          "Skills"
+        ]
       }
     },
     "\/v1\/tasks\/{taskReference}" : {
       "get" : {
+        "description" : "Returns details of a specific task by its reference",
+        "parameters" : [
+          {
+            "in" : "path",
+            "name" : "taskReference",
+            "required" : true,
+            "schema" : {
+              "type" : "string"
+            }
+          }
+        ],
         "responses" : {
           "200" : {
             "description" : "Successful response"
           }
-        }
+        },
+        "summary" : "Get task",
+        "tags" : [
+          "Tasks"
+        ]
       }
     },
     "\/v1\/token-usage" : {
       "get" : {
+        "description" : "Returns token usage statistics across all projects and agents",
         "responses" : {
           "200" : {
             "description" : "Successful response"
           }
-        }
+        },
+        "summary" : "List token usage",
+        "tags" : [
+          "System"
+        ]
       }
     },
     "\/v1\/workers" : {
       "get" : {
+        "description" : "Returns a list of active worker runtimes",
         "responses" : {
           "200" : {
             "description" : "Successful response"
           }
-        }
+        },
+        "summary" : "List workers",
+        "tags" : [
+          "System"
+        ]
       },
       "post" : {
+        "description" : "Registers a new worker runtime",
         "responses" : {
           "200" : {
             "description" : "Successful response"
           }
-        }
+        },
+        "summary" : "Create worker",
+        "tags" : [
+          "System"
+        ]
       }
     }
   }

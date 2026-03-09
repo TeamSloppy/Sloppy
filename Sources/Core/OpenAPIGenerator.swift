@@ -33,7 +33,19 @@ public struct OpenAPIOperation: Encodable {
     public let summary: String?
     public let description: String?
     public let tags: [String]?
+    public let parameters: [OpenAPIParameter]?
     public let responses: [String: OpenAPIResponse]
+}
+
+public struct OpenAPIParameter: Encodable {
+    public let name: String
+    public let `in`: String
+    public let required: Bool
+    public let schema: OpenAPISchema
+}
+
+public struct OpenAPISchema: Encodable {
+    public let type: String
 }
 
 public struct OpenAPIResponse: Encodable {
@@ -48,10 +60,13 @@ public struct OpenAPIGenerator {
             let path = normalizePath(route.path)
             var pathItem = paths[path] ?? OpenAPIPathItem()
 
+            let pathParams = extractPathParameters(route.path)
+            
             let operation = OpenAPIOperation(
                 summary: route.metadata?.summary,
                 description: route.metadata?.description,
                 tags: route.metadata?.tags,
+                parameters: pathParams.isEmpty ? nil : pathParams,
                 responses: ["200": OpenAPIResponse(description: "Successful response")]
             )
 
@@ -63,6 +78,22 @@ public struct OpenAPIGenerator {
             info: OpenAPIInfo(title: "Sloppy API", version: "1.0.0"),
             paths: paths
         )
+    }
+
+    private static func extractPathParameters(_ path: String) -> [OpenAPIParameter] {
+        let segments = path.split(separator: "/")
+        return segments.compactMap { segment in
+            if segment.hasPrefix(":") {
+                let name = String(segment.dropFirst())
+                return OpenAPIParameter(
+                    name: name,
+                    in: "path",
+                    required: true,
+                    schema: OpenAPISchema(type: "string")
+                )
+            }
+            return nil
+        }
     }
 
     private static func normalizePath(_ path: String) -> String {
