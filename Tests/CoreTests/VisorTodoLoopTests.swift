@@ -5,7 +5,7 @@ import Testing
 @testable import Protocols
 
 @Test
-func visorCreatesBacklogTasksFromBranchTodos() async throws {
+func visorCreatesPendingTaskFromExplicitCreateIntent() async throws {
     let router = try makeRouter()
     let projectID = "visor-project-\(UUID().uuidString)"
     try await createProject(router: router, projectID: projectID, channelId: "general")
@@ -13,26 +13,74 @@ func visorCreatesBacklogTasksFromBranchTodos() async throws {
     let messageBody = try JSONEncoder().encode(
         ChannelMessageRequest(
             userId: "u1",
-            content: """
-            research current plan
-            - [ ] Prepare migration plan
-            TODO: prepare migration plan
-            нужно проверить релизный сценарий
-            """
+            content: "create task prepare migration plan for runtime cutover"
         )
     )
     let messageResponse = await router.handle(method: "POST", path: "/v1/channels/general/messages", body: messageBody)
     #expect(messageResponse.status == 200)
 
     let project = try await waitForProject(router: router, projectID: projectID, timeoutSeconds: 5) { project in
-        project.tasks.count >= 2
+        project.tasks.count == 1
     }
-    let tasks = try #require(project?.tasks)
+    let task = try #require(project?.tasks.first)
 
-    #expect(tasks.count == 2)
-    #expect(tasks.allSatisfy { $0.status == "pending_approval" })
-    #expect(tasks.allSatisfy { $0.description.contains("Source: visor-auto") })
-    #expect(tasks.allSatisfy { $0.description.contains("Origin channel: general") })
+    #expect(task.status == "pending_approval")
+    #expect(task.title == "prepare migration plan for runtime cutover")
+    #expect(task.description == "prepare migration plan for runtime cutover")
+}
+
+@Test
+func visorDoesNotCreateTasksFromImperativeDiscussion() async throws {
+    let router = try makeRouter()
+    let projectID = "visor-no-heuristic-\(UUID().uuidString)"
+    try await createProject(router: router, projectID: projectID, channelId: "general")
+
+    let messageBody = try JSONEncoder().encode(
+        ChannelMessageRequest(
+            userId: "u1",
+            content: """
+            research current plan
+            нужно проверить релизный сценарий
+            сделай прогон smoke тестов
+            """
+        )
+    )
+    let messageResponse = await router.handle(method: "POST", path: "/v1/channels/general/messages", body: messageBody)
+    #expect(messageResponse.status == 200)
+
+    let response = await router.handle(method: "GET", path: "/v1/projects/\(projectID)", body: nil)
+    #expect(response.status == 200)
+    let project = try decodeProject(response.body)
+    #expect(project.tasks.isEmpty)
+}
+
+@Test
+func taskCancelCommandMarksTaskCancelled() async throws {
+    let router = try makeRouter()
+    let projectID = "visor-cancel-\(UUID().uuidString)"
+    try await createProject(router: router, projectID: projectID, channelId: "general")
+    let taskID = try await createTask(
+        router: router,
+        projectID: projectID,
+        title: "Ship dashboard cards",
+        status: "pending_approval"
+    )
+
+    let messageBody = try JSONEncoder().encode(
+        ChannelMessageRequest(
+            userId: "u1",
+            content: "/task cancel #\(taskID) duplicate request"
+        )
+    )
+    let messageResponse = await router.handle(method: "POST", path: "/v1/channels/general/messages", body: messageBody)
+    #expect(messageResponse.status == 200)
+
+    let project = try await waitForProject(router: router, projectID: projectID, timeoutSeconds: 3) { project in
+        project.tasks.first(where: { $0.id == taskID })?.status == "cancelled"
+    }
+    let cancelledTask = project?.tasks.first(where: { $0.id == taskID })
+    #expect(cancelledTask?.status == "cancelled")
+    #expect(cancelledTask?.description.contains("Cancelled: duplicate request") == true)
 }
 
 @Test

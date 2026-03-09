@@ -282,7 +282,7 @@ func discordGatewayPluginIgnoresBotMessagesAndTransformsTaskCommand() async thro
         .init(
             channelId: "general",
             userId: "discord:user-1",
-            content: "Create task: ship it"
+            content: "/task ship it"
         )
     ])
 }

@@ -1720,6 +1720,7 @@ public actor CoreRouter {
     private static func encodable<T: Encodable>(status: Int, payload: T) -> CoreRouterResponse {
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
+        encoder.outputFormatting = .sortedKeys
         let data = (try? encoder.encode(payload)) ?? CoreRouterConstants.emptyJSONData
         return CoreRouterResponse(status: status, body: data)
     }
@@ -1729,6 +1730,7 @@ public actor CoreRouter {
             let task = Task {
                 let encoder = JSONEncoder()
                 encoder.dateEncodingStrategy = .iso8601
+                encoder.outputFormatting = .sortedKeys
 
                 for await update in updates {
                     let payload = (try? encoder.encode(update)) ?? CoreRouterConstants.emptyJSONData

@@ -30,18 +30,6 @@ public actor BranchRuntime {
                 scope: scope
             )
         ).map(\.ref)
-        let todos = TodoExtractor.extractCandidates(from: prompt)
-        for todo in todos {
-            _ = await memoryStore.save(
-                entry: MemoryWriteRequest(
-                    note: "[todo] \(todo)",
-                    kind: .todo,
-                    memoryClass: .procedural,
-                    scope: scope,
-                    source: MemorySource(type: "branch.spawned", id: branchId)
-                )
-            )
-        }
         branches[branchId] = BranchState(
             channelId: channelId,
             prompt: prompt,
@@ -58,10 +46,7 @@ public actor BranchRuntime {
                 payload: .object([
                     "prompt": .string(prompt),
                     "memoryRefs": .array(recalled.map { .string($0.id) })
-                ]),
-                extensions: todos.isEmpty ? [:] : [
-                    "todos": .array(todos.map { .string($0) })
-                ]
+                ])
             )
         )
 

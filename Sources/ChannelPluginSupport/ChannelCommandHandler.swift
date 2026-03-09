@@ -9,6 +9,7 @@ public struct ChannelCommandHandler: Sendable {
     }
 
     public func handle(text: String, from displayName: String) -> String? {
+        _ = displayName
         let lower = text.lowercased()
 
         if lower == "/start" || lower == "/help" {
@@ -37,15 +38,5 @@ public struct ChannelCommandHandler: Sendable {
         }
 
         return nil
-    }
-
-    /// Transforms /task commands into plain content suitable for Core.
-    public func transformForCore(text: String, from displayName: String) -> String {
-        let lower = text.lowercased()
-        if lower.hasPrefix("/task ") {
-            let description = String(text.dropFirst(6)).trimmingCharacters(in: .whitespacesAndNewlines)
-            return "Create task: \(description)"
-        }
-        return text
     }
 }

@@ -186,6 +186,20 @@ enum ToolCatalog {
             description: "Get full task details by readable id (for example, MOBILE-1). Accepts taskId or reference."
         ),
         .init(
+            id: "project.task_update",
+            domain: "project",
+            title: "Update project task",
+            status: "fully_functional",
+            description: "Update an existing task in the current channel project. Accepts taskId or reference plus partial fields."
+        ),
+        .init(
+            id: "project.task_cancel",
+            domain: "project",
+            title: "Cancel project task",
+            status: "fully_functional",
+            description: "Safely cancel a task in the current channel project without deleting it."
+        ),
+        .init(
             id: "project.escalate_to_user",
             domain: "project",
             title: "Escalate to user",
@@ -441,7 +455,11 @@ enum ToolCatalog {
                 "title": .object(["type": .string("string")]),
                 "description": .object(["type": .string("string")]),
                 "priority": .object(["type": .string("string")]),
-                "status": .object(["type": .string("string")])
+                "status": .object(["type": .string("string")]),
+                "actorId": .object(["type": .string("string")]),
+                "teamId": .object(["type": .string("string")]),
+                "channelId": .object(["type": .string("string")]),
+                "topicId": .object(["type": .string("string")])
             ]),
             "required": .array([.string("title")])
         ]),
@@ -449,7 +467,33 @@ enum ToolCatalog {
             "type": .string("object"),
             "properties": .object([
                 "taskId": .object(["type": .string("string")]),
-                "reference": .object(["type": .string("string")])
+                "reference": .object(["type": .string("string")]),
+                "channelId": .object(["type": .string("string")])
+            ])
+        ]),
+        "project.task_update": .object([
+            "type": .string("object"),
+            "properties": .object([
+                "taskId": .object(["type": .string("string")]),
+                "reference": .object(["type": .string("string")]),
+                "title": .object(["type": .string("string")]),
+                "description": .object(["type": .string("string")]),
+                "priority": .object(["type": .string("string")]),
+                "status": .object(["type": .string("string")]),
+                "actorId": .object(["type": .string("string")]),
+                "teamId": .object(["type": .string("string")]),
+                "channelId": .object(["type": .string("string")]),
+                "topicId": .object(["type": .string("string")])
+            ])
+        ]),
+        "project.task_cancel": .object([
+            "type": .string("object"),
+            "properties": .object([
+                "taskId": .object(["type": .string("string")]),
+                "reference": .object(["type": .string("string")]),
+                "reason": .object(["type": .string("string")]),
+                "channelId": .object(["type": .string("string")]),
+                "topicId": .object(["type": .string("string")])
             ])
         ]),
         "project.escalate_to_user": .object([

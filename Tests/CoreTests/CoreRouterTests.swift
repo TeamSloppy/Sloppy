@@ -655,6 +655,43 @@ func systemLogsEndpointReadsJSONLFile() async throws {
 }
 
 @Test
+func systemLogsMetadataKeysAreSorted() async throws {
+    let workspaceName = "workspace-logs-sorted-\(UUID().uuidString)"
+    let sqlitePath = FileManager.default.temporaryDirectory
+        .appendingPathComponent("core-logs-sorted-\(UUID().uuidString).sqlite")
+        .path
+
+    var config = CoreConfig.default
+    config.workspace = .init(name: workspaceName, basePath: FileManager.default.temporaryDirectory.path)
+    config.sqlitePath = sqlitePath
+
+    let workspaceRoot = config.resolvedWorkspaceRootURL()
+    let logsDirectory = workspaceRoot.appendingPathComponent("logs", isDirectory: true)
+    try FileManager.default.createDirectory(at: logsDirectory, withIntermediateDirectories: true)
+    let logFileURL = logsDirectory.appendingPathComponent("core-test-sorted.log")
+    
+    // Create a log line with metadata keys that are NOT sorted
+    let logLine = """
+    {"label":"test","level":"info","message":"test","metadata":{"z":"last","a":"first","m":"middle"},"source":"test","timestamp":"2026-03-10T10:11:12.123Z"}
+    """
+    guard let logData = (logLine + "\n").data(using: .utf8) else {
+        throw NSError(domain: "CoreRouterTests", code: 1)
+    }
+    try logData.write(to: logFileURL, options: .atomic)
+
+    let service = CoreService(config: config)
+    let router = CoreRouter(service: service)
+
+    let response = await router.handle(method: "GET", path: "/v1/logs", body: nil)
+    #expect(response.status == 200)
+
+    let jsonString = String(data: response.body, encoding: .utf8) ?? ""
+    
+    // We expect "metadata":{"a":"first","m":"middle","z":"last"} due to .sortedKeys
+    #expect(jsonString.contains("\"metadata\":{\"a\":\"first\",\"m\":\"middle\",\"z\":\"last\"}"))
+}
+
+@Test
 func serviceSupportsInMemoryPersistenceBuilder() async throws {
     let sqlitePath = FileManager.default.temporaryDirectory
         .appendingPathComponent("core-inmemory-\(UUID().uuidString).sqlite")
@@ -2695,6 +2732,63 @@ func tokenUsageEndpointPersistsBranchConclusionUsage() async throws {
 }
 
 @Test
+func branchSpawnDoesNotCreateProjectTasksFromPromptTodos() async throws {
+    let sqlitePath = FileManager.default.temporaryDirectory
+        .appendingPathComponent("core-branch-no-todos-\(UUID().uuidString).sqlite")
+        .path
+
+    var config = CoreConfig.default
+    config.sqlitePath = sqlitePath
+
+    let service = CoreService(config: config)
+    let agentID = "branch-no-todos-\(UUID().uuidString)"
+
+    _ = try await service.createAgent(
+        AgentCreateRequest(
+            id: agentID,
+            displayName: "Branch No Todo Agent",
+            role: "Regression"
+        )
+    )
+    let session = try await service.createAgentSession(
+        agentID: agentID,
+        request: AgentSessionCreateRequest(title: "Branch todo regression")
+    )
+    let sessionChannelID = "agent:\(agentID):session:\(session.id)"
+    let projectID = "branch-project-\(UUID().uuidString)"
+
+    _ = try await service.createProject(
+        ProjectCreateRequest(
+            id: projectID,
+            name: "Branch Project",
+            description: "Ensures branch spawn does not create tasks",
+            channels: [.init(title: "Agent Session", channelId: sessionChannelID)]
+        )
+    )
+
+    let toolResult = await service.invokeToolFromRuntime(
+        agentID: agentID,
+        sessionID: session.id,
+        request: ToolInvocationRequest(
+            tool: "branches.spawn",
+            arguments: [
+                "prompt": .string("""
+                research current plan
+                - [ ] Prepare migration plan
+                TODO: prepare migration plan
+                нужно проверить релизный сценарий
+                """)
+            ],
+            reason: "Regression coverage for branch todo removal"
+        )
+    )
+    #expect(toolResult.ok)
+
+    let project = try await service.getProject(id: projectID)
+    #expect(project.tasks.isEmpty)
+}
+
+@Test
 func workerToolsSpawnAndRouteInteractiveWorker() async throws {
     let service = CoreService(config: .default)
     let agentID = "worker-tools-agent-\(UUID().uuidString)"
@@ -2754,6 +2848,89 @@ func workerToolsSpawnAndRouteInteractiveWorker() async throws {
     let snapshot = snapshots.first(where: { $0.workerId == workerId })
     #expect(snapshot?.status == .completed)
     #expect(snapshot?.latestReport == "Completed through tool route")
+}
+
+@Test
+func projectTaskUpdateAndCancelToolsMutateTaskState() async throws {
+    let sqlitePath = FileManager.default.temporaryDirectory
+        .appendingPathComponent("core-project-tool-update-\(UUID().uuidString).sqlite")
+        .path
+
+    var config = CoreConfig.default
+    config.sqlitePath = sqlitePath
+
+    let service = CoreService(config: config)
+    let projectID = "tool-project-\(UUID().uuidString)"
+
+    _ = try await service.createProject(
+        ProjectCreateRequest(
+            id: projectID,
+            name: "Tool Project",
+            description: "Task tool regression",
+            channels: [.init(title: "General", channelId: "general")]
+        )
+    )
+    let createdProject = try await service.createProjectTask(
+        projectID: projectID,
+        request: ProjectTaskCreateRequest(
+            title: "Tool managed task",
+            description: "Needs a state transition",
+            priority: "medium",
+            status: "backlog"
+        )
+    )
+    let taskID = try #require(createdProject.tasks.last?.id)
+
+    let agentID = "project-tools-\(UUID().uuidString)"
+    _ = try await service.createAgent(
+        AgentCreateRequest(
+            id: agentID,
+            displayName: "Project Tools Agent",
+            role: "Tool regression"
+        )
+    )
+    let session = try await service.createAgentSession(
+        agentID: agentID,
+        request: AgentSessionCreateRequest(title: "Project task tools")
+    )
+
+    let updateResult = await service.invokeToolFromRuntime(
+        agentID: agentID,
+        sessionID: session.id,
+        request: ToolInvocationRequest(
+            tool: "project.task_update",
+            arguments: [
+                "channelId": .string("general"),
+                "taskId": .string(taskID),
+                "status": .string("needs_review"),
+                "priority": .string("high")
+            ],
+            reason: "Move task into review state"
+        )
+    )
+    #expect(updateResult.ok)
+    #expect(updateResult.data?.asObject?["status"]?.asString == "needs_review")
+
+    let cancelResult = await service.invokeToolFromRuntime(
+        agentID: agentID,
+        sessionID: session.id,
+        request: ToolInvocationRequest(
+            tool: "project.task_cancel",
+            arguments: [
+                "channelId": .string("general"),
+                "taskId": .string(taskID),
+                "reason": .string("Superseded by a newer request")
+            ],
+            reason: "Safely cancel obsolete work"
+        )
+    )
+    #expect(cancelResult.ok)
+    #expect(cancelResult.data?.asObject?["status"]?.asString == "cancelled")
+
+    let record = try await service.getProjectTask(taskReference: taskID)
+    #expect(record.task.status == "cancelled")
+    #expect(record.task.priority == "high")
+    #expect(record.task.description.contains("Cancelled: Superseded by a newer request"))
 }
 
 @Test

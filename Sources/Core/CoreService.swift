@@ -467,6 +467,9 @@ public actor CoreService {
         if let approvalReference = TaskApprovalCommandParser.parse(request.content) {
             return await handleTaskApprovalCommand(channelId: channelId, reference: approvalReference)
         }
+        if let plannedDecision = await handleVisorTaskPlan(channelId: channelId, request: request) {
+            return plannedDecision
+        }
 
         let enrichedContent = await enrichMessageWithTaskReferences(request.content)
         let nextRequest = ChannelMessageRequest(
@@ -541,10 +544,9 @@ public actor CoreService {
 
     private func buildProjectTaskSummary() async -> String? {
         let projects = await store.listProjects()
-        let activeStatuses = Set(["pending_approval", "backlog", "ready", "in_progress"])
         var lines: [String] = []
         for project in projects {
-            let active = project.tasks.filter { activeStatuses.contains($0.status) }
+            let active = project.tasks.filter { activeProjectTaskStatuses.contains($0.status) }
             guard !active.isEmpty else { continue }
             let taskEntries = active.prefix(20).map { task in
                 let actor = task.claimedActorId ?? task.actorId ?? ""
@@ -882,7 +884,7 @@ public actor CoreService {
         project.tasks.append(task)
         project.updatedAt = now
         await store.saveProject(project)
-        if normalizedStatus == "ready" {
+        if normalizedStatus == ProjectTaskStatus.ready.rawValue {
             await handleTaskBecameReady(projectID: normalizedID, taskID: task.id)
             if let updated = await store.project(id: normalizedID) {
                 return updated
@@ -934,7 +936,7 @@ public actor CoreService {
         }
         if let status = request.status {
             task.status = try normalizeTaskStatus(status)
-            if task.status == "backlog" {
+            if task.status == ProjectTaskStatus.backlog.rawValue || task.status == ProjectTaskStatus.cancelled.rawValue {
                 task.claimedActorId = nil
                 task.claimedAgentId = nil
             }
@@ -943,7 +945,7 @@ public actor CoreService {
         project.tasks[taskIndex] = task
         project.updatedAt = Date()
         await store.saveProject(project)
-        if previousStatus != "ready", task.status == "ready" {
+        if previousStatus != ProjectTaskStatus.ready.rawValue, task.status == ProjectTaskStatus.ready.rawValue {
             await handleTaskBecameReady(projectID: normalizedProject, taskID: task.id)
             if let updated = await store.project(id: normalizedProject) {
                 return updated
@@ -2650,7 +2652,7 @@ public actor CoreService {
             _ = try await updateProjectTask(
                 projectID: project.id,
                 taskID: task.id,
-                request: ProjectTaskUpdateRequest(status: "ready")
+                request: ProjectTaskUpdateRequest(status: ProjectTaskStatus.ready.rawValue)
             )
             await runtime.appendSystemMessage(
                 channelId: channelId,
@@ -2685,6 +2687,209 @@ public actor CoreService {
         }
     }
 
+    private func handleVisorTaskPlan(
+        channelId: String,
+        request: ChannelMessageRequest
+    ) async -> ChannelRouteDecision? {
+        let project = await projectForChannel(channelId: channelId, topicId: request.topicId)
+        let channelState = await runtime.channelState(channelId: channelId)
+        let board = try? getActorBoard()
+        let context = VisorTaskPlanningContext(
+            channelId: channelId,
+            content: request.content,
+            recentMessages: channelState?.messages.suffix(20).map { $0 } ?? [],
+            tasks: project?.tasks ?? [],
+            actorIDs: Set(board?.nodes.map(\.id) ?? []),
+            teamIDs: Set(board?.teams.map(\.id) ?? [])
+        )
+        let intents = VisorTaskPlanner.plan(context: context)
+        guard !intents.isEmpty else {
+            return nil
+        }
+
+        guard let project else {
+            await runtime.appendSystemMessage(
+                channelId: channelId,
+                content: "project_not_found_for_channel"
+            )
+            return ChannelRouteDecision(
+                action: .respond,
+                reason: "project_not_found_for_channel",
+                confidence: 1.0,
+                tokenBudget: 0
+            )
+        }
+
+        do {
+            let summary = try await applyVisorTaskIntents(
+                intents,
+                project: project,
+                channelId: channelId
+            )
+            guard !summary.isEmpty else {
+                return nil
+            }
+
+            await runtime.appendSystemMessage(channelId: channelId, content: summary)
+            return ChannelRouteDecision(
+                action: .respond,
+                reason: "visor_task_plan_applied",
+                confidence: 1.0,
+                tokenBudget: 0
+            )
+        } catch ProjectError.notFound {
+            await runtime.appendSystemMessage(channelId: channelId, content: "task_not_found")
+            return ChannelRouteDecision(
+                action: .respond,
+                reason: "task_not_found",
+                confidence: 1.0,
+                tokenBudget: 0
+            )
+        } catch {
+            await runtime.appendSystemMessage(channelId: channelId, content: "invalid_task_request")
+            return ChannelRouteDecision(
+                action: .respond,
+                reason: "invalid_task_request",
+                confidence: 1.0,
+                tokenBudget: 0
+            )
+        }
+    }
+
+    private func applyVisorTaskIntents(
+        _ intents: [VisorTaskIntent],
+        project: ProjectRecord,
+        channelId: String
+    ) async throws -> String {
+        var project = project
+        var createdTaskIDs: [String] = []
+        var updatedTaskIDs: [String] = []
+        var cancelledTaskIDs: [String] = []
+        var skippedDuplicates: [String] = []
+
+        for intent in intents {
+            switch intent {
+            case .create(let createIntent):
+                let titleKey = normalizedTaskTitleKey(createIntent.title)
+                let hasDuplicate = project.tasks.contains(where: { task in
+                    activeProjectTaskStatuses.contains(task.status) && normalizedTaskTitleKey(task.title) == titleKey
+                })
+                if hasDuplicate {
+                    skippedDuplicates.append(createIntent.title)
+                    continue
+                }
+
+                project = try await createProjectTask(
+                    projectID: project.id,
+                    request: ProjectTaskCreateRequest(
+                        title: createIntent.title,
+                        description: createIntent.description,
+                        priority: createIntent.priority ?? "medium",
+                        status: ProjectTaskStatus.pendingApproval.rawValue,
+                        actorId: createIntent.actorId,
+                        teamId: createIntent.teamId
+                    )
+                )
+                if let created = project.tasks.last {
+                    createdTaskIDs.append(created.id)
+                }
+
+            case .update(let updateIntent):
+                let task = try resolveTask(reference: updateIntent.reference, in: project)
+                project = try await updateProjectTask(
+                    projectID: project.id,
+                    taskID: task.id,
+                    request: ProjectTaskUpdateRequest(
+                        title: updateIntent.title,
+                        description: updateIntent.description,
+                        priority: updateIntent.priority,
+                        status: updateIntent.status?.rawValue,
+                        actorId: updateIntent.actorId,
+                        teamId: updateIntent.teamId
+                    )
+                )
+                updatedTaskIDs.append(task.id)
+
+            case .cancel(let cancelIntent):
+                let task = try resolveTask(reference: cancelIntent.reference, in: project)
+                project = try await cancelProjectTask(
+                    projectID: project.id,
+                    taskID: task.id,
+                    reason: cancelIntent.reason
+                )
+                cancelledTaskIDs.append(task.id)
+
+            case .split(let splitIntent):
+                let parent = try resolveTask(reference: splitIntent.reference, in: project)
+                for item in splitIntent.items {
+                    let title = summarizedTaskTitle(from: item)
+                    let titleKey = normalizedTaskTitleKey(title)
+                    let hasDuplicate = project.tasks.contains(where: { task in
+                        activeProjectTaskStatuses.contains(task.status) && normalizedTaskTitleKey(task.title) == titleKey
+                    })
+                    if hasDuplicate {
+                        skippedDuplicates.append(title)
+                        continue
+                    }
+
+                    let description = normalizeTaskDescription(
+                        """
+                        Split from task \(parent.id): \(parent.title)
+
+                        \(item)
+                        """
+                    )
+                    project = try await createProjectTask(
+                        projectID: project.id,
+                        request: ProjectTaskCreateRequest(
+                            title: title,
+                            description: description,
+                            priority: parent.priority,
+                            status: ProjectTaskStatus.pendingApproval.rawValue,
+                            actorId: parent.actorId,
+                            teamId: parent.teamId
+                        )
+                    )
+                    if let created = project.tasks.last {
+                        createdTaskIDs.append(created.id)
+                    }
+                }
+            }
+        }
+
+        var parts: [String] = []
+        if !createdTaskIDs.isEmpty {
+            parts.append("Created tasks: \(createdTaskIDs.joined(separator: ", "))")
+        }
+        if !updatedTaskIDs.isEmpty {
+            parts.append("Updated tasks: \(updatedTaskIDs.joined(separator: ", "))")
+        }
+        if !cancelledTaskIDs.isEmpty {
+            parts.append("Cancelled tasks: \(cancelledTaskIDs.joined(separator: ", "))")
+        }
+        if !skippedDuplicates.isEmpty {
+            parts.append("Skipped duplicates: \(skippedDuplicates.joined(separator: ", "))")
+        }
+        if parts.isEmpty {
+            parts.append("No task changes applied.")
+        }
+
+        logger.info(
+            "visor.task.plan_applied",
+            metadata: [
+                "project_id": .string(project.id),
+                "channel_id": .string(channelId),
+                "created": .stringConvertible(createdTaskIDs.count),
+                "updated": .stringConvertible(updatedTaskIDs.count),
+                "cancelled": .stringConvertible(cancelledTaskIDs.count),
+                "duplicates": .stringConvertible(skippedDuplicates.count)
+            ]
+        )
+
+        _ = await triggerVisorBulletin()
+        return parts.joined(separator: " ")
+    }
+
     private func handleTaskBecameReady(projectID: String, taskID: String) async {
         guard var project = await store.project(id: projectID),
               let taskIndex = project.tasks.firstIndex(where: { $0.id == taskID })
@@ -2693,7 +2898,7 @@ public actor CoreService {
         }
 
         var task = project.tasks[taskIndex]
-        guard task.status == "ready" else {
+        guard task.status == ProjectTaskStatus.ready.rawValue else {
             return
         }
 
@@ -2767,7 +2972,7 @@ public actor CoreService {
             )
         )
 
-        task.status = "in_progress"
+        task.status = ProjectTaskStatus.inProgress.rawValue
         task.updatedAt = Date()
         project.tasks[taskIndex] = task
         project.updatedAt = Date()
@@ -2849,7 +3054,7 @@ public actor CoreService {
         }
 
         var rootTask = project.tasks[taskIndex]
-        guard rootTask.status == "ready" else {
+        guard rootTask.status == ProjectTaskStatus.ready.rawValue else {
             return false
         }
         guard rootTask.swarmTaskId == nil else {
@@ -2908,7 +3113,7 @@ public actor CoreService {
                 rootTask.swarmDependencyIds = nil
                 rootTask.swarmDepth = 0
                 rootTask.swarmActorPath = [rootActorID]
-                rootTask.status = "in_progress"
+                rootTask.status = ProjectTaskStatus.inProgress.rawValue
                 rootTask.updatedAt = Date()
                 project.tasks[taskIndex] = rootTask
 
@@ -2947,7 +3152,7 @@ public actor CoreService {
                                 """
                             ),
                             priority: rootTask.priority,
-                            status: "ready",
+                            status: ProjectTaskStatus.ready.rawValue,
                             actorId: assignedActorID,
                             teamId: nil,
                             claimedActorId: nil,
@@ -3090,7 +3295,7 @@ public actor CoreService {
                     guard let refreshed = refreshedProject.tasks.first(where: { $0.id == task.id }) else {
                         continue
                     }
-                    if refreshed.status != "done" {
+                    if refreshed.status != ProjectTaskStatus.done.rawValue {
                         await failSwarmRootWithEscalation(
                             projectID: projectID,
                             rootTaskID: rootTaskID,
@@ -3121,7 +3326,7 @@ public actor CoreService {
         taskIDs: [String],
         timeoutSeconds: TimeInterval
     ) async -> Bool {
-        let runningStatuses = Set(["in_progress"])
+        let runningStatuses = Set([ProjectTaskStatus.inProgress.rawValue])
         let deadline = Date().addingTimeInterval(timeoutSeconds)
 
         while Date() < deadline {
@@ -3164,7 +3369,7 @@ public actor CoreService {
         let artifactLine = artifactRefs.isEmpty ? "" : "\nArtifacts: \(artifactRefs.joined(separator: ", "))"
 
         var rootTask = project.tasks[rootIndex]
-        rootTask.status = "done"
+        rootTask.status = ProjectTaskStatus.done.rawValue
         rootTask.updatedAt = Date()
         if !summaryLine.isEmpty {
             if rootTask.description.isEmpty {
@@ -3210,7 +3415,7 @@ public actor CoreService {
         }
 
         var rootTask = project.tasks[rootIndex]
-        rootTask.status = "blocked"
+        rootTask.status = ProjectTaskStatus.blocked.rawValue
         rootTask.updatedAt = Date()
         if rootTask.description.isEmpty {
             rootTask.description = reason
@@ -3241,7 +3446,10 @@ public actor CoreService {
                     continue
                 }
                 var task = project.tasks[index]
-                guard task.status != "done", task.status != "blocked" else {
+                guard task.status != ProjectTaskStatus.done.rawValue,
+                      task.status != ProjectTaskStatus.blocked.rawValue,
+                      task.status != ProjectTaskStatus.cancelled.rawValue
+                else {
                     continue
                 }
                 task = markSwarmTaskBlocked(
@@ -3298,7 +3506,7 @@ public actor CoreService {
 
     private func markSwarmTaskBlocked(_ task: ProjectTask, reasonLine: String) -> ProjectTask {
         var task = task
-        task.status = "blocked"
+        task.status = ProjectTaskStatus.blocked.rawValue
         task.updatedAt = Date()
         if task.description.isEmpty {
             task.description = reasonLine
@@ -3690,114 +3898,15 @@ public actor CoreService {
 
     private func handleVisorEvent(_ event: EventEnvelope) async {
         switch event.messageType {
-        case .branchSpawned:
-            await handleBranchSpawned(event)
         case .workerProgress:
             await syncTaskProgressFromWorkerEvent(event: event)
         case .workerCompleted:
-            await syncTaskStatusFromWorkerEvent(event: event, nextStatus: "done", failureNote: nil)
+            await syncTaskStatusFromWorkerEvent(event: event, nextStatus: ProjectTaskStatus.done.rawValue, failureNote: nil)
         case .workerFailed:
             let errorText = event.payload.objectValue["error"]?.stringValue
-            await syncTaskStatusFromWorkerEvent(event: event, nextStatus: "backlog", failureNote: errorText)
+            await syncTaskStatusFromWorkerEvent(event: event, nextStatus: ProjectTaskStatus.backlog.rawValue, failureNote: errorText)
         default:
             break
-        }
-    }
-
-    private func handleBranchSpawned(_ event: EventEnvelope) async {
-        var todos = event.extensions["todos"]?.stringArrayValue ?? []
-        if todos.isEmpty, let prompt = event.payload.objectValue["prompt"]?.stringValue {
-            todos = TodoExtractor.extractCandidates(from: prompt)
-        }
-
-        logger.info(
-            "visor.todo.extracted",
-            metadata: [
-                "channel_id": .string(event.channelId),
-                "count": .stringConvertible(todos.count)
-            ]
-        )
-
-        guard !todos.isEmpty else {
-            return
-        }
-
-        guard var project = await projectForChannel(channelId: event.channelId) else {
-            logger.info(
-                "visor.todo.extracted",
-                metadata: [
-                    "channel_id": .string(event.channelId),
-                    "count": .string("0"),
-                    "skip": .string("project_not_found_for_channel")
-                ]
-            )
-            return
-        }
-
-        let activeStatuses = Set(["pending_approval", "backlog", "ready", "in_progress"])
-        var existingTitleKeys = Set(
-            project.tasks
-                .filter { activeStatuses.contains($0.status) }
-                .map { normalizedTaskTitleKey($0.title) }
-        )
-        var createdCount = 0
-        var duplicateCount = 0
-
-        for todo in todos {
-            let title = summarizedTodoTitle(from: todo)
-            let titleKey = normalizedTaskTitleKey(title)
-            guard !titleKey.isEmpty else {
-                continue
-            }
-            if existingTitleKeys.contains(titleKey) {
-                duplicateCount += 1
-                continue
-            }
-
-            let now = Date()
-            project.tasks.append(
-                ProjectTask(
-                    id: UUID().uuidString,
-                    title: title,
-                    description: visorTaskDescription(todo: todo, channelId: event.channelId),
-                    priority: "medium",
-                    status: "pending_approval",
-                    createdAt: now,
-                    updatedAt: now
-                )
-            )
-            existingTitleKeys.insert(titleKey)
-            createdCount += 1
-
-            logger.info(
-                "visor.task.created",
-                metadata: [
-                    "project_id": .string(project.id),
-                    "channel_id": .string(event.channelId),
-                    "title": .string(title)
-                ]
-            )
-        }
-
-        guard createdCount > 0 else {
-            return
-        }
-
-        project.updatedAt = Date()
-        await store.saveProject(project)
-        _ = await triggerVisorBulletin()
-        let visorMessage = "Visor created \(createdCount) tasks pending approval."
-        await runtime.appendSystemMessage(channelId: event.channelId, content: visorMessage)
-        await deliverToChannelPlugin(channelId: event.channelId, content: visorMessage)
-
-        if duplicateCount > 0 {
-            logger.info(
-                "visor.todo.extracted",
-                metadata: [
-                    "channel_id": .string(event.channelId),
-                    "duplicate_skipped": .stringConvertible(duplicateCount)
-                ]
-            )
         }
     }
 
@@ -3829,7 +3938,7 @@ public actor CoreService {
             )
             if event.messageType == .workerFailed,
                let retryDelegate = await nextTeamRetryDelegate(project: project, task: task) {
-                task.status = "ready"
+                task.status = ProjectTaskStatus.ready.rawValue
                 task.claimedActorId = retryDelegate.actorID
                 task.claimedAgentId = retryDelegate.agentID
                 task.actorId = retryDelegate.actorID
@@ -3879,7 +3988,7 @@ public actor CoreService {
                     event: event
                 )
                 if completionArtifactPath == nil {
-                    resolvedStatus = "backlog"
+                    resolvedStatus = ProjectTaskStatus.backlog.rawValue
                     let missingArtifactNote = "Worker completed but no artifact was persisted; task moved back to backlog for manual review."
                     if task.description.isEmpty {
                         task.description = missingArtifactNote
@@ -3897,7 +4006,7 @@ public actor CoreService {
                     }
                 }
 
-                if resolvedStatus == "done",
+                if resolvedStatus == ProjectTaskStatus.done.rawValue,
                    let handoffDelegate = await nextTeamHandoffDelegate(project: project, task: task) {
                     let handoffActor = task.claimedAgentId ?? task.claimedActorId ?? "worker"
                     let handoffNote = "Handoff from \(handoffActor)"
@@ -3908,7 +4017,7 @@ public actor CoreService {
                         task.description += "\n\n\(handoffNote)"
                     }
 
-                    task.status = "ready"
+                    task.status = ProjectTaskStatus.ready.rawValue
                     task.claimedActorId = handoffDelegate.actorID
                     task.claimedAgentId = handoffDelegate.agentID
                     task.actorId = handoffDelegate.actorID
@@ -3984,7 +4093,7 @@ public actor CoreService {
             }
 
             let statusMessage: String
-            if nextStatus == "done" {
+            if nextStatus == ProjectTaskStatus.done.rawValue {
                 statusMessage = "Task \(task.id) completed."
             } else if failureNote != nil {
                 statusMessage = "Task \(task.id) failed; moved back to backlog."
@@ -4054,6 +4163,10 @@ public actor CoreService {
             return await executeTaskCreate(request: request, sessionID: sessionID)
         case "project.task_get":
             return await executeTaskGet(request: request, sessionID: sessionID)
+        case "project.task_update":
+            return await executeTaskUpdate(request: request, sessionID: sessionID)
+        case "project.task_cancel":
+            return await executeTaskCancel(request: request, sessionID: sessionID)
         case "project.escalate_to_user":
             return await executeEscalateToUser(request: request, sessionID: sessionID)
         case "actor.discuss_with_actor":
@@ -4107,7 +4220,7 @@ public actor CoreService {
         let title = request.arguments["title"]?.asString?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let description = request.arguments["description"]?.asString
         let priority = request.arguments["priority"]?.asString ?? "medium"
-        let status = request.arguments["status"]?.asString ?? "pending_approval"
+        let status = request.arguments["status"]?.asString ?? ProjectTaskStatus.pendingApproval.rawValue
         let actorId = request.arguments["actorId"]?.asString
         let teamId = request.arguments["teamId"]?.asString
 
@@ -4148,6 +4261,126 @@ public actor CoreService {
             return .init(
                 tool: request.tool, ok: false,
                 error: .init(code: "create_failed", message: "Failed to create task.", retryable: true)
+            )
+        }
+    }
+
+    private func executeTaskUpdate(request: ToolInvocationRequest, sessionID: String) async -> ToolInvocationResult {
+        let channelId = request.arguments["channelId"]?.asString ?? sessionID
+        let topicId = request.arguments["topicId"]?.asString
+        let rawReference = request.arguments["taskId"]?.asString
+            ?? request.arguments["reference"]?.asString
+            ?? ""
+
+        guard let normalizedReference = normalizeTaskReference(rawReference) else {
+            return .init(
+                tool: request.tool,
+                ok: false,
+                error: .init(
+                    code: "invalid_arguments",
+                    message: "`taskId` (or `reference`) is required.",
+                    retryable: false
+                )
+            )
+        }
+
+        guard let project = await projectForChannel(channelId: channelId, topicId: topicId) else {
+            return .init(
+                tool: request.tool,
+                ok: false,
+                error: .init(code: "project_not_found", message: "No project found for this channel.", retryable: false)
+            )
+        }
+
+        do {
+            let task = try resolveTask(reference: normalizedReference, in: project)
+            let updatedProject = try await updateProjectTask(
+                projectID: project.id,
+                taskID: task.id,
+                request: ProjectTaskUpdateRequest(
+                    title: request.arguments["title"]?.asString,
+                    description: request.arguments["description"]?.asString,
+                    priority: request.arguments["priority"]?.asString,
+                    status: request.arguments["status"]?.asString,
+                    actorId: request.arguments["actorId"]?.asString,
+                    teamId: request.arguments["teamId"]?.asString
+                )
+            )
+            let updatedTask = updatedProject.tasks.first(where: { $0.id == task.id }) ?? task
+            return .init(tool: request.tool, ok: true, data: .object([
+                "projectId": .string(updatedProject.id),
+                "taskId": .string(updatedTask.id),
+                "status": .string(updatedTask.status),
+                "task": jsonValue(for: updatedTask)
+            ]))
+        } catch ProjectError.notFound {
+            return .init(
+                tool: request.tool,
+                ok: false,
+                error: .init(code: "task_not_found", message: "Task `\(normalizedReference)` was not found.", retryable: false)
+            )
+        } catch {
+            return .init(
+                tool: request.tool,
+                ok: false,
+                error: .init(code: "update_failed", message: "Failed to update task.", retryable: true)
+            )
+        }
+    }
+
+    private func executeTaskCancel(request: ToolInvocationRequest, sessionID: String) async -> ToolInvocationResult {
+        let channelId = request.arguments["channelId"]?.asString ?? sessionID
+        let topicId = request.arguments["topicId"]?.asString
+        let rawReference = request.arguments["taskId"]?.asString
+            ?? request.arguments["reference"]?.asString
+            ?? ""
+        let reason = request.arguments["reason"]?.asString
+
+        guard let normalizedReference = normalizeTaskReference(rawReference) else {
+            return .init(
+                tool: request.tool,
+                ok: false,
+                error: .init(
+                    code: "invalid_arguments",
+                    message: "`taskId` (or `reference`) is required.",
+                    retryable: false
+                )
+            )
+        }
+
+        guard let project = await projectForChannel(channelId: channelId, topicId: topicId) else {
+            return .init(
+                tool: request.tool,
+                ok: false,
+                error: .init(code: "project_not_found", message: "No project found for this channel.", retryable: false)
+            )
+        }
+
+        do {
+            let task = try resolveTask(reference: normalizedReference, in: project)
+            let updatedProject = try await cancelProjectTask(
+                projectID: project.id,
+                taskID: task.id,
+                reason: reason
+            )
+            let updatedTask = updatedProject.tasks.first(where: { $0.id == task.id }) ?? task
+            return .init(tool: request.tool, ok: true, data: .object([
+                "projectId": .string(updatedProject.id),
+                "taskId": .string(updatedTask.id),
+                "status": .string(updatedTask.status),
+                "task": jsonValue(for: updatedTask)
+            ]))
+        } catch ProjectError.notFound {
+            return .init(
+                tool: request.tool,
+                ok: false,
+                error: .init(code: "task_not_found", message: "Task `\(normalizedReference)` was not found.", retryable: false)
+            )
+        } catch {
+            return .init(
+                tool: request.tool,
+                ok: false,
+                error: .init(code: "cancel_failed", message: "Failed to cancel task.", retryable: true)
             )
         }
     }
@@ -4216,7 +4449,7 @@ public actor CoreService {
                 _ = try? await updateProjectTask(
                     projectID: project.id,
                     taskID: taskId,
-                    request: ProjectTaskUpdateRequest(status: "blocked")
+                    request: ProjectTaskUpdateRequest(status: ProjectTaskStatus.blocked.rawValue)
                 )
             }
         }
@@ -4401,8 +4634,33 @@ public actor CoreService {
         }
     }
 
-    private func summarizedTodoTitle(from todo: String) -> String {
-        let normalized = normalizeWhitespace(todo)
+    private func resolveTask(reference: String, in project: ProjectRecord) throws -> ProjectTask {
+        guard let normalizedReference = normalizeTaskReference(reference) else {
+            throw ProjectError.invalidTaskID
+        }
+
+        let lowercasedTaskID = normalizedReference.lowercased()
+        guard let task = project.tasks.first(where: { task in
+            task.id == normalizedReference || task.id.lowercased() == lowercasedTaskID
+        }) else {
+            throw ProjectError.notFound
+        }
+
+        return task
+    }
+
+    private var activeProjectTaskStatuses: Set<String> {
+        Set([
+            ProjectTaskStatus.pendingApproval.rawValue,
+            ProjectTaskStatus.backlog.rawValue,
+            ProjectTaskStatus.ready.rawValue,
+            ProjectTaskStatus.inProgress.rawValue,
+            ProjectTaskStatus.needsReview.rawValue,
+        ])
+    }
+
+    private func summarizedTaskTitle(from value: String) -> String {
+        let normalized = normalizeWhitespace(value)
         if normalized.isEmpty {
             return "Visor task"
         }
@@ -4418,57 +4676,37 @@ public actor CoreService {
         return String(normalized.prefix(120))
     }
 
-    private func visorTaskDescription(todo: String, channelId: String) -> String {
-        var lines: [String] = [
-            "Source: visor-auto",
-            "Origin channel: \(channelId)",
-            "",
-            "Todo: \(normalizeWhitespace(todo))"
-        ]
+    private func cancelProjectTask(projectID: String, taskID: String, reason: String?) async throws -> ProjectRecord {
+        let note = reason?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .prefix(2_000)
+        let normalizedNote = note.map(String.init)
+        let update = ProjectTaskUpdateRequest(status: ProjectTaskStatus.cancelled.rawValue)
+        _ = try await updateProjectTask(projectID: projectID, taskID: taskID, request: update)
 
-        let subtasks = extractSubtasks(from: todo)
-        if subtasks.count > 1 {
-            lines.append("")
-            lines.append(contentsOf: subtasks.map { "- [ ] \($0)" })
+        guard let normalizedProject = normalizedProjectID(projectID),
+              var storedProject = await store.project(id: normalizedProject)
+        else {
+            throw ProjectError.notFound
+        }
+        guard let index = storedProject.tasks.firstIndex(where: { $0.id == taskID }) else {
+            throw ProjectError.notFound
         }
 
-        return normalizeTaskDescription(lines.joined(separator: "\n"))
-    }
-
-    private func extractSubtasks(from todo: String) -> [String] {
-        var seen: Set<String> = []
-        var subtasks: [String] = []
-
-        for rawLine in todo.components(separatedBy: .newlines) {
-            let line = rawLine.trimmingCharacters(in: .whitespacesAndNewlines)
-            if let checklist = captureGroup(line, pattern: #"(?i)^[-*]\s*\[\s*\]\s*(.+)$"#) {
-                let value = normalizeWhitespace(checklist)
-                let key = value.lowercased()
-                if value.count >= 3, seen.insert(key).inserted {
-                    subtasks.append(value)
-                }
-            } else if let bullet = captureGroup(line, pattern: #"^[-*]\s+(.+)$"#) {
-                let value = normalizeWhitespace(bullet)
-                let key = value.lowercased()
-                if value.count >= 3, seen.insert(key).inserted {
-                    subtasks.append(value)
-                }
+        var task = storedProject.tasks[index]
+        if let normalizedNote, !normalizedNote.isEmpty {
+            let line = "Cancelled: \(normalizedNote)"
+            if task.description.isEmpty {
+                task.description = line
+            } else {
+                task.description += "\n\n\(line)"
             }
         }
-
-        if subtasks.count > 1 {
-            return subtasks
-        }
-
-        let segments = todo
-            .split(separator: ";")
-            .map { normalizeWhitespace(String($0)) }
-            .filter { $0.count >= 3 }
-        if segments.count > 1 {
-            return Array(segments.prefix(8))
-        }
-
-        return []
+        task.updatedAt = Date()
+        storedProject.tasks[index] = task
+        storedProject.updatedAt = Date()
+        await store.saveProject(storedProject)
+        return storedProject
     }
 
     private func normalizedTaskTitleKey(_ value: String) -> String {
@@ -4766,7 +5004,7 @@ public actor CoreService {
 
     private func normalizeTaskStatus(_ raw: String) throws -> String {
         let value = raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        let allowed = Set(["pending_approval", "backlog", "ready", "in_progress", "done", "blocked", "needs_review"])
+        let allowed = Set(ProjectTaskStatus.allCases.map(\.rawValue))
         guard allowed.contains(value) else {
             throw ProjectError.invalidPayload
         }

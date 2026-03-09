@@ -298,11 +298,10 @@ actor DiscordGatewayLoop {
             return
         }
 
-        let coreContent = commands.transformForCore(text: content, from: message.author.displayName)
         let ok = await receiver.postMessage(
             channelId: sloppyChannelId,
             userId: "discord:\(message.author.id)",
-            content: coreContent
+            content: content
         )
 
         if !ok {

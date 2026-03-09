@@ -77,13 +77,12 @@ actor TelegramPoller {
             return
         }
 
-        let coreContent = commands.transformForCore(text: text, from: displayName)
         let userIdString = "tg:\(userId)"
 
         let ok = await receiver.postMessage(
             channelId: channelId,
             userId: userIdString,
-            content: coreContent
+            content: text
         )
 
         if ok {

@@ -119,6 +119,26 @@ public struct ProjectChannel: Codable, Sendable, Equatable {
     }
 }
 
+public enum ProjectTaskStatus: String, Codable, Sendable, Equatable, CaseIterable {
+    case pendingApproval = "pending_approval"
+    case backlog
+    case ready
+    case inProgress = "in_progress"
+    case done
+    case blocked
+    case needsReview = "needs_review"
+    case cancelled
+
+    public var isTerminal: Bool {
+        switch self {
+        case .done, .blocked, .cancelled:
+            return true
+        case .pendingApproval, .backlog, .ready, .inProgress, .needsReview:
+            return false
+        }
+    }
+}
+
 public struct ProjectTask: Codable, Sendable, Equatable {
     public var id: String
     public var title: String
@@ -174,6 +194,12 @@ public struct ProjectTask: Codable, Sendable, Equatable {
         self.swarmActorPath = swarmActorPath
         self.createdAt = createdAt
         self.updatedAt = updatedAt
+    }
+}
+
+public extension ProjectTask {
+    var statusValue: ProjectTaskStatus? {
+        ProjectTaskStatus(rawValue: status)
     }
 }
 
