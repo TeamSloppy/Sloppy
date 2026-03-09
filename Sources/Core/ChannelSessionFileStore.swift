@@ -76,6 +76,14 @@ actor ChannelSessionFileStore {
         throw StoreError.sessionNotFound
     }
 
+    func loadSessionDetail(sessionID: String) throws -> ChannelSessionDetail {
+        let normalizedSessionID = try normalizedSessionID(sessionID)
+        let fileURL = try existingSessionFileURL(sessionID: normalizedSessionID)
+        let summary = try loadSessionSummary(fileURL: fileURL)
+        let events = try readEvents(fileURL: fileURL)
+        return ChannelSessionDetail(summary: summary, events: events)
+    }
+
     func closeSession(
         sessionID: String,
         reason: String = "inactive_timeout",
@@ -482,5 +490,15 @@ public struct ChannelSessionSummary: Codable, Sendable, Equatable {
         self.closedAt = closedAt
         self.status = status
         self.lastMessagePreview = lastMessagePreview
+    }
+}
+
+public struct ChannelSessionDetail: Codable, Sendable, Equatable {
+    public var summary: ChannelSessionSummary
+    public var events: [ChannelSessionEvent]
+
+    public init(summary: ChannelSessionSummary, events: [ChannelSessionEvent]) {
+        self.summary = summary
+        self.events = events
     }
 }
