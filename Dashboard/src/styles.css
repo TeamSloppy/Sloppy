@@ -7571,7 +7571,7 @@ pre {
   gap: 18px;
   padding: 20px;
   border: 1px solid var(--line);
-  background: linear-gradient(180deg, rgba(28, 32, 44, 0.9), rgba(18, 21, 29, 0.96));
+  background: var(--surface-2);
 }
 
 .channel-session-titlebar {

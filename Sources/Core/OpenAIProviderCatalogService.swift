@@ -62,12 +62,19 @@ struct OpenAIProviderCatalogService {
         }()
 
         guard let apiKey = resolvedKey, !apiKey.isEmpty, let baseURL else {
+            let warning: String
+            switch request.authMethod {
+            case .apiKey:
+                warning = "OpenAI API key is missing. Provide API key or set OPENAI_API_KEY."
+            case .deeplink:
+                warning = "OpenAI web login does not authorize Core by itself. Set OPENAI_API_KEY for Core."
+            }
             return OpenAIProviderModelsResponse(
                 provider: "openai",
                 authMethod: request.authMethod,
                 usedEnvironmentKey: usedEnvironmentKey,
                 source: "fallback",
-                warning: "OpenAI API key is missing. Provide API key or set OPENAI_API_KEY.",
+                warning: warning,
                 models: Self.fallbackOpenAIModels
             )
         }

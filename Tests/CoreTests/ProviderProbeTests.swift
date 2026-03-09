@@ -46,6 +46,30 @@ func providerProbeEndpointReturnsFailureWhenOpenAIKeyIsMissing() async throws {
 }
 
 @Test
+func providerProbeEndpointReturnsFriendlyFailureWhenOAuthIsNotConnected() async throws {
+    let service = CoreService(
+        config: .default,
+        builtInGatewayPluginFactory: .live
+    )
+    let router = CoreRouter(service: service)
+
+    let body = try JSONEncoder().encode(
+        ProviderProbeRequest(
+            providerId: .openAIOAuth,
+            apiUrl: "https://chatgpt.com/backend-api"
+        )
+    )
+    let response = await router.handle(method: "POST", path: "/v1/providers/probe", body: body)
+
+    #expect(response.status == 200)
+    let payload = try JSONDecoder().decode(ProviderProbeResponse.self, from: response.body)
+    #expect(payload.providerId == ProviderProbeID.openAIOAuth)
+    #expect(payload.ok == false)
+    #expect(payload.models.isEmpty)
+    #expect(payload.message == "Failed to connect to OpenAI OAuth: OpenAI OAuth is not connected yet. Start sign-in first.")
+}
+
+@Test
 func providerProbeEndpointMapsOllamaModelsFromTagsResponse() async throws {
     let service = CoreService(
         config: .default,

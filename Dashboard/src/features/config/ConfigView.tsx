@@ -1,5 +1,13 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { fetchOpenAIModels, fetchOpenAIProviderStatus, fetchRuntimeConfig, fetchSearchProviderStatus, updateRuntimeConfig } from "../../api";
+import {
+  completeOpenAIOAuth,
+  fetchOpenAIModels,
+  fetchOpenAIProviderStatus,
+  fetchRuntimeConfig,
+  fetchSearchProviderStatus,
+  startOpenAIOAuth,
+  updateRuntimeConfig
+} from "../../api";
 import { NodeHostEditor } from "./components/NodeHostEditor";
 import { PluginEditor } from "./components/PluginEditor";
 import { ProviderEditor } from "./components/ProviderEditor";
@@ -9,6 +17,15 @@ import { SettingsPlaceholder } from "./components/SettingsPlaceholder";
 import { SettingsSidebar } from "./components/SettingsSidebar";
 import { TelegramEditor } from "./components/TelegramEditor";
 import { DiscordEditor } from "./components/DiscordEditor";
+import {
+  OPENAI_OAUTH_MESSAGE_TYPE,
+  buildOpenAIOAuthRedirectURI,
+  clearOpenAIOAuthCallbackParams,
+  openOpenAIOAuthPopup,
+  postOpenAIOAuthMessage,
+  readOpenAIOAuthCallbackError,
+  readOpenAIOAuthCallbackURL
+} from "../../shared/openaiOAuth";
 
 const SETTINGS_ITEMS = [
   { id: "providers", title: "Providers", icon: "hub" },
@@ -49,17 +66,17 @@ const PROVIDER_CATALOG = [
   },
   {
     id: "openai-oauth",
-    title: "OpenAI OAuth",
-    description: "OpenAI via OAuth/Codex deeplink.",
-    modelHint: "gpt-4.1-mini",
+    title: "OpenAI Codex",
+    description: "ChatGPT/Codex login via OpenAI OAuth.",
+    modelHint: "gpt-5.3-codex",
     authMethod: "deeplink",
     requiresApiKey: false,
     supportsModelCatalog: true,
     defaultEntry: {
       title: "openai-oauth",
       apiKey: "",
-      apiUrl: "https://api.openai.com/v1",
-      model: "gpt-4.1-mini"
+      apiUrl: "https://chatgpt.com/backend-api",
+      model: "gpt-5.3-codex"
     }
   },
   {
@@ -454,7 +471,11 @@ export function ConfigView({ sectionId = "providers", onSectionChange = null }) 
   const [openAIProviderStatus, setOpenAIProviderStatus] = useState({
     hasEnvironmentKey: false,
     hasConfiguredKey: false,
-    hasAnyKey: false
+    hasAnyKey: false,
+    hasOAuthCredentials: false,
+    oauthAccountId: "",
+    oauthPlanType: "",
+    oauthExpiresAt: ""
   });
   const [searchProviderStatus, setSearchProviderStatus] = useState({
     activeProvider: "perplexity",
@@ -588,7 +609,11 @@ export function ConfigView({ sectionId = "providers", onSectionChange = null }) 
     setOpenAIProviderStatus({
       hasEnvironmentKey: Boolean(response.hasEnvironmentKey),
       hasConfiguredKey: Boolean(response.hasConfiguredKey),
-      hasAnyKey: Boolean(response.hasAnyKey)
+      hasAnyKey: Boolean(response.hasAnyKey),
+      hasOAuthCredentials: Boolean(response.hasOAuthCredentials),
+      oauthAccountId: String(response.oauthAccountId || ""),
+      oauthPlanType: String(response.oauthPlanType || ""),
+      oauthExpiresAt: String(response.oauthExpiresAt || "")
     });
   }
 
@@ -622,9 +647,24 @@ export function ConfigView({ sectionId = "providers", onSectionChange = null }) 
     });
   }
 
-  function openCodexOpenAIDeepLink() {
-    window.location.href = "codex://auth/openai?source=sloppy";
-    setProviderStatus("openai-oauth", "Codex deeplink opened. Complete auth there; model catalog will update automatically.");
+  async function openOpenAIPlatform() {
+    setProviderStatus("openai-oauth", "Preparing OpenAI OAuth...");
+    const response = await startOpenAIOAuth({
+      redirectURI: buildOpenAIOAuthRedirectURI()
+    });
+
+    if (!response || typeof response.authorizationURL !== "string" || !response.authorizationURL) {
+      setProviderStatus("openai-oauth", "Failed to start OpenAI OAuth.");
+      return;
+    }
+
+    const popup = openOpenAIOAuthPopup(response.authorizationURL);
+    if (!popup) {
+      window.location.assign(response.authorizationURL);
+      return;
+    }
+
+    setProviderStatus("openai-oauth", "OpenAI OAuth opened. Finish sign-in in the popup.");
   }
 
   function setProviderStatus(providerId, message) {
@@ -713,11 +753,15 @@ export function ConfigView({ sectionId = "providers", onSectionChange = null }) 
     }
 
     if (provider.id === "openai-api" || provider.id === "openai-oauth") {
-      setOpenAIProviderStatus((previous) => ({
-        ...previous,
-        hasEnvironmentKey: Boolean(payload.usedEnvironmentKey),
-        hasAnyKey: previous.hasConfiguredKey || Boolean(payload.usedEnvironmentKey)
-      }));
+      setOpenAIProviderStatus((previous) => (
+        provider.id === "openai-api"
+          ? {
+              ...previous,
+              hasEnvironmentKey: Boolean(payload.usedEnvironmentKey),
+              hasAnyKey: previous.hasConfiguredKey || Boolean(payload.usedEnvironmentKey)
+            }
+          : previous
+      ));
     }
   }
 
@@ -728,11 +772,21 @@ export function ConfigView({ sectionId = "providers", onSectionChange = null }) 
 
     const provider = providerModalMeta;
     const hasEnvironmentKeyForOpenAI = provider.id === "openai-api" && openAIProviderStatus.hasEnvironmentKey;
+    const hasOAuthCredentialsForOpenAI = provider.id === "openai-oauth" && openAIProviderStatus.hasOAuthCredentials;
     const requiresApiKey = provider.authMethod === "api_key";
     const hasKey = Boolean(String(providerForm.apiKey || "").trim()) || hasEnvironmentKeyForOpenAI;
 
     if (requiresApiKey && !hasKey) {
       setProviderStatus(provider.id, "Set API Key to load models.");
+      setProviderModelOptions((previous) => ({
+        ...previous,
+        [provider.id]: []
+      }));
+      return;
+    }
+
+    if (provider.id === "openai-oauth" && !hasOAuthCredentialsForOpenAI) {
+      setProviderStatus(provider.id, "Connect OpenAI OAuth to load Codex models.");
       setProviderModelOptions((previous) => ({
         ...previous,
         [provider.id]: []
@@ -766,8 +820,86 @@ export function ConfigView({ sectionId = "providers", onSectionChange = null }) 
     providerModalMeta,
     providerForm?.apiKey,
     providerForm?.apiUrl,
-    openAIProviderStatus.hasEnvironmentKey
+    openAIProviderStatus.hasEnvironmentKey,
+    openAIProviderStatus.hasOAuthCredentials
   ]);
+
+  useEffect(() => {
+    async function completeOAuthFromCallback() {
+      const callbackURL = readOpenAIOAuthCallbackURL();
+      if (!callbackURL) {
+        return;
+      }
+
+      const callbackError = readOpenAIOAuthCallbackError();
+      if (callbackError) {
+        clearOpenAIOAuthCallbackParams();
+        postOpenAIOAuthMessage({
+          ok: false,
+          message: `OpenAI OAuth failed: ${callbackError}`
+        });
+        setProviderStatus("openai-oauth", `OpenAI OAuth failed: ${callbackError}`);
+        setStatusText("OpenAI OAuth failed");
+        return;
+      }
+
+      setStatusText("Completing OpenAI OAuth...");
+      const response = await completeOpenAIOAuth({ callbackURL });
+      clearOpenAIOAuthCallbackParams();
+
+      const ok = Boolean(response?.ok);
+      const message = String(response?.message || "Failed to complete OpenAI OAuth.");
+      postOpenAIOAuthMessage({
+        ok,
+        message,
+        accountId: typeof response?.accountId === "string" ? response.accountId : null,
+        planType: typeof response?.planType === "string" ? response.planType : null
+      });
+
+      if (window.opener && window.opener !== window) {
+        window.close();
+        return;
+      }
+
+      await loadOpenAIProviderStatus();
+      setProviderStatus("openai-oauth", message);
+      setStatusText(ok ? "OpenAI OAuth connected" : "OpenAI OAuth failed");
+
+      if (ok && providerModalId === "openai-oauth") {
+        await loadProviderModels("openai-oauth", providerForm || getProviderDefinition("openai-oauth").defaultEntry);
+      }
+    }
+
+    completeOAuthFromCallback().catch(() => {
+      setProviderStatus("openai-oauth", "Failed to complete OpenAI OAuth.");
+      setStatusText("OpenAI OAuth failed");
+    });
+  }, [providerForm, providerModalId]);
+
+  useEffect(() => {
+    function handleOAuthMessage(event) {
+      if (event.origin !== window.location.origin) {
+        return;
+      }
+
+      const payload = event.data;
+      if (!payload || payload.type !== OPENAI_OAUTH_MESSAGE_TYPE) {
+        return;
+      }
+
+      setProviderStatus("openai-oauth", String(payload.message || "OpenAI OAuth updated."));
+      setStatusText(payload.ok ? "OpenAI OAuth connected" : "OpenAI OAuth failed");
+      loadOpenAIProviderStatus().catch(() => {});
+      if (payload.ok && providerModalId === "openai-oauth") {
+        loadProviderModels("openai-oauth", providerForm || getProviderDefinition("openai-oauth").defaultEntry).catch(() => {
+          setProviderStatus("openai-oauth", "Failed to load OpenAI Codex models.");
+        });
+      }
+    }
+
+    window.addEventListener("message", handleOAuthMessage);
+    return () => window.removeEventListener("message", handleOAuthMessage);
+  }, [providerForm, providerModalId]);
 
   useEffect(() => {
     if (!providerModelMenuOpen) {
@@ -887,7 +1019,7 @@ export function ConfigView({ sectionId = "providers", onSectionChange = null }) 
           onOpenProviderModal={openProviderModal}
           onCloseProviderModal={closeProviderModal}
           onUpdateProviderForm={updateProviderForm}
-          onOpenOAuth={openCodexOpenAIDeepLink}
+          onOpenOAuth={openOpenAIPlatform}
           onRemoveProvider={removeProviderFromModal}
           onSaveProvider={saveProviderFromModal}
           onSetProviderModelMenuOpen={setProviderModelMenuOpen}

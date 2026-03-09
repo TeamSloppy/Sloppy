@@ -515,6 +515,42 @@ public actor CoreRouter {
             return Self.encodable(status: HTTPStatus.ok, payload: status)
         }
 
+        add(.post, "/v1/providers/openai/oauth/start", metadata: RouteMetadata(summary: "Start OpenAI OAuth", description: "Creates an OpenAI OAuth authorization URL", tags: ["Providers"])) { request in
+            guard let body = request.body,
+                  let payload = Self.decode(body, as: OpenAIOAuthStartRequest.self)
+            else {
+                return Self.json(status: HTTPStatus.badRequest, payload: ["error": ErrorCode.invalidBody])
+            }
+
+            do {
+                let response = try await service.startOpenAIOAuth(request: payload)
+                return Self.encodable(status: HTTPStatus.ok, payload: response)
+            } catch {
+                return Self.json(status: HTTPStatus.badRequest, payload: ["error": ErrorCode.invalidBody])
+            }
+        }
+
+        add(.post, "/v1/providers/openai/oauth/complete", metadata: RouteMetadata(summary: "Complete OpenAI OAuth", description: "Exchanges the OpenAI OAuth authorization code for tokens", tags: ["Providers"])) { request in
+            guard let body = request.body,
+                  let payload = Self.decode(body, as: OpenAIOAuthCompleteRequest.self)
+            else {
+                return Self.json(status: HTTPStatus.badRequest, payload: ["error": ErrorCode.invalidBody])
+            }
+
+            do {
+                let response = try await service.completeOpenAIOAuth(request: payload)
+                return Self.encodable(status: HTTPStatus.ok, payload: response)
+            } catch {
+                return Self.encodable(
+                    status: HTTPStatus.ok,
+                    payload: OpenAIOAuthCompleteResponse(
+                        ok: false,
+                        message: error.localizedDescription
+                    )
+                )
+            }
+        }
+
         add(.get, "/v1/providers/search/status", metadata: RouteMetadata(summary: "Search status", description: "Returns the current status of the search provider", tags: ["Providers"])) { _ in
             let status = await service.searchProviderStatus()
             return Self.encodable(status: HTTPStatus.ok, payload: status)

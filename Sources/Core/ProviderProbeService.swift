@@ -100,7 +100,7 @@ struct ProviderProbeService {
                     providerId: request.providerId,
                     ok: false,
                     usedEnvironmentKey: false,
-                    message: "OpenAI OAuth is not ready. Complete login so OPENAI_API_KEY is available to Core.",
+                    message: "OpenAI web login does not authorize Core by itself. Set OPENAI_API_KEY for Core and try again.",
                     models: []
                 )
             }
