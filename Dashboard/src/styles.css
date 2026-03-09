@@ -167,6 +167,7 @@ body.mobile-menu-open {
     opacity: 0;
     transform: translateX(18px);
   }
+
   to {
     opacity: 1;
     transform: translateX(0);
@@ -1229,7 +1230,8 @@ body.mobile-menu-open {
 .sidebar-head {
   display: flex;
   align-items: center;
-  min-height: 42px;
+  background: var(--accent-color);
+  max-height: 48px;
   gap: 8px;
   padding: 8px;
 }
@@ -1249,13 +1251,15 @@ body.mobile-menu-open {
   font-weight: 600;
   letter-spacing: 0.01em;
   white-space: nowrap;
+  color: #000;
 }
 
 .sidebar-logo {
-  width: 42px;
-  height: 42px;
+  width: 32px;
+  height: 32px;
   object-fit: contain;
   flex: 0 0 auto;
+  color: var(--text);
 }
 
 .sidebar-logo-launch {
@@ -6228,10 +6232,12 @@ pre {
   .sidebar.mobile-open {
     transform: translateX(0);
     opacity: 1;
+    padding: 0px;
   }
 
   .sidebar-head {
     align-items: center;
+    background: var(--accent-color);
   }
 
   .sidebar.compact .sidebar-head {
@@ -6849,17 +6855,13 @@ pre {
 
 .skills-browse-btn {
   background: var(--accent);
-  color: #fff;
+  color: #000;
   border: none;
   border-radius: 0;
   padding: 10px 20px;
   font-size: 0.9rem;
   cursor: pointer;
   transition: opacity 0.2s;
-}
-
-.skills-browse-btn:hover {
-  opacity: 0.9;
 }
 
 /* Error */

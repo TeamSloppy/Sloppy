@@ -466,7 +466,7 @@ export function AgentSkillsTab({ agentId }: AgentSkillsTabProps) {
               <p>No skills installed yet.</p>
               <button
                 type="button"
-                className="skills-browse-btn"
+                className="skills-browse-btn hover-levitate"
                 onClick={() => setActiveTab("registry")}
               >
                 Browse Registry
