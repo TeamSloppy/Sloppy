@@ -5697,7 +5697,40 @@ extension CoreService: InboundMessageReceiver {
         _ = await runtime.postMessage(
             channelId: channelId,
             request: request,
-            onResponseChunk: onChunk
+            onResponseChunk: onChunk,
+            observationHandler: { [weak self] observation in
+                guard let self else {
+                    return
+                }
+
+                do {
+                    switch observation {
+                    case .thinking(let text):
+                        try await self.channelSessionStore.recordThinking(
+                            channelId: channelId,
+                            content: text
+                        )
+                    case .toolCall(let toolRequest):
+                        try await self.channelSessionStore.recordToolCall(
+                            channelId: channelId,
+                            tool: toolRequest.tool,
+                            arguments: .object(toolRequest.arguments),
+                            reason: toolRequest.reason
+                        )
+                    case .toolResult(let toolResult):
+                        try await self.channelSessionStore.recordToolResult(
+                            channelId: channelId,
+                            tool: toolResult.tool,
+                            ok: toolResult.ok,
+                            data: toolResult.data,
+                            error: toolResult.error,
+                            durationMs: toolResult.durationMs
+                        )
+                    }
+                } catch {
+                    self.logger.warning("Failed to persist channel technical event: \(error)")
+                }
+            }
         )
 
         let reply = await collector.get().trimmingCharacters(in: .whitespacesAndNewlines)

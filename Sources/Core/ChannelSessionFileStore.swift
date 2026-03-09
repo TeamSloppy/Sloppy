@@ -186,6 +186,86 @@ actor ChannelSessionFileStore {
         )
     }
 
+    @discardableResult
+    func recordThinking(
+        channelId: String,
+        content: String,
+        createdAt: Date = Date()
+    ) throws -> ChannelSessionSummary {
+        try appendEvent(
+            channelId: channelId,
+            userId: "assistant",
+            content: content,
+            type: .thinking,
+            createdAt: createdAt
+        )
+    }
+
+    @discardableResult
+    func recordToolCall(
+        channelId: String,
+        tool: String,
+        arguments: JSONValue,
+        reason: String? = nil,
+        createdAt: Date = Date()
+    ) throws -> ChannelSessionSummary {
+        let argumentsText = prettyJSONString(arguments)
+        let content = [
+            reason?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false ? "Reason: \(reason!)" : nil,
+            "Arguments:",
+            argumentsText
+        ]
+        .compactMap { $0 }
+        .joined(separator: "\n\n")
+
+        return try appendEvent(
+            channelId: channelId,
+            userId: "assistant",
+            content: content,
+            type: .toolCall,
+            metadata: [
+                "tool": tool.trimmingCharacters(in: .whitespacesAndNewlines),
+                "reason": reason?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            ],
+            createdAt: createdAt
+        )
+    }
+
+    @discardableResult
+    func recordToolResult(
+        channelId: String,
+        tool: String,
+        ok: Bool,
+        data: JSONValue? = nil,
+        error: ToolErrorPayload? = nil,
+        durationMs: Int? = nil,
+        createdAt: Date = Date()
+    ) throws -> ChannelSessionSummary {
+        var parts = ["Status: \(ok ? "success" : "failed")"]
+        if let durationMs {
+            parts.append("Duration: \(durationMs) ms")
+        }
+        if let data {
+            parts.append("Data:\n\(prettyJSONString(data))")
+        }
+        if let error {
+            parts.append("Error:\n\(prettyJSONString(error))")
+        }
+
+        return try appendEvent(
+            channelId: channelId,
+            userId: "assistant",
+            content: parts.joined(separator: "\n\n"),
+            type: .toolResult,
+            metadata: [
+                "tool": tool.trimmingCharacters(in: .whitespacesAndNewlines),
+                "ok": ok ? "true" : "false",
+                "durationMs": durationMs.map(String.init) ?? ""
+            ],
+            createdAt: createdAt
+        )
+    }
+
     func getMessageHistory(channelId: String, limit: Int = 50) throws -> [ChannelMessageEntry] {
         guard let openSession = try currentOpenSession(channelId: channelId) else {
             return []
@@ -214,6 +294,23 @@ actor ChannelSessionFileStore {
         type: ChannelSessionEventType,
         createdAt: Date
     ) throws -> ChannelSessionSummary {
+        try appendEvent(
+            channelId: channelId,
+            userId: userId,
+            content: content,
+            type: type,
+            createdAt: createdAt
+        )
+    }
+
+    private func appendEvent(
+        channelId: String,
+        userId: String,
+        content: String,
+        type: ChannelSessionEventType,
+        metadata: [String: String]? = nil,
+        createdAt: Date
+    ) throws -> ChannelSessionSummary {
         let normalizedChannelID = try normalizedChannelID(channelId)
         let summary = try currentOpenSession(channelId: normalizedChannelID)
             ?? createSession(channelId: normalizedChannelID, createdAt: createdAt)
@@ -223,7 +320,8 @@ actor ChannelSessionFileStore {
             type: type,
             userId: userId,
             content: content,
-            createdAt: createdAt
+            createdAt: createdAt,
+            metadata: metadata
         )
         try append(events: [event], to: fileURL, createIfMissing: false)
         return try loadSessionSummary(fileURL: fileURL)
@@ -391,6 +489,18 @@ actor ChannelSessionFileStore {
         return trimmed.count > 120 ? String(trimmed.prefix(120)) : trimmed
     }
 
+    private func prettyJSONString<T: Encodable>(_ value: T) -> String {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        encoder.dateEncodingStrategy = .iso8601
+        guard let data = try? encoder.encode(value),
+              let text = String(data: data, encoding: .utf8)
+        else {
+            return String(describing: value)
+        }
+        return text
+    }
+
     private func normalizedChannelID(_ raw: String) throws -> String {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
@@ -453,6 +563,7 @@ public enum ChannelSessionEventType: String, Codable, Sendable {
     case userMessage = "user_message"
     case assistantMessage = "assistant_message"
     case systemMessage = "system_message"
+    case thinking = "thinking"
     case toolCall = "tool_call"
     case toolResult = "tool_result"
 }
