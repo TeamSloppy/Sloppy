@@ -19,7 +19,7 @@ export function SidebarView({
         ) : (
           <>
             <div className="sidebar-brand-wrap">
-              <img src="/so_logo.svg" alt="" className="sidebar-logo" aria-hidden="true" style={{ filter: 'invert(1)' }} />
+              <img src="/so_logo.svg" alt="" className="sidebar-logo" aria-hidden="true" />
               <div style={{ display: 'flex', flexDirection: 'column' }}>
                 <strong className="sidebar-brand" style={{ textTransform: 'uppercase' }}>&gt; Sloppy</strong>
                 <span style={{ fontSize: '10px', color: 'var(--muted)', letterSpacing: '0.05em' }}>SYS.VER // {__APP_VERSION__ || '0.1.0'}</span>
