@@ -19,6 +19,7 @@ import { TelegramEditor } from "./components/TelegramEditor";
 import { DiscordEditor } from "./components/DiscordEditor";
 import {
   OPENAI_OAUTH_MESSAGE_TYPE,
+  OPENAI_OAUTH_REDIRECT_URI,
   buildOpenAIOAuthRedirectURI,
   clearOpenAIOAuthCallbackParams,
   openOpenAIOAuthPopup,
@@ -464,6 +465,7 @@ export function ConfigView({ sectionId = "providers", onSectionChange = null }) 
   const [selectedPluginIndex, setSelectedPluginIndex] = useState(0);
   const [providerModalId, setProviderModalId] = useState(null);
   const [providerForm, setProviderForm] = useState(null);
+  const [providerOAuthCallbackURL, setProviderOAuthCallbackURL] = useState("");
   const [providerModelOptions, setProviderModelOptions] = useState({});
   const [providerModelStatus, setProviderModelStatus] = useState({});
   const [providerModelMenuOpen, setProviderModelMenuOpen] = useState(false);
@@ -664,7 +666,34 @@ export function ConfigView({ sectionId = "providers", onSectionChange = null }) 
       return;
     }
 
-    setProviderStatus("openai-oauth", "OpenAI OAuth opened. Finish sign-in in the popup.");
+    setProviderStatus(
+      "openai-oauth",
+      `OpenAI OAuth opened. After redirect to ${OPENAI_OAUTH_REDIRECT_URI}, copy the full URL from the popup and paste it below.`
+    );
+  }
+
+  async function submitOpenAIOAuthCallback() {
+    const callbackURL = String(providerOAuthCallbackURL || "").trim();
+    if (!callbackURL) {
+      setProviderStatus("openai-oauth", "Paste the full callback URL first.");
+      return;
+    }
+
+    setProviderStatus("openai-oauth", "Completing OpenAI OAuth...");
+    const response = await completeOpenAIOAuth({ callbackURL });
+    const ok = Boolean(response?.ok);
+    const message = String(response?.message || "Failed to complete OpenAI OAuth.");
+
+    setProviderStatus("openai-oauth", message);
+    setStatusText(ok ? "OpenAI OAuth connected" : "OpenAI OAuth failed");
+
+    if (!ok) {
+      return;
+    }
+
+    setProviderOAuthCallbackURL("");
+    await loadOpenAIProviderStatus();
+    await loadProviderModels("openai-oauth", providerForm || getProviderDefinition("openai-oauth").defaultEntry);
   }
 
   function setProviderStatus(providerId, message) {
@@ -685,6 +714,7 @@ export function ConfigView({ sectionId = "providers", onSectionChange = null }) 
       apiUrl: initial.apiUrl,
       model: initial.model
     });
+    setProviderOAuthCallbackURL("");
     setProviderModelMenuOpen(false);
   }
 
@@ -695,6 +725,7 @@ export function ConfigView({ sectionId = "providers", onSectionChange = null }) 
     }
     setProviderModalId(null);
     setProviderForm(null);
+    setProviderOAuthCallbackURL("");
     setProviderModelMenuOpen(false);
     setProviderModelMenuRect(null);
   }
@@ -1020,8 +1051,12 @@ export function ConfigView({ sectionId = "providers", onSectionChange = null }) 
           onCloseProviderModal={closeProviderModal}
           onUpdateProviderForm={updateProviderForm}
           onOpenOAuth={openOpenAIPlatform}
+          onSubmitOAuthCallback={submitOpenAIOAuthCallback}
+          onUpdateOAuthCallbackURL={setProviderOAuthCallbackURL}
           onRemoveProvider={removeProviderFromModal}
           onSaveProvider={saveProviderFromModal}
+          openAIOAuthRedirectURI={OPENAI_OAUTH_REDIRECT_URI}
+          openAIOAuthCallbackURL={providerOAuthCallbackURL}
           onSetProviderModelMenuOpen={setProviderModelMenuOpen}
           onSetProviderModelMenuRect={setProviderModelMenuRect}
           getProviderEntry={getProviderEntry}

@@ -164,6 +164,7 @@ struct OpenAIOAuthService: @unchecked Sendable {
             .init(name: "client_id", value: Self.clientID),
             .init(name: "redirect_uri", value: redirectURI),
             .init(name: "scope", value: "openid profile email offline_access"),
+            .init(name: "originator", value: "codex_vscode"),
             .init(name: "code_challenge", value: challenge),
             .init(name: "code_challenge_method", value: "S256"),
             .init(name: "state", value: state),

@@ -1,4 +1,5 @@
 export const OPENAI_OAUTH_MESSAGE_TYPE = "sloppy:openai-oauth";
+export const OPENAI_OAUTH_REDIRECT_URI = "http://localhost:1455/auth/callback";
 
 export interface OpenAIOAuthWindowMessage {
   type: string;
@@ -11,7 +12,7 @@ export interface OpenAIOAuthWindowMessage {
 const OPENAI_OAUTH_CALLBACK_PARAMS = ["code", "state", "error", "error_description"];
 
 export function buildOpenAIOAuthRedirectURI() {
-  return `${window.location.origin}${window.location.pathname}`;
+  return OPENAI_OAUTH_REDIRECT_URI;
 }
 
 export function readOpenAIOAuthCallbackURL() {
