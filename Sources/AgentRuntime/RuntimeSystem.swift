@@ -60,6 +60,18 @@ public enum RuntimeResponseObservation: Sendable {
     case toolResult(ToolInvocationResult)
 }
 
+public struct BranchExecutionResult: Sendable, Equatable {
+    public var branchId: String
+    public var workerId: String
+    public var conclusion: BranchConclusion
+
+    public init(branchId: String, workerId: String, conclusion: BranchConclusion) {
+        self.branchId = branchId
+        self.workerId = workerId
+        self.conclusion = conclusion
+    }
+}
+
 public actor RuntimeSystem {
     public nonisolated let eventBus: EventBus
 
@@ -140,31 +152,10 @@ public actor RuntimeSystem {
             )
 
         case .spawnBranch:
-            let branchId = await branches.spawn(channelId: channelId, prompt: request.content)
-            let spec = WorkerTaskSpec(
-                taskId: "branch-\(branchId)",
+            _ = await executeBranch(
                 channelId: channelId,
-                title: "Branch analysis",
-                objective: request.content,
-                tools: ["shell", "file", "exec"],
-                mode: .fireAndForget
+                prompt: request.content
             )
-            let workerId = await workers.spawn(spec: spec, autoStart: false)
-            await branches.attachWorker(branchId: branchId, workerId: workerId)
-            await channels.attachWorker(channelId: channelId, workerId: workerId)
-
-            let artifact = await workers.completeNow(workerId: workerId, summary: "Branch worker completed objective")
-            await channels.detachWorker(channelId: channelId, workerId: workerId)
-
-            let conclusion = await branches.conclude(
-                branchId: branchId,
-                summary: "Branch finished with focused conclusion",
-                artifactRefs: artifact.map { [$0] } ?? [],
-                tokenUsage: TokenUsage(prompt: 300, completion: 120)
-            )
-            if let conclusion {
-                await channels.applyBranchConclusion(channelId: channelId, conclusion: conclusion)
-            }
 
         case .spawnWorker:
             let spec = WorkerTaskSpec(
@@ -185,6 +176,44 @@ public actor RuntimeSystem {
         }
 
         return ingest.decision
+    }
+
+    public func executeBranch(
+        channelId: String,
+        prompt: String,
+        title: String = "Branch analysis"
+    ) async -> BranchExecutionResult? {
+        let branchId = await branches.spawn(channelId: channelId, prompt: prompt)
+        let spec = WorkerTaskSpec(
+            taskId: "branch-\(branchId)",
+            channelId: channelId,
+            title: title,
+            objective: prompt,
+            tools: ["shell", "file", "exec"],
+            mode: .fireAndForget
+        )
+        let workerId = await workers.spawn(spec: spec, autoStart: false)
+        await branches.attachWorker(branchId: branchId, workerId: workerId)
+        await channels.attachWorker(channelId: channelId, workerId: workerId)
+
+        let artifact = await workers.completeNow(workerId: workerId, summary: "Branch worker completed objective")
+        await channels.detachWorker(channelId: channelId, workerId: workerId)
+
+        guard let conclusion = await branches.conclude(
+            branchId: branchId,
+            summary: "Branch finished with focused conclusion",
+            artifactRefs: artifact.map { [$0] } ?? [],
+            tokenUsage: TokenUsage(prompt: 300, completion: 120)
+        ) else {
+            return nil
+        }
+
+        await channels.applyBranchConclusion(channelId: channelId, conclusion: conclusion)
+        return BranchExecutionResult(
+            branchId: branchId,
+            workerId: workerId,
+            conclusion: conclusion
+        )
     }
 
     /// Uses configured model provider for direct responses or falls back to static response.

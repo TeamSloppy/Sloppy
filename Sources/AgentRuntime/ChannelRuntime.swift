@@ -187,42 +187,13 @@ public actor ChannelRuntime {
     }
 
     private func decideRoute(for message: String, utilization: Double) -> ChannelRouteDecision {
-        let lower = message.lowercased()
-
-        if utilization > 0.85 {
-            return ChannelRouteDecision(
-                action: .spawnBranch,
-                reason: "context_over_85_percent",
-                confidence: 0.92,
-                tokenBudget: 1_500
-            )
-        }
-
-        let workerKeywords = ["implement", "fix", "run", "build", "execute", "тест", "сделай", "запусти"]
-        if workerKeywords.contains(where: lower.contains) {
-            return ChannelRouteDecision(
-                action: .spawnWorker,
-                reason: "matched_worker_intent",
-                confidence: 0.86,
-                tokenBudget: 3_500
-            )
-        }
-
-        let branchKeywords = ["analyze", "research", "разбери", "обдумай", "архитектур"]
-        if branchKeywords.contains(where: lower.contains) {
-            return ChannelRouteDecision(
-                action: .spawnBranch,
-                reason: "matched_branch_intent",
-                confidence: 0.81,
-                tokenBudget: 2_000
-            )
-        }
-
+        _ = message
+        _ = utilization
         return ChannelRouteDecision(
             action: .respond,
             reason: "direct_response",
-            confidence: 0.75,
-            tokenBudget: 1_000
+            confidence: 0.9,
+            tokenBudget: 3_500
         )
     }
 

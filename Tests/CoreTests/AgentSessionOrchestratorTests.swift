@@ -98,14 +98,10 @@ private func expectedFallbackBootstrapMessage(
 ) throws -> String {
     let loader = PromptTemplateLoader()
     let renderer = PromptTemplateRenderer()
-    let capabilities = try renderer.render(
-        template: try loader.loadPartial(named: "session_capabilities"),
-        values: [:]
-    )
-    let runtimeRules = try renderer.render(
-        template: try loader.loadPartial(named: "runtime_rules"),
-        values: [:]
-    )
+    let capabilities = try renderer.render(template: try loader.loadPartial(named: "session_capabilities"), values: [:])
+    let runtimeRules = try renderer.render(template: try loader.loadPartial(named: "runtime_rules"), values: [:])
+    let branchingRules = try renderer.render(template: try loader.loadPartial(named: "branching_rules"), values: [:])
+    let toolsInstruction = try renderer.render(template: try loader.loadPartial(named: "tools_instruction"), values: [:])
 
     return """
     [agent_session_context_bootstrap_v1]
@@ -128,6 +124,10 @@ private func expectedFallbackBootstrapMessage(
     \(capabilities)
 
     \(runtimeRules)
+
+    \(branchingRules)
+
+    \(toolsInstruction)
     """
 }
 
@@ -301,6 +301,8 @@ func agentSessionBootstrapIncludesToolCallProtocol() async throws {
     #expect(bootstrapMessage.contains(#""tool":"<tool-id>""#))
     #expect(bootstrapMessage.contains("`runtime.exec`"))
     #expect(bootstrapMessage.contains("`files.write`"))
+    #expect(bootstrapMessage.contains("`branches.spawn`"))
+    #expect(bootstrapMessage.contains("[Branching rules]"))
 }
 
 @Test

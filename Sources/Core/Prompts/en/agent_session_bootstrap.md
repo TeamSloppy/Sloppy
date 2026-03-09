@@ -21,4 +21,6 @@ Session: {{session_id}}
 
 {{runtime_rules_section}}
 
+{{branching_rules_section}}
+
 {{tools_instruction_section}}

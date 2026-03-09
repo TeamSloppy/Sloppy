@@ -6,6 +6,7 @@
 - If you don't know the exact arguments or tools available, you MUST call `{"tool":"system.list_tools","arguments":{},"reason":"Discovering available tools"}` to get the catalog before attempting any unknown tool.
 - Common tools:
   - `system.list_tools` with `{}`
+  - `branches.spawn` with `{"prompt":"investigate the issue and return a concise conclusion"}`
   - `files.read` with `{"path":"path/to/file"}`
   - `files.write` with `{"path":"path/to/file","content":"..."}`
   - `files.edit` with `{"path":"path/to/file","search":"old","replace":"new"}`
