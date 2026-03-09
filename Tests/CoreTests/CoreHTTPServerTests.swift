@@ -8,6 +8,7 @@ import Testing
 @testable import Protocols
 
 private struct SSEMalformedResponseError: Error {}
+private struct WebSocketMalformedResponseError: Error {}
 
 private final class SSEDataCollector: NSObject, @unchecked Sendable, URLSessionDataDelegate {
     private let lock = NSLock()
@@ -158,4 +159,95 @@ func sseStreamEndpointOverHTTPServerReturnsSessionReadyEvent() async throws {
     let update = try decoder.decode(AgentSessionStreamUpdate.self, from: payload)
     #expect(update.kind == .sessionReady)
     #expect(update.summary?.id == session.id)
+}
+
+@Test
+func webSocketSessionStreamPublishesToolEventsOverHTTPServer() async throws {
+    let workspaceName = "workspace-http-ws-\(UUID().uuidString)"
+    let sqlitePath = FileManager.default.temporaryDirectory
+        .appendingPathComponent("core-http-ws-\(UUID().uuidString).sqlite")
+        .path
+
+    var config = CoreConfig.default
+    config.workspace = .init(name: workspaceName, basePath: FileManager.default.temporaryDirectory.path)
+    config.sqlitePath = sqlitePath
+
+    let service = CoreService(config: config)
+    let router = CoreRouter(service: service)
+    let server = CoreHTTPServer(
+        host: "127.0.0.1",
+        port: 0,
+        router: router,
+        logger: Logger(label: "sloppy.core.httpserver.tests")
+    )
+    try server.start()
+    defer { try? server.shutdown() }
+
+    guard let boundPort = server.boundPort else {
+        throw WebSocketMalformedResponseError()
+    }
+
+    _ = try await service.createAgent(
+        AgentCreateRequest(
+            id: "agent-http-ws",
+            displayName: "Agent HTTP WS",
+            role: "WS regression"
+        )
+    )
+    let session = try await service.createAgentSession(
+        agentID: "agent-http-ws",
+        request: AgentSessionCreateRequest(title: "HTTP WS Session")
+    )
+
+    let wsURL = try #require(
+        URL(string: "ws://127.0.0.1:\(boundPort)/v1/agents/agent-http-ws/sessions/\(session.id)/ws")
+    )
+    let webSocket = URLSession.shared.webSocketTask(with: wsURL)
+    webSocket.resume()
+    defer { webSocket.cancel(with: .normalClosure, reason: nil) }
+
+    let decoder = JSONDecoder()
+    decoder.dateDecodingStrategy = .iso8601
+
+    let readyMessage = try await webSocket.receive()
+    guard case .string(let readyPayload) = readyMessage else {
+        throw WebSocketMalformedResponseError()
+    }
+    let readyUpdate = try decoder.decode(AgentSessionStreamUpdate.self, from: Data(readyPayload.utf8))
+    #expect(readyUpdate.kind == .sessionReady)
+    #expect(readyUpdate.summary?.id == session.id)
+
+    async let invocation: ToolInvocationResult = service.invokeToolFromRuntime(
+        agentID: "agent-http-ws",
+        sessionID: session.id,
+        request: ToolInvocationRequest(tool: "sessions.list", arguments: [:], reason: "ws regression")
+    )
+
+    let firstEventMessage = try await webSocket.receive()
+    let secondEventMessage = try await webSocket.receive()
+    _ = await invocation
+
+    let firstPayload = try #require(messagePayload(firstEventMessage))
+    let secondPayload = try #require(messagePayload(secondEventMessage))
+    let firstUpdate = try decoder.decode(AgentSessionStreamUpdate.self, from: Data(firstPayload.utf8))
+    let secondUpdate = try decoder.decode(AgentSessionStreamUpdate.self, from: Data(secondPayload.utf8))
+
+    #expect(firstUpdate.kind == .sessionEvent)
+    #expect(firstUpdate.event?.type == .toolCall)
+    #expect(firstUpdate.event?.toolCall?.tool == "sessions.list")
+    #expect(secondUpdate.kind == .sessionEvent)
+    #expect(secondUpdate.event?.type == .toolResult)
+    #expect(secondUpdate.event?.toolResult?.tool == "sessions.list")
+    #expect(secondUpdate.cursor > firstUpdate.cursor)
+}
+
+private func messagePayload(_ message: URLSessionWebSocketTask.Message) -> String? {
+    switch message {
+    case .string(let payload):
+        return payload
+    case .data(let payload):
+        return String(data: payload, encoding: .utf8)
+    @unknown default:
+        return nil
+    }
 }

@@ -7,6 +7,7 @@ actor AgentSessionOrchestrator {
     private static let sessionContextBootstrapMarker = "[agent_session_context_bootstrap_v1]"
     typealias ToolInvoker = @Sendable (String, String, ToolInvocationRequest) async -> ToolInvocationResult
     typealias ResponseChunkObserver = @Sendable (String, String, String) async -> Void
+    typealias EventAppendObserver = @Sendable (String, String, AgentSessionSummary, [AgentSessionEvent]) async -> Void
 
     enum OrchestratorError: Error {
         case invalidAgentID
@@ -26,6 +27,7 @@ actor AgentSessionOrchestrator {
     private let logger: Logger
     private var toolInvoker: ToolInvoker?
     private var responseChunkObserver: ResponseChunkObserver?
+    private var eventAppendObserver: EventAppendObserver?
 
     private var activeSessionRunChannels: Set<String> = []
     private var interruptedSessionRunChannels: Set<String> = []
@@ -42,6 +44,7 @@ actor AgentSessionOrchestrator {
         availableModels: [ProviderModelOption],
         toolInvoker: ToolInvoker? = nil,
         responseChunkObserver: ResponseChunkObserver? = nil,
+        eventAppendObserver: EventAppendObserver? = nil,
         logger: Logger = Logger(label: "sloppy.core.sessions")
     ) {
         self.runtime = runtime
@@ -52,6 +55,7 @@ actor AgentSessionOrchestrator {
         self.availableModels = availableModels
         self.toolInvoker = toolInvoker
         self.responseChunkObserver = responseChunkObserver
+        self.eventAppendObserver = eventAppendObserver
         self.logger = logger
     }
 
@@ -70,6 +74,10 @@ actor AgentSessionOrchestrator {
 
     func updateResponseChunkObserver(_ observer: ResponseChunkObserver?) {
         self.responseChunkObserver = observer
+    }
+
+    func updateEventAppendObserver(_ observer: EventAppendObserver?) {
+        self.eventAppendObserver = observer
     }
 
     func createSession(agentID: String, request: AgentSessionCreateRequest) async throws -> AgentSessionSummary {
@@ -242,7 +250,7 @@ actor AgentSessionOrchestrator {
 
         var summary: AgentSessionSummary
         do {
-            summary = try sessionStore.appendEvents(
+            summary = try appendEventsAndNotify(
                 agentID: agentID,
                 sessionID: sessionID,
                 events: initialEvents
@@ -470,7 +478,7 @@ actor AgentSessionOrchestrator {
 
         if !finalEvents.isEmpty {
             do {
-                summary = try sessionStore.appendEvents(
+                summary = try appendEventsAndNotify(
                     agentID: agentID,
                     sessionID: sessionID,
                     events: finalEvents
@@ -532,7 +540,7 @@ actor AgentSessionOrchestrator {
 
         let summary: AgentSessionSummary
         do {
-            summary = try sessionStore.appendEvents(
+            summary = try appendEventsAndNotify(
                 agentID: agentID,
                 sessionID: sessionID,
                 events: events
@@ -544,6 +552,26 @@ actor AgentSessionOrchestrator {
         return AgentSessionMessageResponse(summary: summary, appendedEvents: events, routeDecision: nil)
     }
 
+    private func appendEventsAndNotify(
+        agentID: String,
+        sessionID: String,
+        events: [AgentSessionEvent]
+    ) throws -> AgentSessionSummary {
+        let summary = try sessionStore.appendEvents(
+            agentID: agentID,
+            sessionID: sessionID,
+            events: events
+        )
+
+        if let eventAppendObserver {
+            Task {
+                await eventAppendObserver(agentID, sessionID, summary, events)
+            }
+        }
+
+        return summary
+    }
+
     private func cleanupSessionRunTracking(channelID: String) {
         activeSessionRunChannels.remove(channelID)
         interruptedSessionRunChannels.remove(channelID)
@@ -553,7 +581,7 @@ actor AgentSessionOrchestrator {
     }
 
     private func appendEventsSafely(agentID: String, sessionID: String, events: [AgentSessionEvent]) {
-        _ = try? sessionStore.appendEvents(agentID: agentID, sessionID: sessionID, events: events)
+        _ = try? appendEventsAndNotify(agentID: agentID, sessionID: sessionID, events: events)
     }
 
     private func handleSessionResponseChunk(

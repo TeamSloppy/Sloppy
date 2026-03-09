@@ -3,6 +3,9 @@ import Logging
 import NIOCore
 import NIOHTTP1
 import NIOPosix
+import NIOWebSocket
+
+private struct WebSocketUpgradeRejected: Error {}
 
 /// Runs HTTP transport for CoreRouter using SwiftNIO HTTP/1.1.
 public final class CoreHTTPServer {
@@ -27,8 +30,32 @@ public final class CoreHTTPServer {
             .serverChannelOption(ChannelOptions.backlog, value: 256)
             .serverChannelOption(ChannelOptions.socketOption(.so_reuseaddr), value: 1)
             .childChannelInitializer { [router, logger] channel in
-                channel.pipeline.configureHTTPServerPipeline().flatMap {
-                    channel.pipeline.addHandler(CoreHTTPHandler(router: router, logger: logger))
+                let httpHandler = CoreHTTPHandler(router: router, logger: logger)
+                let webSocketUpgrader = NIOWebSocketServerUpgrader(
+                    shouldUpgrade: { channel, head in
+                        channel.eventLoop.makeFutureWithTask {
+                            guard await router.canHandleWebSocket(path: head.uri) else {
+                                throw WebSocketUpgradeRejected()
+                            }
+                            return HTTPHeaders()
+                        }
+                    },
+                    upgradePipelineHandler: { channel, head in
+                        let handler = CoreWebSocketHandler(router: router, logger: logger, path: head.uri)
+                        return channel.pipeline.addHandler(handler)
+                    }
+                )
+                let upgradeConfig = NIOHTTPServerUpgradeConfiguration(
+                    upgraders: [webSocketUpgrader],
+                    completionHandler: { context in
+                        try? context.pipeline.syncOperations.removeHandler(httpHandler)
+                    }
+                )
+
+                return channel.pipeline.configureHTTPServerPipeline(
+                    withServerUpgrade: upgradeConfig
+                ).flatMap {
+                    channel.pipeline.addHandler(httpHandler)
                 }
             }
             .childChannelOption(ChannelOptions.socketOption(.so_reuseaddr), value: 1)
@@ -61,7 +88,7 @@ public final class CoreHTTPServer {
     }
 }
 
-private final class CoreHTTPHandler: ChannelInboundHandler, @unchecked Sendable {
+private final class CoreHTTPHandler: ChannelInboundHandler, RemovableChannelHandler, @unchecked Sendable {
     typealias InboundIn = HTTPServerRequestPart
     typealias OutboundOut = HTTPServerResponsePart
 
@@ -281,6 +308,10 @@ private final class CoreHTTPHandler: ChannelInboundHandler, @unchecked Sendable 
                 }
 
                 let context = loopBoundContext.value
+                guard context.channel.isActive else {
+                    continuation.resume()
+                    return
+                }
                 var buffer = context.channel.allocator.buffer(capacity: bytes.count)
                 buffer.writeBytes(bytes)
                 context.writeAndFlush(self.wrapOutboundOut(.body(.byteBuffer(buffer)))).whenComplete { _ in
@@ -303,6 +334,10 @@ private final class CoreHTTPHandler: ChannelInboundHandler, @unchecked Sendable 
                 }
 
                 let context = loopBoundContext.value
+                guard context.channel.isActive else {
+                    continuation.resume()
+                    return
+                }
                 let innerLoopBoundContext = NIOLoopBound(context, eventLoop: context.eventLoop)
                 context.writeAndFlush(self.wrapOutboundOut(.end(nil))).whenComplete { _ in
                     if !keepAlive {
@@ -340,5 +375,129 @@ private final class CoreHTTPHandler: ChannelInboundHandler, @unchecked Sendable 
         streamTask?.cancel()
         streamTask = nil
         context.fireChannelInactive()
+    }
+}
+
+private final class CoreWebSocketHandler: ChannelDuplexHandler, @unchecked Sendable {
+    typealias InboundIn = WebSocketFrame
+    typealias OutboundIn = WebSocketFrame
+    typealias OutboundOut = WebSocketFrame
+
+    private let router: CoreRouter
+    private let logger: Logger
+    private let path: String
+    private var context: ChannelHandlerContext?
+    private var routeTask: Task<Void, Never>?
+    private var closeRequested = false
+
+    init(router: CoreRouter, logger: Logger, path: String) {
+        self.router = router
+        self.logger = logger
+        self.path = path
+    }
+
+    func handlerAdded(context: ChannelHandlerContext) {
+        self.context = context
+        let connection = WebSocketConnectionContext(
+            sendText: { [weak self] text in
+                await self?.sendText(text) ?? false
+            },
+            close: { [weak self] in
+                await self?.close()
+            }
+        )
+
+        routeTask = Task { [router, path, logger] in
+            let handled = await router.handleWebSocket(path: path, connection: connection)
+            if !handled {
+                logger.warning("Rejected websocket request", metadata: ["path": .string(path)])
+                await connection.close()
+            }
+        }
+    }
+
+    func channelRead(context: ChannelHandlerContext, data: NIOAny) {
+        let frame = unwrapInboundIn(data)
+        switch frame.opcode {
+        case .ping:
+            let data = frame.unmaskedData
+            let pong = WebSocketFrame(fin: true, opcode: .pong, data: data)
+            context.writeAndFlush(wrapOutboundOut(pong), promise: nil)
+        case .connectionClose:
+            closeRequested = true
+            context.close(promise: nil)
+        default:
+            break
+        }
+    }
+
+    func channelInactive(context: ChannelHandlerContext) {
+        routeTask?.cancel()
+        routeTask = nil
+        self.context = nil
+        context.fireChannelInactive()
+    }
+
+    func errorCaught(context: ChannelHandlerContext, error: Error) {
+        logger.warning(
+            "WebSocket channel error",
+            metadata: [
+                "path": .string(path),
+                "error": .string(String(describing: error))
+            ]
+        )
+        context.close(promise: nil)
+    }
+
+    private func sendText(_ text: String) async -> Bool {
+        guard let context else {
+            return false
+        }
+        let eventLoop = context.eventLoop
+
+        return await withCheckedContinuation { continuation in
+            eventLoop.execute {
+                guard let context = self.context, context.channel.isActive, !self.closeRequested else {
+                    continuation.resume(returning: false)
+                    return
+                }
+
+                var buffer = context.channel.allocator.buffer(capacity: text.utf8.count)
+                buffer.writeString(text)
+                let frame = WebSocketFrame(fin: true, opcode: .text, data: buffer)
+                context.writeAndFlush(self.wrapOutboundOut(frame)).whenComplete { result in
+                    switch result {
+                    case .success:
+                        continuation.resume(returning: true)
+                    case .failure:
+                        continuation.resume(returning: false)
+                    }
+                }
+            }
+        }
+    }
+
+    private func close() async {
+        guard let context else {
+            return
+        }
+        let eventLoop = context.eventLoop
+
+        await withCheckedContinuation { continuation in
+            eventLoop.execute {
+                guard let context = self.context, context.channel.isActive else {
+                    continuation.resume()
+                    return
+                }
+
+                self.closeRequested = true
+                let data = context.channel.allocator.buffer(capacity: 0)
+                let frame = WebSocketFrame(fin: true, opcode: .connectionClose, data: data)
+                context.writeAndFlush(self.wrapOutboundOut(frame)).whenComplete { _ in
+                    context.close(promise: nil)
+                    continuation.resume()
+                }
+            }
+        }
     }
 }

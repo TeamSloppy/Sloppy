@@ -89,7 +89,24 @@ public struct HTTPRequest: Sendable {
 
 /// WebSocket-style placeholder callback context for future transport integration.
 public struct WebSocketConnectionContext: Sendable {
-    public init() {}
+    private let sendTextBody: @Sendable (String) async -> Bool
+    private let closeBody: @Sendable () async -> Void
+
+    public init(
+        sendText: @escaping @Sendable (String) async -> Bool,
+        close: @escaping @Sendable () async -> Void
+    ) {
+        self.sendTextBody = sendText
+        self.closeBody = close
+    }
+
+    public func sendText(_ text: String) async -> Bool {
+        await sendTextBody(text)
+    }
+
+    public func close() async {
+        await closeBody()
+    }
 }
 
 enum CoreRouterConstants {
@@ -216,14 +233,36 @@ private struct RouteDefinition {
 }
 
 private struct WebSocketRouteDefinition {
+    typealias Validator = (HTTPRequest) async -> Bool
     typealias Callback = (HTTPRequest, WebSocketConnectionContext) async -> Void
 
     let segments: [RoutePathSegment]
+    let validator: Validator
     let callback: Callback
 
-    init(path: String, callback: @escaping Callback) {
+    init(path: String, validator: @escaping Validator, callback: @escaping Callback) {
         self.segments = parseRoutePath(path)
+        self.validator = validator
         self.callback = callback
+    }
+
+    func match(pathSegments: [String]) -> [String: String]? {
+        guard segments.count == pathSegments.count else {
+            return nil
+        }
+
+        var params: [String: String] = [:]
+        for (pattern, value) in zip(segments, pathSegments) {
+            switch pattern {
+            case .literal(let literal):
+                guard literal == value else {
+                    return nil
+                }
+            case .parameter(let key):
+                params[key] = value
+            }
+        }
+        return params
     }
 }
 
@@ -236,7 +275,7 @@ public actor CoreRouter {
     public init(service: CoreService) {
         self.service = service
         self.routes = Self.defaultRoutes(service: service)
-        self.webSocketRoutes = []
+        self.webSocketRoutes = Self.defaultWebSocketRoutes(service: service)
     }
 
     /// Registers generic HTTP route callback.
@@ -267,9 +306,29 @@ public actor CoreRouter {
     /// WebSocket-like registration API (transport integration to be wired in CoreHTTPServer later).
     public func webSocket(
         _ path: String,
+        validator: @escaping (HTTPRequest) async -> Bool = { _ in true },
         callback: @escaping (HTTPRequest, WebSocketConnectionContext) async -> Void
     ) {
-        webSocketRoutes.append(.init(path: path, callback: callback))
+        webSocketRoutes.append(.init(path: path, validator: validator, callback: callback))
+    }
+
+    public func canHandleWebSocket(path: String) async -> Bool {
+        if let route = matchedWebSocketRoute(for: path) {
+            return await route.definition.validator(route.request)
+        }
+        return false
+    }
+
+    public func handleWebSocket(path: String, connection: WebSocketConnectionContext) async -> Bool {
+        guard let route = matchedWebSocketRoute(for: path) else {
+            return false
+        }
+        guard await route.definition.validator(route.request) else {
+            return false
+        }
+
+        await route.definition.callback(route.request, connection)
+        return true
     }
 
     /// Routes incoming HTTP-like request into registered Core handlers.
@@ -1387,6 +1446,60 @@ public actor CoreRouter {
         return routes
     }
 
+    private static func defaultWebSocketRoutes(service: CoreService) -> [WebSocketRouteDefinition] {
+        var routes: [WebSocketRouteDefinition] = []
+
+        routes.append(
+            .init(
+                path: "/v1/agents/:agentId/sessions/:sessionId/ws",
+                validator: { request in
+                    let agentId = request.pathParam("agentId") ?? ""
+                    let sessionId = request.pathParam("sessionId") ?? ""
+                    return await service.canStreamAgentSessionEvents(agentID: agentId, sessionID: sessionId)
+                },
+                callback: { request, connection in
+                    let agentId = request.pathParam("agentId") ?? ""
+                    let sessionId = request.pathParam("sessionId") ?? ""
+
+                    do {
+                        let stream = try await service.streamAgentSessionEvents(agentID: agentId, sessionID: sessionId)
+                        let encoder = JSONEncoder()
+                        encoder.dateEncodingStrategy = .iso8601
+
+                        for await update in stream {
+                            guard let payloadData = try? encoder.encode(update),
+                                  let payload = String(data: payloadData, encoding: .utf8)
+                            else {
+                                continue
+                            }
+
+                            let sent = await connection.sendText(payload)
+                            if !sent {
+                                break
+                            }
+                        }
+                    } catch {
+                        let encoder = JSONEncoder()
+                        encoder.dateEncodingStrategy = .iso8601
+                        if let payloadData = try? encoder.encode(
+                            AgentSessionStreamUpdate(
+                                kind: .sessionError,
+                                cursor: 0,
+                                message: "Failed to stream session updates."
+                            )
+                        ), let payload = String(data: payloadData, encoding: .utf8) {
+                            _ = await connection.sendText(payload)
+                        }
+                    }
+
+                    await connection.close()
+                }
+            )
+        )
+
+        return routes
+    }
+
     private static func channelPluginErrorResponse(_ error: CoreService.ChannelPluginError) -> CoreRouterResponse {
         switch error {
         case .invalidID:
@@ -1582,6 +1695,31 @@ public actor CoreRouter {
 
         let formatter = ISO8601DateFormatter()
         return formatter.date(from: string)
+    }
+
+    private func matchedWebSocketRoute(
+        for path: String
+    ) -> (definition: WebSocketRouteDefinition, request: HTTPRequest)? {
+        let queryParams = parseQueryString(from: path)
+        let pathSegments = splitPath(path)
+
+        for route in webSocketRoutes {
+            guard let params = route.match(pathSegments: pathSegments) else {
+                continue
+            }
+
+            let request = HTTPRequest(
+                method: .get,
+                path: path,
+                segments: pathSegments,
+                params: params,
+                query: queryParams,
+                body: nil
+            )
+            return (route, request)
+        }
+
+        return nil
     }
 }
 
