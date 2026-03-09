@@ -233,6 +233,42 @@ func projectCreateEndpointAcceptsPayloadWithoutChannels() async throws {
     #expect(created.channels.first?.channelId == "onboarding-project-main")
 }
 
+@Test
+func updateConfigSwitchesProjectPersistenceStore() async throws {
+    let root = FileManager.default.temporaryDirectory
+        .appendingPathComponent("core-config-project-store-\(UUID().uuidString)", isDirectory: true)
+    try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+
+    let configPath = root.appendingPathComponent("sloppy.json").path
+    let sqliteA = root.appendingPathComponent("core-a.sqlite").path
+    let sqliteB = root.appendingPathComponent("core-b.sqlite").path
+
+    var initialConfig = CoreConfig.default
+    initialConfig.workspace = .init(name: "workspace-a-\(UUID().uuidString)", basePath: root.path)
+    initialConfig.sqlitePath = sqliteA
+
+    let service = CoreService(config: initialConfig, configPath: configPath)
+
+    var updatedConfig = initialConfig
+    updatedConfig.workspace = .init(name: "workspace-b-\(UUID().uuidString)", basePath: root.path)
+    updatedConfig.sqlitePath = sqliteB
+
+    _ = try await service.updateConfig(updatedConfig)
+    _ = try await service.createProject(
+        ProjectCreateRequest(
+            id: "onboarding-project",
+            name: "Onboarding Project"
+        )
+    )
+
+    let projects = await service.listProjects()
+    #expect(projects.contains(where: { $0.id == "onboarding-project" }))
+
+    let restartedService = CoreService(config: updatedConfig, configPath: configPath)
+    let restartedProjects = await restartedService.listProjects()
+    #expect(restartedProjects.contains(where: { $0.id == "onboarding-project" }))
+}
+
 #if canImport(SQLite3)
 @Test
 func projectMembersMigrateFromLegacyDashboardProjectsSchema() async throws {
