@@ -1323,6 +1323,8 @@ export function AgentChatTab({ agentId }) {
   const composeInputRef = useRef(null);
   const runStateRef = useRef({ sessionId: null, abortController: null });
   const streamCleanupRef = useRef(() => { });
+  const activeSessionIdRef = useRef(null);
+  const sessionSyncRef = useRef({ sessionId: null, timerId: null, inflight: false, queued: false });
   const taskRecordCacheRef = useRef(new Map());
   const taskRecordInflightRef = useRef(new Map());
   const activeModelOption = useMemo(
@@ -1339,9 +1341,17 @@ export function AgentChatTab({ agentId }) {
     return () => {
       streamCleanupRef.current?.();
       streamCleanupRef.current = () => { };
+      if (sessionSyncRef.current.timerId) {
+        window.clearTimeout(sessionSyncRef.current.timerId);
+      }
+      sessionSyncRef.current = { sessionId: null, timerId: null, inflight: false, queued: false };
       document.body.classList.remove("agent-chat-no-page-scroll");
     };
   }, []);
+
+  useEffect(() => {
+    activeSessionIdRef.current = activeSessionId;
+  }, [activeSessionId]);
 
   function cacheTaskRecord(record) {
     if (!record?.referenceLower) {
@@ -1503,6 +1513,10 @@ export function AgentChatTab({ agentId }) {
       setIsSending(false);
       streamCleanupRef.current?.();
       streamCleanupRef.current = () => { };
+      if (sessionSyncRef.current.timerId) {
+        window.clearTimeout(sessionSyncRef.current.timerId);
+      }
+      sessionSyncRef.current = { sessionId: null, timerId: null, inflight: false, queued: false };
       runStateRef.current.abortController?.abort();
       runStateRef.current.sessionId = null;
       runStateRef.current.abortController = null;
@@ -1548,6 +1562,10 @@ export function AgentChatTab({ agentId }) {
       isCancelled = true;
       streamCleanupRef.current?.();
       streamCleanupRef.current = () => { };
+      if (sessionSyncRef.current.timerId) {
+        window.clearTimeout(sessionSyncRef.current.timerId);
+      }
+      sessionSyncRef.current = { sessionId: null, timerId: null, inflight: false, queued: false };
       runStateRef.current.abortController?.abort();
       runStateRef.current.sessionId = null;
       runStateRef.current.abortController = null;
@@ -1654,6 +1672,57 @@ export function AgentChatTab({ agentId }) {
     });
   }
 
+  async function syncSessionDetail(sessionId) {
+    if (!sessionId) {
+      return;
+    }
+
+    const detail = await fetchAgentSession(agentId, sessionId);
+    if (!detail || activeSessionIdRef.current !== sessionId) {
+      return;
+    }
+
+    setActiveSession(detail);
+    if (detail.summary?.id) {
+      mergeSessionSummary(detail.summary);
+    }
+  }
+
+  function scheduleSessionSync(sessionId, delayMs = 120) {
+    if (!sessionId) {
+      return;
+    }
+
+    const state = sessionSyncRef.current;
+    state.sessionId = sessionId;
+
+    if (state.timerId) {
+      window.clearTimeout(state.timerId);
+    }
+
+    state.timerId = window.setTimeout(async () => {
+      state.timerId = null;
+
+      if (state.inflight) {
+        state.queued = true;
+        return;
+      }
+
+      state.inflight = true;
+      const requestedSessionId = state.sessionId;
+
+      try {
+        await syncSessionDetail(requestedSessionId);
+      } finally {
+        state.inflight = false;
+        if (state.queued && state.sessionId) {
+          state.queued = false;
+          scheduleSessionSync(state.sessionId, 0);
+        }
+      }
+    }, delayMs);
+  }
+
   function handleSessionStreamUpdate(update) {
     if (!update || typeof update !== "object") {
       return;
@@ -1698,6 +1767,17 @@ export function AgentChatTab({ agentId }) {
       }
       if (streamEvent.type === "message" && streamEvent.message?.role === "user") {
         setOptimisticUserEvent(null);
+      }
+    }
+
+    if (
+      kind === "session_ready" ||
+      kind === "session_event" ||
+      kind === "heartbeat"
+    ) {
+      const syncSessionId = String(summary?.id || streamEvent?.sessionId || activeSessionIdRef.current || "").trim();
+      if (syncSessionId && syncSessionId === activeSessionIdRef.current) {
+        scheduleSessionSync(syncSessionId, kind === "heartbeat" ? 180 : 0);
       }
     }
 
