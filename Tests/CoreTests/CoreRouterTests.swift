@@ -858,23 +858,34 @@ func runtimeRecoveryAfterRestartReplaysPersistedState() async throws {
             body: createTaskBody
         )
         #expect(createTaskResponse.status == 200)
+        let createdProject = try decoder.decode(ProjectRecord.self, from: createTaskResponse.body)
+        let taskID = try #require(createdProject.tasks.first?.id)
 
-        let messageBody = try JSONEncoder().encode(
-            ChannelMessageRequest(userId: "u1", content: "implement recovery artifact")
+        let createWorkerBody = try JSONEncoder().encode(
+            WorkerCreateRequest(
+                spec: WorkerTaskSpec(
+                    taskId: taskID,
+                    channelId: channelID,
+                    title: "Recovery worker",
+                    objective: "Persist recovery artifact",
+                    tools: ["files.write"],
+                    mode: .interactive
+                )
+            )
         )
-        let messageResponse = await router.handle(
-            method: "POST",
-            path: "/v1/channels/\(channelID)/messages",
-            body: messageBody
-        )
-        #expect(messageResponse.status == 200)
+        let createWorkerResponse = await router.handle(method: "POST", path: "/v1/workers", body: createWorkerBody)
+        #expect(createWorkerResponse.status == 201)
 
         let stateResponse = await router.handle(method: "GET", path: "/v1/channels/\(channelID)/state", body: nil)
         #expect(stateResponse.status == 200)
         let state = try decoder.decode(ChannelSnapshot.self, from: stateResponse.body)
         let workerID = try #require(state.activeWorkerIds.first)
 
-        let routeBody = try JSONEncoder().encode(ChannelRouteRequest(message: "done"))
+        let completionRouteMessage = String(
+            decoding: try JSONEncoder().encode(WorkerRouteCommand(command: .complete, summary: "Recovery artifact ready")),
+            as: UTF8.self
+        )
+        let routeBody = try JSONEncoder().encode(ChannelRouteRequest(message: completionRouteMessage))
         let routeResponse = await router.handle(
             method: "POST",
             path: "/v1/channels/\(channelID)/route/\(workerID)",
@@ -889,8 +900,12 @@ func runtimeRecoveryAfterRestartReplaysPersistedState() async throws {
         )
         #expect(completedStateResponse.status == 200)
         let completedState = try decoder.decode(ChannelSnapshot.self, from: completedStateResponse.body)
-        let completionMessage = try #require(completedState.messages.last(where: { $0.userId == "system" })?.content)
-        artifactID = try #require(extractArtifactID(from: completionMessage))
+        let completionSystemMessage = try #require(
+            completedState.messages.last(where: { message in
+                message.userId == "system" && message.content.contains("artifact ")
+            })?.content
+        )
+        artifactID = try #require(extractArtifactID(from: completionSystemMessage))
 
         let artifactResponse = await router.handle(
             method: "GET",
@@ -2677,6 +2692,68 @@ func tokenUsageEndpointPersistsBranchConclusionUsage() async throws {
     let usageResponse = try decoder.decode(TokenUsageResponse.self, from: response.body)
     #expect(usageResponse.items.contains(where: { $0.promptTokens == 300 && $0.completionTokens == 120 }))
     #expect(usageResponse.totalTokens >= 420)
+}
+
+@Test
+func workerToolsSpawnAndRouteInteractiveWorker() async throws {
+    let service = CoreService(config: .default)
+    let agentID = "worker-tools-agent-\(UUID().uuidString)"
+
+    _ = try await service.createAgent(
+        AgentCreateRequest(
+            id: agentID,
+            displayName: "Worker Tools Agent",
+            role: "Worker tool regression"
+        )
+    )
+    let session = try await service.createAgentSession(
+        agentID: agentID,
+        request: AgentSessionCreateRequest(title: "Worker tools session")
+    )
+
+    let spawnResult = await service.invokeToolFromRuntime(
+        agentID: agentID,
+        sessionID: session.id,
+        request: ToolInvocationRequest(
+            tool: "workers.spawn",
+            arguments: [
+                "title": .string("Tool worker"),
+                "objective": .string("Wait for structured route"),
+                "mode": .string("interactive")
+            ],
+            reason: "Need a worker for delegated execution"
+        )
+    )
+    #expect(spawnResult.ok)
+
+    let workerId = try #require(spawnResult.data?.asObject?["workerId"]?.asString)
+    let spawned = await waitForCondition(timeoutSeconds: 3) {
+        let snapshots = await service.workerSnapshots()
+        return snapshots.contains(where: { $0.workerId == workerId && $0.status == .waitingInput })
+    }
+    #expect(spawned)
+
+    let routeResult = await service.invokeToolFromRuntime(
+        agentID: agentID,
+        sessionID: session.id,
+        request: ToolInvocationRequest(
+            tool: "workers.route",
+            arguments: [
+                "workerId": .string(workerId),
+                "command": .string("complete"),
+                "summary": .string("Completed through tool route")
+            ],
+            reason: "Mark delegated work as finished"
+        )
+    )
+    #expect(routeResult.ok)
+    #expect(routeResult.data?.asObject?["accepted"]?.asBool == true)
+    #expect(routeResult.data?.asObject?["status"]?.asString == "completed")
+
+    let snapshots = await service.workerSnapshots()
+    let snapshot = snapshots.first(where: { $0.workerId == workerId })
+    #expect(snapshot?.status == .completed)
+    #expect(snapshot?.latestReport == "Completed through tool route")
 }
 
 @Test

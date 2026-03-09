@@ -82,6 +82,10 @@ final class ToolExecutionService: @unchecked Sendable {
             result = await executeRuntimeProcess(sessionID: sessionID, request: request, policy: policy)
         case "branches.spawn":
             result = await executeBranchesSpawn(agentID: agentID, sessionID: sessionID, request: request)
+        case "workers.spawn":
+            result = await executeWorkersSpawn(agentID: agentID, sessionID: sessionID, request: request)
+        case "workers.route":
+            result = await executeWorkersRoute(agentID: agentID, sessionID: sessionID, request: request)
         case "sessions.spawn":
             result = await executeSessionsSpawn(agentID: agentID, request: request)
         case "sessions.list":
@@ -442,6 +446,113 @@ final class ToolExecutionService: @unchecked Sendable {
             "branchId": .string(execution.branchId),
             "workerId": .string(execution.workerId),
             "conclusion": encodeJSONValue(execution.conclusion)
+        ]))
+    }
+
+    private func executeWorkersSpawn(
+        agentID: String,
+        sessionID: String,
+        request: ToolInvocationRequest
+    ) async -> ToolInvocationResult {
+        let objective = request.arguments["objective"]?.asString?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !objective.isEmpty else {
+            return failed(tool: request.tool, code: "invalid_arguments", message: "`objective` is required.", retryable: false)
+        }
+
+        let title = request.arguments["title"]?.asString?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let taskId = request.arguments["taskId"]?.asString?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let tools = request.arguments["tools"]?.asArray?
+            .compactMap(\.asString)
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty } ?? []
+        let effectiveTaskId = taskId.flatMap { $0.isEmpty ? nil : $0 } ?? UUID().uuidString
+        let effectiveTitle = title.flatMap { $0.isEmpty ? nil : $0 } ?? "Worker task"
+
+        let mode: WorkerMode
+        if let rawMode = request.arguments["mode"]?.asString?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !rawMode.isEmpty {
+            guard let parsedMode = WorkerMode(rawValue: rawMode) else {
+                return failed(
+                    tool: request.tool,
+                    code: "invalid_arguments",
+                    message: "Unsupported worker mode '\(rawMode)'.",
+                    retryable: false
+                )
+            }
+            mode = parsedMode
+        } else {
+            mode = .fireAndForget
+        }
+
+        let channelID = sessionChannelID(agentID: agentID, sessionID: sessionID)
+        let spec = WorkerTaskSpec(
+            taskId: effectiveTaskId,
+            channelId: channelID,
+            title: effectiveTitle,
+            objective: objective,
+            tools: tools,
+            mode: mode
+        )
+        let workerId = await runtime.createWorker(spec: spec)
+
+        return success(tool: request.tool, data: .object([
+            "workerId": .string(workerId),
+            "taskId": .string(spec.taskId),
+            "channelId": .string(spec.channelId),
+            "title": .string(spec.title),
+            "mode": .string(spec.mode.rawValue)
+        ]))
+    }
+
+    private func executeWorkersRoute(
+        agentID: String,
+        sessionID: String,
+        request: ToolInvocationRequest
+    ) async -> ToolInvocationResult {
+        let workerId = request.arguments["workerId"]?.asString?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !workerId.isEmpty else {
+            return failed(tool: request.tool, code: "invalid_arguments", message: "`workerId` is required.", retryable: false)
+        }
+
+        let rawCommand = request.arguments["command"]?.asString?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard let command = WorkerRouteCommandAction(rawValue: rawCommand), !rawCommand.isEmpty else {
+            return failed(tool: request.tool, code: "invalid_arguments", message: "`command` is required.", retryable: false)
+        }
+
+        let routeCommand = WorkerRouteCommand(
+            command: command,
+            summary: trimmedArgument("summary", from: request.arguments),
+            error: trimmedArgument("error", from: request.arguments),
+            report: trimmedArgument("report", from: request.arguments)
+        )
+
+        let channelID = sessionChannelID(agentID: agentID, sessionID: sessionID)
+        let message: String
+        do {
+            let encoder = JSONEncoder()
+            let data = try encoder.encode(routeCommand)
+            message = String(decoding: data, as: UTF8.self)
+        } catch {
+            return failed(tool: request.tool, code: "encode_failed", message: "Failed to encode worker route command.", retryable: true)
+        }
+
+        let accepted = await runtime.routeMessage(channelId: channelID, workerId: workerId, message: message)
+        guard accepted else {
+            return failed(
+                tool: request.tool,
+                code: "worker_route_rejected",
+                message: "Worker route was not accepted.",
+                retryable: false
+            )
+        }
+
+        let snapshots = await runtime.workerSnapshots()
+        let snapshot = snapshots.first(where: { $0.workerId == workerId })
+        return success(tool: request.tool, data: .object([
+            "workerId": .string(workerId),
+            "accepted": .bool(true),
+            "status": snapshot.map { .string($0.status.rawValue) } ?? .null,
+            "latestReport": snapshot?.latestReport.map(JSONValue.string) ?? .null
         ]))
     }
 
@@ -965,6 +1076,11 @@ final class ToolExecutionService: @unchecked Sendable {
     private func optionalString(_ value: String?) -> String {
         let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         return trimmed.isEmpty ? "(none)" : trimmed
+    }
+
+    private func trimmedArgument(_ key: String, from arguments: [String: JSONValue]) -> String? {
+        let trimmed = arguments[key]?.asString?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return trimmed.isEmpty ? nil : trimmed
     }
 
     private func parseScope(arguments: [String: JSONValue]) -> MemoryScope? {

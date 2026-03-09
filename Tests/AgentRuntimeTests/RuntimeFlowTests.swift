@@ -20,7 +20,7 @@ func routingDoesNotUseKeywordHeuristicsForBranchingOrWorkers() async {
 }
 
 @Test
-func interactiveWorkerRouteCompletion() async {
+func interactiveWorkerRouteRequiresStructuredCommand() async throws {
     let system = RuntimeSystem()
     let spec = WorkerTaskSpec(
         taskId: "task-route",
@@ -34,6 +34,20 @@ func interactiveWorkerRouteCompletion() async {
     let workerId = await system.createWorker(spec: spec)
     let accepted = await system.routeMessage(channelId: "general", workerId: workerId, message: "done")
     #expect(accepted)
+
+    let waitingSnapshots = await system.workerSnapshots()
+    let waitingSnapshot = waitingSnapshots.first(where: { $0.workerId == workerId })
+    #expect(waitingSnapshot?.status == .waitingInput)
+
+    let completion = WorkerRouteCommand(command: .complete, summary: "Worker finished", error: nil, report: nil)
+    let completionMessage = String(decoding: try JSONEncoder().encode(completion), as: UTF8.self)
+    let completed = await system.routeMessage(channelId: "general", workerId: workerId, message: completionMessage)
+    #expect(completed)
+
+    let completedSnapshots = await system.workerSnapshots()
+    let completedSnapshot = completedSnapshots.first(where: { $0.workerId == workerId })
+    #expect(completedSnapshot?.status == .completed)
+    #expect(completedSnapshot?.latestReport == "Worker finished")
 }
 
 @Test

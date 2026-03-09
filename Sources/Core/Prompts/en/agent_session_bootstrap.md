@@ -23,4 +23,6 @@ Session: {{session_id}}
 
 {{branching_rules_section}}
 
+{{worker_rules_section}}
+
 {{tools_instruction_section}}

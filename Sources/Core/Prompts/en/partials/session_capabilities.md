@@ -7,6 +7,8 @@
 - Common tools:
   - `system.list_tools` with `{}`
   - `branches.spawn` with `{"prompt":"investigate the issue and return a concise conclusion"}`
+  - `workers.spawn` with `{"title":"Implementation worker","objective":"apply the requested change and summarize the result","mode":"fire_and_forget"}`
+  - `workers.route` with `{"workerId":"<worker-id>","command":"complete","summary":"work finished"}`
   - `files.read` with `{"path":"path/to/file"}`
   - `files.write` with `{"path":"path/to/file","content":"..."}`
   - `files.edit` with `{"path":"path/to/file","search":"old","replace":"new"}`
