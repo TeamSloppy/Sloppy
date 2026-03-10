@@ -299,9 +299,9 @@ enum CorePersistenceFactory {
     }
 
     @discardableResult
-    static func prepareSQLiteDatabaseIfNeeded(config: CoreConfig) -> Bool {
+    static func prepareSQLiteDatabaseIfNeeded(config: CoreConfig) -> String? {
         guard !FileManager.default.fileExists(atPath: config.sqlitePath) else {
-            return true
+            return nil
         }
         return SQLiteStore.prepareDatabase(path: config.sqlitePath, schemaSQL: loadSchemaSQL())
     }

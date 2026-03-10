@@ -33,20 +33,21 @@ public actor SQLiteStore: PersistenceStore {
         )
         fallbackProjects = Self.loadFallbackProjects(from: fallbackProjectsFileURL)
 #if canImport(SQLite3)
-        db = Self.openDatabase(path: path, schemaSQL: schemaSQL)
+        self.db = Self.openDatabase(path: path, schemaSQL: schemaSQL).0
 #endif
     }
 
     @discardableResult
-    static func prepareDatabase(path: String, schemaSQL: String) -> Bool {
+    static func prepareDatabase(path: String, schemaSQL: String) -> String? {
 #if canImport(SQLite3)
-        guard let db = openDatabase(path: path, schemaSQL: schemaSQL) else {
-            return false
+        let (db, error) = openDatabase(path: path, schemaSQL: schemaSQL)
+        if let db {
+            sqlite3_close(db)
+            return nil
         }
-        sqlite3_close(db)
-        return true
+        return error ?? "Unknown SQLite initialization error"
 #else
-        return false
+        return "SQLite3 is not available on this platform"
 #endif
     }
 
@@ -1972,30 +1973,41 @@ public actor SQLiteStore: PersistenceStore {
         )
     }
 
-    private static func openDatabase(path: String, schemaSQL: String) -> OpaquePointer? {
+    private static func openDatabase(path: String, schemaSQL: String) -> (OpaquePointer?, String?) {
         let directory = (path as NSString).deletingLastPathComponent
         if !directory.isEmpty {
-            try? FileManager.default.createDirectory(
-                atPath: directory,
-                withIntermediateDirectories: true
-            )
+            do {
+                try FileManager.default.createDirectory(
+                    atPath: directory,
+                    withIntermediateDirectories: true
+                )
+            } catch {
+                return (nil, "Failed to create database directory at \(directory): \(error.localizedDescription)")
+            }
         }
 
         var db: OpaquePointer?
-        guard sqlite3_open(path, &db) == SQLITE_OK else {
+        let openResult = sqlite3_open(path, &db)
+        guard openResult == SQLITE_OK else {
+            let errorMsg = db.flatMap { String(cString: sqlite3_errmsg($0)) } ?? "Result code: \(openResult)"
             if let db {
                 sqlite3_close(db)
             }
-            return nil
+            return (nil, "Failed to open SQLite database at \(path): \(errorMsg)")
         }
 
-        _ = sqlite3_exec(db, schemaSQL, nil, nil, nil)
+        if sqlite3_exec(db, schemaSQL, nil, nil, nil) != SQLITE_OK {
+            let errorMsg = db.flatMap { String(cString: sqlite3_errmsg($0)) } ?? "Unknown execution error"
+            sqlite3_close(db)
+            return (nil, "Failed to apply schema to database at \(path): \(errorMsg)")
+        }
+
         applyRuntimeEventMigrations(db: db)
         applyProjectTaskMigrations(db: db)
         applyChannelPluginMigrations(db: db)
         applyCronTaskMigrations(db: db)
         applyDashboardProjectsMigrations(db: db)
-        return db
+        return (db, nil)
     }
 #endif
 }

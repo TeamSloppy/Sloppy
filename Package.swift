@@ -55,6 +55,7 @@ let package = Package(
                 "ChannelPluginTelegram",
                 "Protocols",
                 "PluginSDK",
+                "CSQLite3",
                 .product(name: "ArgumentParser", package: "swift-argument-parser"),
                 .product(name: "Configuration", package: "swift-configuration"),
                 .product(name: "Logging", package: "swift-log"),
@@ -68,22 +69,17 @@ let package = Package(
             resources: [
                 .process("Prompts"),
                 .process("Storage/schema.sql")
-            ],
-            linkerSettings: [
-                .linkedLibrary("sqlite3")
             ]
         ),
         .executableTarget(
             name: "Node",
             dependencies: [
                 "Protocols",
+                "CSQLite3",
                 .product(name: "ArgumentParser", package: "swift-argument-parser"),
                 .product(name: "Logging", package: "swift-log")
             ],
-            path: "Sources/Node",
-            linkerSettings: [
-                .linkedLibrary("sqlite3")
-            ]
+            path: "Sources/Node"
         ),
         .executableTarget(
             name: "App",
@@ -130,9 +126,14 @@ let package = Package(
                 "AgentRuntime",
                 "ChannelPluginDiscord",
                 "Protocols",
-                "PluginSDK"
+                "PluginSDK",
+                "CSQLite3"
             ],
             path: "Tests/CoreTests"
+        ),
+        .target(
+            name: "CSQLite3",
+            path: "Sources/CSQLite3"
         )
     ]
 )
