@@ -2732,6 +2732,49 @@ func tokenUsageEndpointPersistsBranchConclusionUsage() async throws {
 }
 
 @Test
+func invokeToolFromRuntimeCanSkipSessionToolEventPersistence() async throws {
+    let sqlitePath = FileManager.default.temporaryDirectory
+        .appendingPathComponent("core-tool-events-\(UUID().uuidString).sqlite")
+        .path
+
+    var config = CoreConfig.default
+    config.sqlitePath = sqlitePath
+
+    let service = CoreService(config: config)
+    let agentID = "tool-events-agent-\(UUID().uuidString)"
+
+    _ = try await service.createAgent(
+        AgentCreateRequest(
+            id: agentID,
+            displayName: "Tool Events Agent",
+            role: "Tool event persistence regression"
+        )
+    )
+    let session = try await service.createAgentSession(
+        agentID: agentID,
+        request: AgentSessionCreateRequest(title: "Tool events session")
+    )
+
+    let result = await service.invokeToolFromRuntime(
+        agentID: agentID,
+        sessionID: session.id,
+        request: ToolInvocationRequest(
+            tool: "system.list_tools",
+            arguments: [:],
+            reason: "Regression test"
+        ),
+        recordSessionEvents: false
+    )
+    #expect(result.ok)
+
+    let detail = try await service.getAgentSession(agentID: agentID, sessionID: session.id)
+    let toolCallEvents = detail.events.filter { $0.type == .toolCall }
+    let toolResultEvents = detail.events.filter { $0.type == .toolResult }
+    #expect(toolCallEvents.isEmpty)
+    #expect(toolResultEvents.isEmpty)
+}
+
+@Test
 func branchSpawnDoesNotCreateProjectTasksFromPromptTodos() async throws {
     let sqlitePath = FileManager.default.temporaryDirectory
         .appendingPathComponent("core-branch-no-todos-\(UUID().uuidString).sqlite")

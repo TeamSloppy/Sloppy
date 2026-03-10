@@ -322,7 +322,12 @@ public actor CoreService {
                         )
                     )
                 }
-                return await self.invokeToolFromRuntime(agentID: agentID, sessionID: sessionID, request: request)
+                return await self.invokeToolFromRuntime(
+                    agentID: agentID,
+                    sessionID: sessionID,
+                    request: request,
+                    recordSessionEvents: false
+                )
             }
             await self.sessionOrchestrator.updateResponseChunkObserver { [weak self] agentID, sessionID, chunk in
                 guard let self else {
@@ -2356,7 +2361,8 @@ public actor CoreService {
     public func invokeToolFromRuntime(
         agentID: String,
         sessionID: String,
-        request: ToolInvocationRequest
+        request: ToolInvocationRequest,
+        recordSessionEvents: Bool = true
     ) async -> ToolInvocationResult {
         guard let normalizedAgentID = normalizedAgentID(agentID) else {
             return .init(
@@ -2426,24 +2432,26 @@ public actor CoreService {
             )
         )
 
-        do {
-            let summary = try sessionStore.appendEvents(
-                agentID: normalizedAgentID,
-                sessionID: normalizedSessionID,
-                events: [toolCallEvent]
-            )
-            publishLiveSessionEvents(
-                agentID: normalizedAgentID,
-                sessionID: normalizedSessionID,
-                summary: summary,
-                events: [toolCallEvent]
-            )
-        } catch {
-            return .init(
-                tool: request.tool,
-                ok: false,
-                error: .init(code: "session_write_failed", message: "Failed to persist tool call event.", retryable: true)
-            )
+        if recordSessionEvents {
+            do {
+                let summary = try sessionStore.appendEvents(
+                    agentID: normalizedAgentID,
+                    sessionID: normalizedSessionID,
+                    events: [toolCallEvent]
+                )
+                publishLiveSessionEvents(
+                    agentID: normalizedAgentID,
+                    sessionID: normalizedSessionID,
+                    summary: summary,
+                    events: [toolCallEvent]
+                )
+            } catch {
+                return .init(
+                    tool: request.tool,
+                    ok: false,
+                    error: .init(code: "session_write_failed", message: "Failed to persist tool call event.", retryable: true)
+                )
+            }
         }
 
         let result: ToolInvocationResult
@@ -2481,24 +2489,26 @@ public actor CoreService {
             )
         )
 
-        do {
-            let summary = try sessionStore.appendEvents(
-                agentID: normalizedAgentID,
-                sessionID: normalizedSessionID,
-                events: [toolResultEvent]
-            )
-            publishLiveSessionEvents(
-                agentID: normalizedAgentID,
-                sessionID: normalizedSessionID,
-                summary: summary,
-                events: [toolResultEvent]
-            )
-        } catch {
-            return .init(
-                tool: request.tool,
-                ok: false,
-                error: .init(code: "session_write_failed", message: "Failed to persist tool result event.", retryable: true)
-            )
+        if recordSessionEvents {
+            do {
+                let summary = try sessionStore.appendEvents(
+                    agentID: normalizedAgentID,
+                    sessionID: normalizedSessionID,
+                    events: [toolResultEvent]
+                )
+                publishLiveSessionEvents(
+                    agentID: normalizedAgentID,
+                    sessionID: normalizedSessionID,
+                    summary: summary,
+                    events: [toolResultEvent]
+                )
+            } catch {
+                return .init(
+                    tool: request.tool,
+                    ok: false,
+                    error: .init(code: "session_write_failed", message: "Failed to persist tool result event.", retryable: true)
+                )
+            }
         }
 
         return result

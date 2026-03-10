@@ -8,7 +8,7 @@ public struct CoreConfig: Codable, Sendable {
     }
     public static let defaultWorkspaceName = ".sloppy"
     public static let defaultWorkspaceBasePath = "."
-    public static let defaultSQLiteFileName = "core.sqlite"
+    public static let defaultSQLiteFileName = "memory/core.sqlite"
     public static let legacyDefaultSQLitePath = "./.data/core.sqlite"
 
     public struct ModelConfig: Codable, Sendable, Equatable {

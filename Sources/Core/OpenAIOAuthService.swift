@@ -17,7 +17,7 @@ struct OpenAIOAuthService: @unchecked Sendable {
     private static let clientID = "app_EMoamEEZ73f0CkXaXp7hrann"
     private static let authorizationEndpoint = URL(string: "https://auth.openai.com/oauth/authorize")!
     private static let tokenEndpoint = URL(string: "https://auth.openai.com/oauth/token")!
-    private static let modelsEndpoint = URL(string: "https://chatgpt.com/backend-api/codex/models?client_version=sloppy-0.1.0")!
+    private static let modelsEndpoint = URL(string: "https://chatgpt.com/backend-api/codex/models")!
 
     private struct PendingSession: Codable, Sendable {
         var state: String
