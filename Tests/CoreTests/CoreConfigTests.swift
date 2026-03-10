@@ -27,7 +27,7 @@ func decodeLegacyStringModelsAndPlugins() throws {
     #expect(decoded.plugins.count == 1)
     #expect(decoded.plugins[0].plugin == "telegram-gateway")
     #expect(decoded.workspace.name == CoreConfig.defaultWorkspaceName)
-    #expect(decoded.workspace.basePath == CoreConfig.defaultWorkspaceBasePath)
+    #expect(decoded.workspace.basePath == ".")
     #expect(decoded.gitSync.enabled == false)
     #expect(decoded.gitSync.branch == "main")
     #expect(decoded.gitSync.conflictStrategy == .remoteWins)
@@ -127,8 +127,7 @@ func defaultConfigPathResolvesInsideWorkspaceRoot() {
 @Test
 func defaultConfigPathUsesDotSloppyWorkspaceByDefault() {
     let resolved = CoreConfig.defaultConfigPath(currentDirectory: "/tmp/slop")
-    let homePath = FileManager.default.homeDirectoryForCurrentUser.path
-    #expect(resolved == "\(homePath)/.sloppy/sloppy.json")
+    #expect(URL(fileURLWithPath: resolved).standardizedFileURL.path == "/tmp/slop/.sloppy/sloppy.json")
 }
 
 @Test

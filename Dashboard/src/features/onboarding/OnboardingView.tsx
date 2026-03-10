@@ -91,11 +91,13 @@ function clone<T>(value: T): T {
 }
 
 function toSlug(value: string) {
-  return String(value || "")
+  const slug = String(value || "")
     .trim()
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/(^-|-$)/g, "");
+
+  return slug || "id-" + Math.random().toString(36).substring(2, 7);
 }
 
 function inferProviderId(config: AnyRecord) {
@@ -286,10 +288,12 @@ export function OnboardingView({ coreApi, initialConfig, onCompleted }: Onboardi
   const initialProvider = useMemo(() => initialProviderState(initialConfig), [initialConfig]);
   const [stepIndex, setStepIndex] = useState(0);
   const [projectName, setProjectName] = useState("");
+  const [projectDescription, setProjectDescription] = useState("");
   const [providerId, setProviderId] = useState(initialProvider.providerId);
   const [providerApiKey, setProviderApiKey] = useState(initialProvider.apiKey);
   const [providerApiUrl, setProviderApiUrl] = useState(initialProvider.apiUrl);
   const [selectedModel, setSelectedModel] = useState(initialProvider.selectedModel);
+  const [modelSearchQuery, setModelSearchQuery] = useState("");
   const [oauthCallbackURL, setOAuthCallbackURL] = useState("");
   const [probeStatus, setProbeStatus] = useState("Pick a provider and test the connection.");
   const [probeOk, setProbeOk] = useState(false);
@@ -312,6 +316,16 @@ export function OnboardingView({ coreApi, initialConfig, onCompleted }: Onboardi
     () => runtimeModelId(providerId, selectedModel),
     [providerId, selectedModel]
   );
+
+  const filteredProbeModels = useMemo(() => {
+    const needle = modelSearchQuery.trim().toLowerCase();
+    if (!needle) return probeModels;
+    return probeModels.filter(m => {
+      const id = String(m.id || "").toLowerCase();
+      const title = String(m.title || "").toLowerCase();
+      return id.includes(needle) || title.includes(needle);
+    });
+  }, [probeModels, modelSearchQuery]);
 
   useEffect(() => {
     setProbeOk(false);
@@ -505,7 +519,7 @@ export function OnboardingView({ coreApi, initialConfig, onCompleted }: Onboardi
     const created = await coreApi.createProject({
       id: projectId,
       name: projectName.trim(),
-      description: "",
+      description: projectDescription.trim(),
       channels: []
     });
     if (created) {
@@ -700,6 +714,14 @@ export function OnboardingView({ coreApi, initialConfig, onCompleted }: Onboardi
                   autoFocus
                 />
               </label>
+              <label>
+                Project description
+                <input
+                  value={projectDescription}
+                  onChange={(event) => setProjectDescription(event.target.value)}
+                  placeholder="The main hub for Acme operations"
+                />
+              </label>
               <div className="onboarding-inline-note">
                 Project id preview: <strong>{projectId || "acme-core"}</strong>
               </div>
@@ -790,20 +812,42 @@ export function OnboardingView({ coreApi, initialConfig, onCompleted }: Onboardi
               </div>
 
               {probeOk && probeModels.length > 0 ? (
-                <label>
-                  Model
-                  <select value={selectedModel} onChange={(event) => setSelectedModel(event.target.value)}>
-                    {probeModels.map((model) => {
-                      const id = String(model.id || "");
-                      const title = String(model.title || id);
-                      return (
-                        <option key={id} value={id}>
-                          {title}
-                        </option>
-                      );
-                    })}
-                  </select>
-                </label>
+                <div className="onboarding-model-picker-container">
+                  <label>
+                    Model
+                    <input
+                      className="onboarding-model-search"
+                      value={modelSearchQuery}
+                      onChange={(event) => setModelSearchQuery(event.target.value)}
+                      placeholder="Search for a model..."
+                    />
+                  </label>
+                  <div className="onboarding-model-list">
+                    {filteredProbeModels.length > 0 ? (
+                      filteredProbeModels.map((model) => {
+                        const id = String(model.id || "");
+                        const title = String(model.title || id);
+                        const isActive = selectedModel === id;
+                        return (
+                          <button
+                            key={id}
+                            type="button"
+                            className={`onboarding-model-item ${isActive ? "active" : ""}`}
+                            onClick={() => setSelectedModel(id)}
+                          >
+                            <div className="onboarding-model-item-main">
+                              <strong>{title}</strong>
+                              <small>{id}</small>
+                            </div>
+                            {isActive && <span className="material-symbols-rounded">check</span>}
+                          </button>
+                        );
+                      })
+                    ) : (
+                      <div className="onboarding-model-empty">No models match your search.</div>
+                    )}
+                  </div>
+                </div>
               ) : null}
             </div>
           ) : null}

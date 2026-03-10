@@ -7,7 +7,7 @@ public struct CoreConfig: Codable, Sendable {
         defaultConfigPath(currentDirectory: FileManager.default.currentDirectoryPath)
     }
     public static let defaultWorkspaceName = ".sloppy"
-    public static let defaultWorkspaceBasePath = "~"
+    public static let defaultWorkspaceBasePath = "."
     public static let defaultSQLiteFileName = "core.sqlite"
     public static let legacyDefaultSQLitePath = "./.data/core.sqlite"
 
