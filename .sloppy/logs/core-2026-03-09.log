@@ -44,3 +44,6 @@
 {"label":"sloppy.core.visor","level":"debug","message":"CronRunner tick at 2026-03-10 00:03","metadata":{},"source":"Core","timestamp":"2026-03-10T00:03:01.684Z"}
 {"label":"sloppy.core.visor","level":"debug","message":"CronRunner tick at 2026-03-10 00:04","metadata":{},"source":"Core","timestamp":"2026-03-10T00:04:01.687Z"}
 {"label":"sloppy.core.visor","level":"debug","message":"CronRunner tick at 2026-03-10 00:05","metadata":{},"source":"Core","timestamp":"2026-03-10T00:05:01.698Z"}
+{"label":"sloppy.core.visor","level":"info","message":"Generating periodic visor bulletin","metadata":{},"source":"Core","timestamp":"2026-03-10T00:05:25.230Z"}
+{"label":"sloppy.core.visor","level":"info","message":"Periodic visor bulletin generated successfully","metadata":{},"source":"Core","timestamp":"2026-03-10T00:05:25.245Z"}
+{"label":"sloppy.core.visor","level":"debug","message":"VisorScheduler sleeping for 328.02886566316926 seconds","metadata":{},"source":"Core","timestamp":"2026-03-10T00:05:25.247Z"}
