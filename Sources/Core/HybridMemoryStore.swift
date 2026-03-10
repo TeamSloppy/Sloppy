@@ -512,6 +512,46 @@ private extension HybridMemoryStore {
     }
 
     func queryKeywordMatches(query: String, limit: Int, scope: MemoryScope?) -> [KeywordMatch] {
+        guard db != nil else {
+            return []
+        }
+
+        let normalizedQuery = normalizedSearchQuery(query)
+        guard !normalizedQuery.isEmpty else {
+            return []
+        }
+        let terms = keywordTerms(from: normalizedQuery)
+
+        var ids: [String] = runFTSLookup(query: normalizedQuery, limit: limit)
+        if ids.isEmpty, !terms.isEmpty {
+            let booleanQuery = terms.joined(separator: " OR ")
+            ids = runFTSLookup(query: booleanQuery, limit: limit)
+        }
+        if ids.isEmpty {
+            ids = runLikeFallback(normalizedQuery: normalizedQuery, terms: terms, limit: limit)
+        }
+
+        var seen = Set<String>()
+        let uniqueIDs = ids.filter { seen.insert($0).inserted }
+
+        return uniqueIDs.compactMap { id in
+            guard let entry = loadEntry(id: id) else {
+                return nil
+            }
+            if let scope,
+               (entry.scope.type != scope.type || entry.scope.id != scope.id) {
+                return nil
+            }
+            let score = keywordRelevanceScore(entry: entry, normalizedQuery: normalizedQuery, terms: terms)
+            guard score > 0 else {
+                return nil
+            }
+            return KeywordMatch(id: id, score: score)
+        }
+        .sorted { $0.score > $1.score }
+    }
+
+    func runFTSLookup(query: String, limit: Int) -> [String] {
         guard let db else {
             return []
         }
@@ -531,38 +571,92 @@ private extension HybridMemoryStore {
             }
         }
         sqlite3_finalize(statement)
+        return ids
+    }
 
-        if ids.isEmpty {
-            let fallbackSQL =
-                "SELECT id FROM memory_entries WHERE deleted_at IS NULL AND (expires_at IS NULL OR expires_at > ?) AND text LIKE ? LIMIT ?;"
-            var fallback: OpaquePointer?
-            if sqlite3_prepare_v2(db, fallbackSQL, -1, &fallback, nil) == SQLITE_OK {
-                bindText(isoFormatter.string(from: Date()), at: 1, statement: fallback)
-                bindText("%\(query)%", at: 2, statement: fallback)
-                sqlite3_bind_int(fallback, 3, Int32(max(1, limit)))
-                while sqlite3_step(fallback) == SQLITE_ROW {
-                    guard let idPtr = sqlite3_column_text(fallback, 0) else {
-                        continue
-                    }
-                    ids.append(String(cString: idPtr))
+    func runLikeFallback(normalizedQuery: String, terms: [String], limit: Int) -> [String] {
+        guard let db else {
+            return []
+        }
+
+        let now = isoFormatter.string(from: Date())
+        var clauses = ["text LIKE ?", "summary LIKE ?"]
+        var bindings = ["%\(normalizedQuery)%", "%\(normalizedQuery)%"]
+
+        for term in terms {
+            clauses.append("text LIKE ?")
+            bindings.append("%\(term)%")
+            clauses.append("summary LIKE ?")
+            bindings.append("%\(term)%")
+        }
+
+        let whereClause = clauses.joined(separator: " OR ")
+        let sql =
+            """
+            SELECT id
+            FROM memory_entries
+            WHERE deleted_at IS NULL
+              AND (expires_at IS NULL OR expires_at > ?)
+              AND (\(whereClause))
+            LIMIT ?;
+            """
+
+        var ids: [String] = []
+        var statement: OpaquePointer?
+        if sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK {
+            bindText(now, at: 1, statement: statement)
+            var index: Int32 = 2
+            for binding in bindings {
+                bindText(binding, at: index, statement: statement)
+                index += 1
+            }
+            sqlite3_bind_int(statement, index, Int32(max(1, limit)))
+            while sqlite3_step(statement) == SQLITE_ROW {
+                guard let idPtr = sqlite3_column_text(statement, 0) else {
+                    continue
                 }
+                ids.append(String(cString: idPtr))
             }
-            sqlite3_finalize(fallback)
+        }
+        sqlite3_finalize(statement)
+        return ids
+    }
+
+    func normalizedSearchQuery(_ query: String) -> String {
+        query
+            .lowercased()
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    func keywordTerms(from query: String) -> [String] {
+        query
+            .components(separatedBy: CharacterSet.alphanumerics.inverted)
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { $0.count >= 3 }
+    }
+
+    func keywordRelevanceScore(entry: MemoryEntry, normalizedQuery: String, terms: [String]) -> Double {
+        let content = (entry.note + " " + (entry.summary ?? "")).lowercased()
+        if content.contains(normalizedQuery) {
+            return 0.98
         }
 
-        return ids.compactMap { id in
-            guard let entry = loadEntry(id: id) else {
-                return nil
-            }
-            if let scope,
-               (entry.scope.type != scope.type || entry.scope.id != scope.id) {
-                return nil
-            }
-            let normalized = query.lowercased()
-            let content = (entry.note + " " + (entry.summary ?? "")).lowercased()
-            let score = content.contains(normalized) ? 0.95 : 0.45
-            return KeywordMatch(id: id, score: score)
+        let uniqueTerms = Array(Set(terms))
+        guard !uniqueTerms.isEmpty else {
+            return 0
         }
+
+        let matchedCount = uniqueTerms.reduce(into: 0) { result, term in
+            if content.contains(term) {
+                result += 1
+            }
+        }
+        guard matchedCount > 0 else {
+            return 0
+        }
+
+        let ratio = Double(matchedCount) / Double(uniqueTerms.count)
+        return min(0.95, 0.55 + ratio * 0.4)
     }
 
     func graphExpand(seedIDs: [String], limit: Int) -> [String] {

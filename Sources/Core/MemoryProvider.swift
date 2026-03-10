@@ -128,7 +128,13 @@ actor SQLiteFallbackProvider: MemoryProvider {
     }
 
     func query(request: MemoryProviderQuery) async throws -> [MemoryProviderQueryResult] {
-        let normalizedQuery = request.query.lowercased()
+        let normalizedQuery = request.query
+            .lowercased()
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedQuery.isEmpty else {
+            return []
+        }
+        let terms = queryTerms(from: normalizedQuery)
         let candidates = index.values.filter { document in
             if let scope = request.scope,
                (document.scope.type != scope.type || document.scope.id != scope.id) {
@@ -138,9 +144,12 @@ actor SQLiteFallbackProvider: MemoryProvider {
         }
 
         return candidates
-            .map { document -> MemoryProviderQueryResult in
+            .compactMap { document -> MemoryProviderQueryResult? in
                 let content = (document.text + " " + (document.summary ?? "")).lowercased()
-                let score = content.contains(normalizedQuery) ? 0.8 : 0.35
+                let score = relevanceScore(content: content, normalizedQuery: normalizedQuery, terms: terms)
+                guard score > 0 else {
+                    return nil
+                }
                 return MemoryProviderQueryResult(
                     id: document.id,
                     score: score,
@@ -161,6 +170,36 @@ actor SQLiteFallbackProvider: MemoryProvider {
 
     func health() async -> Bool {
         true
+    }
+
+    private func queryTerms(from query: String) -> [String] {
+        query
+            .components(separatedBy: CharacterSet.alphanumerics.inverted)
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { $0.count >= 3 }
+    }
+
+    private func relevanceScore(content: String, normalizedQuery: String, terms: [String]) -> Double {
+        if content.contains(normalizedQuery) {
+            return 0.8
+        }
+
+        let uniqueTerms = Array(Set(terms))
+        guard !uniqueTerms.isEmpty else {
+            return 0
+        }
+
+        let matchedCount = uniqueTerms.reduce(into: 0) { result, term in
+            if content.contains(term) {
+                result += 1
+            }
+        }
+        guard matchedCount > 0 else {
+            return 0
+        }
+
+        let ratio = Double(matchedCount) / Double(uniqueTerms.count)
+        return min(0.75, 0.4 + ratio * 0.35)
     }
 }
 
