@@ -44,7 +44,11 @@ let package = Package(
         ),
         .target(
             name: "AgentRuntime",
-            dependencies: ["Protocols", "PluginSDK"],
+            dependencies: [
+                "Protocols",
+                "PluginSDK",
+                .product(name: "Logging", package: "swift-log")
+            ],
             path: "Sources/AgentRuntime"
         ),
         .executableTarget(

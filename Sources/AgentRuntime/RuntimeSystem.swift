@@ -1,4 +1,5 @@
 import Foundation
+import Logging
 import PluginSDK
 import Protocols
 
@@ -81,6 +82,7 @@ public actor RuntimeSystem {
     private let branches: BranchRuntime
     private let compactor: Compactor
     private let visor: Visor
+    private let logger: Logger
     private var modelProvider: (any ModelProviderPlugin)?
     private var defaultModel: String?
 
@@ -102,6 +104,7 @@ public actor RuntimeSystem {
         self.branches = BranchRuntime(eventBus: bus, memoryStore: memory)
         self.compactor = Compactor(eventBus: bus)
         self.visor = Visor(eventBus: bus, memoryStore: memory)
+        self.logger = Logger(label: "sloppy.runtime.model")
         self.modelProvider = modelProvider
         self.defaultModel = defaultModel ?? modelProvider?.models.first
     }
@@ -263,33 +266,137 @@ public actor RuntimeSystem {
                 var currentPrompt = basePrompt
                 let maxToolSteps = 8
 
-                for _ in 0..<maxToolSteps {
+                for stepIndex in 0..<maxToolSteps {
+                    let toolStep = stepIndex + 1
                     var latest = ""
+                    var streamChunks = 0
+                    let streamStartedAt = Date()
+                    logger.info(
+                        "Model stream started",
+                        metadata: modelCallMetadata(
+                            channelId: channelId,
+                            model: activeModel,
+                            reasoningEffort: reasoningEffort,
+                            promptChars: currentPrompt.count,
+                            mode: "tool_loop_stream",
+                            toolStep: toolStep
+                        )
+                    )
                     let stream = modelProvider.stream(
                         model: activeModel,
                         prompt: currentPrompt,
                         maxTokens: 1024,
                         reasoningEffort: reasoningEffort
                     )
-                    for try await partial in stream {
-                        latest = partial
-                        if let onResponseChunk {
-                            let shouldContinue = await onResponseChunk(latest)
-                            if !shouldContinue {
-                                if !latest.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                                    await channels.appendSystemMessage(channelId: channelId, content: latest)
+                    do {
+                        for try await partial in stream {
+                            streamChunks += 1
+                            latest = partial
+                            if let onResponseChunk {
+                                let shouldContinue = await onResponseChunk(latest)
+                                if !shouldContinue {
+                                    logger.info(
+                                        "Model stream cancelled by response consumer",
+                                        metadata: modelCallMetadata(
+                                            channelId: channelId,
+                                            model: activeModel,
+                                            reasoningEffort: reasoningEffort,
+                                            promptChars: currentPrompt.count,
+                                            mode: "tool_loop_stream",
+                                            toolStep: toolStep,
+                                            durationMs: elapsedMilliseconds(since: streamStartedAt),
+                                            outputChars: latest.count,
+                                            streamChunks: streamChunks
+                                        )
+                                    )
+                                    if !latest.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                                        await channels.appendSystemMessage(channelId: channelId, content: latest)
+                                    }
+                                    return
                                 }
-                                return
                             }
                         }
+                    } catch {
+                        logger.warning(
+                            "Model stream failed",
+                            metadata: modelCallMetadata(
+                                channelId: channelId,
+                                model: activeModel,
+                                reasoningEffort: reasoningEffort,
+                                promptChars: currentPrompt.count,
+                                mode: "tool_loop_stream",
+                                toolStep: toolStep,
+                                durationMs: elapsedMilliseconds(since: streamStartedAt),
+                                outputChars: latest.count,
+                                streamChunks: streamChunks,
+                                error: String(describing: error)
+                            )
+                        )
+                        throw error
                     }
+                    logger.info(
+                        "Model stream finished",
+                        metadata: modelCallMetadata(
+                            channelId: channelId,
+                            model: activeModel,
+                            reasoningEffort: reasoningEffort,
+                            promptChars: currentPrompt.count,
+                            mode: "tool_loop_stream",
+                            toolStep: toolStep,
+                            durationMs: elapsedMilliseconds(since: streamStartedAt),
+                            outputChars: latest.count,
+                            streamChunks: streamChunks
+                        )
+                    )
 
                     if latest.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                        latest = try await modelProvider.complete(
-                            model: activeModel,
-                            prompt: currentPrompt,
-                            maxTokens: 1024,
-                            reasoningEffort: reasoningEffort
+                        let completionStartedAt = Date()
+                        logger.info(
+                            "Model completion started",
+                            metadata: modelCallMetadata(
+                                channelId: channelId,
+                                model: activeModel,
+                                reasoningEffort: reasoningEffort,
+                                promptChars: currentPrompt.count,
+                                mode: "tool_loop_complete",
+                                toolStep: toolStep
+                            )
+                        )
+                        do {
+                            latest = try await modelProvider.complete(
+                                model: activeModel,
+                                prompt: currentPrompt,
+                                maxTokens: 1024,
+                                reasoningEffort: reasoningEffort
+                            )
+                        } catch {
+                            logger.warning(
+                                "Model completion failed",
+                                metadata: modelCallMetadata(
+                                    channelId: channelId,
+                                    model: activeModel,
+                                    reasoningEffort: reasoningEffort,
+                                    promptChars: currentPrompt.count,
+                                    mode: "tool_loop_complete",
+                                    toolStep: toolStep,
+                                    durationMs: elapsedMilliseconds(since: completionStartedAt),
+                                    error: String(describing: error)
+                                )
+                            )
+                            throw error
+                        }
+                        logger.info(
+                            "Model completion finished",
+                            metadata: modelCallMetadata(
+                                channelId: channelId,
+                                model: activeModel,
+                                reasoningEffort: reasoningEffort,
+                                promptChars: currentPrompt.count,
+                                mode: "tool_loop_complete",
+                                toolStep: toolStep,
+                                durationMs: elapsedMilliseconds(since: completionStartedAt),
+                                outputChars: latest.count
+                            )
                         )
                         if let onResponseChunk {
                             let shouldContinue = await onResponseChunk(latest)
@@ -305,10 +412,36 @@ public actor RuntimeSystem {
                     let trimmed = latest.trimmingCharacters(in: .whitespacesAndNewlines)
 
                     if let call = parseToolCall(from: trimmed) {
+                        logger.info(
+                            "Tool call parsed from model output",
+                            metadata: modelCallMetadata(
+                                channelId: channelId,
+                                model: activeModel,
+                                reasoningEffort: reasoningEffort,
+                                promptChars: currentPrompt.count,
+                                mode: "tool_loop_parse",
+                                toolStep: toolStep,
+                                outputChars: trimmed.count,
+                                toolId: call.tool
+                            )
+                        )
                         if let observationHandler {
                             await observationHandler(.toolCall(call))
                         }
                         let result = await toolInvoker(call)
+                        logger.info(
+                            "Tool invocation returned to model loop",
+                            metadata: modelCallMetadata(
+                                channelId: channelId,
+                                model: activeModel,
+                                reasoningEffort: reasoningEffort,
+                                promptChars: currentPrompt.count,
+                                mode: "tool_loop_tool_result",
+                                toolStep: toolStep,
+                                toolId: result.tool,
+                                toolResultOK: result.ok
+                            )
+                        )
                         if let observationHandler {
                             await observationHandler(.toolResult(result))
                         }
@@ -347,31 +480,127 @@ public actor RuntimeSystem {
             }
 
             var latest = ""
+            var streamChunks = 0
+            let streamStartedAt = Date()
+            logger.info(
+                "Model stream started",
+                metadata: modelCallMetadata(
+                    channelId: channelId,
+                    model: activeModel,
+                    reasoningEffort: reasoningEffort,
+                    promptChars: contextualPrompt.count,
+                    mode: "respond_stream"
+                )
+            )
             let stream = modelProvider.stream(
                 model: activeModel,
                 prompt: contextualPrompt,
                 maxTokens: 1024,
                 reasoningEffort: reasoningEffort
             )
-            for try await partial in stream {
-                latest = partial
-                if let onResponseChunk {
-                    let shouldContinue = await onResponseChunk(latest)
-                    if !shouldContinue {
-                        if !latest.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                            await channels.appendSystemMessage(channelId: channelId, content: latest)
+            do {
+                for try await partial in stream {
+                    streamChunks += 1
+                    latest = partial
+                    if let onResponseChunk {
+                        let shouldContinue = await onResponseChunk(latest)
+                        if !shouldContinue {
+                            logger.info(
+                                "Model stream cancelled by response consumer",
+                                metadata: modelCallMetadata(
+                                    channelId: channelId,
+                                    model: activeModel,
+                                    reasoningEffort: reasoningEffort,
+                                    promptChars: contextualPrompt.count,
+                                    mode: "respond_stream",
+                                    durationMs: elapsedMilliseconds(since: streamStartedAt),
+                                    outputChars: latest.count,
+                                    streamChunks: streamChunks
+                                )
+                            )
+                            if !latest.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                                await channels.appendSystemMessage(channelId: channelId, content: latest)
+                            }
+                            return
                         }
-                        return
                     }
                 }
+            } catch {
+                logger.warning(
+                    "Model stream failed",
+                    metadata: modelCallMetadata(
+                        channelId: channelId,
+                        model: activeModel,
+                        reasoningEffort: reasoningEffort,
+                        promptChars: contextualPrompt.count,
+                        mode: "respond_stream",
+                        durationMs: elapsedMilliseconds(since: streamStartedAt),
+                        outputChars: latest.count,
+                        streamChunks: streamChunks,
+                        error: String(describing: error)
+                    )
+                )
+                throw error
             }
+            logger.info(
+                "Model stream finished",
+                metadata: modelCallMetadata(
+                    channelId: channelId,
+                    model: activeModel,
+                    reasoningEffort: reasoningEffort,
+                    promptChars: contextualPrompt.count,
+                    mode: "respond_stream",
+                    durationMs: elapsedMilliseconds(since: streamStartedAt),
+                    outputChars: latest.count,
+                    streamChunks: streamChunks
+                )
+            )
 
             if latest.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                latest = try await modelProvider.complete(
-                    model: activeModel,
-                    prompt: contextualPrompt,
-                    maxTokens: 1024,
-                    reasoningEffort: reasoningEffort
+                let completionStartedAt = Date()
+                logger.info(
+                    "Model completion started",
+                    metadata: modelCallMetadata(
+                        channelId: channelId,
+                        model: activeModel,
+                        reasoningEffort: reasoningEffort,
+                        promptChars: contextualPrompt.count,
+                        mode: "respond_complete"
+                    )
+                )
+                do {
+                    latest = try await modelProvider.complete(
+                        model: activeModel,
+                        prompt: contextualPrompt,
+                        maxTokens: 1024,
+                        reasoningEffort: reasoningEffort
+                    )
+                } catch {
+                    logger.warning(
+                        "Model completion failed",
+                        metadata: modelCallMetadata(
+                            channelId: channelId,
+                            model: activeModel,
+                            reasoningEffort: reasoningEffort,
+                            promptChars: contextualPrompt.count,
+                            mode: "respond_complete",
+                            durationMs: elapsedMilliseconds(since: completionStartedAt),
+                            error: String(describing: error)
+                        )
+                    )
+                    throw error
+                }
+                logger.info(
+                    "Model completion finished",
+                    metadata: modelCallMetadata(
+                        channelId: channelId,
+                        model: activeModel,
+                        reasoningEffort: reasoningEffort,
+                        promptChars: contextualPrompt.count,
+                        mode: "respond_complete",
+                        durationMs: elapsedMilliseconds(since: completionStartedAt),
+                        outputChars: latest.count
+                    )
                 )
                 if let onResponseChunk {
                     _ = await onResponseChunk(latest)
@@ -389,6 +618,58 @@ public actor RuntimeSystem {
                 content: text
             )
         }
+    }
+
+    private func elapsedMilliseconds(since start: Date) -> Int {
+        let elapsed = Date().timeIntervalSince(start)
+        return Int((elapsed * 1000).rounded())
+    }
+
+    private func modelCallMetadata(
+        channelId: String,
+        model: String,
+        reasoningEffort: ReasoningEffort?,
+        promptChars: Int,
+        mode: String,
+        toolStep: Int? = nil,
+        durationMs: Int? = nil,
+        outputChars: Int? = nil,
+        streamChunks: Int? = nil,
+        toolId: String? = nil,
+        toolResultOK: Bool? = nil,
+        error: String? = nil
+    ) -> Logger.Metadata {
+        var metadata: Logger.Metadata = [
+            "channel_id": .string(channelId),
+            "model": .string(model),
+            "reasoning_effort": .string(reasoningEffort?.rawValue ?? "none"),
+            "prompt_chars": .stringConvertible(promptChars),
+            "mode": .string(mode)
+        ]
+
+        if let toolStep {
+            metadata["tool_step"] = .stringConvertible(toolStep)
+        }
+        if let durationMs {
+            metadata["duration_ms"] = .stringConvertible(durationMs)
+        }
+        if let outputChars {
+            metadata["output_chars"] = .stringConvertible(outputChars)
+        }
+        if let streamChunks {
+            metadata["stream_chunks"] = .stringConvertible(streamChunks)
+        }
+        if let toolId {
+            metadata["tool_id"] = .string(toolId)
+        }
+        if let toolResultOK {
+            metadata["tool_ok"] = .string(toolResultOK ? "true" : "false")
+        }
+        if let error {
+            metadata["error"] = .string(error)
+        }
+
+        return metadata
     }
 
     private func buildContextualPrompt(channelId: String, fallbackUserMessage: String) async -> String {

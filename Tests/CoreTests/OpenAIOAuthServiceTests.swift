@@ -43,7 +43,6 @@ func openAIOAuthStartLoginPersistsPendingSession() throws {
     #expect(components.host == "auth.openai.com")
     #expect(queryItems.first(where: { $0.name == "client_id" })?.value == "app_EMoamEEZ73f0CkXaXp7hrann")
     #expect(queryItems.first(where: { $0.name == "redirect_uri" })?.value == "http://127.0.0.1:4173/config")
-    #expect(queryItems.first(where: { $0.name == "originator" })?.value == "codex_vscode")
     #expect(queryItems.first(where: { $0.name == "code_challenge_method" })?.value == "S256")
     #expect(queryItems.first(where: { $0.name == "state" })?.value == response.state)
 
@@ -97,4 +96,61 @@ func openAIOAuthCompleteLoginStoresTokensAndStatus() async throws {
 
     let authURL = workspaceRootURL.appendingPathComponent("auth/openai-oauth-auth.json")
     #expect(FileManager.default.fileExists(atPath: authURL.path))
+}
+
+@Test
+func openAIOAuthFetchModelsAcceptsModelsArrayPayload() async throws {
+    let workspaceRootURL = FileManager.default.temporaryDirectory
+        .appendingPathComponent("openai-oauth-models-\(UUID().uuidString)", isDirectory: true)
+    let accessToken = try makeJWT(
+        claims: [
+            "exp": NSNumber(value: 2_000_000_000),
+            "https://api.openai.com/auth": [
+                "chatgpt_account_id": "acct_test_123",
+                "chatgpt_plan_type": "plus"
+            ]
+        ]
+    )
+
+    let service = OpenAIOAuthService(
+        workspaceRootURL: workspaceRootURL,
+        transport: { request in
+            let url = request.url?.absoluteString ?? ""
+            if url.contains("/oauth/token") {
+                let body =
+                    """
+                    {
+                      "access_token": "\(accessToken)",
+                      "refresh_token": "refresh_test",
+                      "id_token": "id_test"
+                    }
+                    """
+                return (Data(body.utf8), makeOAuthHTTPResponse(url: request.url ?? URL(string: "https://auth.openai.com/oauth/token")!))
+            }
+
+            let modelsBody =
+                """
+                {
+                  "models": [
+                    {
+                      "id": "gpt-5.3-codex",
+                      "display_name": "GPT-5.3 Codex",
+                      "supported_reasoning_efforts": ["low", "medium", "high"]
+                    }
+                  ]
+                }
+                """
+            return (Data(modelsBody.utf8), makeOAuthHTTPResponse(url: request.url ?? URL(string: "https://chatgpt.com/backend-api/codex/models")!))
+        }
+    )
+
+    let start = try service.startLogin(redirectURI: "http://127.0.0.1:4173/config")
+    _ = try await service.completeLogin(
+        request: OpenAIOAuthCompleteRequest(
+            callbackURL: "http://127.0.0.1:4173/config?code=test-code&state=\(start.state)"
+        )
+    )
+
+    let models = try await service.fetchModels()
+    #expect(models.contains(where: { $0.id == "gpt-5.3-codex" }))
 }

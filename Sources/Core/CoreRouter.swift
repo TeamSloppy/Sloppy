@@ -377,10 +377,99 @@ public actor CoreRouter {
                 query: queryParams,
                 body: body
             )
-            return await route.callback(request)
+            let isOnboardingFlow = Self.shouldLogOnboardingFlow(httpMethod: httpMethod, pathSegments: pathSegments, body: body)
+            if isOnboardingFlow {
+                Self.logger.info(
+                    "onboarding.flow.request",
+                    metadata: [
+                        "method": .string(httpMethod.rawValue),
+                        "path": .string(path),
+                        "query": .string(queryParams.map { "\($0.key)=\($0.value)" }.sorted().joined(separator: "&"))
+                    ]
+                )
+            }
+
+            let response = await route.callback(request)
+            if isOnboardingFlow {
+                Self.logger.info(
+                    "onboarding.flow.response",
+                    metadata: [
+                        "method": .string(httpMethod.rawValue),
+                        "path": .string(path),
+                        "status": .stringConvertible(response.status),
+                        "content_type": .string(response.contentType),
+                        "body_preview": .string(Self.responseBodyPreview(response.body))
+                    ]
+                )
+            }
+            return response
         }
 
         return Self.json(status: HTTPStatus.notFound, payload: ["error": ErrorCode.notFound])
+    }
+
+    private static func shouldLogOnboardingFlow(httpMethod: HTTPRouteMethod, pathSegments: [String], body: Data?) -> Bool {
+        guard pathSegments.first == "v1" else {
+            return false
+        }
+
+        let path = "/" + pathSegments.joined(separator: "/")
+        let exactOnboardingPaths = Set([
+            "/v1/config",
+            "/v1/projects",
+            "/v1/providers/probe",
+            "/v1/providers/openai/status",
+            "/v1/providers/openai/models",
+            "/v1/providers/openai/oauth/start",
+            "/v1/providers/openai/oauth/complete",
+            "/v1/agents"
+        ])
+        if exactOnboardingPaths.contains(path) {
+            return true
+        }
+
+        if pathSegments.count == 3, pathSegments[1] == "projects", httpMethod == .get {
+            return true
+        }
+        if pathSegments.count == 3, pathSegments[1] == "agents", httpMethod == .get {
+            return true
+        }
+        if pathSegments.count == 4, pathSegments[1] == "agents", pathSegments[3] == "config" {
+            return true
+        }
+        if pathSegments.count == 4, pathSegments[1] == "agents", pathSegments[3] == "sessions", httpMethod == .post {
+            return true
+        }
+        if pathSegments.count == 6,
+           pathSegments[1] == "agents",
+           pathSegments[3] == "sessions",
+           pathSegments[5] == "messages",
+           httpMethod == .post {
+            return bodyContainsOnboardingUser(body)
+        }
+
+        return false
+    }
+
+    private static func bodyContainsOnboardingUser(_ body: Data?) -> Bool {
+        guard let body,
+              let text = String(data: body, encoding: .utf8)
+        else {
+            return false
+        }
+        return text.localizedCaseInsensitiveContains("\"userId\":\"onboarding\"")
+            || text.localizedCaseInsensitiveContains("\"userId\": \"onboarding\"")
+    }
+
+    private static func responseBodyPreview(_ body: Data, maxLength: Int = 240) -> String {
+        guard var text = String(data: body, encoding: .utf8) else {
+            return "<non-utf8 body>"
+        }
+        text = text.replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+        if text.count > maxLength {
+            return String(text.prefix(maxLength)) + "..."
+        }
+        return text
     }
 
     private static func defaultRoutes(service: CoreService) -> [RouteDefinition] {

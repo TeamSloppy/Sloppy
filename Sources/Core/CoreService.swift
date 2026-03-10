@@ -767,6 +767,15 @@ public actor CoreService {
         )
         await store.saveProject(project)
         ensureProjectWorkspaceDirectory(projectID: normalizedID)
+        if !currentConfig.onboarding.completed {
+            logger.info(
+                "onboarding.project.created",
+                metadata: [
+                    "project_id": .string(normalizedID),
+                    "project_name": .string(normalizedName)
+                ]
+            )
+        }
         return project
     }
 
@@ -1163,6 +1172,15 @@ public actor CoreService {
             let summary = try agentCatalogStore.createAgent(request, availableModels: availableAgentModels())
             // Create skills directory for the new agent
             try await ensureAgentSkillsDirectory(agentID: summary.id)
+            if !currentConfig.onboarding.completed {
+                logger.info(
+                    "onboarding.agent.created",
+                    metadata: [
+                        "agent_id": .string(summary.id),
+                        "agent_role": .string(summary.role)
+                    ]
+                )
+            }
             return summary
         } catch {
             throw mapAgentStorageError(error)
@@ -1183,11 +1201,21 @@ public actor CoreService {
     public func updateAgentConfig(agentID: String, request: AgentConfigUpdateRequest) throws -> AgentConfigDetail {
         let availableModels = availableAgentModels()
         do {
-            return try agentCatalogStore.updateAgentConfig(
+            let updated = try agentCatalogStore.updateAgentConfig(
                 agentID: agentID,
                 request: request,
                 availableModels: availableModels
             )
+            if !currentConfig.onboarding.completed {
+                logger.info(
+                    "onboarding.agent_config.updated",
+                    metadata: [
+                        "agent_id": .string(agentID),
+                        "selected_model": .string(request.selectedModel)
+                    ]
+                )
+            }
+            return updated
         } catch {
             throw mapAgentConfigError(error)
         }
@@ -1971,7 +1999,19 @@ public actor CoreService {
         _ = try getAgent(id: normalizedAgentID)
 
         do {
-            return try await sessionOrchestrator.createSession(agentID: normalizedAgentID, request: request)
+            let session = try await sessionOrchestrator.createSession(agentID: normalizedAgentID, request: request)
+            if !currentConfig.onboarding.completed,
+               request.title?.localizedCaseInsensitiveContains("onboarding") == true {
+                logger.info(
+                    "onboarding.session.created",
+                    metadata: [
+                        "agent_id": .string(normalizedAgentID),
+                        "session_id": .string(session.id),
+                        "title": .string(request.title ?? "")
+                    ]
+                )
+            }
+            return session
         } catch {
             throw mapSessionOrchestratorError(error)
         }
@@ -2230,6 +2270,16 @@ public actor CoreService {
         }
 
         _ = try getAgent(id: normalizedAgentID)
+        if request.userId == "onboarding" {
+            logger.info(
+                "onboarding.message.posted",
+                metadata: [
+                    "agent_id": .string(normalizedAgentID),
+                    "session_id": .string(normalizedSessionID),
+                    "content_chars": .stringConvertible(request.content.count)
+                ]
+            )
+        }
 
         do {
             return try await sessionOrchestrator.postMessage(
@@ -2516,6 +2566,7 @@ public actor CoreService {
 
     /// Persists config to file and updates in-memory snapshot.
     public func updateConfig(_ config: CoreConfig) async throws -> CoreConfig {
+        let previousOnboardingCompleted = currentConfig.onboarding.completed
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
 
@@ -2582,6 +2633,25 @@ public actor CoreService {
                 newPlugin: plugin,
                 channelIds: channelIds,
                 removedBecauseEmptyToken: config.channels.discord?.botToken.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == true
+            )
+        }
+
+        if previousOnboardingCompleted != config.onboarding.completed {
+            logger.info(
+                "onboarding.config.updated",
+                metadata: [
+                    "completed": .stringConvertible(config.onboarding.completed),
+                    "models_count": .stringConvertible(config.models.count),
+                    "primary_model": .string(config.models.first?.model ?? "")
+                ]
+            )
+        } else if !config.onboarding.completed {
+            logger.info(
+                "onboarding.config.saved_draft",
+                metadata: [
+                    "models_count": .stringConvertible(config.models.count),
+                    "primary_model": .string(config.models.first?.model ?? "")
+                ]
             )
         }
 

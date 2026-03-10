@@ -2,6 +2,7 @@ import Foundation
 #if canImport(FoundationNetworking)
 import FoundationNetworking
 #endif
+import Logging
 import Protocols
 
 struct OpenAIOAuthStatus: Sendable {
@@ -17,7 +18,8 @@ struct OpenAIOAuthService: @unchecked Sendable {
     private static let clientID = "app_EMoamEEZ73f0CkXaXp7hrann"
     private static let authorizationEndpoint = URL(string: "https://auth.openai.com/oauth/authorize")!
     private static let tokenEndpoint = URL(string: "https://auth.openai.com/oauth/token")!
-    private static let modelsEndpoint = URL(string: "https://chatgpt.com/backend-api/codex/models")!
+    private static let modelsEndpoint = URL(string: "https://chatgpt.com/backend-api/codex/models?client_version=0.113.0")!
+    private static let logger = Logger(label: "sloppy.core.openai-oauth")
 
     private struct PendingSession: Codable, Sendable {
         var state: String
@@ -164,7 +166,6 @@ struct OpenAIOAuthService: @unchecked Sendable {
             .init(name: "client_id", value: Self.clientID),
             .init(name: "redirect_uri", value: redirectURI),
             .init(name: "scope", value: "openid profile email offline_access"),
-            .init(name: "originator", value: "codex_vscode"),
             .init(name: "code_challenge", value: challenge),
             .init(name: "code_challenge_method", value: "S256"),
             .init(name: "state", value: state),
@@ -295,9 +296,18 @@ struct OpenAIOAuthService: @unchecked Sendable {
         guard (200..<300).contains(response.statusCode) else {
             throw Error.tokenExchangeFailed(httpErrorMessage(data: data, statusCode: response.statusCode))
         }
-
-        let decoded = try JSONDecoder().decode(RemoteModelsResponse.self, from: data)
-        return decoded.data.map { item in
+        let decoded = try decodeRemoteModels(from: data)
+        if decoded.isEmpty {
+            Self.logger.warning("openai_oauth.models.empty_response")
+        } else {
+            Self.logger.info(
+                "openai_oauth.models.loaded",
+                metadata: [
+                    "count": .stringConvertible(decoded.count)
+                ]
+            )
+        }
+        return decoded.map { item in
             let capabilities = (item.supportedReasoningEfforts?.isEmpty == false) ? ["reasoning", "tools"] : ["tools"]
             return ProviderModelOption(
                 id: item.id,
@@ -306,6 +316,70 @@ struct OpenAIOAuthService: @unchecked Sendable {
                 capabilities: capabilities
             )
         }.sorted { $0.id < $1.id }
+    }
+
+    private func decodeRemoteModels(from data: Data) throws -> [RemoteModelsResponse.Model] {
+        if let decoded = try? JSONDecoder().decode(RemoteModelsResponse.self, from: data) {
+            return decoded.data
+        }
+
+        guard let rawObject = try? JSONSerialization.jsonObject(with: data) else {
+            throw Error.tokenExchangeFailed("OpenAI OAuth models payload is not valid JSON.")
+        }
+
+        let candidates: [Any]
+        if let array = rawObject as? [Any] {
+            candidates = array
+        } else if let object = rawObject as? [String: Any] {
+            if let dataArray = object["data"] as? [Any] {
+                candidates = dataArray
+            } else if let modelsArray = object["models"] as? [Any] {
+                candidates = modelsArray
+            } else if let itemsArray = object["items"] as? [Any] {
+                candidates = itemsArray
+            } else {
+                throw Error.tokenExchangeFailed(
+                    "OpenAI OAuth models response does not contain data/models/items array. payload=\(Self.sanitizedPayloadSnippet(data))"
+                )
+            }
+        } else {
+            throw Error.tokenExchangeFailed(
+                "OpenAI OAuth models response has unexpected root type. payload=\(Self.sanitizedPayloadSnippet(data))"
+            )
+        }
+
+        var models: [RemoteModelsResponse.Model] = []
+        for candidate in candidates {
+            guard let item = candidate as? [String: Any] else {
+                continue
+            }
+            guard let id = (item["id"] as? String ?? item["slug"] as? String ?? item["name"] as? String)?
+                .trimmingCharacters(in: .whitespacesAndNewlines),
+                  !id.isEmpty
+            else {
+                continue
+            }
+
+            let displayName = (item["display_name"] as? String ?? item["displayName"] as? String ?? item["title"] as? String)
+            let description = item["description"] as? String
+            let reasoningEfforts = Self.parseReasoningEfforts(from: item)
+
+            models.append(
+                RemoteModelsResponse.Model(
+                    id: id,
+                    displayName: displayName,
+                    description: description,
+                    supportedReasoningEfforts: reasoningEfforts
+                )
+            )
+        }
+
+        if models.isEmpty {
+            throw Error.tokenExchangeFailed(
+                "OpenAI OAuth models response parsed but has no model entries. payload=\(Self.sanitizedPayloadSnippet(data))"
+            )
+        }
+        return models
     }
 
     private func refresh(stored: StoredAuth) async throws -> StoredAuth {
@@ -554,6 +628,37 @@ struct OpenAIOAuthService: @unchecked Sendable {
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         return formatter.string(from: date)
+    }
+
+    private static func parseReasoningEfforts(from object: [String: Any]) -> [RemoteModelsResponse.ReasoningEffort]? {
+        if let efforts = object["supported_reasoning_efforts"] as? [String] {
+            let mapped = efforts
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.isEmpty }
+                .map { RemoteModelsResponse.ReasoningEffort(reasoningEffort: $0) }
+            return mapped.isEmpty ? nil : mapped
+        }
+        if let effortObjects = object["supportedReasoningEfforts"] as? [[String: Any]] {
+            let mapped = effortObjects.compactMap { effortObject in
+                (effortObject["reasoning_effort"] as? String ?? effortObject["reasoningEffort"] as? String)?
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+            .filter { !$0.isEmpty }
+            .map { RemoteModelsResponse.ReasoningEffort(reasoningEffort: $0) }
+            return mapped.isEmpty ? nil : mapped
+        }
+        return nil
+    }
+
+    private static func sanitizedPayloadSnippet(_ data: Data, limit: Int = 400) -> String {
+        guard var text = String(data: data, encoding: .utf8) else {
+            return "<non-utf8 payload>"
+        }
+        text = text.replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+        if text.count > limit {
+            return String(text.prefix(limit)) + "..."
+        }
+        return text
     }
 }
 
