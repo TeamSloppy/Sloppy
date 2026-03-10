@@ -3,14 +3,14 @@ import Foundation
 import Logging
 import Protocols
 
-#if canImport(SQLite3)
-import SQLite3
+#if canImport(CSQLite3)
+import CSQLite3
 private let sqliteTransient = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
 #endif
 
 /// SQLite-canonical memory store with pluggable provider indexing.
 public actor HybridMemoryStore: MemoryStore {
-#if canImport(SQLite3)
+#if canImport(CSQLite3)
     private var db: OpaquePointer?
 #endif
     private let provider: (any MemoryProvider)?
@@ -26,7 +26,7 @@ public actor HybridMemoryStore: MemoryStore {
         self.provider = MemoryProviderRegistry.makeProvider(config: config.memory, logger: logger)
         self.isoFormatter = ISO8601DateFormatter()
 
-#if canImport(SQLite3)
+#if canImport(CSQLite3)
         var opened: OpaquePointer?
         let sqlitePath = config.sqlitePath
         let directory = URL(fileURLWithPath: sqlitePath).deletingLastPathComponent().path
@@ -67,7 +67,7 @@ public actor HybridMemoryStore: MemoryStore {
             createdAt: now
         )
 
-#if canImport(SQLite3)
+#if canImport(CSQLite3)
         persistCanonicalEntry(
             id: document.id,
             note: note,
@@ -94,7 +94,7 @@ public actor HybridMemoryStore: MemoryStore {
         if let provider {
             do {
                 try await provider.upsert(document: document)
-#if canImport(SQLite3)
+#if canImport(CSQLite3)
                 deleteOutboxRows(memoryId: document.id, op: "upsert")
 #endif
             } catch {
@@ -136,7 +136,7 @@ public actor HybridMemoryStore: MemoryStore {
             }
         }
 
-#if canImport(SQLite3)
+#if canImport(CSQLite3)
         let keywordMatches = queryKeywordMatches(query: request.query, limit: semanticLimit, scope: request.scope)
         for match in keywordMatches {
             let weighted = normalize(match.score) * retrieval.keywordWeight
@@ -188,7 +188,7 @@ public actor HybridMemoryStore: MemoryStore {
     }
 
     public func link(_ edge: MemoryEdgeWriteRequest) async -> Bool {
-#if canImport(SQLite3)
+#if canImport(CSQLite3)
         guard let db else {
             return false
         }
@@ -227,7 +227,7 @@ public actor HybridMemoryStore: MemoryStore {
     }
 
     public func entries(filter: MemoryEntryFilter) async -> [MemoryEntry] {
-#if canImport(SQLite3)
+#if canImport(CSQLite3)
         let all = listEntries()
         let now = Date()
         let scoped = all.filter { entry in
@@ -262,7 +262,7 @@ public actor HybridMemoryStore: MemoryStore {
     }
 
     public func edges(for memoryIDs: [String]) async -> [MemoryEdgeRecord] {
-#if canImport(SQLite3)
+#if canImport(CSQLite3)
         listEdges(for: memoryIDs)
 #else
         []
@@ -270,7 +270,7 @@ public actor HybridMemoryStore: MemoryStore {
     }
 
     public func flushOutbox(limit: Int = 50) async -> Int {
-#if canImport(SQLite3)
+#if canImport(CSQLite3)
         let rows = nextOutboxRows(limit: limit)
         guard !rows.isEmpty else {
             return 0
@@ -310,7 +310,7 @@ public actor HybridMemoryStore: MemoryStore {
 // MARK: - Private SQL helpers
 
 private extension HybridMemoryStore {
-#if canImport(SQLite3)
+#if canImport(CSQLite3)
     struct KeywordMatch: Sendable {
         var id: String
         var score: Double

@@ -1,8 +1,8 @@
 import Foundation
 import Testing
 @testable import Core
-#if canImport(SQLite3)
-import SQLite3
+#if canImport(CSQLite3)
+import CSQLite3
 #endif
 
 @Test
@@ -25,7 +25,7 @@ func bootstrapBulletinCliOverrideWinsOverConfig() {
     #expect(!shouldBootstrapVisorBulletin(cliOverride: false, config: config))
 }
 
-#if canImport(SQLite3)
+#if canImport(CSQLite3)
 @Test
 func prepareSQLiteDatabaseCreatesCoreSQLiteWithSchema() throws {
     let tempRoot = FileManager.default.temporaryDirectory
