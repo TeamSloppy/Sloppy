@@ -39,7 +39,7 @@ func prepareSQLiteDatabaseCreatesCoreSQLiteWithSchema() throws {
         .appendingPathComponent("workspace/state/core.sqlite")
         .path
 
-    #expect(CorePersistenceFactory.prepareSQLiteDatabaseIfNeeded(config: config))
+    #expect(CorePersistenceFactory.prepareSQLiteDatabaseIfNeeded(config: config) == nil)
     #expect(FileManager.default.fileExists(atPath: config.sqlitePath))
 
     var db: OpaquePointer?
