@@ -1,16 +1,16 @@
 import Foundation
 import Protocols
 
-#if canImport(SQLite3)
-import SQLite3
+#if canImport(CSQLite3)
+import CSQLite3
 private let sqliteTransient = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
 #endif
 
 /// SQLite-backed persistence store.
-/// On Debian and Windows this backend works when `SQLite3` module is available in the toolchain,
+/// This backend works when the package `CSQLite3` system module can import `sqlite3`,
 /// otherwise the actor automatically falls back to in-memory storage.
 public actor SQLiteStore: PersistenceStore {
-#if canImport(SQLite3)
+#if canImport(CSQLite3)
     private var db: OpaquePointer?
 #endif
     private let isoFormatter = ISO8601DateFormatter()
@@ -32,14 +32,14 @@ public actor SQLiteStore: PersistenceStore {
             explicitPath: fallbackProjectsPath
         )
         fallbackProjects = Self.loadFallbackProjects(from: fallbackProjectsFileURL)
-#if canImport(SQLite3)
+#if canImport(CSQLite3)
         self.db = Self.openDatabase(path: path, schemaSQL: schemaSQL).0
 #endif
     }
 
     @discardableResult
     static func prepareDatabase(path: String, schemaSQL: String) -> String? {
-#if canImport(SQLite3)
+#if canImport(CSQLite3)
         let (db, error) = openDatabase(path: path, schemaSQL: schemaSQL)
         if let db {
             sqlite3_close(db)
@@ -53,7 +53,7 @@ public actor SQLiteStore: PersistenceStore {
 
     /// Persists runtime event envelope.
     public func persist(event: EventEnvelope) async {
-#if canImport(SQLite3)
+#if canImport(CSQLite3)
         guard let db else {
             persistFallbackEvent(event)
             return
@@ -111,7 +111,7 @@ public actor SQLiteStore: PersistenceStore {
 
     /// Persists prompt/completion token usage metrics.
     public func persistTokenUsage(channelId: String, taskId: String?, usage: TokenUsage) async {
-#if canImport(SQLite3)
+#if canImport(CSQLite3)
         guard let db else { return }
 
         let sql =
@@ -145,7 +145,7 @@ public actor SQLiteStore: PersistenceStore {
 
     /// Lists token usage records with optional filters.
     public func listTokenUsage(channelId: String?, taskId: String?, from: Date?, to: Date?) async -> [TokenUsageRecord] {
-#if canImport(SQLite3)
+#if canImport(CSQLite3)
         guard let db else { return [] }
 
         var conditions: [String] = []
@@ -225,7 +225,7 @@ public actor SQLiteStore: PersistenceStore {
 
     /// Persists generated memory bulletin.
     public func persistBulletin(_ bulletin: MemoryBulletin) async {
-#if canImport(SQLite3)
+#if canImport(CSQLite3)
         guard let db else {
             fallbackBulletins.append(bulletin)
             return
@@ -266,7 +266,7 @@ public actor SQLiteStore: PersistenceStore {
 
     /// Lists persisted events in deterministic replay order.
     public func listPersistedEvents() async -> [EventEnvelope] {
-#if canImport(SQLite3)
+#if canImport(CSQLite3)
         guard let db else {
             return sortedFallbackEvents()
         }
@@ -291,7 +291,7 @@ public actor SQLiteStore: PersistenceStore {
         guard limit > 0 else {
             return []
         }
-#if canImport(SQLite3)
+#if canImport(CSQLite3)
         guard let db else {
             return filteredFallbackChannelEvents(
                 channelId: channelId,
@@ -333,7 +333,7 @@ public actor SQLiteStore: PersistenceStore {
 
     /// Lists persisted channels in creation order.
     public func listPersistedChannels() async -> [PersistedChannelRecord] {
-#if canImport(SQLite3)
+#if canImport(CSQLite3)
         guard let db else {
             return fallbackChannels.values.sorted { $0.createdAt < $1.createdAt }
         }
@@ -350,7 +350,7 @@ public actor SQLiteStore: PersistenceStore {
 
     /// Lists persisted task rows in creation order.
     public func listPersistedTasks() async -> [PersistedTaskRecord] {
-#if canImport(SQLite3)
+#if canImport(CSQLite3)
         guard let db else {
             return fallbackTasks.values.sorted { $0.createdAt < $1.createdAt }
         }
@@ -367,7 +367,7 @@ public actor SQLiteStore: PersistenceStore {
 
     /// Lists persisted artifacts in creation order.
     public func listPersistedArtifacts() async -> [PersistedArtifactRecord] {
-#if canImport(SQLite3)
+#if canImport(CSQLite3)
         guard let db else {
             return fallbackArtifacts.values.sorted { $0.createdAt < $1.createdAt }
         }
@@ -384,7 +384,7 @@ public actor SQLiteStore: PersistenceStore {
 
     /// Persists artifact text payload by identifier.
     public func persistArtifact(id: String, content: String) async {
-#if canImport(SQLite3)
+#if canImport(CSQLite3)
         guard let db else {
             persistFallbackArtifact(id: id, content: content, createdAt: Date())
             return
@@ -421,7 +421,7 @@ public actor SQLiteStore: PersistenceStore {
 
     /// Returns artifact text payload by identifier.
     public func artifactContent(id: String) async -> String? {
-#if canImport(SQLite3)
+#if canImport(CSQLite3)
         if let db {
             let sql =
                 """
@@ -449,7 +449,7 @@ public actor SQLiteStore: PersistenceStore {
 
     /// Lists recent memory bulletins.
     public func listBulletins() async -> [MemoryBulletin] {
-#if canImport(SQLite3)
+#if canImport(CSQLite3)
         guard let db else {
             return fallbackBulletins
         }
@@ -509,7 +509,7 @@ public actor SQLiteStore: PersistenceStore {
     }
 
     public func listProjects() async -> [ProjectRecord] {
-#if canImport(SQLite3)
+#if canImport(CSQLite3)
         guard let db else {
             return fallbackProjects.values.sorted { $0.createdAt < $1.createdAt }
         }
@@ -574,7 +574,7 @@ public actor SQLiteStore: PersistenceStore {
     }
 
     public func project(id: String) async -> ProjectRecord? {
-#if canImport(SQLite3)
+#if canImport(CSQLite3)
         if let db {
             let sql =
                 """
@@ -627,7 +627,7 @@ public actor SQLiteStore: PersistenceStore {
     public func saveProject(_ project: ProjectRecord) async {
         fallbackProjects[project.id] = project
         persistFallbackProjectsToDisk()
-#if canImport(SQLite3)
+#if canImport(CSQLite3)
         guard let db else {
             return
         }
@@ -754,7 +754,7 @@ public actor SQLiteStore: PersistenceStore {
     public func deleteProject(id: String) async {
         fallbackProjects[id] = nil
         persistFallbackProjectsToDisk()
-#if canImport(SQLite3)
+#if canImport(CSQLite3)
         guard let db else {
             return
         }
@@ -779,7 +779,7 @@ public actor SQLiteStore: PersistenceStore {
     // MARK: - Channel Plugins
 
     public func listChannelPlugins() async -> [ChannelPluginRecord] {
-#if canImport(SQLite3)
+#if canImport(CSQLite3)
         guard let db else {
             return fallbackPlugins.values.sorted { $0.createdAt < $1.createdAt }
         }
@@ -794,7 +794,7 @@ public actor SQLiteStore: PersistenceStore {
     }
 
     public func channelPlugin(id: String) async -> ChannelPluginRecord? {
-#if canImport(SQLite3)
+#if canImport(CSQLite3)
         if let db {
             let sql =
                 """
@@ -820,7 +820,7 @@ public actor SQLiteStore: PersistenceStore {
 
     public func saveChannelPlugin(_ plugin: ChannelPluginRecord) async {
         fallbackPlugins[plugin.id] = plugin
-#if canImport(SQLite3)
+#if canImport(CSQLite3)
         guard let db else { return }
 
         let sql =
@@ -852,7 +852,7 @@ public actor SQLiteStore: PersistenceStore {
 
     public func deleteChannelPlugin(id: String) async {
         fallbackPlugins[id] = nil
-#if canImport(SQLite3)
+#if canImport(CSQLite3)
         guard let db else { return }
 
         let sql = "DELETE FROM channel_plugins WHERE id = ?;"
@@ -1058,7 +1058,7 @@ public actor SQLiteStore: PersistenceStore {
         }
     }
 
-#if canImport(SQLite3)
+#if canImport(CSQLite3)
     private func removeProjectChildren(db: OpaquePointer, projectID: String) {
         let deleteChannelsSQL =
             """
@@ -1745,7 +1745,7 @@ public actor SQLiteStore: PersistenceStore {
     // MARK: - Cron Tasks
 
     public func listAllCronTasks() async -> [AgentCronTask] {
-#if canImport(SQLite3)
+#if canImport(CSQLite3)
         guard let db else {
             return fallbackCronTasks.values.sorted { $0.createdAt < $1.createdAt }
         }
@@ -1803,7 +1803,7 @@ public actor SQLiteStore: PersistenceStore {
     }
 
     public func listCronTasks(agentId: String) async -> [AgentCronTask] {
-#if canImport(SQLite3)
+#if canImport(CSQLite3)
         guard let db else {
             return fallbackCronTasks.values.filter { $0.agentId == agentId }.sorted { $0.createdAt < $1.createdAt }
         }
@@ -1854,7 +1854,7 @@ public actor SQLiteStore: PersistenceStore {
 
     public func saveCronTask(_ task: AgentCronTask) async {
         fallbackCronTasks[task.id] = task
-#if canImport(SQLite3)
+#if canImport(CSQLite3)
         guard let db else { return }
         let sql =
             """
@@ -1880,7 +1880,7 @@ public actor SQLiteStore: PersistenceStore {
 
     public func deleteCronTask(id: String) async {
         fallbackCronTasks[id] = nil
-#if canImport(SQLite3)
+#if canImport(CSQLite3)
         guard let db else { return }
         let sql = "DELETE FROM agent_cron_tasks WHERE id = ?;"
         var statement: OpaquePointer?
@@ -1892,7 +1892,7 @@ public actor SQLiteStore: PersistenceStore {
     }
 
     public func cronTask(id: String) async -> AgentCronTask? {
-#if canImport(SQLite3)
+#if canImport(CSQLite3)
         guard let db else { return fallbackCronTasks[id] }
         let sql =
             """
@@ -1938,7 +1938,7 @@ public actor SQLiteStore: PersistenceStore {
 #endif
     }
 
-#if canImport(SQLite3)
+#if canImport(CSQLite3)
     private static func applyCronTaskMigrations(db: OpaquePointer?) {
         guard let db else { return }
         _ = sqlite3_exec(

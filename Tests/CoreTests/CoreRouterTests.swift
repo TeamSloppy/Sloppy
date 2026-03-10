@@ -4,8 +4,8 @@ import Testing
 @testable import Core
 @testable import Protocols
 
-#if canImport(SQLite3)
-import SQLite3
+#if canImport(CSQLite3)
+import CSQLite3
 #endif
 
 @Test
@@ -269,7 +269,7 @@ func updateConfigSwitchesProjectPersistenceStore() async throws {
     #expect(restartedProjects.contains(where: { $0.id == "onboarding-project" }))
 }
 
-#if canImport(SQLite3)
+#if canImport(CSQLite3)
 @Test
 func projectMembersMigrateFromLegacyDashboardProjectsSchema() async throws {
     let sqlitePath = FileManager.default.temporaryDirectory
