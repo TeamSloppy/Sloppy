@@ -5,7 +5,7 @@
     "docker-compose.devcontainer.yml"
   ],
   "service": "core",
-  "workspaceFolder": "/workspaces/Sloppy",
+  "workspaceFolder": "/root/.sloppy",
   "postCreateCommand": "swift package resolve && cd Dashboard && npm install",
   "customizations": {
     "vscode": {

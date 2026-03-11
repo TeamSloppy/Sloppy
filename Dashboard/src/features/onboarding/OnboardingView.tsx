@@ -316,7 +316,6 @@ export function OnboardingView({ coreApi, initialConfig, onCompleted }: Onboardi
     () => runtimeModelId(providerId, selectedModel),
     [providerId, selectedModel]
   );
-
   const filteredProbeModels = useMemo(() => {
     const needle = modelSearchQuery.trim().toLowerCase();
     if (!needle) return probeModels;
@@ -422,6 +421,7 @@ export function OnboardingView({ coreApi, initialConfig, onCompleted }: Onboardi
       }
 
       oauthCallbackHandledRef.current = true;
+      setOAuthCallbackURL(callbackURL);
       const callbackError = readOpenAIOAuthCallbackError();
       if (callbackError) {
         clearOpenAIOAuthCallbackParams();

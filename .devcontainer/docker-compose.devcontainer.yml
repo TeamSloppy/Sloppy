@@ -1,6 +1,9 @@
-# Override for Dev Containers: use dev image (Swift + Node). Ports/volumes from main compose.
+# Override for Dev Containers: use dev image (Swift + Node). Mount repo into container.
+# ".." = repo root (relative to this file in .devcontainer/).
 services:
   core:
     build:
       context: ..
       dockerfile: .devcontainer/Dockerfile
+    volumes:
+      - ..:/workspaces/Sloppy
