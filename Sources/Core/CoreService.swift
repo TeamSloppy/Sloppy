@@ -314,6 +314,7 @@ public actor CoreService {
         }
         self.recoveryManager = RecoveryManager(store: self.store, runtime: self.runtime, logger: self.logger)
         self.currentConfig = config
+        self.toolExecution.projectService = self
         Task { [weak self] in
             guard let self else {
                 return
@@ -2516,13 +2517,7 @@ public actor CoreService {
         }
 
         let result: ToolInvocationResult
-        if authorization.allowed, let projectResult = await handleProjectTool(
-            agentID: normalizedAgentID,
-            sessionID: normalizedSessionID,
-            request: request
-        ) {
-            result = projectResult
-        } else if authorization.allowed {
+        if authorization.allowed {
             result = await toolExecution.invoke(
                 agentID: normalizedAgentID,
                 sessionID: normalizedSessionID,
@@ -4249,452 +4244,6 @@ public actor CoreService {
         }
     }
 
-    // MARK: - Project Tools
-
-    private func handleProjectTool(
-        agentID: String,
-        sessionID: String,
-        request: ToolInvocationRequest
-    ) async -> ToolInvocationResult? {
-        let toolID = request.tool.trimmingCharacters(in: .whitespacesAndNewlines)
-        switch toolID {
-        case "project.task_list":
-            return await executeTaskList(request: request, sessionID: sessionID)
-        case "project.task_create":
-            return await executeTaskCreate(request: request, sessionID: sessionID)
-        case "project.task_get":
-            return await executeTaskGet(request: request, sessionID: sessionID)
-        case "project.task_update":
-            return await executeTaskUpdate(request: request, sessionID: sessionID)
-        case "project.task_cancel":
-            return await executeTaskCancel(request: request, sessionID: sessionID)
-        case "project.escalate_to_user":
-            return await executeEscalateToUser(request: request, sessionID: sessionID)
-        case "actor.discuss_with_actor":
-            return await executeDiscussWithActor(request: request)
-        case "actor.conclude_discussion":
-            return executeConcludeDiscussion(request: request)
-        default:
-            return nil
-        }
-    }
-
-    private func executeTaskList(request: ToolInvocationRequest, sessionID: String) async -> ToolInvocationResult {
-        let channelId = request.arguments["channelId"]?.asString ?? sessionID
-        let statusFilter = request.arguments["status"]?.asString?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        let topicId = request.arguments["topicId"]?.asString
-
-        guard let project = await projectForChannel(channelId: channelId, topicId: topicId) else {
-            return .init(
-                tool: request.tool, ok: false,
-                error: .init(code: "project_not_found", message: "No project found for this channel.", retryable: false)
-            )
-        }
-
-        var tasks = project.tasks
-        if let statusFilter, !statusFilter.isEmpty {
-            tasks = tasks.filter { $0.status == statusFilter }
-        }
-
-        let items: [JSONValue] = tasks.map { task in
-            .object([
-                "id": .string(task.id),
-                "title": .string(task.title),
-                "status": .string(task.status),
-                "priority": .string(task.priority),
-                "actorId": task.actorId.map { .string($0) } ?? .null,
-                "teamId": task.teamId.map { .string($0) } ?? .null,
-                "claimedActorId": task.claimedActorId.map { .string($0) } ?? .null
-            ])
-        }
-
-        return .init(tool: request.tool, ok: true, data: .object([
-            "projectId": .string(project.id),
-            "projectName": .string(project.name),
-            "tasks": .array(items)
-        ]))
-    }
-
-    private func executeTaskCreate(request: ToolInvocationRequest, sessionID: String) async -> ToolInvocationResult {
-        let channelId = request.arguments["channelId"]?.asString ?? sessionID
-        let topicId = request.arguments["topicId"]?.asString
-        let title = request.arguments["title"]?.asString?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        let description = request.arguments["description"]?.asString
-        let priority = request.arguments["priority"]?.asString ?? "medium"
-        let status = request.arguments["status"]?.asString ?? ProjectTaskStatus.pendingApproval.rawValue
-        let actorId = request.arguments["actorId"]?.asString
-        let teamId = request.arguments["teamId"]?.asString
-
-        guard !title.isEmpty else {
-            return .init(
-                tool: request.tool, ok: false,
-                error: .init(code: "invalid_arguments", message: "`title` is required.", retryable: false)
-            )
-        }
-
-        guard let project = await projectForChannel(channelId: channelId, topicId: topicId) else {
-            return .init(
-                tool: request.tool, ok: false,
-                error: .init(code: "project_not_found", message: "No project found for this channel.", retryable: false)
-            )
-        }
-
-        do {
-            let updated = try await createProjectTask(
-                projectID: project.id,
-                request: ProjectTaskCreateRequest(
-                    title: title,
-                    description: description,
-                    priority: priority,
-                    status: status,
-                    actorId: actorId,
-                    teamId: teamId
-                )
-            )
-            let created = updated.tasks.last
-            return .init(tool: request.tool, ok: true, data: .object([
-                "projectId": .string(updated.id),
-                "taskId": .string(created?.id ?? ""),
-                "title": .string(created?.title ?? title),
-                "status": .string(created?.status ?? status)
-            ]))
-        } catch {
-            return .init(
-                tool: request.tool, ok: false,
-                error: .init(code: "create_failed", message: "Failed to create task.", retryable: true)
-            )
-        }
-    }
-
-    private func executeTaskUpdate(request: ToolInvocationRequest, sessionID: String) async -> ToolInvocationResult {
-        let channelId = request.arguments["channelId"]?.asString ?? sessionID
-        let topicId = request.arguments["topicId"]?.asString
-        let rawReference = request.arguments["taskId"]?.asString
-            ?? request.arguments["reference"]?.asString
-            ?? ""
-
-        guard let normalizedReference = normalizeTaskReference(rawReference) else {
-            return .init(
-                tool: request.tool,
-                ok: false,
-                error: .init(
-                    code: "invalid_arguments",
-                    message: "`taskId` (or `reference`) is required.",
-                    retryable: false
-                )
-            )
-        }
-
-        guard let project = await projectForChannel(channelId: channelId, topicId: topicId) else {
-            return .init(
-                tool: request.tool,
-                ok: false,
-                error: .init(code: "project_not_found", message: "No project found for this channel.", retryable: false)
-            )
-        }
-
-        do {
-            let task = try resolveTask(reference: normalizedReference, in: project)
-            let updatedProject = try await updateProjectTask(
-                projectID: project.id,
-                taskID: task.id,
-                request: ProjectTaskUpdateRequest(
-                    title: request.arguments["title"]?.asString,
-                    description: request.arguments["description"]?.asString,
-                    priority: request.arguments["priority"]?.asString,
-                    status: request.arguments["status"]?.asString,
-                    actorId: request.arguments["actorId"]?.asString,
-                    teamId: request.arguments["teamId"]?.asString
-                )
-            )
-            let updatedTask = updatedProject.tasks.first(where: { $0.id == task.id }) ?? task
-            return .init(tool: request.tool, ok: true, data: .object([
-                "projectId": .string(updatedProject.id),
-                "taskId": .string(updatedTask.id),
-                "status": .string(updatedTask.status),
-                "task": jsonValue(for: updatedTask)
-            ]))
-        } catch ProjectError.notFound {
-            return .init(
-                tool: request.tool,
-                ok: false,
-                error: .init(code: "task_not_found", message: "Task `\(normalizedReference)` was not found.", retryable: false)
-            )
-        } catch {
-            return .init(
-                tool: request.tool,
-                ok: false,
-                error: .init(code: "update_failed", message: "Failed to update task.", retryable: true)
-            )
-        }
-    }
-
-    private func executeTaskCancel(request: ToolInvocationRequest, sessionID: String) async -> ToolInvocationResult {
-        let channelId = request.arguments["channelId"]?.asString ?? sessionID
-        let topicId = request.arguments["topicId"]?.asString
-        let rawReference = request.arguments["taskId"]?.asString
-            ?? request.arguments["reference"]?.asString
-            ?? ""
-        let reason = request.arguments["reason"]?.asString
-
-        guard let normalizedReference = normalizeTaskReference(rawReference) else {
-            return .init(
-                tool: request.tool,
-                ok: false,
-                error: .init(
-                    code: "invalid_arguments",
-                    message: "`taskId` (or `reference`) is required.",
-                    retryable: false
-                )
-            )
-        }
-
-        guard let project = await projectForChannel(channelId: channelId, topicId: topicId) else {
-            return .init(
-                tool: request.tool,
-                ok: false,
-                error: .init(code: "project_not_found", message: "No project found for this channel.", retryable: false)
-            )
-        }
-
-        do {
-            let task = try resolveTask(reference: normalizedReference, in: project)
-            let updatedProject = try await cancelProjectTask(
-                projectID: project.id,
-                taskID: task.id,
-                reason: reason
-            )
-            let updatedTask = updatedProject.tasks.first(where: { $0.id == task.id }) ?? task
-            return .init(tool: request.tool, ok: true, data: .object([
-                "projectId": .string(updatedProject.id),
-                "taskId": .string(updatedTask.id),
-                "status": .string(updatedTask.status),
-                "task": jsonValue(for: updatedTask)
-            ]))
-        } catch ProjectError.notFound {
-            return .init(
-                tool: request.tool,
-                ok: false,
-                error: .init(code: "task_not_found", message: "Task `\(normalizedReference)` was not found.", retryable: false)
-            )
-        } catch {
-            return .init(
-                tool: request.tool,
-                ok: false,
-                error: .init(code: "cancel_failed", message: "Failed to cancel task.", retryable: true)
-            )
-        }
-    }
-
-    private func executeTaskGet(request: ToolInvocationRequest, sessionID: String) async -> ToolInvocationResult {
-        let rawReference = request.arguments["taskId"]?.asString
-            ?? request.arguments["reference"]?.asString
-            ?? ""
-        let fallbackChannelId = request.arguments["channelId"]?.asString ?? sessionID
-
-        guard let normalizedReference = normalizeTaskReference(rawReference) else {
-            return .init(
-                tool: request.tool,
-                ok: false,
-                error: .init(
-                    code: "invalid_arguments",
-                    message: "`taskId` (or `reference`) is required. Example: MOBILE-1",
-                    retryable: false
-                )
-            )
-        }
-
-        do {
-            let record = try await getProjectTask(taskReference: normalizedReference)
-            return .init(tool: request.tool, ok: true, data: .object([
-                "projectId": .string(record.projectId),
-                "projectName": .string(record.projectName),
-                "task": jsonValue(for: record.task),
-                "taskId": .string(record.task.id)
-            ]))
-        } catch ProjectError.notFound {
-            return .init(
-                tool: request.tool,
-                ok: false,
-                data: .object([
-                    "channelId": .string(fallbackChannelId),
-                    "taskId": .string(normalizedReference)
-                ]),
-                error: .init(
-                    code: "task_not_found",
-                    message: "Task `\(normalizedReference)` was not found.",
-                    retryable: false
-                )
-            )
-        } catch {
-            return .init(
-                tool: request.tool,
-                ok: false,
-                error: .init(code: "read_failed", message: "Failed to fetch task details.", retryable: true)
-            )
-        }
-    }
-
-    private func executeEscalateToUser(request: ToolInvocationRequest, sessionID: String) async -> ToolInvocationResult {
-        let channelId = request.arguments["channelId"]?.asString ?? sessionID
-        let reason = request.arguments["reason"]?.asString?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "Escalation requested"
-        let taskId = request.arguments["taskId"]?.asString
-
-        let message = "Escalation: \(reason)"
-        await runtime.appendSystemMessage(channelId: channelId, content: message)
-        await deliverToChannelPlugin(channelId: channelId, content: message)
-
-        if let taskId {
-            let topicId = request.arguments["topicId"]?.asString
-            if let project = await projectForChannel(channelId: channelId, topicId: topicId) {
-                _ = try? await updateProjectTask(
-                    projectID: project.id,
-                    taskID: taskId,
-                    request: ProjectTaskUpdateRequest(status: ProjectTaskStatus.blocked.rawValue)
-                )
-            }
-        }
-
-        logger.info(
-            "tool.escalate_to_user",
-            metadata: [
-                "channel_id": .string(channelId),
-                "reason": .string(reason),
-                "task_id": .string(taskId ?? "")
-            ]
-        )
-
-        return .init(tool: request.tool, ok: true, data: .object([
-            "escalated": .bool(true),
-            "channelId": .string(channelId),
-            "reason": .string(reason)
-        ]))
-    }
-
-    // MARK: - LLM-to-LLM Discussion Tools
-
-    private func executeDiscussWithActor(request: ToolInvocationRequest) async -> ToolInvocationResult {
-        let targetActorId = request.arguments["actorId"]?.asString?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        let topic = request.arguments["topic"]?.asString?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        let message = request.arguments["message"]?.asString ?? ""
-        let taskId = request.arguments["taskId"]?.asString
-
-        guard !targetActorId.isEmpty else {
-            return .init(
-                tool: request.tool, ok: false,
-                error: .init(code: "invalid_arguments", message: "`actorId` is required.", retryable: false)
-            )
-        }
-        guard !message.isEmpty else {
-            return .init(
-                tool: request.tool, ok: false,
-                error: .init(code: "invalid_arguments", message: "`message` is required.", retryable: false)
-            )
-        }
-
-        let board = try? getActorBoard()
-        guard let targetNode = board?.nodes.first(where: { $0.id == targetActorId }) else {
-            return .init(
-                tool: request.tool, ok: false,
-                error: .init(code: "actor_not_found", message: "Target actor '\(targetActorId)' not found on board.", retryable: false)
-            )
-        }
-
-        let hasDiscussionLink = board?.links.contains(where: { link in
-            link.communicationType == .discussion &&
-            (link.sourceActorId == targetActorId || link.targetActorId == targetActorId ||
-             (link.direction == .twoWay && (link.sourceActorId == targetActorId || link.targetActorId == targetActorId)))
-        }) ?? false
-
-        let hasChatLink = board?.links.contains(where: { link in
-            (link.communicationType == .discussion || link.communicationType == .chat) &&
-            (link.sourceActorId == targetActorId || link.targetActorId == targetActorId)
-        }) ?? false
-
-        guard hasDiscussionLink || hasChatLink else {
-            return .init(
-                tool: request.tool, ok: false,
-                error: .init(code: "no_discussion_link", message: "No discussion or chat link to actor '\(targetActorId)'.", retryable: false)
-            )
-        }
-
-        let discussionChannelId = "discussion:\(UUID().uuidString.prefix(8))"
-        let prompt = """
-            [actor_discussion_v1]
-            You are \(targetNode.displayName) (role: \(targetNode.role ?? "unspecified")).
-            Another actor wants to discuss: \(topic.isEmpty ? "(no topic)" : topic)
-            \(taskId.map { "Related task: \($0)" } ?? "")
-
-            Their message:
-            \(message)
-
-            Respond concisely. Focus on your area of expertise.
-            """
-
-        let decision = await runtime.postMessage(
-            channelId: discussionChannelId,
-            request: ChannelMessageRequest(userId: "actor", content: prompt)
-        )
-
-        let snapshot = await runtime.channelState(channelId: discussionChannelId)
-        let response = snapshot?.messages.last(where: { $0.userId == "system" })?.content
-            ?? "Discussion initiated with \(targetNode.displayName)."
-
-        await runtime.eventBus.publish(
-            EventEnvelope(
-                messageType: .actorDiscussionStarted,
-                channelId: discussionChannelId,
-                payload: .object([
-                    "targetActorId": .string(targetActorId),
-                    "topic": .string(topic),
-                    "message": .string(message)
-                ])
-            )
-        )
-
-        logger.info(
-            "actor.discussion.started",
-            metadata: [
-                "target_actor_id": .string(targetActorId),
-                "discussion_channel": .string(discussionChannelId),
-                "topic": .string(topic),
-                "route_action": .string(decision.action.rawValue)
-            ]
-        )
-
-        return .init(tool: request.tool, ok: true, data: .object([
-            "discussionChannelId": .string(discussionChannelId),
-            "targetActorId": .string(targetActorId),
-            "targetActorName": .string(targetNode.displayName),
-            "response": .string(response)
-        ]))
-    }
-
-    private func executeConcludeDiscussion(request: ToolInvocationRequest) -> ToolInvocationResult {
-        let discussionChannelId = request.arguments["discussionChannelId"]?.asString ?? ""
-        let summary = request.arguments["summary"]?.asString ?? "Discussion concluded."
-
-        guard !discussionChannelId.isEmpty else {
-            return .init(
-                tool: request.tool, ok: false,
-                error: .init(code: "invalid_arguments", message: "`discussionChannelId` is required.", retryable: false)
-            )
-        }
-
-        logger.info(
-            "actor.discussion.concluded",
-            metadata: [
-                "discussion_channel": .string(discussionChannelId),
-                "summary": .string(summary)
-            ]
-        )
-
-        return .init(tool: request.tool, ok: true, data: .object([
-            "discussionChannelId": .string(discussionChannelId),
-            "concluded": .bool(true),
-            "summary": .string(summary)
-        ]))
-    }
 
     private func projectForChannel(channelId: String, topicId: String? = nil) async -> ProjectRecord? {
         let projects = await store.listProjects()
@@ -6144,5 +5693,37 @@ extension CoreService: InboundMessageReceiver {
             await channelDelivery.deliver(channelId: channelId, userId: "assistant", content: reply)
         }
         return true
+    }
+}
+
+// MARK: - ProjectToolService conformance
+
+extension CoreService: ProjectToolService {
+    func findProjectForChannel(channelId: String, topicId: String?) async -> ProjectRecord? {
+        await projectForChannel(channelId: channelId, topicId: topicId)
+    }
+
+    func createTask(projectID: String, request: ProjectTaskCreateRequest) async throws -> ProjectRecord {
+        try await createProjectTask(projectID: projectID, request: request)
+    }
+
+    func updateTask(projectID: String, taskID: String, request: ProjectTaskUpdateRequest) async throws -> ProjectRecord {
+        try await updateProjectTask(projectID: projectID, taskID: taskID, request: request)
+    }
+
+    func cancelTaskWithReason(projectID: String, taskID: String, reason: String?) async throws -> ProjectRecord {
+        try await cancelProjectTask(projectID: projectID, taskID: taskID, reason: reason)
+    }
+
+    func getTask(reference: String) async throws -> AgentTaskRecord {
+        try await getProjectTask(taskReference: reference)
+    }
+
+    func deliverMessage(channelId: String, content: String) async {
+        await deliverToChannelPlugin(channelId: channelId, content: content)
+    }
+
+    func actorBoard() async throws -> ActorBoardSnapshot {
+        try getActorBoard()
     }
 }
