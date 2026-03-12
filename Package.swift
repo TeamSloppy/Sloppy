@@ -61,6 +61,7 @@ let package = Package(
                 "Protocols",
                 "PluginSDK",
                 "CSQLite3",
+                .product(name: "AnyLanguageModel", package: "AnyLanguageModel"),
                 .product(name: "ArgumentParser", package: "swift-argument-parser"),
                 .product(name: "Configuration", package: "swift-configuration"),
                 .product(name: "Logging", package: "swift-log"),
