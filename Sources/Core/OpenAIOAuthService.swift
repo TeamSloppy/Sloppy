@@ -19,6 +19,10 @@ struct OpenAIOAuthService: @unchecked Sendable {
     private static let authorizationEndpoint = URL(string: "https://auth.openai.com/oauth/authorize")!
     private static let tokenEndpoint = URL(string: "https://auth.openai.com/oauth/token")!
     private static let modelsEndpoint = URL(string: "https://chatgpt.com/backend-api/codex/models?client_version=0.113.0")!
+    private static let deviceUserCodeEndpoint = URL(string: "https://auth.openai.com/api/accounts/deviceauth/usercode")!
+    private static let deviceTokenEndpoint = URL(string: "https://auth.openai.com/api/accounts/deviceauth/token")!
+    private static let deviceRedirectURI = "https://auth.openai.com/deviceauth/callback"
+    private static let defaultDeviceVerificationURL = "https://auth.openai.com/codex/device"
     private static let logger = Logger(label: "sloppy.core.openai-oauth")
 
     private struct PendingSession: Codable, Sendable {
@@ -66,6 +70,82 @@ struct OpenAIOAuthService: @unchecked Sendable {
             case refreshToken = "refresh_token"
             case idToken = "id_token"
         }
+    }
+
+    private struct DeviceCodeAPIResponse: Sendable {
+        var deviceAuthId: String
+        var userCode: String
+        var interval: Int?
+        var expiresIn: Int?
+        var verificationUrl: String?
+
+        static func decode(from data: Data) throws -> DeviceCodeAPIResponse {
+            guard let object = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                throw DecodingError.dataCorrupted(
+                    .init(codingPath: [], debugDescription: "Device code response is not a JSON object.")
+                )
+            }
+
+            guard let deviceAuthId = object["device_auth_id"] as? String, !deviceAuthId.isEmpty else {
+                throw DecodingError.dataCorrupted(
+                    .init(codingPath: [], debugDescription: "Missing device_auth_id.")
+                )
+            }
+            guard let userCode = object["user_code"] as? String, !userCode.isEmpty else {
+                throw DecodingError.dataCorrupted(
+                    .init(codingPath: [], debugDescription: "Missing user_code.")
+                )
+            }
+
+            let interval = intFromStringOrNumber(object["interval"])
+            let expiresIn = intFromStringOrNumber(object["expires_in"])
+            let verificationUrl = (object["verification_url"] as? String)
+                ?? (object["verification_uri"] as? String)
+
+            return DeviceCodeAPIResponse(
+                deviceAuthId: deviceAuthId,
+                userCode: userCode,
+                interval: interval,
+                expiresIn: expiresIn,
+                verificationUrl: verificationUrl
+            )
+        }
+
+        private static func intFromStringOrNumber(_ value: Any?) -> Int? {
+            if let number = value as? NSNumber {
+                return number.intValue
+            }
+            if let string = value as? String {
+                return Int(string)
+            }
+            return nil
+        }
+    }
+
+    private struct DeviceTokenSuccessResponse: Decodable {
+        var authorizationCode: String
+        var codeVerifier: String
+
+        enum CodingKeys: String, CodingKey {
+            case authorizationCode = "authorization_code"
+            case codeVerifier = "code_verifier"
+        }
+    }
+
+    private struct DeviceTokenErrorResponse: Decodable {
+        var error: String?
+        var errorDescription: String?
+
+        enum CodingKeys: String, CodingKey {
+            case error
+            case errorDescription = "error_description"
+        }
+    }
+
+    enum DeviceTokenPollResult {
+        case pending
+        case slowDown
+        case approved(authorizationCode: String, codeVerifier: String)
     }
 
     private struct RemoteModelsResponse: Decodable {
@@ -288,6 +368,157 @@ struct OpenAIOAuthService: @unchecked Sendable {
 
     func ensureValidToken() async throws {
         _ = try await validCredentials()
+    }
+
+    func startDeviceCode() async throws -> OpenAIDeviceCodeStartResponse {
+        var request = URLRequest(url: Self.deviceUserCodeEndpoint)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        let body = try JSONSerialization.data(withJSONObject: ["client_id": Self.clientID])
+        request.httpBody = body
+
+        let (data, response) = try await transport(request)
+
+        if response.statusCode == 404 {
+            throw Error.tokenExchangeFailed(
+                "Device code login is not enabled. Enable it at https://chatgpt.com/security-settings."
+            )
+        }
+
+        guard (200..<300).contains(response.statusCode) else {
+            throw Error.tokenExchangeFailed(httpErrorMessage(data: data, statusCode: response.statusCode))
+        }
+
+        let decoded = try JSONDecoder().decode(DeviceCodeAPIResponse.self, from: data)
+        let verificationURL = decoded.verificationUrl?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .isEmpty == false
+            ? decoded.verificationUrl!
+            : Self.defaultDeviceVerificationURL
+
+        return OpenAIDeviceCodeStartResponse(
+            deviceAuthId: decoded.deviceAuthId,
+            userCode: decoded.userCode,
+            verificationURL: verificationURL,
+            interval: decoded.interval ?? 5,
+            expiresIn: decoded.expiresIn ?? 600
+        )
+    }
+
+    func pollDeviceToken(deviceAuthId: String, userCode: String) async throws -> OpenAIDeviceCodePollResponse {
+        let pollResult = try await pollDeviceTokenRaw(deviceAuthId: deviceAuthId, userCode: userCode)
+
+        switch pollResult {
+        case .pending:
+            return OpenAIDeviceCodePollResponse(
+                status: "pending",
+                ok: false,
+                message: "Waiting for user authorization."
+            )
+        case .slowDown:
+            return OpenAIDeviceCodePollResponse(
+                status: "slow_down",
+                ok: false,
+                message: "Polling too fast. Slow down."
+            )
+        case let .approved(authorizationCode, codeVerifier):
+            let stored = try await exchangeDeviceAuthorizationCode(
+                authorizationCode: authorizationCode,
+                codeVerifier: codeVerifier
+            )
+            try saveStoredAuth(stored)
+
+            let claims = Self.parseAuthClaims(from: stored.tokens.accessToken)
+            return OpenAIDeviceCodePollResponse(
+                status: "approved",
+                ok: true,
+                message: "OpenAI OAuth connected via device code.",
+                accountId: stored.tokens.accountId,
+                planType: claims?.planType
+            )
+        }
+    }
+
+    private func pollDeviceTokenRaw(deviceAuthId: String, userCode: String) async throws -> DeviceTokenPollResult {
+        var request = URLRequest(url: Self.deviceTokenEndpoint)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        let body = try JSONSerialization.data(withJSONObject: [
+            "device_auth_id": deviceAuthId,
+            "user_code": userCode
+        ])
+        request.httpBody = body
+
+        let (data, response) = try await transport(request)
+
+        if response.statusCode == 403 || response.statusCode == 404 {
+            return .pending
+        }
+
+        if (200..<300).contains(response.statusCode) {
+            let success = try JSONDecoder().decode(DeviceTokenSuccessResponse.self, from: data)
+            return .approved(
+                authorizationCode: success.authorizationCode,
+                codeVerifier: success.codeVerifier
+            )
+        }
+
+        if response.statusCode == 400 || response.statusCode == 429,
+           let errorResponse = try? JSONDecoder().decode(DeviceTokenErrorResponse.self, from: data)
+        {
+            if errorResponse.error == "authorization_pending" {
+                return .pending
+            }
+            if errorResponse.error == "slow_down" {
+                return .slowDown
+            }
+            if let description = errorResponse.errorDescription {
+                throw Error.tokenExchangeFailed(description)
+            }
+        }
+
+        throw Error.tokenExchangeFailed(httpErrorMessage(data: data, statusCode: response.statusCode))
+    }
+
+    private func exchangeDeviceAuthorizationCode(
+        authorizationCode: String,
+        codeVerifier: String
+    ) async throws -> StoredAuth {
+        var request = URLRequest(url: Self.tokenEndpoint)
+        request.httpMethod = "POST"
+        request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
+        request.httpBody = formEncodedData([
+            "grant_type": "authorization_code",
+            "code": authorizationCode,
+            "redirect_uri": Self.deviceRedirectURI,
+            "client_id": Self.clientID,
+            "code_verifier": codeVerifier
+        ])
+
+        let (data, response) = try await transport(request)
+        guard (200..<300).contains(response.statusCode) else {
+            throw Error.tokenExchangeFailed(httpErrorMessage(data: data, statusCode: response.statusCode))
+        }
+
+        let token = try JSONDecoder().decode(TokenResponse.self, from: data)
+        guard !token.accessToken.isEmpty else {
+            throw Error.missingAccessToken
+        }
+
+        let claims = Self.parseAuthClaims(from: token.accessToken)
+        let accountId = claims?.accountId
+
+        return StoredAuth(
+            authMode: "chatgpt",
+            openAIAPIKey: nil,
+            tokens: .init(
+                idToken: token.idToken,
+                accessToken: token.accessToken,
+                refreshToken: token.refreshToken,
+                accountId: accountId
+            ),
+            lastRefresh: Self.iso8601String(from: now())
+        )
     }
 
     private func validCredentials() async throws -> StoredAuth {

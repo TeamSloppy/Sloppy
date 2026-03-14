@@ -1607,6 +1607,60 @@ public struct OpenAIOAuthCompleteResponse: Codable, Sendable {
     }
 }
 
+public struct OpenAIDeviceCodeStartResponse: Codable, Sendable {
+    public var deviceAuthId: String
+    public var userCode: String
+    public var verificationURL: String
+    public var interval: Int
+    public var expiresIn: Int
+
+    public init(
+        deviceAuthId: String,
+        userCode: String,
+        verificationURL: String,
+        interval: Int = 5,
+        expiresIn: Int = 600
+    ) {
+        self.deviceAuthId = deviceAuthId
+        self.userCode = userCode
+        self.verificationURL = verificationURL
+        self.interval = interval
+        self.expiresIn = expiresIn
+    }
+}
+
+public struct OpenAIDeviceCodePollRequest: Codable, Sendable {
+    public var deviceAuthId: String
+    public var userCode: String
+
+    public init(deviceAuthId: String, userCode: String) {
+        self.deviceAuthId = deviceAuthId
+        self.userCode = userCode
+    }
+}
+
+public struct OpenAIDeviceCodePollResponse: Codable, Sendable {
+    public var status: String
+    public var ok: Bool
+    public var message: String
+    public var accountId: String?
+    public var planType: String?
+
+    public init(
+        status: String,
+        ok: Bool,
+        message: String,
+        accountId: String? = nil,
+        planType: String? = nil
+    ) {
+        self.status = status
+        self.ok = ok
+        self.message = message
+        self.accountId = accountId
+        self.planType = planType
+    }
+}
+
 public struct ProviderProbeResponse: Codable, Sendable {
     public var providerId: ProviderProbeID
     public var ok: Bool

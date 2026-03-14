@@ -1,15 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import type { CoreApi } from "../../shared/api/coreApi";
-import {
-  OPENAI_OAUTH_MESSAGE_TYPE,
-  OPENAI_OAUTH_REDIRECT_URI,
-  buildOpenAIOAuthRedirectURI,
-  clearOpenAIOAuthCallbackParams,
-  openOpenAIOAuthPopup,
-  postOpenAIOAuthMessage,
-  readOpenAIOAuthCallbackError,
-  readOpenAIOAuthCallbackURL
-} from "../../shared/openaiOAuth";
 
 type AnyRecord = Record<string, unknown>;
 
@@ -294,7 +284,6 @@ export function OnboardingView({ coreApi, initialConfig, onCompleted }: Onboardi
   const [providerApiUrl, setProviderApiUrl] = useState(initialProvider.apiUrl);
   const [selectedModel, setSelectedModel] = useState(initialProvider.selectedModel);
   const [modelSearchQuery, setModelSearchQuery] = useState("");
-  const [oauthCallbackURL, setOAuthCallbackURL] = useState("");
   const [probeStatus, setProbeStatus] = useState("Pick a provider and test the connection.");
   const [probeOk, setProbeOk] = useState(false);
   const [probeModels, setProbeModels] = useState<AnyRecord[]>([]);
@@ -304,7 +293,9 @@ export function OnboardingView({ coreApi, initialConfig, onCompleted }: Onboardi
   const [statusText, setStatusText] = useState("Preparing first-run setup.");
   const [isProbing, setIsProbing] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const oauthCallbackHandledRef = useRef(false);
+  const [deviceCode, setDeviceCode] = useState<{ deviceAuthId: string; userCode: string; verificationURL: string } | null>(null);
+  const [isDeviceCodePolling, setIsDeviceCodePolling] = useState(false);
+  const deviceCodePollingRef = useRef(false);
 
   const activeProvider = useMemo(
     () => PROVIDERS.find((provider) => provider.id === providerId) || PROVIDERS[0],
@@ -360,50 +351,82 @@ export function OnboardingView({ coreApi, initialConfig, onCompleted }: Onboardi
     }
   }
 
-  async function openOAuth() {
-    setProbeStatus("Preparing OpenAI OAuth...");
-    const response = await coreApi.startOpenAIOAuth({
-      redirectURI: buildOpenAIOAuthRedirectURI()
-    });
+  async function startDeviceCodeFlow() {
+    setProbeStatus("Requesting device code from OpenAI...");
+    setDeviceCode(null);
+    deviceCodePollingRef.current = false;
 
-    if (!response || typeof response.authorizationURL !== "string" || !response.authorizationURL) {
-      setProbeStatus("Failed to start OpenAI OAuth.");
+    const response = await coreApi.startOpenAIDeviceCode();
+    if (!response || typeof response.deviceAuthId !== "string") {
+      setProbeStatus("Failed to start device code flow.");
       return;
     }
 
-    const popup = openOpenAIOAuthPopup(response.authorizationURL);
-    if (!popup) {
-      window.location.assign(response.authorizationURL);
-      return;
-    }
+    const info = {
+      deviceAuthId: String(response.deviceAuthId),
+      userCode: String(response.userCode),
+      verificationURL: String(response.verificationURL || "https://auth.openai.com/codex/device")
+    };
+    setDeviceCode(info);
+    setProbeStatus(`Open the link and enter code: ${info.userCode}`);
+    window.open(info.verificationURL, "_blank", "noopener,noreferrer");
 
-    setProbeStatus(
-      `OpenAI OAuth opened. After redirect to ${OPENAI_OAUTH_REDIRECT_URI}, copy the full URL from the popup and paste it below.`
-    );
+    pollDeviceCode(info);
   }
 
-  async function submitOAuthCallback() {
-    const callbackURL = oauthCallbackURL.trim();
-    if (!callbackURL) {
-      setProbeStatus("Paste the full callback URL first.");
-      return;
+  async function pollDeviceCode(info: { deviceAuthId: string; userCode: string; verificationURL: string }) {
+    if (deviceCodePollingRef.current) return;
+    deviceCodePollingRef.current = true;
+    setIsDeviceCodePolling(true);
+
+    const maxAttempts = 120;
+    let interval = 5000;
+
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+      if (!deviceCodePollingRef.current) break;
+      await new Promise((r) => setTimeout(r, interval));
+      if (!deviceCodePollingRef.current) break;
+
+      const result = await coreApi.pollOpenAIDeviceCode({
+        deviceAuthId: info.deviceAuthId,
+        userCode: info.userCode
+      });
+
+      if (!result) {
+        setProbeStatus("Polling failed. Try again.");
+        break;
+      }
+
+      const status = String(result.status || "");
+      if (status === "approved" && result.ok) {
+        setDeviceCode(null);
+        setProviderId("openai-oauth");
+        const oauthApiUrl = PROVIDERS.find((p) => p.id === "openai-oauth")?.defaultEntry.apiUrl || providerApiUrl;
+        setProviderApiUrl(oauthApiUrl);
+        setProbeStatus(String(result.message || "Connected via device code."));
+        await runProviderProbe("openai-oauth", "", oauthApiUrl);
+        break;
+      }
+
+      if (status === "slow_down") {
+        interval = Math.min(interval + 2000, 15000);
+      }
+
+      if (status === "error") {
+        setProbeStatus(String(result.message || "Device code authorization failed."));
+        break;
+      }
     }
 
-    setProbeStatus("Completing OpenAI OAuth...");
-    const response = await coreApi.completeOpenAIOAuth({ callbackURL });
-    const ok = Boolean(response?.ok);
-    const message = String(response?.message || "Failed to complete OpenAI OAuth.");
-    setProbeStatus(message);
-    if (!ok) {
-      setProbeOk(false);
-      return;
-    }
+    deviceCodePollingRef.current = false;
+    setIsDeviceCodePolling(false);
+  }
 
-    setOAuthCallbackURL("");
-    setProviderId("openai-oauth");
-    const oauthApiUrl = PROVIDERS.find((provider) => provider.id === "openai-oauth")?.defaultEntry.apiUrl || providerApiUrl;
-    setProviderApiUrl(oauthApiUrl);
-    await runProviderProbe("openai-oauth", "", oauthApiUrl);
+  function cancelDeviceCodePolling() {
+    deviceCodePollingRef.current = false;
+    setIsDeviceCodePolling(false);
+    setDeviceCode(null);
+    setProbeStatus("Device code authorization cancelled.");
   }
 
   async function testProviderConnection() {
@@ -412,90 +435,6 @@ export function OnboardingView({ coreApi, initialConfig, onCompleted }: Onboardi
     }
     await runProviderProbe();
   }
-
-  useEffect(() => {
-    async function completeOAuthFromCallback() {
-      const callbackURL = readOpenAIOAuthCallbackURL();
-      if (!callbackURL || oauthCallbackHandledRef.current) {
-        return;
-      }
-
-      oauthCallbackHandledRef.current = true;
-      setOAuthCallbackURL(callbackURL);
-      const callbackError = readOpenAIOAuthCallbackError();
-      if (callbackError) {
-        clearOpenAIOAuthCallbackParams();
-        postOpenAIOAuthMessage({
-          ok: false,
-          message: `OpenAI OAuth failed: ${callbackError}`
-        });
-        setProbeOk(false);
-        setProbeStatus(`OpenAI OAuth failed: ${callbackError}`);
-        return;
-      }
-
-      setProbeStatus("Completing OpenAI OAuth...");
-      const response = await coreApi.completeOpenAIOAuth({ callbackURL });
-      clearOpenAIOAuthCallbackParams();
-
-      const ok = Boolean(response?.ok);
-      const message = String(response?.message || "Failed to complete OpenAI OAuth.");
-      postOpenAIOAuthMessage({
-        ok,
-        message,
-        accountId: typeof response?.accountId === "string" ? response.accountId : null,
-        planType: typeof response?.planType === "string" ? response.planType : null
-      });
-
-      setProviderId("openai-oauth");
-      setProviderApiUrl(PROVIDERS.find((provider) => provider.id === "openai-oauth")?.defaultEntry.apiUrl || providerApiUrl);
-      if (!ok) {
-        setProbeOk(false);
-        setProbeStatus(message);
-        return;
-      }
-
-      if (window.opener && window.opener !== window) {
-        window.close();
-        return;
-      }
-
-      await runProviderProbe("openai-oauth", "", PROVIDERS.find((provider) => provider.id === "openai-oauth")?.defaultEntry.apiUrl || providerApiUrl);
-    }
-
-    completeOAuthFromCallback().catch(() => {
-      setProbeOk(false);
-      setProbeStatus("Failed to complete OpenAI OAuth.");
-    });
-  }, [coreApi, providerApiUrl]);
-
-  useEffect(() => {
-    function handleOAuthMessage(event: MessageEvent) {
-      if (event.origin !== window.location.origin) {
-        return;
-      }
-      const payload = event.data;
-      if (!payload || payload.type !== OPENAI_OAUTH_MESSAGE_TYPE) {
-        return;
-      }
-
-      setProviderId("openai-oauth");
-      setProviderApiUrl(PROVIDERS.find((provider) => provider.id === "openai-oauth")?.defaultEntry.apiUrl || providerApiUrl);
-      setProbeStatus(String(payload.message || "OpenAI OAuth updated."));
-      if (!payload.ok) {
-        setProbeOk(false);
-        return;
-      }
-      void runProviderProbe(
-        "openai-oauth",
-        "",
-        PROVIDERS.find((provider) => provider.id === "openai-oauth")?.defaultEntry.apiUrl || providerApiUrl
-      );
-    }
-
-    window.addEventListener("message", handleOAuthMessage);
-    return () => window.removeEventListener("message", handleOAuthMessage);
-  }, [providerApiUrl]);
 
   function canAdvance() {
     if (stepIndex === 0) {
@@ -769,32 +708,31 @@ export function OnboardingView({ coreApi, initialConfig, onCompleted }: Onboardi
 
               <div className="onboarding-provider-actions">
                 {activeProvider.id === "openai-oauth" ? (
-                  <button type="button" className="onboarding-ghost-button hover-levitate" onClick={openOAuth}>
-                    Connect OpenAI
-                  </button>
+                  isDeviceCodePolling ? (
+                    <button type="button" className="onboarding-ghost-button hover-levitate" onClick={cancelDeviceCodePolling}>
+                      Cancel
+                    </button>
+                  ) : (
+                    <button type="button" className="onboarding-ghost-button hover-levitate" onClick={() => void startDeviceCodeFlow()}>
+                      Connect OpenAI
+                    </button>
+                  )
                 ) : null}
                 <button type="button" className="onboarding-primary-button hover-levitate" onClick={() => void testProviderConnection()} disabled={isProbing}>
                   {isProbing ? "Testing..." : "Test connection"}
                 </button>
               </div>
 
-              {activeProvider.id === "openai-oauth" ? (
+              {activeProvider.id === "openai-oauth" && deviceCode ? (
                 <div className="onboarding-form-block">
-                  <label>
-                    Callback URL
-                    <input
-                      value={oauthCallbackURL}
-                      onChange={(event) => setOAuthCallbackURL(event.target.value)}
-                      placeholder={`${OPENAI_OAUTH_REDIRECT_URI}?code=...&state=...`}
-                    />
-                  </label>
                   <div className="onboarding-inline-note">
-                    After OpenAI redirects to <strong>{OPENAI_OAUTH_REDIRECT_URI}</strong>, copy the full URL from the popup into this field.
+                    Open <a href={deviceCode.verificationURL} target="_blank" rel="noopener noreferrer"><strong>{deviceCode.verificationURL}</strong></a> and enter code:
                   </div>
-                  <div className="onboarding-provider-actions">
-                    <button type="button" className="onboarding-ghost-button hover-levitate" onClick={() => void submitOAuthCallback()}>
-                      Complete OAuth
-                    </button>
+                  <div className="onboarding-device-code">
+                    <strong>{deviceCode.userCode}</strong>
+                  </div>
+                  <div className="onboarding-inline-note">
+                    {isDeviceCodePolling ? "Waiting for authorization..." : "Authorization check stopped."}
                   </div>
                 </div>
               ) : null}
