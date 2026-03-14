@@ -286,6 +286,10 @@ struct OpenAIOAuthService: @unchecked Sendable {
         }
     }
 
+    func ensureValidToken() async throws {
+        _ = try await validCredentials()
+    }
+
     private func validCredentials() async throws -> StoredAuth {
         let stored = try loadStoredAuth()
         if Self.tokenNeedsRefresh(stored.tokens.accessToken, now: now()) {

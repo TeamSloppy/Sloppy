@@ -6,7 +6,8 @@ enum CoreModelProviderFactory {
         config: CoreConfig,
         resolvedModels: [String],
         oauthTokenProvider: (@Sendable () -> String?)? = nil,
-        oauthAccountId: String? = nil
+        oauthAccountId: String? = nil,
+        oauthTokenRefresh: (@Sendable () async throws -> Void)? = nil
     ) -> AnyLanguageModelProviderPlugin? {
         let supportsOpenAI = resolvedModels.contains { $0.hasPrefix("openai:") }
         let supportsOllama = resolvedModels.contains { $0.hasPrefix("ollama:") }
@@ -39,10 +40,11 @@ enum CoreModelProviderFactory {
 
             if let keyProvider {
                 let resolvedAccountId = isOAuth ? oauthAccountId : nil
+                let resolvedRefresh = isOAuth ? oauthTokenRefresh : nil
                 if let baseURL = parseURL(primaryOpenAIConfig?.apiUrl) {
-                    openAISettings = .init(apiKey: keyProvider, baseURL: baseURL, accountId: resolvedAccountId)
+                    openAISettings = .init(apiKey: keyProvider, baseURL: baseURL, accountId: resolvedAccountId, refreshTokenIfNeeded: resolvedRefresh)
                 } else {
-                    openAISettings = .init(apiKey: keyProvider, accountId: resolvedAccountId)
+                    openAISettings = .init(apiKey: keyProvider, accountId: resolvedAccountId, refreshTokenIfNeeded: resolvedRefresh)
                 }
             }
         }

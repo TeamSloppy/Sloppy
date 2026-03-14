@@ -235,7 +235,8 @@ public actor CoreService {
             config: config,
             resolvedModels: resolvedModels,
             oauthTokenProvider: { oauthService.currentAccessToken() },
-            oauthAccountId: oauthService.currentAccountId()
+            oauthAccountId: oauthService.currentAccountId(),
+            oauthTokenRefresh: { try await oauthService.ensureValidToken() }
         )
         let runtimeMemoryStore: any MemoryStore
         let hybridMemoryStore: HybridMemoryStore?
@@ -2610,7 +2611,8 @@ public actor CoreService {
             config: config,
             resolvedModels: resolvedModels,
             oauthTokenProvider: { oauthSvc.currentAccessToken() },
-            oauthAccountId: oauthSvc.currentAccountId()
+            oauthAccountId: oauthSvc.currentAccountId(),
+            oauthTokenRefresh: { try await oauthSvc.ensureValidToken() }
         )
         let defaultModel = modelProvider?.models.first ?? resolvedModels.first
         await runtime.updateModelProvider(modelProvider: modelProvider, defaultModel: defaultModel)
