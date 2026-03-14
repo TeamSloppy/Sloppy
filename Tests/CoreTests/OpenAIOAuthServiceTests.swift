@@ -229,6 +229,137 @@ func openAIOAuthEnsureValidTokenRefreshesExpiredToken() async throws {
     #expect(tokenAfter == freshToken)
 }
 
+@Test
+func openAIOAuthStartDeviceCodeReturnsUserCode() async throws {
+    let workspaceRootURL = FileManager.default.temporaryDirectory
+        .appendingPathComponent("openai-oauth-device-\(UUID().uuidString)", isDirectory: true)
+
+    let service = OpenAIOAuthService(
+        workspaceRootURL: workspaceRootURL,
+        transport: { request in
+            let url = request.url?.absoluteString ?? ""
+            guard url.contains("deviceauth/usercode") else {
+                throw URLError(.badURL)
+            }
+            let body =
+                """
+                {
+                  "device_auth_id": "dev_abc123",
+                  "user_code": "ABCD-1234",
+                  "interval": 5,
+                  "expires_in": 600,
+                  "verification_url": "https://auth.openai.com/codex/device"
+                }
+                """
+            return (Data(body.utf8), makeOAuthHTTPResponse(url: request.url ?? URL(string: "https://auth.openai.com")!))
+        }
+    )
+
+    let response = try await service.startDeviceCode()
+    #expect(response.deviceAuthId == "dev_abc123")
+    #expect(response.userCode == "ABCD-1234")
+    #expect(response.verificationURL == "https://auth.openai.com/codex/device")
+    #expect(response.interval == 5)
+    #expect(response.expiresIn == 600)
+}
+
+@Test
+func openAIOAuthPollDeviceTokenReturnsPending() async throws {
+    let workspaceRootURL = FileManager.default.temporaryDirectory
+        .appendingPathComponent("openai-oauth-poll-pending-\(UUID().uuidString)", isDirectory: true)
+
+    let service = OpenAIOAuthService(
+        workspaceRootURL: workspaceRootURL,
+        transport: { request in
+            let url = request.url?.absoluteString ?? ""
+            guard url.contains("deviceauth/token") else {
+                throw URLError(.badURL)
+            }
+            let body = """
+            {"error": "authorization_pending", "error_description": "User has not yet authorized"}
+            """
+            return (Data(body.utf8), makeOAuthHTTPResponse(url: request.url!, statusCode: 400))
+        }
+    )
+
+    let response = try await service.pollDeviceToken(deviceAuthId: "dev_abc123", userCode: "ABCD-1234")
+    #expect(response.status == "pending")
+    #expect(response.ok == false)
+}
+
+@Test
+func openAIOAuthPollDeviceTokenCompletesOnApproval() async throws {
+    let workspaceRootURL = FileManager.default.temporaryDirectory
+        .appendingPathComponent("openai-oauth-poll-approved-\(UUID().uuidString)", isDirectory: true)
+
+    let accessToken = try makeJWT(
+        claims: [
+            "exp": NSNumber(value: 2_000_000_000),
+            "https://api.openai.com/auth": [
+                "chatgpt_account_id": "acct_device_test",
+                "chatgpt_plan_type": "plus"
+            ]
+        ]
+    )
+
+    let service = OpenAIOAuthService(
+        workspaceRootURL: workspaceRootURL,
+        transport: { request in
+            let url = request.url?.absoluteString ?? ""
+
+            if url.contains("deviceauth/token") {
+                let body = """
+                {"authorization_code": "auth_code_xyz", "code_verifier": "verifier_xyz"}
+                """
+                return (Data(body.utf8), makeOAuthHTTPResponse(url: request.url!))
+            }
+
+            if url.contains("/oauth/token") {
+                let body =
+                    """
+                    {
+                      "access_token": "\(accessToken)",
+                      "refresh_token": "refresh_device",
+                      "id_token": "id_device"
+                    }
+                    """
+                return (Data(body.utf8), makeOAuthHTTPResponse(url: request.url!))
+            }
+
+            throw URLError(.badURL)
+        }
+    )
+
+    let response = try await service.pollDeviceToken(deviceAuthId: "dev_abc123", userCode: "ABCD-1234")
+    #expect(response.status == "approved")
+    #expect(response.ok == true)
+    #expect(response.accountId == "acct_device_test")
+    #expect(response.planType == "plus")
+
+    let storedToken = service.currentAccessToken()
+    #expect(storedToken == accessToken)
+}
+
+@Test
+func openAIOAuthStartDeviceCodeHandles404() async throws {
+    let workspaceRootURL = FileManager.default.temporaryDirectory
+        .appendingPathComponent("openai-oauth-device-404-\(UUID().uuidString)", isDirectory: true)
+
+    let service = OpenAIOAuthService(
+        workspaceRootURL: workspaceRootURL,
+        transport: { request in
+            return (Data("Not Found".utf8), makeOAuthHTTPResponse(url: request.url!, statusCode: 404))
+        }
+    )
+
+    do {
+        _ = try await service.startDeviceCode()
+        Issue.record("Expected error for 404 response")
+    } catch {
+        #expect(error.localizedDescription.contains("Device code login is not enabled"))
+    }
+}
+
 private final class SendableFlag: @unchecked Sendable {
     private var _value = false
     var value: Bool { _value }

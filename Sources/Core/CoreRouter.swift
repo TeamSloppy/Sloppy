@@ -422,6 +422,8 @@ public actor CoreRouter {
             "/v1/providers/openai/models",
             "/v1/providers/openai/oauth/start",
             "/v1/providers/openai/oauth/complete",
+            "/v1/providers/openai/oauth/device-code/start",
+            "/v1/providers/openai/oauth/device-code/poll",
             "/v1/agents"
         ])
         if exactOnboardingPaths.contains(path) {
@@ -633,6 +635,37 @@ public actor CoreRouter {
                 return Self.encodable(
                     status: HTTPStatus.ok,
                     payload: OpenAIOAuthCompleteResponse(
+                        ok: false,
+                        message: error.localizedDescription
+                    )
+                )
+            }
+        }
+
+        add(.post, "/v1/providers/openai/oauth/device-code/start", metadata: RouteMetadata(summary: "Start device code flow", description: "Requests a device code for OpenAI OAuth device authorization", tags: ["Providers"])) { _ in
+            do {
+                let response = try await service.startOpenAIDeviceCode()
+                return Self.encodable(status: HTTPStatus.ok, payload: response)
+            } catch {
+                return Self.json(status: HTTPStatus.badRequest, payload: ["error": error.localizedDescription])
+            }
+        }
+
+        add(.post, "/v1/providers/openai/oauth/device-code/poll", metadata: RouteMetadata(summary: "Poll device code", description: "Polls the device code authorization status", tags: ["Providers"])) { request in
+            guard let body = request.body,
+                  let payload = Self.decode(body, as: OpenAIDeviceCodePollRequest.self)
+            else {
+                return Self.json(status: HTTPStatus.badRequest, payload: ["error": ErrorCode.invalidBody])
+            }
+
+            do {
+                let response = try await service.pollOpenAIDeviceCode(request: payload)
+                return Self.encodable(status: HTTPStatus.ok, payload: response)
+            } catch {
+                return Self.encodable(
+                    status: HTTPStatus.ok,
+                    payload: OpenAIDeviceCodePollResponse(
+                        status: "error",
                         ok: false,
                         message: error.localizedDescription
                     )

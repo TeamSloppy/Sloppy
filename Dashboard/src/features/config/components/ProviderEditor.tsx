@@ -31,12 +31,11 @@ export function ProviderEditor({
   onCloseProviderModal,
   onUpdateProviderForm,
   onOpenOAuth,
-  onSubmitOAuthCallback,
-  onUpdateOAuthCallbackURL,
+  onCancelDeviceCode,
+  deviceCode,
+  isDeviceCodePolling,
   onRemoveProvider,
   onSaveProvider,
-  openAIOAuthRedirectURI,
-  openAIOAuthCallbackURL,
   onSetProviderModelMenuOpen,
   onSetProviderModelMenuRect,
   getProviderEntry,
@@ -164,29 +163,28 @@ export function ProviderEditor({
                 <p className="placeholder-text">{activeProviderStatus || "Model catalog is loading automatically."}</p>
                 {providerModalMeta.id === "openai-oauth" ? (
                   <div className="provider-modal-actions">
-                    <button type="button" onClick={onOpenOAuth}>
-                      {openAIProviderStatus.hasOAuthCredentials ? "Reconnect OpenAI" : "Connect OpenAI"}
-                    </button>
+                    {isDeviceCodePolling ? (
+                      <button type="button" onClick={onCancelDeviceCode}>
+                        Cancel
+                      </button>
+                    ) : (
+                      <button type="button" onClick={onOpenOAuth}>
+                        {openAIProviderStatus.hasOAuthCredentials ? "Reconnect OpenAI" : "Connect OpenAI"}
+                      </button>
+                    )}
                   </div>
                 ) : null}
-                {providerModalMeta.id === "openai-oauth" ? (
+                {providerModalMeta.id === "openai-oauth" && deviceCode ? (
                   <div className="provider-modal-form">
-                    <label>
-                      Callback URL
-                      <input
-                        value={openAIOAuthCallbackURL}
-                        onChange={(event) => onUpdateOAuthCallbackURL(event.target.value)}
-                        placeholder={`${openAIOAuthRedirectURI}?code=...&state=...`}
-                      />
-                      <span className="placeholder-text">
-                        After OpenAI redirects to {openAIOAuthRedirectURI}, copy the full URL from the popup here.
-                      </span>
-                    </label>
-                    <div className="provider-modal-actions">
-                      <button type="button" onClick={onSubmitOAuthCallback}>
-                        Complete OAuth
-                      </button>
+                    <p className="placeholder-text">
+                      Open <a href={deviceCode.verificationURL} target="_blank" rel="noopener noreferrer"><strong>{deviceCode.verificationURL}</strong></a> and enter the code:
+                    </p>
+                    <div style={{ fontSize: "1.5em", fontWeight: "bold", textAlign: "center", padding: "8px 0", letterSpacing: "0.15em" }}>
+                      {deviceCode.userCode}
                     </div>
+                    <p className="placeholder-text">
+                      {isDeviceCodePolling ? "Waiting for authorization..." : "Authorization check stopped."}
+                    </p>
                   </div>
                 ) : null}
                 {providerModalMeta.id === "openai-oauth" && openAIProviderStatus.hasOAuthCredentials ? (

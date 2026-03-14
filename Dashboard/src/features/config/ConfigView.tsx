@@ -3,12 +3,12 @@ import ReactDiffViewer, { DiffMethod } from "react-diff-viewer-continued";
 import Prism from "prismjs";
 import "prismjs/components/prism-json";
 import {
-  completeOpenAIOAuth,
   fetchOpenAIModels,
   fetchOpenAIProviderStatus,
   fetchRuntimeConfig,
   fetchSearchProviderStatus,
-  startOpenAIOAuth,
+  startOpenAIDeviceCode,
+  pollOpenAIDeviceCode,
   updateRuntimeConfig
 } from "../../api";
 import { NodeHostEditor } from "./components/NodeHostEditor";
@@ -20,16 +20,6 @@ import { SettingsPlaceholder } from "./components/SettingsPlaceholder";
 import { SettingsSidebar } from "./components/SettingsSidebar";
 import { TelegramEditor } from "./components/TelegramEditor";
 import { DiscordEditor } from "./components/DiscordEditor";
-import {
-  OPENAI_OAUTH_MESSAGE_TYPE,
-  OPENAI_OAUTH_REDIRECT_URI,
-  buildOpenAIOAuthRedirectURI,
-  clearOpenAIOAuthCallbackParams,
-  openOpenAIOAuthPopup,
-  postOpenAIOAuthMessage,
-  readOpenAIOAuthCallbackError,
-  readOpenAIOAuthCallbackURL
-} from "../../shared/openaiOAuth";
 
 const SETTINGS_ITEMS = [
   { id: "providers", title: "Providers", icon: "hub" },
@@ -470,7 +460,9 @@ export function ConfigView({ sectionId = "providers", onSectionChange = null }) 
   const [selectedPluginIndex, setSelectedPluginIndex] = useState(0);
   const [providerModalId, setProviderModalId] = useState(null);
   const [providerForm, setProviderForm] = useState(null);
-  const [providerOAuthCallbackURL, setProviderOAuthCallbackURL] = useState("");
+  const [configDeviceCode, setConfigDeviceCode] = useState(null);
+  const [configDeviceCodePolling, setConfigDeviceCodePolling] = useState(false);
+  const configDeviceCodePollingRef = useRef(false);
   const [providerModelOptions, setProviderModelOptions] = useState({});
   const [providerModelStatus, setProviderModelStatus] = useState({});
   const [providerModelMenuOpen, setProviderModelMenuOpen] = useState(false);
@@ -684,50 +676,71 @@ export function ConfigView({ sectionId = "providers", onSectionChange = null }) 
   }
 
   async function openOpenAIPlatform() {
-    setProviderStatus("openai-oauth", "Preparing OpenAI OAuth...");
-    const response = await startOpenAIOAuth({
-      redirectURI: buildOpenAIOAuthRedirectURI()
-    });
+    setProviderStatus("openai-oauth", "Requesting device code from OpenAI...");
+    setConfigDeviceCode(null);
+    configDeviceCodePollingRef.current = false;
 
-    if (!response || typeof response.authorizationURL !== "string" || !response.authorizationURL) {
-      setProviderStatus("openai-oauth", "Failed to start OpenAI OAuth.");
+    const response = await startOpenAIDeviceCode();
+    if (!response || typeof response.deviceAuthId !== "string") {
+      setProviderStatus("openai-oauth", "Failed to start device code flow.");
       return;
     }
 
-    const popup = openOpenAIOAuthPopup(response.authorizationURL);
-    if (!popup) {
-      window.location.assign(response.authorizationURL);
-      return;
+    const info = {
+      deviceAuthId: String(response.deviceAuthId),
+      userCode: String(response.userCode),
+      verificationURL: String(response.verificationURL || "https://auth.openai.com/codex/device")
+    };
+    setConfigDeviceCode(info);
+    setProviderStatus("openai-oauth", `Open ${info.verificationURL} and enter code: ${info.userCode}`);
+    window.open(info.verificationURL, "_blank", "noopener,noreferrer");
+
+    configDeviceCodePollingRef.current = true;
+    setConfigDeviceCodePolling(true);
+
+    let interval = 5000;
+    for (let attempt = 0; attempt < 120; attempt++) {
+      if (!configDeviceCodePollingRef.current) break;
+      await new Promise((r) => setTimeout(r, interval));
+      if (!configDeviceCodePollingRef.current) break;
+
+      const result = await pollOpenAIDeviceCode({
+        deviceAuthId: info.deviceAuthId,
+        userCode: info.userCode
+      });
+
+      if (!result) {
+        setProviderStatus("openai-oauth", "Polling failed. Try again.");
+        break;
+      }
+
+      const status = String(result.status || "");
+      if (status === "approved" && result.ok) {
+        setConfigDeviceCode(null);
+        setProviderStatus("openai-oauth", String(result.message || "Connected via device code."));
+        setStatusText("OpenAI OAuth connected");
+        await loadOpenAIProviderStatus();
+        await loadProviderModels("openai-oauth", providerForm || getProviderDefinition("openai-oauth").defaultEntry);
+        break;
+      }
+      if (status === "slow_down") {
+        interval = Math.min(interval + 2000, 15000);
+      }
+      if (status === "error") {
+        setProviderStatus("openai-oauth", String(result.message || "Device code authorization failed."));
+        break;
+      }
     }
 
-    setProviderStatus(
-      "openai-oauth",
-      `OpenAI OAuth opened. After redirect to ${OPENAI_OAUTH_REDIRECT_URI}, copy the full URL from the popup and paste it below.`
-    );
+    configDeviceCodePollingRef.current = false;
+    setConfigDeviceCodePolling(false);
   }
 
-  async function submitOpenAIOAuthCallback() {
-    const callbackURL = String(providerOAuthCallbackURL || "").trim();
-    if (!callbackURL) {
-      setProviderStatus("openai-oauth", "Paste the full callback URL first.");
-      return;
-    }
-
-    setProviderStatus("openai-oauth", "Completing OpenAI OAuth...");
-    const response = await completeOpenAIOAuth({ callbackURL });
-    const ok = Boolean(response?.ok);
-    const message = String(response?.message || "Failed to complete OpenAI OAuth.");
-
-    setProviderStatus("openai-oauth", message);
-    setStatusText(ok ? "OpenAI OAuth connected" : "OpenAI OAuth failed");
-
-    if (!ok) {
-      return;
-    }
-
-    setProviderOAuthCallbackURL("");
-    await loadOpenAIProviderStatus();
-    await loadProviderModels("openai-oauth", providerForm || getProviderDefinition("openai-oauth").defaultEntry);
+  function cancelConfigDeviceCodePolling() {
+    configDeviceCodePollingRef.current = false;
+    setConfigDeviceCodePolling(false);
+    setConfigDeviceCode(null);
+    setProviderStatus("openai-oauth", "Device code authorization cancelled.");
   }
 
   function setProviderStatus(providerId, message) {
@@ -890,81 +903,10 @@ export function ConfigView({ sectionId = "providers", onSectionChange = null }) 
   ]);
 
   useEffect(() => {
-    async function completeOAuthFromCallback() {
-      const callbackURL = readOpenAIOAuthCallbackURL();
-      if (!callbackURL) {
-        return;
-      }
-
-      const callbackError = readOpenAIOAuthCallbackError();
-      if (callbackError) {
-        clearOpenAIOAuthCallbackParams();
-        postOpenAIOAuthMessage({
-          ok: false,
-          message: `OpenAI OAuth failed: ${callbackError}`
-        });
-        setProviderStatus("openai-oauth", `OpenAI OAuth failed: ${callbackError}`);
-        setStatusText("OpenAI OAuth failed");
-        return;
-      }
-
-      setStatusText("Completing OpenAI OAuth...");
-      const response = await completeOpenAIOAuth({ callbackURL });
-      clearOpenAIOAuthCallbackParams();
-
-      const ok = Boolean(response?.ok);
-      const message = String(response?.message || "Failed to complete OpenAI OAuth.");
-      postOpenAIOAuthMessage({
-        ok,
-        message,
-        accountId: typeof response?.accountId === "string" ? response.accountId : null,
-        planType: typeof response?.planType === "string" ? response.planType : null
-      });
-
-      if (window.opener && window.opener !== window) {
-        window.close();
-        return;
-      }
-
-      await loadOpenAIProviderStatus();
-      setProviderStatus("openai-oauth", message);
-      setStatusText(ok ? "OpenAI OAuth connected" : "OpenAI OAuth failed");
-
-      if (ok && providerModalId === "openai-oauth") {
-        await loadProviderModels("openai-oauth", providerForm || getProviderDefinition("openai-oauth").defaultEntry);
-      }
-    }
-
-    completeOAuthFromCallback().catch(() => {
-      setProviderStatus("openai-oauth", "Failed to complete OpenAI OAuth.");
-      setStatusText("OpenAI OAuth failed");
-    });
-  }, [providerForm, providerModalId]);
-
-  useEffect(() => {
-    function handleOAuthMessage(event) {
-      if (event.origin !== window.location.origin) {
-        return;
-      }
-
-      const payload = event.data;
-      if (!payload || payload.type !== OPENAI_OAUTH_MESSAGE_TYPE) {
-        return;
-      }
-
-      setProviderStatus("openai-oauth", String(payload.message || "OpenAI OAuth updated."));
-      setStatusText(payload.ok ? "OpenAI OAuth connected" : "OpenAI OAuth failed");
-      loadOpenAIProviderStatus().catch(() => { });
-      if (payload.ok && providerModalId === "openai-oauth") {
-        loadProviderModels("openai-oauth", providerForm || getProviderDefinition("openai-oauth").defaultEntry).catch(() => {
-          setProviderStatus("openai-oauth", "Failed to load OpenAI Codex models.");
-        });
-      }
-    }
-
-    window.addEventListener("message", handleOAuthMessage);
-    return () => window.removeEventListener("message", handleOAuthMessage);
-  }, [providerForm, providerModalId]);
+    return () => {
+      configDeviceCodePollingRef.current = false;
+    };
+  }, []);
 
   useEffect(() => {
     if (!providerModelMenuOpen) {
@@ -1085,12 +1027,11 @@ export function ConfigView({ sectionId = "providers", onSectionChange = null }) 
           onCloseProviderModal={closeProviderModal}
           onUpdateProviderForm={updateProviderForm}
           onOpenOAuth={openOpenAIPlatform}
-          onSubmitOAuthCallback={submitOpenAIOAuthCallback}
-          onUpdateOAuthCallbackURL={setProviderOAuthCallbackURL}
+          onCancelDeviceCode={cancelConfigDeviceCodePolling}
+          deviceCode={configDeviceCode}
+          isDeviceCodePolling={configDeviceCodePolling}
           onRemoveProvider={removeProviderFromModal}
           onSaveProvider={saveProviderFromModal}
-          openAIOAuthRedirectURI={OPENAI_OAUTH_REDIRECT_URI}
-          openAIOAuthCallbackURL={providerOAuthCallbackURL}
           onSetProviderModelMenuOpen={setProviderModelMenuOpen}
           onSetProviderModelMenuRect={setProviderModelMenuRect}
           getProviderEntry={getProviderEntry}

@@ -2399,6 +2399,14 @@ public actor CoreService {
         try await openAIOAuthService.completeLogin(request: request)
     }
 
+    public func startOpenAIDeviceCode() async throws -> OpenAIDeviceCodeStartResponse {
+        try await openAIOAuthService.startDeviceCode()
+    }
+
+    public func pollOpenAIDeviceCode(request: OpenAIDeviceCodePollRequest) async throws -> OpenAIDeviceCodePollResponse {
+        try await openAIOAuthService.pollDeviceToken(deviceAuthId: request.deviceAuthId, userCode: request.userCode)
+    }
+
     /// Returns search provider key availability for configured web search providers.
     public func searchProviderStatus() async -> SearchToolsStatusResponse {
         await searchProviderService.status()
