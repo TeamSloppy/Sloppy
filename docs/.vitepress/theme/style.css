@@ -274,8 +274,6 @@ body::after {
 .VPDocAsideOutline .content::before {
   content: "";
   position: absolute;
-  inset: 14px;
-  border: 1px solid rgba(204, 255, 0, 0.07);
   pointer-events: none;
 }
 

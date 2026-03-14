@@ -91,8 +91,11 @@ enum CoreModelProviderFactory {
         let environmentKey = ProcessInfo.processInfo.environment["OPENAI_API_KEY"]?
             .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
 
-        if !hasOpenAI, (!environmentKey.isEmpty || hasOAuthCredentials) {
+        if !hasOpenAI, !environmentKey.isEmpty {
             identifiers.append("openai:gpt-4.1-mini")
+        }
+        if !hasOpenAI, environmentKey.isEmpty, hasOAuthCredentials {
+            identifiers.append("openai:gpt-5-codex-mini")
         }
 
         return identifiers

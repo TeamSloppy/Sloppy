@@ -3,6 +3,9 @@ import { createDependencies } from "./app/di/createDependencies";
 import { DEFAULT_AGENT_TAB, DEFAULT_PROJECT_TAB } from "./app/routing/dashboardRouteAdapter";
 import { useDashboardRoute } from "./app/routing/useDashboardRoute";
 import { SidebarView } from "./components/SidebarView";
+import { NotificationProvider } from "./features/notifications/NotificationContext";
+import { NotificationBell } from "./features/notifications/NotificationBell";
+import { NotificationToastContainer } from "./features/notifications/NotificationToast";
 import { OnboardingView } from "./features/onboarding/OnboardingView";
 import { useRuntimeOverview } from "./features/runtime-overview/model/useRuntimeOverview";
 import { AgentsView } from "./views/AgentsView";
@@ -155,6 +158,7 @@ function DashboardShell({ dependencies }: { dependencies: ReturnType<typeof crea
         onSelect={onSelectSidebar}
         isMobileOpen={mobileSidebarOpen}
         onRequestClose={() => setMobileSidebarOpen(false)}
+        footer={<NotificationBell isCompact={sidebarCompact} />}
       />
       <button
         type="button"
@@ -214,6 +218,7 @@ function DashboardShell({ dependencies }: { dependencies: ReturnType<typeof crea
         </button>
         {pageContent}
       </div>
+      <NotificationToastContainer />
     </div>
   );
 }
@@ -316,5 +321,9 @@ export function App() {
     );
   }
 
-  return <DashboardShell dependencies={dependencies} />;
+  return (
+    <NotificationProvider>
+      <DashboardShell dependencies={dependencies} />
+    </NotificationProvider>
+  );
 }

@@ -1,3 +1,5 @@
+import { emitNotification } from "../../features/notifications/notificationBus";
+
 type HttpMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
 
 interface JsonRequestOptions<TBody = unknown> {
@@ -71,6 +73,17 @@ export async function requestJson<TResponse, TBody = unknown>(
     const data = await parseJSONSafely<TResponse>(response);
     return { ok: response.ok, status: response.status, data };
   } catch {
+    emitNetworkError();
     return { ok: false, status: 0, data: null };
   }
+}
+
+let lastNetworkErrorTs = 0;
+const NETWORK_ERROR_THROTTLE_MS = 10_000;
+
+function emitNetworkError() {
+  const now = Date.now();
+  if (now - lastNetworkErrorTs < NETWORK_ERROR_THROTTLE_MS) return;
+  lastNetworkErrorTs = now;
+  emitNotification("system_error", "Connection lost", "Failed to reach the backend. Check if Core is running.");
 }

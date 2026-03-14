@@ -605,13 +605,12 @@ export function ConfigView({ sectionId = "providers", onSectionChange = null }) 
     setStatusText("Changes cancelled");
   }
 
-  async function saveConfig() {
+  async function persistConfig(payload) {
     try {
-      const payload = mode === "raw" ? normalizeConfig(JSON.parse(rawConfig)) : draftConfig;
       const response = await updateRuntimeConfig(payload);
       if (!response) {
         setStatusText("Failed to save config");
-        return;
+        return false;
       }
 
       if (pendingOAuthDisconnect) {
@@ -628,6 +627,17 @@ export function ConfigView({ sectionId = "providers", onSectionChange = null }) 
       await loadOpenAIProviderStatus();
       await loadSearchProviderStatus();
       setStatusText("Config saved");
+      return true;
+    } catch {
+      setStatusText("Failed to save config");
+      return false;
+    }
+  }
+
+  async function saveConfig() {
+    try {
+      const payload = mode === "raw" ? normalizeConfig(JSON.parse(rawConfig)) : draftConfig;
+      await persistConfig(payload);
     } catch {
       setStatusText("Invalid raw JSON");
     }
@@ -992,7 +1002,7 @@ export function ConfigView({ sectionId = "providers", onSectionChange = null }) 
     };
   }, [providerModelMenuOpen, providerModalMeta?.id]);
 
-  function saveProviderFromModal() {
+  async function saveProviderFromModal() {
     if (!providerModalMeta || !providerForm) {
       return;
     }
@@ -1005,20 +1015,22 @@ export function ConfigView({ sectionId = "providers", onSectionChange = null }) 
       model: providerForm.model.trim() || provider.defaultEntry.model
     };
 
-    mutateDraft((draft) => {
-      const index = findProviderModelIndex(draft.models, provider.id);
-      if (index >= 0) {
-        draft.models[index] = nextEntry;
-      } else {
-        draft.models.push(nextEntry);
-      }
-    });
+    const nextConfig = clone(draftConfig);
+    const index = findProviderModelIndex(nextConfig.models, provider.id);
+    if (index >= 0) {
+      nextConfig.models[index] = nextEntry;
+    } else {
+      nextConfig.models.push(nextEntry);
+    }
 
-    setStatusText(`${provider.title} updated in draft`);
+    const json = JSON.stringify(nextConfig, null, 2);
+    setDraftConfig(nextConfig);
+    setRawConfig(json);
     closeProviderModal();
+    await persistConfig(nextConfig);
   }
 
-  function removeProviderFromModal() {
+  async function removeProviderFromModal() {
     if (!providerModalMeta) {
       return;
     }
@@ -1028,15 +1040,17 @@ export function ConfigView({ sectionId = "providers", onSectionChange = null }) 
       setPendingOAuthDisconnect(true);
     }
 
-    mutateDraft((draft) => {
-      const index = findProviderModelIndex(draft.models, provider.id);
-      if (index >= 0) {
-        draft.models.splice(index, 1);
-      }
-    });
+    const nextConfig = clone(draftConfig);
+    const index = findProviderModelIndex(nextConfig.models, provider.id);
+    if (index >= 0) {
+      nextConfig.models.splice(index, 1);
+    }
 
-    setStatusText(`${provider.title} removed from draft`);
+    const json = JSON.stringify(nextConfig, null, 2);
+    setDraftConfig(nextConfig);
+    setRawConfig(json);
     closeProviderModal();
+    await persistConfig(nextConfig);
   }
 
   function renderSettingsContent() {

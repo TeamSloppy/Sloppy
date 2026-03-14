@@ -7,7 +7,8 @@ export function SidebarView({
   onToggleCompact,
   onSelect,
   isMobileOpen = false,
-  onRequestClose = () => { }
+  onRequestClose = () => { },
+  footer = null
 }) {
   return (
     <aside className={`sidebar ${isCompact ? "compact" : "full"} ${isMobileOpen ? "mobile-open" : ""}`}>
@@ -58,6 +59,7 @@ export function SidebarView({
           </button>
         ))}
       </nav>
+      {footer && <div className="sidebar-footer">{footer}</div>}
     </aside>
   );
 }

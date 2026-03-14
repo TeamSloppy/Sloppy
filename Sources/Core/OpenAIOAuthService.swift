@@ -905,6 +905,15 @@ struct OpenAIOAuthService: @unchecked Sendable {
             .map { RemoteModelsResponse.ReasoningEffort(reasoningEffort: $0) }
             return mapped.isEmpty ? nil : mapped
         }
+        if let levels = object["supported_reasoning_levels"] as? [[String: Any]] {
+            let mapped = levels.compactMap { level in
+                (level["effort"] as? String)?
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+            .filter { !$0.isEmpty }
+            .map { RemoteModelsResponse.ReasoningEffort(reasoningEffort: $0) }
+            return mapped.isEmpty ? nil : mapped
+        }
         return nil
     }
 

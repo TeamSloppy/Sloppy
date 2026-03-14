@@ -5332,19 +5332,49 @@ body.agent-chat-no-page-scroll .page {
   color: var(--muted);
 }
 
-.settings-main-actions {
-  display: inline-flex;
-  gap: 8px;
-  flex-wrap: wrap;
+.settings-toast {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  z-index: 900;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 18px;
+  background: var(--card);
+  border: 1px solid var(--accent);
+  border-radius: 10px;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.35);
+  opacity: 0;
+  transform: translateY(16px);
+  pointer-events: none;
+  transition: opacity 220ms ease, transform 220ms ease;
 }
 
-.settings-main-actions button {
+.settings-toast--visible {
+  opacity: 1;
+  transform: translateY(0);
+  pointer-events: auto;
+}
+
+.settings-toast-label {
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: var(--text);
+  white-space: nowrap;
+}
+
+.settings-toast-actions {
+  display: inline-flex;
+  gap: 8px;
+}
+
+.settings-toast-actions button {
   min-width: 82px;
   transition: border-color 120ms ease, background-color 120ms ease, color 120ms ease, opacity 120ms ease;
 }
 
-.settings-main-actions button:nth-child(2),
-.settings-main-actions button:nth-child(3) {
+.settings-toast-actions button:last-child {
   border-color: var(--accent);
   color: var(--accent);
 }
@@ -8521,4 +8551,332 @@ pre {
   font-family: "Fira Code", monospace !important;
   font-size: 0.9rem !important;
   background: transparent !important;
+}
+
+/* ── Sidebar Footer ── */
+
+.sidebar-footer {
+  margin-top: auto;
+  padding: 8px;
+  border-top: 1px solid var(--line);
+}
+
+/* ── Notification Bell ── */
+
+.notif-bell-container {
+  position: relative;
+}
+
+.notif-bell-button {
+  position: relative;
+  width: 100%;
+  background: none;
+  border: 1px solid var(--line);
+  color: var(--muted);
+  cursor: pointer;
+  padding: 8px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-family: "Fira Code", monospace;
+  font-size: 11px;
+  letter-spacing: 0.05em;
+  transition: color 0.15s, border-color 0.15s;
+}
+
+.notif-bell-button:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+.notif-bell-label {
+  text-transform: uppercase;
+}
+
+.notif-bell-badge {
+  margin-left: auto;
+  background: var(--danger);
+  color: #000;
+  font-size: 9px;
+  font-weight: 700;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: "Fira Code", monospace;
+  line-height: 1;
+}
+
+.sidebar.compact .notif-bell-button {
+  justify-content: center;
+  padding: 6px;
+}
+
+.sidebar.compact .notif-bell-badge {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  margin-left: 0;
+}
+
+/* ── Notification Dropdown ── */
+
+.notif-dropdown {
+  position: fixed;
+  width: 360px;
+  max-height: 420px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  display: flex;
+  flex-direction: column;
+  animation: notif-dropdown-in 0.15s ease-out;
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.6);
+  z-index: 2000;
+}
+
+@keyframes notif-dropdown-in {
+  from { opacity: 0; transform: translateX(-8px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+
+.notif-dropdown-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--line);
+}
+
+.notif-dropdown-title {
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  color: var(--accent);
+  font-weight: 700;
+}
+
+.notif-dropdown-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.notif-dropdown-action {
+  background: none;
+  border: none;
+  color: var(--muted);
+  font-size: 10px;
+  font-family: "Fira Code", monospace;
+  cursor: pointer;
+  padding: 0;
+  letter-spacing: 0.05em;
+  transition: color 0.15s;
+}
+
+.notif-dropdown-action:hover {
+  color: var(--accent);
+}
+
+.notif-dropdown-list {
+  overflow-y: auto;
+  flex: 1;
+}
+
+.notif-dropdown-empty {
+  padding: 32px 12px;
+  text-align: center;
+  color: var(--muted);
+  font-size: 11px;
+  letter-spacing: 0.1em;
+}
+
+/* ── Notification Item ── */
+
+.notif-item {
+  display: flex;
+  gap: 8px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--line);
+  cursor: pointer;
+  transition: background 0.15s;
+  align-items: flex-start;
+}
+
+.notif-item:hover {
+  background: var(--surface-2);
+}
+
+.notif-item.notif-read {
+  opacity: 0.5;
+}
+
+.notif-item-icon {
+  font-size: 18px;
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+.notif-item-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.notif-item-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  margin-bottom: 2px;
+}
+
+.notif-item-tag {
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  font-weight: 700;
+}
+
+.notif-item-time {
+  font-size: 9px;
+  color: var(--muted);
+  flex-shrink: 0;
+}
+
+.notif-item-title {
+  font-size: 12px;
+  color: var(--text);
+  line-height: 1.3;
+}
+
+.notif-item-message {
+  font-size: 11px;
+  color: var(--muted);
+  margin-top: 2px;
+  line-height: 1.3;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.notif-item-dismiss {
+  background: none;
+  border: none;
+  color: var(--muted);
+  cursor: pointer;
+  padding: 0;
+  flex-shrink: 0;
+  opacity: 0;
+  transition: opacity 0.15s, color 0.15s;
+}
+
+.notif-item:hover .notif-item-dismiss {
+  opacity: 1;
+}
+
+.notif-item-dismiss:hover {
+  color: var(--text);
+}
+
+.notif-item-dismiss .material-symbols-rounded {
+  font-size: 14px;
+}
+
+/* ── Notification Toasts ── */
+
+.notif-toast-container {
+  position: fixed;
+  bottom: 20px;
+  right: 20px;
+  z-index: 9000;
+  display: flex;
+  flex-direction: column-reverse;
+  gap: 8px;
+  pointer-events: none;
+}
+
+.notif-toast {
+  pointer-events: auto;
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 10px 12px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--accent);
+  min-width: 280px;
+  max-width: 380px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.6);
+  animation: notif-toast-slide-in 0.3s ease-out;
+}
+
+.notif-toast-exit {
+  animation: notif-toast-slide-out 0.3s ease-in forwards;
+}
+
+@keyframes notif-toast-slide-in {
+  from { opacity: 0; transform: translateX(40px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes notif-toast-slide-out {
+  from { opacity: 1; transform: translateX(0); }
+  to   { opacity: 0; transform: translateX(40px); }
+}
+
+.notif-toast-icon {
+  font-size: 18px;
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+.notif-toast-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.notif-toast-title {
+  font-size: 12px;
+  color: var(--text);
+  font-weight: 600;
+}
+
+.notif-toast-message {
+  font-size: 11px;
+  color: var(--muted);
+  margin-top: 2px;
+  line-height: 1.3;
+}
+
+.notif-toast-close {
+  background: none;
+  border: none;
+  color: var(--muted);
+  cursor: pointer;
+  padding: 0;
+  flex-shrink: 0;
+  transition: color 0.15s;
+}
+
+.notif-toast-close:hover {
+  color: var(--text);
+}
+
+.notif-toast-close .material-symbols-rounded {
+  font-size: 14px;
+}
+
+@media (max-width: 480px) {
+  .notif-dropdown {
+    width: calc(100vw - 24px);
+    right: -8px;
+  }
+
+  .notif-toast-container {
+    left: 12px;
+    right: 12px;
+  }
+
+  .notif-toast {
+    min-width: 0;
+    max-width: none;
+  }
 }

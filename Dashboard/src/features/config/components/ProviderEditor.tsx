@@ -204,7 +204,7 @@ export function ProviderEditor({
                     </button>
                   </div>
                 ) : null}
-                {providerModalMeta.id === "openai-oauth" ? (
+                {providerModalMeta.id === "openai-oauth" && !openAIProviderStatus.hasOAuthCredentials ? (
                   <p className="placeholder-text">
                     You must first <a href="https://chatgpt.com/security-settings" target="_blank" rel="noopener noreferrer">enable device code login</a> in your ChatGPT security settings.
                   </p>

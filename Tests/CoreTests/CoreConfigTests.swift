@@ -4,38 +4,6 @@ import Testing
 @testable import Core
 
 @Test
-func decodeLegacyStringModelsAndPlugins() throws {
-    let legacyJSON =
-        """
-        {
-          "listen": { "host": "0.0.0.0", "port": 25101 },
-          "auth": { "token": "dev-token" },
-          "models": ["openai:gpt-4.1-mini", "ollama:qwen3"],
-          "memory": { "backend": "sqlite-local-vectors" },
-          "nodes": ["local"],
-          "gateways": [],
-          "plugins": ["telegram-gateway"],
-          "sqlitePath": "./.data/core.sqlite"
-        }
-        """
-
-    let decoded = try JSONDecoder().decode(CoreConfig.self, from: Data(legacyJSON.utf8))
-
-    #expect(decoded.models.count == 2)
-    #expect(decoded.models[0].title == "openai-gpt-4.1-mini")
-    #expect(decoded.models[0].model == "gpt-4.1-mini")
-    #expect(decoded.plugins.count == 1)
-    #expect(decoded.plugins[0].plugin == "telegram-gateway")
-    #expect(decoded.workspace.name == CoreConfig.defaultWorkspaceName)
-    #expect(decoded.workspace.basePath == ".")
-    #expect(decoded.gitSync.enabled == false)
-    #expect(decoded.gitSync.branch == "main")
-    #expect(decoded.gitSync.conflictStrategy == .remoteWins)
-    #expect(decoded.onboarding.completed == false)
-    #expect(decoded.sqlitePath == CoreConfig.defaultSQLiteFileName)
-}
-
-@Test
 func missingOnboardingConfigFallsBackToIncompleteState() throws {
     let json =
         """
@@ -135,23 +103,6 @@ func defaultSQLitePathIsInsideMemorySubdirectory() {
     let config = CoreConfig.default
     let sqliteURL = config.resolvedSQLiteURL(currentDirectory: "/tmp/slop")
     #expect(sqliteURL.standardizedFileURL.path == "/tmp/slop/.sloppy/memory/core.sqlite")
-}
-
-@Test
-func loadFallsBackToLegacyConfigFileInCurrentDirectory() throws {
-    let fixtureDirectory = FileManager.default.temporaryDirectory
-        .appendingPathComponent("core-config-legacy-\(UUID().uuidString)", isDirectory: true)
-    try FileManager.default.createDirectory(at: fixtureDirectory, withIntermediateDirectories: true)
-    defer { try? FileManager.default.removeItem(at: fixtureDirectory) }
-
-    var config = CoreConfig.default
-    config.listen.port = 25999
-    let payload = try JSONEncoder().encode(config)
-    let legacyPath = fixtureDirectory.appendingPathComponent(CoreConfig.legacyDefaultConfigFileName)
-    try payload.write(to: legacyPath, options: .atomic)
-
-    let loaded = CoreConfig.load(currentDirectory: fixtureDirectory.path)
-    #expect(loaded.listen.port == 25999)
 }
 
 @Test

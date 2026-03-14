@@ -1,6 +1,7 @@
 import ArgumentParser
 import Foundation
 import Logging
+import Protocols
 
 @main
 struct NodeMain: AsyncParsableCommand {
@@ -46,7 +47,7 @@ private actor LoggingBootstrapper {
             return
         }
 
-        LoggingSystem.bootstrap(StreamLogHandler.standardError)
+        LoggingSystem.bootstrap(ColoredLogHandler.standardError)
         isBootstrapped = true
     }
 }

@@ -257,7 +257,7 @@ private actor LoggingBootstrapper {
         SystemJSONLLogHandler.configure(fileURL: logFileURL)
         LoggingSystem.bootstrap { label in
             MultiplexLogHandler([
-                StreamLogHandler.standardError(label: label),
+                ColoredLogHandler.standardError(label: label),
                 SystemJSONLLogHandler(label: label)
             ])
         }

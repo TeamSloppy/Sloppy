@@ -139,13 +139,12 @@ public struct AnyLanguageModelProviderPlugin: ModelProviderPlugin {
             try? await settings.refreshTokenIfNeeded?()
             let resolvedModel = normalizeModelName(model, removing: "openai:")
             let oauthModel = OpenAIOAuthModel(
-                baseURL: settings.baseURL,
                 bearerToken: settings.apiKey(),
                 model: resolvedModel,
-                apiVariant: .responses,
-                accountId: settings.accountId
+                accountId: settings.accountId,
+                instructions: resolvedInstructions
             )
-            
+
             let session = LanguageModelSession(
                 model: oauthModel,
                 instructions: resolvedInstructions
@@ -270,19 +269,18 @@ public struct AnyLanguageModelProviderPlugin: ModelProviderPlugin {
                         try? await settings.refreshTokenIfNeeded?()
                         let resolvedModel = normalizeModelName(model, removing: "openai:")
                         let oauthModel = OpenAIOAuthModel(
-                            baseURL: settings.baseURL,
                             bearerToken: settings.apiKey(),
                             model: resolvedModel,
-                            apiVariant: .responses,
-                            accountId: settings.accountId
+                            accountId: settings.accountId,
+                            instructions: resolvedInstructions
                         )
-                        
+
                         let session = LanguageModelSession(
                             model: oauthModel,
                             instructions: resolvedInstructions
                         )
                         let options = openAIGenerationOptions(maxTokens: maxTokens, reasoningEffort: reasoningEffort)
-                        
+
                         let stream = session.streamResponse(to: Prompt(prompt), generating: String.self, options: options)
                         for try await snapshot in stream {
                             continuation.yield(snapshot.content)

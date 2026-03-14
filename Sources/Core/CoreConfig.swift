@@ -2,14 +2,12 @@ import Foundation
 
 public struct CoreConfig: Codable, Sendable {
     public static let defaultConfigFileName = "sloppy.json"
-    public static let legacyDefaultConfigFileName = "sloppy.config.json"
     public static var defaultConfigPath: String {
         defaultConfigPath(currentDirectory: FileManager.default.currentDirectoryPath)
     }
     public static let defaultWorkspaceName = ".sloppy"
     public static let defaultWorkspaceBasePath = "."
     public static let defaultSQLiteFileName = "memory/core.sqlite"
-    public static let legacyDefaultSQLitePath = "./.data/core.sqlite"
 
     public struct ModelConfig: Codable, Sendable, Equatable {
         public var title: String
@@ -526,17 +524,6 @@ public struct CoreConfig: Codable, Sendable {
             return .default
         }
 
-        // Keep backward compatibility for repositories that still rely on
-        // sloppy.config.json in the working directory.
-        if path == nil || normalizedPath?.isEmpty == true {
-            let legacyPath = URL(fileURLWithPath: currentDirectory, isDirectory: true)
-                .appendingPathComponent(legacyDefaultConfigFileName)
-                .path
-            if let decodedLegacy = decodeConfigFile(at: legacyPath) {
-                return decodedLegacy
-            }
-        }
-
         let resolvedPath = defaultConfigPath(currentDirectory: currentDirectory)
         if let decoded = decodeConfigFile(at: resolvedPath) {
             return decoded
@@ -587,58 +574,8 @@ public struct CoreConfig: Codable, Sendable {
         searchTools = try container.decodeIfPresent(SearchTools.self, forKey: .searchTools) ?? .init()
         visor = try container.decodeIfPresent(Visor.self, forKey: .visor) ?? .init()
         sqlitePath = try container.decode(String.self, forKey: .sqlitePath)
-        if sqlitePath == CoreConfig.legacyDefaultSQLitePath {
-            sqlitePath = CoreConfig.defaultSQLiteFileName
-        }
-
-        if let decodedModels = try? container.decode([ModelConfig].self, forKey: .models) {
-            models = decodedModels
-        } else if let legacyModels = try? container.decode([String].self, forKey: .models) {
-            models = legacyModels.map(Self.modelFromLegacy)
-        } else {
-            models = []
-        }
-
-        if let decodedPlugins = try? container.decode([PluginConfig].self, forKey: .plugins) {
-            plugins = decodedPlugins
-        } else if let legacyPlugins = try? container.decode([String].self, forKey: .plugins) {
-            plugins = legacyPlugins.map { legacy in
-                PluginConfig(
-                    title: legacy,
-                    apiKey: "",
-                    apiUrl: "",
-                    plugin: legacy
-                )
-            }
-        } else {
-            plugins = []
-        }
-    }
-
-    private static func modelFromLegacy(_ legacy: String) -> ModelConfig {
-        let parts = legacy.split(separator: ":", maxSplits: 1).map(String.init)
-        let provider: String
-        let model: String
-        if parts.count == 2 {
-            provider = parts[0].lowercased()
-            model = parts[1]
-        } else {
-            provider = ""
-            model = legacy
-        }
-
-        let apiUrl: String
-        switch provider {
-        case "openai":
-            apiUrl = "https://api.openai.com/v1"
-        case "ollama":
-            apiUrl = "http://127.0.0.1:11434"
-        default:
-            apiUrl = ""
-        }
-
-        let title = provider.isEmpty ? model : "\(provider)-\(model)"
-        return ModelConfig(title: title, apiKey: "", apiUrl: apiUrl, model: model)
+        models = try container.decodeIfPresent([ModelConfig].self, forKey: .models) ?? []
+        plugins = try container.decodeIfPresent([PluginConfig].self, forKey: .plugins) ?? []
     }
 
     public func resolvedWorkspaceRootURL(currentDirectory: String = FileManager.default.currentDirectoryPath) -> URL {

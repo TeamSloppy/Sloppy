@@ -28,6 +28,9 @@ let package = Package(
     targets: [
         .target(
             name: "Protocols",
+            dependencies: [
+                .product(name: "Logging", package: "swift-log")
+            ],
             path: "Sources/Protocols"
         ),
         .target(

@@ -1996,6 +1996,9 @@ public actor SQLiteStore: PersistenceStore {
             return (nil, "Failed to open SQLite database at \(path): \(errorMsg)")
         }
 
+        sqlite3_exec(db, "PRAGMA journal_mode = WAL;", nil, nil, nil)
+        sqlite3_exec(db, "PRAGMA busy_timeout = 5000;", nil, nil, nil)
+
         if sqlite3_exec(db, schemaSQL, nil, nil, nil) != SQLITE_OK {
             let errorMsg = db.flatMap { String(cString: sqlite3_errmsg($0)) } ?? "Unknown execution error"
             sqlite3_close(db)
