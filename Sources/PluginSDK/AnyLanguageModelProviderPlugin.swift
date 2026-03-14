@@ -11,17 +11,20 @@ public struct AnyLanguageModelProviderPlugin: ModelProviderPlugin {
         public var baseURL: URL
         public var apiVariant: OpenAILanguageModel.APIVariant
         public var accountId: String?
+        public var refreshTokenIfNeeded: (@Sendable () async throws -> Void)?
 
         public init(
             apiKey: @escaping @Sendable () -> String,
             baseURL: URL = OpenAILanguageModel.defaultBaseURL,
             apiVariant: OpenAILanguageModel.APIVariant = .chatCompletions,
-            accountId: String? = nil
+            accountId: String? = nil,
+            refreshTokenIfNeeded: (@Sendable () async throws -> Void)? = nil
         ) {
             self.apiKey = apiKey
             self.baseURL = baseURL
             self.apiVariant = apiVariant
             self.accountId = accountId
+            self.refreshTokenIfNeeded = refreshTokenIfNeeded
         }
     }
 
@@ -133,6 +136,7 @@ public struct AnyLanguageModelProviderPlugin: ModelProviderPlugin {
             }
             
         case .openAIOAuth(let settings):
+            try? await settings.refreshTokenIfNeeded?()
             let resolvedModel = normalizeModelName(model, removing: "openai:")
             let oauthModel = OpenAIOAuthModel(
                 baseURL: settings.baseURL,
@@ -263,6 +267,7 @@ public struct AnyLanguageModelProviderPlugin: ModelProviderPlugin {
                         }
                     
                     case .openAIOAuth(let settings):
+                        try? await settings.refreshTokenIfNeeded?()
                         let resolvedModel = normalizeModelName(model, removing: "openai:")
                         let oauthModel = OpenAIOAuthModel(
                             baseURL: settings.baseURL,
