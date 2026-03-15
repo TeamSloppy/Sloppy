@@ -86,7 +86,7 @@ func searchProviderStatusPrefersEnvironmentKeys() async throws {
 @Test
 func searchProviderStatusEndpointReturnsConfiguredProviders() async throws {
     let searchTools = makeSearchConfig(activeProvider: .brave)
-    var config = CoreConfig.default
+    var config = CoreConfig.test
     config.searchTools = searchTools
 
     let router = CoreRouter(
@@ -138,11 +138,7 @@ func searchRequestsPreferEnvironmentKeyOverConfiguredKey() async throws {
 
 @Test
 func invokeWebSearchRequiresQuery() async throws {
-    var config = CoreConfig.default
-    config.workspace = .init(name: "workspace-search-\(UUID().uuidString)", basePath: FileManager.default.temporaryDirectory.path)
-    config.sqlitePath = FileManager.default.temporaryDirectory
-        .appendingPathComponent("core-search-\(UUID().uuidString).sqlite")
-        .path
+    var config = CoreConfig.test
     config.searchTools = CoreConfig.SearchTools(activeProvider: .brave)
 
     let (router, agentID, sessionID) = try await makeSearchTestHarness(
@@ -165,11 +161,7 @@ func invokeWebSearchRequiresQuery() async throws {
 
 @Test
 func invokeWebSearchReturnsNotConfiguredWhenSelectedProviderHasNoKey() async throws {
-    var config = CoreConfig.default
-    config.workspace = .init(name: "workspace-search-\(UUID().uuidString)", basePath: FileManager.default.temporaryDirectory.path)
-    config.sqlitePath = FileManager.default.temporaryDirectory
-        .appendingPathComponent("core-search-\(UUID().uuidString).sqlite")
-        .path
+    var config = CoreConfig.test
     config.searchTools = .init(activeProvider: .perplexity)
 
     let (router, agentID, sessionID) = try await makeSearchTestHarness(
@@ -217,11 +209,7 @@ func invokeWebSearchNormalizesBraveResults() async throws {
         return (Data(payload.utf8), makeHTTPResponse(url: request.url!))
     }
 
-    var config = CoreConfig.default
-    config.workspace = .init(name: "workspace-search-\(UUID().uuidString)", basePath: FileManager.default.temporaryDirectory.path)
-    config.sqlitePath = FileManager.default.temporaryDirectory
-        .appendingPathComponent("core-search-\(UUID().uuidString).sqlite")
-        .path
+    var config = CoreConfig.test
     config.searchTools = searchTools
 
     let (router, agentID, sessionID) = try await makeSearchTestHarness(
@@ -275,11 +263,7 @@ func invokeWebSearchNormalizesPerplexityResults() async throws {
         return (Data(payload.utf8), makeHTTPResponse(url: request.url!))
     }
 
-    var config = CoreConfig.default
-    config.workspace = .init(name: "workspace-search-\(UUID().uuidString)", basePath: FileManager.default.temporaryDirectory.path)
-    config.sqlitePath = FileManager.default.temporaryDirectory
-        .appendingPathComponent("core-search-\(UUID().uuidString).sqlite")
-        .path
+    var config = CoreConfig.test
     config.searchTools = searchTools
 
     let (router, agentID, sessionID) = try await makeSearchTestHarness(

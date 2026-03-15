@@ -113,13 +113,16 @@ function DashboardShell({ dependencies }: { dependencies: ReturnType<typeof crea
           routeProjectTab={route.projectTab}
           routeProjectTaskReference={route.projectTaskReference}
           onRouteProjectChange={onProjectRouteChange as any}
+          onNavigateToChannelSession={(sessionId: string) => {
+            setSessionRoute(sessionId);
+          }}
         />
       )
     },
     {
       id: "agents",
       label: { icon: "support_agent", title: "Agents" },
-      content: <AgentsView routeAgentId={route.agentId} routeTab={route.agentTab} onRouteChange={onAgentRouteChange} />
+      content: <AgentsView routeAgentId={route.agentId} routeTab={route.agentTab} onRouteChange={onAgentRouteChange} onNavigateToChannelSession={(sessionId: string) => { setSessionRoute(sessionId); }} />
     },
     {
       id: "actors",

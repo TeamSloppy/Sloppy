@@ -65,14 +65,7 @@ private actor FixedHeartbeatModelProvider: ModelProvider {
 }
 
 private func makeHeartbeatService() -> (CoreService, CoreConfig) {
-    let workspaceName = "workspace-heartbeat-\(UUID().uuidString)"
-    let sqlitePath = FileManager.default.temporaryDirectory
-        .appendingPathComponent("core-heartbeat-\(UUID().uuidString).sqlite")
-        .path
-
-    var config = CoreConfig.default
-    config.workspace = .init(name: workspaceName, basePath: FileManager.default.temporaryDirectory.path)
-    config.sqlitePath = sqlitePath
+    let config = CoreConfig.test
     return (CoreService(config: config), config)
 }
 

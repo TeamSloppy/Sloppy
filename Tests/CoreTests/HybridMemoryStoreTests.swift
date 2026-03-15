@@ -5,12 +5,7 @@ import Testing
 
 @Test
 func recallFindsPersistedFactForNaturalLanguageQueryAfterRestart() async throws {
-    let sqlitePath = FileManager.default.temporaryDirectory
-        .appendingPathComponent("core-memory-recall-\(UUID().uuidString).sqlite")
-        .path
-
-    var config = CoreConfig.default
-    config.sqlitePath = sqlitePath
+    let config = CoreConfig.test
 
     let firstStore = HybridMemoryStore(config: config)
     let factRef = await firstStore.save(

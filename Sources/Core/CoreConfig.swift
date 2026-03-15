@@ -600,7 +600,7 @@ public struct CoreConfig: Codable, Sendable {
         if isAbsolutePath(rawPath) {
             return URL(fileURLWithPath: rawPath, isDirectory: true)
         }
-        return currentDirectory.appendingPathComponent(rawPath, isDirectory: true)
+        return currentDirectory.appendingPathComponent(rawPath, isDirectory: true).standardized
     }
 
     private static func expandHomeShortcut(_ rawPath: String) -> String? {

@@ -1,12 +1,27 @@
-import React, { useCallback, useEffect, useState } from "react";
-import { createActorNode, deleteActorNode, fetchActorsBoard, fetchChannelSessions } from "../../../api";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
+import { createActorNode, deleteActorNode, fetchActorsBoard, fetchChannelSessions, fetchChannelSession } from "../../../api";
 import { ChannelModelSelector } from "./ChannelModelSelector";
+
+const CHANNEL_MESSAGES_LIMIT = 9;
+
+const USER_COLORS = [
+  "#c084fc", "#67e8f9", "#f472b6", "#fbbf24", "#6ee7b7",
+  "#fb923c", "#a78bfa", "#38bdf8", "#f87171", "#a3e635"
+];
 
 function slugify(value: string) {
   return value
     .toLowerCase()
     .replace(/\s+/g, "-")
     .replace(/[^a-z0-9\-_:]/g, "");
+}
+
+function userColor(name: string) {
+  let hash = 0;
+  for (let i = 0; i < name.length; i++) {
+    hash = name.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  return USER_COLORS[Math.abs(hash) % USER_COLORS.length];
 }
 
 function formatRelativeTime(value: string) {
@@ -28,15 +43,74 @@ function formatRelativeTime(value: string) {
   return `${Math.round(diffHours / 24)}d ago`;
 }
 
-export function AgentChannelsTab({ agentId, agentDisplayName }) {
+function formatCompactTime(dateValue: string) {
+  const date = new Date(dateValue);
+  if (Number.isNaN(date.getTime())) return "";
+  let hours = date.getHours();
+  const minutes = String(date.getMinutes()).padStart(2, "0");
+  const suffix = hours >= 12 ? "p" : "a";
+  hours = hours % 12 || 12;
+  return `${hours}:${minutes}${suffix}`;
+}
+
+function extractSessionMessages(sessionDetail: any) {
+  const events = Array.isArray(sessionDetail?.events) ? sessionDetail.events : [];
+  return events
+    .filter((e: any) => {
+      const type = String(e?.type || "");
+      return type === "user_message" || type === "assistant_message";
+    })
+    .map((e: any) => {
+      const type = String(e?.type || "");
+      const isBot = type === "assistant_message";
+      return {
+        id: String(e?.id || ""),
+        userId: isBot ? "bot" : String(e?.userId || "user"),
+        content: String(e?.content || "").replace(/\s+/g, " ").trim(),
+        createdAt: e?.createdAt || "",
+        isBot
+      };
+    });
+}
+
+export function AgentChannelsTab({ agentId, agentDisplayName, onNavigateToChannelSession = null }) {
   const [nodes, setNodes] = useState([]);
   const [activeSessions, setActiveSessions] = useState([]);
+  const [sessionDetails, setSessionDetails] = useState<Record<string, any>>({});
   const [statusText, setStatusText] = useState("Loading channels...");
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [showForm, setShowForm] = useState(false);
   const [newChannelId, setNewChannelId] = useState("");
   const [formError, setFormError] = useState("");
+
+  async function loadSessionDetails(sessions: any[]) {
+    if (sessions.length === 0) {
+      setSessionDetails({});
+      return;
+    }
+    const results = await Promise.all(
+      sessions.map((s) => {
+        const sid = String(s?.sessionId || "").trim();
+        return sid ? fetchChannelSession(sid).catch(() => null) : Promise.resolve(null);
+      })
+    );
+    const details: Record<string, any> = {};
+    for (let i = 0; i < sessions.length; i++) {
+      const sid = String(sessions[i]?.sessionId || "").trim();
+      if (sid && results[i]) {
+        details[sid] = results[i];
+      }
+    }
+    setSessionDetails(details);
+  }
+
+  function updateStatusText(nodeCount: number, sessionCount: number) {
+    setStatusText(
+      `${nodeCount} channel${nodeCount !== 1 ? "s" : ""} · ` +
+      `${sessionCount} active session${sessionCount !== 1 ? "s" : ""}`
+    );
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -53,6 +127,7 @@ export function AgentChannelsTab({ agentId, agentDisplayName }) {
       if (!board || !Array.isArray(board.nodes)) {
         setNodes([]);
         setActiveSessions([]);
+        setSessionDetails({});
         setStatusText("Failed to load channels.");
         setIsLoading(false);
         return;
@@ -61,17 +136,16 @@ export function AgentChannelsTab({ agentId, agentDisplayName }) {
       setNodes(agentNodes);
       const nextSessions = Array.isArray(sessions) ? sessions : [];
       setActiveSessions(nextSessions);
-      setStatusText(
-        `${agentNodes.length} channel${agentNodes.length !== 1 ? "s" : ""} · ` +
-        `${nextSessions.length} active session${nextSessions.length !== 1 ? "s" : ""}`
-      );
-      setIsLoading(false);
+      updateStatusText(agentNodes.length, nextSessions.length);
+      await loadSessionDetails(nextSessions);
+      if (!cancelled) setIsLoading(false);
     }
 
     load().catch(() => {
       if (!cancelled) {
         setNodes([]);
         setActiveSessions([]);
+        setSessionDetails({});
         setStatusText("Failed to load channels.");
         setIsLoading(false);
       }
@@ -94,10 +168,8 @@ export function AgentChannelsTab({ agentId, agentDisplayName }) {
     setNodes(agentNodes);
     const nextSessions = Array.isArray(sessions) ? sessions : [];
     setActiveSessions(nextSessions);
-    setStatusText(
-      `${agentNodes.length} channel${agentNodes.length !== 1 ? "s" : ""} · ` +
-      `${nextSessions.length} active session${nextSessions.length !== 1 ? "s" : ""}`
-    );
+    updateStatusText(agentNodes.length, nextSessions.length);
+    await loadSessionDetails(nextSessions);
   }
 
   async function addChannel() {
@@ -232,27 +304,57 @@ export function AgentChannelsTab({ agentId, agentDisplayName }) {
                 <p className="placeholder-text">No active channel sessions right now.</p>
               </div>
             ) : (
-              <div className="agent-channel-sessions-list">
-                {activeSessions.map((session) => (
-                  <article key={session.sessionId || session.channelId} className="agent-channel-session-card">
-                    <div className="agent-channel-session-head">
-                      <span className="agent-channel-id">
-                        <span className="material-symbols-rounded agent-channel-icon">forum</span>
-                        {session.channelId}
-                      </span>
-                      <span className="agent-channel-session-time">
+              <div className="active-channels-grid">
+                {activeSessions.map((session) => {
+                  const sessionId = String(session.sessionId || "");
+                  const detail = sessionDetails[sessionId] || null;
+                  const messages = extractSessionMessages(detail).slice(-CHANNEL_MESSAGES_LIMIT);
+                  const messageCount = Number(session.messageCount || 0);
+
+                  const canOpen = Boolean(sessionId && onNavigateToChannelSession);
+
+                  return (
+                    <button
+                      key={session.sessionId || session.channelId}
+                      type="button"
+                      className="channel-card hover-levitate"
+                      disabled={!canOpen}
+                      onClick={() => {
+                        if (canOpen) {
+                          onNavigateToChannelSession(sessionId);
+                        }
+                      }}
+                    >
+                      <div className="channel-card-head">
+                        <span className="channel-card-dot channel-dot-active" />
+                        <span className="channel-card-title">{session.channelId}</span>
+                      </div>
+                      <div className="channel-card-sub">
                         {formatRelativeTime(String(session.updatedAt || session.createdAt || ""))}
-                      </span>
-                    </div>
-                    <div className="agent-channel-session-meta">
-                      <span>{session.messageCount || 0} messages</span>
-                      <span>{session.sessionId}</span>
-                    </div>
-                    {session.lastMessagePreview ? (
-                      <p className="agent-channel-session-preview">{session.lastMessagePreview}</p>
-                    ) : null}
-                  </article>
-                ))}
+                        {messageCount > 0 ? ` · ${messageCount} messages` : ""}
+                      </div>
+
+                      {messages.length > 0 ? (
+                        <div className="channel-card-messages">
+                          {messages.map((msg, i) => (
+                            <div key={msg.id || i} className="channel-msg-row">
+                              <span className="channel-msg-time">{formatCompactTime(msg.createdAt)}</span>
+                              <span
+                                className={`channel-msg-user ${msg.isBot ? "channel-msg-bot" : ""}`}
+                                style={msg.isBot ? undefined : { color: userColor(msg.userId) }}
+                              >
+                                {msg.userId}
+                              </span>
+                              <span className="channel-msg-text">{msg.content || "..."}</span>
+                            </div>
+                          ))}
+                        </div>
+                      ) : session.lastMessagePreview ? (
+                        <div className="channel-card-preview">{session.lastMessagePreview}</div>
+                      ) : null}
+                    </button>
+                  );
+                })}
               </div>
             )}
           </section>
