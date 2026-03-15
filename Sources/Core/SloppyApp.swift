@@ -10,7 +10,7 @@ import Darwin
 #endif
 
 @main
-struct CoreMain: AsyncParsableCommand {
+struct SloppyApp: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "sloppy-core",
         abstract: "Starts Sloppy core runtime demo entrypoint."
@@ -99,6 +99,7 @@ struct CoreMain: AsyncParsableCommand {
 
             if !oneshot {
                 try server.start()
+                printStartupBanner(config: config)
                 logger.info("Core HTTP server listening on \(config.listen.host):\(config.listen.port)")
             }
 
@@ -292,6 +293,58 @@ private func coreFatalSignalHandler(_ signalCode: Int32) {
 
     _ = signal(signalCode, SIG_DFL)
     _ = raise(signalCode)
+}
+
+private func printStartupBanner(config: CoreConfig) {
+    let isColor: Bool = {
+        if let term = ProcessInfo.processInfo.environment["TERM"], !term.isEmpty, term != "dumb" {
+            return true
+        }
+        return ProcessInfo.processInfo.environment["COLORTERM"] != nil
+            || ProcessInfo.processInfo.environment["FORCE_COLOR"] != nil
+    }()
+
+    let cyan  = isColor ? "\u{1B}[36m" : ""
+    let green = isColor ? "\u{1B}[32m" : ""
+    let dim   = isColor ? "\u{1B}[2m"  : ""
+    let bold  = isColor ? "\u{1B}[1m"  : ""
+    let reset = isColor ? "\u{1B}[0m"  : ""
+
+    let host = config.listen.host
+    let port = config.listen.port
+    let authStatus = config.auth.token.isEmpty ? "none" : "ready"
+
+    let rows: [(String, String)] = [
+        ("Server", "\(port)"),
+        ("API", "http://\(host):\(port)"),
+        ("Health", "http://\(host):\(port)/health"),
+        ("Auth", authStatus),
+        ("Memory", config.memory.backend),
+        ("Workspace", config.workspace.name),
+    ]
+
+    var info = ""
+    for (label, value) in rows {
+        let padded = label.padding(toLength: 16, withPad: " ", startingAt: 0)
+        info += "\(dim)\(padded)\(reset)\(green)\(value)\(reset)\n"
+    }
+
+    let banner = """
+
+    \(cyan)\(bold) ██████  ██       ██████  ██████  ██████  ██    ██
+    ██       ██      ██    ██ ██   ██ ██   ██  ██  ██
+     █████   ██      ██    ██ ██████  ██████    ████
+         ██  ██      ██    ██ ██      ██         ██
+    ██████   ███████  ██████  ██      ██         ██\(reset)
+
+    \(cyan)━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\(reset)
+    \(info)
+    """
+
+    let data = Array(banner.utf8)
+    data.withUnsafeBufferPointer { buf in
+        _ = write(STDERR_FILENO, buf.baseAddress, buf.count)
+    }
 }
 
 private func signalNameForCode(_ code: Int32) -> String {

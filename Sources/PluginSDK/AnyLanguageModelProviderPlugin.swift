@@ -45,6 +45,8 @@ public struct AnyLanguageModelProviderPlugin: ModelProviderPlugin {
     public let id: String
     public let models: [String]
     public let systemInstructions: String?
+    public let tools: [any Tool]
+    public let toolExecutionDelegate: (any ToolExecutionDelegate)?
 
     private let openAI: OpenAISettings?
     private let ollama: OllamaSettings?
@@ -55,12 +57,16 @@ public struct AnyLanguageModelProviderPlugin: ModelProviderPlugin {
         models: [String],
         openAI: OpenAISettings? = nil,
         ollama: OllamaSettings? = nil,
+        tools: [any Tool] = [],
+        toolExecutionDelegate: (any ToolExecutionDelegate)? = nil,
         systemInstructions: String? = nil
     ) {
         self.id = id
         self.models = models
         self.openAI = openAI
         self.ollama = ollama
+        self.tools = tools
+        self.toolExecutionDelegate = toolExecutionDelegate
         self.systemInstructions = systemInstructions
     }
 
@@ -145,10 +151,7 @@ public struct AnyLanguageModelProviderPlugin: ModelProviderPlugin {
                 instructions: resolvedInstructions
             )
 
-            let session = LanguageModelSession(
-                model: oauthModel,
-                instructions: resolvedInstructions
-            )
+            let session = makeSession(model: oauthModel)
             let options = openAIGenerationOptions(maxTokens: maxTokens, reasoningEffort: reasoningEffort)
             let response: LanguageModelSession.Response<String> = try await session.respond(
                 to: Prompt(prompt),
@@ -159,12 +162,11 @@ public struct AnyLanguageModelProviderPlugin: ModelProviderPlugin {
 
         case .ollama(let settings):
             do {
-                let session = LanguageModelSession(
+                let session = makeSession(
                     model: OllamaLanguageModel(
                         baseURL: settings.baseURL,
                         model: normalizeModelName(model, removing: "ollama:")
-                    ),
-                    instructions: resolvedInstructions
+                    )
                 )
                 let options = GenerationOptions(maximumResponseTokens: maxTokens)
                 let response: LanguageModelSession.Response<String> = try await session.respond(
@@ -275,10 +277,7 @@ public struct AnyLanguageModelProviderPlugin: ModelProviderPlugin {
                             instructions: resolvedInstructions
                         )
 
-                        let session = LanguageModelSession(
-                            model: oauthModel,
-                            instructions: resolvedInstructions
-                        )
+                        let session = makeSession(model: oauthModel)
                         let options = openAIGenerationOptions(maxTokens: maxTokens, reasoningEffort: reasoningEffort)
 
                         let stream = session.streamResponse(to: Prompt(prompt), generating: String.self, options: options)
@@ -288,12 +287,11 @@ public struct AnyLanguageModelProviderPlugin: ModelProviderPlugin {
                         continuation.finish()
 
                     case .ollama(let settings):
-                        let session = LanguageModelSession(
+                        let session = makeSession(
                             model: OllamaLanguageModel(
                                 baseURL: settings.baseURL,
                                 model: normalizeModelName(model, removing: "ollama:")
-                            ),
-                            instructions: resolvedInstructions
+                            )
                         )
                         let options = GenerationOptions(maximumResponseTokens: maxTokens)
                         if #available(macOS 26.0, *) {
@@ -337,22 +335,261 @@ public struct AnyLanguageModelProviderPlugin: ModelProviderPlugin {
         }
     }
 
+    /// Executes a single-turn completion with native tool support.
+    ///
+    /// Overrides the default protocol implementation. When `toolCallHandler` is provided,
+    /// a `SloppyToolExecutionDelegate` is installed on the session so tool calls are
+    /// executed natively by the model framework instead of being parsed from plain text.
+    public func complete(
+        model: String,
+        prompt: String,
+        maxTokens: Int,
+        reasoningEffort: ReasoningEffort?,
+        tools requestTools: [any Tool],
+        toolCallHandler: (@Sendable (ToolInvocationRequest) async -> ToolInvocationResult)?
+    ) async throws -> String {
+        let resolvedBackend: Backend
+        do {
+            resolvedBackend = try backend(for: model)
+        } catch {
+            logTerminalError(error, operation: "complete", model: model, backend: "resolver", apiVariant: nil)
+            throw error
+        }
+
+        let effectiveTools = requestTools.isEmpty ? tools : requestTools
+        let delegate = toolCallHandler.map { SloppyToolExecutionDelegate(toolCallHandler: $0) }
+
+        switch resolvedBackend {
+        case .openAI(let settings):
+            let resolvedModel = normalizeModelName(model, removing: "openai:")
+            do {
+                return try await completeOpenAI(
+                    settings: settings,
+                    model: resolvedModel,
+                    prompt: prompt,
+                    maxTokens: maxTokens,
+                    reasoningEffort: reasoningEffort,
+                    apiVariant: settings.apiVariant,
+                    tools: effectiveTools,
+                    toolExecutionDelegate: delegate
+                )
+            } catch {
+                if shouldRetryOpenAIWithResponses(error: error, currentVariant: settings.apiVariant) {
+                    return try await completeOpenAI(
+                        settings: settings,
+                        model: resolvedModel,
+                        prompt: prompt,
+                        maxTokens: maxTokens,
+                        reasoningEffort: reasoningEffort,
+                        apiVariant: .responses,
+                        tools: effectiveTools,
+                        toolExecutionDelegate: delegate
+                    )
+                }
+                logTerminalError(error, operation: "complete", model: model, backend: "openai", apiVariant: settings.apiVariant)
+                throw error
+            }
+
+        case .openAIOAuth(let settings):
+            try? await settings.refreshTokenIfNeeded?()
+            let resolvedModel = normalizeModelName(model, removing: "openai:")
+            let oauthModel = OpenAIOAuthModel(
+                bearerToken: settings.apiKey(),
+                model: resolvedModel,
+                accountId: settings.accountId,
+                instructions: resolvedInstructions
+            )
+            let session = makeSession(model: oauthModel, tools: effectiveTools, toolExecutionDelegate: delegate)
+            let options = openAIGenerationOptions(maxTokens: maxTokens, reasoningEffort: reasoningEffort)
+            let response: LanguageModelSession.Response<String> = try await session.respond(
+                to: Prompt(prompt), generating: String.self, options: options
+            )
+            return response.content
+
+        case .ollama(let settings):
+            let session = makeSession(
+                model: OllamaLanguageModel(
+                    baseURL: settings.baseURL,
+                    model: normalizeModelName(model, removing: "ollama:")
+                ),
+                tools: effectiveTools,
+                toolExecutionDelegate: delegate
+            )
+            let options = GenerationOptions(maximumResponseTokens: maxTokens)
+            let response: LanguageModelSession.Response<String> = try await session.respond(
+                to: Prompt(prompt), generating: String.self, options: options
+            )
+            return response.content
+        }
+    }
+
+    /// Streams a completion with native tool support, yielding the final text response.
+    ///
+    /// Tool calls are resolved natively by the session before streaming begins.
+    /// The stream yields only final text chunks, not intermediate tool calls.
+    public func stream(
+        model: String,
+        prompt: String,
+        maxTokens: Int,
+        reasoningEffort: ReasoningEffort?,
+        tools requestTools: [any Tool],
+        toolCallHandler: (@Sendable (ToolInvocationRequest) async -> ToolInvocationResult)?
+    ) -> AsyncThrowingStream<String, any Error> {
+        AsyncThrowingStream { continuation in
+            let task = Task {
+                do {
+                    let resolvedBackend: Backend
+                    do {
+                        resolvedBackend = try backend(for: model)
+                    } catch {
+                        logTerminalError(error, operation: "stream", model: model, backend: "resolver", apiVariant: nil)
+                        throw error
+                    }
+
+                    let effectiveTools = requestTools.isEmpty ? tools : requestTools
+                    let delegate = toolCallHandler.map { SloppyToolExecutionDelegate(toolCallHandler: $0) }
+
+                    switch resolvedBackend {
+                    case .openAI(let settings):
+                        let resolvedModel = normalizeModelName(model, removing: "openai:")
+                        do {
+                            try await streamOpenAI(
+                                settings: settings,
+                                model: resolvedModel,
+                                prompt: prompt,
+                                maxTokens: maxTokens,
+                                reasoningEffort: reasoningEffort,
+                                apiVariant: settings.apiVariant,
+                                tools: effectiveTools,
+                                toolExecutionDelegate: delegate,
+                                continuation: continuation
+                            )
+                            continuation.finish()
+                        } catch {
+                            if shouldRetryOpenAIWithResponses(error: error, currentVariant: settings.apiVariant) {
+                                do {
+                                    try await streamOpenAI(
+                                        settings: settings,
+                                        model: resolvedModel,
+                                        prompt: prompt,
+                                        maxTokens: maxTokens,
+                                        reasoningEffort: reasoningEffort,
+                                        apiVariant: .responses,
+                                        tools: effectiveTools,
+                                        toolExecutionDelegate: delegate,
+                                        continuation: continuation
+                                    )
+                                    continuation.finish()
+                                } catch {
+                                    logTerminalError(error, operation: "stream", model: model, backend: "openai", apiVariant: .responses)
+                                    continuation.finish(throwing: error)
+                                }
+                            } else {
+                                logTerminalError(error, operation: "stream", model: model, backend: "openai", apiVariant: settings.apiVariant)
+                                continuation.finish(throwing: error)
+                            }
+                        }
+
+                    case .openAIOAuth(let settings):
+                        try? await settings.refreshTokenIfNeeded?()
+                        let resolvedModel = normalizeModelName(model, removing: "openai:")
+                        let oauthModel = OpenAIOAuthModel(
+                            bearerToken: settings.apiKey(),
+                            model: resolvedModel,
+                            accountId: settings.accountId,
+                            instructions: resolvedInstructions
+                        )
+                        let session = makeSession(model: oauthModel, tools: effectiveTools, toolExecutionDelegate: delegate)
+                        let options = openAIGenerationOptions(maxTokens: maxTokens, reasoningEffort: reasoningEffort)
+                        let stream = session.streamResponse(to: Prompt(prompt), generating: String.self, options: options)
+                        for try await snapshot in stream {
+                            continuation.yield(snapshot.content)
+                        }
+                        continuation.finish()
+
+                    case .ollama(let settings):
+                        let session = makeSession(
+                            model: OllamaLanguageModel(
+                                baseURL: settings.baseURL,
+                                model: normalizeModelName(model, removing: "ollama:")
+                            ),
+                            tools: effectiveTools,
+                            toolExecutionDelegate: delegate
+                        )
+                        let options = GenerationOptions(maximumResponseTokens: maxTokens)
+                        if #available(macOS 26.0, *) {
+                            let stream = session.streamResponse(to: Prompt(prompt), options: options)
+                            var aggregated = ""
+                            for try await snapshot in stream {
+                                let next = snapshot.content
+                                if next.hasPrefix(aggregated) {
+                                    aggregated = next
+                                } else {
+                                    aggregated += next
+                                }
+                                continuation.yield(aggregated)
+                            }
+                        } else {
+                            let completion = try await complete(
+                                model: model,
+                                prompt: prompt,
+                                maxTokens: maxTokens,
+                                reasoningEffort: reasoningEffort,
+                                tools: effectiveTools,
+                                toolCallHandler: toolCallHandler
+                            )
+                            try await yieldSimulatedStream(from: completion, continuation: continuation)
+                        }
+                        continuation.finish()
+                    }
+                } catch {
+                    logTerminalError(error, operation: "stream", model: model, backend: "runtime", apiVariant: nil)
+                    continuation.finish(throwing: error)
+                }
+            }
+            continuation.onTermination = { _ in task.cancel() }
+        }
+    }
+
+    private func makeSession(model: any LanguageModel) -> LanguageModelSession {
+        makeSession(model: model, tools: tools, toolExecutionDelegate: toolExecutionDelegate)
+    }
+
+    private func makeSession(
+        model: any LanguageModel,
+        tools sessionTools: [any Tool],
+        toolExecutionDelegate delegate: (any ToolExecutionDelegate)?
+    ) -> LanguageModelSession {
+        let session = LanguageModelSession(
+            model: model,
+            tools: sessionTools,
+            instructions: resolvedInstructions
+        )
+        session.toolExecutionDelegate = delegate
+        return session
+    }
+
     private func completeOpenAI(
         settings: OpenAISettings,
         model: String,
         prompt: String,
         maxTokens: Int,
         reasoningEffort: ReasoningEffort?,
-        apiVariant: OpenAILanguageModel.APIVariant
+        apiVariant: OpenAILanguageModel.APIVariant,
+        tools sessionTools: [any Tool] = [],
+        toolExecutionDelegate delegate: (any ToolExecutionDelegate)? = nil
     ) async throws -> String {
-        let session = LanguageModelSession(
+        let effectiveTools = sessionTools.isEmpty ? tools : sessionTools
+        let effectiveDelegate = delegate ?? toolExecutionDelegate
+        let session = makeSession(
             model: OpenAILanguageModel(
                 baseURL: settings.baseURL,
                 apiKey: settings.apiKey(),
                 model: model,
                 apiVariant: apiVariant
             ),
-            instructions: resolvedInstructions
+            tools: effectiveTools,
+            toolExecutionDelegate: effectiveDelegate
         )
         let options = openAIGenerationOptions(maxTokens: maxTokens, reasoningEffort: reasoningEffort)
         let response: LanguageModelSession.Response<String> = try await session.respond(
@@ -370,17 +607,23 @@ public struct AnyLanguageModelProviderPlugin: ModelProviderPlugin {
         maxTokens: Int,
         reasoningEffort: ReasoningEffort?,
         apiVariant: OpenAILanguageModel.APIVariant,
+        tools sessionTools: [any Tool] = [],
+        toolExecutionDelegate delegate: (any ToolExecutionDelegate)? = nil,
         continuation: AsyncThrowingStream<String, any Error>.Continuation
     ) async throws {
+        let effectiveTools = sessionTools.isEmpty ? tools : sessionTools
+        let effectiveDelegate = delegate ?? toolExecutionDelegate
+
         if #available(macOS 26.0, *) {
-            let session = LanguageModelSession(
+            let session = makeSession(
                 model: OpenAILanguageModel(
                     baseURL: settings.baseURL,
                     apiKey: settings.apiKey(),
                     model: model,
                     apiVariant: apiVariant
                 ),
-                instructions: resolvedInstructions
+                tools: effectiveTools,
+                toolExecutionDelegate: effectiveDelegate
             )
             let options = openAIGenerationOptions(maxTokens: maxTokens, reasoningEffort: reasoningEffort)
             let stream = session.streamResponse(to: Prompt(prompt), options: options)
@@ -403,7 +646,9 @@ public struct AnyLanguageModelProviderPlugin: ModelProviderPlugin {
             prompt: prompt,
             maxTokens: maxTokens,
             reasoningEffort: reasoningEffort,
-            apiVariant: apiVariant
+            apiVariant: apiVariant,
+            tools: effectiveTools,
+            toolExecutionDelegate: effectiveDelegate
         )
         try await yieldSimulatedStream(from: completion, continuation: continuation)
     }

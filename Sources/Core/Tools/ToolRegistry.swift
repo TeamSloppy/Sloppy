@@ -8,6 +8,11 @@ import Protocols
 struct ToolRegistry: Sendable {
     private let tools: [String: any CoreTool]
 
+    var allTools: [any CoreTool] {
+        var seen = Set<String>()
+        return tools.values.filter { seen.insert($0.toolID).inserted }
+    }
+
     init(tools: [any CoreTool]) {
         var map: [String: any CoreTool] = [:]
         for tool in tools {

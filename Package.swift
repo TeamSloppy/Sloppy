@@ -76,7 +76,7 @@ let package = Package(
             ],
             path: "Sources/Core",
             resources: [
-                .process("Prompts"),
+                .process("Resources/Prompts"),
                 .process("Storage/schema.sql")
             ]
         ),
