@@ -42,6 +42,32 @@ public struct ChannelModelUpdateRequest: Codable, Sendable {
     }
 }
 
+public struct ChannelControlRequest: Codable, Sendable {
+    public var action: AgentRunControlAction
+    public var requestedBy: String
+    public var reason: String?
+
+    public init(action: AgentRunControlAction, requestedBy: String, reason: String? = nil) {
+        self.action = action
+        self.requestedBy = requestedBy
+        self.reason = reason
+    }
+}
+
+public struct ChannelControlResponse: Codable, Sendable {
+    public var channelId: String
+    public var action: AgentRunControlAction
+    public var cancelledWorkers: Int
+    public var message: String
+
+    public init(channelId: String, action: AgentRunControlAction, cancelledWorkers: Int, message: String) {
+        self.channelId = channelId
+        self.action = action
+        self.cancelledWorkers = cancelledWorkers
+        self.message = message
+    }
+}
+
 public struct ChannelApprovalCodeRequest: Codable, Sendable {
     public var code: String
 

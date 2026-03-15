@@ -2224,8 +2224,7 @@ func agentSessionLifecycleEndpoints() async throws {
     #expect(bootstrapMessage?.content.contains("[User.md]") == true)
     #expect(bootstrapMessage?.content.contains("[Identity.md]") == true)
     #expect(bootstrapMessage?.content.contains("[Soul.md]") == true)
-    #expect(bootstrapMessage?.content.contains("[Skills]") == true)
-    #expect(bootstrapMessage?.content.contains("No additional skills installed.") == true)
+    #expect(bootstrapMessage?.content.contains("[Skills]") == false)
 
     let sessionFileURL = config
         .resolvedWorkspaceRootURL()

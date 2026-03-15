@@ -7,6 +7,7 @@ export const fetchChannelState = coreApi.fetchChannelState;
 export const fetchChannelEvents = coreApi.fetchChannelEvents;
 export const fetchChannelSessions = coreApi.fetchChannelSessions;
 export const fetchChannelSession = coreApi.fetchChannelSession;
+export const postChannelControl = coreApi.postChannelControl;
 export const fetchBulletins = coreApi.fetchBulletins;
 export const fetchWorkers = coreApi.fetchWorkers;
 export const fetchArtifact = coreApi.fetchArtifact;

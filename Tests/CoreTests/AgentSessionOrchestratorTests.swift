@@ -315,8 +315,7 @@ func agentSessionBootstrapRendersEmptySkillsStateWhenAgentHasNoSkills() async th
         $0.userId == "system" && $0.content.contains("[agent_session_context_bootstrap_v1]")
     })?.content ?? ""
 
-    #expect(bootstrapMessage.contains("[Skills]"))
-    #expect(bootstrapMessage.contains("No additional skills installed."))
+    #expect(!bootstrapMessage.contains("[Skills]"))
 }
 
 @Test

@@ -37,6 +37,7 @@ export interface CoreApi {
   fetchChannelEvents: (channelId: string, query?: ChannelEventsQuery) => Promise<AnyRecord | null>;
   fetchChannelSessions: (query?: ChannelSessionsQuery) => Promise<AnyRecord[] | null>;
   fetchChannelSession: (sessionId: string) => Promise<AnyRecord | null>;
+  postChannelControl: (channelId: string, payload: AnyRecord) => Promise<AnyRecord | null>;
   fetchBulletins: () => Promise<AnyRecord[]>;
   fetchWorkers: () => Promise<AnyRecord[]>;
   fetchArtifact: (id: string) => Promise<AnyRecord | null>;
@@ -201,6 +202,18 @@ export function createCoreApi(): CoreApi {
     fetchChannelSession: async (sessionId) => {
       const response = await requestJson<AnyRecord>({
         path: `/v1/channel-sessions/${encodeURIComponent(sessionId)}`
+      });
+      if (!response.ok) {
+        return null;
+      }
+      return response.data;
+    },
+
+    postChannelControl: async (channelId, payload) => {
+      const response = await requestJson<AnyRecord, AnyRecord>({
+        path: `/v1/channels/${encodeURIComponent(channelId)}/control`,
+        method: "POST",
+        body: payload
       });
       if (!response.ok) {
         return null;

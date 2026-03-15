@@ -1413,6 +1413,18 @@ public actor CoreRouter {
             return Self.json(status: HTTPStatus.ok, payload: [:] as [String: String])
         }
 
+        add(.post, "/v1/channels/:channelId/control", metadata: RouteMetadata(summary: "Control channel", description: "Sends a control command (abort/interrupt) to a channel's active processing", tags: ["Channels"])) { request in
+            let channelId = request.pathParam("channelId") ?? ""
+            guard let body = request.body,
+                  let payload = Self.decode(body, as: ChannelControlRequest.self)
+            else {
+                return Self.json(status: HTTPStatus.badRequest, payload: ["error": ErrorCode.invalidBody])
+            }
+
+            let response = await service.controlChannel(channelId: channelId, action: payload.action)
+            return Self.encodable(status: HTTPStatus.ok, payload: response)
+        }
+
         add(.post, "/v1/actors/route", metadata: RouteMetadata(summary: "Route actor request", description: "Resolves the routing for an actor request", tags: ["Actors"])) { request in
             guard let body = request.body,
                   let payload = Self.decode(body, as: ActorRouteRequest.self)

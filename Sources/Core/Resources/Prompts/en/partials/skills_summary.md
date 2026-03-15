@@ -1,2 +1,0 @@
-[Skills]
-{{skills_entries}}

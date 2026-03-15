@@ -10,16 +10,17 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@git-diff-view/file": "^0.1.2",
+    "@git-diff-view/react": "^0.1.2",
+    "@types/prismjs": "^1.26.6",
     "prismjs": "^1.30.0",
     "react": "^18.3.1",
-    "react-diff-viewer-continued": "^4.1.2",
     "react-dom": "^18.3.1",
     "react-markdown": "^10.1.0",
     "react-syntax-highlighter": "^16.1.1",
     "remark-gfm": "^4.0.1"
   },
   "devDependencies": {
-    "@types/prismjs": "^1.26.6",
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
     "@types/react-syntax-highlighter": "^15.5.13",
