@@ -5648,28 +5648,6 @@ body.agent-chat-no-page-scroll .page {
   z-index: 1;
 }
 
-.settings-raw-editor-highlight pre {
-  margin: 0 !important;
-  padding: 0 !important;
-  background: transparent !important;
-  font-family: inherit !important;
-  font-size: inherit !important;
-  line-height: inherit !important;
-  white-space: pre !important;
-}
-
-.settings-raw-editor-highlight code {
-  background: transparent !important;
-  font-family: inherit !important;
-  font-size: inherit !important;
-  line-height: inherit !important;
-}
-
-.settings-raw-editor-highlight span {
-  background: transparent !important;
-  background-color: transparent !important;
-}
-
 .settings-raw-editor-input {
   background: transparent;
   color: transparent;
@@ -5712,6 +5690,27 @@ body.agent-chat-no-page-scroll .page {
 
 .settings-raw-diff-container .diff-view-wrapper {
   font-family: "Fira Code", monospace;
+}
+
+.settings-raw-editor-highlight .token.property {
+  color: var(--accent);
+}
+
+.settings-raw-editor-highlight .token.string {
+  color: var(--success);
+}
+
+.settings-raw-editor-highlight .token.number,
+.settings-raw-editor-highlight .token.boolean {
+  color: var(--warn);
+}
+
+.settings-raw-editor-highlight .token.punctuation {
+  color: var(--muted);
+}
+
+.settings-raw-editor-highlight .token.operator {
+  color: var(--muted);
 }
 
 .entry-editor-layout {
