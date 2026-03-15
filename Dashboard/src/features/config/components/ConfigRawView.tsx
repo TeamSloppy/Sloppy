@@ -1,8 +1,8 @@
-import React, { useState, useMemo, useRef } from "react";
+import React, { useState, useMemo } from "react";
 import { DiffView, DiffModeEnum } from "@git-diff-view/react";
 import { generateDiffFile } from "@git-diff-view/file";
-import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
-import { oneDark } from "react-syntax-highlighter/dist/esm/styles/prism";
+import Prism from "prismjs";
+import "prismjs/components/prism-json";
 import "@git-diff-view/react/styles/diff-view.css";
 
 interface ConfigRawViewProps {
@@ -13,7 +13,6 @@ interface ConfigRawViewProps {
 
 export function ConfigRawView({ rawConfig, savedConfig, onChange }: ConfigRawViewProps) {
   const [showDiff, setShowDiff] = useState(false);
-  const highlightRef = useRef<HTMLDivElement>(null);
 
   const diffFile = useMemo(() => {
     if (!showDiff) return null;
@@ -29,13 +28,6 @@ export function ConfigRawView({ rawConfig, savedConfig, onChange }: ConfigRawVie
     file.buildUnifiedDiffLines();
     return file;
   }, [showDiff, savedConfig, rawConfig]);
-
-  const handleScroll = (e: React.UIEvent<HTMLTextAreaElement>) => {
-    if (highlightRef.current) {
-      highlightRef.current.scrollTop = e.currentTarget.scrollTop;
-      highlightRef.current.scrollLeft = e.currentTarget.scrollLeft;
-    }
-  };
 
   return (
     <div className="settings-raw-pane">
@@ -61,28 +53,24 @@ export function ConfigRawView({ rawConfig, savedConfig, onChange }: ConfigRawVie
         </div>
       ) : (
         <div className="settings-raw-editor-container">
-          <div ref={highlightRef} className="settings-raw-editor-highlight">
-            <SyntaxHighlighter
-              language="json"
-              style={oneDark}
-              customStyle={{
-                margin: 0,
-                padding: 0,
-                background: "transparent",
-                fontSize: "inherit",
-                lineHeight: "inherit",
-                fontFamily: "inherit",
-              }}
-            >
-              {rawConfig}
-            </SyntaxHighlighter>
-          </div>
+          <div
+            className="settings-raw-editor-highlight"
+            dangerouslySetInnerHTML={{
+              __html: Prism.highlight(rawConfig, Prism.languages.json, "json") + "\n"
+            }}
+          />
           <textarea
             className="settings-raw-editor-input"
             value={rawConfig}
             spellCheck={false}
             onChange={(event) => onChange(event.target.value)}
-            onScroll={handleScroll}
+            onScroll={(e) => {
+              const highlight = e.currentTarget.parentElement?.querySelector(".settings-raw-editor-highlight");
+              if (highlight) {
+                (highlight as HTMLElement).scrollTop = e.currentTarget.scrollTop;
+                (highlight as HTMLElement).scrollLeft = e.currentTarget.scrollLeft;
+              }
+            }}
           />
         </div>
       )}
