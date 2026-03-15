@@ -42,7 +42,7 @@ func visorSchedulerStartStopLifecycle() async throws {
 
 @Test
 func visorSchedulerRespectsDisabledConfig() async throws {
-    var config = CoreConfig.default
+    var config = CoreConfig.test
     config.visor.scheduler.enabled = false
 
     let (_, service) = try makeSchedulerTestRouter(config: config)
@@ -56,7 +56,7 @@ func visorSchedulerRespectsDisabledConfig() async throws {
 
 @Test
 func visorSchedulerAutoGeneratesBulletinFromConfiguredInterval() async throws {
-    var config = CoreConfig.default
+    var config = CoreConfig.test
     config.visor.scheduler.enabled = true
     config.visor.scheduler.intervalSeconds = 1
     config.visor.scheduler.jitterSeconds = 0
@@ -163,14 +163,8 @@ func visorSchedulerCancelSafety() async throws {
 
 // MARK: - Helpers
 
-private func makeSchedulerTestRouter(config: CoreConfig = .default) throws -> (CoreRouter, CoreService) {
-    var config = config
-    if config.sqlitePath == CoreConfig.defaultSQLiteFileName {
-        config.sqlitePath = FileManager.default.temporaryDirectory
-            .appendingPathComponent("core-scheduler-\(UUID().uuidString).sqlite")
-            .path
-    }
-
+private func makeSchedulerTestRouter(config: CoreConfig? = nil) throws -> (CoreRouter, CoreService) {
+    let config = config ?? CoreConfig.test
     let service = CoreService(config: config)
     let router = CoreRouter(service: service)
     return (router, service)

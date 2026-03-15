@@ -108,15 +108,7 @@ private func readFirstSSEEvent(url: URL) async throws -> (HTTPURLResponse, Strin
 
 @Test
 func sseStreamEndpointOverHTTPServerReturnsSessionReadyEvent() async throws {
-    let workspaceName = "workspace-http-sse-\(UUID().uuidString)"
-    let sqlitePath = FileManager.default.temporaryDirectory
-        .appendingPathComponent("core-http-sse-\(UUID().uuidString).sqlite")
-        .path
-
-    var config = CoreConfig.default
-    config.workspace = .init(name: workspaceName, basePath: FileManager.default.temporaryDirectory.path)
-    config.sqlitePath = sqlitePath
-
+    let config = CoreConfig.test
     let service = CoreService(config: config)
     let router = CoreRouter(service: service)
     let server = CoreHTTPServer(
@@ -163,15 +155,7 @@ func sseStreamEndpointOverHTTPServerReturnsSessionReadyEvent() async throws {
 
 @Test
 func webSocketSessionStreamPublishesToolEventsOverHTTPServer() async throws {
-    let workspaceName = "workspace-http-ws-\(UUID().uuidString)"
-    let sqlitePath = FileManager.default.temporaryDirectory
-        .appendingPathComponent("core-http-ws-\(UUID().uuidString).sqlite")
-        .path
-
-    var config = CoreConfig.default
-    config.workspace = .init(name: workspaceName, basePath: FileManager.default.temporaryDirectory.path)
-    config.sqlitePath = sqlitePath
-
+    let config = CoreConfig.test
     let service = CoreService(config: config)
     let router = CoreRouter(service: service)
     let server = CoreHTTPServer(

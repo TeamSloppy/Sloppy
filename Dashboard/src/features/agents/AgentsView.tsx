@@ -175,7 +175,7 @@ function AgentsIndexSection({
   );
 }
 
-export function AgentsView({ routeAgentId = null, routeTab = "overview", onRouteChange = null }) {
+export function AgentsView({ routeAgentId = null, routeTab = "overview", onRouteChange = null, onNavigateToChannelSession = null }) {
   const [agents, setAgents] = useState([]);
   const [isLoadingAgents, setIsLoadingAgents] = useState(true);
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
@@ -340,7 +340,7 @@ export function AgentsView({ routeAgentId = null, routeTab = "overview", onRoute
     if (tab === "channels") {
       return (
         <section className="entry-editor-card agent-content-card">
-          <AgentChannelsTab agentId={agent.id} agentDisplayName={agent.displayName} />
+          <AgentChannelsTab agentId={agent.id} agentDisplayName={agent.displayName} onNavigateToChannelSession={onNavigateToChannelSession} />
         </section>
       );
     }

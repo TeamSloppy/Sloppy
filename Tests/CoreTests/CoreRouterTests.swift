@@ -58,13 +58,7 @@ func workersEndpoint() async throws {
 
 @Test
 func projectCrudEndpoints() async throws {
-    let sqlitePath = FileManager.default.temporaryDirectory
-        .appendingPathComponent("core-projects-\(UUID().uuidString).sqlite")
-        .path
-
-    var config = CoreConfig.default
-    config.sqlitePath = sqlitePath
-
+    let config = CoreConfig.test
     let service = CoreService(config: config)
     let router = CoreRouter(service: service)
 
@@ -203,13 +197,7 @@ func projectCrudEndpoints() async throws {
 
 @Test
 func projectCreateEndpointAcceptsPayloadWithoutChannels() async throws {
-    let sqlitePath = FileManager.default.temporaryDirectory
-        .appendingPathComponent("core-projects-onboarding-\(UUID().uuidString).sqlite")
-        .path
-
-    var config = CoreConfig.default
-    config.sqlitePath = sqlitePath
-
+    let config = CoreConfig.test
     let service = CoreService(config: config)
     let router = CoreRouter(service: service)
 
@@ -308,7 +296,7 @@ func projectMembersMigrateFromLegacyDashboardProjectsSchema() async throws {
     sqlite3_close(db)
     db = nil
 
-    var config = CoreConfig.default
+    var config = CoreConfig.test
     config.sqlitePath = sqlitePath
 
     let service = CoreService(config: config)
@@ -344,15 +332,7 @@ func projectMembersMigrateFromLegacyDashboardProjectsSchema() async throws {
 
 @Test
 func projectCreateCreatesWorkspaceDirectory() async throws {
-    let workspaceName = "workspace-project-dirs-\(UUID().uuidString)"
-    let sqlitePath = FileManager.default.temporaryDirectory
-        .appendingPathComponent("core-project-dirs-\(UUID().uuidString).sqlite")
-        .path
-
-    var config = CoreConfig.default
-    config.workspace = .init(name: workspaceName, basePath: FileManager.default.temporaryDirectory.path)
-    config.sqlitePath = sqlitePath
-
+    let config = CoreConfig.test
     let service = CoreService(config: config)
     let router = CoreRouter(service: service)
     let projectID = "proj-dir-\(UUID().uuidString)"
@@ -377,13 +357,7 @@ func projectCreateCreatesWorkspaceDirectory() async throws {
 
 @Test
 func projectTaskReadyStatusTriggersVisorBulletin() async throws {
-    let sqlitePath = FileManager.default.temporaryDirectory
-        .appendingPathComponent("core-project-ready-bulletin-\(UUID().uuidString).sqlite")
-        .path
-
-    var config = CoreConfig.default
-    config.sqlitePath = sqlitePath
-
+    let config = CoreConfig.test
     let service = CoreService(config: config)
     let router = CoreRouter(service: service)
 
@@ -463,12 +437,7 @@ func openAIProviderStatusEndpoint() async throws {
 
 @Test
 func channelStateReturnsEmptySnapshotWhenChannelMissing() async throws {
-    let sqlitePath = FileManager.default.temporaryDirectory
-        .appendingPathComponent("core-empty-channel-\(UUID().uuidString).sqlite")
-        .path
-    var config = CoreConfig.default
-    config.sqlitePath = sqlitePath
-
+    let config = CoreConfig.test
     let service = CoreService(config: config)
     let router = CoreRouter(service: service)
 
@@ -485,12 +454,7 @@ func channelStateReturnsEmptySnapshotWhenChannelMissing() async throws {
 
 @Test
 func channelEventsEndpointReturnsRuntimeTimeline() async throws {
-    let sqlitePath = FileManager.default.temporaryDirectory
-        .appendingPathComponent("core-channel-events-\(UUID().uuidString).sqlite")
-        .path
-    var config = CoreConfig.default
-    config.sqlitePath = sqlitePath
-
+    let config = CoreConfig.test
     let service = CoreService(config: config)
     let router = CoreRouter(service: service)
     let channelID = "events-\(UUID().uuidString)"
@@ -525,12 +489,7 @@ func channelEventsEndpointReturnsRuntimeTimeline() async throws {
 
 @Test
 func channelEventsEndpointSupportsCursorAndTimeFilters() async throws {
-    let sqlitePath = FileManager.default.temporaryDirectory
-        .appendingPathComponent("core-channel-events-pagination-\(UUID().uuidString).sqlite")
-        .path
-    var config = CoreConfig.default
-    config.sqlitePath = sqlitePath
-
+    let config = CoreConfig.test
     let service = CoreService(config: config)
     let router = CoreRouter(service: service)
     let channelID = "events-pagination-\(UUID().uuidString)"
@@ -618,14 +577,7 @@ func getConfigEndpoint() async throws {
 
 @Test
 func systemLogsEndpointReadsJSONLFile() async throws {
-    let workspaceName = "workspace-logs-\(UUID().uuidString)"
-    let sqlitePath = FileManager.default.temporaryDirectory
-        .appendingPathComponent("core-logs-\(UUID().uuidString).sqlite")
-        .path
-
-    var config = CoreConfig.default
-    config.workspace = .init(name: workspaceName, basePath: FileManager.default.temporaryDirectory.path)
-    config.sqlitePath = sqlitePath
+    let config = CoreConfig.test
 
     let workspaceRoot = config.resolvedWorkspaceRootURL()
     let logsDirectory = workspaceRoot.appendingPathComponent("logs", isDirectory: true)
@@ -656,14 +608,7 @@ func systemLogsEndpointReadsJSONLFile() async throws {
 
 @Test
 func systemLogsMetadataKeysAreSorted() async throws {
-    let workspaceName = "workspace-logs-sorted-\(UUID().uuidString)"
-    let sqlitePath = FileManager.default.temporaryDirectory
-        .appendingPathComponent("core-logs-sorted-\(UUID().uuidString).sqlite")
-        .path
-
-    var config = CoreConfig.default
-    config.workspace = .init(name: workspaceName, basePath: FileManager.default.temporaryDirectory.path)
-    config.sqlitePath = sqlitePath
+    let config = CoreConfig.test
 
     let workspaceRoot = config.resolvedWorkspaceRootURL()
     let logsDirectory = workspaceRoot.appendingPathComponent("logs", isDirectory: true)
@@ -693,13 +638,7 @@ func systemLogsMetadataKeysAreSorted() async throws {
 
 @Test
 func serviceSupportsInMemoryPersistenceBuilder() async throws {
-    let sqlitePath = FileManager.default.temporaryDirectory
-        .appendingPathComponent("core-inmemory-\(UUID().uuidString).sqlite")
-        .path
-
-    var config = CoreConfig.default
-    config.sqlitePath = sqlitePath
-
+    let config = CoreConfig.test
     let service = CoreService(
         config: config,
         persistenceBuilder: InMemoryCorePersistenceBuilder()
@@ -709,7 +648,7 @@ func serviceSupportsInMemoryPersistenceBuilder() async throws {
     let body = try JSONEncoder().encode(ChannelMessageRequest(userId: "u1", content: "respond please"))
     let response = await router.handle(method: "POST", path: "/v1/channels/general/messages", body: body)
     #expect(response.status == 200)
-    #expect(!FileManager.default.fileExists(atPath: sqlitePath))
+    #expect(!FileManager.default.fileExists(atPath: config.sqlitePath))
 }
 
 @Test
@@ -850,16 +789,9 @@ func artifactContentNotFound() async {
 
 @Test
 func runtimeRecoveryAfterRestartReplaysPersistedState() async throws {
-    let sqlitePath = FileManager.default.temporaryDirectory
-        .appendingPathComponent("core-recovery-\(UUID().uuidString).sqlite")
-        .path
-    let workspaceName = "workspace-recovery-\(UUID().uuidString)"
+    let config = CoreConfig.test
     let channelID = "recovery-\(UUID().uuidString)"
     let projectID = "recovery-project-\(UUID().uuidString)"
-
-    var config = CoreConfig.default
-    config.workspace = .init(name: workspaceName, basePath: FileManager.default.temporaryDirectory.path)
-    config.sqlitePath = sqlitePath
 
     let decoder = JSONDecoder()
     decoder.dateDecodingStrategy = .iso8601
@@ -955,7 +887,7 @@ func runtimeRecoveryAfterRestartReplaysPersistedState() async throws {
             .appendingPathComponent("Sources/Core/Storage/schema.sql")
             .path
         let schemaSQL = try String(contentsOfFile: schemaPath, encoding: .utf8)
-        let verificationStore = SQLiteStore(path: sqlitePath, schemaSQL: schemaSQL)
+        let verificationStore = SQLiteStore(path: config.sqlitePath, schemaSQL: schemaSQL)
         let expectedArtifactID = artifactID
         let persisted = await waitForCondition(timeoutSeconds: 3, pollNanoseconds: 100_000_000) {
             let channels = await verificationStore.listPersistedChannels()
@@ -991,7 +923,7 @@ func runtimeRecoveryAfterRestartReplaysPersistedState() async throws {
             .appendingPathComponent("Sources/Core/Storage/schema.sql")
             .path
         let schemaSQL = try String(contentsOfFile: schemaPath, encoding: .utf8)
-        let restartedStore = SQLiteStore(path: sqlitePath, schemaSQL: schemaSQL)
+        let restartedStore = SQLiteStore(path: config.sqlitePath, schemaSQL: schemaSQL)
         let persistedEvents = await restartedStore.listPersistedEvents()
             .filter { $0.channelId == channelID }
         #expect(!persistedEvents.isEmpty)
@@ -1007,15 +939,7 @@ func runtimeRecoveryAfterRestartReplaysPersistedState() async throws {
 
 @Test
 func createListAndGetAgentsEndpoints() async throws {
-    let workspaceName = "workspace-agents-\(UUID().uuidString)"
-    let sqlitePath = FileManager.default.temporaryDirectory
-        .appendingPathComponent("core-agents-\(UUID().uuidString).sqlite")
-        .path
-
-    var config = CoreConfig.default
-    config.workspace = .init(name: workspaceName, basePath: FileManager.default.temporaryDirectory.path)
-    config.sqlitePath = sqlitePath
-
+    let config = CoreConfig.test
     let service = CoreService(config: config)
     let router = CoreRouter(service: service)
 
@@ -1060,15 +984,7 @@ func createListAndGetAgentsEndpoints() async throws {
 
 @Test
 func agentTasksEndpointReturnsClaimedProjectTasks() async throws {
-    let workspaceName = "workspace-agent-tasks-\(UUID().uuidString)"
-    let sqlitePath = FileManager.default.temporaryDirectory
-        .appendingPathComponent("core-agent-tasks-\(UUID().uuidString).sqlite")
-        .path
-
-    var config = CoreConfig.default
-    config.workspace = .init(name: workspaceName, basePath: FileManager.default.temporaryDirectory.path)
-    config.sqlitePath = sqlitePath
-
+    let config = CoreConfig.test
     let service = CoreService(config: config)
     let router = CoreRouter(service: service)
 
@@ -1135,15 +1051,7 @@ func agentTasksEndpointReturnsClaimedProjectTasks() async throws {
 
 @Test
 func agentMemoriesEndpointsListAndGraphRecords() async throws {
-    let workspaceName = "workspace-agent-memories-\(UUID().uuidString)"
-    let sqlitePath = FileManager.default.temporaryDirectory
-        .appendingPathComponent("core-agent-memories-\(UUID().uuidString).sqlite")
-        .path
-
-    var config = CoreConfig.default
-    config.workspace = .init(name: workspaceName, basePath: FileManager.default.temporaryDirectory.path)
-    config.sqlitePath = sqlitePath
-
+    let config = CoreConfig.test
     let service = CoreService(config: config)
     let router = CoreRouter(service: service)
     let memoryStore = HybridMemoryStore(config: config)
@@ -1278,15 +1186,7 @@ func agentMemoriesEndpointsListAndGraphRecords() async throws {
 
 @Test
 func agentMemoriesEndpointsValidateAgentAndTruncation() async throws {
-    let workspaceName = "workspace-agent-memories-validate-\(UUID().uuidString)"
-    let sqlitePath = FileManager.default.temporaryDirectory
-        .appendingPathComponent("core-agent-memories-validate-\(UUID().uuidString).sqlite")
-        .path
-
-    var config = CoreConfig.default
-    config.workspace = .init(name: workspaceName, basePath: FileManager.default.temporaryDirectory.path)
-    config.sqlitePath = sqlitePath
-
+    let config = CoreConfig.test
     let service = CoreService(config: config)
     let router = CoreRouter(service: service)
     let memoryStore = HybridMemoryStore(config: config)
@@ -1336,15 +1236,7 @@ func agentMemoriesEndpointsValidateAgentAndTruncation() async throws {
 
 @Test
 func agentConfigEndpointsReadAndUpdate() async throws {
-    let workspaceName = "workspace-agent-config-\(UUID().uuidString)"
-    let sqlitePath = FileManager.default.temporaryDirectory
-        .appendingPathComponent("core-agent-config-\(UUID().uuidString).sqlite")
-        .path
-
-    var config = CoreConfig.default
-    config.workspace = .init(name: workspaceName, basePath: FileManager.default.temporaryDirectory.path)
-    config.sqlitePath = sqlitePath
-
+    let config = CoreConfig.test
     let service = CoreService(config: config)
     let router = CoreRouter(service: service)
 
@@ -1429,15 +1321,7 @@ func agentConfigEndpointsReadAndUpdate() async throws {
 
 @Test
 func agentConfigHeartbeatValidationAndBackfill() async throws {
-    let workspaceName = "workspace-agent-heartbeat-\(UUID().uuidString)"
-    let sqlitePath = FileManager.default.temporaryDirectory
-        .appendingPathComponent("core-agent-heartbeat-\(UUID().uuidString).sqlite")
-        .path
-
-    var config = CoreConfig.default
-    config.workspace = .init(name: workspaceName, basePath: FileManager.default.temporaryDirectory.path)
-    config.sqlitePath = sqlitePath
-
+    let config = CoreConfig.test
     let service = CoreService(config: config)
     let router = CoreRouter(service: service)
 
@@ -1510,15 +1394,7 @@ func agentConfigHeartbeatValidationAndBackfill() async throws {
 
 @Test
 func agentToolsEndpointsReadAndUpdate() async throws {
-    let workspaceName = "workspace-agent-tools-\(UUID().uuidString)"
-    let sqlitePath = FileManager.default.temporaryDirectory
-        .appendingPathComponent("core-agent-tools-\(UUID().uuidString).sqlite")
-        .path
-
-    var config = CoreConfig.default
-    config.workspace = .init(name: workspaceName, basePath: FileManager.default.temporaryDirectory.path)
-    config.sqlitePath = sqlitePath
-
+    let config = CoreConfig.test
     let service = CoreService(config: config)
     let router = CoreRouter(service: service)
 
@@ -1570,15 +1446,7 @@ func agentToolsEndpointsReadAndUpdate() async throws {
 
 @Test
 func channelSessionEndpointsFilterByAgentAndExpireStaleSessions() async throws {
-    let workspaceName = "workspace-channel-sessions-\(UUID().uuidString)"
-    let sqlitePath = FileManager.default.temporaryDirectory
-        .appendingPathComponent("core-channel-sessions-\(UUID().uuidString).sqlite")
-        .path
-
-    var config = CoreConfig.default
-    config.workspace = .init(name: workspaceName, basePath: FileManager.default.temporaryDirectory.path)
-    config.sqlitePath = sqlitePath
-
+    let config = CoreConfig.test
     let service = CoreService(config: config)
     let router = CoreRouter(service: service)
 
@@ -1689,15 +1557,7 @@ func channelSessionEndpointsFilterByAgentAndExpireStaleSessions() async throws {
 
 @Test
 func agentToolsUpdateRejectsInvalidSchemaVersion() async throws {
-    let workspaceName = "workspace-agent-tools-invalid-\(UUID().uuidString)"
-    let sqlitePath = FileManager.default.temporaryDirectory
-        .appendingPathComponent("core-agent-tools-invalid-\(UUID().uuidString).sqlite")
-        .path
-
-    var config = CoreConfig.default
-    config.workspace = .init(name: workspaceName, basePath: FileManager.default.temporaryDirectory.path)
-    config.sqlitePath = sqlitePath
-
+    let config = CoreConfig.test
     let service = CoreService(config: config)
     let router = CoreRouter(service: service)
 
@@ -1724,15 +1584,7 @@ func agentToolsUpdateRejectsInvalidSchemaVersion() async throws {
 
 @Test
 func invokeToolEndpointRespectsPolicy() async throws {
-    let workspaceName = "workspace-agent-tool-invoke-\(UUID().uuidString)"
-    let sqlitePath = FileManager.default.temporaryDirectory
-        .appendingPathComponent("core-agent-tool-invoke-\(UUID().uuidString).sqlite")
-        .path
-
-    var config = CoreConfig.default
-    config.workspace = .init(name: workspaceName, basePath: FileManager.default.temporaryDirectory.path)
-    config.sqlitePath = sqlitePath
-
+    let config = CoreConfig.test
     let service = CoreService(config: config)
     let router = CoreRouter(service: service)
 
@@ -1794,15 +1646,7 @@ func invokeToolEndpointRespectsPolicy() async throws {
 
 @Test
 func invokeRuntimeExecBlocksDeniedCommandPrefix() async throws {
-    let workspaceName = "workspace-agent-tool-exec-\(UUID().uuidString)"
-    let sqlitePath = FileManager.default.temporaryDirectory
-        .appendingPathComponent("core-agent-tool-exec-\(UUID().uuidString).sqlite")
-        .path
-
-    var config = CoreConfig.default
-    config.workspace = .init(name: workspaceName, basePath: FileManager.default.temporaryDirectory.path)
-    config.sqlitePath = sqlitePath
-
+    let config = CoreConfig.test
     let service = CoreService(config: config)
     let router = CoreRouter(service: service)
 
@@ -1850,15 +1694,7 @@ func invokeRuntimeExecBlocksDeniedCommandPrefix() async throws {
 
 @Test
 func invokeRuntimeProcessLifecycleWorksPerSession() async throws {
-    let workspaceName = "workspace-agent-tool-process-\(UUID().uuidString)"
-    let sqlitePath = FileManager.default.temporaryDirectory
-        .appendingPathComponent("core-agent-tool-process-\(UUID().uuidString).sqlite")
-        .path
-
-    var config = CoreConfig.default
-    config.workspace = .init(name: workspaceName, basePath: FileManager.default.temporaryDirectory.path)
-    config.sqlitePath = sqlitePath
-
+    let config = CoreConfig.test
     let service = CoreService(config: config)
     let router = CoreRouter(service: service)
 
@@ -1925,15 +1761,7 @@ func invokeRuntimeProcessLifecycleWorksPerSession() async throws {
 
 @Test
 func createAgentDuplicateIDReturnsConflict() async throws {
-    let workspaceName = "workspace-agents-\(UUID().uuidString)"
-    let sqlitePath = FileManager.default.temporaryDirectory
-        .appendingPathComponent("core-agents-\(UUID().uuidString).sqlite")
-        .path
-
-    var config = CoreConfig.default
-    config.workspace = .init(name: workspaceName, basePath: FileManager.default.temporaryDirectory.path)
-    config.sqlitePath = sqlitePath
-
+    let config = CoreConfig.test
     let service = CoreService(config: config)
     let router = CoreRouter(service: service)
 
@@ -1952,15 +1780,7 @@ func createAgentDuplicateIDReturnsConflict() async throws {
 
 @Test
 func systemAgentStoredInSystemSubdirectory() async throws {
-    let workspaceName = "workspace-system-agent-\(UUID().uuidString)"
-    let sqlitePath = FileManager.default.temporaryDirectory
-        .appendingPathComponent("core-system-agent-\(UUID().uuidString).sqlite")
-        .path
-
-    var config = CoreConfig.default
-    config.workspace = .init(name: workspaceName, basePath: FileManager.default.temporaryDirectory.path)
-    config.sqlitePath = sqlitePath
-
+    let config = CoreConfig.test
     let service = CoreService(config: config)
     let router = CoreRouter(service: service)
 
@@ -2018,15 +1838,7 @@ func agentSummaryBackwardCompatibleDecodingWithoutIsSystem() throws {
 
 @Test
 func actorBoardEndpointsSyncSystemActorsAndPersistLayout() async throws {
-    let workspaceName = "workspace-actors-\(UUID().uuidString)"
-    let sqlitePath = FileManager.default.temporaryDirectory
-        .appendingPathComponent("core-actors-\(UUID().uuidString).sqlite")
-        .path
-
-    var config = CoreConfig.default
-    config.workspace = .init(name: workspaceName, basePath: FileManager.default.temporaryDirectory.path)
-    config.sqlitePath = sqlitePath
-
+    let config = CoreConfig.test
     let service = CoreService(config: config)
     let router = CoreRouter(service: service)
 
@@ -2106,15 +1918,7 @@ func actorBoardEndpointsSyncSystemActorsAndPersistLayout() async throws {
 
 @Test
 func actorRouteEndpointResolvesRecipientsFromLinks() async throws {
-    let workspaceName = "workspace-actor-route-\(UUID().uuidString)"
-    let sqlitePath = FileManager.default.temporaryDirectory
-        .appendingPathComponent("core-actor-route-\(UUID().uuidString).sqlite")
-        .path
-
-    var config = CoreConfig.default
-    config.workspace = .init(name: workspaceName, basePath: FileManager.default.temporaryDirectory.path)
-    config.sqlitePath = sqlitePath
-
+    let config = CoreConfig.test
     let service = CoreService(config: config)
     let router = CoreRouter(service: service)
 
@@ -2199,15 +2003,7 @@ func actorRouteEndpointResolvesRecipientsFromLinks() async throws {
 
 @Test
 func actorBoardInfersHierarchicalRelationshipFromSockets() async throws {
-    let workspaceName = "workspace-actor-relationship-\(UUID().uuidString)"
-    let sqlitePath = FileManager.default.temporaryDirectory
-        .appendingPathComponent("core-actor-relationship-\(UUID().uuidString).sqlite")
-        .path
-
-    var config = CoreConfig.default
-    config.workspace = .init(name: workspaceName, basePath: FileManager.default.temporaryDirectory.path)
-    config.sqlitePath = sqlitePath
-
+    let config = CoreConfig.test
     let service = CoreService(config: config)
     let router = CoreRouter(service: service)
     let decoder = JSONDecoder()
@@ -2266,15 +2062,7 @@ func actorBoardInfersHierarchicalRelationshipFromSockets() async throws {
 
 @Test
 func actorCRUDEndpointsManageNodesLinksAndTeams() async throws {
-    let workspaceName = "workspace-actor-crud-\(UUID().uuidString)"
-    let sqlitePath = FileManager.default.temporaryDirectory
-        .appendingPathComponent("core-actor-crud-\(UUID().uuidString).sqlite")
-        .path
-
-    var config = CoreConfig.default
-    config.workspace = .init(name: workspaceName, basePath: FileManager.default.temporaryDirectory.path)
-    config.sqlitePath = sqlitePath
-
+    let config = CoreConfig.test
     let service = CoreService(config: config)
     let router = CoreRouter(service: service)
 
@@ -2397,15 +2185,7 @@ func actorCRUDEndpointsManageNodesLinksAndTeams() async throws {
 
 @Test
 func agentSessionLifecycleEndpoints() async throws {
-    let workspaceName = "workspace-sessions-\(UUID().uuidString)"
-    let sqlitePath = FileManager.default.temporaryDirectory
-        .appendingPathComponent("core-sessions-\(UUID().uuidString).sqlite")
-        .path
-
-    var config = CoreConfig.default
-    config.workspace = .init(name: workspaceName, basePath: FileManager.default.temporaryDirectory.path)
-    config.sqlitePath = sqlitePath
-
+    let config = CoreConfig.test
     let service = CoreService(config: config)
     let router = CoreRouter(service: service)
 
@@ -2551,11 +2331,7 @@ func agentSessionLifecycleEndpoints() async throws {
 
 @Test
 func channelPluginCrudEndpoints() async throws {
-    let sqlitePath = FileManager.default.temporaryDirectory
-        .appendingPathComponent("core-plugin-crud-\(UUID().uuidString).sqlite")
-        .path
-    var config = CoreConfig.default
-    config.sqlitePath = sqlitePath
+    let config = CoreConfig.test
     let service = CoreService(config: config)
     let router = CoreRouter(service: service)
 
@@ -2623,11 +2399,7 @@ func channelPluginCrudEndpoints() async throws {
 
 @Test
 func channelPluginValidation() async throws {
-    let sqlitePath = FileManager.default.temporaryDirectory
-        .appendingPathComponent("core-plugin-validation-\(UUID().uuidString).sqlite")
-        .path
-    var config = CoreConfig.default
-    config.sqlitePath = sqlitePath
+    let config = CoreConfig.test
     let service = CoreService(config: config)
     let router = CoreRouter(service: service)
 
@@ -2646,11 +2418,7 @@ func channelPluginValidation() async throws {
 
 @Test
 func channelPluginLookupByChannelId() async throws {
-    let sqlitePath = FileManager.default.temporaryDirectory
-        .appendingPathComponent("core-plugin-lookup-\(UUID().uuidString).sqlite")
-        .path
-    var config = CoreConfig.default
-    config.sqlitePath = sqlitePath
+    let config = CoreConfig.test
     let service = CoreService(config: config)
 
     let _ = try await service.createChannelPlugin(
@@ -2676,13 +2444,7 @@ func channelPluginLookupByChannelId() async throws {
 
 @Test
 func tokenUsageEndpointReturnsEmptyList() async throws {
-    let sqlitePath = FileManager.default.temporaryDirectory
-        .appendingPathComponent("core-token-usage-\(UUID().uuidString).sqlite")
-        .path
-
-    var config = CoreConfig.default
-    config.sqlitePath = sqlitePath
-
+    let config = CoreConfig.test
     let service = CoreService(config: config)
     let router = CoreRouter(service: service)
 
@@ -2700,13 +2462,7 @@ func tokenUsageEndpointReturnsEmptyList() async throws {
 
 @Test
 func tokenUsageEndpointReturnsPersistedData() async throws {
-    let sqlitePath = FileManager.default.temporaryDirectory
-        .appendingPathComponent("core-token-usage-\(UUID().uuidString).sqlite")
-        .path
-
-    var config = CoreConfig.default
-    config.sqlitePath = sqlitePath
-
+    let config = CoreConfig.test
     let service = CoreService(config: config)
     let router = CoreRouter(service: service)
 
@@ -2740,13 +2496,7 @@ func tokenUsageEndpointReturnsPersistedData() async throws {
 
 @Test
 func tokenUsageEndpointPersistsBranchConclusionUsage() async throws {
-    let sqlitePath = FileManager.default.temporaryDirectory
-        .appendingPathComponent("core-token-usage-branch-\(UUID().uuidString).sqlite")
-        .path
-
-    var config = CoreConfig.default
-    config.sqlitePath = sqlitePath
-
+    let config = CoreConfig.test
     let service = CoreService(config: config)
     let router = CoreRouter(service: service)
 
@@ -2799,15 +2549,7 @@ func tokenUsageEndpointPersistsBranchConclusionUsage() async throws {
 
 @Test
 func invokeToolFromRuntimeCanSkipSessionToolEventPersistence() async throws {
-    let workspaceName = "workspace-tool-events-\(UUID().uuidString)"
-    let sqlitePath = FileManager.default.temporaryDirectory
-        .appendingPathComponent("core-tool-events-\(UUID().uuidString).sqlite")
-        .path
-
-    var config = CoreConfig.default
-    config.workspace = .init(name: workspaceName, basePath: FileManager.default.temporaryDirectory.path)
-    config.sqlitePath = sqlitePath
-
+    let config = CoreConfig.test
     let service = CoreService(config: config)
     let agentID = "tool-events-agent-\(UUID().uuidString)"
 
@@ -2844,15 +2586,7 @@ func invokeToolFromRuntimeCanSkipSessionToolEventPersistence() async throws {
 
 @Test
 func branchSpawnDoesNotCreateProjectTasksFromPromptTodos() async throws {
-    let workspaceName = "workspace-branch-no-todos-\(UUID().uuidString)"
-    let sqlitePath = FileManager.default.temporaryDirectory
-        .appendingPathComponent("core-branch-no-todos-\(UUID().uuidString).sqlite")
-        .path
-
-    var config = CoreConfig.default
-    config.workspace = .init(name: workspaceName, basePath: FileManager.default.temporaryDirectory.path)
-    config.sqlitePath = sqlitePath
-
+    let config = CoreConfig.test
     let service = CoreService(config: config)
     let agentID = "branch-no-todos-\(UUID().uuidString)"
 
@@ -2903,9 +2637,7 @@ func branchSpawnDoesNotCreateProjectTasksFromPromptTodos() async throws {
 
 @Test
 func workerToolsSpawnAndRouteInteractiveWorker() async throws {
-    let workspaceName = "workspace-worker-tools-\(UUID().uuidString)"
-    var workerConfig = CoreConfig.default
-    workerConfig.workspace = .init(name: workspaceName, basePath: FileManager.default.temporaryDirectory.path)
+    let workerConfig = CoreConfig.test
     let service = CoreService(config: workerConfig)
     let agentID = "worker-tools-agent-\(UUID().uuidString)"
 
@@ -2968,15 +2700,7 @@ func workerToolsSpawnAndRouteInteractiveWorker() async throws {
 
 @Test
 func projectTaskUpdateAndCancelToolsMutateTaskState() async throws {
-    let workspaceName = "workspace-project-tools-\(UUID().uuidString)"
-    let sqlitePath = FileManager.default.temporaryDirectory
-        .appendingPathComponent("core-project-tool-update-\(UUID().uuidString).sqlite")
-        .path
-
-    var config = CoreConfig.default
-    config.workspace = .init(name: workspaceName, basePath: FileManager.default.temporaryDirectory.path)
-    config.sqlitePath = sqlitePath
-
+    let config = CoreConfig.test
     let service = CoreService(config: config)
     let projectID = "tool-project-\(UUID().uuidString)"
 
@@ -3053,13 +2777,7 @@ func projectTaskUpdateAndCancelToolsMutateTaskState() async throws {
 
 @Test
 func tokenUsageEndpointFiltersByChannelId() async throws {
-    let sqlitePath = FileManager.default.temporaryDirectory
-        .appendingPathComponent("core-token-usage-\(UUID().uuidString).sqlite")
-        .path
-
-    var config = CoreConfig.default
-    config.sqlitePath = sqlitePath
-
+    let config = CoreConfig.test
     let service = CoreService(config: config)
     let router = CoreRouter(service: service)
 
@@ -3084,13 +2802,7 @@ func tokenUsageEndpointFiltersByChannelId() async throws {
 
 @Test
 func tokenUsageEndpointFiltersByDateRange() async throws {
-    let sqlitePath = FileManager.default.temporaryDirectory
-        .appendingPathComponent("core-token-usage-\(UUID().uuidString).sqlite")
-        .path
-
-    var config = CoreConfig.default
-    config.sqlitePath = sqlitePath
-
+    let config = CoreConfig.test
     let service = CoreService(config: config)
     let router = CoreRouter(service: service)
 

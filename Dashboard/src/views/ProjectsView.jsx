@@ -48,6 +48,7 @@ import { ProjectTasksTab } from "./Projects/ProjectTasksTab";
 import { ProjectWorkersTab } from "./Projects/ProjectWorkersTab";
 import { ProjectMemoriesTab } from "./Projects/ProjectMemoriesTab";
 import { ProjectVisorTab } from "./Projects/ProjectVisorTab";
+import { ProjectChannelsTab } from "./Projects/ProjectChannelsTab";
 import { ProjectSettingsTab } from "./Projects/ProjectSettingsTab";
 import { ProjectList } from "./Projects/ProjectList";
 
@@ -565,7 +566,8 @@ export function ProjectsView({
   routeProjectId = null,
   routeProjectTab = "overview",
   routeProjectTaskReference = null,
-  onRouteProjectChange = () => { }
+  onRouteProjectChange = () => { },
+  onNavigateToChannelSession = () => { }
 }) {
   const [projects, setProjects] = useState([]);
   const [isLoadingProjects, setIsLoadingProjects] = useState(true);
@@ -1256,6 +1258,15 @@ export function ProjectsView({
           activeWorkers={activeWorkers}
           relatedWorkers={relatedWorkers}
           createdItems={createdItems}
+        />
+      );
+    }
+
+    if (selectedTab === "channels") {
+      return (
+        <ProjectChannelsTab
+          project={project}
+          onNavigateToChannelSession={onNavigateToChannelSession}
         />
       );
     }

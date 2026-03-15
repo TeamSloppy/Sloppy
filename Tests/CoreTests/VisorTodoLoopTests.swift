@@ -218,14 +218,7 @@ func naturalLanguagePickUpCommandApprovesByIndex() async throws {
 
 @Test
 func readyTaskClaimsAssignedActorAndPersistsProjectArtifactsAndLogs() async throws {
-    let workspaceName = "workspace-visor-artifacts-\(UUID().uuidString)"
-    let sqlitePath = FileManager.default.temporaryDirectory
-        .appendingPathComponent("core-visor-artifacts-\(UUID().uuidString).sqlite")
-        .path
-    var config = CoreConfig.default
-    config.workspace = .init(name: workspaceName, basePath: FileManager.default.temporaryDirectory.path)
-    config.sqlitePath = sqlitePath
-
+    let config = CoreConfig.test
     let service = CoreService(config: config)
     let router = CoreRouter(service: service)
     let projectID = "visor-artifacts-\(UUID().uuidString)"
@@ -303,14 +296,7 @@ func readyTaskClaimsAssignedActorAndPersistsProjectArtifactsAndLogs() async thro
 
 @Test
 func fireAndForgetWorkerPersistsObjectiveArtifact() async throws {
-    let workspaceName = "workspace-visor-create-file-\(UUID().uuidString)"
-    let sqlitePath = FileManager.default.temporaryDirectory
-        .appendingPathComponent("core-visor-create-file-\(UUID().uuidString).sqlite")
-        .path
-    var config = CoreConfig.default
-    config.workspace = .init(name: workspaceName, basePath: FileManager.default.temporaryDirectory.path)
-    config.sqlitePath = sqlitePath
-
+    let config = CoreConfig.test
     let service = CoreService(config: config)
     let router = CoreRouter(service: service)
     let projectID = "visor-create-file-\(UUID().uuidString)"
@@ -454,13 +440,7 @@ func taskDelegationRespectsActorBoardTaskLinks() async throws {
 
 @Test
 func swarmHierarchyCycleBlocksRootTask() async throws {
-    let workspaceName = "workspace-visor-swarm-cycle-\(UUID().uuidString)"
-    let sqlitePath = FileManager.default.temporaryDirectory
-        .appendingPathComponent("core-visor-swarm-cycle-\(UUID().uuidString).sqlite")
-        .path
-    var config = CoreConfig.default
-    config.workspace = .init(name: workspaceName, basePath: FileManager.default.temporaryDirectory.path)
-    config.sqlitePath = sqlitePath
+    let config = CoreConfig.test
     let service = CoreService(config: config)
     let router = CoreRouter(service: service)
     let projectID = "visor-swarm-cycle-\(UUID().uuidString)"
@@ -531,13 +511,7 @@ func swarmHierarchyCycleBlocksRootTask() async throws {
 
 @Test
 func swarmPlannerFailureBlocksRootTask() async throws {
-    let workspaceName = "workspace-visor-swarm-planner-\(UUID().uuidString)"
-    let sqlitePath = FileManager.default.temporaryDirectory
-        .appendingPathComponent("core-visor-swarm-planner-\(UUID().uuidString).sqlite")
-        .path
-    var config = CoreConfig.default
-    config.workspace = .init(name: workspaceName, basePath: FileManager.default.temporaryDirectory.path)
-    config.sqlitePath = sqlitePath
+    let config = CoreConfig.test
     let service = CoreService(config: config)
     let router = CoreRouter(service: service)
     let projectID = "visor-swarm-planner-\(UUID().uuidString)"
@@ -619,15 +593,7 @@ func visorSkipsWhenProjectNotFoundForChannel() async throws {
 }
 
 private func makeRouter() throws -> CoreRouter {
-    let workspaceName = "workspace-visor-loop-\(UUID().uuidString)"
-    let sqlitePath = FileManager.default.temporaryDirectory
-        .appendingPathComponent("core-visor-loop-\(UUID().uuidString).sqlite")
-        .path
-
-    var config = CoreConfig.default
-    config.workspace = .init(name: workspaceName, basePath: FileManager.default.temporaryDirectory.path)
-    config.sqlitePath = sqlitePath
-
+    let config = CoreConfig.test
     let service = CoreService(config: config)
     return CoreRouter(service: service)
 }
