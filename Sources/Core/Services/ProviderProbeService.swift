@@ -60,14 +60,14 @@ struct ProviderProbeService {
         authMethod: ProviderAuthMethod
     ) async -> ProviderProbeResponse {
         let primaryOpenAIConfig = config.models.first {
-            CoreModelProviderFactory.resolvedIdentifier(for: $0).hasPrefix("openai:")
+            CoreModelProviderFactory.resolvedIdentifier(for: $0)?.hasPrefix("openai:") == true
         }
 
         let apiURL = CoreModelProviderFactory.parseURL(request.apiUrl)
             ?? CoreModelProviderFactory.parseURL(primaryOpenAIConfig?.apiUrl)
             ?? URL(string: "https://api.openai.com/v1")
 
-        let configuredKey = primaryOpenAIConfig?.apiKey.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let configuredKey = (primaryOpenAIConfig?.apiKey ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         let environmentKey = environmentLookup("OPENAI_API_KEY")?
             .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let requestKey = request.apiKey?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
@@ -153,7 +153,7 @@ struct ProviderProbeService {
         request: ProviderProbeRequest
     ) async -> ProviderProbeResponse {
         let primaryOllamaConfig = config.models.first {
-            CoreModelProviderFactory.resolvedIdentifier(for: $0).hasPrefix("ollama:")
+            CoreModelProviderFactory.resolvedIdentifier(for: $0)?.hasPrefix("ollama:") == true
         }
 
         guard let baseURL = CoreModelProviderFactory.parseURL(request.apiUrl)

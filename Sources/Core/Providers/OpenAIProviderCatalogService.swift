@@ -24,16 +24,16 @@ struct OpenAIProviderCatalogService {
 
     func listModels(config: CoreConfig, request: OpenAIProviderModelsRequest) async -> OpenAIProviderModelsResponse {
         let primaryOpenAIConfig = config.models.first {
-            CoreModelProviderFactory.resolvedIdentifier(for: $0).hasPrefix("openai:")
+            CoreModelProviderFactory.resolvedIdentifier(for: $0)?.hasPrefix("openai:") == true
         }
 
-        let configuredURL = primaryOpenAIConfig?.apiUrl.trimmingCharacters(in: .whitespacesAndNewlines)
+        let configuredURL = (primaryOpenAIConfig?.apiUrl ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         let requestedURL = request.apiUrl?.trimmingCharacters(in: .whitespacesAndNewlines)
         let baseURL = CoreModelProviderFactory.parseURL(requestedURL)
             ?? CoreModelProviderFactory.parseURL(configuredURL)
             ?? URL(string: "https://api.openai.com/v1")
 
-        let configuredKey = primaryOpenAIConfig?.apiKey.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let configuredKey = (primaryOpenAIConfig?.apiKey ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         let envKey = ProcessInfo.processInfo.environment["OPENAI_API_KEY"]?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let requestKey = request.apiKey?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
 
@@ -114,10 +114,10 @@ struct OpenAIProviderCatalogService {
 
     func status(config: CoreConfig) -> OpenAIProviderStatusResponse {
         let primaryOpenAIConfig = config.models.first {
-            CoreModelProviderFactory.resolvedIdentifier(for: $0).hasPrefix("openai:")
+            CoreModelProviderFactory.resolvedIdentifier(for: $0)?.hasPrefix("openai:") == true
         }
 
-        let configuredKey = primaryOpenAIConfig?.apiKey.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let configuredKey = (primaryOpenAIConfig?.apiKey ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         let envKey = ProcessInfo.processInfo.environment["OPENAI_API_KEY"]?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let hasConfiguredKey = !configuredKey.isEmpty
         let hasEnvironmentKey = !envKey.isEmpty

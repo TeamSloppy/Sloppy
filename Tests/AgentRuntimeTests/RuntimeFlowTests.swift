@@ -1,3 +1,4 @@
+import AnyLanguageModel
 import Foundation
 import Testing
 @testable import AgentRuntime
@@ -227,118 +228,224 @@ private actor ToolInvocationCounter {
     }
 }
 
-private actor SequencedModelProvider: ModelProviderPlugin {
+// MARK: - Shared mock infrastructure
+
+private final class MockCallStore: @unchecked Sendable {
+    private let lock = NSLock()
+    private var _models: [String] = []
+    private var _reasoningEfforts: [ReasoningEffort?] = []
+    private var _prompts: [String] = []
+
+    func recordModel(_ model: String) { lock.withLock { _models.append(model) } }
+    func recordEffort(_ effort: ReasoningEffort?) { lock.withLock { _reasoningEfforts.append(effort) } }
+    func recordPrompt(_ prompt: String) { lock.withLock { _prompts.append(prompt) } }
+
+    var models: [String] { lock.withLock { _models } }
+    var reasoningEfforts: [ReasoningEffort?] { lock.withLock { _reasoningEfforts } }
+    var lastPrompt: String? { lock.withLock { _prompts.last } }
+}
+
+private func extractPromptText(from prompt: Prompt) -> String {
+    prompt.description
+}
+
+private func extractToolName(from text: String) -> String? {
+    func tryParse(_ candidate: String) -> String? {
+        guard let data = candidate.data(using: .utf8),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let tool = json["tool"] as? String
+        else { return nil }
+        return tool
+    }
+
+    if let tool = tryParse(text) { return tool }
+
+    var depth = 0
+    var start: String.Index?
+    for i in text.indices {
+        switch text[i] {
+        case "{":
+            if depth == 0 { start = i }
+            depth += 1
+        case "}":
+            depth -= 1
+            if depth == 0, let s = start {
+                if let tool = tryParse(String(text[s...i])) { return tool }
+                start = nil
+            }
+        default: break
+        }
+    }
+    return nil
+}
+
+// MARK: - SequencedModelProvider
+
+private struct SequencedMockLanguageModel: LanguageModel {
+    typealias UnavailableReason = Never
+    let provider: SequencedModelProvider
+
+    func respond<Content>(
+        within session: LanguageModelSession,
+        to prompt: Prompt,
+        generating type: Content.Type,
+        includeSchemaInPrompt: Bool,
+        options: GenerationOptions
+    ) async throws -> LanguageModelSession.Response<Content> where Content: Generable {
+        guard type == String.self else { fatalError("SequencedMockLanguageModel: only String supported") }
+
+        let firstOutput = await provider.dequeue()
+        var entries: [Transcript.Entry] = []
+
+        if let toolName = extractToolName(from: firstOutput), let delegate = session.toolExecutionDelegate {
+            let toolCall = Transcript.ToolCall(id: UUID().uuidString, toolName: toolName, arguments: GeneratedContent(""))
+            await delegate.didGenerateToolCalls([toolCall], in: session)
+            let decision = await delegate.toolCallDecision(for: toolCall, in: session)
+            if case .provideOutput(let segments) = decision {
+                let output = Transcript.ToolOutput(id: toolCall.id, toolName: toolCall.toolName, segments: segments)
+                await delegate.didExecuteToolCall(toolCall, output: output, in: session)
+                entries.append(.toolCalls(Transcript.ToolCalls([toolCall])))
+                entries.append(.toolOutput(output))
+            }
+            let finalOutput = await provider.dequeue()
+            return LanguageModelSession.Response(
+                content: finalOutput as! Content,
+                rawContent: GeneratedContent(finalOutput),
+                transcriptEntries: ArraySlice(entries)
+            )
+        }
+
+        return LanguageModelSession.Response(
+            content: firstOutput as! Content,
+            rawContent: GeneratedContent(firstOutput),
+            transcriptEntries: []
+        )
+    }
+
+    func streamResponse<Content>(
+        within session: LanguageModelSession,
+        to prompt: Prompt,
+        generating type: Content.Type,
+        includeSchemaInPrompt: Bool,
+        options: GenerationOptions
+    ) -> sending LanguageModelSession.ResponseStream<Content> where Content: Generable {
+        let stream = AsyncThrowingStream<LanguageModelSession.ResponseStream<Content>.Snapshot, any Error> { continuation in
+            Task {
+                do {
+                    let response = try await respond(
+                        within: session, to: prompt, generating: type,
+                        includeSchemaInPrompt: includeSchemaInPrompt, options: options
+                    )
+                    continuation.yield(.init(content: response.content.asPartiallyGenerated(), rawContent: response.rawContent))
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+        }
+        return LanguageModelSession.ResponseStream(stream: stream)
+    }
+}
+
+private actor SequencedModelProvider: ModelProvider {
     let id: String = "sequenced"
-    let models: [String] = ["mock-model"]
+    nonisolated var supportedModels: [String] { ["mock-model"] }
+    nonisolated let callStore = MockCallStore()
     private var queue: [String]
-    private(set) var requestedModels: [String] = []
-    private(set) var requestedReasoningEfforts: [ReasoningEffort?] = []
 
     init(outputs: [String]) {
         self.queue = outputs
     }
 
-    func complete(
-        model: String,
-        prompt: String,
-        maxTokens: Int,
-        reasoningEffort: ReasoningEffort?
-    ) async throws -> String {
-        requestedModels.append(model)
-        requestedReasoningEfforts.append(reasoningEffort)
-        if queue.isEmpty {
-            return "No output."
+    func createLanguageModel(for modelName: String) async throws -> any LanguageModel {
+        callStore.recordModel(modelName)
+        return SequencedMockLanguageModel(provider: self)
+    }
+
+    nonisolated func generationOptions(for modelName: String, maxTokens: Int, reasoningEffort: ReasoningEffort?) -> GenerationOptions {
+        callStore.recordEffort(reasoningEffort)
+        return GenerationOptions(maximumResponseTokens: maxTokens)
+    }
+
+    func dequeue() -> String {
+        queue.isEmpty ? "No output." : queue.removeFirst()
+    }
+
+    func requestedModelsSnapshot() -> [String] { callStore.models }
+    func requestedReasoningEffortsSnapshot() -> [ReasoningEffort?] { callStore.reasoningEfforts }
+}
+
+// MARK: - PromptCapturingModelProvider
+
+private struct PromptCapturingMockLanguageModel: LanguageModel {
+    typealias UnavailableReason = Never
+    let callStore: MockCallStore
+    let streamOutput: String?
+
+    func respond<Content>(
+        within session: LanguageModelSession,
+        to prompt: Prompt,
+        generating type: Content.Type,
+        includeSchemaInPrompt: Bool,
+        options: GenerationOptions
+    ) async throws -> LanguageModelSession.Response<Content> where Content: Generable {
+        guard type == String.self else { fatalError("PromptCapturingMockLanguageModel: only String supported") }
+        callStore.recordPrompt(extractPromptText(from: prompt))
+        return LanguageModelSession.Response(
+            content: "Captured." as! Content,
+            rawContent: GeneratedContent("Captured."),
+            transcriptEntries: []
+        )
+    }
+
+    func streamResponse<Content>(
+        within session: LanguageModelSession,
+        to prompt: Prompt,
+        generating type: Content.Type,
+        includeSchemaInPrompt: Bool,
+        options: GenerationOptions
+    ) -> sending LanguageModelSession.ResponseStream<Content> where Content: Generable {
+        guard type == String.self else { fatalError("PromptCapturingMockLanguageModel: only String supported") }
+        guard let output = streamOutput else {
+            return LanguageModelSession.ResponseStream(stream: AsyncThrowingStream { $0.finish() })
         }
-        return queue.removeFirst()
-    }
-
-    func requestedModelsSnapshot() -> [String] {
-        requestedModels
-    }
-
-    func requestedReasoningEffortsSnapshot() -> [ReasoningEffort?] {
-        requestedReasoningEfforts
-    }
-}
-
-private actor PromptCapturingStore {
-    private(set) var prompts: [String] = []
-    private(set) var requestedModels: [String] = []
-    private(set) var requestedReasoningEfforts: [ReasoningEffort?] = []
-
-    func record(model: String, prompt: String, reasoningEffort: ReasoningEffort?) {
-        prompts.append(prompt)
-        requestedModels.append(model)
-        requestedReasoningEfforts.append(reasoningEffort)
-    }
-
-    func lastPrompt() -> String? {
-        prompts.last
-    }
-
-    func requestedModelsSnapshot() -> [String] {
-        requestedModels
-    }
-
-    func requestedReasoningEffortsSnapshot() -> [ReasoningEffort?] {
-        requestedReasoningEfforts
+        let store = callStore
+        let text = extractPromptText(from: prompt)
+        let stream = AsyncThrowingStream<LanguageModelSession.ResponseStream<Content>.Snapshot, any Error> { continuation in
+            Task {
+                store.recordPrompt(text)
+                continuation.yield(.init(content: output as! Content.PartiallyGenerated, rawContent: GeneratedContent(output)))
+                continuation.finish()
+            }
+        }
+        return LanguageModelSession.ResponseStream(stream: stream)
     }
 }
 
-private final class PromptCapturingModelProvider: ModelProviderPlugin, @unchecked Sendable {
+private final class PromptCapturingModelProvider: ModelProvider, @unchecked Sendable {
     let id: String = "prompt-capturing"
-    let models: [String]
+    let supportedModels: [String]
     private let streamOutput: String?
-    private let store = PromptCapturingStore()
+    let callStore = MockCallStore()
 
     init(models: [String] = ["mock-model"], streamOutput: String? = nil) {
-        self.models = models
+        self.supportedModels = models
         self.streamOutput = streamOutput
     }
 
-    func complete(
-        model: String,
-        prompt: String,
-        maxTokens: Int,
-        reasoningEffort: ReasoningEffort?
-    ) async throws -> String {
-        await store.record(model: model, prompt: prompt, reasoningEffort: reasoningEffort)
-        return "Captured."
+    func createLanguageModel(for modelName: String) async throws -> any LanguageModel {
+        callStore.recordModel(modelName)
+        return PromptCapturingMockLanguageModel(callStore: callStore, streamOutput: streamOutput)
     }
 
-    func stream(
-        model: String,
-        prompt: String,
-        maxTokens: Int,
-        reasoningEffort: ReasoningEffort?
-    ) -> AsyncThrowingStream<String, any Error> {
-        let streamOutput = self.streamOutput
-        return AsyncThrowingStream { continuation in
-            let task = Task {
-                await store.record(model: model, prompt: prompt, reasoningEffort: reasoningEffort)
-                if let streamOutput {
-                    continuation.yield(streamOutput)
-                }
-                continuation.finish()
-            }
-
-            continuation.onTermination = { _ in
-                task.cancel()
-            }
-        }
+    func generationOptions(for modelName: String, maxTokens: Int, reasoningEffort: ReasoningEffort?) -> GenerationOptions {
+        callStore.recordEffort(reasoningEffort)
+        return GenerationOptions(maximumResponseTokens: maxTokens)
     }
 
-    func lastPrompt() async -> String? {
-        await store.lastPrompt()
-    }
-
-    func requestedModelsSnapshot() async -> [String] {
-        await store.requestedModelsSnapshot()
-    }
-
-    func requestedReasoningEffortsSnapshot() async -> [ReasoningEffort?] {
-        await store.requestedReasoningEffortsSnapshot()
-    }
+    func lastPrompt() async -> String? { callStore.lastPrompt }
+    func requestedModelsSnapshot() async -> [String] { callStore.models }
+    func requestedReasoningEffortsSnapshot() async -> [ReasoningEffort?] { callStore.reasoningEfforts }
 }
 
 @Test
@@ -371,8 +478,8 @@ func respondInlineAutoToolCallingLoop() async {
     let finalMessage = snapshot?.messages.last(where: { $0.userId == "system" })?.content ?? ""
     #expect(finalMessage == "Final answer after tool execution.")
     #expect(await invocationCounter.value() == 1)
-    #expect(await provider.requestedModelsSnapshot() == ["mock-model", "mock-model"])
-    #expect(await provider.requestedReasoningEffortsSnapshot() == [nil, nil])
+    #expect(await provider.requestedModelsSnapshot() == ["mock-model"])
+    #expect(await provider.requestedReasoningEffortsSnapshot() == [nil])
 }
 
 @Test
@@ -517,8 +624,8 @@ func respondInlineReusesRequestModelAndReasoningEffortAcrossToolLoop() async {
         }
     )
 
-    #expect(await provider.requestedModelsSnapshot() == ["mock-model", "mock-model"])
-    #expect(await provider.requestedReasoningEffortsSnapshot() == [.medium, .medium])
+    #expect(await provider.requestedModelsSnapshot() == ["mock-model"])
+    #expect(await provider.requestedReasoningEffortsSnapshot() == [.medium])
 }
 
 @Test

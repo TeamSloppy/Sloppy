@@ -1,3 +1,4 @@
+import AnyLanguageModel
 import Foundation
 import Testing
 @testable import AgentRuntime
@@ -5,53 +6,95 @@ import Testing
 @testable import PluginSDK
 @testable import Protocols
 
-private actor SessionCapturingModelProvider: ModelProviderPlugin {
-    let id: String = "session-capturing"
-    let models: [String]
-    private(set) var requestedModels: [String] = []
-    private(set) var requestedReasoningEfforts: [ReasoningEffort?] = []
+private final class MockCallStore: @unchecked Sendable {
+    private let lock = NSLock()
+    private var _models: [String] = []
+    private var _reasoningEfforts: [ReasoningEffort?] = []
 
-    init(models: [String]) {
-        self.models = models
+    func recordModel(_ model: String) { lock.withLock { _models.append(model) } }
+    func recordEffort(_ effort: ReasoningEffort?) { lock.withLock { _reasoningEfforts.append(effort) } }
+    var models: [String] { lock.withLock { _models } }
+    var reasoningEfforts: [ReasoningEffort?] { lock.withLock { _reasoningEfforts } }
+}
+
+private struct FixedTextLanguageModel: LanguageModel {
+    typealias UnavailableReason = Never
+    let text: String
+
+    func respond<Content>(
+        within session: LanguageModelSession,
+        to prompt: Prompt,
+        generating type: Content.Type,
+        includeSchemaInPrompt: Bool,
+        options: GenerationOptions
+    ) async throws -> LanguageModelSession.Response<Content> where Content: Generable {
+        guard type == String.self else { fatalError("FixedTextLanguageModel: only String supported") }
+        return LanguageModelSession.Response(
+            content: text as! Content,
+            rawContent: GeneratedContent(text),
+            transcriptEntries: []
+        )
     }
 
-    func complete(
-        model: String,
-        prompt: String,
-        maxTokens: Int,
-        reasoningEffort: ReasoningEffort?
-    ) async throws -> String {
-        requestedModels.append(model)
-        requestedReasoningEfforts.append(reasoningEffort)
-        return "Captured."
-    }
-
-    func requestedModelsSnapshot() -> [String] {
-        requestedModels
-    }
-
-    func requestedReasoningEffortsSnapshot() -> [ReasoningEffort?] {
-        requestedReasoningEfforts
+    func streamResponse<Content>(
+        within session: LanguageModelSession,
+        to prompt: Prompt,
+        generating type: Content.Type,
+        includeSchemaInPrompt: Bool,
+        options: GenerationOptions
+    ) -> sending LanguageModelSession.ResponseStream<Content> where Content: Generable {
+        let stream = AsyncThrowingStream<LanguageModelSession.ResponseStream<Content>.Snapshot, any Error> { continuation in
+            Task {
+                guard let response = try? await respond(
+                    within: session, to: prompt, generating: type,
+                    includeSchemaInPrompt: includeSchemaInPrompt, options: options
+                ) else {
+                    continuation.finish()
+                    return
+                }
+                continuation.yield(.init(content: response.content.asPartiallyGenerated(), rawContent: response.rawContent))
+                continuation.finish()
+            }
+        }
+        return LanguageModelSession.ResponseStream(stream: stream)
     }
 }
 
-private actor FixedOutputModelProvider: ModelProviderPlugin {
+private actor SessionCapturingModelProvider: ModelProvider {
+    let id: String = "session-capturing"
+    let supportedModels: [String]
+    nonisolated let callStore = MockCallStore()
+
+    init(models: [String]) {
+        self.supportedModels = models
+    }
+
+    func createLanguageModel(for modelName: String) async throws -> any LanguageModel {
+        callStore.recordModel(modelName)
+        return FixedTextLanguageModel(text: "Captured.")
+    }
+
+    nonisolated func generationOptions(for modelName: String, maxTokens: Int, reasoningEffort: ReasoningEffort?) -> GenerationOptions {
+        callStore.recordEffort(reasoningEffort)
+        return GenerationOptions(maximumResponseTokens: maxTokens)
+    }
+
+    func requestedModelsSnapshot() -> [String] { callStore.models }
+    func requestedReasoningEffortsSnapshot() -> [ReasoningEffort?] { callStore.reasoningEfforts }
+}
+
+private actor FixedOutputModelProvider: ModelProvider {
     let id: String = "fixed-output"
-    let models: [String]
-    let output: String
+    let supportedModels: [String]
+    private let output: String
 
     init(models: [String], output: String) {
-        self.models = models
+        self.supportedModels = models
         self.output = output
     }
 
-    func complete(
-        model: String,
-        prompt: String,
-        maxTokens: Int,
-        reasoningEffort: ReasoningEffort?
-    ) async throws -> String {
-        output
+    func createLanguageModel(for modelName: String) async throws -> any LanguageModel {
+        FixedTextLanguageModel(text: output)
     }
 }
 

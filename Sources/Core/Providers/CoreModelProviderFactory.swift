@@ -2,94 +2,63 @@ import AnyLanguageModel
 import Foundation
 import PluginSDK
 
+struct ModelProviderBuildConfig: @unchecked Sendable {
+    var coreConfig: CoreConfig
+    var resolvedModels: [String]
+    var tools: [any Tool]
+    var oauthTokenProvider: (@Sendable () -> String?)?
+    var oauthAccountId: String?
+    var oauthTokenRefresh: (@Sendable () async throws -> Void)?
+    var systemInstructions: String?
+}
+
+protocol ModelProviderFactory: Sendable {
+    func buildProvider(from config: ModelProviderBuildConfig) -> (any ModelProvider)?
+}
+
 enum CoreModelProviderFactory {
+    private static let factories: [any ModelProviderFactory] = [
+        OpenAIModelProviderFactory(),
+        OllamaModelProviderFactory(),
+    ]
+
     static func buildModelProvider(
         config: CoreConfig,
         resolvedModels: [String],
         tools: [any Tool] = [],
         oauthTokenProvider: (@Sendable () -> String?)? = nil,
         oauthAccountId: String? = nil,
-        oauthTokenRefresh: (@Sendable () async throws -> Void)? = nil
-    ) -> AnyLanguageModelProviderPlugin? {
-        let supportsOpenAI = resolvedModels.contains { $0.hasPrefix("openai:") }
-        let supportsOllama = resolvedModels.contains { $0.hasPrefix("ollama:") }
-
-        let primaryOpenAIConfig = config.models.first {
-            resolvedIdentifier(for: $0).hasPrefix("openai:")
-        }
-        let primaryOllamaConfig = config.models.first {
-            resolvedIdentifier(for: $0).hasPrefix("ollama:")
-        }
-
-        var openAISettings: AnyLanguageModelProviderPlugin.OpenAISettings?
-        if supportsOpenAI {
-            let apiKey = ProcessInfo.processInfo.environment["OPENAI_API_KEY"] ?? ""
-            let configuredKey = primaryOpenAIConfig?.apiKey.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-            let resolvedKey = configuredKey.isEmpty ? apiKey : configuredKey
-
-            let keyProvider: (@Sendable () -> String)?
-            let isOAuth: Bool
-            if !resolvedKey.isEmpty {
-                keyProvider = { resolvedKey }
-                isOAuth = false
-            } else if let oauthTokenProvider, oauthTokenProvider() != nil {
-                keyProvider = { oauthTokenProvider() ?? "" }
-                isOAuth = true
-            } else {
-                keyProvider = nil
-                isOAuth = false
-            }
-
-            if let keyProvider {
-                let resolvedAccountId = isOAuth ? oauthAccountId : nil
-                let resolvedRefresh = isOAuth ? oauthTokenRefresh : nil
-                if let baseURL = parseURL(primaryOpenAIConfig?.apiUrl) {
-                    openAISettings = .init(apiKey: keyProvider, baseURL: baseURL, accountId: resolvedAccountId, refreshTokenIfNeeded: resolvedRefresh)
-                } else {
-                    openAISettings = .init(apiKey: keyProvider, accountId: resolvedAccountId, refreshTokenIfNeeded: resolvedRefresh)
-                }
-            }
-        }
-
-        let ollamaSettings: AnyLanguageModelProviderPlugin.OllamaSettings? = {
-            guard supportsOllama else {
-                return nil
-            }
-            if let baseURL = parseURL(primaryOllamaConfig?.apiUrl) {
-                return .init(baseURL: baseURL)
-            }
-            return .init()
-        }()
-
-        let availableModels = resolvedModels.filter { model in
-            if model.hasPrefix("openai:") {
-                return openAISettings != nil
-            }
-            if model.hasPrefix("ollama:") {
-                return ollamaSettings != nil
-            }
-            return openAISettings != nil || ollamaSettings != nil
-        }
-
-        guard !availableModels.isEmpty else {
-            return nil
-        }
-
-        return AnyLanguageModelProviderPlugin(
-            id: "any-language-model",
-            models: availableModels,
-            openAI: openAISettings,
-            ollama: ollamaSettings,
+        oauthTokenRefresh: (@Sendable () async throws -> Void)? = nil,
+        systemInstructions: String? = nil
+    ) -> (any ModelProvider)? {
+        let buildConfig = ModelProviderBuildConfig(
+            coreConfig: config,
+            resolvedModels: resolvedModels,
             tools: tools,
-            systemInstructions: "You are Sloppy core channel assistant."
+            oauthTokenProvider: oauthTokenProvider,
+            oauthAccountId: oauthAccountId,
+            oauthTokenRefresh: oauthTokenRefresh,
+            systemInstructions: systemInstructions
+        )
+
+        let providers = factories.compactMap { $0.buildProvider(from: buildConfig) }
+        guard !providers.isEmpty else { return nil }
+        if providers.count == 1 { return providers[0] }
+
+        return CompositeModelProvider(
+            providers: providers,
+            tools: tools,
+            systemInstructions: systemInstructions
         )
     }
 
+    /// Resolves model identifiers from config, adding fallback OpenAI defaults when needed.
+    /// Only models with a recognized provider prefix are included (no unprefixed models).
     static func resolveModelIdentifiers(
         config: CoreConfig,
         hasOAuthCredentials: Bool = false
     ) -> [String] {
-        var identifiers = config.models.map(resolvedIdentifier(for:))
+        var identifiers = config.models.compactMap { resolvedIdentifier(for: $0) }
         let hasOpenAI = identifiers.contains { $0.hasPrefix("openai:") }
         let environmentKey = ProcessInfo.processInfo.environment["OPENAI_API_KEY"]?
             .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
@@ -104,18 +73,18 @@ enum CoreModelProviderFactory {
         return identifiers
     }
 
-    static func resolvedIdentifier(for model: CoreConfig.ModelConfig) -> String {
+    /// Returns the prefixed model identifier (e.g. "openai:gpt-4o") or `nil` if the
+    /// provider cannot be inferred, rejecting unprefixed models.
+    static func resolvedIdentifier(for model: CoreConfig.ModelConfig) -> String? {
         let modelValue = model.model.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !modelValue.isEmpty else { return nil }
+
         if modelValue.hasPrefix("openai:") || modelValue.hasPrefix("ollama:") {
             return modelValue
         }
 
-        let provider = inferredProvider(model: model)
-        if let provider {
-            return "\(provider):\(modelValue)"
-        }
-
-        return modelValue
+        guard let provider = inferredProvider(model: model) else { return nil }
+        return "\(provider):\(modelValue)"
     }
 
     private static func inferredProvider(model: CoreConfig.ModelConfig) -> String? {

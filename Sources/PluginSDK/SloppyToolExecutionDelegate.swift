@@ -7,10 +7,14 @@ import Protocols
 /// Intercepts native tool calls produced by the model, converts `GeneratedContent` arguments
 /// to `[String: JSONValue]`, invokes the tool via the provided handler, and returns the
 /// encoded result as structured output back to the session.
-struct SloppyToolExecutionDelegate: ToolExecutionDelegate {
-    let toolCallHandler: @Sendable (ToolInvocationRequest) async -> ToolInvocationResult
+public struct SloppyToolExecutionDelegate: ToolExecutionDelegate {
+    public let toolCallHandler: @Sendable (ToolInvocationRequest) async -> ToolInvocationResult
 
-    func toolCallDecision(
+    public init(toolCallHandler: @escaping @Sendable (ToolInvocationRequest) async -> ToolInvocationResult) {
+        self.toolCallHandler = toolCallHandler
+    }
+
+    public func toolCallDecision(
         for toolCall: Transcript.ToolCall,
         in session: LanguageModelSession
     ) async -> ToolExecutionDecision {

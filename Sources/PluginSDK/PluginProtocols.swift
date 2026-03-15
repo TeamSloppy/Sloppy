@@ -130,106 +130,33 @@ public protocol MemoryPlugin: Sendable {
 }
 
 /// Plugin interface for model providers (Large Language Model integrations).
-/// Used to integrate OpenAI, Ollama, and custom model backends.
-/// Supports standard (single-turn) and streaming (progressive) completions.
-public protocol ModelProviderPlugin: Sendable {
-    /// Unique plugin identifier.
+/// Providers create `LanguageModel` instances that are used via `LanguageModelSession`.
+public protocol ModelProvider: Sendable {
+    /// Unique provider identifier.
     var id: String { get }
 
-    /// The list of supported model names or aliases.
-    var models: [String] { get }
+    /// The list of supported model identifiers (with provider prefix, e.g. "openai:gpt-4o").
+    var supportedModels: [String] { get }
 
-    /// Execute a single-turn text completion for the specified model and prompt.
-    /// - Parameters:
-    ///   - model: Model name or alias to use.
-    ///   - prompt: Task or input prompt string.
-    ///   - maxTokens: Max tokens to generate.
-    ///   - reasoningEffort: (Optional) Optional reasoning effort parameter.
-    /// - Returns: The generated text response.
-    func complete(
-        model: String,
-        prompt: String,
-        maxTokens: Int,
-        reasoningEffort: ReasoningEffort?
-    ) async throws -> String
+    /// System instructions injected into every session created from this provider.
+    var systemInstructions: String? { get }
 
-    /// Begin a streaming text completion, returning progressive output snapshots.
-    /// - Parameters:
-    ///   - model: Model name or alias to use.
-    ///   - prompt: Input prompt.
-    ///   - maxTokens: Max tokens to generate.
-    ///   - reasoningEffort: (Optional) Optional reasoning effort parameter.
-    /// - Returns: An AsyncThrowingStream of partial/final response texts.
-    func stream(
-        model: String,
-        prompt: String,
-        maxTokens: Int,
-        reasoningEffort: ReasoningEffort?
-    ) -> AsyncThrowingStream<String, any Error>
+    /// Tools made available to every session created from this provider.
+    var tools: [any Tool] { get }
+
+    /// Creates a `LanguageModel` backend for the given model identifier.
+    /// May perform async work (e.g. OAuth token refresh) before returning the model.
+    func createLanguageModel(for modelName: String) async throws -> any LanguageModel
+
+    /// Builds provider-specific `GenerationOptions` for the given parameters.
+    func generationOptions(for modelName: String, maxTokens: Int, reasoningEffort: ReasoningEffort?) -> GenerationOptions
 }
 
-/// Default implementations for ModelProviderPlugin.
-public extension ModelProviderPlugin {
-    /// Execute a single-turn completion with native tool support.
-    ///
-    /// When `toolCallHandler` is provided, the plugin routes tool calls through it
-    /// and continues the conversation until the model produces a final text response.
-    /// The default implementation ignores the handler and delegates to `complete(model:prompt:maxTokens:reasoningEffort:)`.
-    func complete(
-        model: String,
-        prompt: String,
-        maxTokens: Int,
-        reasoningEffort: ReasoningEffort?,
-        tools: [any Tool],
-        toolCallHandler: (@Sendable (ToolInvocationRequest) async -> ToolInvocationResult)?
-    ) async throws -> String {
-        try await complete(model: model, prompt: prompt, maxTokens: maxTokens, reasoningEffort: reasoningEffort)
-    }
+public extension ModelProvider {
+    var systemInstructions: String? { nil }
+    var tools: [any Tool] { [] }
 
-    /// Begin a streaming completion with native tool support.
-    ///
-    /// When `toolCallHandler` is provided, tool calls are executed natively and the stream
-    /// yields only the final text response. The default falls back to `stream(model:prompt:maxTokens:reasoningEffort:)`.
-    func stream(
-        model: String,
-        prompt: String,
-        maxTokens: Int,
-        reasoningEffort: ReasoningEffort?,
-        tools: [any Tool],
-        toolCallHandler: (@Sendable (ToolInvocationRequest) async -> ToolInvocationResult)?
-    ) -> AsyncThrowingStream<String, any Error> {
-        stream(model: model, prompt: prompt, maxTokens: maxTokens, reasoningEffort: reasoningEffort)
-    }
-}
-
-/// Default streaming implementation: if the plugin doesn't provide native streaming,
-/// this mimics progressive output by yielding the final result as a single chunk.
-public extension ModelProviderPlugin {
-    func stream(
-        model: String,
-        prompt: String,
-        maxTokens: Int,
-        reasoningEffort: ReasoningEffort? = nil
-    ) -> AsyncThrowingStream<String, any Error> {
-        AsyncThrowingStream { continuation in
-            let task = Task {
-                do {
-                    let text = try await complete(
-                        model: model,
-                        prompt: prompt,
-                        maxTokens: maxTokens,
-                        reasoningEffort: reasoningEffort
-                    )
-                    continuation.yield(text)
-                    continuation.finish()
-                } catch {
-                    continuation.finish(throwing: error)
-                }
-            }
-
-            continuation.onTermination = { _ in
-                task.cancel()
-            }
-        }
+    func generationOptions(for modelName: String, maxTokens: Int, reasoningEffort: ReasoningEffort?) -> GenerationOptions {
+        GenerationOptions(maximumResponseTokens: maxTokens)
     }
 }

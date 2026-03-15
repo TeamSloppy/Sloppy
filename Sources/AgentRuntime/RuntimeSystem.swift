@@ -1,3 +1,4 @@
+import AnyLanguageModel
 import Foundation
 import Logging
 import PluginSDK
@@ -83,11 +84,11 @@ public actor RuntimeSystem {
     private let compactor: Compactor
     private let visor: Visor
     private let logger: Logger
-    private var modelProvider: (any ModelProviderPlugin)?
+    private var modelProvider: (any ModelProvider)?
     private var defaultModel: String?
 
     public init(
-        modelProvider: (any ModelProviderPlugin)? = nil,
+        modelProvider: (any ModelProvider)? = nil,
         defaultModel: String? = nil,
         workerExecutor: (any WorkerExecutor)? = nil,
         memoryStore: (any MemoryStore)? = nil
@@ -106,7 +107,7 @@ public actor RuntimeSystem {
         self.visor = Visor(eventBus: bus, memoryStore: memory)
         self.logger = Logger(label: "sloppy.runtime.model")
         self.modelProvider = modelProvider
-        self.defaultModel = defaultModel ?? modelProvider?.models.first
+        self.defaultModel = defaultModel ?? modelProvider?.supportedModels.first
     }
 
     /// Hot-swaps worker executor backend for subsequent worker operations.
@@ -115,7 +116,7 @@ public actor RuntimeSystem {
     }
 
     /// Hot-swaps model provider and default model for subsequent direct responses.
-    public func updateModelProvider(modelProvider: (any ModelProviderPlugin)?, defaultModel: String?) {
+    public func updateModelProvider(modelProvider: (any ModelProvider)?, defaultModel: String?) {
         self.modelProvider = modelProvider
 
         guard let modelProvider else {
@@ -124,12 +125,12 @@ public actor RuntimeSystem {
         }
 
         let normalizedDefault = defaultModel?.trimmingCharacters(in: .whitespacesAndNewlines)
-        if let normalizedDefault, !normalizedDefault.isEmpty, modelProvider.models.contains(normalizedDefault) {
+        if let normalizedDefault, !normalizedDefault.isEmpty, modelProvider.supportedModels.contains(normalizedDefault) {
             self.defaultModel = normalizedDefault
             return
         }
 
-        self.defaultModel = modelProvider.models.first
+        self.defaultModel = modelProvider.supportedModels.first
     }
 
     /// Posts channel message and executes route-specific orchestration flow.
@@ -261,11 +262,16 @@ public actor RuntimeSystem {
                 await observationHandler(.thinking(thinkingText))
             }
 
-            // Wrap the toolInvoker with observation emissions so the delegate
-            // doesn't need to know about RuntimeResponseObservation.
-            let observingToolHandler: (@Sendable (ToolInvocationRequest) async -> ToolInvocationResult)?
+            let languageModel = try await modelProvider.createLanguageModel(for: activeModel)
+            let session: LanguageModelSession
+            if let instructions = modelProvider.systemInstructions {
+                session = LanguageModelSession(model: languageModel, tools: modelProvider.tools, instructions: instructions)
+            } else {
+                session = LanguageModelSession(model: languageModel, tools: modelProvider.tools)
+            }
+
             if let invoker = toolInvoker {
-                let handler: @Sendable (ToolInvocationRequest) async -> ToolInvocationResult = { request in
+                let observingHandler: @Sendable (ToolInvocationRequest) async -> ToolInvocationResult = { request in
                     if let observationHandler {
                         await observationHandler(.toolCall(request))
                     }
@@ -275,15 +281,15 @@ public actor RuntimeSystem {
                     }
                     return result
                 }
-                observingToolHandler = handler
-            } else {
-                observingToolHandler = nil
+                session.toolExecutionDelegate = SloppyToolExecutionDelegate(toolCallHandler: observingHandler)
             }
 
+            let options = modelProvider.generationOptions(for: activeModel, maxTokens: 1024, reasoningEffort: reasoningEffort)
             var latest = ""
             var streamChunks = 0
             let streamStartedAt = Date()
             let streamMode = toolInvoker != nil ? "native_tool_stream" : "respond_stream"
+
             logger.info(
                 "Model stream started",
                 metadata: modelCallMetadata(
@@ -294,18 +300,12 @@ public actor RuntimeSystem {
                     mode: streamMode
                 )
             )
-            let stream = modelProvider.stream(
-                model: activeModel,
-                prompt: contextualPrompt,
-                maxTokens: 1024,
-                reasoningEffort: reasoningEffort,
-                tools: [],
-                toolCallHandler: observingToolHandler
-            )
+
+            let responseStream = session.streamResponse(to: contextualPrompt, options: options)
             do {
-                for try await partial in stream {
+                for try await snapshot in responseStream {
                     streamChunks += 1
-                    latest = partial
+                    latest = snapshot.content
                     if let onResponseChunk {
                         let shouldContinue = await onResponseChunk(latest)
                         if !shouldContinue {
@@ -346,6 +346,7 @@ public actor RuntimeSystem {
                 )
                 throw error
             }
+
             logger.info(
                 "Model stream finished",
                 metadata: modelCallMetadata(
@@ -373,14 +374,8 @@ public actor RuntimeSystem {
                     )
                 )
                 do {
-                    latest = try await modelProvider.complete(
-                        model: activeModel,
-                        prompt: contextualPrompt,
-                        maxTokens: 1024,
-                        reasoningEffort: reasoningEffort,
-                        tools: [],
-                        toolCallHandler: observingToolHandler
-                    )
+                    let response = try await session.respond(to: contextualPrompt, options: options)
+                    latest = response.content
                 } catch {
                     logger.warning(
                         "Model completion failed",
@@ -533,12 +528,17 @@ public actor RuntimeSystem {
         guard let modelProvider, let defaultModel else {
             return nil
         }
-        return try? await modelProvider.complete(
-            model: defaultModel,
-            prompt: prompt,
-            maxTokens: maxTokens,
-            reasoningEffort: nil
-        )
+        guard let languageModel = try? await modelProvider.createLanguageModel(for: defaultModel) else {
+            return nil
+        }
+        let session: LanguageModelSession
+        if let instructions = modelProvider.systemInstructions {
+            session = LanguageModelSession(model: languageModel, tools: modelProvider.tools, instructions: instructions)
+        } else {
+            session = LanguageModelSession(model: languageModel, tools: modelProvider.tools)
+        }
+        let options = modelProvider.generationOptions(for: defaultModel, maxTokens: maxTokens, reasoningEffort: nil)
+        return try? await session.respond(to: prompt, options: options).content
     }
 
     /// Creates worker and attaches it to channel tracking.

@@ -240,7 +240,8 @@ public actor CoreService {
             tools: ToolRegistry.makeDefault().allTools,
             oauthTokenProvider: { oauthService.currentAccessToken() },
             oauthAccountId: oauthService.currentAccountId(),
-            oauthTokenRefresh: { try await oauthService.ensureValidToken() }
+            oauthTokenRefresh: { try await oauthService.ensureValidToken() },
+            systemInstructions: "You are Sloppy core channel assistant."
         )
         let runtimeMemoryStore: any MemoryStore
         let hybridMemoryStore: HybridMemoryStore?
@@ -254,7 +255,7 @@ public actor CoreService {
         }
         let runtime = RuntimeSystem(
             modelProvider: modelProvider,
-            defaultModel: modelProvider?.models.first ?? resolvedModels.first,
+            defaultModel: modelProvider?.supportedModels.first ?? resolvedModels.first,
             memoryStore: runtimeMemoryStore
         )
         self.runtime = runtime
@@ -1292,7 +1293,7 @@ public actor CoreService {
         }
     }
 
-    func overrideModelProviderForTests(_ modelProvider: (any ModelProviderPlugin)?, defaultModel: String?) async {
+    func overrideModelProviderForTests(_ modelProvider: (any ModelProvider)?, defaultModel: String?) async {
         await runtime.updateModelProvider(modelProvider: modelProvider, defaultModel: defaultModel)
     }
 
@@ -2651,9 +2652,10 @@ public actor CoreService {
             tools: ToolRegistry.makeDefault().allTools,
             oauthTokenProvider: { oauthSvc.currentAccessToken() },
             oauthAccountId: oauthSvc.currentAccountId(),
-            oauthTokenRefresh: { try await oauthSvc.ensureValidToken() }
+            oauthTokenRefresh: { try await oauthSvc.ensureValidToken() },
+            systemInstructions: "You are Sloppy core channel assistant."
         )
-        let defaultModel = modelProvider?.models.first ?? resolvedModels.first
+        let defaultModel = modelProvider?.supportedModels.first ?? resolvedModels.first
         await runtime.updateModelProvider(modelProvider: modelProvider, defaultModel: defaultModel)
         await sessionOrchestrator.updateAvailableModels(Self.availableAgentModels(config: config, hasOAuthCredentials: hasOAuth))
 

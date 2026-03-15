@@ -1,3 +1,4 @@
+import AnyLanguageModel
 import Foundation
 import Logging
 import Testing
@@ -5,24 +6,61 @@ import Testing
 @testable import PluginSDK
 @testable import Protocols
 
-private actor FixedHeartbeatModelProvider: ModelProviderPlugin {
-    nonisolated let id: String = "heartbeat-fixed-provider"
-    nonisolated let models: [String]
+private struct FixedTextLanguageModel: LanguageModel {
+    typealias UnavailableReason = Never
+    let responseText: String
 
+    func respond<Content>(
+        within session: LanguageModelSession,
+        to prompt: Prompt,
+        generating type: Content.Type,
+        includeSchemaInPrompt: Bool,
+        options: GenerationOptions
+    ) async throws -> LanguageModelSession.Response<Content> where Content: Generable {
+        guard type == String.self else { fatalError("FixedTextLanguageModel: only String supported") }
+        return LanguageModelSession.Response(
+            content: responseText as! Content,
+            rawContent: GeneratedContent(responseText),
+            transcriptEntries: []
+        )
+    }
+
+    func streamResponse<Content>(
+        within session: LanguageModelSession,
+        to prompt: Prompt,
+        generating type: Content.Type,
+        includeSchemaInPrompt: Bool,
+        options: GenerationOptions
+    ) -> sending LanguageModelSession.ResponseStream<Content> where Content: Generable {
+        let stream = AsyncThrowingStream<LanguageModelSession.ResponseStream<Content>.Snapshot, any Error> { continuation in
+            Task {
+                guard let response = try? await respond(
+                    within: session, to: prompt, generating: type,
+                    includeSchemaInPrompt: includeSchemaInPrompt, options: options
+                ) else {
+                    continuation.finish()
+                    return
+                }
+                continuation.yield(.init(content: response.content.asPartiallyGenerated(), rawContent: response.rawContent))
+                continuation.finish()
+            }
+        }
+        return LanguageModelSession.ResponseStream(stream: stream)
+    }
+}
+
+private actor FixedHeartbeatModelProvider: ModelProvider {
+    nonisolated let id: String = "heartbeat-fixed-provider"
+    nonisolated let supportedModels: [String]
     private let responseText: String
 
     init(models: [String] = ["openai:gpt-4.1-mini"], responseText: String) {
-        self.models = models
+        self.supportedModels = models
         self.responseText = responseText
     }
 
-    func complete(
-        model: String,
-        prompt: String,
-        maxTokens: Int,
-        reasoningEffort: ReasoningEffort?
-    ) async throws -> String {
-        responseText
+    func createLanguageModel(for modelName: String) async throws -> any LanguageModel {
+        FixedTextLanguageModel(responseText: responseText)
     }
 }
 

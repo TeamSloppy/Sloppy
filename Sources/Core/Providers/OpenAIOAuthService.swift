@@ -12,6 +12,7 @@ struct OpenAIOAuthStatus: Sendable {
     var expiresAt: String?
 }
 
+/// OpenAI OAuth service.
 struct OpenAIOAuthService: @unchecked Sendable {
     typealias Transport = @Sendable (URLRequest) async throws -> (Data, HTTPURLResponse)
 
