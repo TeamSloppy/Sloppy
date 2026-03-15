@@ -1,7 +1,9 @@
-import React, { useState } from "react";
-import ReactDiffViewer, { DiffMethod } from "react-diff-viewer-continued";
-import Prism from "prismjs";
-import "prismjs/components/prism-json";
+import React, { useState, useMemo, useRef } from "react";
+import { DiffView, DiffModeEnum } from "@git-diff-view/react";
+import { generateDiffFile } from "@git-diff-view/file";
+import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
+import { oneDark } from "react-syntax-highlighter/dist/esm/styles/prism";
+import "@git-diff-view/react/styles/diff-view.css";
 
 interface ConfigRawViewProps {
   rawConfig: string;
@@ -11,6 +13,29 @@ interface ConfigRawViewProps {
 
 export function ConfigRawView({ rawConfig, savedConfig, onChange }: ConfigRawViewProps) {
   const [showDiff, setShowDiff] = useState(false);
+  const highlightRef = useRef<HTMLDivElement>(null);
+
+  const diffFile = useMemo(() => {
+    if (!showDiff) return null;
+    const oldContent = JSON.stringify(savedConfig, null, 2);
+    const file = generateDiffFile(
+      "config.json", oldContent,
+      "config.json", rawConfig,
+      "json", "json"
+    );
+    file.initTheme("dark");
+    file.init();
+    file.buildSplitDiffLines();
+    file.buildUnifiedDiffLines();
+    return file;
+  }, [showDiff, savedConfig, rawConfig]);
+
+  const handleScroll = (e: React.UIEvent<HTMLTextAreaElement>) => {
+    if (highlightRef.current) {
+      highlightRef.current.scrollTop = e.currentTarget.scrollTop;
+      highlightRef.current.scrollLeft = e.currentTarget.scrollLeft;
+    }
+  };
 
   return (
     <div className="settings-raw-pane">
@@ -23,44 +48,41 @@ export function ConfigRawView({ rawConfig, savedConfig, onChange }: ConfigRawVie
           </label>
         </div>
       </div>
-      {showDiff ? (
+      {showDiff && diffFile ? (
         <div className="settings-raw-diff-container">
-          <ReactDiffViewer
-            oldValue={JSON.stringify(savedConfig, null, 2)}
-            newValue={rawConfig}
-            splitView={true}
-            useDarkTheme={true}
-            compareMethod={DiffMethod.LINES}
-            renderContent={(str) => (
-              <pre
-                style={{ display: "inline" }}
-                dangerouslySetInnerHTML={{
-                  __html: Prism.highlight(str || "", Prism.languages.json, "json")
-                }}
-              />
-            )}
+          <DiffView
+            diffFile={diffFile}
+            diffViewMode={DiffModeEnum.Split}
+            diffViewTheme="dark"
+            diffViewHighlight
+            diffViewWrap
+            diffViewFontSize={13}
           />
         </div>
       ) : (
         <div className="settings-raw-editor-container">
-          <div
-            className="settings-raw-editor-highlight"
-            dangerouslySetInnerHTML={{
-              __html: Prism.highlight(rawConfig, Prism.languages.json, "json") + "\n"
-            }}
-          />
+          <div ref={highlightRef} className="settings-raw-editor-highlight">
+            <SyntaxHighlighter
+              language="json"
+              style={oneDark}
+              customStyle={{
+                margin: 0,
+                padding: 0,
+                background: "transparent",
+                fontSize: "inherit",
+                lineHeight: "inherit",
+                fontFamily: "inherit",
+              }}
+            >
+              {rawConfig}
+            </SyntaxHighlighter>
+          </div>
           <textarea
             className="settings-raw-editor-input"
             value={rawConfig}
             spellCheck={false}
             onChange={(event) => onChange(event.target.value)}
-            onScroll={(e) => {
-              const highlight = e.currentTarget.parentElement?.querySelector(".settings-raw-editor-highlight");
-              if (highlight) {
-                (highlight as HTMLElement).scrollTop = e.currentTarget.scrollTop;
-                (highlight as HTMLElement).scrollLeft = e.currentTarget.scrollLeft;
-              }
-            }}
+            onScroll={handleScroll}
           />
         </div>
       )}

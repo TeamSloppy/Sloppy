@@ -847,6 +847,28 @@ public actor RuntimeSystem {
         await workers.snapshots()
     }
 
+    /// Cancels all active workers on a channel and emits abort event.
+    public func abortChannel(channelId: String) async -> Int {
+        guard let snapshot = await channels.snapshot(channelId: channelId) else {
+            return 0
+        }
+        var cancelled = 0
+        for workerId in snapshot.activeWorkerIds {
+            let ok = await workers.cancel(workerId: workerId)
+            if ok {
+                await channels.detachWorker(channelId: channelId, workerId: workerId)
+                cancelled += 1
+            }
+        }
+        if cancelled > 0 {
+            await channels.appendSystemMessage(
+                channelId: channelId,
+                content: "Channel processing aborted. \(cancelled) worker(s) cancelled."
+            )
+        }
+        return cancelled
+    }
+
     /// Returns memory entries tracked by runtime memory store.
     public func memoryEntries() async -> [MemoryEntry] {
         await memoryStore.entries()

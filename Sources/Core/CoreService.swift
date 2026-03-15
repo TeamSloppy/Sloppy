@@ -493,6 +493,16 @@ public actor CoreService {
     /// Accepts a user channel message and returns routing decision.
     public func postChannelMessage(channelId: String, request: ChannelMessageRequest) async -> ChannelRouteDecision {
         await waitForStartup()
+
+        let trimmedContent = request.content.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmedContent.lowercased() == "/abort" {
+            let cancelled = await runtime.abortChannel(channelId: channelId)
+            let reason = cancelled > 0
+                ? "Aborted \(cancelled) active worker(s)."
+                : "No active workers to abort."
+            return ChannelRouteDecision(action: .respond, reason: reason, confidence: 1.0, tokenBudget: 0)
+        }
+
         if let approvalReference = TaskApprovalCommandParser.parse(request.content) {
             return await handleTaskApprovalCommand(channelId: channelId, reference: approvalReference)
         }
@@ -507,6 +517,30 @@ public actor CoreService {
             topicId: request.topicId
         )
         return await runtime.postMessage(channelId: channelId, request: nextRequest)
+    }
+
+    /// Controls channel processing: abort active workers on this channel.
+    public func controlChannel(channelId: String, action: AgentRunControlAction) async -> ChannelControlResponse {
+        await waitForStartup()
+        switch action {
+        case .interrupt:
+            let cancelled = await runtime.abortChannel(channelId: channelId)
+            return ChannelControlResponse(
+                channelId: channelId,
+                action: action,
+                cancelledWorkers: cancelled,
+                message: cancelled > 0
+                    ? "Aborted \(cancelled) active worker(s)."
+                    : "No active workers to abort."
+            )
+        case .pause, .resume:
+            return ChannelControlResponse(
+                channelId: channelId,
+                action: action,
+                cancelledWorkers: 0,
+                message: "Action \(action.rawValue) acknowledged."
+            )
+        }
     }
 
     /// Routes interactive message into a running worker.

@@ -3,7 +3,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { oneDark } from "react-syntax-highlighter/dist/esm/styles/prism";
-import { fetchActorsBoard, fetchAgents, fetchChannelEvents, fetchChannelSession, fetchProjects } from "../api";
+import { fetchActorsBoard, fetchAgents, fetchChannelEvents, fetchChannelSession, fetchProjects, postChannelControl } from "../api";
 import { Breadcrumbs } from "../components/Breadcrumbs/Breadcrumbs";
 
 function formatRelativeTime(value) {
@@ -326,6 +326,7 @@ export function ChannelSessionView({ sessionId, onNavigateBack }) {
   const [actorBoard, setActorBoard] = useState({ nodes: [], links: [], teams: [] });
   const [isLoading, setIsLoading] = useState(true);
   const [errorText, setErrorText] = useState("");
+  const [controlBusy, setControlBusy] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -486,6 +487,25 @@ export function ChannelSessionView({ sessionId, onNavigateBack }) {
       }));
   }, [runtimeEvents]);
 
+  const isSessionOpen = summary?.status === "open" || !summary?.status;
+
+  async function handleChannelControl(action) {
+    if (controlBusy || !channelMeta.channelId) {
+      return;
+    }
+    setControlBusy(true);
+    try {
+      await postChannelControl(channelMeta.channelId, {
+        action,
+        requestedBy: "dashboard"
+      });
+    } catch {
+      // silently handled
+    } finally {
+      setControlBusy(false);
+    }
+  }
+
   const breadcrumbItems = [
     { id: "overview", label: "Overview", onClick: onNavigateBack },
     { id: "session", label: channelMeta.channelTitle || "Channel Session" }
@@ -533,6 +553,34 @@ export function ChannelSessionView({ sessionId, onNavigateBack }) {
           </div>
         </div>
         <div className="channel-session-badges">
+          {isSessionOpen ? (
+            <>
+              <button
+                className="channel-session-control-btn"
+                disabled={controlBusy}
+                onClick={() => handleChannelControl("pause")}
+              >
+                <span className="material-symbols-rounded">pause</span>
+                Pause
+              </button>
+              <button
+                className="channel-session-control-btn"
+                disabled={controlBusy}
+                onClick={() => handleChannelControl("resume")}
+              >
+                <span className="material-symbols-rounded">play_arrow</span>
+                Resume
+              </button>
+              <button
+                className="channel-session-control-btn channel-session-control-btn--danger"
+                disabled={controlBusy}
+                onClick={() => handleChannelControl("interrupt")}
+              >
+                <span className="material-symbols-rounded">stop</span>
+                Abort
+              </button>
+            </>
+          ) : null}
           <span className="channel-session-badge">{summary.status || "open"}</span>
           <span className="channel-session-badge">{summary.messageCount || 0} messages</span>
           <span className="channel-session-badge">Updated {formatRelativeTime(summary.updatedAt)}</span>
