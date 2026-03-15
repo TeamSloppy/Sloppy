@@ -1,6 +1,13 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { fetchActorsBoard, fetchAgentConfig, updateAgentConfig } from "../../../api";
 import { ChannelModelSelector } from "./ChannelModelSelector";
+
+const AGENT_CONFIG_SECTIONS = [
+  { id: "models", title: "Models", icon: "hub" },
+  { id: "files", title: "Agent Files", icon: "description" },
+  { id: "channel", title: "Channel", icon: "forum" },
+  { id: "heartbeat", title: "Heartbeat", icon: "monitor_heart" }
+];
 
 function emptyAgentConfigDraft(agentId) {
   return {
@@ -64,6 +71,10 @@ function normalizeConfigDraft(agentId, config) {
   };
 }
 
+function clone(value) {
+  return JSON.parse(JSON.stringify(value));
+}
+
 function formatDateTime(value) {
   if (!value) {
     return "Never";
@@ -90,10 +101,12 @@ function statusValue(value, fallback = "None") {
 
 export function AgentConfigTab({ agentId }) {
   const [draft, setDraft] = useState(() => emptyAgentConfigDraft(agentId));
+  const [savedDraft, setSavedDraft] = useState(() => emptyAgentConfigDraft(agentId));
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [statusText, setStatusText] = useState("Loading agent config...");
   const [channelNodes, setChannelNodes] = useState([]);
+  const [selectedSection, setSelectedSection] = useState("models");
 
   useEffect(() => {
     let isCancelled = false;
@@ -114,13 +127,17 @@ export function AgentConfigTab({ agentId }) {
       }
 
       if (!response) {
-        setDraft(emptyAgentConfigDraft(agentId));
+        const empty = emptyAgentConfigDraft(agentId);
+        setDraft(empty);
+        setSavedDraft(clone(empty));
         setStatusText("Failed to load config.");
         setIsLoading(false);
         return;
       }
 
-      setDraft(normalizeConfigDraft(agentId, response));
+      const normalized = normalizeConfigDraft(agentId, response);
+      setDraft(normalized);
+      setSavedDraft(clone(normalized));
       setStatusText("Config loaded.");
       setIsLoading(false);
     }
@@ -136,6 +153,10 @@ export function AgentConfigTab({ agentId }) {
       isCancelled = true;
     };
   }, [agentId]);
+
+  const hasChanges = useMemo(() => {
+    return JSON.stringify(draft) !== JSON.stringify(savedDraft);
+  }, [draft, savedDraft]);
 
   function updateField(field, value) {
     setDraft((previous) => ({
@@ -174,8 +195,12 @@ export function AgentConfigTab({ agentId }) {
     }));
   }
 
-  async function saveConfig(event) {
-    event.preventDefault();
+  function cancelChanges() {
+    setDraft(clone(savedDraft));
+    setStatusText("Changes cancelled.");
+  }
+
+  async function saveConfig() {
     if (isSaving) {
       return;
     }
@@ -224,39 +249,37 @@ export function AgentConfigTab({ agentId }) {
       return;
     }
 
-    setDraft(normalizeConfigDraft(agentId, response));
+    const normalized = normalizeConfigDraft(agentId, response);
+    setDraft(normalized);
+    setSavedDraft(clone(normalized));
     setStatusText("Config saved.");
     setIsSaving(false);
   }
 
-  return (
-    <section className="agent-config-shell">
-      <div className="agent-config-head">
-        <h3>Agent Config</h3>
-        <span className="placeholder-text">{statusText}</span>
-      </div>
-
-      {isLoading ? (
-        <p className="placeholder-text">Loading...</p>
-      ) : (
-        <form className="agent-config-form" onSubmit={saveConfig}>
-          <label>
-            Model
-            <select
-              value={draft.selectedModel}
-              onChange={(event) => updateField("selectedModel", event.target.value)}
-            >
-              {draft.availableModels.map((model) => (
-                <option key={model.id} value={model.id}>
-                  {model.title}
-                </option>
-              ))}
-            </select>
-          </label>
+  function renderSectionContent() {
+    if (selectedSection === "models") {
+      return (
+        <section className="entry-editor-card">
+          <h3>Models</h3>
+          <div className="entry-form-grid">
+            <label style={{ gridColumn: "1 / -1" }}>
+              Default Model
+              <select
+                value={draft.selectedModel}
+                onChange={(event) => updateField("selectedModel", event.target.value)}
+              >
+                {draft.availableModels.map((model) => (
+                  <option key={model.id} value={model.id}>
+                    {model.title}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
 
           {channelNodes.length > 0 && (
-            <section className="agent-config-heartbeat">
-              <div className="agent-config-head">
+            <>
+              <div className="agent-config-head" style={{ marginTop: 16 }}>
                 <div className="agent-tools-head-copy">
                   <h4>Channel Models</h4>
                   <p className="placeholder-text">
@@ -282,9 +305,16 @@ export function AgentConfigTab({ agentId }) {
                   );
                 })}
               </div>
-            </section>
+            </>
           )}
+        </section>
+      );
+    }
 
+    if (selectedSection === "files") {
+      return (
+        <section className="entry-editor-card">
+          <h3>Agent Files</h3>
           <div className="agent-config-docs">
             <label>
               User.md
@@ -319,18 +349,19 @@ export function AgentConfigTab({ agentId }) {
               />
             </label>
           </div>
+        </section>
+      );
+    }
 
-          <section className="agent-config-heartbeat">
-            <div className="agent-config-head">
-              <div className="agent-tools-head-copy">
-                <h4>Channel Sessions</h4>
-                <p className="placeholder-text">
-                  Automatically close inactive incoming channel sessions and start a new one on the next message.
-                </p>
-              </div>
-            </div>
-
-            <label className="cron-form-toggle">
+    if (selectedSection === "channel") {
+      return (
+        <section className="entry-editor-card">
+          <h3>Channel Sessions</h3>
+          <p className="placeholder-text">
+            Automatically close inactive incoming channel sessions and start a new one on the next message.
+          </p>
+          <div className="entry-form-grid">
+            <label className="cron-form-toggle" style={{ gridColumn: "1 / -1" }}>
               <span>Close session after</span>
               <span className="agent-tools-switch">
                 <input
@@ -341,7 +372,6 @@ export function AgentConfigTab({ agentId }) {
                 <span className="agent-tools-switch-track" />
               </span>
             </label>
-
             <label>
               Timeout (minutes)
               <input
@@ -352,19 +382,20 @@ export function AgentConfigTab({ agentId }) {
                 onChange={(event) => updateChannelSessionField("autoCloseAfterMinutes", event.target.value)}
               />
             </label>
-          </section>
+          </div>
+        </section>
+      );
+    }
 
-          <section className="agent-config-heartbeat">
-            <div className="agent-config-head">
-              <div className="agent-tools-head-copy">
-                <h4>Heartbeat</h4>
-                <p className="placeholder-text">
-                  Runs `HEARTBEAT.md` on a timer and expects exactly `SLOPPY_ACTION_OK` on success.
-                </p>
-              </div>
-            </div>
-
-            <label className="cron-form-toggle">
+    if (selectedSection === "heartbeat") {
+      return (
+        <section className="entry-editor-card">
+          <h3>Heartbeat</h3>
+          <p className="placeholder-text">
+            Runs `HEARTBEAT.md` on a timer and expects exactly `SLOPPY_ACTION_OK` on success.
+          </p>
+          <div className="entry-form-grid">
+            <label className="cron-form-toggle" style={{ gridColumn: "1 / -1" }}>
               <span>Enabled</span>
               <span className="agent-tools-switch">
                 <input
@@ -375,7 +406,6 @@ export function AgentConfigTab({ agentId }) {
                 <span className="agent-tools-switch-track" />
               </span>
             </label>
-
             <label>
               Interval (minutes)
               <input
@@ -386,8 +416,7 @@ export function AgentConfigTab({ agentId }) {
                 onChange={(event) => updateHeartbeatField("intervalMinutes", event.target.value)}
               />
             </label>
-
-            <label>
+            <label style={{ gridColumn: "1 / -1" }}>
               HEARTBEAT.md
               <textarea
                 rows={10}
@@ -396,36 +425,82 @@ export function AgentConfigTab({ agentId }) {
                 placeholder="Describe what the automated heartbeat should verify."
               />
             </label>
+          </div>
 
-            <div className="agent-config-heartbeat-status">
-              <div>
-                <strong>Last run:</strong> {formatDateTime(draft.heartbeatStatus.lastRunAt)}
-              </div>
-              <div>
-                <strong>Last success:</strong> {formatDateTime(draft.heartbeatStatus.lastSuccessAt)}
-              </div>
-              <div>
-                <strong>Last failure:</strong> {formatDateTime(draft.heartbeatStatus.lastFailureAt)}
-              </div>
-              <div>
-                <strong>Last result:</strong> {statusValue(draft.heartbeatStatus.lastResult)}
-              </div>
-              <div>
-                <strong>Last session:</strong> {statusValue(draft.heartbeatStatus.lastSessionId)}
-              </div>
-              <div>
-                <strong>Last error:</strong> {statusValue(draft.heartbeatStatus.lastErrorMessage)}
-              </div>
+          <div className="agent-config-heartbeat-status" style={{ marginTop: 12 }}>
+            <div>
+              <strong>Last run:</strong> {formatDateTime(draft.heartbeatStatus.lastRunAt)}
             </div>
-          </section>
+            <div>
+              <strong>Last success:</strong> {formatDateTime(draft.heartbeatStatus.lastSuccessAt)}
+            </div>
+            <div>
+              <strong>Last failure:</strong> {formatDateTime(draft.heartbeatStatus.lastFailureAt)}
+            </div>
+            <div>
+              <strong>Last result:</strong> {statusValue(draft.heartbeatStatus.lastResult)}
+            </div>
+            <div>
+              <strong>Last session:</strong> {statusValue(draft.heartbeatStatus.lastSessionId)}
+            </div>
+            <div>
+              <strong>Last error:</strong> {statusValue(draft.heartbeatStatus.lastErrorMessage)}
+            </div>
+          </div>
+        </section>
+      );
+    }
 
-          <div className="agent-config-actions">
-            <button type="submit" disabled={isSaving}>
-              {isSaving ? "Saving..." : "Save Config"}
+    return null;
+  }
+
+  return (
+    <main className="settings-shell">
+      <aside className="settings-side">
+        <div className="settings-title-row">
+          <h2>Agent Config</h2>
+        </div>
+
+        <div className="settings-nav">
+          {AGENT_CONFIG_SECTIONS.map((item) => (
+            <button
+              key={item.id}
+              type="button"
+              className={`settings-nav-item ${selectedSection === item.id ? "active" : ""}`}
+              onClick={() => setSelectedSection(item.id)}
+            >
+              <span className="material-symbols-rounded settings-nav-icon">{item.icon}</span>
+              <span>{item.title}</span>
+            </button>
+          ))}
+        </div>
+      </aside>
+
+      <section className="settings-main">
+        <header className="settings-main-head">
+          <div className="settings-main-status">
+            <span>{statusText}</span>
+          </div>
+        </header>
+
+        <div className={`settings-toast ${hasChanges ? "settings-toast--visible" : ""}`}>
+          <span className="settings-toast-label">Unsaved changes</span>
+          <div className="settings-toast-actions">
+            <button type="button" className="danger hover-levitate" onClick={cancelChanges}>
+              Cancel
+            </button>
+            <button type="button" className="hover-levitate" onClick={saveConfig} disabled={isSaving}>
+              {isSaving ? "Saving..." : "Apply"}
             </button>
           </div>
-        </form>
-      )}
-    </section>
+        </div>
+
+        {isLoading ? (
+          <p className="placeholder-text">Loading...</p>
+        ) : (
+          renderSectionContent()
+        )}
+      </section>
+    </main>
   );
 }

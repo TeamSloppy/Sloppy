@@ -261,227 +261,29 @@ public actor RuntimeSystem {
                 await observationHandler(.thinking(thinkingText))
             }
 
-            if let toolInvoker {
-                let basePrompt = contextualPrompt
-                var currentPrompt = basePrompt
-                let maxToolSteps = 8
-
-                for stepIndex in 0..<maxToolSteps {
-                    let toolStep = stepIndex + 1
-                    var latest = ""
-                    var streamChunks = 0
-                    let streamStartedAt = Date()
-                    logger.info(
-                        "Model stream started",
-                        metadata: modelCallMetadata(
-                            channelId: channelId,
-                            model: activeModel,
-                            reasoningEffort: reasoningEffort,
-                            promptChars: currentPrompt.count,
-                            mode: "tool_loop_stream",
-                            toolStep: toolStep
-                        )
-                    )
-                    let stream = modelProvider.stream(
-                        model: activeModel,
-                        prompt: currentPrompt,
-                        maxTokens: 1024,
-                        reasoningEffort: reasoningEffort
-                    )
-                    do {
-                        for try await partial in stream {
-                            streamChunks += 1
-                            latest = partial
-                            if let onResponseChunk {
-                                let shouldContinue = await onResponseChunk(latest)
-                                if !shouldContinue {
-                                    logger.info(
-                                        "Model stream cancelled by response consumer",
-                                        metadata: modelCallMetadata(
-                                            channelId: channelId,
-                                            model: activeModel,
-                                            reasoningEffort: reasoningEffort,
-                                            promptChars: currentPrompt.count,
-                                            mode: "tool_loop_stream",
-                                            toolStep: toolStep,
-                                            durationMs: elapsedMilliseconds(since: streamStartedAt),
-                                            outputChars: latest.count,
-                                            streamChunks: streamChunks
-                                        )
-                                    )
-                                    if !latest.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                                        await channels.appendSystemMessage(channelId: channelId, content: latest)
-                                    }
-                                    return
-                                }
-                            }
-                        }
-                    } catch {
-                        logger.warning(
-                            "Model stream failed",
-                            metadata: modelCallMetadata(
-                                channelId: channelId,
-                                model: activeModel,
-                                reasoningEffort: reasoningEffort,
-                                promptChars: currentPrompt.count,
-                                mode: "tool_loop_stream",
-                                toolStep: toolStep,
-                                durationMs: elapsedMilliseconds(since: streamStartedAt),
-                                outputChars: latest.count,
-                                streamChunks: streamChunks,
-                                error: String(describing: error)
-                            )
-                        )
-                        throw error
+            // Wrap the toolInvoker with observation emissions so the delegate
+            // doesn't need to know about RuntimeResponseObservation.
+            let observingToolHandler: (@Sendable (ToolInvocationRequest) async -> ToolInvocationResult)?
+            if let invoker = toolInvoker {
+                let handler: @Sendable (ToolInvocationRequest) async -> ToolInvocationResult = { request in
+                    if let observationHandler {
+                        await observationHandler(.toolCall(request))
                     }
-                    logger.info(
-                        "Model stream finished",
-                        metadata: modelCallMetadata(
-                            channelId: channelId,
-                            model: activeModel,
-                            reasoningEffort: reasoningEffort,
-                            promptChars: currentPrompt.count,
-                            mode: "tool_loop_stream",
-                            toolStep: toolStep,
-                            durationMs: elapsedMilliseconds(since: streamStartedAt),
-                            outputChars: latest.count,
-                            streamChunks: streamChunks
-                        )
-                    )
-
-                    if latest.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                        let completionStartedAt = Date()
-                        logger.info(
-                            "Model completion started",
-                            metadata: modelCallMetadata(
-                                channelId: channelId,
-                                model: activeModel,
-                                reasoningEffort: reasoningEffort,
-                                promptChars: currentPrompt.count,
-                                mode: "tool_loop_complete",
-                                toolStep: toolStep
-                            )
-                        )
-                        do {
-                            latest = try await modelProvider.complete(
-                                model: activeModel,
-                                prompt: currentPrompt,
-                                maxTokens: 1024,
-                                reasoningEffort: reasoningEffort
-                            )
-                        } catch {
-                            logger.warning(
-                                "Model completion failed",
-                                metadata: modelCallMetadata(
-                                    channelId: channelId,
-                                    model: activeModel,
-                                    reasoningEffort: reasoningEffort,
-                                    promptChars: currentPrompt.count,
-                                    mode: "tool_loop_complete",
-                                    toolStep: toolStep,
-                                    durationMs: elapsedMilliseconds(since: completionStartedAt),
-                                    error: String(describing: error)
-                                )
-                            )
-                            throw error
-                        }
-                        logger.info(
-                            "Model completion finished",
-                            metadata: modelCallMetadata(
-                                channelId: channelId,
-                                model: activeModel,
-                                reasoningEffort: reasoningEffort,
-                                promptChars: currentPrompt.count,
-                                mode: "tool_loop_complete",
-                                toolStep: toolStep,
-                                durationMs: elapsedMilliseconds(since: completionStartedAt),
-                                outputChars: latest.count
-                            )
-                        )
-                        if let onResponseChunk {
-                            let shouldContinue = await onResponseChunk(latest)
-                            if !shouldContinue {
-                                if !latest.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                                    await channels.appendSystemMessage(channelId: channelId, content: latest)
-                                }
-                                return
-                            }
-                        }
+                    let result = await invoker(request)
+                    if let observationHandler {
+                        await observationHandler(.toolResult(result))
                     }
-
-                    let trimmed = latest.trimmingCharacters(in: .whitespacesAndNewlines)
-
-                    if let call = parseToolCall(from: trimmed) {
-                        logger.info(
-                            "Tool call parsed from model output",
-                            metadata: modelCallMetadata(
-                                channelId: channelId,
-                                model: activeModel,
-                                reasoningEffort: reasoningEffort,
-                                promptChars: currentPrompt.count,
-                                mode: "tool_loop_parse",
-                                toolStep: toolStep,
-                                outputChars: trimmed.count,
-                                toolId: call.tool
-                            )
-                        )
-                        if let observationHandler {
-                            await observationHandler(.toolCall(call))
-                        }
-                        let result = await toolInvoker(call)
-                        logger.info(
-                            "Tool invocation returned to model loop",
-                            metadata: modelCallMetadata(
-                                channelId: channelId,
-                                model: activeModel,
-                                reasoningEffort: reasoningEffort,
-                                promptChars: currentPrompt.count,
-                                mode: "tool_loop_tool_result",
-                                toolStep: toolStep,
-                                toolId: result.tool,
-                                toolResultOK: result.ok
-                            )
-                        )
-                        if let observationHandler {
-                            await observationHandler(.toolResult(result))
-                        }
-                        let resultJSON = encodedToolResult(result)
-                        currentPrompt =
-                            """
-                            \(basePrompt)
-
-                            [tool_loop_v1]
-                            Previous tool call:
-                            \(trimmed)
-
-                            Tool result:
-                            \(resultJSON)
-
-                            If you need another tool call, return strict JSON object:
-                            {"tool":"<tool-id>","arguments":{},"reason":"<short reason>"}
-                            Otherwise return final answer in plain text.
-                            """
-                        if let onResponseChunk {
-                            _ = await onResponseChunk("")
-                        }
-                        continue
-                    }
-
-                    await channels.appendSystemMessage(channelId: channelId, content: latest)
-                    return
+                    return result
                 }
-
-                let limitMessage = "Tool call limit reached. Provide final answer without new tool calls."
-                if let onResponseChunk {
-                    _ = await onResponseChunk(limitMessage)
-                }
-                await channels.appendSystemMessage(channelId: channelId, content: limitMessage)
-                return
+                observingToolHandler = handler
+            } else {
+                observingToolHandler = nil
             }
 
             var latest = ""
             var streamChunks = 0
             let streamStartedAt = Date()
+            let streamMode = toolInvoker != nil ? "native_tool_stream" : "respond_stream"
             logger.info(
                 "Model stream started",
                 metadata: modelCallMetadata(
@@ -489,14 +291,16 @@ public actor RuntimeSystem {
                     model: activeModel,
                     reasoningEffort: reasoningEffort,
                     promptChars: contextualPrompt.count,
-                    mode: "respond_stream"
+                    mode: streamMode
                 )
             )
             let stream = modelProvider.stream(
                 model: activeModel,
                 prompt: contextualPrompt,
                 maxTokens: 1024,
-                reasoningEffort: reasoningEffort
+                reasoningEffort: reasoningEffort,
+                tools: [],
+                toolCallHandler: observingToolHandler
             )
             do {
                 for try await partial in stream {
@@ -512,7 +316,7 @@ public actor RuntimeSystem {
                                     model: activeModel,
                                     reasoningEffort: reasoningEffort,
                                     promptChars: contextualPrompt.count,
-                                    mode: "respond_stream",
+                                    mode: streamMode,
                                     durationMs: elapsedMilliseconds(since: streamStartedAt),
                                     outputChars: latest.count,
                                     streamChunks: streamChunks
@@ -533,7 +337,7 @@ public actor RuntimeSystem {
                         model: activeModel,
                         reasoningEffort: reasoningEffort,
                         promptChars: contextualPrompt.count,
-                        mode: "respond_stream",
+                        mode: streamMode,
                         durationMs: elapsedMilliseconds(since: streamStartedAt),
                         outputChars: latest.count,
                         streamChunks: streamChunks,
@@ -549,7 +353,7 @@ public actor RuntimeSystem {
                     model: activeModel,
                     reasoningEffort: reasoningEffort,
                     promptChars: contextualPrompt.count,
-                    mode: "respond_stream",
+                    mode: streamMode,
                     durationMs: elapsedMilliseconds(since: streamStartedAt),
                     outputChars: latest.count,
                     streamChunks: streamChunks
@@ -573,7 +377,9 @@ public actor RuntimeSystem {
                         model: activeModel,
                         prompt: contextualPrompt,
                         maxTokens: 1024,
-                        reasoningEffort: reasoningEffort
+                        reasoningEffort: reasoningEffort,
+                        tools: [],
+                        toolCallHandler: observingToolHandler
                     )
                 } catch {
                     logger.warning(
@@ -699,112 +505,6 @@ public actor RuntimeSystem {
         }
 
         return lines.joined(separator: "\n")
-    }
-
-    private func parseToolCall(from raw: String) -> ToolInvocationRequest? {
-        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else {
-            return nil
-        }
-
-        if let fenced = extractJSONFence(from: trimmed) {
-            return decodeToolCall(fenced)
-        }
-        if let decoded = decodeToolCall(trimmed) {
-            return decoded
-        }
-        return extractInlineJSONObject(from: trimmed)
-    }
-
-    private func decodeToolCall(_ raw: String) -> ToolInvocationRequest? {
-        guard let data = raw.data(using: .utf8) else {
-            return nil
-        }
-        return try? JSONDecoder().decode(ToolInvocationRequest.self, from: data)
-    }
-
-    private func extractJSONFence(from text: String) -> String? {
-        guard text.hasPrefix("```") else {
-            return nil
-        }
-        let normalized = text.replacingOccurrences(of: "\r\n", with: "\n")
-        let prefix = "```json\n"
-        let content: String
-        if normalized.hasPrefix(prefix) {
-            content = String(normalized.dropFirst(prefix.count))
-        } else if normalized.hasPrefix("```\n") {
-            content = String(normalized.dropFirst("```\n".count))
-        } else {
-            return nil
-        }
-
-        guard let fenceRange = content.range(of: "\n```") else {
-            return nil
-        }
-        return String(content[..<fenceRange.lowerBound]).trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
-    private func extractInlineJSONObject(from text: String) -> ToolInvocationRequest? {
-        let characters = Array(text)
-        var startIndex: Int?
-        var depth = 0
-        var inString = false
-        var isEscaped = false
-
-        for (index, character) in characters.enumerated() {
-            if inString {
-                if isEscaped {
-                    isEscaped = false
-                    continue
-                }
-                if character == "\\" {
-                    isEscaped = true
-                    continue
-                }
-                if character == "\"" {
-                    inString = false
-                }
-                continue
-            }
-
-            if character == "\"" {
-                inString = true
-                continue
-            }
-
-            if character == "{" {
-                if depth == 0 {
-                    startIndex = index
-                }
-                depth += 1
-                continue
-            }
-
-            if character == "}" {
-                guard depth > 0 else {
-                    continue
-                }
-                depth -= 1
-                if depth == 0, let startIndex {
-                    let candidate = String(characters[startIndex...index])
-                    if let decoded = decodeToolCall(candidate) {
-                        return decoded
-                    }
-                }
-            }
-        }
-
-        return nil
-    }
-
-    private func encodedToolResult(_ result: ToolInvocationResult) -> String {
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.sortedKeys]
-        if let data = try? encoder.encode(result),
-           let text = String(data: data, encoding: .utf8) {
-            return text
-        }
-        return "{\"tool\":\"\(result.tool)\",\"ok\":\(result.ok ? "true" : "false")}"
     }
 
     /// Routes interactive payload to worker bound to the channel.

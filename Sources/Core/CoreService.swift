@@ -237,6 +237,7 @@ public actor CoreService {
         let modelProvider = CoreModelProviderFactory.buildModelProvider(
             config: config,
             resolvedModels: resolvedModels,
+            tools: ToolRegistry.makeDefault().allTools,
             oauthTokenProvider: { oauthService.currentAccessToken() },
             oauthAccountId: oauthService.currentAccountId(),
             oauthTokenRefresh: { try await oauthService.ensureValidToken() }
@@ -2647,6 +2648,7 @@ public actor CoreService {
         let modelProvider = CoreModelProviderFactory.buildModelProvider(
             config: config,
             resolvedModels: resolvedModels,
+            tools: ToolRegistry.makeDefault().allTools,
             oauthTokenProvider: { oauthSvc.currentAccessToken() },
             oauthAccountId: oauthSvc.currentAccountId(),
             oauthTokenRefresh: { try await oauthSvc.ensureValidToken() }

@@ -1,3 +1,4 @@
+import AnyLanguageModel
 import Foundation
 import PluginSDK
 
@@ -5,6 +6,7 @@ enum CoreModelProviderFactory {
     static func buildModelProvider(
         config: CoreConfig,
         resolvedModels: [String],
+        tools: [any Tool] = [],
         oauthTokenProvider: (@Sendable () -> String?)? = nil,
         oauthAccountId: String? = nil,
         oauthTokenRefresh: (@Sendable () async throws -> Void)? = nil
@@ -78,6 +80,7 @@ enum CoreModelProviderFactory {
             models: availableModels,
             openAI: openAISettings,
             ollama: ollamaSettings,
+            tools: tools,
             systemInstructions: "You are Sloppy core channel assistant."
         )
     }

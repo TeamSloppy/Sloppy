@@ -58,4 +58,24 @@ struct ToolRegistryTests {
         #expect(ToolCatalog.knownToolIDs.contains("project.task_list"))
         #expect(ToolCatalog.knownToolIDs.contains("actor.discuss_with_actor"))
     }
+
+    @Test("allTools returns unique tools with valid names and parameters")
+    func allToolsAreUniqueAndWellFormed() {
+        let tools = registry.allTools
+        #expect(!tools.isEmpty)
+        let names = tools.map { $0.name }
+        let uniqueNames = Set(names)
+        #expect(names.count == uniqueNames.count, "allTools contains duplicate tool names")
+        for tool in tools {
+            #expect(!tool.name.isEmpty)
+            #expect(!tool.description.isEmpty)
+        }
+    }
+
+    @Test("allTools count matches catalog entries count")
+    func allToolsCountMatchesCatalogEntries() {
+        let tools = registry.allTools
+        let catalog = registry.catalogEntries
+        #expect(tools.count == catalog.count)
+    }
 }

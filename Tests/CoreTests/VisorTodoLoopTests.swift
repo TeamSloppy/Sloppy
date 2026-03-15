@@ -619,11 +619,13 @@ func visorSkipsWhenProjectNotFoundForChannel() async throws {
 }
 
 private func makeRouter() throws -> CoreRouter {
+    let workspaceName = "workspace-visor-loop-\(UUID().uuidString)"
     let sqlitePath = FileManager.default.temporaryDirectory
         .appendingPathComponent("core-visor-loop-\(UUID().uuidString).sqlite")
         .path
 
     var config = CoreConfig.default
+    config.workspace = .init(name: workspaceName, basePath: FileManager.default.temporaryDirectory.path)
     config.sqlitePath = sqlitePath
 
     let service = CoreService(config: config)

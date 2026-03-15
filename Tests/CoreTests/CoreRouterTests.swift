@@ -2799,11 +2799,13 @@ func tokenUsageEndpointPersistsBranchConclusionUsage() async throws {
 
 @Test
 func invokeToolFromRuntimeCanSkipSessionToolEventPersistence() async throws {
+    let workspaceName = "workspace-tool-events-\(UUID().uuidString)"
     let sqlitePath = FileManager.default.temporaryDirectory
         .appendingPathComponent("core-tool-events-\(UUID().uuidString).sqlite")
         .path
 
     var config = CoreConfig.default
+    config.workspace = .init(name: workspaceName, basePath: FileManager.default.temporaryDirectory.path)
     config.sqlitePath = sqlitePath
 
     let service = CoreService(config: config)
@@ -2842,11 +2844,13 @@ func invokeToolFromRuntimeCanSkipSessionToolEventPersistence() async throws {
 
 @Test
 func branchSpawnDoesNotCreateProjectTasksFromPromptTodos() async throws {
+    let workspaceName = "workspace-branch-no-todos-\(UUID().uuidString)"
     let sqlitePath = FileManager.default.temporaryDirectory
         .appendingPathComponent("core-branch-no-todos-\(UUID().uuidString).sqlite")
         .path
 
     var config = CoreConfig.default
+    config.workspace = .init(name: workspaceName, basePath: FileManager.default.temporaryDirectory.path)
     config.sqlitePath = sqlitePath
 
     let service = CoreService(config: config)
@@ -2899,7 +2903,10 @@ func branchSpawnDoesNotCreateProjectTasksFromPromptTodos() async throws {
 
 @Test
 func workerToolsSpawnAndRouteInteractiveWorker() async throws {
-    let service = CoreService(config: .default)
+    let workspaceName = "workspace-worker-tools-\(UUID().uuidString)"
+    var workerConfig = CoreConfig.default
+    workerConfig.workspace = .init(name: workspaceName, basePath: FileManager.default.temporaryDirectory.path)
+    let service = CoreService(config: workerConfig)
     let agentID = "worker-tools-agent-\(UUID().uuidString)"
 
     _ = try await service.createAgent(
@@ -2961,11 +2968,13 @@ func workerToolsSpawnAndRouteInteractiveWorker() async throws {
 
 @Test
 func projectTaskUpdateAndCancelToolsMutateTaskState() async throws {
+    let workspaceName = "workspace-project-tools-\(UUID().uuidString)"
     let sqlitePath = FileManager.default.temporaryDirectory
         .appendingPathComponent("core-project-tool-update-\(UUID().uuidString).sqlite")
         .path
 
     var config = CoreConfig.default
+    config.workspace = .init(name: workspaceName, basePath: FileManager.default.temporaryDirectory.path)
     config.sqlitePath = sqlitePath
 
     let service = CoreService(config: config)

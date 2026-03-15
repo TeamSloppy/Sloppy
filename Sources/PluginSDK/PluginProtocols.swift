@@ -1,3 +1,4 @@
+import AnyLanguageModel
 import Foundation
 import Protocols
 
@@ -55,10 +56,33 @@ public struct GatewayOutboundStreamHandle: Codable, Sendable, Equatable {
     }
 }
 
-/// Optional outbound streaming contract for channel plugins that can edit messages in place.
+/// Optional outbound streaming contract for gateway plugins that support editing messages in place.
+/// Extends the base `GatewayPlugin` to support progressive, streaming updates to messages,
+/// such as partial completion updates or editable live output to a channel (e.g., Telegram, Slack).
 public protocol StreamingGatewayPlugin: GatewayPlugin {
+    /// Begin a streaming output session for the specified channel and user.
+    /// Returns a handle used for subsequent updates and closing the stream.
+    /// - Parameters:
+    ///   - channelId: The unique channel identifier for this conversation or context.
+    ///   - userId: The identifier of the user who initiated the operation.
+    /// - Returns: A handle representing the streaming session, to be passed to update/end operations.
     func beginStreaming(channelId: String, userId: String) async throws -> GatewayOutboundStreamHandle
+
+    /// Update the ongoing streaming session with new content.
+    /// This may be called multiple times as new output is generated, e.g., partial completions.
+    /// - Parameters:
+    ///   - handle: The stream session handle, as returned by `beginStreaming`.
+    ///   - channelId: The target channel identifier.
+    ///   - content: The (possibly partial) content to send or update in the stream.
     func updateStreaming(handle: GatewayOutboundStreamHandle, channelId: String, content: String) async throws
+
+    /// Finish and close the streaming session, optionally replacing the final message with `finalContent`.
+    /// After this is called, the handle must not be used again.
+    /// - Parameters:
+    ///   - handle: The session handle previously returned by `beginStreaming`.
+    ///   - channelId: The channel where the message was sent.
+    ///   - userId: The user for which the stream was initiated.
+    ///   - finalContent: If provided, replaces the last state of the message with this final content.
     func endStreaming(
         handle: GatewayOutboundStreamHandle,
         channelId: String,
@@ -67,27 +91,71 @@ public protocol StreamingGatewayPlugin: GatewayPlugin {
     ) async throws
 }
 
+/// Plugin interface for exposing structured external tools ("actions") to an agent runtime.
+/// Each tool must declare its contract (name, arguments) and implement `invoke`.
 public protocol ToolPlugin: Sendable {
+    /// Unique plugin identifier.
     var id: String { get }
+
+    /// List of supported tool names (e.g. ["weather", "search", "code_search"]).
     var supportedTools: [String] { get }
+
+    /// Invoke a named tool with arguments, returning result as serializable JSON.
+    /// - Parameters:
+    ///   - tool: Tool operation identifier.
+    ///   - arguments: Named argument values.
+    /// - Returns: Tool result as a JSONValue.
     func invoke(tool: String, arguments: [String: JSONValue]) async throws -> JSONValue
 }
 
+/// Plugin for agent memory extension/persistence.
+/// Implements recall (search) and save (add) operations for memory notes.
 public protocol MemoryPlugin: Sendable {
+    /// Unique plugin identifier.
     var id: String { get }
+
+    /// Perform search in memory for a given free-text query, returning up to `limit` results.
+    /// - Parameters:
+    ///   - query: Search query string.
+    ///   - limit: Maximum number of returned results.
     func recall(query: String, limit: Int) async throws -> [MemoryRef]
+
+    /// Save a new note to memory, returning a reference object.
+    /// - Parameter note: String representation of the note to store.
     func save(note: String) async throws -> MemoryRef
 }
 
+/// Plugin interface for model providers (Large Language Model integrations).
+/// Used to integrate OpenAI, Ollama, and custom model backends.
+/// Supports standard (single-turn) and streaming (progressive) completions.
 public protocol ModelProviderPlugin: Sendable {
+    /// Unique plugin identifier.
     var id: String { get }
+
+    /// The list of supported model names or aliases.
     var models: [String] { get }
+
+    /// Execute a single-turn text completion for the specified model and prompt.
+    /// - Parameters:
+    ///   - model: Model name or alias to use.
+    ///   - prompt: Task or input prompt string.
+    ///   - maxTokens: Max tokens to generate.
+    ///   - reasoningEffort: (Optional) Optional reasoning effort parameter.
+    /// - Returns: The generated text response.
     func complete(
         model: String,
         prompt: String,
         maxTokens: Int,
         reasoningEffort: ReasoningEffort?
     ) async throws -> String
+
+    /// Begin a streaming text completion, returning progressive output snapshots.
+    /// - Parameters:
+    ///   - model: Model name or alias to use.
+    ///   - prompt: Input prompt.
+    ///   - maxTokens: Max tokens to generate.
+    ///   - reasoningEffort: (Optional) Optional reasoning effort parameter.
+    /// - Returns: An AsyncThrowingStream of partial/final response texts.
     func stream(
         model: String,
         prompt: String,
@@ -96,6 +164,42 @@ public protocol ModelProviderPlugin: Sendable {
     ) -> AsyncThrowingStream<String, any Error>
 }
 
+/// Default implementations for ModelProviderPlugin.
+public extension ModelProviderPlugin {
+    /// Execute a single-turn completion with native tool support.
+    ///
+    /// When `toolCallHandler` is provided, the plugin routes tool calls through it
+    /// and continues the conversation until the model produces a final text response.
+    /// The default implementation ignores the handler and delegates to `complete(model:prompt:maxTokens:reasoningEffort:)`.
+    func complete(
+        model: String,
+        prompt: String,
+        maxTokens: Int,
+        reasoningEffort: ReasoningEffort?,
+        tools: [any Tool],
+        toolCallHandler: (@Sendable (ToolInvocationRequest) async -> ToolInvocationResult)?
+    ) async throws -> String {
+        try await complete(model: model, prompt: prompt, maxTokens: maxTokens, reasoningEffort: reasoningEffort)
+    }
+
+    /// Begin a streaming completion with native tool support.
+    ///
+    /// When `toolCallHandler` is provided, tool calls are executed natively and the stream
+    /// yields only the final text response. The default falls back to `stream(model:prompt:maxTokens:reasoningEffort:)`.
+    func stream(
+        model: String,
+        prompt: String,
+        maxTokens: Int,
+        reasoningEffort: ReasoningEffort?,
+        tools: [any Tool],
+        toolCallHandler: (@Sendable (ToolInvocationRequest) async -> ToolInvocationResult)?
+    ) -> AsyncThrowingStream<String, any Error> {
+        stream(model: model, prompt: prompt, maxTokens: maxTokens, reasoningEffort: reasoningEffort)
+    }
+}
+
+/// Default streaming implementation: if the plugin doesn't provide native streaming,
+/// this mimics progressive output by yielding the final result as a single chunk.
 public extension ModelProviderPlugin {
     func stream(
         model: String,
