@@ -1702,6 +1702,16 @@ public actor CoreRouter {
             }
         }
 
+        add(.delete, "/v1/channel-approvals/users/:userId", metadata: RouteMetadata(summary: "Delete access user", description: "Removes an approved or blocked user from the channel access list", tags: ["Channels"])) { request in
+            let userId = request.pathParam("userId") ?? ""
+            let ok = await service.deleteAccessUser(id: userId)
+            if ok {
+                return Self.json(status: HTTPStatus.ok, payload: ["ok": "true"])
+            } else {
+                return Self.json(status: HTTPStatus.notFound, payload: ["error": "not_found"])
+            }
+        }
+
         return routes
     }
 

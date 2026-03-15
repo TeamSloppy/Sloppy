@@ -5666,6 +5666,13 @@ extension CoreService {
     public func listAccessUsers(platform: String?) async -> [ChannelAccessUser] {
         await store.listChannelAccessUsers(platform: platform)
     }
+
+    public func deleteAccessUser(id: String) async -> Bool {
+        let users = await store.listChannelAccessUsers(platform: nil)
+        guard users.contains(where: { $0.id == id }) else { return false }
+        await store.deleteChannelAccessUser(id: id)
+        return true
+    }
 }
 
 // MARK: - InboundMessageReceiver

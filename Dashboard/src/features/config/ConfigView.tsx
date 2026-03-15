@@ -1,7 +1,4 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import ReactDiffViewer, { DiffMethod } from "react-diff-viewer-continued";
-import Prism from "prismjs";
-import "prismjs/components/prism-json";
 import {
   disconnectOpenAIOAuth,
   fetchOpenAIModels,
@@ -21,12 +18,14 @@ import { SettingsPlaceholder } from "./components/SettingsPlaceholder";
 import { SettingsSidebar } from "./components/SettingsSidebar";
 import { TelegramEditor } from "./components/TelegramEditor";
 import { DiscordEditor } from "./components/DiscordEditor";
+import { ApprovalsView } from "./components/ApprovalsView";
+import { ConfigRawView } from "./components/ConfigRawView";
 
 const SETTINGS_ITEMS = [
   { id: "providers", title: "Providers", icon: "hub" },
   { id: "search-tools", title: "Search Tools", icon: "travel_explore" },
   { id: "channels", title: "Channels", icon: "forum" },
-  // { id: "approvals", title: "Approvals", icon: "fact_check" },
+  { id: "approvals", title: "Approvals", icon: "fact_check" },
   { id: "plugins", title: "Plugins", icon: "extension" },
   // { id: "browser", title: "Browser", icon: "open_in_browser" },
   // { id: "ui", title: "UI", icon: "palette" },
@@ -37,6 +36,7 @@ const SETTINGS_ITEMS = [
   // { id: "media", title: "Media", icon: "perm_media" },
   // { id: "session", title: "Session", icon: "manage_accounts" },
   { id: "git-sync", title: "Git Sync", icon: "sync" },
+  { id: "config", title: "Config", icon: "edit_document" },
   // { id: "logging", title: "Logging", icon: "description" }
 ];
 
@@ -451,7 +451,6 @@ function filterProviderModels(models, query) {
 
 export function ConfigView({ sectionId = "providers", onSectionChange = null }) {
   const initialSectionId = isSettingsSection(sectionId) ? sectionId : "providers";
-  const [mode, setMode] = useState("form");
   const [query, setQuery] = useState("");
   const [selectedSettings, setSelectedSettings] = useState(initialSectionId);
   const [draftConfig, setDraftConfig] = useState(clone(EMPTY_CONFIG));
@@ -484,7 +483,6 @@ export function ConfigView({ sectionId = "providers", onSectionChange = null }) 
     brave: { hasEnvironmentKey: false, hasConfiguredKey: false, hasAnyKey: false },
     perplexity: { hasEnvironmentKey: false, hasConfiguredKey: false, hasAnyKey: false }
   });
-  const [showDiff, setShowDiff] = useState(false);
   const providerModelLoadTimerRef = useRef(null);
   const providerModelLoadTokenRef = useRef(0);
   const providerModelPickerRef = useRef(null);
@@ -527,24 +525,23 @@ export function ConfigView({ sectionId = "providers", onSectionChange = null }) 
     return SETTINGS_ITEMS.filter((item) => item.title.toLowerCase().includes(needle));
   }, [query]);
 
+  const isRawMode = selectedSettings === "config";
+
   const hasChanges = useMemo(() => {
-    if (mode === "raw") {
+    if (isRawMode) {
       return rawConfig !== JSON.stringify(savedConfig, null, 2);
     }
     return JSON.stringify(draftConfig) !== JSON.stringify(savedConfig);
-  }, [mode, rawConfig, draftConfig, savedConfig]);
+  }, [isRawMode, rawConfig, draftConfig, savedConfig]);
 
   const rawValid = useMemo(() => {
-    if (mode !== "raw") {
-      return true;
-    }
     try {
       JSON.parse(rawConfig);
       return true;
     } catch {
       return false;
     }
-  }, [mode, rawConfig]);
+  }, [rawConfig]);
 
   const providerModalMeta = useMemo(() => {
     if (!providerModalId) {
@@ -636,7 +633,7 @@ export function ConfigView({ sectionId = "providers", onSectionChange = null }) 
 
   async function saveConfig() {
     try {
-      const payload = mode === "raw" ? normalizeConfig(JSON.parse(rawConfig)) : draftConfig;
+      const payload = isRawMode ? normalizeConfig(JSON.parse(rawConfig)) : draftConfig;
       await persistConfig(payload);
     } catch {
       setStatusText("Invalid raw JSON");
@@ -1231,6 +1228,30 @@ export function ConfigView({ sectionId = "providers", onSectionChange = null }) 
       );
     }
 
+    if (selectedSettings === "approvals") {
+      return <ApprovalsView />;
+    }
+
+    if (selectedSettings === "config") {
+      return (
+        <ConfigRawView
+          rawConfig={rawConfig}
+          savedConfig={savedConfig}
+          onChange={(val) => {
+            setRawConfig(val);
+            try {
+              const parsed = JSON.parse(val);
+              const normalized = normalizeConfig(parsed);
+              setDraftConfig(normalized);
+              localStorage.setItem(DRAFT_CONFIG_KEY, JSON.stringify(normalized, null, 2));
+            } catch {
+              // keep rawConfig state even if JSON invalid
+            }
+          }}
+        />
+      );
+    }
+
     const section = SETTINGS_ITEMS.find((item) => item.id === selectedSettings);
     return <SettingsPlaceholder title={section?.title} />;
   }
@@ -1238,14 +1259,12 @@ export function ConfigView({ sectionId = "providers", onSectionChange = null }) 
   return (
     <main className="settings-shell">
       <SettingsSidebar
-        rawValid={rawValid}
+        rawValid={isRawMode ? rawValid : true}
         query={query}
         onQueryChange={setQuery}
         filteredSettings={filteredSettings}
         selectedSettings={selectedSettings}
         onSelectSettings={selectSettings}
-        mode={mode}
-        onModeChange={setMode}
       />
 
       <section className="settings-main">
@@ -1256,73 +1275,7 @@ export function ConfigView({ sectionId = "providers", onSectionChange = null }) 
           onSave={saveConfig}
         />
 
-        {mode === "raw" ? (
-          <div className="settings-raw-pane">
-            <div className="settings-raw-toolbar">
-              <div className="settings-raw-toggle-group">
-                <span>Show Diff</span>
-                <label className="agent-tools-switch">
-                  <input type="checkbox" checked={showDiff} onChange={(e) => setShowDiff(e.target.checked)} />
-                  <div className="agent-tools-switch-track" />
-                </label>
-              </div>
-            </div>
-            {showDiff ? (
-              <div className="settings-raw-diff-container">
-                <ReactDiffViewer
-                  oldValue={JSON.stringify(savedConfig, null, 2)}
-                  newValue={rawConfig}
-                  splitView={true}
-                  useDarkTheme={true}
-                  compareMethod={DiffMethod.LINES}
-                  renderContent={(str) => (
-                    <pre
-                      style={{ display: "inline" }}
-                      dangerouslySetInnerHTML={{
-                        __html: Prism.highlight(str || "", Prism.languages.json, "json")
-                      }}
-                    />
-                  )}
-                />
-              </div>
-            ) : (
-              <div className="settings-raw-editor-container">
-                <div
-                  className="settings-raw-editor-highlight"
-                  dangerouslySetInnerHTML={{
-                    __html: Prism.highlight(rawConfig, Prism.languages.json, "json") + "\n"
-                  }}
-                />
-                <textarea
-                  className="settings-raw-editor-input"
-                  value={rawConfig}
-                  spellCheck={false}
-                  onChange={(event) => {
-                    const val = event.target.value;
-                    setRawConfig(val);
-                    try {
-                      const parsed = JSON.parse(val);
-                      const normalized = normalizeConfig(parsed);
-                      setDraftConfig(normalized);
-                      localStorage.setItem(DRAFT_CONFIG_KEY, JSON.stringify(normalized, null, 2));
-                    } catch {
-                      // invalid json, just update rawConfig
-                    }
-                  }}
-                  onScroll={(e) => {
-                    const highlight = e.currentTarget.parentElement?.querySelector(".settings-raw-editor-highlight");
-                    if (highlight) {
-                      highlight.scrollTop = e.currentTarget.scrollTop;
-                      highlight.scrollLeft = e.currentTarget.scrollLeft;
-                    }
-                  }}
-                />
-              </div>
-            )}
-          </div>
-        ) : (
-          renderSettingsContent()
-        )}
+        {renderSettingsContent()}
       </section>
     </main>
   );

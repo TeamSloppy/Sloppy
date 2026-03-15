@@ -1286,6 +1286,121 @@ body.mobile-menu-open {
   color: var(--text-muted, #7f89a7);
 }
 
+.user-id-picker {
+  width: 100%;
+  margin-top: 6px;
+}
+
+/* Approvals View */
+.approvals-view-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 14px;
+}
+
+.approvals-view-header h3 {
+  margin: 0;
+}
+
+.approvals-group {
+  margin-bottom: 20px;
+}
+
+.approvals-group-title {
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin-bottom: 8px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--line);
+}
+
+.approvals-user-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.approvals-user-row:last-child {
+  border-bottom: none;
+}
+
+.approvals-user-info {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.approvals-platform-badge {
+  font-size: 0.7rem;
+  font-weight: 600;
+  padding: 2px 7px;
+  background: rgba(255, 255, 255, 0.07);
+  border: 1px solid var(--line);
+  color: var(--text-muted);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.approvals-user-meta {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.approvals-user-name {
+  font-size: 0.85rem;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.approvals-user-id {
+  font-size: 0.73rem;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.approvals-user-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+.approvals-status-badge {
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 2px 7px;
+}
+
+.approvals-status-approved {
+  background: rgba(34, 197, 94, 0.12);
+  color: #22c55e;
+}
+
+.approvals-status-blocked {
+  background: rgba(239, 68, 68, 0.12);
+  color: var(--danger, #ef4444);
+}
+
+.approvals-time {
+  font-size: 0.73rem;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
 .actor-team-list {
   display: grid;
   gap: 8px;

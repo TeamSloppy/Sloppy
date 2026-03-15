@@ -79,3 +79,4 @@ export const approvePendingApproval = coreApi.approvePendingApproval;
 export const rejectPendingApproval = coreApi.rejectPendingApproval;
 export const blockPendingApproval = coreApi.blockPendingApproval;
 export const fetchAccessUsers = coreApi.fetchAccessUsers;
+export const deleteAccessUser = coreApi.deleteAccessUser;

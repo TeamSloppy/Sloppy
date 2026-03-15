@@ -6,15 +6,15 @@ export function SettingsSidebar({
   onQueryChange,
   filteredSettings,
   selectedSettings,
-  onSelectSettings,
-  mode,
-  onModeChange
+  onSelectSettings
 }) {
   return (
     <aside className="settings-side">
       <div className="settings-title-row">
         <h2>Settings</h2>
-        <span className={`settings-valid ${rawValid ? "ok" : "bad"}`}>{rawValid ? "valid" : "invalid"}</span>
+        {!rawValid && (
+          <span className="settings-valid bad">invalid</span>
+        )}
       </div>
 
       <input
@@ -36,15 +36,6 @@ export function SettingsSidebar({
             <span>{item.title}</span>
           </button>
         ))}
-      </div>
-
-      <div className="settings-mode-switch">
-        <button type="button" className={mode === "form" ? "active" : ""} onClick={() => onModeChange("form")}>
-          Form
-        </button>
-        <button type="button" className={mode === "raw" ? "active" : ""} onClick={() => onModeChange("raw")}>
-          Raw
-        </button>
       </div>
     </aside>
   );

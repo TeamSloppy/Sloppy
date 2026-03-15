@@ -10,19 +10,22 @@ actor TelegramPoller {
     private let config: TelegramPluginConfig
     private let commands: ChannelCommandHandler
     private let logger: Logger
+    private let onMessageRouted: (@Sendable (String, Int64) async -> Void)?
     private var offset: Int64? = nil
 
     init(
         bot: TelegramBotAPI,
         receiver: any InboundMessageReceiver,
         config: TelegramPluginConfig,
-        logger: Logger
+        logger: Logger,
+        onMessageRouted: (@Sendable (String, Int64) async -> Void)? = nil
     ) {
         self.bot = bot
         self.receiver = receiver
         self.config = config
         self.commands = ChannelCommandHandler(platformName: "Telegram")
         self.logger = logger
+        self.onMessageRouted = onMessageRouted
     }
 
     func run() async {
@@ -55,11 +58,12 @@ actor TelegramPoller {
 
         logger.info("Incoming message: userId=\(userId) chatId=\(chatId)\(chatTitle) from=\(displayName) length=\(text.count)")
 
-        // Fast-path: config allowlist takes priority when non-empty
-        if !config.allowedUserIds.isEmpty || !config.allowedChatIds.isEmpty {
-            if !config.isAllowed(userId: userId, chatId: chatId) {
-                logger.warning("Blocked: userId=\(userId) chatId=\(chatId) — not in allow list. allowedUsers=\(config.allowedUserIds) allowedChats=\(config.allowedChatIds)")
-                let hint = "Access denied.\n\nTo allow this chat, add the following IDs to your config:\n• User ID: \(userId)\n• Chat ID: \(chatId)"
+        // If allowedUserIds are configured, use them as the static allow list (userId-only check).
+        // Otherwise fall through to the DB-backed approval flow.
+        if !config.allowedUserIds.isEmpty {
+            if !config.isAllowed(userId: userId) {
+                logger.warning("Blocked: userId=\(userId) chatId=\(chatId) — not in allowedUserIds")
+                let hint = "Access denied.\n\nTo allow this user, add User ID \(userId) to your config's Access Control list."
                 _ = try? await bot.sendMessage(chatId: chatId, text: hint)
                 return
             }
@@ -86,11 +90,12 @@ actor TelegramPoller {
 
         guard let channelId = config.channelId(forChatId: chatId) else {
             logger.warning("No channel mapping for chatId=\(chatId). Known mappings: \(config.channelChatMap). Message dropped.")
-            let hint = "This chat is not connected to any channel.\n\nTo route messages here, add the following binding to your config:\n• Chat ID: \(chatId)\n\nMap it to a channel ID in the Channels → Bindings section."
+            let hint = "This chat is not connected to any channel.\n\nTo route messages here, add a binding in the Channels → Bindings section (leave Chat ID empty to accept any chat)."
             _ = try? await bot.sendMessage(chatId: chatId, text: hint)
             return
         }
 
+        await onMessageRouted?(channelId, chatId)
         logger.info("Routing message: chatId=\(chatId) → channelId=\(channelId)")
 
         if let localReply = commands.handle(text: text, from: displayName) {

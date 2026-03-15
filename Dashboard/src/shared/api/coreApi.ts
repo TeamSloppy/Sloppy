@@ -127,6 +127,7 @@ export interface CoreApi {
   rejectPendingApproval: (approvalId: string) => Promise<boolean>;
   blockPendingApproval: (approvalId: string) => Promise<boolean>;
   fetchAccessUsers: (platform?: string) => Promise<AnyRecord[] | null>;
+  deleteAccessUser: (userId: string) => Promise<boolean>;
 }
 
 export function createCoreApi(): CoreApi {
@@ -1053,6 +1054,14 @@ export function createCoreApi(): CoreApi {
       });
       if (!response.ok || !Array.isArray(response.data)) return null;
       return response.data;
+    },
+
+    deleteAccessUser: async (userId) => {
+      const response = await requestJson({
+        path: `/v1/channel-approvals/users/${encodeURIComponent(userId)}`,
+        method: "DELETE"
+      });
+      return response.ok;
     }
   };
 }

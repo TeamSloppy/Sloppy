@@ -20,6 +20,8 @@ public actor TelegramGatewayPlugin: StreamingGatewayPlugin {
     private let logger: Logger
     private var pollerTask: Task<Void, Never>?
     private var streams: [String: StreamState] = [:]
+    /// Tracks the most recent inbound chatId per channelId for catch-all bindings (chatId == 0).
+    private var activeChatIds: [String: Int64] = [:]
 
     public init(
         botToken: String,
@@ -40,13 +42,17 @@ public actor TelegramGatewayPlugin: StreamingGatewayPlugin {
         self.bot = TelegramBotAPI(botToken: botToken, logger: resolvedLogger)
     }
 
+    func setActiveChatId(channelId: String, chatId: Int64) {
+        activeChatIds[channelId] = chatId
+    }
+
     public func start(inboundReceiver: any InboundMessageReceiver) async throws {
         guard pollerTask == nil else {
             logger.warning("Telegram plugin start() called but poller is already running.")
             return
         }
         let tokenPrefix = String(config.botToken.prefix(10))
-        logger.info("Telegram gateway plugin starting. token=\(tokenPrefix)... channels=\(channelIds) allowedUsers=\(config.allowedUserIds.count) allowedChats=\(config.allowedChatIds.count)")
+        logger.info("Telegram gateway plugin starting. token=\(tokenPrefix)... channels=\(channelIds) allowedUsers=\(config.allowedUserIds.count)")
         if channelIds.isEmpty {
             logger.warning("No channel-chat mappings configured. Bot will receive messages but cannot route them to Core channels.")
         }
@@ -54,7 +60,10 @@ public actor TelegramGatewayPlugin: StreamingGatewayPlugin {
             bot: bot,
             receiver: inboundReceiver,
             config: config,
-            logger: logger
+            logger: logger,
+            onMessageRouted: { [self] channelId, chatId in
+                await self.setActiveChatId(channelId: channelId, chatId: chatId)
+            }
         )
         pollerTask = Task { await poller.run() }
     }
@@ -66,17 +75,24 @@ public actor TelegramGatewayPlugin: StreamingGatewayPlugin {
         logger.info("Telegram gateway plugin stopped.")
     }
 
+    /// Returns the effective Telegram chatId for outbound messages.
+    /// For catch-all bindings (configured chatId == 0) uses the last known active chatId.
+    private func resolvedChatId(forChannelId channelId: String) -> Int64? {
+        guard let configured = config.chatId(forChannelId: channelId) else { return nil }
+        return configured == 0 ? activeChatIds[channelId] : configured
+    }
+
     public func send(channelId: String, message: String) async throws {
-        guard let chatId = config.chatId(forChannelId: channelId) else {
-            logger.warning("No Telegram chat mapping for channel \(channelId). Message dropped.")
+        guard let chatId = resolvedChatId(forChannelId: channelId) else {
+            logger.warning("No Telegram chat target for channel \(channelId). Message dropped.")
             return
         }
         _ = try await bot.sendMessage(chatId: chatId, text: message)
     }
 
     public func beginStreaming(channelId: String, userId: String) async throws -> GatewayOutboundStreamHandle {
-        guard let chatId = config.chatId(forChannelId: channelId) else {
-            logger.warning("No Telegram chat mapping for channel \(channelId). Stream start dropped.")
+        guard let chatId = resolvedChatId(forChannelId: channelId) else {
+            logger.warning("No Telegram chat target for channel \(channelId). Stream start dropped.")
             throw TelegramAPIError.invalidResponse(method: "beginStreaming")
         }
 

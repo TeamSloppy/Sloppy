@@ -21,24 +21,21 @@ struct TelegramPluginConfig: Sendable {
     }
 
     /// Reverse lookup: Telegram chat_id → channelId.
+    /// Tries an exact match first; falls back to a catch-all binding (chatId == 0).
     func channelId(forChatId chatId: Int64) -> String? {
-        channelChatMap.first(where: { $0.value == chatId })?.key
+        if let exact = channelChatMap.first(where: { $0.value == chatId }) {
+            return exact.key
+        }
+        return channelChatMap.first(where: { $0.value == 0 })?.key
     }
 
     func chatId(forChannelId channelId: String) -> Int64? {
         channelChatMap[channelId]
     }
 
-    func isAllowed(userId: Int64, chatId: Int64) -> Bool {
-        if allowedUserIds.isEmpty && allowedChatIds.isEmpty {
-            return true
-        }
-        if !allowedUserIds.isEmpty && !allowedUserIds.contains(userId) {
-            return false
-        }
-        if !allowedChatIds.isEmpty && !allowedChatIds.contains(chatId) {
-            return false
-        }
-        return true
+    /// Returns true when the userId is permitted. Chat ID is not checked here —
+    /// chat-level restriction is handled by the binding's configured chatId.
+    func isAllowed(userId: Int64) -> Bool {
+        allowedUserIds.isEmpty || allowedUserIds.contains(userId)
     }
 }

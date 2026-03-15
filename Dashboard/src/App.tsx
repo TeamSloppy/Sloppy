@@ -128,7 +128,7 @@ function DashboardShell({ dependencies }: { dependencies: ReturnType<typeof crea
     },
     {
       id: "config",
-      label: { icon: "settings", title: "Config" },
+      label: { icon: "settings", title: "Settings" },
       content: <ConfigView sectionId={route.configSection} onSectionChange={setConfigSection} />
     },
     {

@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { fetchAgents, fetchActorsBoard } from "../../../api";
 import { PendingApprovalList } from "./PendingApprovalList";
+import { UserIdPicker } from "./UserIdPicker";
 
 function DiscordIcon() {
     return (
@@ -34,9 +35,24 @@ function ChevronIcon({ up }) {
     );
 }
 
-function AddBindingModal({ agents, agentChannels, onClose, onAdd }) {
-    const [selectedAgentId, setSelectedAgentId] = useState(agents[0]?.id || "");
-    const [discordChannelId, setDiscordChannelId] = useState("");
+interface DiscordBindingModalProps {
+    agents: { id: string; displayName: string }[];
+    agentChannels: { agentId: string; channelId: string }[];
+    initialDiscordChannelId?: string;
+    initialChannelId?: string;
+    onClose: () => void;
+    onSave: (data: { channelId: string; discordChannelId: string | null; originalDiscordChannelId?: string }) => void;
+}
+
+function BindingModal({ agents, agentChannels, initialDiscordChannelId, initialChannelId, onClose, onSave }: DiscordBindingModalProps) {
+    const isEditing = Boolean(initialDiscordChannelId || initialChannelId);
+
+    const initialAgentId = initialChannelId
+        ? (agentChannels.find((c) => c.channelId === initialChannelId)?.agentId || agents[0]?.id || "")
+        : (agents[0]?.id || "");
+
+    const [selectedAgentId, setSelectedAgentId] = useState(initialAgentId);
+    const [discordChannelId, setDiscordChannelId] = useState(initialDiscordChannelId || "");
 
     const availableChannels = agentChannels.filter((ch) => ch.agentId === selectedAgentId);
 
@@ -45,14 +61,18 @@ function AddBindingModal({ agents, agentChannels, onClose, onAdd }) {
             return;
         }
         const channelId = availableChannels[0]?.channelId || selectedAgentId;
-        onAdd({ channelId, discordChannelId: discordChannelId.trim() || null });
+        onSave({
+            channelId,
+            discordChannelId: discordChannelId.trim() || null,
+            originalDiscordChannelId: initialDiscordChannelId,
+        });
     }
 
     return (
         <div className="tg-modal-overlay" onClick={onClose}>
             <div className="tg-modal" onClick={(e) => e.stopPropagation()}>
                 <div className="tg-modal-header">
-                    <h3>Add Binding</h3>
+                    <h3>{isEditing ? "Edit Binding" : "Add Binding"}</h3>
                     <button type="button" className="tg-modal-close" onClick={onClose}>
                         <span className="material-symbols-rounded">close</span>
                     </button>
@@ -84,11 +104,11 @@ function AddBindingModal({ agents, agentChannels, onClose, onAdd }) {
                 </div>
 
                 <div className="tg-modal-actions">
-                    <button type="button" className="tg-modal-cancel" onClick={onClose}>
+                    <button type="button" className="tg-modal-cancel hover-levitate" onClick={onClose}>
                         Cancel
                     </button>
-                    <button type="button" className="tg-modal-submit" onClick={handleSubmit}>
-                        Add Binding
+                    <button type="button" className="tg-modal-submit hover-levitate" onClick={handleSubmit}>
+                        {isEditing ? "Save Changes" : "Add Binding"}
                     </button>
                 </div>
             </div>
@@ -99,7 +119,7 @@ function AddBindingModal({ agents, agentChannels, onClose, onAdd }) {
 export function DiscordEditor({ draftConfig, mutateDraft }) {
     const [collapsed, setCollapsed] = useState(false);
     const [showToken, setShowToken] = useState(false);
-    const [showAddModal, setShowAddModal] = useState(false);
+    const [editingBinding, setEditingBinding] = useState<{ discordChannelId: string; channelId: string } | null | "new">(null);
     const [agents, setAgents] = useState([]);
     const [agentChannels, setAgentChannels] = useState([]);
 
@@ -147,7 +167,8 @@ export function DiscordEditor({ draftConfig, mutateDraft }) {
                 draft.channels.discord = {
                     botToken: "",
                     guildId: "",
-                    channelAgentMap: {}
+                    channelAgentMap: {},
+                    allowedUserIds: []
                 };
             }
         });
@@ -162,15 +183,18 @@ export function DiscordEditor({ draftConfig, mutateDraft }) {
         });
     }
 
-    function handleAddBinding({ channelId, discordChannelId }) {
+    function handleSaveBinding({ channelId, discordChannelId, originalDiscordChannelId }) {
         mutateDraft((draft) => {
             if (!draft.channels?.discord) {
                 return;
             }
+            if (originalDiscordChannelId && originalDiscordChannelId !== (discordChannelId || channelId)) {
+                delete draft.channels.discord.channelAgentMap[originalDiscordChannelId];
+            }
             const key = discordChannelId || channelId;
             draft.channels.discord.channelAgentMap[key] = channelId;
         });
-        setShowAddModal(false);
+        setEditingBinding(null);
     }
 
     function removeBinding(key) {
@@ -278,7 +302,7 @@ export function DiscordEditor({ draftConfig, mutateDraft }) {
                                     <button
                                         type="button"
                                         className="tg-add-btn"
-                                        onClick={() => setShowAddModal(true)}
+                                        onClick={() => setEditingBinding("new")}
                                         disabled={agents.length === 0}
                                     >
                                         Add
@@ -305,6 +329,12 @@ export function DiscordEditor({ draftConfig, mutateDraft }) {
                                                 </span>
                                             </div>
                                             <div className="tg-binding-actions">
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setEditingBinding({ discordChannelId, channelId: channelId as string })}
+                                                >
+                                                    Edit
+                                                </button>
                                                 <button type="button" onClick={() => removeBinding(discordChannelId)}>
                                                     Remove
                                                 </button>
@@ -316,6 +346,23 @@ export function DiscordEditor({ draftConfig, mutateDraft }) {
 
                             <PendingApprovalList platform="discord" />
 
+                            <div className="tg-section">
+                                <div className="tg-section-title">Access Control</div>
+                                <div className="tg-field">
+                                    <label className="tg-field-label">
+                                        Allowed User IDs
+                                        <span className="tg-field-hint">
+                                            Search approved users — leave empty to allow all
+                                        </span>
+                                    </label>
+                                    <UserIdPicker
+                                        platform="discord"
+                                        selectedIds={dc.allowedUserIds || []}
+                                        onChange={(ids) => setField("allowedUserIds", ids)}
+                                    />
+                                </div>
+                            </div>
+
                             <div className="tg-footer">
                                 <button type="button" className="tg-disconnect-btn" onClick={disconnect}>
                                     Disconnect Discord
@@ -326,12 +373,14 @@ export function DiscordEditor({ draftConfig, mutateDraft }) {
                 </div>
             )}
 
-            {showAddModal && (
-                <AddBindingModal
+            {editingBinding !== null && (
+                <BindingModal
                     agents={agents}
                     agentChannels={agentChannels}
-                    onClose={() => setShowAddModal(false)}
-                    onAdd={handleAddBinding}
+                    initialDiscordChannelId={editingBinding !== "new" ? editingBinding.discordChannelId : undefined}
+                    initialChannelId={editingBinding !== "new" ? editingBinding.channelId : undefined}
+                    onClose={() => setEditingBinding(null)}
+                    onSave={handleSaveBinding}
                 />
             )}
         </div>

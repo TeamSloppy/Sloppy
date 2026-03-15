@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { fetchAgents, fetchActorsBoard } from "../../../api";
 import { PendingApprovalList } from "./PendingApprovalList";
+import { UserIdPicker } from "./UserIdPicker";
 
 function TelegramIcon() {
   return (
@@ -34,26 +35,25 @@ function ChevronIcon({ up }) {
   );
 }
 
-function parseIdList(value) {
-  return value
-    .split(/[\s,]+/)
-    .map((s) => s.trim())
-    .filter(Boolean)
-    .map(Number)
-    .filter(Number.isFinite);
+
+interface TelegramBindingModalProps {
+  agents: { id: string; displayName: string }[];
+  agentChannels: { agentId: string; channelId: string }[];
+  initialChannelId?: string;
+  initialChatId?: number;
+  onClose: () => void;
+  onSave: (data: { channelId: string; chatId: number | null; originalChannelId?: string }) => void;
 }
 
-function formatIdList(ids) {
-  if (!Array.isArray(ids)) {
-    return "";
-  }
-  return ids.join(", ");
-}
+function BindingModal({ agents, agentChannels, initialChannelId, initialChatId, onClose, onSave }: TelegramBindingModalProps) {
+  const isEditing = Boolean(initialChannelId);
 
-function AddBindingModal({ agents, agentChannels, onClose, onAdd }) {
-  const [selectedAgentId, setSelectedAgentId] = useState(agents[0]?.id || "");
-  const [chatId, setChatId] = useState("");
-  const [allowedUsers, setAllowedUsers] = useState("");
+  const initialAgentId = initialChannelId
+    ? (agentChannels.find((c) => c.channelId === initialChannelId)?.agentId || agents[0]?.id || "")
+    : (agents[0]?.id || "");
+
+  const [selectedAgentId, setSelectedAgentId] = useState(initialAgentId);
+  const [chatId, setChatId] = useState(initialChatId ? String(initialChatId) : "");
 
   const availableChannels = agentChannels.filter((ch) => ch.agentId === selectedAgentId);
 
@@ -63,17 +63,14 @@ function AddBindingModal({ agents, agentChannels, onClose, onAdd }) {
     }
     const channelId = availableChannels[0]?.channelId || selectedAgentId;
     const chatIdNum = chatId.trim() ? Number(chatId.trim()) : null;
-    const userIds = allowedUsers.trim()
-      ? allowedUsers.split(/[\s,]+/).map(Number).filter(Number.isFinite)
-      : [];
-    onAdd({ channelId, chatId: chatIdNum, allowedUserIds: userIds });
+    onSave({ channelId, chatId: chatIdNum, originalChannelId: initialChannelId });
   }
 
   return (
     <div className="tg-modal-overlay" onClick={onClose}>
       <div className="tg-modal" onClick={(e) => e.stopPropagation()}>
         <div className="tg-modal-header">
-          <h3>Add Binding</h3>
+          <h3>{isEditing ? "Edit Binding" : "Add Binding"}</h3>
           <button type="button" className="tg-modal-close" onClick={onClose}>
             <span className="material-symbols-rounded">close</span>
           </button>
@@ -99,16 +96,7 @@ function AddBindingModal({ agents, agentChannels, onClose, onAdd }) {
             <input
               value={chatId}
               onChange={(e) => setChatId(e.target.value)}
-              placeholder="Optional — leave empty for all chats"
-            />
-          </label>
-
-          <label className="tg-modal-field">
-            <span className="tg-modal-field-label">DM Allowed Users</span>
-            <input
-              value={allowedUsers}
-              onChange={(e) => setAllowedUsers(e.target.value)}
-              placeholder="Add user ID..."
+              placeholder="Optional — leave empty to accept any chat from approved users"
             />
           </label>
         </div>
@@ -118,7 +106,7 @@ function AddBindingModal({ agents, agentChannels, onClose, onAdd }) {
             Cancel
           </button>
           <button type="button" className="tg-modal-submit hover-levitate" onClick={handleSubmit}>
-            Add Binding
+            {isEditing ? "Save Changes" : "Add Binding"}
           </button>
         </div>
       </div>
@@ -129,7 +117,7 @@ function AddBindingModal({ agents, agentChannels, onClose, onAdd }) {
 export function TelegramEditor({ draftConfig, mutateDraft }) {
   const [collapsed, setCollapsed] = useState(false);
   const [showToken, setShowToken] = useState(false);
-  const [showAddModal, setShowAddModal] = useState(false);
+  const [editingBinding, setEditingBinding] = useState<{ channelId: string; chatId: number } | null | "new">(null);
   const [agents, setAgents] = useState([]);
   const [agentChannels, setAgentChannels] = useState([]);
 
@@ -174,8 +162,7 @@ export function TelegramEditor({ draftConfig, mutateDraft }) {
         draft.channels.telegram = {
           botToken: "",
           channelChatMap: {},
-          allowedUserIds: [],
-          allowedChatIds: []
+          allowedUserIds: []
         };
       }
     });
@@ -190,23 +177,17 @@ export function TelegramEditor({ draftConfig, mutateDraft }) {
     });
   }
 
-  function handleAddBinding({ channelId, chatId, allowedUserIds }) {
+  function handleSaveBinding({ channelId, chatId, originalChannelId }) {
     mutateDraft((draft) => {
       if (!draft.channels.telegram) {
         return;
       }
-      if (chatId !== null) {
-        draft.channels.telegram.channelChatMap[channelId] = chatId;
-      } else {
-        draft.channels.telegram.channelChatMap[channelId] = 0;
+      if (originalChannelId && originalChannelId !== channelId) {
+        delete draft.channels.telegram.channelChatMap[originalChannelId];
       }
-      if (allowedUserIds.length > 0) {
-        const existing = draft.channels.telegram.allowedUserIds || [];
-        const merged = [...new Set([...existing, ...allowedUserIds])];
-        draft.channels.telegram.allowedUserIds = merged;
-      }
+      draft.channels.telegram.channelChatMap[channelId] = chatId ?? 0;
     });
-    setShowAddModal(false);
+    setEditingBinding(null);
   }
 
   function removeBinding(channelId) {
@@ -303,7 +284,7 @@ export function TelegramEditor({ draftConfig, mutateDraft }) {
                   <button
                     type="button"
                     className="tg-add-btn"
-                    onClick={() => setShowAddModal(true)}
+                    onClick={() => setEditingBinding("new")}
                     disabled={agents.length === 0}
                   >
                     Add
@@ -330,6 +311,12 @@ export function TelegramEditor({ draftConfig, mutateDraft }) {
                         </span>
                       </div>
                       <div className="tg-binding-actions">
+                        <button
+                          type="button"
+                          onClick={() => setEditingBinding({ channelId, chatId: chatId as number })}
+                        >
+                          Edit
+                        </button>
                         <button type="button" onClick={() => removeBinding(channelId)}>
                           Remove
                         </button>
@@ -347,27 +334,14 @@ export function TelegramEditor({ draftConfig, mutateDraft }) {
                   <label className="tg-field-label">
                     Allowed User IDs
                     <span className="tg-field-hint">
-                      Comma-separated Telegram user IDs — leave empty to allow all
+                      Search approved users or type IDs manually — leave empty to use the approval flow
                     </span>
-                    <input
-                      placeholder="123456789, 987654321"
-                      value={formatIdList(tg.allowedUserIds)}
-                      onChange={(e) => setField("allowedUserIds", parseIdList(e.target.value))}
-                    />
                   </label>
-                </div>
-                <div className="tg-field" style={{ marginTop: 10 }}>
-                  <label className="tg-field-label">
-                    Allowed Chat IDs
-                    <span className="tg-field-hint">
-                      Comma-separated Telegram chat IDs — leave empty to allow all
-                    </span>
-                    <input
-                      placeholder="-1001234567890, 987654321"
-                      value={formatIdList(tg.allowedChatIds)}
-                      onChange={(e) => setField("allowedChatIds", parseIdList(e.target.value))}
-                    />
-                  </label>
+                  <UserIdPicker
+                    platform="telegram"
+                    selectedIds={(tg.allowedUserIds || []).map(String)}
+                    onChange={(ids) => setField("allowedUserIds", ids.map(Number).filter(Number.isFinite))}
+                  />
                 </div>
               </div>
 
@@ -381,12 +355,14 @@ export function TelegramEditor({ draftConfig, mutateDraft }) {
         </div>
       )}
 
-      {showAddModal && (
-        <AddBindingModal
+      {editingBinding !== null && (
+        <BindingModal
           agents={agents}
           agentChannels={agentChannels}
-          onClose={() => setShowAddModal(false)}
-          onAdd={handleAddBinding}
+          initialChannelId={editingBinding !== "new" ? editingBinding.channelId : undefined}
+          initialChatId={editingBinding !== "new" ? editingBinding.chatId : undefined}
+          onClose={() => setEditingBinding(null)}
+          onSave={handleSaveBinding}
         />
       )}
     </div>
