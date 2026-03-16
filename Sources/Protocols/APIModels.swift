@@ -2140,3 +2140,27 @@ public struct TokenUsageResponse: Codable, Sendable {
         self.totalTokens = totalTokens
     }
 }
+
+public struct VisorReadyResponse: Codable, Sendable {
+    public var ready: Bool
+
+    public init(ready: Bool) {
+        self.ready = ready
+    }
+}
+
+public struct VisorChatRequest: Codable, Sendable {
+    public var question: String
+
+    public init(question: String) {
+        self.question = question
+    }
+}
+
+public struct VisorChatResponse: Codable, Sendable {
+    public var answer: String
+
+    public init(answer: String) {
+        self.answer = answer
+    }
+}

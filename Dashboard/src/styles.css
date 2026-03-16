@@ -796,9 +796,43 @@ body.mobile-menu-open {
   pointer-events: none;
 }
 
+.actors-links-layer .actor-link.peer {
+  stroke: var(--success);
+  opacity: 0.35;
+}
+
+.actors-links-layer .actor-link.hierarchical {
+  stroke: var(--warn);
+  opacity: 0.35;
+}
+
 .actors-links-layer .actor-link.selected {
   stroke: var(--accent);
   stroke-width: 10;
+}
+
+@keyframes link-flow {
+  from { stroke-dashoffset: 24; }
+  to { stroke-dashoffset: 0; }
+}
+
+.actors-links-layer .actor-link-flow {
+  fill: none;
+  stroke: #7f89a7;
+  stroke-width: 3;
+  stroke-linecap: round;
+  stroke-dasharray: 6 18;
+  pointer-events: none;
+  opacity: 0.85;
+  animation: link-flow 1s linear infinite;
+}
+
+.actors-links-layer .actor-link-flow.peer {
+  stroke: var(--success);
+}
+
+.actors-links-layer .actor-link-flow.hierarchical {
+  stroke: var(--warn);
 }
 
 .actors-links-layer .actor-link.preview {
@@ -5837,13 +5871,16 @@ body.agent-chat-no-page-scroll .page {
 
 .tg-settings-shell {
   max-width: 640px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
 }
 
 /* ---- Card ---- */
 .tg-card {
   border: 1px solid var(--line);
   border-radius: 0;
-  background: var(--surface-3);
+  background: var(--surface-2);
   overflow: hidden;
 }
 
@@ -5875,7 +5912,7 @@ body.agent-chat-no-page-scroll .page {
   width: 36px;
   height: 36px;
   flex-shrink: 0;
-  border-radius: 0;
+  border-radius: 50%;
 }
 
 .tg-card-meta {

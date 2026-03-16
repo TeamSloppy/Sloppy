@@ -82,6 +82,8 @@ public struct MemoryWriteRequest: Codable, Sendable, Equatable {
     public var confidence: Double?
     public var metadata: [String: JSONValue]
     public var expiresAt: Date?
+    /// Optional backdating for restored/imported entries. Nil = use current time.
+    public var updatedAt: Date?
 
     public init(
         note: String,
@@ -93,7 +95,8 @@ public struct MemoryWriteRequest: Codable, Sendable, Equatable {
         importance: Double? = nil,
         confidence: Double? = nil,
         metadata: [String: JSONValue] = [:],
-        expiresAt: Date? = nil
+        expiresAt: Date? = nil,
+        updatedAt: Date? = nil
     ) {
         self.note = note
         self.summary = summary
@@ -105,6 +108,7 @@ public struct MemoryWriteRequest: Codable, Sendable, Equatable {
         self.confidence = confidence
         self.metadata = metadata
         self.expiresAt = expiresAt
+        self.updatedAt = updatedAt
     }
 }
 

@@ -17,6 +17,7 @@ public struct WorkerSnapshot: Codable, Sendable, Equatable {
     public var mode: WorkerMode
     public var tools: [String]
     public var latestReport: String?
+    public var startedAt: Date?
 
     public init(
         workerId: String,
@@ -25,7 +26,8 @@ public struct WorkerSnapshot: Codable, Sendable, Equatable {
         status: WorkerStatus,
         mode: WorkerMode,
         tools: [String],
-        latestReport: String?
+        latestReport: String?,
+        startedAt: Date? = nil
     ) {
         self.workerId = workerId
         self.channelId = channelId
@@ -34,6 +36,7 @@ public struct WorkerSnapshot: Codable, Sendable, Equatable {
         self.mode = mode
         self.tools = tools
         self.latestReport = latestReport
+        self.startedAt = startedAt
     }
 }
 
@@ -55,6 +58,7 @@ private struct WorkerState: Sendable {
     var latestReport: String?
     var routeInbox: [String]
     var artifactId: String?
+    var startedAt: Date?
 }
 
 public actor WorkerRuntime {
@@ -102,6 +106,9 @@ public actor WorkerRuntime {
     public func execute(workerId: String) async {
         guard var state = workers[workerId] else { return }
         state.status = .running
+        if state.startedAt == nil {
+            state.startedAt = Date()
+        }
         workers[workerId] = state
 
         await publish(
@@ -262,7 +269,8 @@ public actor WorkerRuntime {
             status: state.status,
             mode: state.spec.mode,
             tools: state.spec.tools,
-            latestReport: state.latestReport
+            latestReport: state.latestReport,
+            startedAt: state.startedAt
         )
     }
 
@@ -276,7 +284,8 @@ public actor WorkerRuntime {
                 status: state.status,
                 mode: state.spec.mode,
                 tools: state.spec.tools,
-                latestReport: state.latestReport
+                latestReport: state.latestReport,
+                startedAt: state.startedAt
             )
         }
     }
@@ -310,7 +319,8 @@ public actor WorkerRuntime {
             status: status,
             latestReport: latestReport,
             routeInbox: [],
-            artifactId: artifactId
+            artifactId: artifactId,
+            startedAt: nil
         )
     }
 

@@ -9,6 +9,12 @@ public actor Visor {
     private var bulletins: [MemoryBulletin] = []
     private var lastRetrievalHash: String?
     private var lastBulletin: MemoryBulletin?
+    private var supervisionTask: Task<Void, Never>?
+    private var signalSubscriptionTask: Task<Void, Never>?
+    private var lastMaintenanceRun: Date?
+    private var failureWindows: [String: [Date]] = [:]
+    private var lastActivityAt: Date = Date()
+    public private(set) var isReady: Bool = false
 
     public init(
         eventBus: EventBus,
@@ -20,6 +26,113 @@ public actor Visor {
         self.memoryStore = memoryStore
         self.completionProvider = completionProvider
         self.bulletinMaxWords = bulletinMaxWords
+    }
+
+    // MARK: - Supervision tick loop
+
+    /// Starts the internal supervision tick loop. Each tick: health checks + periodic maintenance.
+    public func startSupervision(
+        tickInterval: Duration,
+        workerTimeoutSeconds: Int,
+        branchTimeoutSeconds: Int,
+        maintenanceIntervalSeconds: Int,
+        decayRatePerDay: Double,
+        pruneImportanceThreshold: Double,
+        pruneMinAgeDays: Int,
+        channelDegradedFailureCount: Int = 3,
+        channelDegradedWindowSeconds: Int = 600,
+        idleThresholdSeconds: Int = 1800,
+        snapshotProvider: @escaping @Sendable () async -> ([ChannelSnapshot], [WorkerSnapshot]),
+        branchProvider: @escaping @Sendable () async -> [BranchSnapshot],
+        branchForceTimeout: @escaping @Sendable (String) async -> Void
+    ) {
+        guard supervisionTask == nil else { return }
+
+        signalSubscriptionTask = Task { [weak self] in
+            guard let self else { return }
+            let stream = await self.eventBus.subscribe()
+            for await event in stream {
+                guard !Task.isCancelled else { break }
+                await self.recordEvent(event)
+            }
+        }
+
+        supervisionTask = Task { [weak self] in
+            while !Task.isCancelled {
+                guard let self else { return }
+                await self.runTick(
+                    workerTimeoutSeconds: workerTimeoutSeconds,
+                    branchTimeoutSeconds: branchTimeoutSeconds,
+                    maintenanceIntervalSeconds: maintenanceIntervalSeconds,
+                    decayRatePerDay: decayRatePerDay,
+                    pruneImportanceThreshold: pruneImportanceThreshold,
+                    pruneMinAgeDays: pruneMinAgeDays,
+                    channelDegradedFailureCount: channelDegradedFailureCount,
+                    channelDegradedWindowSeconds: channelDegradedWindowSeconds,
+                    idleThresholdSeconds: idleThresholdSeconds,
+                    snapshotProvider: snapshotProvider,
+                    branchProvider: branchProvider,
+                    branchForceTimeout: branchForceTimeout
+                )
+                try? await Task.sleep(for: tickInterval)
+            }
+        }
+    }
+
+    private func runTick(
+        workerTimeoutSeconds: Int,
+        branchTimeoutSeconds: Int,
+        maintenanceIntervalSeconds: Int,
+        decayRatePerDay: Double,
+        pruneImportanceThreshold: Double,
+        pruneMinAgeDays: Int,
+        channelDegradedFailureCount: Int,
+        channelDegradedWindowSeconds: Int,
+        idleThresholdSeconds: Int,
+        snapshotProvider: @escaping @Sendable () async -> ([ChannelSnapshot], [WorkerSnapshot]),
+        branchProvider: @escaping @Sendable () async -> [BranchSnapshot],
+        branchForceTimeout: @escaping @Sendable (String) async -> Void
+    ) async {
+        let (_, workers) = await snapshotProvider()
+        await checkWorkerHealth(workers: workers, workerTimeoutSeconds: workerTimeoutSeconds)
+
+        let branches = await branchProvider()
+        await checkBranchHealth(
+            branches: branches,
+            branchTimeoutSeconds: branchTimeoutSeconds,
+            forceTimeout: branchForceTimeout
+        )
+
+        await checkSignals(
+            channelDegradedFailureCount: channelDegradedFailureCount,
+            channelDegradedWindowSeconds: channelDegradedWindowSeconds,
+            idleThresholdSeconds: idleThresholdSeconds
+        )
+
+        let now = Date()
+        let needsMaintenance = lastMaintenanceRun.map {
+            now.timeIntervalSince($0) >= Double(maintenanceIntervalSeconds)
+        } ?? true
+        if needsMaintenance {
+            await runMemoryMaintenance(
+                decayRatePerDay: decayRatePerDay,
+                pruneImportanceThreshold: pruneImportanceThreshold,
+                pruneMinAgeDays: pruneMinAgeDays
+            )
+            lastMaintenanceRun = now
+        }
+
+        if !isReady {
+            isReady = true
+        }
+    }
+
+    /// Stops the supervision tick loop.
+    public func stopSupervision() {
+        supervisionTask?.cancel()
+        supervisionTask = nil
+        signalSubscriptionTask?.cancel()
+        signalSubscriptionTask = nil
     }
 
     /// Builds periodic runtime bulletin via two-phase retrieval + LLM synthesis.
@@ -99,6 +212,185 @@ public actor Visor {
     /// Lists bulletins generated since runtime startup.
     public func listBulletins() -> [MemoryBulletin] {
         bulletins
+    }
+
+    /// Returns the digest from the most recent bulletin, for injection into LLM prompts.
+    public func latestBulletinDigest() -> String? {
+        lastBulletin?.digest
+    }
+
+    // MARK: - Signal detection
+
+    func recordEvent(_ event: EventEnvelope) {
+        switch event.messageType {
+        case .workerFailed:
+            let channelId = event.channelId
+            var timestamps = failureWindows[channelId] ?? []
+            timestamps.append(Date())
+            failureWindows[channelId] = timestamps
+        case .channelMessageReceived:
+            lastActivityAt = Date()
+        default:
+            break
+        }
+    }
+
+    func checkSignals(
+        channelDegradedFailureCount: Int,
+        channelDegradedWindowSeconds: Int,
+        idleThresholdSeconds: Int
+    ) async {
+        let now = Date()
+        let windowCutoff = now.addingTimeInterval(-Double(channelDegradedWindowSeconds))
+
+        for (channelId, timestamps) in failureWindows {
+            let recent = timestamps.filter { $0 >= windowCutoff }
+            failureWindows[channelId] = recent
+            guard recent.count >= channelDegradedFailureCount else { continue }
+            await eventBus.publish(
+                EventEnvelope(
+                    messageType: .visorSignalChannelDegraded,
+                    channelId: channelId,
+                    payload: .object([
+                        "failure_count": .number(Double(recent.count)),
+                        "window_seconds": .number(Double(channelDegradedWindowSeconds))
+                    ])
+                )
+            )
+            failureWindows[channelId] = []
+        }
+
+        let idleSince = now.timeIntervalSince(lastActivityAt)
+        if idleSince >= Double(idleThresholdSeconds) {
+            await eventBus.publish(
+                EventEnvelope(
+                    messageType: .visorSignalIdle,
+                    channelId: "broadcast",
+                    payload: .object([
+                        "idle_seconds": .number(idleSince)
+                    ])
+                )
+            )
+        }
+    }
+
+    // MARK: - Health monitoring
+
+    func checkWorkerHealth(workers: [WorkerSnapshot], workerTimeoutSeconds: Int) async {
+        let now = Date()
+        let timeout = TimeInterval(workerTimeoutSeconds)
+        for worker in workers {
+            guard worker.status == .running || worker.status == .waitingInput else { continue }
+            guard let startedAt = worker.startedAt else { continue }
+            let elapsed = now.timeIntervalSince(startedAt)
+            guard elapsed >= timeout else { continue }
+            await eventBus.publish(
+                EventEnvelope(
+                    messageType: .visorWorkerTimeout,
+                    channelId: worker.channelId,
+                    taskId: worker.taskId,
+                    workerId: worker.workerId,
+                    payload: .object([
+                        "elapsed_seconds": .number(elapsed),
+                        "timeout_seconds": .number(Double(workerTimeoutSeconds)),
+                        "status": .string(worker.status.rawValue)
+                    ])
+                )
+            )
+        }
+    }
+
+    func checkBranchHealth(
+        branches: [BranchSnapshot],
+        branchTimeoutSeconds: Int,
+        forceTimeout: @Sendable (String) async -> Void
+    ) async {
+        let now = Date()
+        let timeout = TimeInterval(branchTimeoutSeconds)
+        for branch in branches {
+            let elapsed = now.timeIntervalSince(branch.createdAt)
+            guard elapsed >= timeout else { continue }
+            await forceTimeout(branch.branchId)
+        }
+    }
+
+    // MARK: - Memory maintenance
+
+    func runMemoryMaintenance(
+        decayRatePerDay: Double,
+        pruneImportanceThreshold: Double,
+        pruneMinAgeDays: Int
+    ) async {
+        let all = await memoryStore.entries(filter: .default)
+        let now = Date()
+        let minAgeSeconds = TimeInterval(pruneMinAgeDays) * 86_400
+        var decayCount = 0
+        var pruneCount = 0
+
+        for entry in all {
+            guard entry.memoryClass != .bulletin else { continue }
+            guard entry.kind != .identity else { continue }
+
+            let ageSeconds = now.timeIntervalSince(entry.updatedAt)
+            let ageDays = ageSeconds / 86_400
+
+            if ageDays >= 1 {
+                let decayed = entry.importance * (1 - decayRatePerDay * ageDays)
+                let clamped = max(decayed, 0)
+                if clamped < entry.importance {
+                    _ = await memoryStore.updateImportance(id: entry.id, importance: clamped)
+                    decayCount += 1
+                    if clamped < pruneImportanceThreshold && ageSeconds >= minAgeSeconds {
+                        _ = await memoryStore.softDelete(id: entry.id)
+                        pruneCount += 1
+                    }
+                }
+            }
+        }
+
+        await eventBus.publish(
+            EventEnvelope(
+                messageType: .visorMemoryMaintained,
+                channelId: "broadcast",
+                payload: .object([
+                    "decayed": .number(Double(decayCount)),
+                    "pruned": .number(Double(pruneCount))
+                ])
+            )
+        )
+    }
+
+    // MARK: - Interactive chat
+
+    /// Answers a question using the current bulletin, memory recall, and system state.
+    public func answer(
+        question: String,
+        channels: [ChannelSnapshot],
+        workers: [WorkerSnapshot]
+    ) async -> String {
+        let bulletinContext = lastBulletin?.digest ?? "No bulletin yet."
+        let activeWorkers = workers.filter { $0.status == .running || $0.status == .waitingInput }
+        let stateSummary = "Active channels: \(channels.count). Workers in progress: \(activeWorkers.count) / \(workers.count) total."
+        let prompt = """
+            You are Visor, the Sloppy system's self-awareness layer.
+            Answer the following question using only the context provided.
+
+            ## Current Bulletin
+            \(bulletinContext)
+
+            ## System State
+            \(stateSummary)
+
+            ## Question
+            \(question)
+            """
+
+        guard let completionProvider else {
+            return bulletinContext
+        }
+
+        let response = await completionProvider(prompt, 512)
+        return response?.trimmingCharacters(in: .whitespacesAndNewlines) ?? bulletinContext
     }
 
     // MARK: - Private

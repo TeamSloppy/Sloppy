@@ -1101,6 +1101,12 @@ export function ConfigView({ sectionId = "providers", onSectionChange = null }) 
     if (selectedSettings === "channels") {
       return (
         <div className="tg-settings-shell">
+          <section className="entry-editor-card providers-intro-card">
+            <h3>Channels</h3>
+            <p className="placeholder-text">
+              Connect messaging platforms to route incoming messages to agents.
+            </p>
+          </section>
           <TelegramEditor draftConfig={draftConfig} mutateDraft={mutateDraft} />
           <DiscordEditor draftConfig={draftConfig} mutateDraft={mutateDraft} />
         </div>
