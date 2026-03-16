@@ -91,7 +91,9 @@ public actor RuntimeSystem {
         modelProvider: (any ModelProvider)? = nil,
         defaultModel: String? = nil,
         workerExecutor: (any WorkerExecutor)? = nil,
-        memoryStore: (any MemoryStore)? = nil
+        memoryStore: (any MemoryStore)? = nil,
+        visorCompletionProvider: (@Sendable (String, Int) async -> String?)? = nil,
+        visorBulletinMaxWords: Int = 300
     ) {
         let bus = EventBus()
         let memory = memoryStore ?? InMemoryMemoryStore()
@@ -104,7 +106,12 @@ public actor RuntimeSystem {
         )
         self.branches = BranchRuntime(eventBus: bus, memoryStore: memory)
         self.compactor = Compactor(eventBus: bus)
-        self.visor = Visor(eventBus: bus, memoryStore: memory)
+        self.visor = Visor(
+            eventBus: bus,
+            memoryStore: memory,
+            completionProvider: visorCompletionProvider,
+            bulletinMaxWords: visorBulletinMaxWords
+        )
         self.logger = Logger(label: "sloppy.runtime.model")
         self.modelProvider = modelProvider
         self.defaultModel = defaultModel ?? modelProvider?.supportedModels.first

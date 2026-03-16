@@ -411,13 +411,37 @@ public struct CoreConfig: Codable, Sendable {
 
         public var scheduler: Scheduler
         public var bootstrapBulletin: Bool
+        /// Model identifier used for bulletin LLM synthesis (e.g. "openai:gpt-4o-mini").
+        /// When nil, falls back to the default system model.
+        public var model: String?
+        /// Target word count for LLM-synthesized bulletin summary.
+        public var bulletinMaxWords: Int
 
         public init(
             scheduler: Scheduler = Scheduler(),
-            bootstrapBulletin: Bool = true
+            bootstrapBulletin: Bool = true,
+            model: String? = nil,
+            bulletinMaxWords: Int = 300
         ) {
             self.scheduler = scheduler
             self.bootstrapBulletin = bootstrapBulletin
+            self.model = model
+            self.bulletinMaxWords = bulletinMaxWords
+        }
+
+        private enum CodingKeys: String, CodingKey {
+            case scheduler
+            case bootstrapBulletin
+            case model
+            case bulletinMaxWords
+        }
+
+        public init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            scheduler = try container.decodeIfPresent(Scheduler.self, forKey: .scheduler) ?? Scheduler()
+            bootstrapBulletin = try container.decodeIfPresent(Bool.self, forKey: .bootstrapBulletin) ?? true
+            model = try container.decodeIfPresent(String.self, forKey: .model)
+            bulletinMaxWords = try container.decodeIfPresent(Int.self, forKey: .bulletinMaxWords) ?? 300
         }
     }
 
