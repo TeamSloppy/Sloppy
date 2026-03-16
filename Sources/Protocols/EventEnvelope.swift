@@ -107,6 +107,11 @@ public enum MessageType: String, Codable, Sendable, CaseIterable {
     case compactorThresholdHit = "compactor.threshold.hit"
     case compactorSummaryApplied = "compactor.summary.applied"
     case visorBulletinGenerated = "visor.bulletin.generated"
+    case visorWorkerTimeout = "visor.worker.timeout"
+    case visorBranchTimeout = "visor.branch.timeout"
+    case visorMemoryMaintained = "visor.memory.maintained"
+    case visorSignalChannelDegraded = "visor.signal.channel_degraded"
+    case visorSignalIdle = "visor.signal.idle"
     case actorDiscussionStarted = "actor.discussion.started"
     case actorDiscussionConcluded = "actor.discussion.concluded"
 }

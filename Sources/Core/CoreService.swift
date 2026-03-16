@@ -462,6 +462,19 @@ public actor CoreService {
             }
         }
         await heartbeatRunner?.start()
+
+        await runtime.startVisorSupervision(
+            tickIntervalSeconds: currentConfig.visor.tickIntervalSeconds,
+            workerTimeoutSeconds: currentConfig.visor.workerTimeoutSeconds,
+            branchTimeoutSeconds: currentConfig.visor.branchTimeoutSeconds,
+            maintenanceIntervalSeconds: currentConfig.visor.maintenanceIntervalSeconds,
+            decayRatePerDay: currentConfig.visor.decayRatePerDay,
+            pruneImportanceThreshold: currentConfig.visor.pruneImportanceThreshold,
+            pruneMinAgeDays: currentConfig.visor.pruneMinAgeDays,
+            channelDegradedFailureCount: currentConfig.visor.channelDegradedFailureCount,
+            channelDegradedWindowSeconds: currentConfig.visor.channelDegradedWindowSeconds,
+            idleThresholdSeconds: currentConfig.visor.idleThresholdSeconds
+        )
     }
 
     /// Stops all active in-process gateway plugins and visor scheduler. Called on shutdown.
@@ -472,6 +485,7 @@ public actor CoreService {
         activeGatewayPlugins.removeAll()
 
         await visorScheduler?.stop()
+        await runtime.stopVisorSupervision()
         await memoryOutboxIndexer?.stop()
         await cronRunner?.stop()
         await heartbeatRunner?.stop()
@@ -598,6 +612,17 @@ public actor CoreService {
         }
 
         return nil
+    }
+
+    /// Returns true after Visor has completed its first supervision tick.
+    public func isVisorReady() async -> Bool {
+        await runtime.isVisorReady()
+    }
+
+    /// Sends a question to Visor and returns its answer.
+    public func postVisorChat(question: String) async -> String {
+        await waitForStartup()
+        return await runtime.askVisor(question: question)
     }
 
     /// Forces immediate visor bulletin generation and stores it.
@@ -4116,8 +4141,36 @@ public actor CoreService {
         case .workerFailed:
             let errorText = event.payload.objectValue["error"]?.stringValue
             await syncTaskStatusFromWorkerEvent(event: event, nextStatus: ProjectTaskStatus.backlog.rawValue, failureNote: errorText)
+        case .visorWorkerTimeout:
+            await handleWorkerTimeoutEvent(event)
+        case .visorSignalChannelDegraded:
+            let failureCount = event.payload.asObject?["failure_count"]?.asNumber ?? 0
+            logger.warning(
+                "visor.signal.channel_degraded",
+                metadata: [
+                    "channel_id": .string(event.channelId),
+                    "failure_count": .stringConvertible(Int(failureCount))
+                ]
+            )
         default:
             break
+        }
+    }
+
+    private func handleWorkerTimeoutEvent(_ event: EventEnvelope) async {
+        guard let workerId = event.workerId else { return }
+        let elapsed = event.payload.asObject?["elapsed_seconds"]?.asNumber ?? 0
+        logger.warning(
+            "visor.worker.timeout",
+            metadata: [
+                "worker_id": .string(workerId),
+                "channel_id": .string(event.channelId),
+                "elapsed_seconds": .stringConvertible(Int(elapsed))
+            ]
+        )
+        let cancelled = await runtime.abortChannel(channelId: event.channelId)
+        if cancelled > 0 {
+            logger.info("visor.worker.timeout.aborted", metadata: ["channel_id": .string(event.channelId), "cancelled": .stringConvertible(cancelled)])
         }
     }
 

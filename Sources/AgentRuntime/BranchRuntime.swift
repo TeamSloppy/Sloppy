@@ -1,12 +1,29 @@
 import Foundation
 import Protocols
 
+public struct BranchSnapshot: Sendable, Equatable {
+    public var branchId: String
+    public var channelId: String
+    public var prompt: String
+    public var workerId: String?
+    public var createdAt: Date
+
+    public init(branchId: String, channelId: String, prompt: String, workerId: String?, createdAt: Date) {
+        self.branchId = branchId
+        self.channelId = channelId
+        self.prompt = prompt
+        self.workerId = workerId
+        self.createdAt = createdAt
+    }
+}
+
 private struct BranchState: Sendable {
     var channelId: String
     var prompt: String
     var scope: MemoryScope
     var recalledMemory: [MemoryRef]
     var workerId: String?
+    var createdAt: Date
 }
 
 public actor BranchRuntime {
@@ -35,7 +52,8 @@ public actor BranchRuntime {
             prompt: prompt,
             scope: scope,
             recalledMemory: recalled,
-            workerId: nil
+            workerId: nil,
+            createdAt: Date()
         )
 
         await eventBus.publish(
@@ -135,6 +153,33 @@ public actor BranchRuntime {
     /// Returns currently active branch count.
     public func activeBranchesCount() -> Int {
         branches.count
+    }
+
+    /// Returns snapshots of all currently active branches.
+    public func activeBranches() -> [BranchSnapshot] {
+        branches.map { branchId, state in
+            BranchSnapshot(
+                branchId: branchId,
+                channelId: state.channelId,
+                prompt: state.prompt,
+                workerId: state.workerId,
+                createdAt: state.createdAt
+            )
+        }
+    }
+
+    /// Force-concludes a branch with a timeout reason without writing memory.
+    public func forceTimeout(branchId: String) async {
+        guard let state = branches.removeValue(forKey: branchId) else { return }
+        await eventBus.publish(
+            EventEnvelope(
+                messageType: .visorBranchTimeout,
+                channelId: state.channelId,
+                branchId: branchId,
+                workerId: state.workerId,
+                payload: .object(["reason": .string("branch_timeout")])
+            )
+        )
     }
 
     private func publishInvalidConclusion(state: BranchState, branchId: String, error: Error) async {

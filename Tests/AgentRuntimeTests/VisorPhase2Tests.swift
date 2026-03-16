@@ -1,0 +1,300 @@
+import Foundation
+import Testing
+@testable import AgentRuntime
+@testable import Protocols
+
+// MARK: - Helpers
+
+private func makeWorkerSnapshot(
+    workerId: String = UUID().uuidString,
+    channelId: String = "ch1",
+    taskId: String = "t1",
+    status: WorkerStatus = .running,
+    startedAt: Date? = Date()
+) -> WorkerSnapshot {
+    WorkerSnapshot(
+        workerId: workerId,
+        channelId: channelId,
+        taskId: taskId,
+        status: status,
+        mode: .interactive,
+        tools: [],
+        latestReport: nil,
+        startedAt: startedAt  // placed last per WorkerSnapshot.init signature
+    )
+}
+
+private func makeWorkerSnapshotWith(
+    workerId: String = UUID().uuidString,
+    status: WorkerStatus,
+    startedAt: Date?
+) -> WorkerSnapshot {
+    WorkerSnapshot(
+        workerId: workerId,
+        channelId: "ch1",
+        taskId: "t1",
+        status: status,
+        mode: .interactive,
+        tools: [],
+        latestReport: nil,
+        startedAt: startedAt
+    )
+}
+
+private func makeBranchSnapshot(
+    branchId: String = UUID().uuidString,
+    channelId: String = "ch1",
+    createdAt: Date = Date()
+) -> BranchSnapshot {
+    BranchSnapshot(
+        branchId: branchId,
+        channelId: channelId,
+        prompt: "test prompt",
+        workerId: nil,
+        createdAt: createdAt
+    )
+}
+
+private actor EventCollector {
+    var events: [EventEnvelope] = []
+    func record(_ event: EventEnvelope) { events.append(event) }
+    func all() -> [EventEnvelope] { events }
+    func ofType(_ type: MessageType) -> [EventEnvelope] { events.filter { $0.messageType == type } }
+}
+
+// MARK: - Worker timeout detection
+
+@Test func visorDetectsHangingWorker() async {
+    let bus = EventBus()
+    let memory = InMemoryMemoryStore()
+    let visor = Visor(eventBus: bus, memoryStore: memory)
+
+    let pastDate = Date().addingTimeInterval(-700)
+    let hangingWorker = makeWorkerSnapshotWith(workerId: "w1", status: .running, startedAt: pastDate)
+    let recentWorker = makeWorkerSnapshotWith(workerId: "w2", status: .running, startedAt: Date())
+
+    let stream = await bus.subscribe()
+    let collector = EventCollector()
+    let collectTask = Task {
+        for await event in stream {
+            await collector.record(event)
+        }
+    }
+
+    await visor.checkWorkerHealth(workers: [hangingWorker, recentWorker], workerTimeoutSeconds: 600)
+    try? await Task.sleep(for: .milliseconds(50))
+    collectTask.cancel()
+
+    let timeoutEvents = await collector.ofType(.visorWorkerTimeout)
+    #expect(timeoutEvents.count == 1)
+    #expect(timeoutEvents.first?.workerId == "w1")
+}
+
+@Test func visorSkipsNonHangingWorkers() async {
+    let bus = EventBus()
+    let memory = InMemoryMemoryStore()
+    let visor = Visor(eventBus: bus, memoryStore: memory)
+
+    let recentWorker = makeWorkerSnapshotWith(workerId: "w1", status: .running, startedAt: Date())
+    let completedWorker = makeWorkerSnapshotWith(workerId: "w2", status: .completed, startedAt: Date().addingTimeInterval(-700))
+    let noStartWorker = makeWorkerSnapshotWith(workerId: "w3", status: .running, startedAt: nil)
+
+    let stream = await bus.subscribe()
+    let collector = EventCollector()
+    let collectTask = Task {
+        for await event in stream {
+            await collector.record(event)
+        }
+    }
+
+    await visor.checkWorkerHealth(workers: [recentWorker, completedWorker, noStartWorker], workerTimeoutSeconds: 600)
+    try? await Task.sleep(for: .milliseconds(50))
+    collectTask.cancel()
+
+    let timeoutEvents = await collector.ofType(.visorWorkerTimeout)
+    #expect(timeoutEvents.isEmpty)
+}
+
+// MARK: - Branch timeout
+
+private actor TimeoutTracker {
+    var ids: [String] = []
+    func record(_ id: String) { ids.append(id) }
+    func all() -> [String] { ids }
+}
+
+@Test func visorDetectsAndTimeoutsStaleBranch() async {
+    let bus = EventBus()
+    let memory = InMemoryMemoryStore()
+    let visor = Visor(eventBus: bus, memoryStore: memory)
+
+    let staleBranch = makeBranchSnapshot(branchId: "b1", createdAt: Date().addingTimeInterval(-120))
+    let freshBranch = makeBranchSnapshot(branchId: "b2", createdAt: Date())
+
+    let tracker = TimeoutTracker()
+    await visor.checkBranchHealth(
+        branches: [staleBranch, freshBranch],
+        branchTimeoutSeconds: 60,
+        forceTimeout: { @Sendable id in await tracker.record(id) }
+    )
+
+    let timedOutIds = await tracker.all()
+    #expect(timedOutIds == ["b1"])
+}
+
+// MARK: - Memory decay and prune
+
+@Test func visorDecaysOldMemories() async {
+    let bus = EventBus()
+    let memory = InMemoryMemoryStore()
+    let visor = Visor(eventBus: bus, memoryStore: memory)
+
+    let oldDate = Date().addingTimeInterval(-2 * 86_400)
+    let ref = await memory.save(
+        entry: MemoryWriteRequest(
+            note: "some decision",
+            kind: .decision,
+            importance: 0.8,
+            updatedAt: oldDate
+        )
+    )
+
+    await visor.runMemoryMaintenance(
+        decayRatePerDay: 0.05,
+        pruneImportanceThreshold: 0.1,
+        pruneMinAgeDays: 30
+    )
+
+    let entries = await memory.entries(filter: .default)
+    let updated = entries.first(where: { $0.id == ref.id })
+    #expect(updated != nil)
+    #expect((updated?.importance ?? 1.0) < 0.8)
+}
+
+@Test func visorPrunesLowImportanceOldMemories() async {
+    let bus = EventBus()
+    let memory = InMemoryMemoryStore()
+    let visor = Visor(eventBus: bus, memoryStore: memory)
+
+    let veryOldDate = Date().addingTimeInterval(-40 * 86_400)
+    let ref = await memory.save(
+        entry: MemoryWriteRequest(
+            note: "stale fact",
+            kind: .fact,
+            importance: 0.05,
+            updatedAt: veryOldDate
+        )
+    )
+
+    await visor.runMemoryMaintenance(
+        decayRatePerDay: 0.5,
+        pruneImportanceThreshold: 0.1,
+        pruneMinAgeDays: 30
+    )
+
+    let filter = MemoryEntryFilter(includeDeleted: true)
+    let entries = await memory.entries(filter: filter)
+    let entry = entries.first(where: { $0.id == ref.id })
+    #expect(entry?.deletedAt != nil)
+}
+
+@Test func visorSkipsIdentityMemoriesInMaintenance() async {
+    let bus = EventBus()
+    let memory = InMemoryMemoryStore()
+    let visor = Visor(eventBus: bus, memoryStore: memory)
+
+    let oldDate = Date().addingTimeInterval(-50 * 86_400)
+    let ref = await memory.save(
+        entry: MemoryWriteRequest(
+            note: "identity note",
+            kind: .identity,
+            importance: 0.8,
+            updatedAt: oldDate
+        )
+    )
+
+    await visor.runMemoryMaintenance(
+        decayRatePerDay: 0.5,
+        pruneImportanceThreshold: 0.1,
+        pruneMinAgeDays: 30
+    )
+
+    let entries = await memory.entries(filter: .default)
+    let entry = entries.first(where: { $0.id == ref.id })
+    #expect(entry?.importance == 0.8)
+    #expect(entry?.deletedAt == nil)
+}
+
+@Test func visorEmitsMaintenanceEventAfterRun() async {
+    let bus = EventBus()
+    let memory = InMemoryMemoryStore()
+    let visor = Visor(eventBus: bus, memoryStore: memory)
+
+    let stream = await bus.subscribe()
+    let collector = EventCollector()
+    let collectTask = Task {
+        for await event in stream {
+            await collector.record(event)
+        }
+    }
+
+    await visor.runMemoryMaintenance(decayRatePerDay: 0.05, pruneImportanceThreshold: 0.1, pruneMinAgeDays: 30)
+    try? await Task.sleep(for: .milliseconds(50))
+    collectTask.cancel()
+
+    let maintenanceEvents = await collector.ofType(.visorMemoryMaintained)
+    #expect(maintenanceEvents.count == 1)
+}
+
+// MARK: - InMemoryMemoryStore updateImportance / softDelete
+
+@Test func inMemoryStoreUpdateImportanceWorks() async {
+    let store = InMemoryMemoryStore()
+    let ref = await store.save(entry: MemoryWriteRequest(note: "test", importance: 0.8))
+
+    let ok = await store.updateImportance(id: ref.id, importance: 0.3)
+    #expect(ok == true)
+
+    let entries = await store.entries(filter: .default)
+    let entry = entries.first(where: { $0.id == ref.id })
+    #expect(entry?.importance == 0.3)
+}
+
+@Test func inMemoryStoreSoftDeleteWorks() async {
+    let store = InMemoryMemoryStore()
+    let ref = await store.save(entry: MemoryWriteRequest(note: "test"))
+
+    let ok = await store.softDelete(id: ref.id)
+    #expect(ok == true)
+
+    let visible = await store.entries(filter: .default)
+    #expect(visible.first(where: { $0.id == ref.id }) == nil)
+
+    let all = await store.entries(filter: MemoryEntryFilter(includeDeleted: true))
+    let entry = all.first(where: { $0.id == ref.id })
+    #expect(entry?.deletedAt != nil)
+}
+
+// MARK: - latestBulletinDigest
+
+@Test func visorLatestBulletinDigestNilBeforeGeneration() async {
+    let bus = EventBus()
+    let memory = InMemoryMemoryStore()
+    let visor = Visor(eventBus: bus, memoryStore: memory)
+
+    let digest = await visor.latestBulletinDigest()
+    #expect(digest == nil)
+}
+
+@Test func visorLatestBulletinDigestAvailableAfterGeneration() async {
+    let bus = EventBus()
+    let memory = InMemoryMemoryStore()
+    let visor = Visor(eventBus: bus, memoryStore: memory)
+
+    let channel = ChannelSnapshot(channelId: "ch1", messages: [], contextUtilization: 0, activeWorkerIds: [], lastDecision: nil)
+    _ = await visor.generateBulletin(channels: [channel], workers: [])
+
+    let digest = await visor.latestBulletinDigest()
+    #expect(digest != nil)
+    #expect(digest?.isEmpty == false)
+}

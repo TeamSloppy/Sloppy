@@ -491,6 +491,12 @@ public actor RuntimeSystem {
             ""
         ]
 
+        if let digest = await visor.latestBulletinDigest() {
+            lines.append("## Memory Context")
+            lines.append(digest)
+            lines.append("")
+        }
+
         for message in snapshot.messages.suffix(80) {
             let role: String
             if message.userId == "system" {
@@ -831,17 +837,15 @@ public actor RuntimeSystem {
         await workers.artifactContent(id: id)
     }
 
-    /// Generates visor bulletin and applies digest into channel histories.
+    /// Generates visor bulletin. The digest is injected into LLM prompts at call time via buildContextualPrompt.
     public func generateVisorBulletin(taskSummary: String? = nil) async -> MemoryBulletin {
         let channelSnapshots = await channels.snapshots()
         let workerSnapshots = await workers.snapshots()
-        let bulletin = await visor.generateBulletin(
+        return await visor.generateBulletin(
             channels: channelSnapshots,
             workers: workerSnapshots,
             taskSummary: taskSummary
         )
-        await channels.applyBulletinDigest(bulletin.digest)
-        return bulletin
     }
 
     /// Returns collected bulletins.
@@ -852,6 +856,66 @@ public actor RuntimeSystem {
     /// Returns current worker snapshots.
     public func workerSnapshots() async -> [WorkerSnapshot] {
         await workers.snapshots()
+    }
+
+    /// Returns active branch snapshots.
+    public func activeBranchSnapshots() async -> [BranchSnapshot] {
+        await branches.activeBranches()
+    }
+
+    /// Starts the Visor supervision tick loop with config-driven parameters.
+    public func startVisorSupervision(
+        tickIntervalSeconds: Int,
+        workerTimeoutSeconds: Int,
+        branchTimeoutSeconds: Int,
+        maintenanceIntervalSeconds: Int,
+        decayRatePerDay: Double,
+        pruneImportanceThreshold: Double,
+        pruneMinAgeDays: Int,
+        channelDegradedFailureCount: Int = 3,
+        channelDegradedWindowSeconds: Int = 600,
+        idleThresholdSeconds: Int = 1800
+    ) async {
+        await visor.startSupervision(
+            tickInterval: .seconds(max(1, tickIntervalSeconds)),
+            workerTimeoutSeconds: workerTimeoutSeconds,
+            branchTimeoutSeconds: branchTimeoutSeconds,
+            maintenanceIntervalSeconds: maintenanceIntervalSeconds,
+            decayRatePerDay: decayRatePerDay,
+            pruneImportanceThreshold: pruneImportanceThreshold,
+            pruneMinAgeDays: pruneMinAgeDays,
+            channelDegradedFailureCount: channelDegradedFailureCount,
+            channelDegradedWindowSeconds: channelDegradedWindowSeconds,
+            idleThresholdSeconds: idleThresholdSeconds,
+            snapshotProvider: { [weak self] in
+                guard let self else { return ([], []) }
+                return await (self.channels.snapshots(), self.workers.snapshots())
+            },
+            branchProvider: { [weak self] in
+                guard let self else { return [] }
+                return await self.branches.activeBranches()
+            },
+            branchForceTimeout: { [weak self] branchId in
+                await self?.branches.forceTimeout(branchId: branchId)
+            }
+        )
+    }
+
+    /// Stops the Visor supervision tick loop.
+    public func stopVisorSupervision() async {
+        await visor.stopSupervision()
+    }
+
+    /// Returns true after Visor has completed its first supervision tick.
+    public func isVisorReady() async -> Bool {
+        await visor.isReady
+    }
+
+    /// Asks Visor a question and returns an LLM-synthesized answer from current context.
+    public func askVisor(question: String) async -> String {
+        let channels = await channels.snapshots()
+        let workers = await workers.snapshots()
+        return await visor.answer(question: question, channels: channels, workers: workers)
     }
 
     /// Cancels all active workers on a channel and emits abort event.

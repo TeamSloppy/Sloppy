@@ -416,17 +416,57 @@ public struct CoreConfig: Codable, Sendable {
         public var model: String?
         /// Target word count for LLM-synthesized bulletin summary.
         public var bulletinMaxWords: Int
+        /// Interval in seconds for the Visor supervision tick loop.
+        public var tickIntervalSeconds: Int
+        /// Seconds a worker may stay in .running/.waitingInput before it's considered hanging.
+        public var workerTimeoutSeconds: Int
+        /// Seconds a branch may stay alive before it's force-concluded by Visor.
+        public var branchTimeoutSeconds: Int
+        /// Interval in seconds between memory maintenance runs (decay + prune).
+        public var maintenanceIntervalSeconds: Int
+        /// Daily fractional decay applied to non-identity memory importance.
+        public var decayRatePerDay: Double
+        /// Memories with importance below this threshold are candidates for pruning.
+        public var pruneImportanceThreshold: Double
+        /// Minimum age in days before a memory can be pruned.
+        public var pruneMinAgeDays: Int
+        /// Number of workerFailed events in a channel within the window to trigger channel_degraded signal.
+        public var channelDegradedFailureCount: Int
+        /// Window in seconds for channel degradation failure counting.
+        public var channelDegradedWindowSeconds: Int
+        /// Seconds of inactivity before the idle signal is published.
+        public var idleThresholdSeconds: Int
 
         public init(
             scheduler: Scheduler = Scheduler(),
             bootstrapBulletin: Bool = true,
             model: String? = nil,
-            bulletinMaxWords: Int = 300
+            bulletinMaxWords: Int = 300,
+            tickIntervalSeconds: Int = 30,
+            workerTimeoutSeconds: Int = 600,
+            branchTimeoutSeconds: Int = 60,
+            maintenanceIntervalSeconds: Int = 3600,
+            decayRatePerDay: Double = 0.05,
+            pruneImportanceThreshold: Double = 0.1,
+            pruneMinAgeDays: Int = 30,
+            channelDegradedFailureCount: Int = 3,
+            channelDegradedWindowSeconds: Int = 600,
+            idleThresholdSeconds: Int = 1800
         ) {
             self.scheduler = scheduler
             self.bootstrapBulletin = bootstrapBulletin
             self.model = model
             self.bulletinMaxWords = bulletinMaxWords
+            self.tickIntervalSeconds = tickIntervalSeconds
+            self.workerTimeoutSeconds = workerTimeoutSeconds
+            self.branchTimeoutSeconds = branchTimeoutSeconds
+            self.maintenanceIntervalSeconds = maintenanceIntervalSeconds
+            self.decayRatePerDay = decayRatePerDay
+            self.pruneImportanceThreshold = pruneImportanceThreshold
+            self.pruneMinAgeDays = pruneMinAgeDays
+            self.channelDegradedFailureCount = channelDegradedFailureCount
+            self.channelDegradedWindowSeconds = channelDegradedWindowSeconds
+            self.idleThresholdSeconds = idleThresholdSeconds
         }
 
         private enum CodingKeys: String, CodingKey {
@@ -434,6 +474,16 @@ public struct CoreConfig: Codable, Sendable {
             case bootstrapBulletin
             case model
             case bulletinMaxWords
+            case tickIntervalSeconds
+            case workerTimeoutSeconds
+            case branchTimeoutSeconds
+            case maintenanceIntervalSeconds
+            case decayRatePerDay
+            case pruneImportanceThreshold
+            case pruneMinAgeDays
+            case channelDegradedFailureCount
+            case channelDegradedWindowSeconds
+            case idleThresholdSeconds
         }
 
         public init(from decoder: Decoder) throws {
@@ -442,6 +492,16 @@ public struct CoreConfig: Codable, Sendable {
             bootstrapBulletin = try container.decodeIfPresent(Bool.self, forKey: .bootstrapBulletin) ?? true
             model = try container.decodeIfPresent(String.self, forKey: .model)
             bulletinMaxWords = try container.decodeIfPresent(Int.self, forKey: .bulletinMaxWords) ?? 300
+            tickIntervalSeconds = try container.decodeIfPresent(Int.self, forKey: .tickIntervalSeconds) ?? 30
+            workerTimeoutSeconds = try container.decodeIfPresent(Int.self, forKey: .workerTimeoutSeconds) ?? 600
+            branchTimeoutSeconds = try container.decodeIfPresent(Int.self, forKey: .branchTimeoutSeconds) ?? 60
+            maintenanceIntervalSeconds = try container.decodeIfPresent(Int.self, forKey: .maintenanceIntervalSeconds) ?? 3600
+            decayRatePerDay = try container.decodeIfPresent(Double.self, forKey: .decayRatePerDay) ?? 0.05
+            pruneImportanceThreshold = try container.decodeIfPresent(Double.self, forKey: .pruneImportanceThreshold) ?? 0.1
+            pruneMinAgeDays = try container.decodeIfPresent(Int.self, forKey: .pruneMinAgeDays) ?? 30
+            channelDegradedFailureCount = try container.decodeIfPresent(Int.self, forKey: .channelDegradedFailureCount) ?? 3
+            channelDegradedWindowSeconds = try container.decodeIfPresent(Int.self, forKey: .channelDegradedWindowSeconds) ?? 600
+            idleThresholdSeconds = try container.decodeIfPresent(Int.self, forKey: .idleThresholdSeconds) ?? 1800
         }
     }
 

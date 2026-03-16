@@ -61,6 +61,10 @@ public protocol MemoryStore: Sendable {
     func entries(filter: MemoryEntryFilter) async -> [MemoryEntry]
     /// Returns edges touching any of the given memory ids.
     func edges(for memoryIDs: [String]) async -> [MemoryEdgeRecord]
+    /// Updates the importance score of a memory entry. Returns true on success.
+    func updateImportance(id: String, importance: Double) async -> Bool
+    /// Soft-deletes a memory entry by setting deletedAt. Returns true on success.
+    func softDelete(id: String) async -> Bool
 }
 
 public extension MemoryStore {
@@ -81,6 +85,14 @@ public extension MemoryStore {
 
     func edges(for memoryIDs: [String]) async -> [MemoryEdgeRecord] {
         []
+    }
+
+    func updateImportance(id: String, importance: Double) async -> Bool {
+        false
+    }
+
+    func softDelete(id: String) async -> Bool {
+        false
     }
 }
 
@@ -170,6 +182,7 @@ public actor InMemoryMemoryStore: MemoryStore {
         let importance = min(max(entry.importance ?? 0.5, 0), 1)
         let confidence = min(max(entry.confidence ?? 0.7, 0), 1)
 
+        let now = Date()
         let memoryEntry = MemoryEntry(
             note: note,
             summary: entry.summary,
@@ -180,6 +193,8 @@ public actor InMemoryMemoryStore: MemoryStore {
             importance: importance,
             confidence: confidence,
             metadata: entry.metadata,
+            createdAt: entry.updatedAt ?? now,
+            updatedAt: entry.updatedAt ?? now,
             expiresAt: entry.expiresAt
         )
 
@@ -274,6 +289,29 @@ public actor InMemoryMemoryStore: MemoryStore {
             return Array(result.prefix(max(0, limit)))
         }
         return result
+    }
+
+    public func updateImportance(id: String, importance: Double) async -> Bool {
+        guard var entry = byID[id] else { return false }
+        entry.importance = min(max(importance, 0), 1)
+        entry.updatedAt = Date()
+        byID[id] = entry
+        if let index = storage.firstIndex(where: { $0.id == id }) {
+            storage[index] = entry
+        }
+        return true
+    }
+
+    public func softDelete(id: String) async -> Bool {
+        guard var entry = byID[id] else { return false }
+        guard entry.deletedAt == nil else { return true }
+        entry.deletedAt = Date()
+        entry.updatedAt = Date()
+        byID[id] = entry
+        if let index = storage.firstIndex(where: { $0.id == id }) {
+            storage[index] = entry
+        }
+        return true
     }
 
     private static func defaultClass(for kind: MemoryKind) -> MemoryClass {

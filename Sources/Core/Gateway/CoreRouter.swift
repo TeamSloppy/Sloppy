@@ -564,6 +564,21 @@ public actor CoreRouter {
             return Self.encodable(status: HTTPStatus.ok, payload: bulletins)
         }
 
+        add(.get, "/v1/visor/ready", metadata: RouteMetadata(summary: "Visor readiness", description: "Returns whether Visor has completed its first supervision tick", tags: ["System"])) { _ in
+            let ready = await service.isVisorReady()
+            return Self.encodable(status: HTTPStatus.ok, payload: VisorReadyResponse(ready: ready))
+        }
+
+        add(.post, "/v1/visor/chat", metadata: RouteMetadata(summary: "Ask Visor", description: "Sends a question to Visor and returns an answer", tags: ["System"])) { request in
+            guard let body = request.body,
+                  let payload = Self.decode(body, as: VisorChatRequest.self)
+            else {
+                return Self.json(status: HTTPStatus.badRequest, payload: ["error": ErrorCode.invalidBody])
+            }
+            let answer = await service.postVisorChat(question: payload.question)
+            return Self.encodable(status: HTTPStatus.ok, payload: VisorChatResponse(answer: answer))
+        }
+
         add(.get, "/v1/workers", metadata: RouteMetadata(summary: "List workers", description: "Returns a list of active worker runtimes", tags: ["System"])) { _ in
             let workers = await service.workerSnapshots()
             return Self.encodable(status: HTTPStatus.ok, payload: workers)

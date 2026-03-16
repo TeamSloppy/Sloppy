@@ -1219,6 +1219,7 @@ export function ActorsView() {
                   const midX = (source.x + target.x) / 2;
                   const midY = (source.y + target.y) / 2;
                   const isSelected = selectedLinkId === link.id;
+                  const relationship = link.relationship || inferRelationshipFromSockets(sourceSocket, targetSocket);
 
                   return (
                     <g key={link.id}>
@@ -1233,8 +1234,18 @@ export function ActorsView() {
                       />
                       <path
                         d={path}
-                        className={`actor-link ${isSelected ? "selected" : ""}`}
+                        className={`actor-link ${relationship} ${isSelected ? "selected" : ""}`}
                       />
+                      <path
+                        d={path}
+                        className={`actor-link-flow ${relationship}`}
+                      />
+                      {link.direction === "two_way" ? (
+                        <path
+                          d={buildBezierPath(target, source, targetSocket, sourceSocket)}
+                          className={`actor-link-flow ${relationship}`}
+                        />
+                      ) : null}
                       <text x={midX} y={midY} className="actor-link-label">
                         {link.communicationType}
                       </text>

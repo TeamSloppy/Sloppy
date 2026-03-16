@@ -43,7 +43,7 @@ public actor HybridMemoryStore: MemoryStore {
 
     public func save(entry: MemoryWriteRequest) async -> MemoryRef {
         let note = entry.note.trimmingCharacters(in: .whitespacesAndNewlines)
-        let now = Date()
+        let now = entry.updatedAt ?? Date()
         let resolvedKind = entry.kind ?? inferredKind(note: note)
         let resolvedClass = entry.memoryClass ?? defaultClass(for: resolvedKind)
         let resolvedScope = entry.scope ?? .default
@@ -266,6 +266,42 @@ public actor HybridMemoryStore: MemoryStore {
         listEdges(for: memoryIDs)
 #else
         []
+#endif
+    }
+
+    public func updateImportance(id: String, importance: Double) async -> Bool {
+#if canImport(CSQLite3)
+        guard let db else { return false }
+        let clamped = min(max(importance, 0), 1)
+        let sql = "UPDATE memory_entries SET importance = ?, updated_at = ? WHERE id = ? AND deleted_at IS NULL;"
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK else { return false }
+        defer { sqlite3_finalize(statement) }
+        sqlite3_bind_double(statement, 1, clamped)
+        bindText(isoFormatter.string(from: Date()), at: 2, statement: statement)
+        bindText(id, at: 3, statement: statement)
+        _ = sqlite3_step(statement)
+        return sqlite3_changes(db) > 0
+#else
+        return false
+#endif
+    }
+
+    public func softDelete(id: String) async -> Bool {
+#if canImport(CSQLite3)
+        guard let db else { return false }
+        let now = isoFormatter.string(from: Date())
+        let sql = "UPDATE memory_entries SET deleted_at = ?, updated_at = ? WHERE id = ? AND deleted_at IS NULL;"
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK else { return false }
+        defer { sqlite3_finalize(statement) }
+        bindText(now, at: 1, statement: statement)
+        bindText(now, at: 2, statement: statement)
+        bindText(id, at: 3, statement: statement)
+        _ = sqlite3_step(statement)
+        return sqlite3_changes(db) > 0
+#else
+        return false
 #endif
     }
 
