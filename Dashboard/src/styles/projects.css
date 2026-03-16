@@ -1135,8 +1135,158 @@
   margin-top: 4px;
 }
 
+/* ── Review / Git Worktree settings ───────────────────────── */
+
+.review-toggle-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 0 4px;
+}
+
+.review-toggle-label {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  flex: 1;
+}
+
+.review-toggle-icon {
+  font-size: 1.3rem;
+  color: var(--accent);
+  margin-top: 2px;
+  flex-shrink: 0;
+}
+
+.review-toggle-label > div {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.review-toggle-label strong {
+  font-size: 0.92rem;
+  color: var(--text-heading);
+}
+
+.review-toggle-desc {
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--muted);
+  line-height: 1.45;
+}
+
+
+.review-section-divider {
+  height: 1px;
+  background: var(--line);
+  margin: 16px 0;
+}
+
+.review-approval-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.review-approval-title {
+  margin: 0;
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: var(--text-heading);
+}
+
+.review-approval-subtitle {
+  margin: 0 0 8px;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.review-approval-options {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.review-approval-option {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  padding: 12px;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: 0;
+  cursor: pointer;
+  text-align: left;
+  transition: border-color 0.15s, background 0.15s;
+  min-height: auto;
+}
+
+.review-approval-option:hover {
+  border-color: var(--muted);
+  background: var(--surface-3);
+}
+
+.review-approval-option.active {
+  border-color: var(--accent);
+  background: var(--surface-3);
+}
+
+.review-approval-icon {
+  font-size: 1.2rem;
+  color: var(--muted);
+}
+
+.review-approval-option.active .review-approval-icon {
+  color: var(--accent);
+}
+
+.review-approval-name {
+  font-size: 0.82rem;
+  color: var(--text-heading);
+  font-weight: 600;
+}
+
+.review-approval-desc {
+  font-size: 0.76rem;
+  color: var(--muted);
+  line-height: 1.4;
+}
+
+.review-approval-check {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  font-size: 0.9rem;
+  color: var(--accent);
+}
+
+.review-agent-hint {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-top: 12px;
+  padding: 10px 12px;
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
+  font-size: 0.8rem;
+  color: var(--muted);
+  line-height: 1.45;
+}
+
+.review-agent-hint strong {
+  color: var(--text-heading);
+}
+
 @media (max-width: 1000px) {
   .project-board-list {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .review-approval-options {
     grid-template-columns: minmax(0, 1fr);
   }
 }

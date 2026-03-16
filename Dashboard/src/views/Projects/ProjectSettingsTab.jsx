@@ -1,10 +1,28 @@
 import React, { useState, useMemo, useEffect } from "react";
 
 const SETTINGS_TABS = [
-    { id: "models", title: "Models", icon: "hub" },
-    { id: "agent_files", title: "Agent Files", icon: "description" },
-    { id: "channels", title: "Channels", icon: "forum" },
-    { id: "heartbeat", title: "Heartbeat", icon: "monitor_heart" }
+    { id: "review", title: "Git Worktree & Review", icon: "rate_review" }
+];
+
+const APPROVAL_MODES = [
+    {
+        id: "human",
+        label: "Human Approve",
+        icon: "person_check",
+        description: "Notify the dashboard and task creator. Requires manual approval."
+    },
+    {
+        id: "auto",
+        label: "Auto Approve",
+        icon: "check_circle",
+        description: "Automatically merge and mark as done when the task reaches review."
+    },
+    {
+        id: "agent",
+        label: "Agent Approve",
+        icon: "smart_toy",
+        description: "Delegate review to the actor with the Reviewer system role in the team."
+    }
 ];
 
 function cloneDraft(project) {
@@ -16,6 +34,11 @@ function cloneDraft(project) {
             intervalMinutes: Number.isFinite(Number(project?.heartbeat?.intervalMinutes))
                 ? Number(project.heartbeat.intervalMinutes)
                 : 5
+        },
+        repoPath: project?.repoPath ?? "",
+        reviewSettings: {
+            enabled: Boolean(project?.reviewSettings?.enabled),
+            approvalMode: project?.reviewSettings?.approvalMode ?? "human"
         }
     };
 }
@@ -52,7 +75,9 @@ export function ProjectSettingsTab({
         const result = await onUpdateProject({
             models: draft.models,
             agentFiles: draft.agentFiles,
-            heartbeat: draft.heartbeat
+            heartbeat: draft.heartbeat,
+            repoPath: draft.repoPath.trim() || null,
+            reviewSettings: draft.reviewSettings
         });
         if (result) {
             setStatusText("Settings saved");
@@ -251,6 +276,91 @@ export function ProjectSettingsTab({
         );
     }
 
+    function renderReview() {
+        const isEnabled = draft.reviewSettings.enabled;
+        const repoPath = draft.repoPath.trim();
+        return (
+            <section className="entry-editor-card">
+                <h3>Git Worktree &amp; Review</h3>
+
+                <div className="review-toggle-row">
+                    <div className="review-toggle-label">
+                        <span className="material-symbols-rounded review-toggle-icon">account_tree</span>
+                        <div>
+                            <strong>Git Worktree Isolation</strong>
+                            <p className="review-toggle-desc">
+                                Each task runs in a dedicated git branch and worktree. Changes go through review before merging into the main branch.
+                            </p>
+                        </div>
+                    </div>
+                    <label className="agent-tools-switch">
+                        <input
+                            type="checkbox"
+                            checked={isEnabled}
+                            onChange={(e) => mutateDraft((d) => { d.reviewSettings.enabled = e.target.checked; })}
+                        />
+                        <span className="agent-tools-switch-track" />
+                    </label>
+                </div>
+
+                <div className="entry-form-grid" style={{ marginTop: 16 }}>
+                    <label style={{ gridColumn: "1 / -1" }}>
+                        Repository path
+                        <input
+                            type="text"
+                            placeholder="e.g. /home/user/my-project"
+                            value={draft.repoPath}
+                            onChange={(e) => mutateDraft((d) => { d.repoPath = e.target.value; })}
+                        />
+                        <span className="entry-form-hint">
+                            {repoPath
+                                ? <>Worktrees will be created at <code>{repoPath}/.sloppy-worktrees/</code></>
+                                : "Absolute path to the local git repository. Leave empty to disable worktree isolation."}
+                        </span>
+                    </label>
+                </div>
+
+                <div className="review-section-divider" />
+
+                <div className="review-approval-section">
+                    <p className="review-approval-title">Approval mode</p>
+                    <p className="review-approval-subtitle">
+                        Choose how tasks are approved when they reach the Review stage.
+                    </p>
+                    <div className="review-approval-options">
+                        {APPROVAL_MODES.map((mode) => {
+                            const active = draft.reviewSettings.approvalMode === mode.id;
+                            return (
+                                <button
+                                    key={mode.id}
+                                    type="button"
+                                    className={`review-approval-option ${active ? "active" : ""}`}
+                                    onClick={() => mutateDraft((d) => { d.reviewSettings.approvalMode = mode.id; })}
+                                >
+                                    <span className="material-symbols-rounded review-approval-icon">{mode.icon}</span>
+                                    <strong className="review-approval-name">{mode.label}</strong>
+                                    <span className="review-approval-desc">{mode.description}</span>
+                                    {active && (
+                                        <span className="material-symbols-rounded review-approval-check">check_circle</span>
+                                    )}
+                                </button>
+                            );
+                        })}
+                    </div>
+                </div>
+
+                {draft.reviewSettings.approvalMode === "agent" && (
+                    <div className="review-agent-hint">
+                        <span className="material-symbols-rounded" style={{ fontSize: "1rem", color: "var(--accent)" }}>info</span>
+                        <span>
+                            Add an actor with the <strong>Reviewer</strong> system role to the team in the Actor Board. The task will be handed off to that actor for review.
+                        </span>
+                    </div>
+                )}
+            </section>
+        );
+    }
+
     function renderSettingsContent() {
         switch (selectedSettings) {
             case "models":
@@ -261,6 +371,8 @@ export function ProjectSettingsTab({
                 return renderChannels();
             case "heartbeat":
                 return renderHeartbeat();
+            case "review":
+                return renderReview();
             default:
                 return null;
         }
