@@ -1,0 +1,327 @@
+/* Agent Dashboard Styles */
+
+.agent-dashboard {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.dashboard-section-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.dashboard-section-header h3 {
+  margin: 0;
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: var(--text);
+  letter-spacing: -0.01em;
+}
+
+.text-button {
+  background: transparent;
+  border: none;
+  color: var(--muted);
+  font-size: 0.85rem;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 0;
+  transition: color 0.15s ease, background 0.15s ease;
+}
+
+.text-button:hover {
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.flex-center {
+  display: flex;
+  align-items: center;
+}
+
+.gap-2 {
+  gap: 8px;
+}
+
+.text-sm {
+  font-size: 1.1rem !important;
+}
+
+.mt-4 {
+  margin-top: 16px;
+}
+
+/* Latest Run Card */
+.latest-run-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid var(--line);
+  padding: 16px 20px;
+  border-radius: 0;
+}
+
+.latest-run-status {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.latest-run-status .material-symbols-rounded {
+  font-size: 1.2rem;
+  color: var(--muted);
+}
+
+.badge {
+  padding: 2px 10px;
+  border-radius: 0;
+  font-size: 0.75rem;
+  font-weight: 500;
+  text-transform: capitalize;
+}
+
+.badge-cancelled {
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--muted);
+}
+
+.badge-assignment {
+  background: rgba(162, 119, 255, 0.2);
+  color: var(--accent);
+}
+
+.badge-outline {
+  border: 1px solid var(--line);
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.run-id {
+  font-family: "Fira Code", monospace;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.run-time {
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+/* Dashboard Charts Grid */
+.dashboard-charts-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 16px;
+}
+
+.chart-card {
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid var(--line);
+  border-radius: 0;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+}
+
+.chart-header {
+  margin-bottom: 24px;
+}
+
+.chart-header h4 {
+  margin: 0 0 4px 0;
+  font-size: 0.95rem;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  color: var(--text);
+}
+
+.chart-period {
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+
+.chart-body {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+}
+
+.chart-bars {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  height: 100px;
+  gap: 2px;
+  margin-bottom: 12px;
+  border-bottom: 1px dashed var(--line);
+}
+
+.chart-bar-wrap {
+  flex: 1;
+  display: flex;
+  justify-content: center;
+  height: 100%;
+  align-items: flex-end;
+}
+
+.chart-bar {
+  width: 10px;
+  border-radius: 0;
+  min-height: 2px;
+}
+
+.bg-gray {
+  background: #6b7280;
+}
+
+.bg-yellow {
+  background: #f59e0b;
+}
+
+.bg-blue {
+  background: #3b82f6;
+}
+
+.bg-red {
+  background: #ef4444;
+}
+
+.chart-x-axis {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.7rem;
+  color: var(--muted);
+  margin-bottom: 12px;
+}
+
+.chart-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  font-size: 0.7rem;
+  color: var(--muted);
+  margin-top: auto;
+}
+
+.chart-legend>span {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.legend-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 0;
+}
+
+.bg-critical {
+  background: #ef4444;
+}
+
+.bg-high {
+  background: #f97316;
+}
+
+.bg-medium {
+  background: #eab308;
+}
+
+.bg-low {
+  background: #6b7280;
+}
+
+.bg-todo {
+  background: #3b82f6;
+}
+
+/* Recent Issues List */
+.recent-issues-list {
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid var(--line);
+  border-radius: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.recent-issue-item {
+  display: flex;
+  align-items: center;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--line);
+  gap: 16px;
+}
+
+.recent-issue-item:last-child {
+  border-bottom: none;
+}
+
+.issue-id {
+  font-family: "Fira Code", monospace;
+  color: var(--muted);
+  font-size: 0.85rem;
+  width: 60px;
+}
+
+.issue-title {
+  flex: 1;
+  color: var(--text);
+  font-size: 0.9rem;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Costs Card */
+.costs-card {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid var(--line);
+  padding: 24px;
+  border-radius: 0;
+  gap: 16px;
+}
+
+.cost-metric {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.cost-label {
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.cost-value {
+  font-size: 1.5rem;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.hover-levitate {
+  transition: transform 120ms ease, box-shadow 120ms ease, border-color 120ms ease, background-color 120ms ease !important;
+}
+
+.hover-levitate:hover:not(:disabled) {
+  transform: translate(-4px, -4px) !important;
+  box-shadow: 4px 4px 0px var(--accent) !important;
+}
+
+
+@media (max-width: 768px) {
+  .dashboard-charts-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .costs-card {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+

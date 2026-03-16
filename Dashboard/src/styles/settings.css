@@ -1,0 +1,325 @@
+.settings-shell {
+  display: grid;
+  grid-template-columns: 260px 1fr;
+  gap: 8px;
+  min-height: 620px;
+}
+
+.settings-side {
+  border-right: 1px solid var(--line);
+  border-radius: 0;
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.settings-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.settings-title-row h2 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.settings-valid {
+  border: 1px solid var(--line-strong);
+  border-radius: 0;
+  padding: 4px 11px;
+  font-size: 0.82rem;
+}
+
+.settings-valid.ok {
+  color: var(--success);
+  border-color: var(--success);
+}
+
+.settings-valid.bad {
+  color: var(--danger);
+  border-color: var(--danger);
+}
+
+.settings-search {
+  border-radius: 0;
+}
+
+.settings-nav {
+  flex: 1;
+  overflow: auto;
+  display: grid;
+  gap: 2px;
+  align-content: start;
+}
+
+.settings-nav-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  text-align: left;
+  border-radius: 0;
+  border: 1px solid transparent;
+  padding: 8px 10px;
+  background: transparent;
+  color: var(--muted);
+}
+
+.settings-nav-icon {
+  width: 20px;
+  min-width: 20px;
+  font-size: 18px;
+  font-variation-settings: "FILL" 0, "wght" 300, "GRAD" 0, "opsz" 20;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.settings-nav-item.active .settings-nav-icon {
+  font-variation-settings: "FILL" 1, "wght" 400, "GRAD" 0, "opsz" 20;
+}
+
+.settings-nav-item:hover {
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.settings-nav-item.active {
+  color: var(--text);
+  border-color: var(--line);
+  background: var(--surface-3);
+}
+
+.settings-mode-switch {
+  border: 1px solid var(--line);
+  border-radius: 0;
+  padding: 4px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+
+.settings-mode-switch button {
+  background: transparent;
+  color: var(--muted);
+}
+
+.settings-mode-switch button.active {
+  color: var(--text);
+  background: var(--surface-3);
+  border-color: var(--line);
+}
+
+.settings-main {
+  border: 1px solid var(--line);
+  border-radius: 0;
+  background: var(--surface);
+  padding: 10px;
+  display: grid;
+  grid-template-rows: auto 1fr;
+  gap: 8px;
+}
+
+.settings-main-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 8px;
+}
+
+.settings-main-status {
+  display: grid;
+  gap: 4px;
+}
+
+.settings-main-status span {
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.settings-toast {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  z-index: 900;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 18px;
+  background: var(--card);
+  border: 1px solid var(--accent);
+  border-radius: 10px;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.35);
+  opacity: 0;
+  transform: translateY(16px);
+  pointer-events: none;
+  transition: opacity 220ms ease, transform 220ms ease;
+}
+
+.settings-toast--visible {
+  opacity: 1;
+  transform: translateY(0);
+  pointer-events: auto;
+}
+
+.settings-toast-label {
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: var(--text);
+  white-space: nowrap;
+}
+
+.settings-toast-actions {
+  display: inline-flex;
+  gap: 8px;
+}
+
+.settings-toast-actions button {
+  min-width: 82px;
+  transition: border-color 120ms ease, background-color 120ms ease, color 120ms ease, opacity 120ms ease;
+}
+
+.settings-toast-actions button:last-child {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.settings-raw-editor {
+  width: 100%;
+  min-height: 520px;
+  font-family: "Fira Code", monospace;
+  line-height: 1.4;
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--line);
+  padding: 12px;
+}
+
+.settings-raw-pane {
+  display: grid;
+  grid-template-rows: auto 1fr;
+  gap: 12px;
+  height: 100%;
+}
+
+.settings-raw-toolbar {
+  display: flex;
+  justify-content: flex-end;
+  padding: 4px 0;
+}
+
+.settings-raw-toggle-group {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: var(--text-heading);
+}
+
+.settings-raw-editor-container {
+  position: relative;
+  width: 100%;
+  min-height: 520px;
+  border: 1px solid var(--line);
+  background: var(--bg);
+  font-family: "Fira Code", monospace;
+  font-size: 14px;
+  line-height: 1.5;
+  overflow: hidden;
+}
+
+.settings-raw-editor-highlight,
+.settings-raw-editor-input {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  padding: 16px;
+  margin: 0;
+  border: none;
+  font-family: inherit;
+  font-size: inherit;
+  line-height: inherit;
+  white-space: pre;
+  word-wrap: normal;
+  overflow: auto;
+  box-sizing: border-box;
+}
+
+.settings-raw-editor-highlight {
+  pointer-events: none;
+  z-index: 1;
+}
+
+.settings-raw-editor-input {
+  background: transparent;
+  color: transparent;
+  caret-color: var(--text);
+  resize: none;
+  z-index: 2;
+  outline: none;
+}
+
+.settings-raw-editor-input::selection {
+  background: rgba(255, 255, 255, 0.1);
+  color: transparent;
+}
+
+.settings-raw-diff-container {
+  border: 1px solid var(--line);
+  padding: 0;
+  overflow: auto;
+  background: var(--bg);
+  min-height: 520px;
+}
+
+.settings-raw-diff-container::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+.settings-raw-diff-container::-webkit-scrollbar-track {
+  background: var(--bg);
+}
+
+.settings-raw-diff-container::-webkit-scrollbar-thumb {
+  background: var(--surface-3);
+  border: 2px solid var(--bg);
+}
+
+.settings-raw-diff-container::-webkit-scrollbar-thumb:hover {
+  background: var(--line);
+}
+
+.settings-raw-diff-container .diff-view-wrapper {
+  font-family: "Fira Code", monospace;
+}
+
+.settings-raw-editor-highlight .token.property {
+  color: var(--accent);
+}
+
+.settings-raw-editor-highlight .token.string {
+  color: var(--success);
+}
+
+.settings-raw-editor-highlight .token.number,
+.settings-raw-editor-highlight .token.boolean {
+  color: var(--warn);
+}
+
+.settings-raw-editor-highlight .token.punctuation {
+  color: var(--muted);
+}
+
+.settings-raw-editor-highlight .token.operator {
+  color: var(--muted);
+}
+

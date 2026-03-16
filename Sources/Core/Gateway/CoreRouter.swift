@@ -2033,6 +2033,26 @@ public actor CoreRouter {
         )
     }
 
+    private static func sseText(status: Int, stream: AsyncStream<String>) -> CoreRouterResponse {
+        let sseStream = AsyncStream<CoreRouterServerSentEvent>(bufferingPolicy: .bufferingNewest(256)) { continuation in
+            let task = Task {
+                for await chunk in stream {
+                    guard !chunk.isEmpty else { continue }
+                    let data = Data(chunk.utf8)
+                    continuation.yield(CoreRouterServerSentEvent(event: "delta", data: data, id: nil))
+                }
+                continuation.finish()
+            }
+            continuation.onTermination = { _ in task.cancel() }
+        }
+        return CoreRouterResponse(
+            status: status,
+            body: Data(),
+            contentType: "text/event-stream",
+            sseStream: sseStream
+        )
+    }
+
     private static func decode<T: Decodable>(_ data: Data, as type: T.Type) -> T? {
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601

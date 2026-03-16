@@ -259,11 +259,17 @@ public actor CoreService {
             visorModel: config.visor.model,
             resolvedModels: resolvedModels
         )
+        let visorStreamingProvider = Self.buildVisorStreamingProvider(
+            modelProvider: modelProvider,
+            visorModel: config.visor.model,
+            resolvedModels: resolvedModels
+        )
         let runtime = RuntimeSystem(
             modelProvider: modelProvider,
             defaultModel: modelProvider?.supportedModels.first ?? resolvedModels.first,
             memoryStore: runtimeMemoryStore,
             visorCompletionProvider: visorCompletionProvider,
+            visorStreamingProvider: visorStreamingProvider,
             visorBulletinMaxWords: config.visor.bulletinMaxWords
         )
         self.runtime = runtime
@@ -625,6 +631,12 @@ public actor CoreService {
         return await runtime.askVisor(question: question)
     }
 
+    /// Sends a question to Visor and returns a stream of text delta chunks.
+    public func streamVisorChat(question: String) async -> AsyncStream<String> {
+        await waitForStartup()
+        return await runtime.streamVisorAnswer(question: question)
+    }
+
     /// Forces immediate visor bulletin generation and stores it.
     public func triggerVisorBulletin() async -> MemoryBulletin {
         await waitForStartup()
@@ -689,6 +701,52 @@ public actor CoreService {
             let session = LanguageModelSession(model: languageModel, tools: [])
             let options = modelProvider.generationOptions(for: activeModel, maxTokens: maxTokens, reasoningEffort: nil)
             return try? await session.respond(to: prompt, options: options).content
+        }
+    }
+
+    private static func buildVisorStreamingProvider(
+        modelProvider: (any ModelProvider)?,
+        visorModel: String?,
+        resolvedModels: [String]
+    ) -> (@Sendable (String, Int) -> AsyncStream<String>)? {
+        guard let modelProvider else {
+            return nil
+        }
+
+        let activeModel: String
+        if let visorModel, !visorModel.isEmpty, modelProvider.supportedModels.contains(visorModel) {
+            activeModel = visorModel
+        } else if let fallback = modelProvider.supportedModels.first ?? resolvedModels.first {
+            activeModel = fallback
+        } else {
+            return nil
+        }
+
+        return { @Sendable prompt, maxTokens in
+            AsyncStream<String> { continuation in
+                Task {
+                    guard let languageModel = try? await modelProvider.createLanguageModel(for: activeModel) else {
+                        continuation.finish()
+                        return
+                    }
+                    let session = LanguageModelSession(model: languageModel, tools: [])
+                    let options = modelProvider.generationOptions(for: activeModel, maxTokens: maxTokens, reasoningEffort: nil)
+                    var previousLength = 0
+                    do {
+                        for try await snapshot in session.streamResponse(to: prompt, options: options) {
+                            let full = snapshot.content
+                            guard full.count > previousLength else { continue }
+                            let startIndex = full.index(full.startIndex, offsetBy: previousLength)
+                            let delta = String(full[startIndex...])
+                            continuation.yield(delta)
+                            previousLength = full.count
+                        }
+                    } catch {
+                        // stream ends gracefully on error
+                    }
+                    continuation.finish()
+                }
+            }
         }
     }
 

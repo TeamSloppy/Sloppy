@@ -5,6 +5,7 @@ public actor Visor {
     private let eventBus: EventBus
     private let memoryStore: MemoryStore
     private let completionProvider: (@Sendable (String, Int) async -> String?)?
+    private let streamingProvider: (@Sendable (String, Int) -> AsyncStream<String>)?
     private let bulletinMaxWords: Int
     private var bulletins: [MemoryBulletin] = []
     private var lastRetrievalHash: String?
@@ -20,11 +21,13 @@ public actor Visor {
         eventBus: EventBus,
         memoryStore: MemoryStore,
         completionProvider: (@Sendable (String, Int) async -> String?)? = nil,
+        streamingProvider: (@Sendable (String, Int) -> AsyncStream<String>)? = nil,
         bulletinMaxWords: Int = 300
     ) {
         self.eventBus = eventBus
         self.memoryStore = memoryStore
         self.completionProvider = completionProvider
+        self.streamingProvider = streamingProvider
         self.bulletinMaxWords = bulletinMaxWords
     }
 
@@ -391,6 +394,46 @@ public actor Visor {
 
         let response = await completionProvider(prompt, 512)
         return response?.trimmingCharacters(in: .whitespacesAndNewlines) ?? bulletinContext
+    }
+
+    /// Streams an answer to a question using current bulletin and system state, yielding text deltas.
+    public func streamAnswer(
+        question: String,
+        channels: [ChannelSnapshot],
+        workers: [WorkerSnapshot]
+    ) -> AsyncStream<String> {
+        let bulletinContext = lastBulletin?.digest ?? "No bulletin yet."
+        let activeWorkers = workers.filter { $0.status == .running || $0.status == .waitingInput }
+        let stateSummary = "Active channels: \(channels.count). Workers in progress: \(activeWorkers.count) / \(workers.count) total."
+        let prompt = """
+            You are Visor, the Sloppy system's self-awareness layer.
+            Answer the following question using only the context provided.
+
+            ## Current Bulletin
+            \(bulletinContext)
+
+            ## System State
+            \(stateSummary)
+
+            ## Question
+            \(question)
+            """
+
+        if let streamingProvider {
+            return streamingProvider(prompt, 512)
+        }
+
+        let completionProvider = self.completionProvider
+        return AsyncStream<String> { continuation in
+            Task {
+                if let text = await completionProvider?(prompt, 512) {
+                    continuation.yield(text.trimmingCharacters(in: .whitespacesAndNewlines))
+                } else {
+                    continuation.yield(bulletinContext)
+                }
+                continuation.finish()
+            }
+        }
     }
 
     // MARK: - Private

@@ -1,0 +1,121 @@
+/* Markdown & Code Blocks */
+.markdown-body {
+  line-height: 1.6;
+  font-family: inherit;
+  color: var(--text);
+}
+
+.markdown-body p {
+  margin-top: 0;
+  margin-bottom: 12px;
+}
+
+.markdown-body p:last-child {
+  margin-bottom: 0;
+}
+
+.markdown-body h1,
+.markdown-body h2,
+.markdown-body h3,
+.markdown-body h4,
+.markdown-body h5,
+.markdown-body h6 {
+  margin-top: 24px;
+  margin-bottom: 12px;
+  font-weight: 600;
+  line-height: 1.25;
+  color: var(--accent);
+  text-transform: uppercase;
+}
+
+.markdown-body h1 {
+  font-size: 1.4rem;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--line);
+}
+
+.markdown-body h2 {
+  font-size: 1.2rem;
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--line);
+}
+
+.markdown-body h3 {
+  font-size: 1.1rem;
+}
+
+.markdown-body pre {
+  margin: 16px 0;
+  padding: 0;
+  overflow: hidden;
+  background: var(--surface-2) !important;
+  border: 1px solid var(--line-strong);
+  box-shadow: 4px 4px 0px rgba(204, 255, 0, 0.1);
+}
+
+.markdown-body code {
+  padding: 0.2em 0.4em;
+  margin: 0;
+  font-size: 85%;
+  background-color: var(--surface-3);
+  border: 1px solid var(--line);
+  font-family: "Fira Code", monospace;
+}
+
+.markdown-body pre code {
+  padding: 0;
+  margin: 0;
+  font-size: 100%;
+  word-break: normal;
+  white-space: pre;
+  background: transparent;
+  border: 0;
+}
+
+.markdown-body blockquote {
+  padding: 0 1em;
+  color: var(--muted);
+  border-left: 0.25em solid var(--accent);
+  margin: 16px 0;
+}
+
+.markdown-body ul,
+.markdown-body ol {
+  padding-left: 2em;
+  margin-bottom: 16px;
+}
+
+.markdown-body table {
+  display: block;
+  width: 100%;
+  width: max-content;
+  max-width: 100%;
+  overflow: auto;
+  border-spacing: 0;
+  border-collapse: collapse;
+  margin-bottom: 16px;
+}
+
+.markdown-body table tr {
+  background-color: var(--bg);
+  border-top: 1px solid var(--line);
+}
+
+.markdown-body table th,
+.markdown-body table td {
+  padding: 6px 13px;
+  border: 1px solid var(--line);
+}
+
+.markdown-body table th {
+  font-weight: 600;
+  background-color: var(--surface-2);
+}
+
+/* Syntax Highlighter Overrides */
+.markdown-body div[class*="language-"] {
+  border-radius: 0 !important;
+  font-family: "Fira Code", monospace !important;
+  font-size: 0.9rem !important;
+  background: transparent !important;
+}

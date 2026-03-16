@@ -93,6 +93,7 @@ public actor RuntimeSystem {
         workerExecutor: (any WorkerExecutor)? = nil,
         memoryStore: (any MemoryStore)? = nil,
         visorCompletionProvider: (@Sendable (String, Int) async -> String?)? = nil,
+        visorStreamingProvider: (@Sendable (String, Int) -> AsyncStream<String>)? = nil,
         visorBulletinMaxWords: Int = 300
     ) {
         let bus = EventBus()
@@ -110,6 +111,7 @@ public actor RuntimeSystem {
             eventBus: bus,
             memoryStore: memory,
             completionProvider: visorCompletionProvider,
+            streamingProvider: visorStreamingProvider,
             bulletinMaxWords: visorBulletinMaxWords
         )
         self.logger = Logger(label: "sloppy.runtime.model")
@@ -916,6 +918,13 @@ public actor RuntimeSystem {
         let channels = await channels.snapshots()
         let workers = await workers.snapshots()
         return await visor.answer(question: question, channels: channels, workers: workers)
+    }
+
+    /// Asks Visor a question and streams the answer as text delta chunks.
+    public func streamVisorAnswer(question: String) async -> AsyncStream<String> {
+        let channels = await channels.snapshots()
+        let workers = await workers.snapshots()
+        return await visor.streamAnswer(question: question, channels: channels, workers: workers)
     }
 
     /// Cancels all active workers on a channel and emits abort event.

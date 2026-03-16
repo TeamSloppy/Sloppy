@@ -1,0 +1,129 @@
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  min-height: 100%;
+}
+
+body {
+  margin: 0;
+  font-family: "Fira Code", monospace;
+  color: var(--text);
+  background: var(--bg);
+  position: relative;
+}
+
+body::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 9999;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E");
+  opacity: 0.05;
+  mix-blend-mode: overlay;
+}
+
+body.mobile-menu-open {
+  overflow: hidden;
+}
+
+
+.chat-form {
+  display: grid;
+  gap: 8px;
+}
+
+textarea,
+input,
+select {
+  width: 100%;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--text);
+  border-radius: 0;
+  padding: 10px;
+  font: inherit;
+}
+
+button {
+  border: 1px solid var(--line);
+  border-radius: 0;
+  padding: 9px 12px;
+  background: var(--surface);
+  color: var(--text);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+button:hover {
+  border-color: var(--line-strong);
+}
+
+.danger {
+  border-color: var(--danger);
+  color: var(--danger);
+}
+
+.log,
+.feed {
+  margin-top: 10px;
+  max-height: 230px;
+  overflow: auto;
+  display: grid;
+  gap: 8px;
+}
+
+.log-item,
+.feed-item,
+.task-card {
+  border: 1px solid var(--line);
+  border-radius: 0;
+  padding: 8px;
+  background: var(--surface-3);
+}
+
+.log-item p,
+.feed-item p,
+.task-card p {
+  margin: 4px 0 0;
+  color: var(--muted);
+}
+
+.artifact-controls {
+  display: flex;
+  gap: 8px;
+}
+
+pre {
+  margin-top: 8px;
+  padding: 10px;
+  border-radius: 0;
+  max-height: 200px;
+  overflow: auto;
+  white-space: pre-wrap;
+}
+
+/* Flat override: remove card-like surfaces across the dashboard. */
+.panel,
+.project-card,
+.project-listing-item,
+.agents-index,
+.agent-content-shell,
+.entry-list,
+.entry-list-item,
+.entry-editor-card,
+.settings-main,
+.provider-model-option,
+.log-item,
+.feed-item,
+.task-card {
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+

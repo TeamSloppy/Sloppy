@@ -1,0 +1,134 @@
+.entry-editor-layout {
+  display: grid;
+  grid-template-columns: 240px 1fr;
+  gap: 12px;
+}
+
+.entry-list {
+  border: 1px solid var(--line);
+  border-radius: 0;
+  background: var(--surface-3);
+  display: grid;
+  grid-template-rows: auto 1fr;
+}
+
+.entry-list-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px;
+  border-bottom: 1px solid var(--line);
+}
+
+.entry-list-head h4 {
+  margin: 0;
+}
+
+.entry-list-head button {
+  min-width: auto;
+  padding: 7px 10px;
+}
+
+.entry-list-scroll {
+  padding: 10px;
+  display: grid;
+  gap: 8px;
+  align-content: start;
+}
+
+.entry-list-item {
+  width: 100%;
+  text-align: left;
+  border: 1px solid var(--line);
+  border-radius: 0;
+  background: var(--surface);
+  color: var(--text);
+}
+
+.entry-list-item.active {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.entry-editor-card {
+  border: 1px solid var(--line);
+  border-radius: 0;
+  background: var(--surface-3);
+  padding: 10px;
+}
+
+.entry-editor-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
+}
+
+.entry-editor-head h3 {
+  margin: 0;
+}
+
+.entry-editor-block {
+  border: 1px solid var(--line);
+  border-radius: 0;
+  padding: 12px;
+  margin-top: 10px;
+  background: var(--surface);
+}
+
+.entry-editor-block-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.entry-editor-block-title {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.entry-editor-toggle {
+  font-size: 0.8rem;
+  font-weight: 600;
+  padding: 4px 12px;
+  border-radius: 0;
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  min-width: auto;
+}
+
+.entry-editor-toggle.active {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: rgba(99, 120, 255, 0.08);
+}
+
+.entry-editor-empty {
+  font-size: 0.85rem;
+  color: var(--muted);
+  margin: 0;
+}
+
+.entry-form-hint {
+  font-size: 0.78rem;
+  color: var(--muted);
+  opacity: 0.7;
+  margin-top: -2px;
+}
+
+.entry-form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.entry-form-grid label {
+  display: grid;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 0.88rem;
+}
