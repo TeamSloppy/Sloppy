@@ -3,7 +3,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { oneDark } from "react-syntax-highlighter/dist/esm/styles/prism";
-import { fetchActorsBoard, fetchAgents, fetchChannelEvents, fetchChannelSession, fetchProjects, postChannelControl } from "../api";
+import { fetchActorsBoard, fetchAgents, fetchChannelEvents, fetchChannelModel, fetchChannelSession, fetchProjects, fetchTokenUsage, postChannelControl } from "../api";
 import { Breadcrumbs } from "../components/Breadcrumbs/Breadcrumbs";
 
 function formatRelativeTime(value) {
@@ -271,6 +271,25 @@ function buildTechnicalEventSummary(event) {
   };
 }
 
+function parseContextWindowTokens(value) {
+  if (!value || typeof value !== "string") return 0;
+  const normalized = value.trim().toUpperCase();
+  const match = normalized.match(/^([\d.]+)\s*([KMB])?$/);
+  if (!match) return 0;
+  const num = parseFloat(match[1]);
+  const suffix = match[2] || "";
+  if (suffix === "M") return Math.round(num * 1_000_000);
+  if (suffix === "K") return Math.round(num * 1_000);
+  if (suffix === "B") return Math.round(num * 1_000_000_000);
+  return Math.round(num);
+}
+
+function formatTokenCount(count) {
+  if (count >= 1_000_000) return `${(count / 1_000_000).toFixed(1)}M`;
+  if (count >= 1_000) return `${(count / 1_000).toFixed(1)}K`;
+  return String(count);
+}
+
 function isMessageEvent(type) {
   return type === "user_message" || type === "assistant_message" || type === "system_message";
 }
@@ -318,6 +337,77 @@ function buildProjectByChannel(projects) {
   return projectByChannel;
 }
 
+function ContextPanel({ tokenUsage, channelModelInfo }) {
+  const selectedModel = channelModelInfo?.selectedModel || null;
+  const availableModels = Array.isArray(channelModelInfo?.availableModels) ? channelModelInfo.availableModels : [];
+  const activeModel = availableModels.find((m) => m.id === selectedModel) || availableModels[0] || null;
+  const modelName = activeModel?.title || selectedModel || "—";
+  const contextWindowStr = activeModel?.contextWindow || null;
+  const contextWindowTokens = parseContextWindowTokens(contextWindowStr);
+
+  const promptTokens = tokenUsage?.totalPromptTokens ?? 0;
+  const completionTokens = tokenUsage?.totalCompletionTokens ?? 0;
+  const totalTokens = tokenUsage?.totalTokens ?? (promptTokens + completionTokens);
+
+  const usagePercent = contextWindowTokens > 0
+    ? Math.min(100, Math.round((totalTokens / contextWindowTokens) * 100))
+    : 0;
+
+  const barColor = usagePercent >= 90 ? "#e57272" : usagePercent >= 70 ? "#f5a623" : "#6ec6a5";
+
+  return (
+    <section className="channel-session-panel">
+      <div className="overview-section-header">
+        <h2>
+          <span className="material-symbols-rounded">token</span>
+          Context
+        </h2>
+      </div>
+      <dl className="channel-session-meta-list">
+        <div>
+          <dt>Model</dt>
+          <dd>{modelName}</dd>
+        </div>
+        {contextWindowStr ? (
+          <div>
+            <dt>Context Window</dt>
+            <dd>{contextWindowStr} tokens</dd>
+          </div>
+        ) : null}
+        <div>
+          <dt>Prompt Tokens</dt>
+          <dd>{promptTokens.toLocaleString()}</dd>
+        </div>
+        <div>
+          <dt>Completion Tokens</dt>
+          <dd>{completionTokens.toLocaleString()}</dd>
+        </div>
+        <div>
+          <dt>Total Tokens Used</dt>
+          <dd>{totalTokens.toLocaleString()}</dd>
+        </div>
+        {contextWindowTokens > 0 ? (
+          <div className="context-usage-bar-wrapper">
+            <dt>Usage</dt>
+            <dd>
+              <div className="context-usage-row">
+                <span>{formatTokenCount(totalTokens)} / {contextWindowStr}</span>
+                <span className="context-usage-pct">{usagePercent}%</span>
+              </div>
+              <div className="context-usage-bar">
+                <div
+                  className="context-usage-bar-fill"
+                  style={{ width: `${usagePercent}%`, background: barColor }}
+                />
+              </div>
+            </dd>
+          </div>
+        ) : null}
+      </dl>
+    </section>
+  );
+}
+
 export function ChannelSessionView({ sessionId, onNavigateBack }) {
   const [sessionDetail, setSessionDetail] = useState(null);
   const [runtimeEvents, setRuntimeEvents] = useState([]);
@@ -327,6 +417,8 @@ export function ChannelSessionView({ sessionId, onNavigateBack }) {
   const [isLoading, setIsLoading] = useState(true);
   const [errorText, setErrorText] = useState("");
   const [controlBusy, setControlBusy] = useState(false);
+  const [tokenUsage, setTokenUsage] = useState(null);
+  const [channelModelInfo, setChannelModelInfo] = useState(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -390,9 +482,11 @@ export function ChannelSessionView({ sessionId, onNavigateBack }) {
     let cancelled = false;
 
     async function refreshLive(silent = false) {
-      const [detail, channelEventsResponse] = await Promise.all([
+      const [detail, channelEventsResponse, tokenData, modelData] = await Promise.all([
         fetchChannelSession(sessionId).catch(() => null),
-        fetchChannelEvents(channelId, { limit: 200 }).catch(() => null)
+        fetchChannelEvents(channelId, { limit: 200 }).catch(() => null),
+        fetchTokenUsage({ channelId }).catch(() => null),
+        fetchChannelModel(channelId).catch(() => null)
       ]);
 
       if (cancelled) {
@@ -404,6 +498,9 @@ export function ChannelSessionView({ sessionId, onNavigateBack }) {
       } else if (!silent) {
         setErrorText("Failed to refresh channel session.");
       }
+
+      if (tokenData) setTokenUsage(tokenData);
+      if (modelData) setChannelModelInfo(modelData);
 
       const allRuntimeEvents = normalizeRuntimeEvents(channelEventsResponse);
       const windowStart = createdAt ? new Date(createdAt).getTime() : Number.NEGATIVE_INFINITY;
@@ -641,6 +738,11 @@ export function ChannelSessionView({ sessionId, onNavigateBack }) {
               ) : null}
             </dl>
           </section>
+
+          <ContextPanel
+            tokenUsage={tokenUsage}
+            channelModelInfo={channelModelInfo}
+          />
 
           {summary.lastMessagePreview ? (
             <section className="channel-session-panel">

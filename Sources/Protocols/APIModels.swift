@@ -2234,3 +2234,77 @@ public struct VisorChatResponse: Codable, Sendable {
         self.answer = answer
     }
 }
+
+// MARK: - Task Review
+
+public struct TaskDiffResponse: Codable, Sendable {
+    public var diff: String
+    public var branchName: String
+    public var baseBranch: String
+
+    public init(diff: String, branchName: String, baseBranch: String) {
+        self.diff = diff
+        self.branchName = branchName
+        self.baseBranch = baseBranch
+    }
+}
+
+public struct ReviewComment: Codable, Sendable, Identifiable {
+    public var id: String
+    public var taskId: String
+    public var filePath: String
+    public var lineNumber: Int?
+    public var side: String?
+    public var content: String
+    public var author: String
+    public var resolved: Bool
+    public var createdAt: Date
+
+    public init(
+        id: String,
+        taskId: String,
+        filePath: String,
+        lineNumber: Int? = nil,
+        side: String? = nil,
+        content: String,
+        author: String,
+        resolved: Bool = false,
+        createdAt: Date = Date()
+    ) {
+        self.id = id
+        self.taskId = taskId
+        self.filePath = filePath
+        self.lineNumber = lineNumber
+        self.side = side
+        self.content = content
+        self.author = author
+        self.resolved = resolved
+        self.createdAt = createdAt
+    }
+}
+
+public struct ReviewCommentCreateRequest: Codable, Sendable {
+    public var filePath: String
+    public var lineNumber: Int?
+    public var side: String?
+    public var content: String
+    public var author: String
+
+    public init(filePath: String, lineNumber: Int? = nil, side: String? = nil, content: String, author: String) {
+        self.filePath = filePath
+        self.lineNumber = lineNumber
+        self.side = side
+        self.content = content
+        self.author = author
+    }
+}
+
+public struct ReviewCommentUpdateRequest: Codable, Sendable {
+    public var resolved: Bool?
+    public var content: String?
+
+    public init(resolved: Bool? = nil, content: String? = nil) {
+        self.resolved = resolved
+        self.content = content
+    }
+}

@@ -1,7 +1,28 @@
 import Foundation
 
+public struct BotCommand: Sendable {
+    public let name: String
+    public let description: String
+    public let argument: String?
+
+    public init(name: String, description: String, argument: String? = nil) {
+        self.name = name
+        self.description = description
+        self.argument = argument
+    }
+}
+
 /// Handles shared channel bot commands across built-in gateway plugins.
 public struct ChannelCommandHandler: Sendable {
+    public static let commands: [BotCommand] = [
+        BotCommand(name: "help", description: "Show available commands"),
+        BotCommand(name: "status", description: "Check plugin connectivity"),
+        BotCommand(name: "task", description: "Create a task via Core", argument: "description"),
+        BotCommand(name: "model", description: "Show or switch model", argument: "model_id"),
+        BotCommand(name: "context", description: "Show token usage and context info"),
+        BotCommand(name: "abort", description: "Abort current agent processing"),
+    ]
+
     private let platformName: String
 
     public init(platformName: String) {
@@ -13,16 +34,16 @@ public struct ChannelCommandHandler: Sendable {
         let lower = text.lowercased()
 
         if lower == "/start" || lower == "/help" {
+            let lines = Self.commands.map { cmd -> String in
+                let usage = cmd.argument.map { " <\($0)>" } ?? ""
+                let padded = "/\(cmd.name)\(usage)".padding(toLength: 22, withPad: " ", startingAt: 0)
+                return "\(padded)— \(cmd.description)"
+            }.joined(separator: "\n")
             return """
             Sloppy Channel Plugin (\(platformName))
 
             Available commands:
-            /help              — show this message
-            /status            — check plugin connectivity
-            /task <description> — create a task via Core
-            /model             — show current model and available options
-            /model <model_id>  — switch to a specific model
-            /abort             — abort current agent processing
+            \(lines)
 
             Any other message is forwarded to the linked Sloppy channel.
             """
@@ -37,6 +58,10 @@ public struct ChannelCommandHandler: Sendable {
         }
 
         if lower == "/model" || lower.hasPrefix("/model ") {
+            return nil
+        }
+
+        if lower == "/context" {
             return nil
         }
 

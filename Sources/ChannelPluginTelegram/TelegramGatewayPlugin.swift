@@ -1,4 +1,5 @@
 import Foundation
+import ChannelPluginSupport
 import Logging
 import PluginSDK
 
@@ -56,6 +57,16 @@ public actor TelegramGatewayPlugin: StreamingGatewayPlugin {
         if channelIds.isEmpty {
             logger.warning("No channel-chat mappings configured. Bot will receive messages but cannot route them to Core channels.")
         }
+        let botCommands = ChannelCommandHandler.commands.map {
+            ["command": $0.name, "description": $0.description]
+        }
+        do {
+            try await bot.setMyCommands(botCommands)
+            logger.info("Telegram bot commands registered: \(botCommands.map { $0["command"] ?? "" })")
+        } catch {
+            logger.warning("Failed to register Telegram bot commands: \(error)")
+        }
+
         let poller = TelegramPoller(
             bot: bot,
             receiver: inboundReceiver,

@@ -51,6 +51,7 @@ import { ProjectVisorTab } from "./Projects/ProjectVisorTab";
 import { ProjectChannelsTab } from "./Projects/ProjectChannelsTab";
 import { ProjectSettingsTab } from "./Projects/ProjectSettingsTab";
 import { ProjectList } from "./Projects/ProjectList";
+import { TaskReviewView } from "./Projects/TaskReviewView";
 
 function ProjectCreateModal({ isOpen, draft, onChange, onClose, onCreate, actors = [], teams = [] }) {
   const [actorSearch, setActorSearch] = useState("");
@@ -645,6 +646,13 @@ export function ProjectsView({
     return resolveTaskByReference(selectedProject.id, selectedProject.tasks, routeProjectTaskReference);
   }, [selectedProject, selectedTab, routeProjectTaskReference]);
 
+  const reviewTask = useMemo(() => {
+    if (!selectedProject || selectedTab !== "review" || !routeProjectTaskReference) {
+      return null;
+    }
+    return resolveTaskByReference(selectedProject.id, selectedProject.tasks, routeProjectTaskReference);
+  }, [selectedProject, selectedTab, routeProjectTaskReference]);
+
   useEffect(() => {
     loadProjects().catch(() => {
       setStatusText("Failed to load projects from Core.");
@@ -867,6 +875,16 @@ export function ProjectsView({
     closeEditTaskModal();
     onRouteProjectChange(selectedProject.id, "tasks", null);
     setIsTaskDetailFullscreen(false);
+  }
+
+  function openReview(task) {
+    if (!selectedProject || !task) return;
+    onRouteProjectChange(selectedProject.id, "review", String(task.id || "").trim());
+  }
+
+  function closeReview() {
+    if (!selectedProject) return;
+    onRouteProjectChange(selectedProject.id, "tasks", null);
   }
 
   function openCreateProjectModal() {
@@ -1281,6 +1299,17 @@ export function ProjectsView({
   }
 
   function renderProjectTab(project) {
+    if (selectedTab === "review") {
+      return (
+        <TaskReviewView
+          project={project}
+          task={reviewTask}
+          onClose={closeReview}
+          onProjectRefresh={loadProjects}
+        />
+      );
+    }
+
     if (selectedTab === "overview") {
       const relatedWorkers = workersForProject(project, workers);
       const activeWorkers = activeWorkersForProject(project, workers);
@@ -1325,6 +1354,7 @@ export function ProjectsView({
           moveTask={moveTask}
           createModalActors={createModalActors}
           createModalTeams={createModalTeams}
+          onOpenReview={openReview}
         />
       );
     }
@@ -1362,20 +1392,23 @@ export function ProjectsView({
   }
 
   function renderProjectDetails(project) {
+    const isReviewMode = selectedTab === "review";
     return (
       <section className="project-workspace">
-        <section className="agent-tabs" aria-label="Project sections">
-          {PROJECT_TABS.map((tab) => (
-            <button
-              key={tab.id}
-              type="button"
-              className={`agent-tab ${selectedTab === tab.id ? "active" : ""}`}
-              onClick={() => openProject(project.id, tab.id)}
-            >
-              {tab.title}
-            </button>
-          ))}
-        </section>
+        {!isReviewMode && (
+          <section className="agent-tabs" aria-label="Project sections">
+            {PROJECT_TABS.filter((tab) => tab.id !== "review").map((tab) => (
+              <button
+                key={tab.id}
+                type="button"
+                className={`agent-tab ${selectedTab === tab.id ? "active" : ""}`}
+                onClick={() => openProject(project.id, tab.id)}
+              >
+                {tab.title}
+              </button>
+            ))}
+          </section>
+        )}
 
         {renderProjectTab(project)}
       </section>

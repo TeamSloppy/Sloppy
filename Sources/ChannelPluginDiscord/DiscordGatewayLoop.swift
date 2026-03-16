@@ -67,6 +67,7 @@ actor DiscordGatewayLoop {
     private let logger: Logger
     private var sequence: Int?
     private var botUserID: String?
+    private var applicationId: String?
 
     init(
         client: any DiscordPlatformClient,
@@ -221,13 +222,117 @@ actor DiscordGatewayLoop {
         switch payload.t {
         case "READY":
             botUserID = payload.d?.asObject?["user"]?.asObject?["id"]?.asString
-            logger.info("Discord gateway READY received. botUserId=\(botUserID ?? "unknown")")
+            applicationId = payload.d?.asObject?["application"]?.asObject?["id"]?.asString
+            logger.info("Discord gateway READY received. botUserId=\(botUserID ?? "unknown") applicationId=\(applicationId ?? "unknown")")
+            await registerCommands()
         case "MESSAGE_CREATE":
             if let message = IncomingMessage(payload: payload) {
                 await handleIncomingMessage(message)
             }
+        case "INTERACTION_CREATE":
+            await handleInteraction(payload)
         default:
             return
+        }
+    }
+
+    private func registerCommands() async {
+        guard let applicationId else {
+            logger.warning("Cannot register Discord commands: applicationId not available from READY payload.")
+            return
+        }
+        let commandPayloads: [JSONValue] = ChannelCommandHandler.commands.map { cmd in
+            var fields: [String: JSONValue] = [
+                "name": .string(cmd.name),
+                "description": .string(cmd.description),
+                "type": .number(1)
+            ]
+            if let argument = cmd.argument {
+                fields["options"] = .array([
+                    .object([
+                        "type": .number(3),
+                        "name": .string(argument),
+                        "description": .string(argument),
+                        "required": .bool(false)
+                    ])
+                ])
+            }
+            return .object(fields)
+        }
+        do {
+            try await client.registerGlobalCommands(applicationId: applicationId, commands: commandPayloads)
+            logger.info("Discord global slash commands registered: \(ChannelCommandHandler.commands.map { $0.name })")
+        } catch {
+            logger.warning("Failed to register Discord global commands: \(error)")
+        }
+    }
+
+    private func handleInteraction(_ payload: DiscordGatewayPayload) async {
+        guard let data = payload.d?.asObject,
+              let interactionId = data["id"]?.asString,
+              let interactionToken = data["token"]?.asString,
+              let commandName = data["data"]?.asObject?["name"]?.asString
+        else {
+            return
+        }
+
+        let options = data["data"]?.asObject?["options"]?.asArray ?? []
+        let firstOptionValue = options.first?.asObject?["value"]?.asString ?? ""
+        let text: String
+        if firstOptionValue.isEmpty {
+            text = "/\(commandName)"
+        } else {
+            text = "/\(commandName) \(firstOptionValue)"
+        }
+
+        let userId = data["member"]?.asObject?["user"]?.asObject?["id"]?.asString
+            ?? data["user"]?.asObject?["id"]?.asString
+            ?? "unknown"
+        let displayName = data["member"]?.asObject?["user"]?.asObject?["global_name"]?.asString
+            ?? data["member"]?.asObject?["user"]?.asObject?["username"]?.asString
+            ?? data["user"]?.asObject?["global_name"]?.asString
+            ?? data["user"]?.asObject?["username"]?.asString
+            ?? "unknown"
+
+        let discordChannelId = data["channel_id"]?.asString ?? ""
+
+        if let localReply = commands.handle(text: text, from: displayName) {
+            do {
+                try await client.createInteractionResponse(
+                    interactionId: interactionId,
+                    interactionToken: interactionToken,
+                    type: 4,
+                    content: trimmedContent(localReply)
+                )
+            } catch {
+                logger.warning("Failed to respond to interaction \(interactionId): \(error)")
+            }
+            return
+        }
+
+        do {
+            try await client.createInteractionResponse(
+                interactionId: interactionId,
+                interactionToken: interactionToken,
+                type: 4,
+                content: "Processing..."
+            )
+        } catch {
+            logger.warning("Failed to ack interaction \(interactionId): \(error)")
+        }
+
+        guard let sloppyChannelId = config.channelId(forDiscordChannelId: discordChannelId) else {
+            logger.warning("No Discord channel mapping for interaction channelId=\(discordChannelId).")
+            return
+        }
+
+        let ok = await receiver.postMessage(
+            channelId: sloppyChannelId,
+            userId: "discord:\(userId)",
+            content: text
+        )
+        if !ok {
+            logger.warning("Failed to forward interaction to Core: channelId=\(sloppyChannelId)")
         }
     }
 

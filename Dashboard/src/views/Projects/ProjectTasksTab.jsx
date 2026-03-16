@@ -24,7 +24,8 @@ export function ProjectTasksTab({
     openCreateTaskModal,
     moveTask,
     createModalActors,
-    createModalTeams
+    createModalTeams,
+    onOpenReview
 }) {
     const taskCounts = buildTaskCounts(project.tasks);
     const swarmGroups = buildSwarmGroups(project.tasks);
@@ -324,6 +325,20 @@ export function ProjectTasksTab({
                                                         </div>
                                                         <h5>{task.title}</h5>
                                                         {task.description ? <p>{task.description}</p> : null}
+
+                                                        {task.status === "needs_review" && task.worktreeBranch && onOpenReview && (
+                                                            <button
+                                                                type="button"
+                                                                className="task-review-open-btn"
+                                                                onClick={(e) => {
+                                                                    e.stopPropagation();
+                                                                    onOpenReview(task);
+                                                                }}
+                                                            >
+                                                                <span className="material-symbols-rounded" aria-hidden="true">rate_review</span>
+                                                                Review Changes
+                                                            </button>
+                                                        )}
 
                                                         <div className="project-task-meta">
                                                             <span className={`project-priority-badge ${task.priority}`}>

@@ -15,6 +15,7 @@ export const TASK_STATUSES = [
   { id: "ready", title: "Ready to work" },
   { id: "in_progress", title: "In progress" },
   { id: "blocked", title: "Blocked" },
+  { id: "needs_review", title: "Needs Review" },
   { id: "done", title: "Done" }
 ];
 
@@ -75,6 +76,7 @@ export function normalizeTask(task, index = 0) {
     teamId: String(task?.teamId || "").trim(),
     claimedActorId: String(task?.claimedActorId || "").trim(),
     claimedAgentId: String(task?.claimedAgentId || "").trim(),
+    worktreeBranch: String(task?.worktreeBranch || "").trim() || null,
     swarmId: String(task?.swarmId || "").trim(),
     swarmTaskId: String(task?.swarmTaskId || "").trim(),
     swarmParentTaskId: String(task?.swarmParentTaskId || "").trim(),

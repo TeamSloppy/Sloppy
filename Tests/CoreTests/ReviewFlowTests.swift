@@ -250,6 +250,182 @@ func rejectEndpointReturns200WithBody() async throws {
     #expect(rejectResp.status == 200)
 }
 
+// MARK: - Task Diff Endpoint Tests
+
+@Test
+func taskDiffEndpointReturnsEmptyForTaskWithoutWorktree() async throws {
+    let config = CoreConfig.test
+    let service = CoreService(config: config, persistenceBuilder: InMemoryCorePersistenceBuilder())
+    let router = CoreRouter(service: service)
+    let decoder = JSONDecoder()
+    decoder.dateDecodingStrategy = .iso8601
+
+    let (projectID, taskID) = try await makeProjectWithTask(
+        service: service,
+        router: router,
+        taskStatus: "needs_review"
+    )
+
+    let resp = await router.handle(method: "GET", path: "/v1/projects/\(projectID)/tasks/\(taskID)/diff", body: nil)
+    #expect(resp.status == 200)
+    let diffResp = try decoder.decode(TaskDiffResponse.self, from: resp.body)
+    #expect(diffResp.diff == "")
+    #expect(diffResp.branchName == "")
+}
+
+@Test
+func taskDiffEndpointReturns404ForUnknownTask() async throws {
+    let config = CoreConfig.test
+    let service = CoreService(config: config, persistenceBuilder: InMemoryCorePersistenceBuilder())
+    let router = CoreRouter(service: service)
+
+    let resp = await router.handle(method: "GET", path: "/v1/projects/nonexistent/tasks/nonexistent/diff", body: nil)
+    #expect(resp.status == 404)
+}
+
+// MARK: - Review Comments Endpoint Tests
+
+@Test
+func reviewCommentsListEmptyForNewTask() async throws {
+    let config = CoreConfig.test
+    let service = CoreService(config: config, persistenceBuilder: InMemoryCorePersistenceBuilder())
+    let router = CoreRouter(service: service)
+    let decoder = JSONDecoder()
+    decoder.dateDecodingStrategy = .iso8601
+
+    let (projectID, taskID) = try await makeProjectWithTask(
+        service: service,
+        router: router,
+        taskStatus: "needs_review"
+    )
+
+    let resp = await router.handle(method: "GET", path: "/v1/projects/\(projectID)/tasks/\(taskID)/review-comments", body: nil)
+    #expect(resp.status == 200)
+    let comments = try decoder.decode([ReviewComment].self, from: resp.body)
+    #expect(comments.isEmpty)
+}
+
+@Test
+func reviewCommentCreateAndList() async throws {
+    let config = CoreConfig.test
+    let service = CoreService(config: config, persistenceBuilder: InMemoryCorePersistenceBuilder())
+    let router = CoreRouter(service: service)
+    let decoder = JSONDecoder()
+    decoder.dateDecodingStrategy = .iso8601
+    let encoder = JSONEncoder()
+    encoder.dateEncodingStrategy = .iso8601
+
+    let (projectID, taskID) = try await makeProjectWithTask(
+        service: service,
+        router: router,
+        taskStatus: "needs_review"
+    )
+
+    let createBody = try encoder.encode(ReviewCommentCreateRequest(
+        filePath: "Sources/Foo.swift",
+        lineNumber: 42,
+        side: "new",
+        content: "This looks wrong",
+        author: "user"
+    ))
+    let createResp = await router.handle(
+        method: "POST",
+        path: "/v1/projects/\(projectID)/tasks/\(taskID)/review-comments",
+        body: createBody
+    )
+    #expect(createResp.status == 201)
+    let created = try decoder.decode(ReviewComment.self, from: createResp.body)
+    #expect(created.filePath == "Sources/Foo.swift")
+    #expect(created.lineNumber == 42)
+    #expect(created.content == "This looks wrong")
+    #expect(created.resolved == false)
+
+    let listResp = await router.handle(method: "GET", path: "/v1/projects/\(projectID)/tasks/\(taskID)/review-comments", body: nil)
+    #expect(listResp.status == 200)
+    let comments = try decoder.decode([ReviewComment].self, from: listResp.body)
+    #expect(comments.count == 1)
+    #expect(comments[0].id == created.id)
+}
+
+@Test
+func reviewCommentResolve() async throws {
+    let config = CoreConfig.test
+    let service = CoreService(config: config, persistenceBuilder: InMemoryCorePersistenceBuilder())
+    let router = CoreRouter(service: service)
+    let decoder = JSONDecoder()
+    decoder.dateDecodingStrategy = .iso8601
+    let encoder = JSONEncoder()
+    encoder.dateEncodingStrategy = .iso8601
+
+    let (projectID, taskID) = try await makeProjectWithTask(
+        service: service,
+        router: router,
+        taskStatus: "needs_review"
+    )
+
+    let createBody = try encoder.encode(ReviewCommentCreateRequest(
+        filePath: "main.swift",
+        content: "Fix this",
+        author: "user"
+    ))
+    let createResp = await router.handle(
+        method: "POST",
+        path: "/v1/projects/\(projectID)/tasks/\(taskID)/review-comments",
+        body: createBody
+    )
+    let created = try decoder.decode(ReviewComment.self, from: createResp.body)
+
+    let updateBody = try encoder.encode(ReviewCommentUpdateRequest(resolved: true))
+    let updateResp = await router.handle(
+        method: "PATCH",
+        path: "/v1/projects/\(projectID)/tasks/\(taskID)/review-comments/\(created.id)",
+        body: updateBody
+    )
+    #expect(updateResp.status == 200)
+    let updated = try decoder.decode(ReviewComment.self, from: updateResp.body)
+    #expect(updated.resolved == true)
+}
+
+@Test
+func reviewCommentDelete() async throws {
+    let config = CoreConfig.test
+    let service = CoreService(config: config, persistenceBuilder: InMemoryCorePersistenceBuilder())
+    let router = CoreRouter(service: service)
+    let decoder = JSONDecoder()
+    decoder.dateDecodingStrategy = .iso8601
+    let encoder = JSONEncoder()
+    encoder.dateEncodingStrategy = .iso8601
+
+    let (projectID, taskID) = try await makeProjectWithTask(
+        service: service,
+        router: router,
+        taskStatus: "needs_review"
+    )
+
+    let createBody = try encoder.encode(ReviewCommentCreateRequest(
+        filePath: "file.swift",
+        content: "Delete me",
+        author: "user"
+    ))
+    let createResp = await router.handle(
+        method: "POST",
+        path: "/v1/projects/\(projectID)/tasks/\(taskID)/review-comments",
+        body: createBody
+    )
+    let created = try decoder.decode(ReviewComment.self, from: createResp.body)
+
+    let deleteResp = await router.handle(
+        method: "DELETE",
+        path: "/v1/projects/\(projectID)/tasks/\(taskID)/review-comments/\(created.id)",
+        body: nil
+    )
+    #expect(deleteResp.status == 200)
+
+    let listResp = await router.handle(method: "GET", path: "/v1/projects/\(projectID)/tasks/\(taskID)/review-comments", body: nil)
+    let comments = try decoder.decode([ReviewComment].self, from: listResp.body)
+    #expect(comments.isEmpty)
+}
+
 // MARK: - ActorNode systemRole in ActorBoard
 
 @Test

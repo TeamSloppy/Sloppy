@@ -519,6 +519,40 @@
   width: 440px;
 }
 
+.actor-kind-picker {
+  display: grid;
+  gap: 8px;
+}
+
+.actor-kind-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0s, background 0s;
+}
+
+.actor-kind-card:hover {
+  border-color: var(--accent);
+  background: rgba(162, 119, 255, 0.1);
+}
+
+.actor-kind-card-label {
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.actor-kind-card-desc {
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+
 .actor-modal-card header {
   display: flex;
   align-items: center;
