@@ -187,6 +187,7 @@ public actor CoreService {
     private let skillsRegistryService: SkillsRegistryService
     private let skillsGitHubClient: SkillsGitHubClient
     private let swarmPlanner: SwarmPlanner
+    private let gitWorktreeService: GitWorktreeService
     private let logger: Logger
     private let configPath: String
     private let builtInGatewayPluginFactory: BuiltInGatewayPluginFactory
@@ -305,6 +306,7 @@ public actor CoreService {
         self.swarmPlanner = SwarmPlanner { prompt, maxTokens in
             await runtime.complete(prompt: prompt, maxTokens: maxTokens)
         }
+        self.gitWorktreeService = GitWorktreeService()
         let orchestratorCatalogStore = AgentCatalogFileStore(agentsRootURL: self.agentsRootURL)
         let orchestratorSessionStore = AgentSessionFileStore(agentsRootURL: self.agentsRootURL)
         let orchestratorSkillsStore = AgentSkillsFileStore(agentsRootURL: self.agentsRootURL)
@@ -1001,6 +1003,12 @@ public actor CoreService {
         }
         if let nextHeartbeat = request.heartbeat {
             project.heartbeat = nextHeartbeat
+        }
+        if request.repoPath != nil {
+            project.repoPath = request.repoPath
+        }
+        if let nextReviewSettings = request.reviewSettings {
+            project.reviewSettings = nextReviewSettings
         }
 
         project.updatedAt = Date()
@@ -3268,7 +3276,18 @@ public actor CoreService {
         if let actorID = delegation.actorID {
             task.actorId = actorID
         }
-        let workerObjective = buildWorkerObjective(task: task, projectID: project.id)
+
+        var worktreePath: String?
+        if let repoPath = project.repoPath,
+           project.reviewSettings.enabled,
+           task.worktreeBranch == nil {
+            if let result = try? await gitWorktreeService.createWorktree(repoPath: repoPath, taskId: task.id) {
+                task.worktreeBranch = result.branchName
+                worktreePath = result.worktreePath
+            }
+        }
+
+        let workerObjective = buildWorkerObjective(task: task, projectID: project.id, worktreePath: worktreePath)
         let workerId = await runtime.createWorker(
             spec: WorkerTaskSpec(
                 taskId: task.id,
@@ -3276,7 +3295,8 @@ public actor CoreService {
                 title: task.title,
                 objective: workerObjective,
                 tools: ["shell", "file", "exec", "browser"],
-                mode: .fireAndForget
+                mode: .fireAndForget,
+                workingDirectory: worktreePath
             )
         )
 
@@ -4384,6 +4404,26 @@ public actor CoreService {
 
                 if resolvedStatus == ProjectTaskStatus.done.rawValue,
                    let handoffDelegate = await nextTeamHandoffDelegate(project: project, task: task) {
+                    let board = try? getActorBoard()
+                    let nodesByID = Dictionary(uniqueKeysWithValues: (board?.nodes ?? []).map { ($0.id, $0) })
+                    let nextNode = nodesByID[handoffDelegate.actorID]
+                    let isReviewer = nextNode?.systemRole == .reviewer
+
+                    if isReviewer, task.worktreeBranch != nil {
+                        project.tasks[taskIndex] = task
+                        project.updatedAt = Date()
+                        await store.saveProject(project)
+                        await handleReviewHandoff(
+                            project: project,
+                            task: task,
+                            taskIndex: taskIndex,
+                            handoffDelegate: handoffDelegate,
+                            event: event,
+                            completionArtifactPath: completionArtifactPath
+                        )
+                        return
+                    }
+
                     let handoffActor = task.claimedAgentId ?? task.claimedActorId ?? "worker"
                     let handoffNote = "Handoff from \(handoffActor)"
                         + (completionArtifactPath.map { ". Artifact: \($0)" } ?? "")
@@ -4490,6 +4530,214 @@ public actor CoreService {
             )
             return
         }
+    }
+
+    // MARK: - Review Flow
+
+    private func handleReviewHandoff(
+        project: ProjectRecord,
+        task: ProjectTask,
+        taskIndex: Int,
+        handoffDelegate: TeamRetryDelegate,
+        event: EventEnvelope,
+        completionArtifactPath: String?
+    ) async {
+        var project = project
+        var task = task
+
+        let approvalMode = project.reviewSettings.approvalMode
+        let reviewerChannelID = handoffDelegate.agentID.map { "agent:\($0)" }
+            ?? event.channelId
+
+        switch approvalMode {
+        case .auto:
+            task.status = ProjectTaskStatus.needsReview.rawValue
+            task.claimedActorId = handoffDelegate.actorID
+            task.claimedAgentId = handoffDelegate.agentID
+            task.updatedAt = Date()
+            project.tasks[taskIndex] = task
+            project.updatedAt = Date()
+            await store.saveProject(project)
+            appendTaskLifecycleLog(
+                projectID: project.id,
+                taskID: task.id,
+                stage: "review_auto",
+                channelID: event.channelId,
+                workerID: event.workerId,
+                message: "Auto-approving task.",
+                actorID: handoffDelegate.actorID,
+                agentID: handoffDelegate.agentID
+            )
+            try? await approveTask(projectID: project.id, taskID: task.id)
+
+        case .human:
+            task.status = ProjectTaskStatus.needsReview.rawValue
+            task.claimedActorId = handoffDelegate.actorID
+            task.claimedAgentId = handoffDelegate.agentID
+            task.updatedAt = Date()
+            project.tasks[taskIndex] = task
+            project.updatedAt = Date()
+            await store.saveProject(project)
+            appendTaskLifecycleLog(
+                projectID: project.id,
+                taskID: task.id,
+                stage: "review_human",
+                channelID: event.channelId,
+                workerID: event.workerId,
+                message: "Awaiting human review.",
+                actorID: handoffDelegate.actorID,
+                agentID: handoffDelegate.agentID,
+                artifactPath: completionArtifactPath
+            )
+            let reviewMessage = "Task \(task.id) is ready for review. Approve or reject via the dashboard."
+            await runtime.appendSystemMessage(channelId: event.channelId, content: reviewMessage)
+            await deliverToChannelPlugin(channelId: event.channelId, content: reviewMessage)
+
+        case .agent:
+            let diff: String
+            if let repoPath = project.repoPath, let branchName = task.worktreeBranch {
+                let baseBranch = (try? await gitWorktreeService.defaultBranch(repoPath: repoPath)) ?? "main"
+                diff = (try? await gitWorktreeService.branchDiff(repoPath: repoPath, branchName: branchName, baseBranch: baseBranch)) ?? "Diff unavailable."
+            } else {
+                diff = "No worktree branch available."
+            }
+            let reviewObjective = buildReviewObjective(task: task, projectID: project.id, diff: diff)
+            task.status = ProjectTaskStatus.needsReview.rawValue
+            task.claimedActorId = handoffDelegate.actorID
+            task.claimedAgentId = handoffDelegate.agentID
+            task.updatedAt = Date()
+            project.tasks[taskIndex] = task
+            project.updatedAt = Date()
+            await store.saveProject(project)
+            appendTaskLifecycleLog(
+                projectID: project.id,
+                taskID: task.id,
+                stage: "review_agent",
+                channelID: event.channelId,
+                workerID: event.workerId,
+                message: "Delegated to reviewer agent.",
+                actorID: handoffDelegate.actorID,
+                agentID: handoffDelegate.agentID,
+                artifactPath: completionArtifactPath
+            )
+            _ = await runtime.createWorker(
+                spec: WorkerTaskSpec(
+                    taskId: task.id,
+                    channelId: reviewerChannelID,
+                    title: "Review: \(task.title)",
+                    objective: reviewObjective,
+                    tools: ["shell", "file"],
+                    mode: .fireAndForget
+                )
+            )
+        }
+    }
+
+    private func buildReviewObjective(task: ProjectTask, projectID: String, diff: String) -> String {
+        let artifactDirectory = projectArtifactsDirectoryURL(projectID: projectID).path
+        return normalizeTaskDescription([
+            "Review task: \(task.title)",
+            "",
+            "Original task description:",
+            task.description.isEmpty ? "(none)" : task.description,
+            "",
+            "Changes to review (git diff):",
+            diff,
+            "",
+            "Review instructions:",
+            "- Evaluate whether the changes correctly and completely implement the task.",
+            "- If the changes are acceptable, call the approve tool or create a completion artifact indicating approval.",
+            "- If the changes need work, create a completion artifact indicating rejection with reasons.",
+            "- Store all review artifacts under: \(artifactDirectory)"
+        ].joined(separator: "\n"))
+    }
+
+    public func approveTask(projectID: String, taskID: String) async throws {
+        let projects = await store.listProjects()
+        guard var project = projects.first(where: { $0.id == projectID }),
+              let taskIndex = project.tasks.firstIndex(where: { $0.id == taskID })
+        else {
+            throw ProjectError.notFound
+        }
+        var task = project.tasks[taskIndex]
+
+        if let repoPath = project.repoPath, let branchName = task.worktreeBranch {
+            let targetBranch = (try? await gitWorktreeService.defaultBranch(repoPath: repoPath)) ?? "main"
+            try await gitWorktreeService.mergeBranch(repoPath: repoPath, branchName: branchName, targetBranch: targetBranch)
+            let worktreePath = gitWorktreeService.worktreePath(repoPath: repoPath, taskId: taskID)
+            try? await gitWorktreeService.removeWorktree(repoPath: repoPath, worktreePath: worktreePath)
+        }
+
+        task.status = ProjectTaskStatus.done.rawValue
+        task.worktreeBranch = nil
+        task.updatedAt = Date()
+        project.tasks[taskIndex] = task
+        project.updatedAt = Date()
+        await store.saveProject(project)
+        appendTaskLifecycleLog(
+            projectID: projectID,
+            taskID: taskID,
+            stage: "approved",
+            channelID: nil,
+            workerID: nil,
+            message: "Task approved and merged."
+        )
+        logger.info("visor.task.approved", metadata: ["project_id": .string(projectID), "task_id": .string(taskID)])
+    }
+
+    public func rejectTask(projectID: String, taskID: String, reason: String?) async throws {
+        let projects = await store.listProjects()
+        guard var project = projects.first(where: { $0.id == projectID }),
+              let taskIndex = project.tasks.firstIndex(where: { $0.id == taskID })
+        else {
+            throw ProjectError.notFound
+        }
+        var task = project.tasks[taskIndex]
+
+        if let reason, !reason.isEmpty {
+            let rejectionNote = "Review rejected: \(reason)"
+            if task.description.isEmpty {
+                task.description = rejectionNote
+            } else {
+                task.description += "\n\n\(rejectionNote)"
+            }
+        }
+
+        let board = try? getActorBoard()
+        let nodesByID = Dictionary(uniqueKeysWithValues: (board?.nodes ?? []).map { ($0.id, $0) })
+        var developerActorID: String?
+        var developerAgentID: String?
+        if let teamID = task.teamId,
+           let team = board?.teams.first(where: { $0.id == teamID }) {
+            for memberID in team.memberActorIds {
+                if let node = nodesByID[memberID], node.systemRole == .developer {
+                    developerActorID = memberID
+                    developerAgentID = node.linkedAgentId
+                    break
+                }
+            }
+        }
+
+        task.status = ProjectTaskStatus.ready.rawValue
+        task.claimedActorId = developerActorID ?? task.claimedActorId
+        task.claimedAgentId = developerAgentID ?? task.claimedAgentId
+        if let developerActorID {
+            task.actorId = developerActorID
+        }
+        task.updatedAt = Date()
+        project.tasks[taskIndex] = task
+        project.updatedAt = Date()
+        await store.saveProject(project)
+        appendTaskLifecycleLog(
+            projectID: projectID,
+            taskID: taskID,
+            stage: "rejected",
+            channelID: nil,
+            workerID: nil,
+            message: "Task rejected. Returning to developer."
+        )
+        logger.info("visor.task.rejected", metadata: ["project_id": .string(projectID), "task_id": .string(taskID)])
+        await handleTaskBecameReady(projectID: projectID, taskID: taskID)
     }
 
     private func syncTaskProgressFromWorkerEvent(event: EventEnvelope) async {
@@ -5138,7 +5386,7 @@ public actor CoreService {
         return targetPath
     }
 
-    private func buildWorkerObjective(task: ProjectTask, projectID: String) -> String {
+    private func buildWorkerObjective(task: ProjectTask, projectID: String, worktreePath: String? = nil) -> String {
         var bodyLines: [String] = [
             "Task title: \(task.title)"
         ]
@@ -5148,12 +5396,19 @@ public actor CoreService {
             bodyLines.append(task.description)
         }
         let artifactDirectory = projectArtifactsDirectoryURL(projectID: projectID).path
-        let objective = [
-            bodyLines.joined(separator: "\n"),
-            "",
+        var policyLines: [String] = [
             "Execution policy:",
             "- Store all created files and artifacts under: \(artifactDirectory)",
             "- Keep completion output concise and reference produced artifact paths."
+        ]
+        if let worktreePath {
+            policyLines.append("- All code changes MUST be made inside the git worktree at: \(worktreePath)")
+            policyLines.append("- Commit changes to the worktree branch before completing the task.")
+        }
+        let objective = [
+            bodyLines.joined(separator: "\n"),
+            "",
+            policyLines.joined(separator: "\n")
         ].joined(separator: "\n")
         return normalizeTaskDescription(objective)
     }

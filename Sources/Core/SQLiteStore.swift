@@ -518,7 +518,7 @@ public actor SQLiteStore: PersistenceStore {
             """
             SELECT id, name, description, actors_json, teams_json,
                    models_json, agent_files_json, heartbeat_json,
-                   created_at, updated_at
+                   created_at, updated_at, repo_path, review_settings_json
             FROM dashboard_projects
             ORDER BY created_at ASC;
             """
@@ -558,6 +558,9 @@ public actor SQLiteStore: PersistenceStore {
             let models = (try? JSONDecoder().decode([String].self, from: Data(modelsJSON.utf8))) ?? []
             let agentFiles = (try? JSONDecoder().decode([String].self, from: Data(agentFilesJSON.utf8))) ?? []
             let heartbeat = (try? JSONDecoder().decode(ProjectHeartbeatSettings.self, from: Data(heartbeatJSON.utf8))) ?? ProjectHeartbeatSettings()
+            let repoPath = optionalText(statement: statement, index: 10)
+            let reviewSettingsJSON = sqlite3_column_text(statement, 11).map { String(cString: $0) }
+            let reviewSettings = reviewSettingsJSON.flatMap { try? JSONDecoder().decode(ProjectReviewSettings.self, from: Data($0.utf8)) } ?? ProjectReviewSettings()
             let channels = loadProjectChannels(db: db, projectID: id)
             let tasks = loadProjectTasks(db: db, projectID: id)
             result.append(
@@ -572,6 +575,8 @@ public actor SQLiteStore: PersistenceStore {
                     models: models,
                     agentFiles: agentFiles,
                     heartbeat: heartbeat,
+                    repoPath: repoPath,
+                    reviewSettings: reviewSettings,
                     createdAt: createdAt,
                     updatedAt: updatedAt
                 )
@@ -591,7 +596,7 @@ public actor SQLiteStore: PersistenceStore {
                 """
                 SELECT id, name, description, actors_json, teams_json,
                        models_json, agent_files_json, heartbeat_json,
-                       created_at, updated_at
+                       created_at, updated_at, repo_path, review_settings_json
                 FROM dashboard_projects
                 WHERE id = ?
                 LIMIT 1;
@@ -625,6 +630,9 @@ public actor SQLiteStore: PersistenceStore {
                 let models = (try? JSONDecoder().decode([String].self, from: Data(modelsJSON.utf8))) ?? []
                 let agentFiles = (try? JSONDecoder().decode([String].self, from: Data(agentFilesJSON.utf8))) ?? []
                 let heartbeat = (try? JSONDecoder().decode(ProjectHeartbeatSettings.self, from: Data(heartbeatJSON.utf8))) ?? ProjectHeartbeatSettings()
+                let repoPath = optionalText(statement: statement, index: 10)
+                let reviewSettingsJSON = sqlite3_column_text(statement, 11).map { String(cString: $0) }
+                let reviewSettings = reviewSettingsJSON.flatMap { try? JSONDecoder().decode(ProjectReviewSettings.self, from: Data($0.utf8)) } ?? ProjectReviewSettings()
                 return ProjectRecord(
                     id: projectID,
                     name: String(cString: namePtr),
@@ -636,6 +644,8 @@ public actor SQLiteStore: PersistenceStore {
                     models: models,
                     agentFiles: agentFiles,
                     heartbeat: heartbeat,
+                    repoPath: repoPath,
+                    reviewSettings: reviewSettings,
                     createdAt: createdAt,
                     updatedAt: updatedAt
                 )
@@ -666,8 +676,10 @@ public actor SQLiteStore: PersistenceStore {
                 agent_files_json,
                 heartbeat_json,
                 created_at,
-                updated_at
-            ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+                updated_at,
+                repo_path,
+                review_settings_json
+            ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
             """
 
         var projectStatement: OpaquePointer?
@@ -681,6 +693,7 @@ public actor SQLiteStore: PersistenceStore {
         let modelsJSON = (try? String(data: JSONEncoder().encode(project.models), encoding: .utf8)) ?? "[]"
         let agentFilesJSON = (try? String(data: JSONEncoder().encode(project.agentFiles), encoding: .utf8)) ?? "[]"
         let heartbeatJSON = (try? String(data: JSONEncoder().encode(project.heartbeat), encoding: .utf8)) ?? "{}"
+        let reviewSettingsJSON = (try? String(data: JSONEncoder().encode(project.reviewSettings), encoding: .utf8)) ?? "{}"
 
         bindText(project.id, at: 1, statement: projectStatement)
         bindText(project.name, at: 2, statement: projectStatement)
@@ -692,6 +705,8 @@ public actor SQLiteStore: PersistenceStore {
         bindText(heartbeatJSON, at: 8, statement: projectStatement)
         bindText(isoFormatter.string(from: project.createdAt), at: 9, statement: projectStatement)
         bindText(isoFormatter.string(from: project.updatedAt), at: 10, statement: projectStatement)
+        bindOptionalText(project.repoPath, at: 11, statement: projectStatement)
+        bindText(reviewSettingsJSON, at: 12, statement: projectStatement)
         guard sqlite3_step(projectStatement) == SQLITE_DONE else {
             return
         }
@@ -743,8 +758,9 @@ public actor SQLiteStore: PersistenceStore {
                 swarm_depth,
                 swarm_actor_path_json,
                 created_at,
-                updated_at
-            ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+                updated_at,
+                worktree_branch
+            ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
             """
 
         for task in project.tasks {
@@ -777,6 +793,7 @@ public actor SQLiteStore: PersistenceStore {
             bindText(actorPathJSON, at: 16, statement: taskStatement)
             bindText(isoFormatter.string(from: task.createdAt), at: 17, statement: taskStatement)
             bindText(isoFormatter.string(from: task.updatedAt), at: 18, statement: taskStatement)
+            bindOptionalText(task.worktreeBranch, at: 19, statement: taskStatement)
             _ = sqlite3_step(taskStatement)
         }
 #endif
@@ -1175,7 +1192,8 @@ public actor SQLiteStore: PersistenceStore {
                 swarm_depth,
                 swarm_actor_path_json,
                 created_at,
-                updated_at
+                updated_at,
+                worktree_branch
             FROM dashboard_project_tasks
             WHERE project_id = ?
             ORDER BY created_at ASC;
@@ -1222,6 +1240,7 @@ public actor SQLiteStore: PersistenceStore {
                     swarmDependencyIds: dependencyIds,
                     swarmDepth: optionalInt(statement: statement, index: 13),
                     swarmActorPath: actorPath,
+                    worktreeBranch: optionalText(statement: statement, index: 17),
                     createdAt: createdAt,
                     updatedAt: updatedAt
                 )
@@ -2129,6 +2148,21 @@ public actor SQLiteStore: PersistenceStore {
         _ = sqlite3_exec(
             db,
             "ALTER TABLE dashboard_projects ADD COLUMN heartbeat_json TEXT NOT NULL DEFAULT '{\"enabled\":false,\"intervalMinutes\":5}';",
+            nil, nil, nil
+        )
+        _ = sqlite3_exec(
+            db,
+            "ALTER TABLE dashboard_projects ADD COLUMN repo_path TEXT;",
+            nil, nil, nil
+        )
+        _ = sqlite3_exec(
+            db,
+            "ALTER TABLE dashboard_projects ADD COLUMN review_settings_json TEXT NOT NULL DEFAULT '{\"enabled\":false,\"approvalMode\":\"human\"}';",
+            nil, nil, nil
+        )
+        _ = sqlite3_exec(
+            db,
+            "ALTER TABLE dashboard_project_tasks ADD COLUMN worktree_branch TEXT;",
             nil, nil, nil
         )
     }

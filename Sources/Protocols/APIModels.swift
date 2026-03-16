@@ -209,6 +209,7 @@ public struct ProjectTask: Codable, Sendable, Equatable {
     public var swarmDependencyIds: [String]?
     public var swarmDepth: Int?
     public var swarmActorPath: [String]?
+    public var worktreeBranch: String?
     public var createdAt: Date
     public var updatedAt: Date
 
@@ -228,6 +229,7 @@ public struct ProjectTask: Codable, Sendable, Equatable {
         swarmDependencyIds: [String]? = nil,
         swarmDepth: Int? = nil,
         swarmActorPath: [String]? = nil,
+        worktreeBranch: String? = nil,
         createdAt: Date = Date(),
         updatedAt: Date = Date()
     ) {
@@ -246,6 +248,7 @@ public struct ProjectTask: Codable, Sendable, Equatable {
         self.swarmDependencyIds = swarmDependencyIds
         self.swarmDepth = swarmDepth
         self.swarmActorPath = swarmActorPath
+        self.worktreeBranch = worktreeBranch
         self.createdAt = createdAt
         self.updatedAt = updatedAt
     }
@@ -278,6 +281,8 @@ public struct ProjectRecord: Codable, Sendable, Equatable {
     public var models: [String]
     public var agentFiles: [String]
     public var heartbeat: ProjectHeartbeatSettings
+    public var repoPath: String?
+    public var reviewSettings: ProjectReviewSettings
     public var createdAt: Date
     public var updatedAt: Date
 
@@ -292,6 +297,8 @@ public struct ProjectRecord: Codable, Sendable, Equatable {
         models: [String] = [],
         agentFiles: [String] = [],
         heartbeat: ProjectHeartbeatSettings = ProjectHeartbeatSettings(),
+        repoPath: String? = nil,
+        reviewSettings: ProjectReviewSettings = ProjectReviewSettings(),
         createdAt: Date = Date(),
         updatedAt: Date = Date()
     ) {
@@ -305,6 +312,8 @@ public struct ProjectRecord: Codable, Sendable, Equatable {
         self.models = models
         self.agentFiles = agentFiles
         self.heartbeat = heartbeat
+        self.repoPath = repoPath
+        self.reviewSettings = reviewSettings
         self.createdAt = createdAt
         self.updatedAt = updatedAt
     }
@@ -367,6 +376,8 @@ public struct ProjectUpdateRequest: Codable, Sendable {
     public var models: [String]?
     public var agentFiles: [String]?
     public var heartbeat: ProjectHeartbeatSettings?
+    public var repoPath: String?
+    public var reviewSettings: ProjectReviewSettings?
 
     public init(
         name: String? = nil,
@@ -375,7 +386,9 @@ public struct ProjectUpdateRequest: Codable, Sendable {
         teams: [String]? = nil,
         models: [String]? = nil,
         agentFiles: [String]? = nil,
-        heartbeat: ProjectHeartbeatSettings? = nil
+        heartbeat: ProjectHeartbeatSettings? = nil,
+        repoPath: String? = nil,
+        reviewSettings: ProjectReviewSettings? = nil
     ) {
         self.name = name
         self.description = description
@@ -384,6 +397,8 @@ public struct ProjectUpdateRequest: Codable, Sendable {
         self.models = models
         self.agentFiles = agentFiles
         self.heartbeat = heartbeat
+        self.repoPath = repoPath
+        self.reviewSettings = reviewSettings
     }
 }
 
@@ -444,6 +459,14 @@ public struct ProjectTaskUpdateRequest: Codable, Sendable {
         self.status = status
         self.actorId = actorId
         self.teamId = teamId
+    }
+}
+
+public struct TaskRejectRequest: Codable, Sendable {
+    public var reason: String?
+
+    public init(reason: String? = nil) {
+        self.reason = reason
     }
 }
 
@@ -1847,6 +1870,14 @@ public enum ActorSocketPosition: String, Codable, Sendable {
     case left
 }
 
+public enum ActorSystemRole: String, Codable, Sendable {
+    case manager
+    case developer
+    case qa
+    case reviewer
+    case custom
+}
+
 public struct ActorNode: Codable, Sendable, Equatable {
     public var id: String
     public var displayName: String
@@ -1854,6 +1885,7 @@ public struct ActorNode: Codable, Sendable, Equatable {
     public var linkedAgentId: String?
     public var channelId: String?
     public var role: String?
+    public var systemRole: ActorSystemRole?
     public var positionX: Double
     public var positionY: Double
     public var createdAt: Date
@@ -1865,6 +1897,7 @@ public struct ActorNode: Codable, Sendable, Equatable {
         linkedAgentId: String? = nil,
         channelId: String? = nil,
         role: String? = nil,
+        systemRole: ActorSystemRole? = nil,
         positionX: Double = 0,
         positionY: Double = 0,
         createdAt: Date = Date()
@@ -1875,9 +1908,26 @@ public struct ActorNode: Codable, Sendable, Equatable {
         self.linkedAgentId = linkedAgentId
         self.channelId = channelId
         self.role = role
+        self.systemRole = systemRole
         self.positionX = positionX
         self.positionY = positionY
         self.createdAt = createdAt
+    }
+}
+
+public enum ReviewApprovalMode: String, Codable, Sendable {
+    case auto
+    case human
+    case agent
+}
+
+public struct ProjectReviewSettings: Codable, Sendable, Equatable {
+    public var enabled: Bool
+    public var approvalMode: ReviewApprovalMode
+
+    public init(enabled: Bool = false, approvalMode: ReviewApprovalMode = .human) {
+        self.enabled = enabled
+        self.approvalMode = approvalMode
     }
 }
 

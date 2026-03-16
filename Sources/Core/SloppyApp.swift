@@ -90,6 +90,15 @@ struct SloppyApp: AsyncParsableCommand {
                 let data = try await router.generateOpenAPISpec()
                 try data.write(to: URL(fileURLWithPath: openapiPath))
                 logger.info("OpenAPI specification generated at \(openapiPath)")
+
+                let docsPublicURL = repoRootURL()
+                    .appendingPathComponent("docs/public/swagger.json")
+                try FileManager.default.createDirectory(
+                    at: docsPublicURL.deletingLastPathComponent(),
+                    withIntermediateDirectories: true
+                )
+                try data.write(to: docsPublicURL, options: .atomic)
+                logger.info("OpenAPI specification copied to \(docsPublicURL.path)")
                 return
             }
 
@@ -147,6 +156,13 @@ private func applyEnvironmentOverrides(config: inout CoreConfig, envConfig: Conf
     )
     config.auth.token = envConfig.string(forKey: "core.auth.token", default: config.auth.token)
     config.sqlitePath = envConfig.string(forKey: "core.sqlite.path", default: config.sqlitePath)
+}
+
+private func repoRootURL(filePath: String = #filePath) -> URL {
+    URL(fileURLWithPath: filePath)
+        .deletingLastPathComponent() // Core/
+        .deletingLastPathComponent() // Sources/
+        .deletingLastPathComponent() // repo root
 }
 
 private func normalizedConfigPath(_ raw: String?) -> String? {

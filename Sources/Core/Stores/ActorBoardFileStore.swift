@@ -185,6 +185,7 @@ final class ActorBoardFileStore {
                 kind: .human,
                 channelId: SystemActor.adminChannelID,
                 role: "Workspace administrator",
+                systemRole: .manager,
                 positionX: 120,
                 positionY: 380
             )
@@ -194,6 +195,9 @@ final class ActorBoardFileStore {
             admin.displayName = "Admin"
             admin.channelId = SystemActor.adminChannelID
             admin.role = "Workspace administrator"
+            if admin.systemRole == nil {
+                admin.systemRole = .manager
+            }
             nodesByID[SystemActor.adminID] = admin
         }
 
@@ -213,6 +217,7 @@ final class ActorBoardFileStore {
                 linkedAgentId: agent.id,
                 channelId: "agent:\(agent.id)",
                 role: agent.role,
+                systemRole: existingNode?.systemRole,
                 positionX: existingPositionX,
                 positionY: existingPositionY,
                 createdAt: existingNode?.createdAt ?? agent.createdAt
