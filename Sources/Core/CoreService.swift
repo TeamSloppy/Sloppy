@@ -948,7 +948,11 @@ public actor CoreService {
             updatedAt: now
         )
         await store.saveProject(project)
-        ensureProjectWorkspaceDirectory(projectID: normalizedID)
+        if let repoUrl = request.repoUrl, !repoUrl.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            await cloneProjectRepository(repoUrl: repoUrl, projectID: normalizedID)
+        } else {
+            ensureProjectWorkspaceDirectory(projectID: normalizedID)
+        }
         if !currentConfig.onboarding.completed {
             logger.info(
                 "onboarding.project.created",
@@ -5338,6 +5342,100 @@ public actor CoreService {
                     "project_id": .string(projectID),
                     "path": .string(projectDirectoryURL(projectID: projectID).path)
                 ]
+            )
+        }
+    }
+
+    private func cloneProjectRepository(repoUrl: String, projectID: String) async {
+        let trimmedUrl = repoUrl.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmedUrl.hasPrefix("https://") || trimmedUrl.hasPrefix("git@") || trimmedUrl.hasPrefix("http://") else {
+            logger.warning(
+                "project.clone.invalid_url",
+                metadata: ["project_id": .string(projectID), "repo_url": .string(trimmedUrl)]
+            )
+            ensureProjectWorkspaceDirectory(projectID: projectID)
+            return
+        }
+
+        let projectDir = projectDirectoryURL(projectID: projectID)
+        let parentDir = projectDir.deletingLastPathComponent()
+
+        do {
+            try FileManager.default.createDirectory(at: parentDir, withIntermediateDirectories: true)
+        } catch {
+            logger.warning(
+                "project.clone.parent_dir_failed",
+                metadata: ["project_id": .string(projectID), "path": .string(parentDir.path)]
+            )
+        }
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+        process.arguments = ["git", "clone", "--recurse-submodules", trimmedUrl, projectDir.path]
+        process.currentDirectoryURL = parentDir
+
+        let stderr = Pipe()
+        process.standardOutput = Pipe()
+        process.standardError = stderr
+
+        do {
+            try process.run()
+        } catch {
+            logger.warning(
+                "project.clone.launch_failed",
+                metadata: ["project_id": .string(projectID), "error": .string(error.localizedDescription)]
+            )
+            ensureProjectWorkspaceDirectory(projectID: projectID)
+            return
+        }
+
+        let didTimeout = await withTaskGroup(of: Bool.self) { group in
+            group.addTask { process.waitUntilExit(); return false }
+            group.addTask {
+                try? await Task.sleep(nanoseconds: 120_000_000_000)
+                return true
+            }
+            let first = await group.next() ?? false
+            group.cancelAll()
+            return first
+        }
+
+        if didTimeout, process.isRunning {
+            process.terminate()
+            process.waitUntilExit()
+            logger.warning(
+                "project.clone.timeout",
+                metadata: ["project_id": .string(projectID), "repo_url": .string(trimmedUrl)]
+            )
+        } else if process.terminationStatus != 0 {
+            let stderrOutput = String(decoding: stderr.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+            logger.warning(
+                "project.clone.failed",
+                metadata: [
+                    "project_id": .string(projectID),
+                    "exit_code": .string(String(process.terminationStatus)),
+                    "stderr": .string(stderrOutput)
+                ]
+            )
+        } else {
+            logger.info(
+                "project.clone.success",
+                metadata: ["project_id": .string(projectID), "repo_url": .string(trimmedUrl)]
+            )
+        }
+
+        let subdirectories = [
+            projectArtifactsDirectoryURL(projectID: projectID),
+            projectLogsDirectoryURL(projectID: projectID)
+        ]
+        do {
+            for directory in subdirectories {
+                try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            }
+        } catch {
+            logger.warning(
+                "project.clone.subdirs_failed",
+                metadata: ["project_id": .string(projectID)]
             )
         }
     }

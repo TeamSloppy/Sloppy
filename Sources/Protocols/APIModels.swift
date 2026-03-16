@@ -317,6 +317,7 @@ public struct ProjectCreateRequest: Codable, Sendable {
     public var channels: [ProjectChannelCreateRequest]
     public var actors: [String]?
     public var teams: [String]?
+    public var repoUrl: String?
 
     private enum CodingKeys: String, CodingKey {
         case id
@@ -325,15 +326,25 @@ public struct ProjectCreateRequest: Codable, Sendable {
         case channels
         case actors
         case teams
+        case repoUrl
     }
 
-    public init(id: String? = nil, name: String, description: String? = nil, channels: [ProjectChannelCreateRequest] = [], actors: [String]? = nil, teams: [String]? = nil) {
+    public init(
+        id: String? = nil,
+        name: String,
+        description: String? = nil,
+        channels: [ProjectChannelCreateRequest] = [],
+        actors: [String]? = nil,
+        teams: [String]? = nil,
+        repoUrl: String? = nil
+    ) {
         self.id = id
         self.name = name
         self.description = description
         self.channels = channels
         self.actors = actors
         self.teams = teams
+        self.repoUrl = repoUrl
     }
 
     public init(from decoder: Decoder) throws {
@@ -344,6 +355,7 @@ public struct ProjectCreateRequest: Codable, Sendable {
         channels = try container.decodeIfPresent([ProjectChannelCreateRequest].self, forKey: .channels) ?? []
         actors = try container.decodeIfPresent([String].self, forKey: .actors)
         teams = try container.decodeIfPresent([String].self, forKey: .teams)
+        repoUrl = try container.decodeIfPresent(String.self, forKey: .repoUrl)
     }
 }
 

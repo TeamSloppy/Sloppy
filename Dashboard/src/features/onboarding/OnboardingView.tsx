@@ -277,6 +277,9 @@ function OnboardingAsciiCanvas({
 export function OnboardingView({ coreApi, initialConfig, onCompleted }: OnboardingViewProps) {
   const initialProvider = useMemo(() => initialProviderState(initialConfig), [initialConfig]);
   const [stepIndex, setStepIndex] = useState(0);
+  const [projectSkipped, setProjectSkipped] = useState(false);
+  const [projectSourceType, setProjectSourceType] = useState<"empty" | "git">("empty");
+  const [projectRepoUrl, setProjectRepoUrl] = useState("");
   const [projectName, setProjectName] = useState("");
   const [projectDescription, setProjectDescription] = useState("");
   const [providerId, setProviderId] = useState(initialProvider.providerId);
@@ -458,7 +461,10 @@ export function OnboardingView({ coreApi, initialConfig, onCompleted }: Onboardi
 
   function canAdvance() {
     if (stepIndex === 0) {
-      return projectName.trim().length > 0;
+      if (projectSkipped) return true;
+      if (projectName.trim().length === 0) return false;
+      if (projectSourceType === "git") return projectRepoUrl.trim().length > 0;
+      return true;
     }
     if (stepIndex === 1) {
       return probeOk && selectedModel.trim().length > 0;
@@ -479,7 +485,8 @@ export function OnboardingView({ coreApi, initialConfig, onCompleted }: Onboardi
       id: projectId,
       name: projectName.trim(),
       description: projectDescription.trim(),
-      channels: []
+      channels: [],
+      ...(projectSourceType === "git" && projectRepoUrl.trim() ? { repoUrl: projectRepoUrl.trim() } : {})
     });
     if (created) {
       return created;
@@ -538,8 +545,10 @@ export function OnboardingView({ coreApi, initialConfig, onCompleted }: Onboardi
         throw new Error("Failed to save runtime config.");
       }
 
-      setStatusText("Creating the first project...");
-      await ensureProject();
+      if (!projectSkipped) {
+        setStatusText("Creating the first project...");
+        await ensureProject();
+      }
 
       setStatusText("Creating the first agent...");
       await ensureAgent();
@@ -658,26 +667,76 @@ export function OnboardingView({ coreApi, initialConfig, onCompleted }: Onboardi
 
           {stepIndex === 0 ? (
             <div className="onboarding-form-block">
-              <label>
-                Project name
-                <input
-                  value={projectName}
-                  onChange={(event) => setProjectName(event.target.value)}
-                  placeholder="Acme Core"
-                  autoFocus
-                />
-              </label>
-              <label>
-                Project description
-                <input
-                  value={projectDescription}
-                  onChange={(event) => setProjectDescription(event.target.value)}
-                  placeholder="The main hub for Acme operations"
-                />
-              </label>
-              <div className="onboarding-inline-note">
-                Project id preview: <strong>{projectId || "acme-core"}</strong>
-              </div>
+              {projectSkipped ? (
+                <div className="onboarding-inline-note">
+                  Project creation skipped. You can create projects later from the Projects section.
+                  <div style={{ marginTop: "8px" }}>
+                    <button
+                      type="button"
+                      className="onboarding-ghost-button"
+                      onClick={() => setProjectSkipped(false)}
+                    >
+                      Add a project
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <>
+                  <div className="onboarding-provider-grid">
+                    <button
+                      type="button"
+                      className={`onboarding-provider-card ${projectSourceType === "empty" ? "active" : ""}`}
+                      onClick={() => setProjectSourceType("empty")}
+                    >
+                      <span className="material-symbols-rounded" aria-hidden="true">folder_open</span>
+                      <strong>Empty project</strong>
+                      <span>Start with a blank workspace directory.</span>
+                    </button>
+                    <button
+                      type="button"
+                      className={`onboarding-provider-card ${projectSourceType === "git" ? "active" : ""}`}
+                      onClick={() => setProjectSourceType("git")}
+                    >
+                      <span className="material-symbols-rounded" aria-hidden="true">source</span>
+                      <strong>Clone from GitHub</strong>
+                      <span>Clone a git repository including submodules.</span>
+                    </button>
+                  </div>
+
+                  <label>
+                    Project name
+                    <input
+                      value={projectName}
+                      onChange={(event) => setProjectName(event.target.value)}
+                      placeholder="Acme Core"
+                      autoFocus
+                    />
+                  </label>
+                  <label>
+                    Project description
+                    <input
+                      value={projectDescription}
+                      onChange={(event) => setProjectDescription(event.target.value)}
+                      placeholder="The main hub for Acme operations"
+                    />
+                  </label>
+
+                  {projectSourceType === "git" ? (
+                    <label>
+                      GitHub repo URL
+                      <input
+                        value={projectRepoUrl}
+                        onChange={(event) => setProjectRepoUrl(event.target.value)}
+                        placeholder="https://github.com/org/repo"
+                      />
+                    </label>
+                  ) : null}
+
+                  <div className="onboarding-inline-note">
+                    Project id preview: <strong>{projectId || "acme-core"}</strong>
+                  </div>
+                </>
+              )}
             </div>
           ) : null}
 
@@ -884,6 +943,20 @@ export function OnboardingView({ coreApi, initialConfig, onCompleted }: Onboardi
           <button type="button" className="onboarding-ghost-button hover-levitate" onClick={previousStep} disabled={stepIndex === 0 || isSubmitting}>
             Back
           </button>
+          {stepIndex === 0 && !projectSkipped ? (
+            <button
+              type="button"
+              className="onboarding-ghost-button hover-levitate"
+              onClick={() => {
+                setProjectSkipped(true);
+                setStepIndex((value) => Math.min(STEP_TITLES.length - 1, value + 1));
+                setStatusText(`Step 2 of ${STEP_TITLES.length}.`);
+              }}
+              disabled={isSubmitting}
+            >
+              Skip
+            </button>
+          ) : null}
           <button
             type="button"
             className="onboarding-primary-button hover-levitate"
