@@ -38,6 +38,32 @@ const PROVIDERS: ProviderDefinition[] = [
     }
   },
   {
+    id: "gemini",
+    title: "Google Gemini",
+    description: "Google Gemini models via API key auth.",
+    requiresApiKey: true,
+    authHint: "Uses payload key, saved config key, or GEMINI_API_KEY.",
+    defaultEntry: {
+      title: "gemini",
+      apiKey: "",
+      apiUrl: "https://generativelanguage.googleapis.com",
+      model: "gemini-2.5-flash"
+    }
+  },
+  {
+    id: "anthropic",
+    title: "Anthropic",
+    description: "Claude models via Anthropic API key.",
+    requiresApiKey: true,
+    authHint: "Uses payload key, saved config key, or ANTHROPIC_API_KEY.",
+    defaultEntry: {
+      title: "anthropic",
+      apiKey: "",
+      apiUrl: "https://api.anthropic.com",
+      model: "claude-sonnet-4-20250514"
+    }
+  },
+  {
     id: "openai-oauth",
     title: "OpenAI Codex",
     description: "ChatGPT/Codex login via OpenAI OAuth.",
@@ -102,6 +128,12 @@ function inferProviderId(config: AnyRecord) {
   if (title.includes("ollama") || apiUrl.includes("11434") || apiUrl.includes("ollama")) {
     return "ollama";
   }
+  if (title.includes("gemini") || apiUrl.includes("generativelanguage.googleapis.com")) {
+    return "gemini";
+  }
+  if (title.includes("anthropic") || apiUrl.includes("anthropic")) {
+    return "anthropic";
+  }
   return "openai-api";
 }
 
@@ -125,6 +157,12 @@ function runtimeModelId(providerId: string, modelId: string) {
   }
   if (providerId === "ollama") {
     return `ollama:${modelId}`;
+  }
+  if (providerId === "gemini") {
+    return `gemini:${modelId}`;
+  }
+  if (providerId === "anthropic") {
+    return `anthropic:${modelId}`;
   }
   return modelId;
 }
@@ -169,6 +207,12 @@ function providerCardIcon(providerId: string) {
   }
   if (providerId === "openai-oauth") {
     return "login";
+  }
+  if (providerId === "gemini") {
+    return "diamond";
+  }
+  if (providerId === "anthropic") {
+    return "psychology";
   }
   return "deployed_code";
 }
@@ -331,9 +375,10 @@ export function OnboardingView({ coreApi, initialConfig, onCompleted }: Onboardi
   async function runProviderProbe(nextProviderId = activeProvider.id, nextApiKey = providerApiKey, nextApiUrl = providerApiUrl) {
     setIsProbing(true);
     setProbeStatus(`Testing ${nextProviderId === "openai-oauth" ? "OpenAI Codex" : activeProvider.title}...`);
+    const requiresKey = nextProviderId === "openai-api" || nextProviderId === "gemini" || nextProviderId === "anthropic";
     const response = await coreApi.probeProvider({
       providerId: nextProviderId,
-      apiKey: nextProviderId === "openai-api" ? nextApiKey : undefined,
+      apiKey: requiresKey ? nextApiKey : undefined,
       apiUrl: nextApiUrl
     });
     setIsProbing(false);

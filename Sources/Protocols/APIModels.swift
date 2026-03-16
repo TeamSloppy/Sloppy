@@ -1588,6 +1588,8 @@ public enum ProviderProbeID: String, Codable, Sendable {
     case openAIAPI = "openai-api"
     case openAIOAuth = "openai-oauth"
     case ollama
+    case gemini
+    case anthropic
 }
 
 public struct ProviderProbeRequest: Codable, Sendable {

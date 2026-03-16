@@ -60,6 +60,36 @@ const PROVIDER_CATALOG = [
     }
   },
   {
+    id: "gemini",
+    title: "Google Gemini",
+    description: "Google Gemini models via API key.",
+    modelHint: "gemini-2.5-flash",
+    authMethod: "api_key",
+    requiresApiKey: true,
+    supportsModelCatalog: false,
+    defaultEntry: {
+      title: "gemini",
+      apiKey: "",
+      apiUrl: "https://generativelanguage.googleapis.com",
+      model: "gemini-2.5-flash"
+    }
+  },
+  {
+    id: "anthropic",
+    title: "Anthropic",
+    description: "Claude models via Anthropic API key.",
+    modelHint: "claude-sonnet-4-20250514",
+    authMethod: "api_key",
+    requiresApiKey: true,
+    supportsModelCatalog: false,
+    defaultEntry: {
+      title: "anthropic",
+      apiKey: "",
+      apiUrl: "https://api.anthropic.com",
+      model: "claude-sonnet-4-20250514"
+    }
+  },
+  {
     id: "openai-oauth",
     title: "OpenAI Codex",
     description: "ChatGPT/Codex login via OpenAI OAuth.",
@@ -172,10 +202,16 @@ function clone(value) {
 function normalizeModel(item, index) {
   if (typeof item === "string") {
     const [provider, name] = item.includes(":") ? item.split(":", 2) : ["", item];
+    const apiUrlMap = {
+      openai: "https://api.openai.com/v1",
+      ollama: "http://127.0.0.1:11434",
+      gemini: "https://generativelanguage.googleapis.com",
+      anthropic: "https://api.anthropic.com"
+    };
     return {
       title: provider ? `${provider}-${name}` : name || `model-${index + 1}`,
       apiKey: "",
-      apiUrl: provider === "openai" ? "https://api.openai.com/v1" : provider === "ollama" ? "http://127.0.0.1:11434" : "",
+      apiUrl: apiUrlMap[provider] || "",
       model: name || item
     };
   }
@@ -206,6 +242,14 @@ function inferModelProvider(model) {
     return "ollama";
   }
 
+  if (apiUrl.includes("generativelanguage.googleapis.com") || title.includes("gemini") || modelName.startsWith("gemini")) {
+    return "gemini";
+  }
+
+  if (apiUrl.includes("anthropic") || title.includes("anthropic") || modelName.startsWith("claude")) {
+    return "anthropic";
+  }
+
   return "custom";
 }
 
@@ -223,6 +267,12 @@ function findProviderModelIndex(models, providerId) {
   }
   if (providerId === "ollama") {
     return models.findIndex((item) => inferModelProvider(item) === "ollama");
+  }
+  if (providerId === "gemini") {
+    return models.findIndex((item) => inferModelProvider(item) === "gemini");
+  }
+  if (providerId === "anthropic") {
+    return models.findIndex((item) => inferModelProvider(item) === "anthropic");
   }
   return -1;
 }

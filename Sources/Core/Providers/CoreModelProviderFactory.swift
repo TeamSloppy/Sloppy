@@ -20,6 +20,8 @@ enum CoreModelProviderFactory {
     private static let factories: [any ModelProviderFactory] = [
         OpenAIModelProviderFactory(),
         OllamaModelProviderFactory(),
+        GeminiModelProviderFactory(),
+        AnthropicModelProviderFactory(),
     ]
 
     static func buildModelProvider(
@@ -79,7 +81,8 @@ enum CoreModelProviderFactory {
         let modelValue = model.model.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !modelValue.isEmpty else { return nil }
 
-        if modelValue.hasPrefix("openai:") || modelValue.hasPrefix("ollama:") {
+        if modelValue.hasPrefix("openai:") || modelValue.hasPrefix("ollama:")
+            || modelValue.hasPrefix("gemini:") || modelValue.hasPrefix("anthropic:") {
             return modelValue
         }
 
@@ -97,6 +100,14 @@ enum CoreModelProviderFactory {
 
         if title.contains("ollama") || apiURL.contains("ollama") || apiURL.contains("11434") {
             return "ollama"
+        }
+
+        if title.contains("gemini") || apiURL.contains("generativelanguage.googleapis.com") {
+            return "gemini"
+        }
+
+        if title.contains("anthropic") || apiURL.contains("anthropic") {
+            return "anthropic"
         }
 
         return nil

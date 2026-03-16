@@ -11,6 +11,12 @@ function providerIcon(providerId) {
   if (providerId === "ollama") {
     return "deployed_code";
   }
+  if (providerId === "gemini") {
+    return "diamond";
+  }
+  if (providerId === "anthropic") {
+    return "psychology";
+  }
   return "hub";
 }
 
