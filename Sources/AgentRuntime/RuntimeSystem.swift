@@ -876,7 +876,10 @@ public actor RuntimeSystem {
         pruneMinAgeDays: Int,
         channelDegradedFailureCount: Int = 3,
         channelDegradedWindowSeconds: Int = 600,
-        idleThresholdSeconds: Int = 1800
+        idleThresholdSeconds: Int = 1800,
+        mergeEnabled: Bool = false,
+        mergeSimilarityThreshold: Double = 0.80,
+        mergeMaxPerRun: Int = 10
     ) async {
         await visor.startSupervision(
             tickInterval: .seconds(max(1, tickIntervalSeconds)),
@@ -889,6 +892,9 @@ public actor RuntimeSystem {
             channelDegradedFailureCount: channelDegradedFailureCount,
             channelDegradedWindowSeconds: channelDegradedWindowSeconds,
             idleThresholdSeconds: idleThresholdSeconds,
+            mergeEnabled: mergeEnabled,
+            mergeSimilarityThreshold: mergeSimilarityThreshold,
+            mergeMaxPerRun: mergeMaxPerRun,
             snapshotProvider: { [weak self] in
                 guard let self else { return ([], []) }
                 return await (self.channels.snapshots(), self.workers.snapshots())

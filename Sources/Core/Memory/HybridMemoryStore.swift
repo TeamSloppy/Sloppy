@@ -14,16 +14,22 @@ public actor HybridMemoryStore: MemoryStore {
     private var db: OpaquePointer?
 #endif
     private let provider: (any MemoryProvider)?
+    private let embeddingService: EmbeddingService?
     private let retrieval: CoreConfig.Memory.Retrieval
     private let retention: CoreConfig.Memory.Retention
     private let logger: Logger
     private let isoFormatter: ISO8601DateFormatter
 
-    public init(config: CoreConfig, logger: Logger = Logger(label: "sloppy.memory")) {
+    public init(
+        config: CoreConfig,
+        embeddingService: EmbeddingService? = nil,
+        logger: Logger = Logger(label: "sloppy.memory")
+    ) {
         self.retrieval = config.memory.retrieval
         self.retention = config.memory.retention
         self.logger = logger
         self.provider = MemoryProviderRegistry.makeProvider(config: config.memory, logger: logger)
+        self.embeddingService = embeddingService
         self.isoFormatter = ISO8601DateFormatter()
 
 #if canImport(CSQLite3)
@@ -102,6 +108,17 @@ public actor HybridMemoryStore: MemoryStore {
             }
         }
 
+        if let embeddingService {
+            do {
+                let vector = try await embeddingService.embed(text: note)
+#if canImport(CSQLite3)
+                persistEmbedding(memoryId: document.id, vector: vector)
+#endif
+            } catch {
+                logger.warning("Memory embedding failed for \(document.id): \(String(describing: error))")
+            }
+        }
+
         return MemoryRef(
             id: document.id,
             score: 1.0,
@@ -133,6 +150,25 @@ public actor HybridMemoryStore: MemoryStore {
                 }
             } catch {
                 logger.warning("Memory provider query failed: \(String(describing: error))")
+            }
+        }
+
+        if let embeddingService {
+            do {
+                let queryVector = try await embeddingService.embed(text: request.query)
+#if canImport(CSQLite3)
+                let cosineMatches = queryCosineMatches(
+                    queryVector: queryVector,
+                    limit: semanticLimit,
+                    scope: request.scope
+                )
+                for (id, score) in cosineMatches {
+                    let weighted = Double(score) * retrieval.semanticWeight
+                    mergedScores[id] = max(mergedScores[id] ?? 0, weighted)
+                }
+#endif
+            } catch {
+                logger.warning("Embedding query failed: \(String(describing: error))")
             }
         }
 
@@ -305,6 +341,24 @@ public actor HybridMemoryStore: MemoryStore {
 #endif
     }
 
+    /// Returns true if an embedding vector is stored for the given memory id.
+    /// Used internally to verify embedding persistence in tests.
+    func hasEmbedding(for memoryId: String) -> Bool {
+#if canImport(CSQLite3)
+        guard let db else { return false }
+        let sql = "SELECT 1 FROM memory_embeddings WHERE memory_id = ? LIMIT 1;"
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK else { return false }
+        defer { sqlite3_finalize(statement) }
+        _ = memoryId.withCString { ptr in
+            sqlite3_bind_text(statement, 1, ptr, -1, sqliteTransient)
+        }
+        return sqlite3_step(statement) == SQLITE_ROW
+#else
+        return false
+#endif
+    }
+
     public func flushOutbox(limit: Int = 50) async -> Int {
 #if canImport(CSQLite3)
         let rows = nextOutboxRows(limit: limit)
@@ -341,6 +395,109 @@ public actor HybridMemoryStore: MemoryStore {
         return 0
 #endif
     }
+}
+
+// MARK: - Internal helpers (accessible from tests)
+
+extension HybridMemoryStore {
+    /// Computes cosine similarity between two float vectors. Returns 0 for empty or mismatched inputs.
+    static func cosineSimilarity(_ a: [Float], _ b: [Float]) -> Float {
+        let count = min(a.count, b.count)
+        guard count > 0 else { return 0 }
+        var dot: Float = 0
+        var normA: Float = 0
+        var normB: Float = 0
+        for i in 0..<count {
+            dot += a[i] * b[i]
+            normA += a[i] * a[i]
+            normB += b[i] * b[i]
+        }
+        let denom = normA.squareRoot() * normB.squareRoot()
+        return denom > 0 ? dot / denom : 0
+    }
+
+#if canImport(CSQLite3)
+    func persistEmbedding(memoryId: String, vector: [Float]) {
+        guard let db, !vector.isEmpty else { return }
+
+        let blobData = floatsToData(vector)
+        let sql = """
+            INSERT OR REPLACE INTO memory_embeddings(memory_id, embedding, model, dimensions, created_at)
+            VALUES(?, ?, 'local', ?, ?);
+            """
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK else { return }
+        defer { sqlite3_finalize(statement) }
+
+        bindText(memoryId, at: 1, statement: statement)
+        _ = blobData.withUnsafeBytes { ptr in
+            sqlite3_bind_blob(statement, 2, ptr.baseAddress, Int32(blobData.count), sqliteTransient)
+        }
+        sqlite3_bind_int(statement, 3, Int32(vector.count))
+        bindText(isoFormatter.string(from: Date()), at: 4, statement: statement)
+        _ = sqlite3_step(statement)
+    }
+
+    func queryCosineMatches(queryVector: [Float], limit: Int, scope: MemoryScope?) -> [(String, Float)] {
+        guard let db, !queryVector.isEmpty else { return [] }
+
+        let scopeJoin: String
+        let scopeBindings: [String]
+        if let scope {
+            scopeJoin = """
+                INNER JOIN memory_entries me
+                    ON me.id = me2.memory_id
+                   AND me.deleted_at IS NULL
+                   AND me.scope_type = ?
+                   AND me.scope_id = ?
+                """
+            scopeBindings = [scope.type.rawValue, scope.id]
+        } else {
+            scopeJoin = """
+                INNER JOIN memory_entries me
+                    ON me.id = me2.memory_id
+                   AND me.deleted_at IS NULL
+                """
+            scopeBindings = []
+        }
+
+        let sql = """
+            SELECT me2.memory_id, me2.embedding
+            FROM memory_embeddings me2
+            \(scopeJoin)
+            LIMIT ?;
+            """
+
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK else { return [] }
+        defer { sqlite3_finalize(statement) }
+
+        var idx: Int32 = 1
+        for binding in scopeBindings {
+            bindText(binding, at: idx, statement: statement)
+            idx += 1
+        }
+        sqlite3_bind_int(statement, idx, Int32(max(1, limit * 4)))
+
+        var results: [(String, Float)] = []
+        while sqlite3_step(statement) == SQLITE_ROW {
+            guard let idPtr = sqlite3_column_text(statement, 0) else { continue }
+            let id = String(cString: idPtr)
+            let blobSize = sqlite3_column_bytes(statement, 1)
+            guard blobSize > 0, let blobPtr = sqlite3_column_blob(statement, 1) else { continue }
+            let blobData = Data(bytes: blobPtr, count: Int(blobSize))
+            let storedVector = dataToFloats(blobData)
+            guard !storedVector.isEmpty else { continue }
+            let score = Self.cosineSimilarity(queryVector, storedVector)
+            results.append((id, score))
+        }
+
+        return results
+            .sorted { $0.1 > $1.1 }
+            .prefix(limit)
+            .map { $0 }
+    }
+#endif
 }
 
 // MARK: - Private SQL helpers
@@ -437,7 +594,16 @@ private extension HybridMemoryStore {
             "CREATE INDEX IF NOT EXISTS idx_memory_entries_expires ON memory_entries(expires_at);",
             "CREATE INDEX IF NOT EXISTS idx_memory_edges_from ON memory_edges(from_memory_id);",
             "CREATE INDEX IF NOT EXISTS idx_memory_edges_to ON memory_edges(to_memory_id);",
-            "CREATE INDEX IF NOT EXISTS idx_memory_outbox_retry ON memory_provider_outbox(next_retry_at, attempt);"
+            "CREATE INDEX IF NOT EXISTS idx_memory_outbox_retry ON memory_provider_outbox(next_retry_at, attempt);",
+            """
+            CREATE TABLE IF NOT EXISTS memory_embeddings (
+                memory_id TEXT PRIMARY KEY,
+                embedding BLOB NOT NULL,
+                model TEXT NOT NULL,
+                dimensions INTEGER NOT NULL,
+                created_at TEXT NOT NULL
+            );
+            """
         ]
 
         for statement in statements {
@@ -545,6 +711,17 @@ private extension HybridMemoryStore {
         bindText(note, at: 2, statement: statement)
         bindOptionalText(summary, at: 3, statement: statement)
         _ = sqlite3_step(statement)
+    }
+
+    private func floatsToData(_ floats: [Float]) -> Data {
+        floats.withUnsafeBufferPointer { Data(buffer: $0) }
+    }
+
+    private func dataToFloats(_ data: Data) -> [Float] {
+        guard data.count % MemoryLayout<Float>.stride == 0 else { return [] }
+        return data.withUnsafeBytes { ptr in
+            Array(ptr.bindMemory(to: Float.self))
+        }
     }
 
     func queryKeywordMatches(query: String, limit: Int, scope: MemoryScope?) -> [KeywordMatch] {

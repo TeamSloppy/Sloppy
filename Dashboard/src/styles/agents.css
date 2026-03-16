@@ -10,9 +10,7 @@
   width: 100%;
   max-width: 80em;
   min-height: 620px;
-  border: 1px solid var(--line);
   border-radius: 0;
-  background: radial-gradient(110% 90% at 50% 0%, rgba(72, 58, 119, 0.14) 0%, rgba(7, 10, 17, 0) 42%), #070b13;
   display: grid;
   grid-template-rows: 1fr auto;
 }

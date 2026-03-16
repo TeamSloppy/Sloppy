@@ -45,6 +45,9 @@ public actor Visor {
         channelDegradedFailureCount: Int = 3,
         channelDegradedWindowSeconds: Int = 600,
         idleThresholdSeconds: Int = 1800,
+        mergeEnabled: Bool = false,
+        mergeSimilarityThreshold: Double = 0.80,
+        mergeMaxPerRun: Int = 10,
         snapshotProvider: @escaping @Sendable () async -> ([ChannelSnapshot], [WorkerSnapshot]),
         branchProvider: @escaping @Sendable () async -> [BranchSnapshot],
         branchForceTimeout: @escaping @Sendable (String) async -> Void
@@ -73,6 +76,9 @@ public actor Visor {
                     channelDegradedFailureCount: channelDegradedFailureCount,
                     channelDegradedWindowSeconds: channelDegradedWindowSeconds,
                     idleThresholdSeconds: idleThresholdSeconds,
+                    mergeEnabled: mergeEnabled,
+                    mergeSimilarityThreshold: mergeSimilarityThreshold,
+                    mergeMaxPerRun: mergeMaxPerRun,
                     snapshotProvider: snapshotProvider,
                     branchProvider: branchProvider,
                     branchForceTimeout: branchForceTimeout
@@ -92,6 +98,9 @@ public actor Visor {
         channelDegradedFailureCount: Int,
         channelDegradedWindowSeconds: Int,
         idleThresholdSeconds: Int,
+        mergeEnabled: Bool,
+        mergeSimilarityThreshold: Double,
+        mergeMaxPerRun: Int,
         snapshotProvider: @escaping @Sendable () async -> ([ChannelSnapshot], [WorkerSnapshot]),
         branchProvider: @escaping @Sendable () async -> [BranchSnapshot],
         branchForceTimeout: @escaping @Sendable (String) async -> Void
@@ -122,6 +131,12 @@ public actor Visor {
                 pruneImportanceThreshold: pruneImportanceThreshold,
                 pruneMinAgeDays: pruneMinAgeDays
             )
+            if mergeEnabled {
+                await runMemoryMerge(
+                    similarityThreshold: mergeSimilarityThreshold,
+                    maxPerRun: mergeMaxPerRun
+                )
+            }
             lastMaintenanceRun = now
         }
 
@@ -315,6 +330,112 @@ public actor Visor {
             guard elapsed >= timeout else { continue }
             await forceTimeout(branch.branchId)
         }
+    }
+
+    // MARK: - Memory merge
+
+    func runMemoryMerge(
+        similarityThreshold: Double,
+        maxPerRun: Int
+    ) async {
+        let all = await memoryStore.entries(filter: .default)
+        let now = Date()
+        let minAgeSec: TimeInterval = 86_400
+
+        let candidates = all.filter { entry in
+            entry.memoryClass != .bulletin &&
+            entry.kind != .identity &&
+            now.timeIntervalSince(entry.createdAt) >= minAgeSec
+        }
+
+        var mergedIDs = Set<String>()
+        var mergeCount = 0
+
+        for candidate in candidates {
+            guard mergeCount < maxPerRun else { break }
+            guard !mergedIDs.contains(candidate.id) else { continue }
+
+            let hits = await memoryStore.recall(
+                request: MemoryRecallRequest(query: candidate.note, limit: 5, scope: candidate.scope)
+            )
+
+            let best = hits.first { hit in
+                Double(hit.ref.score) >= similarityThreshold &&
+                hit.ref.id != candidate.id &&
+                !mergedIDs.contains(hit.ref.id)
+            }
+            guard let match = best else { continue }
+
+            let matchedEntries = await memoryStore.entries(
+                filter: MemoryEntryFilter(scope: nil, kinds: [], classes: [], includeDeleted: false, limit: nil)
+            )
+            guard let matchEntry = matchedEntries.first(where: { $0.id == match.ref.id }),
+                  matchEntry.memoryClass != .bulletin,
+                  matchEntry.kind != .identity else { continue }
+
+            let mergedNote: String
+            if let completionProvider {
+                let prompt = """
+                    Merge these two related memory entries into a single consolidated entry.
+                    Preserve all important information. Be concise.
+
+                    Memory A: \(candidate.note)
+                    Memory B: \(matchEntry.note)
+
+                    Respond with only the merged text.
+                    """
+                let synthesized = await completionProvider(prompt, 256)
+                let trimmed = synthesized?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                mergedNote = trimmed.isEmpty ? "\(candidate.note) | \(matchEntry.note)" : trimmed
+            } else {
+                mergedNote = "\(candidate.note) | \(matchEntry.note)"
+            }
+
+            let mergedImportance = max(candidate.importance, matchEntry.importance)
+            let merged = await memoryStore.save(
+                entry: MemoryWriteRequest(
+                    note: mergedNote,
+                    kind: candidate.kind,
+                    memoryClass: candidate.memoryClass,
+                    scope: candidate.scope,
+                    source: MemorySource(type: "visor.merge"),
+                    importance: mergedImportance,
+                    confidence: min(candidate.confidence, matchEntry.confidence)
+                )
+            )
+
+            _ = await memoryStore.link(
+                MemoryEdgeWriteRequest(
+                    fromMemoryId: merged.id,
+                    toMemoryId: candidate.id,
+                    relation: .supersedes,
+                    provenance: "visor.merge"
+                )
+            )
+            _ = await memoryStore.link(
+                MemoryEdgeWriteRequest(
+                    fromMemoryId: merged.id,
+                    toMemoryId: matchEntry.id,
+                    relation: .supersedes,
+                    provenance: "visor.merge"
+                )
+            )
+
+            _ = await memoryStore.softDelete(id: candidate.id)
+            _ = await memoryStore.softDelete(id: matchEntry.id)
+
+            mergedIDs.insert(candidate.id)
+            mergedIDs.insert(matchEntry.id)
+            mergeCount += 1
+        }
+
+        await eventBus.publish(
+            EventEnvelope(
+                messageType: .visorMemoryMerged,
+                channelId: "broadcast",
+                payload: .object(["merged": .number(Double(mergeCount))])
+            )
+        )
     }
 
     // MARK: - Memory maintenance

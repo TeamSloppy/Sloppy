@@ -110,6 +110,7 @@ public enum MessageType: String, Codable, Sendable, CaseIterable {
     case visorWorkerTimeout = "visor.worker.timeout"
     case visorBranchTimeout = "visor.branch.timeout"
     case visorMemoryMaintained = "visor.memory.maintained"
+    case visorMemoryMerged = "visor.memory.merged"
     case visorSignalChannelDegraded = "visor.signal.channel_degraded"
     case visorSignalIdle = "visor.signal.idle"
     case actorDiscussionStarted = "actor.discussion.started"

@@ -253,7 +253,11 @@ public actor CoreService {
             hybridMemoryStore = nil
             runtimeMemoryStore = InMemoryMemoryStore()
         } else {
-            let store = HybridMemoryStore(config: config)
+            let embeddingService = EmbeddingService.make(
+                config: config,
+                logger: Logger(label: "sloppy.memory.embedding")
+            )
+            let store = HybridMemoryStore(config: config, embeddingService: embeddingService)
             hybridMemoryStore = store
             runtimeMemoryStore = store
         }
@@ -482,7 +486,10 @@ public actor CoreService {
             pruneMinAgeDays: currentConfig.visor.pruneMinAgeDays,
             channelDegradedFailureCount: currentConfig.visor.channelDegradedFailureCount,
             channelDegradedWindowSeconds: currentConfig.visor.channelDegradedWindowSeconds,
-            idleThresholdSeconds: currentConfig.visor.idleThresholdSeconds
+            idleThresholdSeconds: currentConfig.visor.idleThresholdSeconds,
+            mergeEnabled: currentConfig.visor.mergeEnabled,
+            mergeSimilarityThreshold: currentConfig.visor.mergeSimilarityThreshold,
+            mergeMaxPerRun: currentConfig.visor.mergeMaxPerRun
         )
     }
 

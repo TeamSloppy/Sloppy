@@ -7,7 +7,7 @@
 .providers-intro-card {
   border: 1px solid var(--line);
   border-radius: 0;
-  background: #0f1219;
+  background: var(--surface-2);
   padding: 16px;
   display: grid;
   gap: 10px;

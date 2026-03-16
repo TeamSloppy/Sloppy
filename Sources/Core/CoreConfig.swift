@@ -150,21 +150,51 @@ public struct CoreConfig: Codable, Sendable {
             }
         }
 
+        public struct Embedding: Codable, Sendable, Equatable {
+            /// Whether local embedding is enabled. When false, EmbeddingService is not created.
+            public var enabled: Bool
+            /// Model identifier for the embeddings endpoint (e.g. "text-embedding-3-small").
+            public var model: String
+            /// Output vector dimensionality.
+            public var dimensions: Int
+            /// Full URL to the embeddings endpoint. Nil = derive from configured model providers.
+            public var endpoint: String?
+            /// Name of the environment variable holding the API key. Nil = fall back to OPENAI_API_KEY.
+            public var apiKeyEnv: String?
+
+            public init(
+                enabled: Bool = false,
+                model: String = "text-embedding-3-small",
+                dimensions: Int = 1536,
+                endpoint: String? = nil,
+                apiKeyEnv: String? = nil
+            ) {
+                self.enabled = enabled
+                self.model = model
+                self.dimensions = dimensions
+                self.endpoint = endpoint
+                self.apiKeyEnv = apiKeyEnv
+            }
+        }
+
         public var backend: String
         public var provider: Provider
         public var retrieval: Retrieval
         public var retention: Retention
+        public var embedding: Embedding
 
         public init(
             backend: String,
             provider: Provider = Provider(),
             retrieval: Retrieval = Retrieval(),
-            retention: Retention = Retention()
+            retention: Retention = Retention(),
+            embedding: Embedding = Embedding()
         ) {
             self.backend = backend
             self.provider = provider
             self.retrieval = retrieval
             self.retention = retention
+            self.embedding = embedding
         }
 
         private enum CodingKeys: String, CodingKey {
@@ -172,6 +202,7 @@ public struct CoreConfig: Codable, Sendable {
             case provider
             case retrieval
             case retention
+            case embedding
         }
 
         public init(from decoder: Decoder) throws {
@@ -180,6 +211,7 @@ public struct CoreConfig: Codable, Sendable {
             provider = try container.decodeIfPresent(Provider.self, forKey: .provider) ?? Provider()
             retrieval = try container.decodeIfPresent(Retrieval.self, forKey: .retrieval) ?? Retrieval()
             retention = try container.decodeIfPresent(Retention.self, forKey: .retention) ?? Retention()
+            embedding = try container.decodeIfPresent(Embedding.self, forKey: .embedding) ?? Embedding()
         }
     }
 
@@ -438,6 +470,12 @@ public struct CoreConfig: Codable, Sendable {
         public var idleThresholdSeconds: Int
         /// Webhook URLs to POST signal events to when visor.signal.* events fire.
         public var webhookURLs: [String]
+        /// Whether memory merge is enabled. When false, runMemoryMerge() is skipped.
+        public var mergeEnabled: Bool
+        /// Minimum recall score (0–1) required to consider two memories merge candidates.
+        public var mergeSimilarityThreshold: Double
+        /// Maximum number of merge operations performed in a single maintenance run.
+        public var mergeMaxPerRun: Int
 
         public init(
             scheduler: Scheduler = Scheduler(),
@@ -454,7 +492,10 @@ public struct CoreConfig: Codable, Sendable {
             channelDegradedFailureCount: Int = 3,
             channelDegradedWindowSeconds: Int = 600,
             idleThresholdSeconds: Int = 1800,
-            webhookURLs: [String] = []
+            webhookURLs: [String] = [],
+            mergeEnabled: Bool = false,
+            mergeSimilarityThreshold: Double = 0.80,
+            mergeMaxPerRun: Int = 10
         ) {
             self.scheduler = scheduler
             self.bootstrapBulletin = bootstrapBulletin
@@ -471,6 +512,9 @@ public struct CoreConfig: Codable, Sendable {
             self.channelDegradedWindowSeconds = channelDegradedWindowSeconds
             self.idleThresholdSeconds = idleThresholdSeconds
             self.webhookURLs = webhookURLs
+            self.mergeEnabled = mergeEnabled
+            self.mergeSimilarityThreshold = mergeSimilarityThreshold
+            self.mergeMaxPerRun = mergeMaxPerRun
         }
 
         private enum CodingKeys: String, CodingKey {
@@ -489,6 +533,9 @@ public struct CoreConfig: Codable, Sendable {
             case channelDegradedWindowSeconds
             case idleThresholdSeconds
             case webhookURLs
+            case mergeEnabled
+            case mergeSimilarityThreshold
+            case mergeMaxPerRun
         }
 
         public init(from decoder: Decoder) throws {
@@ -508,6 +555,9 @@ public struct CoreConfig: Codable, Sendable {
             channelDegradedWindowSeconds = try container.decodeIfPresent(Int.self, forKey: .channelDegradedWindowSeconds) ?? 600
             idleThresholdSeconds = try container.decodeIfPresent(Int.self, forKey: .idleThresholdSeconds) ?? 1800
             webhookURLs = try container.decodeIfPresent([String].self, forKey: .webhookURLs) ?? []
+            mergeEnabled = try container.decodeIfPresent(Bool.self, forKey: .mergeEnabled) ?? false
+            mergeSimilarityThreshold = try container.decodeIfPresent(Double.self, forKey: .mergeSimilarityThreshold) ?? 0.80
+            mergeMaxPerRun = try container.decodeIfPresent(Int.self, forKey: .mergeMaxPerRun) ?? 10
         }
     }
 
