@@ -85,9 +85,15 @@ function tabTitle(tabId) {
 }
 
 function AgentCreateModal({ isOpen, form, createError, onFormChange, onClose, onSubmit }) {
+  const [roleDropdownOpen, setRoleDropdownOpen] = React.useState(false);
+
   if (!isOpen) {
     return null;
   }
+
+  const filteredRoles = SYSTEM_ROLES.filter((r) =>
+    r.label.toLowerCase().includes(form.role.toLowerCase())
+  );
 
   return (
     <div className="agent-modal-overlay" onClick={onClose}>
@@ -118,36 +124,47 @@ function AgentCreateModal({ isOpen, form, createError, onFormChange, onClose, on
           </label>
           <label>
             Role <span className="agent-field-optional">optional</span>
-            <select
-              value={resolveSystemRole(form.role)}
-              onChange={(event) => {
-                const selected = event.target.value;
-                if (selected === "" || SYSTEM_ROLE_VALUES.has(selected)) {
-                  onFormChange("role", selected ? SYSTEM_ROLES.find((r) => r.value === selected)!.label : "");
-                  onFormChange("systemRole", selected);
-                } else {
-                  onFormChange("systemRole", "custom");
-                }
-              }}
-            >
-              <option value="">— Select system role —</option>
-              {SYSTEM_ROLES.map((r) => (
-                <option key={r.value} value={r.value}>{r.label}</option>
-              ))}
-              <option value="custom">Custom</option>
-            </select>
-          </label>
-          {resolveSystemRole(form.role) === "custom" && (
-            <label>
-              Custom role description
+            <div className="actor-team-search-wrap">
               <input
+                className="actor-team-search"
                 value={form.role}
-                onChange={(event) => onFormChange("role", event.target.value)}
-                placeholder="e.g. Handles tier 1 support tickets"
-                autoFocus
+                onChange={(event) => {
+                  onFormChange("role", event.target.value);
+                  onFormChange("systemRole", resolveSystemRole(event.target.value));
+                  setRoleDropdownOpen(true);
+                }}
+                onFocus={() => setRoleDropdownOpen(true)}
+                onBlur={() => setTimeout(() => setRoleDropdownOpen(false), 150)}
+                placeholder="Select or type a role…"
+                autoComplete="off"
               />
-            </label>
-          )}
+              {roleDropdownOpen && (
+                <ul className="actor-team-dropdown">
+                  {filteredRoles.map((r) => {
+                    const isSelected = resolveSystemRole(form.role) === r.value;
+                    return (
+                      <li
+                        key={r.value}
+                        className={`actor-team-dropdown-item ${isSelected ? "selected" : ""}`}
+                        onMouseDown={(event) => {
+                          event.preventDefault();
+                          onFormChange("role", r.label);
+                          onFormChange("systemRole", r.value);
+                          setRoleDropdownOpen(false);
+                        }}
+                      >
+                        <span className="actor-team-dropdown-name">{r.label}</span>
+                        {isSelected && <span className="actor-team-dropdown-check material-symbols-rounded">check</span>}
+                      </li>
+                    );
+                  })}
+                  {filteredRoles.length === 0 && (
+                    <li className="actor-team-dropdown-empty">Custom role</li>
+                  )}
+                </ul>
+              )}
+            </div>
+          </label>
           {createError ? <p className="agent-create-error">{createError}</p> : null}
           <div className="agent-modal-actions">
             <button type="button" onClick={onClose}>

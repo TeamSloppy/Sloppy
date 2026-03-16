@@ -3,7 +3,7 @@ import React, { useState, useMemo, useEffect, useRef } from "react";
 const SETTINGS_TABS = [
     { id: "general", title: "General", icon: "settings" },
     { id: "actors", title: "Actors", icon: "group" },
-    { id: "review", title: "Review", icon: "rate_review" }
+    { id: "review", title: "Git Worktree & Review", icon: "rate_review" }
 ];
 
 const APPROVAL_MODES = [
@@ -569,7 +569,12 @@ export function ProjectSettingsTab({
                         <input
                             type="checkbox"
                             checked={isEnabled}
-                            onChange={(e) => mutateDraft((d) => { d.reviewSettings.enabled = e.target.checked; })}
+                            onChange={(e) => mutateDraft((d) => {
+                                d.reviewSettings.enabled = e.target.checked;
+                                if (e.target.checked && !d.repoPath.trim()) {
+                                    d.repoPath = `/projects/${project.id}`;
+                                }
+                            })}
                         />
                         <span className="agent-tools-switch-track" />
                     </label>
@@ -592,45 +597,41 @@ export function ProjectSettingsTab({
                     </label>
                 </div>
 
-                {isEnabled && (
-                    <>
-                        <div className="review-section-divider" />
-                        <div className="review-approval-section">
-                            <p className="review-approval-title">Approval mode</p>
-                            <p className="review-approval-subtitle">
-                                Choose how tasks are approved when they reach the Review stage.
-                            </p>
-                            <div className="review-approval-options">
-                                {APPROVAL_MODES.map((mode) => {
-                                    const active = draft.reviewSettings.approvalMode === mode.id;
-                                    return (
-                                        <button
-                                            key={mode.id}
-                                            type="button"
-                                            className={`review-approval-option ${active ? "active" : ""}`}
-                                            onClick={() => mutateDraft((d) => { d.reviewSettings.approvalMode = mode.id; })}
-                                        >
-                                            <span className="material-symbols-rounded review-approval-icon">{mode.icon}</span>
-                                            <strong className="review-approval-name">{mode.label}</strong>
-                                            <span className="review-approval-desc">{mode.description}</span>
-                                            {active && (
-                                                <span className="material-symbols-rounded review-approval-check">check_circle</span>
-                                            )}
-                                        </button>
-                                    );
-                                })}
-                            </div>
-                        </div>
+                <div className="review-section-divider" />
+                <div className="review-approval-section">
+                    <p className="review-approval-title">Approval mode</p>
+                    <p className="review-approval-subtitle">
+                        Choose how tasks are approved when they reach the Review stage.
+                    </p>
+                    <div className="review-approval-options">
+                        {APPROVAL_MODES.map((mode) => {
+                            const active = draft.reviewSettings.approvalMode === mode.id;
+                            return (
+                                <button
+                                    key={mode.id}
+                                    type="button"
+                                    className={`review-approval-option ${active ? "active" : ""}`}
+                                    onClick={() => mutateDraft((d) => { d.reviewSettings.approvalMode = mode.id; })}
+                                >
+                                    <span className="material-symbols-rounded review-approval-icon">{mode.icon}</span>
+                                    <strong className="review-approval-name">{mode.label}</strong>
+                                    <span className="review-approval-desc">{mode.description}</span>
+                                    {active && (
+                                        <span className="material-symbols-rounded review-approval-check">check_circle</span>
+                                    )}
+                                </button>
+                            );
+                        })}
+                    </div>
+                </div>
 
-                        {draft.reviewSettings.approvalMode === "agent" && (
-                            <div className="review-agent-hint">
-                                <span className="material-symbols-rounded" style={{ fontSize: "1rem", color: "var(--accent)" }}>info</span>
-                                <span>
-                                    Add an actor with the <strong>Reviewer</strong> system role to the team in the Actor Board. The task will be handed off to that actor for review.
-                                </span>
-                            </div>
-                        )}
-                    </>
+                {draft.reviewSettings.approvalMode === "agent" && (
+                    <div className="review-agent-hint">
+                        <span className="material-symbols-rounded" style={{ fontSize: "1rem", color: "var(--accent)" }}>info</span>
+                        <span>
+                            Add an actor with the <strong>Reviewer</strong> system role to the team in the Actor Board. The task will be handed off to that actor for review.
+                        </span>
+                    </div>
                 )}
             </section>
         );

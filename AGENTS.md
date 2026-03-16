@@ -111,6 +111,7 @@ Keep local changes green for the same command set.
 - Keep state local; derive computed values with `useMemo` when useful.
 - Use `async/await` and handle non-OK responses explicitly.
 - Match existing JS formatting: 2-space indent, semicolons, double quotes.
+- For dropdown/select UI, always use the custom `.actor-team-search` dropdown pattern (see `ActorsView.tsx` and `actors.css`) — never use native `<select>` elements.
 
 ## Module map
 
