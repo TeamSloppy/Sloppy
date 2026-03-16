@@ -579,6 +579,15 @@ public actor CoreRouter {
             return Self.encodable(status: HTTPStatus.ok, payload: VisorChatResponse(answer: answer))
         }
 
+        add(.get, "/v1/visor/chat/stream", metadata: RouteMetadata(summary: "Stream Visor answer", description: "Streams a Visor answer as SSE delta events for a given question query param", tags: ["System"])) { request in
+            let question = request.queryParam("question") ?? ""
+            guard !question.isEmpty else {
+                return Self.json(status: HTTPStatus.badRequest, payload: ["error": ErrorCode.invalidBody])
+            }
+            let stream = await service.streamVisorChat(question: question)
+            return Self.sseText(status: HTTPStatus.ok, stream: stream)
+        }
+
         add(.get, "/v1/workers", metadata: RouteMetadata(summary: "List workers", description: "Returns a list of active worker runtimes", tags: ["System"])) { _ in
             let workers = await service.workerSnapshots()
             return Self.encodable(status: HTTPStatus.ok, payload: workers)
