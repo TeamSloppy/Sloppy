@@ -1662,6 +1662,64 @@ public actor CoreRouter {
             }
         }
 
+        add(.get, "/v1/projects/:projectId/tasks/:taskId/diff", metadata: RouteMetadata(summary: "Get task git diff", description: "Returns the git diff for a task worktree branch", tags: ["Projects"])) { request in
+            let projectId = request.pathParam("projectId") ?? ""
+            let taskId = request.pathParam("taskId") ?? ""
+            do {
+                let response = try await service.getTaskDiff(projectID: projectId, taskID: taskId)
+                return Self.encodable(status: HTTPStatus.ok, payload: response)
+            } catch let error as CoreService.ProjectError {
+                return Self.projectErrorResponse(error, fallback: ErrorCode.projectNotFound)
+            } catch {
+                return Self.json(status: HTTPStatus.internalServerError, payload: ["error": ErrorCode.projectNotFound])
+            }
+        }
+
+        add(.get, "/v1/projects/:projectId/tasks/:taskId/review-comments", metadata: RouteMetadata(summary: "List review comments", description: "Returns all review comments for a task", tags: ["Projects"])) { request in
+            let projectId = request.pathParam("projectId") ?? ""
+            let taskId = request.pathParam("taskId") ?? ""
+            let comments = await service.listReviewComments(projectID: projectId, taskID: taskId)
+            return Self.encodable(status: HTTPStatus.ok, payload: comments)
+        }
+
+        add(.post, "/v1/projects/:projectId/tasks/:taskId/review-comments", metadata: RouteMetadata(summary: "Add review comment", description: "Adds a review comment to a task diff", tags: ["Projects"])) { request in
+            let projectId = request.pathParam("projectId") ?? ""
+            let taskId = request.pathParam("taskId") ?? ""
+            guard let body = request.body,
+                  let payload = Self.decode(body, as: ReviewCommentCreateRequest.self)
+            else {
+                return Self.json(status: HTTPStatus.badRequest, payload: ["error": "Invalid comment payload"])
+            }
+            let comment = await service.addReviewComment(projectID: projectId, taskID: taskId, request: payload)
+            return Self.encodable(status: HTTPStatus.created, payload: comment)
+        }
+
+        add(.patch, "/v1/projects/:projectId/tasks/:taskId/review-comments/:commentId", metadata: RouteMetadata(summary: "Update review comment", description: "Updates a review comment (resolve/unresolve or edit content)", tags: ["Projects"])) { request in
+            let projectId = request.pathParam("projectId") ?? ""
+            let taskId = request.pathParam("taskId") ?? ""
+            let commentId = request.pathParam("commentId") ?? ""
+            guard let body = request.body,
+                  let payload = Self.decode(body, as: ReviewCommentUpdateRequest.self)
+            else {
+                return Self.json(status: HTTPStatus.badRequest, payload: ["error": "Invalid comment payload"])
+            }
+            guard let updated = await service.updateReviewComment(projectID: projectId, taskID: taskId, commentID: commentId, request: payload) else {
+                return Self.json(status: HTTPStatus.notFound, payload: ["error": "Comment not found"])
+            }
+            return Self.encodable(status: HTTPStatus.ok, payload: updated)
+        }
+
+        add(.delete, "/v1/projects/:projectId/tasks/:taskId/review-comments/:commentId", metadata: RouteMetadata(summary: "Delete review comment", description: "Deletes a review comment", tags: ["Projects"])) { request in
+            let projectId = request.pathParam("projectId") ?? ""
+            let taskId = request.pathParam("taskId") ?? ""
+            let commentId = request.pathParam("commentId") ?? ""
+            let deleted = await service.deleteReviewComment(projectID: projectId, taskID: taskId, commentID: commentId)
+            if deleted {
+                return Self.json(status: HTTPStatus.ok, payload: ["ok": "true"])
+            }
+            return Self.json(status: HTTPStatus.notFound, payload: ["error": "Comment not found"])
+        }
+
         // MARK: - Channel Plugins
 
         add(.get, "/v1/plugins", metadata: RouteMetadata(summary: "List channel plugins", description: "Returns a list of all available channel plugins", tags: ["Plugins"])) { _ in

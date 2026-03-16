@@ -165,6 +165,13 @@ actor TelegramBotAPI {
         }
     }
 
+    // MARK: - setMyCommands
+
+    func setMyCommands(_ commands: [[String: String]]) async throws {
+        let params: [String: Any] = ["commands": commands]
+        _ = try await post(method: "setMyCommands", params: params)
+    }
+
     // MARK: - HTTP transport
 
     private func post(method: String, params: [String: Any]) async throws -> Data {

@@ -52,6 +52,8 @@ export default defineConfig({
         text: "Architecture",
         items: [
           { text: "Project Design", link: "/architecture/project-design" },
+          { text: "Actors Board", link: "/architecture/actors-board" },
+          { text: "Swarm", link: "/architecture/swarm" },
           { text: "ADR-0001 Runtime Architecture", link: "/adr/0001-runtime-architecture" }
         ]
       },

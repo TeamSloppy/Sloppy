@@ -2,6 +2,7 @@ import Foundation
 import Logging
 import Testing
 @testable import ChannelPluginDiscord
+@testable import ChannelPluginSupport
 import PluginSDK
 import Protocols
 
@@ -113,12 +114,30 @@ private actor MockDiscordClient: DiscordPlatformClient {
         deletedMessages.append((channelId: channelId, messageId: messageId))
     }
 
+    private var registeredCommands: [JSONValue] = []
+    private var interactionResponses: [(id: String, token: String, type: Int, content: String?)] = []
+
+    func registerGlobalCommands(applicationId: String, commands: [JSONValue]) async throws {
+        registeredCommands = commands
+    }
+
+    func createInteractionResponse(
+        interactionId: String,
+        interactionToken: String,
+        type: Int,
+        content: String?
+    ) async throws {
+        interactionResponses.append((id: interactionId, token: interactionToken, type: type, content: content))
+    }
+
     func snapshot() -> (
         sent: [SentMessage],
         edited: [EditedMessage],
-        deleted: [(channelId: String, messageId: String)]
+        deleted: [(channelId: String, messageId: String)],
+        registeredCommands: [JSONValue],
+        interactionResponses: [(id: String, token: String, type: Int, content: String?)]
     ) {
-        (sentMessages, editedMessages, deletedMessages)
+        (sentMessages, editedMessages, deletedMessages, registeredCommands, interactionResponses)
     }
 }
 
@@ -131,12 +150,15 @@ private func helloPayload() -> DiscordGatewayPayload {
     )
 }
 
-private func readyPayload(botUserId: String) -> DiscordGatewayPayload {
+private func readyPayload(botUserId: String, applicationId: String = "app-1") -> DiscordGatewayPayload {
     DiscordGatewayPayload(
         op: 0,
         d: .object([
             "user": .object([
                 "id": .string(botUserId)
+            ]),
+            "application": .object([
+                "id": .string(applicationId)
             ])
         ]),
         s: 1,
@@ -321,4 +343,153 @@ func discordGatewayPluginStreamingLifecycleUsesCreateEditDelete() async throws {
     #expect(snapshot.deleted.count == 1)
     #expect(snapshot.deleted[0].channelId == "discord-general")
     #expect(snapshot.deleted[0].messageId == "message-1")
+}
+
+@Test
+func channelCommandHandlerCommandsListIsComplete() {
+    let names = ChannelCommandHandler.commands.map { $0.name }
+    #expect(names.contains("help"))
+    #expect(names.contains("status"))
+    #expect(names.contains("task"))
+    #expect(names.contains("model"))
+    #expect(names.contains("abort"))
+    #expect(!ChannelCommandHandler.commands.isEmpty)
+}
+
+private func interactionCreatePayload(
+    interactionId: String = "interaction-1",
+    interactionToken: String = "token-abc",
+    commandName: String,
+    optionValue: String? = nil,
+    channelId: String = "discord-general",
+    userId: String = "user-1"
+) -> DiscordGatewayPayload {
+    var commandData: [String: JSONValue] = [
+        "name": .string(commandName),
+        "type": .number(1)
+    ]
+    if let optionValue {
+        commandData["options"] = .array([
+            .object([
+                "name": .string("description"),
+                "value": .string(optionValue)
+            ])
+        ])
+    }
+    let payload: [String: JSONValue] = [
+        "id": .string(interactionId),
+        "token": .string(interactionToken),
+        "type": .number(2),
+        "channel_id": .string(channelId),
+        "data": .object(commandData),
+        "member": .object([
+            "user": .object([
+                "id": .string(userId),
+                "username": .string("alice"),
+                "global_name": .string("Alice")
+            ])
+        ])
+    ]
+    return DiscordGatewayPayload(op: 0, d: .object(payload), s: 3, t: "INTERACTION_CREATE")
+}
+
+@Test
+func discordGatewayRegistersCommandsOnReady() async throws {
+    let session = MockDiscordGatewaySession()
+    let client = MockDiscordClient(session: session)
+    let plugin = DiscordGatewayPlugin(
+        botToken: "discord-token",
+        channelDiscordChannelMap: ["general": "discord-general"],
+        logger: Logger(label: "tests.discord"),
+        client: client
+    )
+    let receiver = RecordingInboundReceiver()
+
+    try await plugin.start(inboundReceiver: receiver)
+    await session.enqueue(helloPayload())
+    await session.enqueue(readyPayload(botUserId: "bot-1"))
+
+    try await waitUntil {
+        let s = await client.snapshot()
+        return !s.registeredCommands.isEmpty
+    }
+    await plugin.stop()
+
+    let snapshot = await client.snapshot()
+    #expect(!snapshot.registeredCommands.isEmpty)
+    let commandNames = snapshot.registeredCommands.compactMap { $0.asObject?["name"]?.asString }
+    #expect(commandNames.contains("help"))
+    #expect(commandNames.contains("status"))
+    #expect(commandNames.contains("task"))
+    #expect(commandNames.contains("model"))
+    #expect(commandNames.contains("abort"))
+}
+
+@Test
+func discordInteractionHelpRespondsLocallyWithType4() async throws {
+    let session = MockDiscordGatewaySession()
+    let client = MockDiscordClient(session: session)
+    let plugin = DiscordGatewayPlugin(
+        botToken: "discord-token",
+        channelDiscordChannelMap: ["general": "discord-general"],
+        logger: Logger(label: "tests.discord"),
+        client: client
+    )
+    let receiver = RecordingInboundReceiver()
+
+    try await plugin.start(inboundReceiver: receiver)
+    await session.enqueue(helloPayload())
+    await session.enqueue(readyPayload(botUserId: "bot-1"))
+    await session.enqueue(interactionCreatePayload(commandName: "help"))
+
+    try await waitUntil {
+        let s = await client.snapshot()
+        return !s.interactionResponses.isEmpty
+    }
+    await plugin.stop()
+
+    let snapshot = await client.snapshot()
+    let helpResponse = snapshot.interactionResponses.first { $0.id == "interaction-1" }
+    #expect(helpResponse != nil)
+    #expect(helpResponse?.type == 4)
+    #expect(helpResponse?.content?.contains("Available commands") == true)
+
+    let forwarded = await receiver.snapshot()
+    #expect(forwarded.isEmpty)
+}
+
+@Test
+func discordInteractionTaskForwardsToCore() async throws {
+    let session = MockDiscordGatewaySession()
+    let client = MockDiscordClient(session: session)
+    let plugin = DiscordGatewayPlugin(
+        botToken: "discord-token",
+        channelDiscordChannelMap: ["general": "discord-general"],
+        logger: Logger(label: "tests.discord"),
+        client: client
+    )
+    let receiver = RecordingInboundReceiver()
+
+    try await plugin.start(inboundReceiver: receiver)
+    await session.enqueue(helloPayload())
+    await session.enqueue(readyPayload(botUserId: "bot-1"))
+    await session.enqueue(
+        interactionCreatePayload(commandName: "task", optionValue: "build the thing")
+    )
+
+    try await waitUntil {
+        await receiver.snapshot().count == 1
+    }
+    await plugin.stop()
+
+    let messages = await receiver.snapshot()
+    #expect(messages.count == 1)
+    #expect(messages[0].channelId == "general")
+    #expect(messages[0].userId == "discord:user-1")
+    #expect(messages[0].content == "/task build the thing")
+
+    let snapshot = await client.snapshot()
+    let ackResponse = snapshot.interactionResponses.first { $0.id == "interaction-1" }
+    #expect(ackResponse?.type == 4)
+    #expect(ackResponse?.content == "Processing...")
 }

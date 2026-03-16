@@ -13,7 +13,7 @@ export const TOP_LEVEL_SECTIONS = [
 ] as const;
 
 export const AGENT_TABS = ["overview", "chat", "memories", "tasks", "skills", "tools", "channels", "cron", "config"] as const;
-export const PROJECT_TABS = ["overview", "channels", "tasks", "workers", "memories", "visor", "settings"] as const;
+export const PROJECT_TABS = ["overview", "channels", "tasks", "workers", "memories", "visor", "settings", "review"] as const;
 
 const TOP_LEVEL_SECTION_SET = new Set<string>(TOP_LEVEL_SECTIONS);
 const AGENT_TAB_SET = new Set<string>(AGENT_TABS);
@@ -120,7 +120,7 @@ export function parseRouteFromPath(pathname: string): DashboardRoute {
   const configSection = section === "config" && sectionArg ? sectionArg : null;
   const projectId = section === "projects" && sectionArg ? sectionArg : null;
   const projectTab = section === "projects" && projectId ? normalizeProjectTab(sectionArg2Lower) : null;
-  const projectTaskReference = section === "projects" && projectTab === "tasks" ? sectionArg3 || null : null;
+  const projectTaskReference = section === "projects" && (projectTab === "tasks" || projectTab === "review") ? sectionArg3 || null : null;
   const agentId = section === "agents" && sectionArg ? sectionArg : null;
   const agentTab = section === "agents" && agentId ? normalizeAgentTab(sectionArg2Lower) : null;
   const legacySessionAgentId = section === "sessions" && sectionArg2 ? sectionArg : null;
@@ -152,6 +152,8 @@ export function buildPathFromRoute(route: DashboardRoute) {
   if (route.section === "projects") {
     if (route.projectTab === "tasks" && route.projectTaskReference) {
       nextPathname = `/tasks/${encodeURIComponent(route.projectTaskReference)}`;
+    } else if (route.projectTab === "review" && route.projectId && route.projectTaskReference) {
+      nextPathname = `/projects/${encodeURIComponent(route.projectId)}/review/${encodeURIComponent(route.projectTaskReference)}`;
     } else if (route.projectId) {
       nextPathname = `/projects/${encodeURIComponent(route.projectId)}`;
       if (route.projectTab && route.projectTab !== DEFAULT_PROJECT_TAB) {

@@ -569,6 +569,32 @@
   padding: 16px;
 }
 
+.context-usage-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.82rem;
+  margin-bottom: 6px;
+}
+
+.context-usage-pct {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.context-usage-bar {
+  height: 6px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+}
+
+.context-usage-bar-fill {
+  height: 100%;
+  border-radius: 3px;
+  transition: width 0.4s ease;
+}
+
 /* ── Stat Row ── */
 .stat-row {
   display: grid;

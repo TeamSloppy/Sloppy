@@ -4698,6 +4698,79 @@ public actor CoreService {
         logger.info("visor.task.approved", metadata: ["project_id": .string(projectID), "task_id": .string(taskID)])
     }
 
+    public func getTaskDiff(projectID: String, taskID: String) async throws -> TaskDiffResponse {
+        let projects = await store.listProjects()
+        guard let project = projects.first(where: { $0.id == projectID }),
+              let task = project.tasks.first(where: { $0.id == taskID })
+        else {
+            throw ProjectError.notFound
+        }
+
+        guard let repoPath = project.repoPath, let branchName = task.worktreeBranch else {
+            return TaskDiffResponse(diff: "", branchName: "", baseBranch: "")
+        }
+
+        let baseBranch = (try? await gitWorktreeService.defaultBranch(repoPath: repoPath)) ?? "main"
+        let diff = (try? await gitWorktreeService.branchDiff(repoPath: repoPath, branchName: branchName, baseBranch: baseBranch)) ?? ""
+        return TaskDiffResponse(diff: diff, branchName: branchName, baseBranch: baseBranch)
+    }
+
+    public func listReviewComments(projectID: String, taskID: String) async -> [ReviewComment] {
+        let url = reviewCommentsFileURL(projectID: projectID, taskID: taskID)
+        guard let data = try? Data(contentsOf: url) else { return [] }
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        return (try? decoder.decode([ReviewComment].self, from: data)) ?? []
+    }
+
+    public func addReviewComment(projectID: String, taskID: String, request: ReviewCommentCreateRequest) async -> ReviewComment {
+        var comments = await listReviewComments(projectID: projectID, taskID: taskID)
+        let comment = ReviewComment(
+            id: UUID().uuidString,
+            taskId: taskID,
+            filePath: request.filePath,
+            lineNumber: request.lineNumber,
+            side: request.side,
+            content: request.content,
+            author: request.author
+        )
+        comments.append(comment)
+        saveReviewComments(comments, projectID: projectID, taskID: taskID)
+        return comment
+    }
+
+    public func updateReviewComment(projectID: String, taskID: String, commentID: String, request: ReviewCommentUpdateRequest) async -> ReviewComment? {
+        var comments = await listReviewComments(projectID: projectID, taskID: taskID)
+        guard let index = comments.firstIndex(where: { $0.id == commentID }) else { return nil }
+        if let resolved = request.resolved { comments[index].resolved = resolved }
+        if let content = request.content { comments[index].content = content }
+        saveReviewComments(comments, projectID: projectID, taskID: taskID)
+        return comments[index]
+    }
+
+    public func deleteReviewComment(projectID: String, taskID: String, commentID: String) async -> Bool {
+        var comments = await listReviewComments(projectID: projectID, taskID: taskID)
+        let before = comments.count
+        comments.removeAll { $0.id == commentID }
+        if comments.count == before { return false }
+        saveReviewComments(comments, projectID: projectID, taskID: taskID)
+        return true
+    }
+
+    private func reviewCommentsFileURL(projectID: String, taskID: String) -> URL {
+        projectArtifactsDirectoryURL(projectID: projectID)
+            .appendingPathComponent("review-comments-\(taskID).json")
+    }
+
+    private func saveReviewComments(_ comments: [ReviewComment], projectID: String, taskID: String) {
+        ensureProjectWorkspaceDirectory(projectID: projectID)
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        guard let data = try? encoder.encode(comments) else { return }
+        let url = reviewCommentsFileURL(projectID: projectID, taskID: taskID)
+        try? data.write(to: url, options: .atomic)
+    }
+
     public func rejectTask(projectID: String, taskID: String, reason: String?) async throws {
         let projects = await store.listProjects()
         guard var project = projects.first(where: { $0.id == projectID }),
@@ -6335,6 +6408,77 @@ extension CoreService {
         await channelModelStore.remove(channelId: channelId)
     }
 
+    private func handleContextCommand(channelId: String, content: String) async -> String? {
+        let lower = content.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard lower == "/context" else { return nil }
+
+        let modelOverride = await channelModelStore.get(channelId: channelId)
+        let available = availableAgentModels()
+        let activeModel = modelOverride.flatMap { id in available.first { $0.id == id } } ?? available.first
+
+        let modelName = activeModel?.title ?? modelOverride ?? "unknown"
+        let contextWindowStr = activeModel?.contextWindow ?? "—"
+        let contextWindowTokens = Self.parseContextWindowString(contextWindowStr)
+
+        let usage = await listTokenUsage(channelId: channelId)
+        let promptTokens = usage.totalPromptTokens
+        let completionTokens = usage.totalCompletionTokens
+        let totalTokens = usage.totalTokens
+
+        let usagePercent = contextWindowTokens > 0
+            ? min(100, Int((Double(totalTokens) / Double(contextWindowTokens)) * 100))
+            : 0
+
+        let barWidth = 20
+        let filledCount = contextWindowTokens > 0 ? (usagePercent * barWidth) / 100 : 0
+        let emptyCount = barWidth - filledCount
+        let barFill = String(repeating: "█", count: filledCount)
+        let barEmpty = String(repeating: "░", count: emptyCount)
+        let barEmoji: String
+        if usagePercent >= 90 { barEmoji = "🔴" }
+        else if usagePercent >= 70 { barEmoji = "🟡" }
+        else { barEmoji = "🟢" }
+
+        return """
+        📊 Context Usage
+
+        🤖 Model: \(modelName)
+        📐 Context Window: \(contextWindowStr)
+
+        ┌──────────────────────────┐
+        │ 📥 Prompt:     \(Self.padTokenCount(promptTokens)) │
+        │ 📤 Completion:  \(Self.padTokenCount(completionTokens)) │
+        │ 📦 Total:      \(Self.padTokenCount(totalTokens)) │
+        └──────────────────────────┘
+
+        \(barEmoji) [\(barFill)\(barEmpty)] \(usagePercent)%
+           \(Self.formatTokenCountShort(totalTokens)) / \(contextWindowStr)
+        """
+    }
+
+    private static func parseContextWindowString(_ value: String) -> Int {
+        let normalized = value.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
+        guard let match = normalized.range(of: #"^([\d.]+)\s*([KMB])?$"#, options: .regularExpression) else { return 0 }
+        let matched = String(normalized[match])
+        let numStr = matched.replacingOccurrences(of: #"[KMB]"#, with: "", options: .regularExpression)
+        guard let num = Double(numStr) else { return 0 }
+        if normalized.hasSuffix("M") { return Int(num * 1_000_000) }
+        if normalized.hasSuffix("K") { return Int(num * 1_000) }
+        if normalized.hasSuffix("B") { return Int(num * 1_000_000_000) }
+        return Int(num)
+    }
+
+    private static func formatTokenCountShort(_ count: Int) -> String {
+        if count >= 1_000_000 { return String(format: "%.1fM", Double(count) / 1_000_000) }
+        if count >= 1_000 { return String(format: "%.1fK", Double(count) / 1_000) }
+        return "\(count)"
+    }
+
+    private static func padTokenCount(_ count: Int) -> String {
+        let formatted = count.formatted()
+        return formatted.padding(toLength: 10, withPad: " ", startingAt: 0)
+    }
+
     private func handleModelCommand(channelId: String, content: String) async -> String? {
         let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
         let lower = trimmed.lowercased()
@@ -6425,6 +6569,11 @@ extension CoreService: InboundMessageReceiver {
     public func postMessage(channelId: String, userId: String, content: String) async -> Bool {
         if let modelCommandReply = await handleModelCommand(channelId: channelId, content: content) {
             await deliverToChannelPlugin(channelId: channelId, content: modelCommandReply)
+            return true
+        }
+
+        if let contextReply = await handleContextCommand(channelId: channelId, content: content) {
+            await deliverToChannelPlugin(channelId: channelId, content: contextReply)
             return true
         }
 

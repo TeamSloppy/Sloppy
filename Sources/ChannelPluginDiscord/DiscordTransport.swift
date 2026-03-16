@@ -17,6 +17,8 @@ protocol DiscordPlatformClient: Sendable {
     func sendMessage(channelId: String, content: String) async throws -> DiscordRESTMessage
     func editMessage(channelId: String, messageId: String, content: String) async throws -> DiscordRESTMessage
     func deleteMessage(channelId: String, messageId: String) async throws
+    func registerGlobalCommands(applicationId: String, commands: [JSONValue]) async throws
+    func createInteractionResponse(interactionId: String, interactionToken: String, type: Int, content: String?) async throws
 }
 
 struct DiscordGatewayPayload: Codable, Sendable {
@@ -125,10 +127,41 @@ actor DiscordHTTPClient: DiscordPlatformClient {
         )
     }
 
+    func registerGlobalCommands(applicationId: String, commands: [JSONValue]) async throws {
+        let bodyData = try JSONEncoder().encode(commands)
+        _ = try await request(
+            method: "PUT",
+            path: "applications/\(applicationId)/commands",
+            rawBody: bodyData
+        )
+    }
+
+    func createInteractionResponse(
+        interactionId: String,
+        interactionToken: String,
+        type: Int,
+        content: String?
+    ) async throws {
+        var data: [String: JSONValue] = [:]
+        if let content {
+            data["content"] = .string(content)
+        }
+        let body: [String: JSONValue] = [
+            "type": .number(Double(type)),
+            "data": .object(data)
+        ]
+        _ = try await request(
+            method: "POST",
+            path: "interactions/\(interactionId)/\(interactionToken)/callback",
+            body: body
+        )
+    }
+
     private func request(
         method: String,
         path: String,
-        body: [String: JSONValue]? = nil
+        body: [String: JSONValue]? = nil,
+        rawBody: Data? = nil
     ) async throws -> Data {
         let url = apiBaseURL.appendingPathComponent(path)
         var request = URLRequest(url: url)
@@ -137,6 +170,8 @@ actor DiscordHTTPClient: DiscordPlatformClient {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         if let body {
             request.httpBody = try JSONEncoder().encode(body)
+        } else if let rawBody {
+            request.httpBody = rawBody
         }
 
         let (data, response): (Data, URLResponse) = try await withCheckedThrowingContinuation { continuation in

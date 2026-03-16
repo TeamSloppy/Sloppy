@@ -158,3 +158,12 @@ func modelCommandRejectsUnknownModel() async throws {
     let stored = await service.getChannelModel(channelId: channelId)
     #expect(stored.selectedModel == nil)
 }
+
+@Test
+func contextCommandReturnsUsageInfo() async throws {
+    let service = CoreService(config: .default)
+    let channelId = "context-cmd-\(UUID().uuidString)"
+
+    let ok = await service.postMessage(channelId: channelId, userId: "tg:1", content: "/context")
+    #expect(ok)
+}

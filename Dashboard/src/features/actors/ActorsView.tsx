@@ -3,16 +3,19 @@ import {
   createActorLink,
   createActorNode,
   createActorTeam,
+  createAgent as createAgentRequest,
   deleteActorLink,
   deleteActorNode,
   deleteActorTeam,
   fetchActorsBoard,
+  fetchAgents,
   resolveActorRoute,
   updateActorsBoard,
   updateActorLink,
   updateActorNode,
   updateActorTeam
 } from "../../api";
+import { AgentCreateForm, emptyAgentFormValues, resolveSystemRole } from "../agents/components/AgentCreateForm";
 
 const NODE_WIDTH = 180;
 const NODE_HEIGHT = 88;
@@ -296,6 +299,16 @@ export function ActorsView() {
   const [linkCommunicationType, setLinkCommunicationType] = useState("chat");
   const [newActorName, setNewActorName] = useState("");
   const [newActorKind, setNewActorKind] = useState("human");
+  const [newActorRole, setNewActorRole] = useState("");
+  const [newActorStep, setNewActorStep] = useState("kind-select");
+  const [agentsList, setAgentsList] = useState([]);
+  const [selectedAgentId, setSelectedAgentId] = useState(null);
+  const [agentSearch, setAgentSearch] = useState("");
+  const [agentDropdownOpen, setAgentDropdownOpen] = useState(false);
+  const agentSearchRef = useRef(null);
+  const [agentMode, setAgentMode] = useState("select");
+  const [newAgentForm, setNewAgentForm] = useState(emptyAgentFormValues);
+  const [newAgentError, setNewAgentError] = useState("");
   const [teamName, setTeamName] = useState("");
   const [teamMembers, setTeamMembers] = useState([]);
   const [editingTeamId, setEditingTeamId] = useState(null);
@@ -802,12 +815,71 @@ export function ActorsView() {
     void createLink(sourceNodeId, sourceSocket, node.id, socket);
   }
 
+  function resetNewActorModal() {
+    setNewActorStep("kind-select");
+    setNewActorName("");
+    setNewActorKind("human");
+    setNewActorRole("");
+    setSelectedAgentId(null);
+    setAgentSearch("");
+    setAgentDropdownOpen(false);
+    setAgentMode("select");
+    setNewAgentForm(emptyAgentFormValues());
+    setNewAgentError("");
+  }
+
   async function createActor(event) {
     event.preventDefault();
-    const baseName = asString(newActorName);
-    if (!baseName) {
-      setStatusText("Actor name is required.");
-      return;
+    setNewAgentError("");
+
+    let baseName = "";
+    let linkedAgentId = null;
+    let shouldSetSaving = true;
+
+    if (newActorKind === "agent") {
+      if (agentMode === "create") {
+        const rawId = String(newAgentForm.id || "").trim().replace(/\s+/g, "-");
+        const agentDisplayName = String(newAgentForm.displayName || "").trim();
+        const agentRole = String(newAgentForm.role || "").trim();
+
+        if (!rawId) {
+          setNewAgentError("Agent ID is required.");
+          return;
+        }
+
+        setIsSaving(true);
+        shouldSetSaving = false;
+
+        const agentResponse = await createAgentRequest({
+          id: rawId,
+          displayName: agentDisplayName || rawId,
+          role: agentRole || "General-purpose assistant",
+          systemRole: resolveSystemRole(agentRole) || undefined
+        });
+
+        if (!agentResponse) {
+          setIsSaving(false);
+          setNewAgentError("Failed to create agent. Check ID format and duplicates.");
+          return;
+        }
+
+        linkedAgentId = agentResponse.id;
+        baseName = agentDisplayName || rawId;
+      } else {
+        if (!selectedAgentId) {
+          setStatusText("Select an agent to link.");
+          return;
+        }
+        const agent = agentsList.find((a) => a.id === selectedAgentId);
+        baseName = asString(agent?.displayName) || selectedAgentId;
+        linkedAgentId = selectedAgentId;
+      }
+    } else {
+      baseName = asString(newActorName);
+      if (!baseName) {
+        setStatusText("Actor name is required.");
+        return;
+      }
     }
 
     const slug = slugify(baseName) || `actor-${Date.now()}`;
@@ -816,14 +888,16 @@ export function ActorsView() {
     const nodeID = uniqueId(prefix, nodeIDs);
     const index = boardRef.current.nodes.length;
 
-    setIsSaving(true);
+    if (shouldSetSaving) {
+      setIsSaving(true);
+    }
     const response = await createActorNode({
       id: nodeID,
       displayName: baseName,
       kind: newActorKind,
-      linkedAgentId: null,
+      linkedAgentId,
       channelId: `channel:${slug}`,
-      role: null,
+      role: asString(newActorRole) || null,
       positionX: 360 + (index % 5) * 190,
       positionY: 220 + Math.floor(index / 5) * 150,
       createdAt: new Date().toISOString()
@@ -831,7 +905,7 @@ export function ActorsView() {
     setIsSaving(false);
 
     if (applyBoardResponse(response, "Actor created")) {
-      setNewActorName("");
+      resetNewActorModal();
       setSelectedNodeId(nodeID);
       setSelectedLinkId(null);
       setLinkMenu(null);
@@ -1428,7 +1502,12 @@ export function ActorsView() {
               type="button"
               className={showNewActorPopup ? "active" : ""}
               onClick={() => {
-                setShowNewActorPopup((previous) => !previous);
+                setShowNewActorPopup((previous) => {
+                  if (!previous) {
+                    resetNewActorModal();
+                  }
+                  return !previous;
+                });
                 setShowNewTeamPopup(false);
               }}
             >
@@ -1456,41 +1535,222 @@ export function ActorsView() {
               onPointerDown={(event) => {
                 if (event.target === event.currentTarget) {
                   setShowNewActorPopup(false);
+                  resetNewActorModal();
                 }
               }}
             >
               <div className="actor-modal-card" onPointerDown={(event) => event.stopPropagation()}>
                 <header>
-                  <strong>New Actor</strong>
+                  <strong>
+                    {newActorStep === "kind-select" ? "New Actor" : (
+                      <>
+                        New{" "}
+                        {newActorKind === "human" ? "Human" : newActorKind === "agent" ? "Agent" : "Action"}
+                      </>
+                    )}
+                  </strong>
                   <button
                     type="button"
                     className="actor-link-menu-close"
-                    onClick={() => setShowNewActorPopup(false)}
+                    onClick={() => {
+                      setShowNewActorPopup(false);
+                      resetNewActorModal();
+                    }}
                   >
                     ×
                   </button>
                 </header>
-                <form className="actor-node-menu-form" onSubmit={createActor}>
-                  <label>
-                    Name
-                    <input
-                      value={newActorName}
-                      onChange={(event) => setNewActorName(event.target.value)}
-                      placeholder="e.g. Product Manager"
-                      autoFocus
-                    />
-                  </label>
-                  <label>
-                    Kind
-                    <select value={newActorKind} onChange={(event) => setNewActorKind(event.target.value)}>
-                      <option value="human">Human</option>
-                      <option value="action">Action</option>
-                    </select>
-                  </label>
-                  <button type="submit" disabled={isSaving}>
-                    Create Actor
-                  </button>
-                </form>
+
+                {newActorStep === "kind-select" ? (
+                  <div className="actor-kind-picker">
+                    <button
+                      type="button"
+                      className="actor-kind-card"
+                      onClick={() => {
+                        setNewActorKind("human");
+                        setNewActorStep("form");
+                      }}
+                    >
+                      <span className="actor-kind-card-label">Human</span>
+                      <span className="actor-kind-card-desc">A person participating in conversations</span>
+                    </button>
+                    <button
+                      type="button"
+                      className="actor-kind-card"
+                      onClick={async () => {
+                        setNewActorKind("agent");
+                        setNewActorStep("form");
+                        const result = await fetchAgents();
+                        setAgentsList(Array.isArray(result) ? result : []);
+                      }}
+                    >
+                      <span className="actor-kind-card-label">Agent</span>
+                      <span className="actor-kind-card-desc">An AI agent linked to an existing agent</span>
+                    </button>
+                    <button
+                      type="button"
+                      className="actor-kind-card"
+                      onClick={() => {
+                        setNewActorKind("action");
+                        setNewActorStep("form");
+                      }}
+                    >
+                      <span className="actor-kind-card-label">Action</span>
+                      <span className="actor-kind-card-desc">An automated action or integration</span>
+                    </button>
+                  </div>
+                ) : (
+                  <>
+                    {newActorKind === "agent" ? (
+                      <div className="actor-link-menu-actions">
+                        <button
+                          type="button"
+                          className={agentMode === "select" ? "active" : ""}
+                          onClick={() => {
+                            setAgentMode("select");
+                            setNewAgentError("");
+                          }}
+                        >
+                          Select existing
+                        </button>
+                        <button
+                          type="button"
+                          className={agentMode === "create" ? "active" : ""}
+                          onClick={() => {
+                            setAgentMode("create");
+                            setNewAgentForm(emptyAgentFormValues());
+                            setNewAgentError("");
+                          }}
+                        >
+                          New agent
+                        </button>
+                      </div>
+                    ) : null}
+
+                    {newActorKind === "agent" && agentMode === "create" ? (
+                      <AgentCreateForm
+                        form={newAgentForm}
+                        error={newAgentError}
+                        onFormChange={(field, value) =>
+                          setNewAgentForm((prev) => ({ ...prev, [field]: value }))
+                        }
+                        onSubmit={createActor}
+                        submitLabel={isSaving ? "Creating…" : "Create Actor"}
+                        onCancel={() => {
+                          setAgentMode("select");
+                          setNewAgentForm(emptyAgentFormValues());
+                          setNewAgentError("");
+                        }}
+                        cancelLabel="Back"
+                      />
+                    ) : (
+                      <form className="actor-node-menu-form" onSubmit={createActor}>
+                        {newActorKind === "agent" ? (
+                          <label>
+                            Agent
+                            <div className="actor-team-search-wrap">
+                              <input
+                                ref={agentSearchRef}
+                                className="actor-team-search"
+                                value={agentSearch}
+                                onChange={(event) => {
+                                  setAgentSearch(event.target.value);
+                                  setAgentDropdownOpen(true);
+                                  if (selectedAgentId) {
+                                    setSelectedAgentId(null);
+                                    setNewActorName("");
+                                  }
+                                }}
+                                onFocus={() => setAgentDropdownOpen(true)}
+                                onBlur={() => setTimeout(() => setAgentDropdownOpen(false), 150)}
+                                placeholder="Search agents…"
+                                autoComplete="off"
+                                autoFocus
+                              />
+                              {agentDropdownOpen ? (
+                                <ul className="actor-team-dropdown">
+                                  {agentsList
+                                    .filter((agent) => {
+                                      const q = agentSearch.toLowerCase();
+                                      return (
+                                        (agent.displayName || "").toLowerCase().includes(q) ||
+                                        agent.id.toLowerCase().includes(q)
+                                      );
+                                    })
+                                    .map((agent) => {
+                                      const isSelected = selectedAgentId === agent.id;
+                                      return (
+                                        <li
+                                          key={agent.id}
+                                          className={`actor-team-dropdown-item ${isSelected ? "selected" : ""}`}
+                                          onMouseDown={(event) => {
+                                            event.preventDefault();
+                                            setSelectedAgentId(agent.id);
+                                            setNewActorName(agent.displayName || agent.id);
+                                            setAgentSearch(agent.displayName || agent.id);
+                                            setAgentDropdownOpen(false);
+                                          }}
+                                        >
+                                          <span className="actor-team-dropdown-name">{agent.displayName || agent.id}</span>
+                                          <span className="actor-team-dropdown-id">{agent.id}</span>
+                                          {isSelected ? <span className="actor-team-dropdown-check">✓</span> : null}
+                                        </li>
+                                      );
+                                    })}
+                                  {agentsList.filter((agent) => {
+                                    const q = agentSearch.toLowerCase();
+                                    return (
+                                      (agent.displayName || "").toLowerCase().includes(q) ||
+                                      agent.id.toLowerCase().includes(q)
+                                    );
+                                  }).length === 0 ? (
+                                    <li className="actor-team-dropdown-empty">No agents found</li>
+                                  ) : null}
+                                </ul>
+                              ) : null}
+                            </div>
+                          </label>
+                        ) : (
+                          <label>
+                            Name
+                            <input
+                              value={newActorName}
+                              onChange={(event) => setNewActorName(event.target.value)}
+                              placeholder={newActorKind === "human" ? "e.g. Product Manager" : "e.g. GitHub Webhook"}
+                              autoFocus
+                            />
+                          </label>
+                        )}
+                        <label>
+                          Role
+                          <input
+                            value={newActorRole}
+                            onChange={(event) => setNewActorRole(event.target.value)}
+                            placeholder="optional"
+                          />
+                        </label>
+                        <div className="actor-link-menu-footer">
+                          <button type="submit" disabled={isSaving}>
+                            Create Actor
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setNewActorStep("kind-select");
+                              setNewActorName("");
+                              setNewActorRole("");
+                              setSelectedAgentId(null);
+                              setAgentSearch("");
+                              setAgentMode("select");
+                            }}
+                          >
+                            Back
+                          </button>
+                        </div>
+                      </form>
+                    )}
+                  </>
+                )}
               </div>
             </div>
           ) : null}

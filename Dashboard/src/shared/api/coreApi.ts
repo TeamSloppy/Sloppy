@@ -129,9 +129,17 @@ export interface CoreApi {
   blockPendingApproval: (approvalId: string) => Promise<boolean>;
   fetchAccessUsers: (platform?: string) => Promise<AnyRecord[] | null>;
   deleteAccessUser: (userId: string) => Promise<boolean>;
+  fetchTokenUsage: (query?: { channelId?: string; taskId?: string; from?: string; to?: string }) => Promise<AnyRecord | null>;
   fetchChannelModel: (channelId: string) => Promise<AnyRecord | null>;
   updateChannelModel: (channelId: string, model: string) => Promise<AnyRecord | null>;
   clearChannelModel: (channelId: string) => Promise<boolean>;
+  fetchTaskDiff: (projectId: string, taskId: string) => Promise<AnyRecord | null>;
+  approveProjectTask: (projectId: string, taskId: string) => Promise<boolean>;
+  rejectProjectTask: (projectId: string, taskId: string, reason?: string) => Promise<boolean>;
+  fetchReviewComments: (projectId: string, taskId: string) => Promise<AnyRecord[] | null>;
+  addReviewComment: (projectId: string, taskId: string, payload: AnyRecord) => Promise<AnyRecord | null>;
+  updateReviewComment: (projectId: string, taskId: string, commentId: string, payload: AnyRecord) => Promise<AnyRecord | null>;
+  deleteReviewComment: (projectId: string, taskId: string, commentId: string) => Promise<boolean>;
 }
 
 export function createCoreApi(): CoreApi {
@@ -1080,6 +1088,20 @@ export function createCoreApi(): CoreApi {
       return response.ok;
     },
 
+    fetchTokenUsage: async (query = {}) => {
+      const params = new URLSearchParams();
+      if (query.channelId) params.set("channelId", query.channelId);
+      if (query.taskId) params.set("taskId", query.taskId);
+      if (query.from) params.set("from", query.from);
+      if (query.to) params.set("to", query.to);
+      const qs = params.toString();
+      const response = await requestJson<AnyRecord>({
+        path: `/v1/token-usage${qs ? `?${qs}` : ""}`
+      });
+      if (!response.ok) return null;
+      return response.data;
+    },
+
     fetchChannelModel: async (channelId) => {
       const response = await requestJson<AnyRecord>({
         path: `/v1/channels/${encodeURIComponent(channelId)}/model`
@@ -1101,6 +1123,67 @@ export function createCoreApi(): CoreApi {
     clearChannelModel: async (channelId) => {
       const response = await requestJson({
         path: `/v1/channels/${encodeURIComponent(channelId)}/model`,
+        method: "DELETE"
+      });
+      return response.ok;
+    },
+
+    fetchTaskDiff: async (projectId, taskId) => {
+      const response = await requestJson<AnyRecord>({
+        path: `/v1/projects/${encodeURIComponent(projectId)}/tasks/${encodeURIComponent(taskId)}/diff`
+      });
+      if (!response.ok) return null;
+      return response.data;
+    },
+
+    approveProjectTask: async (projectId, taskId) => {
+      const response = await requestJson<AnyRecord>({
+        path: `/v1/projects/${encodeURIComponent(projectId)}/tasks/${encodeURIComponent(taskId)}/approve`,
+        method: "POST"
+      });
+      return response.ok;
+    },
+
+    rejectProjectTask: async (projectId, taskId, reason) => {
+      const response = await requestJson<AnyRecord, AnyRecord>({
+        path: `/v1/projects/${encodeURIComponent(projectId)}/tasks/${encodeURIComponent(taskId)}/reject`,
+        method: "POST",
+        body: reason ? { reason } : {}
+      });
+      return response.ok;
+    },
+
+    fetchReviewComments: async (projectId, taskId) => {
+      const response = await requestJson<AnyRecord[]>({
+        path: `/v1/projects/${encodeURIComponent(projectId)}/tasks/${encodeURIComponent(taskId)}/review-comments`
+      });
+      if (!response.ok || !Array.isArray(response.data)) return null;
+      return response.data;
+    },
+
+    addReviewComment: async (projectId, taskId, payload) => {
+      const response = await requestJson<AnyRecord, AnyRecord>({
+        path: `/v1/projects/${encodeURIComponent(projectId)}/tasks/${encodeURIComponent(taskId)}/review-comments`,
+        method: "POST",
+        body: payload
+      });
+      if (!response.ok) return null;
+      return response.data;
+    },
+
+    updateReviewComment: async (projectId, taskId, commentId, payload) => {
+      const response = await requestJson<AnyRecord, AnyRecord>({
+        path: `/v1/projects/${encodeURIComponent(projectId)}/tasks/${encodeURIComponent(taskId)}/review-comments/${encodeURIComponent(commentId)}`,
+        method: "PATCH",
+        body: payload
+      });
+      if (!response.ok) return null;
+      return response.data;
+    },
+
+    deleteReviewComment: async (projectId, taskId, commentId) => {
+      const response = await requestJson<AnyRecord>({
+        path: `/v1/projects/${encodeURIComponent(projectId)}/tasks/${encodeURIComponent(taskId)}/review-comments/${encodeURIComponent(commentId)}`,
         method: "DELETE"
       });
       return response.ok;
