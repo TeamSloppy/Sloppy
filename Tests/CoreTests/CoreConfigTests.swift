@@ -45,6 +45,39 @@ func missingVisorConfigFallsBackToDefaults() throws {
     #expect(decoded.visor.scheduler.intervalSeconds == 300)
     #expect(decoded.visor.scheduler.jitterSeconds == 60)
     #expect(decoded.visor.bootstrapBulletin)
+    #expect(decoded.visor.model == nil)
+    #expect(decoded.visor.bulletinMaxWords == 300)
+}
+
+@Test
+func visorModelConfigParsedFromJSON() throws {
+    let json =
+        """
+        {
+          "listen": { "host": "0.0.0.0", "port": 25101 },
+          "auth": { "token": "dev-token" },
+          "models": [],
+          "memory": { "backend": "sqlite-local-vectors" },
+          "nodes": ["local"],
+          "gateways": [],
+          "plugins": [],
+          "sqlitePath": "core.sqlite",
+          "visor": {
+            "model": "openai:gpt-4o-mini",
+            "bulletinMaxWords": 500,
+            "bootstrapBulletin": false,
+            "scheduler": { "enabled": false, "intervalSeconds": 600, "jitterSeconds": 30 }
+          }
+        }
+        """
+
+    let decoded = try JSONDecoder().decode(CoreConfig.self, from: Data(json.utf8))
+
+    #expect(decoded.visor.model == "openai:gpt-4o-mini")
+    #expect(decoded.visor.bulletinMaxWords == 500)
+    #expect(decoded.visor.bootstrapBulletin == false)
+    #expect(decoded.visor.scheduler.enabled == false)
+    #expect(decoded.visor.scheduler.intervalSeconds == 600)
 }
 
 @Test

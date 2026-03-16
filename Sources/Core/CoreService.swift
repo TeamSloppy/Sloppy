@@ -1,3 +1,4 @@
+import AnyLanguageModel
 import Foundation
 import AgentRuntime
 import ChannelPluginDiscord
@@ -253,10 +254,17 @@ public actor CoreService {
             hybridMemoryStore = store
             runtimeMemoryStore = store
         }
+        let visorCompletionProvider = Self.buildVisorCompletionProvider(
+            modelProvider: modelProvider,
+            visorModel: config.visor.model,
+            resolvedModels: resolvedModels
+        )
         let runtime = RuntimeSystem(
             modelProvider: modelProvider,
             defaultModel: modelProvider?.supportedModels.first ?? resolvedModels.first,
-            memoryStore: runtimeMemoryStore
+            memoryStore: runtimeMemoryStore,
+            visorCompletionProvider: visorCompletionProvider,
+            visorBulletinMaxWords: config.visor.bulletinMaxWords
         )
         self.runtime = runtime
         self.memoryStore = runtimeMemoryStore
@@ -627,6 +635,36 @@ public actor CoreService {
             interval: .seconds(max(1, scheduler.intervalSeconds)),
             jitter: .seconds(max(0, scheduler.jitterSeconds))
         )
+    }
+
+    /// Builds a completion closure for Visor bulletin synthesis.
+    /// Uses `visorModel` when specified (e.g. a cheaper model), otherwise falls back to the default model.
+    private static func buildVisorCompletionProvider(
+        modelProvider: (any ModelProvider)?,
+        visorModel: String?,
+        resolvedModels: [String]
+    ) -> (@Sendable (String, Int) async -> String?)? {
+        guard let modelProvider else {
+            return nil
+        }
+
+        let activeModel: String
+        if let visorModel, !visorModel.isEmpty, modelProvider.supportedModels.contains(visorModel) {
+            activeModel = visorModel
+        } else if let fallback = modelProvider.supportedModels.first ?? resolvedModels.first {
+            activeModel = fallback
+        } else {
+            return nil
+        }
+
+        return { @Sendable prompt, maxTokens in
+            guard let languageModel = try? await modelProvider.createLanguageModel(for: activeModel) else {
+                return nil
+            }
+            let session = LanguageModelSession(model: languageModel, tools: [])
+            let options = modelProvider.generationOptions(for: activeModel, maxTokens: maxTokens, reasoningEffort: nil)
+            return try? await session.respond(to: prompt, options: options).content
+        }
     }
 
     private func enrichMessageWithTaskReferences(_ content: String) async -> String {
