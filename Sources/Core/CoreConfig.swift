@@ -436,6 +436,8 @@ public struct CoreConfig: Codable, Sendable {
         public var channelDegradedWindowSeconds: Int
         /// Seconds of inactivity before the idle signal is published.
         public var idleThresholdSeconds: Int
+        /// Webhook URLs to POST signal events to when visor.signal.* events fire.
+        public var webhookURLs: [String]
 
         public init(
             scheduler: Scheduler = Scheduler(),
@@ -451,7 +453,8 @@ public struct CoreConfig: Codable, Sendable {
             pruneMinAgeDays: Int = 30,
             channelDegradedFailureCount: Int = 3,
             channelDegradedWindowSeconds: Int = 600,
-            idleThresholdSeconds: Int = 1800
+            idleThresholdSeconds: Int = 1800,
+            webhookURLs: [String] = []
         ) {
             self.scheduler = scheduler
             self.bootstrapBulletin = bootstrapBulletin
@@ -467,6 +470,7 @@ public struct CoreConfig: Codable, Sendable {
             self.channelDegradedFailureCount = channelDegradedFailureCount
             self.channelDegradedWindowSeconds = channelDegradedWindowSeconds
             self.idleThresholdSeconds = idleThresholdSeconds
+            self.webhookURLs = webhookURLs
         }
 
         private enum CodingKeys: String, CodingKey {
@@ -484,6 +488,7 @@ public struct CoreConfig: Codable, Sendable {
             case channelDegradedFailureCount
             case channelDegradedWindowSeconds
             case idleThresholdSeconds
+            case webhookURLs
         }
 
         public init(from decoder: Decoder) throws {
@@ -502,6 +507,7 @@ public struct CoreConfig: Codable, Sendable {
             channelDegradedFailureCount = try container.decodeIfPresent(Int.self, forKey: .channelDegradedFailureCount) ?? 3
             channelDegradedWindowSeconds = try container.decodeIfPresent(Int.self, forKey: .channelDegradedWindowSeconds) ?? 600
             idleThresholdSeconds = try container.decodeIfPresent(Int.self, forKey: .idleThresholdSeconds) ?? 1800
+            webhookURLs = try container.decodeIfPresent([String].self, forKey: .webhookURLs) ?? []
         }
     }
 

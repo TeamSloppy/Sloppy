@@ -1,5 +1,8 @@
 import AnyLanguageModel
 import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
 import AgentRuntime
 import ChannelPluginDiscord
 import ChannelPluginTelegram
@@ -4210,8 +4213,48 @@ public actor CoreService {
                     "failure_count": .stringConvertible(Int(failureCount))
                 ]
             )
+            await deliverWebhook(event: event)
+        case .visorSignalIdle:
+            logger.warning("visor.signal.idle", metadata: ["channel_id": .string(event.channelId)])
+            await deliverWebhook(event: event)
         default:
             break
+        }
+    }
+
+    private func deliverWebhook(event: EventEnvelope) async {
+        let urls = currentConfig.visor.webhookURLs
+        guard !urls.isEmpty else { return }
+
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        encoder.outputFormatting = .sortedKeys
+        guard let body = try? encoder.encode(event) else { return }
+
+        for urlString in urls {
+            guard let url = URL(string: urlString) else {
+                logger.warning("visor.webhook.invalid_url", metadata: ["url": .string(urlString)])
+                continue
+            }
+            var request = URLRequest(url: url, timeoutInterval: 5)
+            request.httpMethod = "POST"
+            request.httpBody = body
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            do {
+                let (_, response) = try await URLSession.shared.data(for: request)
+                let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+                if status < 200 || status >= 300 {
+                    logger.warning(
+                        "visor.webhook.failed",
+                        metadata: ["url": .string(urlString), "status": .stringConvertible(status)]
+                    )
+                }
+            } catch {
+                logger.warning(
+                    "visor.webhook.error",
+                    metadata: ["url": .string(urlString), "error": .string(error.localizedDescription)]
+                )
+            }
         }
     }
 
