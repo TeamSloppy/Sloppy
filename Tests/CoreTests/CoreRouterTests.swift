@@ -196,6 +196,53 @@ func projectCrudEndpoints() async throws {
 }
 
 @Test
+func projectCreateRequestWithRepoUrlIsAccepted() async throws {
+    let config = CoreConfig.test
+    let service = CoreService(config: config)
+    let router = CoreRouter(service: service)
+
+    let createBody = try JSONEncoder().encode(
+        ProjectCreateRequest(
+            id: "cloned-project",
+            name: "Cloned Project",
+            repoUrl: "https://github.com/example/nonexistent-repo-for-test"
+        )
+    )
+
+    let response = await router.handle(method: "POST", path: "/v1/projects", body: createBody)
+    #expect(response.status == 201)
+
+    let decoder = JSONDecoder()
+    decoder.dateDecodingStrategy = .iso8601
+    let created = try decoder.decode(ProjectRecord.self, from: response.body)
+    #expect(created.id == "cloned-project")
+    #expect(created.name == "Cloned Project")
+}
+
+@Test
+func projectCreateRequestWithoutRepoUrlCreatesEmptyProject() async throws {
+    let config = CoreConfig.test
+    let service = CoreService(config: config)
+    let router = CoreRouter(service: service)
+
+    let createBody = try JSONEncoder().encode(
+        ProjectCreateRequest(
+            id: "empty-project",
+            name: "Empty Project"
+        )
+    )
+
+    let response = await router.handle(method: "POST", path: "/v1/projects", body: createBody)
+    #expect(response.status == 201)
+
+    let decoder = JSONDecoder()
+    decoder.dateDecodingStrategy = .iso8601
+    let created = try decoder.decode(ProjectRecord.self, from: response.body)
+    #expect(created.id == "empty-project")
+    #expect(created.name == "Empty Project")
+}
+
+@Test
 func projectCreateEndpointAcceptsPayloadWithoutChannels() async throws {
     let config = CoreConfig.test
     let service = CoreService(config: config)

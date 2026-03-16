@@ -748,6 +748,46 @@ func memoryRefDecodesWithUnknownFields() throws {
 }
 
 @Test
+func projectCreateRequestEncodesRepoUrl() throws {
+    let request = ProjectCreateRequest(
+        id: "my-project",
+        name: "My Project",
+        repoUrl: "https://github.com/org/repo"
+    )
+    let data = try JSONEncoder().encode(request)
+    let roundTripped = try JSONDecoder().decode(ProjectCreateRequest.self, from: data)
+    #expect(roundTripped.repoUrl == "https://github.com/org/repo")
+    #expect(roundTripped.name == "My Project")
+    #expect(roundTripped.id == "my-project")
+}
+
+@Test
+func projectCreateRequestDecodesRepoUrl() throws {
+    let json = """
+    {
+        "name": "My Project",
+        "channels": [],
+        "repoUrl": "https://github.com/org/repo"
+    }
+    """.data(using: .utf8)!
+    let request = try JSONDecoder().decode(ProjectCreateRequest.self, from: json)
+    #expect(request.name == "My Project")
+    #expect(request.repoUrl == "https://github.com/org/repo")
+}
+
+@Test
+func projectCreateRequestRepoUrlIsOptional() throws {
+    let json = """
+    {
+        "name": "My Project",
+        "channels": []
+    }
+    """.data(using: .utf8)!
+    let request = try JSONDecoder().decode(ProjectCreateRequest.self, from: json)
+    #expect(request.repoUrl == nil)
+}
+
+@Test
 func tokenUsageDecodesWithUnknownFields() throws {
     // Given: JSON with extra fields
     let json = """

@@ -409,6 +409,8 @@ export function emptyProjectDraft(index = 1) {
     displayName: `Project ${index}`,
     description: "",
     actors: "",
-    teams: ""
+    teams: "",
+    sourceType: "empty",
+    repoUrl: ""
   };
 }

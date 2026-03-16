@@ -121,13 +121,46 @@ function ProjectCreateModal({ isOpen, draft, onChange, onClose, onCreate, actors
         </div>
 
         <form className="project-task-form" onSubmit={onCreate}>
+          <div className="onboarding-provider-grid">
+            <button
+              type="button"
+              className={`onboarding-provider-card ${draft.sourceType !== "git" ? "active" : ""}`}
+              onClick={() => onChange("sourceType", "empty")}
+            >
+              <span className="material-symbols-rounded" aria-hidden="true">folder_open</span>
+              <strong>Empty project</strong>
+              <span>Start with a blank workspace directory.</span>
+            </button>
+            <button
+              type="button"
+              className={`onboarding-provider-card ${draft.sourceType === "git" ? "active" : ""}`}
+              onClick={() => onChange("sourceType", "git")}
+            >
+              <span className="material-symbols-rounded" aria-hidden="true">source</span>
+              <strong>Clone from GitHub</strong>
+              <span>Clone a git repository including submodules.</span>
+            </button>
+          </div>
+
+          {draft.sourceType === "git" ? (
+            <label>
+              GitHub repo URL
+              <input
+                value={draft.repoUrl}
+                onChange={(event) => onChange("repoUrl", event.target.value)}
+                placeholder="https://github.com/org/repo"
+                autoFocus
+              />
+            </label>
+          ) : null}
+
           <label>
             Project ID
             <input
               value={draft.projectId}
               onChange={(event) => onChange("projectId", event.target.value)}
               placeholder="project-alpha"
-              autoFocus
+              autoFocus={draft.sourceType !== "git"}
             />
           </label>
 
@@ -881,7 +914,10 @@ export function ProjectsView({
       description: String(projectDraft.description || "").trim(),
       channels: buildProjectChannels(projectId, actors, teams),
       actors,
-      teams
+      teams,
+      ...(projectDraft.sourceType === "git" && String(projectDraft.repoUrl || "").trim()
+        ? { repoUrl: String(projectDraft.repoUrl).trim() }
+        : {})
     });
 
     if (!created) {
