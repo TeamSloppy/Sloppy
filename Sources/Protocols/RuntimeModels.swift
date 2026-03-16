@@ -227,14 +227,24 @@ public struct WorkerTaskSpec: Codable, Sendable, Equatable {
     public var objective: String
     public var tools: [String]
     public var mode: WorkerMode
+    public var workingDirectory: String?
 
-    public init(taskId: String, channelId: String, title: String, objective: String, tools: [String], mode: WorkerMode) {
+    public init(
+        taskId: String,
+        channelId: String,
+        title: String,
+        objective: String,
+        tools: [String],
+        mode: WorkerMode,
+        workingDirectory: String? = nil
+    ) {
         self.taskId = taskId
         self.channelId = channelId
         self.title = title
         self.objective = objective
         self.tools = tools
         self.mode = mode
+        self.workingDirectory = workingDirectory
     }
 }
 

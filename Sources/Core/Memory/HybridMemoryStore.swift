@@ -34,7 +34,7 @@ public actor HybridMemoryStore: MemoryStore {
 
 #if canImport(CSQLite3)
         var opened: OpaquePointer?
-        let sqlitePath = config.sqlitePath
+        let sqlitePath = config.resolvedSQLiteURL().path
         let directory = URL(fileURLWithPath: sqlitePath).deletingLastPathComponent().path
         try? FileManager.default.createDirectory(atPath: directory, withIntermediateDirectories: true)
 

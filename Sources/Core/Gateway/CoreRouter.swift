@@ -1635,16 +1635,26 @@ public actor CoreRouter {
             }
         }
 
-        add(.post, "/v1/projects/:projectId/tasks/:taskId/approve", metadata: RouteMetadata(summary: "Approve project task", description: "Marks a project task as ready", tags: ["Projects"])) { request in
+        add(.post, "/v1/projects/:projectId/tasks/:taskId/approve", metadata: RouteMetadata(summary: "Approve project task review", description: "Merges the task worktree branch and marks the task as done", tags: ["Projects"])) { request in
             let projectId = request.pathParam("projectId") ?? ""
             let taskId = request.pathParam("taskId") ?? ""
             do {
-                let project = try await service.updateProjectTask(
-                    projectID: projectId,
-                    taskID: taskId,
-                    request: ProjectTaskUpdateRequest(status: "ready")
-                )
-                return Self.encodable(status: HTTPStatus.ok, payload: project)
+                try await service.approveTask(projectID: projectId, taskID: taskId)
+                return Self.json(status: HTTPStatus.ok, payload: ["ok": "true"])
+            } catch let error as CoreService.ProjectError {
+                return Self.projectErrorResponse(error, fallback: ErrorCode.projectUpdateFailed)
+            } catch {
+                return Self.json(status: HTTPStatus.internalServerError, payload: ["error": ErrorCode.projectUpdateFailed])
+            }
+        }
+
+        add(.post, "/v1/projects/:projectId/tasks/:taskId/reject", metadata: RouteMetadata(summary: "Reject project task review", description: "Rejects the task review and returns it to the developer", tags: ["Projects"])) { request in
+            let projectId = request.pathParam("projectId") ?? ""
+            let taskId = request.pathParam("taskId") ?? ""
+            let payload = request.body.flatMap { Self.decode($0, as: TaskRejectRequest.self) }
+            do {
+                try await service.rejectTask(projectID: projectId, taskID: taskId, reason: payload?.reason)
+                return Self.json(status: HTTPStatus.ok, payload: ["ok": "true"])
             } catch let error as CoreService.ProjectError {
                 return Self.projectErrorResponse(error, fallback: ErrorCode.projectUpdateFailed)
             } catch {
