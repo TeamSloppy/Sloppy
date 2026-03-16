@@ -1281,6 +1281,126 @@
   color: var(--text-heading);
 }
 
+/* ── General settings ─────────────────────────────────────── */
+
+.settings-general-label {
+  margin: 0 0 8px;
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: var(--text-heading);
+}
+
+.settings-icon-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(42px, 1fr));
+  gap: 6px;
+}
+
+.settings-icon-option {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 42px;
+  height: 42px;
+  min-width: 42px;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 0;
+  background: var(--surface-2);
+  color: var(--muted);
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s, background 0.15s;
+}
+
+.settings-icon-option:hover {
+  border-color: var(--line-strong);
+  color: var(--text);
+}
+
+.settings-icon-option.active {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 10%, var(--surface-2));
+}
+
+.settings-icon-option .material-symbols-rounded {
+  font-size: 20px;
+}
+
+.settings-icon-preview {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 12px;
+  padding: 8px 12px;
+  border: 1px solid var(--line);
+  background: var(--surface-2);
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.settings-icon-preview .material-symbols-rounded {
+  color: var(--accent);
+}
+
+/* ── Danger zone ─────────────────────────────────────────── */
+
+.settings-danger-zone h3 {
+  margin: 0 0 8px;
+}
+
+.settings-danger-block {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px;
+  border: 1px solid color-mix(in srgb, var(--danger, #ef4444) 40%, transparent);
+  background: color-mix(in srgb, var(--danger, #ef4444) 5%, transparent);
+}
+
+.settings-danger-info {
+  flex: 1;
+}
+
+.settings-danger-info strong {
+  font-size: 0.92rem;
+  color: var(--text-heading);
+}
+
+.settings-danger-info p {
+  margin: 4px 0 0;
+  font-size: 0.82rem;
+  color: var(--muted);
+  line-height: 1.45;
+}
+
+.settings-danger-confirm {
+  display: grid;
+  gap: 10px;
+  width: 100%;
+}
+
+.settings-danger-warning {
+  margin: 0;
+  font-size: 0.84rem;
+  color: var(--danger, #ef4444);
+  line-height: 1.45;
+}
+
+.settings-danger-confirm label {
+  display: grid;
+  gap: 6px;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.settings-danger-confirm-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
 @media (max-width: 1000px) {
   .project-board-list {
     grid-template-columns: minmax(0, 1fr);
@@ -1288,5 +1408,9 @@
 
   .review-approval-options {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .settings-danger-block {
+    flex-direction: column;
   }
 }

@@ -15,6 +15,20 @@ import { AgentCronTab } from "./components/AgentCronTab";
 import { AgentMemoriesTab } from "./components/AgentMemoriesTab";
 import { Breadcrumbs } from "../../components/Breadcrumbs/Breadcrumbs";
 
+const SYSTEM_ROLES = [
+  { value: "manager", label: "Manager" },
+  { value: "developer", label: "Developer" },
+  { value: "qa", label: "QA" },
+  { value: "reviewer", label: "Reviewer" }
+];
+
+const SYSTEM_ROLE_VALUES = new Set(SYSTEM_ROLES.map((r) => r.value));
+
+function resolveSystemRole(role: string): string {
+  const normalized = role.trim().toLowerCase();
+  return SYSTEM_ROLE_VALUES.has(normalized) ? normalized : (role.trim() ? "custom" : "");
+}
+
 const AGENT_TABS = [
   { id: "overview", title: "Overview" },
   { id: "chat", title: "Chat" },
@@ -33,7 +47,8 @@ function emptyAgentForm() {
   return {
     id: "",
     displayName: "",
-    role: ""
+    role: "",
+    systemRole: ""
   };
 }
 
@@ -103,12 +118,36 @@ function AgentCreateModal({ isOpen, form, createError, onFormChange, onClose, on
           </label>
           <label>
             Role <span className="agent-field-optional">optional</span>
-            <input
-              value={form.role}
-              onChange={(event) => onFormChange("role", event.target.value)}
-              placeholder="e.g. Handles tier 1 support tickets"
-            />
+            <select
+              value={resolveSystemRole(form.role)}
+              onChange={(event) => {
+                const selected = event.target.value;
+                if (selected === "" || SYSTEM_ROLE_VALUES.has(selected)) {
+                  onFormChange("role", selected ? SYSTEM_ROLES.find((r) => r.value === selected)!.label : "");
+                  onFormChange("systemRole", selected);
+                } else {
+                  onFormChange("systemRole", "custom");
+                }
+              }}
+            >
+              <option value="">— Select system role —</option>
+              {SYSTEM_ROLES.map((r) => (
+                <option key={r.value} value={r.value}>{r.label}</option>
+              ))}
+              <option value="custom">Custom</option>
+            </select>
           </label>
+          {resolveSystemRole(form.role) === "custom" && (
+            <label>
+              Custom role description
+              <input
+                value={form.role}
+                onChange={(event) => onFormChange("role", event.target.value)}
+                placeholder="e.g. Handles tier 1 support tickets"
+                autoFocus
+              />
+            </label>
+          )}
           {createError ? <p className="agent-create-error">{createError}</p> : null}
           <div className="agent-modal-actions">
             <button type="button" onClick={onClose}>
@@ -286,7 +325,8 @@ export function AgentsView({ routeAgentId = null, routeTab = "overview", onRoute
     const response = await createAgentRequest({
       id: normalizedId,
       displayName: displayName || normalizedId,
-      role: role || "General-purpose assistant"
+      role: role || "General-purpose assistant",
+      systemRole: resolveSystemRole(role) || undefined
     });
 
     if (!response) {

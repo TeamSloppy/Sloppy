@@ -274,6 +274,7 @@ public struct ProjectRecord: Codable, Sendable, Equatable {
     public var id: String
     public var name: String
     public var description: String
+    public var icon: String?
     public var channels: [ProjectChannel]
     public var tasks: [ProjectTask]
     public var actors: [String]
@@ -290,6 +291,7 @@ public struct ProjectRecord: Codable, Sendable, Equatable {
         id: String,
         name: String,
         description: String,
+        icon: String? = nil,
         channels: [ProjectChannel],
         tasks: [ProjectTask],
         actors: [String] = [],
@@ -305,6 +307,7 @@ public struct ProjectRecord: Codable, Sendable, Equatable {
         self.id = id
         self.name = name
         self.description = description
+        self.icon = icon
         self.channels = channels
         self.tasks = tasks
         self.actors = actors
@@ -371,6 +374,7 @@ public struct ProjectCreateRequest: Codable, Sendable {
 public struct ProjectUpdateRequest: Codable, Sendable {
     public var name: String?
     public var description: String?
+    public var icon: String?
     public var actors: [String]?
     public var teams: [String]?
     public var models: [String]?
@@ -382,6 +386,7 @@ public struct ProjectUpdateRequest: Codable, Sendable {
     public init(
         name: String? = nil,
         description: String? = nil,
+        icon: String? = nil,
         actors: [String]? = nil,
         teams: [String]? = nil,
         models: [String]? = nil,
@@ -392,6 +397,7 @@ public struct ProjectUpdateRequest: Codable, Sendable {
     ) {
         self.name = name
         self.description = description
+        self.icon = icon
         self.actors = actors
         self.teams = teams
         self.models = models

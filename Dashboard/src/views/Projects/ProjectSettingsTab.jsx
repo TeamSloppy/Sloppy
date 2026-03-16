@@ -1,7 +1,9 @@
-import React, { useState, useMemo, useEffect } from "react";
+import React, { useState, useMemo, useEffect, useRef } from "react";
 
 const SETTINGS_TABS = [
-    { id: "review", title: "Git Worktree & Review", icon: "rate_review" }
+    { id: "general", title: "General", icon: "settings" },
+    { id: "actors", title: "Actors", icon: "group" },
+    { id: "review", title: "Review", icon: "rate_review" }
 ];
 
 const APPROVAL_MODES = [
@@ -25,8 +27,18 @@ const APPROVAL_MODES = [
     }
 ];
 
+const PROJECT_ICONS = [
+    "folder", "rocket_launch", "code", "terminal", "science",
+    "deployed_code", "bug_report", "psychology", "smart_toy", "extension",
+    "database", "cloud", "language", "brush", "analytics",
+    "school", "build", "architecture", "api", "hub",
+    "storage", "monitoring", "security", "memory", "web"
+];
+
 function cloneDraft(project) {
     return {
+        name: project?.name ?? "",
+        icon: project?.icon ?? "",
         models: Array.isArray(project?.models) ? [...project.models] : [],
         agentFiles: Array.isArray(project?.agentFiles) ? [...project.agentFiles] : [],
         heartbeat: {
@@ -39,7 +51,9 @@ function cloneDraft(project) {
         reviewSettings: {
             enabled: Boolean(project?.reviewSettings?.enabled),
             approvalMode: project?.reviewSettings?.approvalMode ?? "human"
-        }
+        },
+        actors: Array.isArray(project?.actors) ? [...project.actors] : [],
+        teams: Array.isArray(project?.teams) ? [...project.teams] : []
     };
 }
 
@@ -48,11 +62,18 @@ export function ProjectSettingsTab({
     onUpdateProject,
     deleteProject,
     openAddChannelModal,
-    removeProjectChannel
+    removeProjectChannel,
+    availableActors = [],
+    availableTeams = []
 }) {
-    const [selectedSettings, setSelectedSettings] = useState("models");
+    const [selectedSettings, setSelectedSettings] = useState("general");
     const [draft, setDraft] = useState(() => cloneDraft(project));
     const [statusText, setStatusText] = useState("");
+    const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+    const [deleteConfirmText, setDeleteConfirmText] = useState("");
+    const [actorSearch, setActorSearch] = useState("");
+    const [actorDropdownOpen, setActorDropdownOpen] = useState(false);
+    const actorSearchRef = useRef(null);
 
     useEffect(() => {
         setDraft(cloneDraft(project));
@@ -73,11 +94,15 @@ export function ProjectSettingsTab({
 
     async function saveSettings() {
         const result = await onUpdateProject({
+            name: draft.name.trim() || undefined,
+            icon: draft.icon.trim() || null,
             models: draft.models,
             agentFiles: draft.agentFiles,
             heartbeat: draft.heartbeat,
             repoPath: draft.repoPath.trim() || null,
-            reviewSettings: draft.reviewSettings
+            reviewSettings: draft.reviewSettings,
+            actors: draft.actors,
+            teams: draft.teams
         });
         if (result) {
             setStatusText("Settings saved");
@@ -89,6 +114,253 @@ export function ProjectSettingsTab({
     function cancelChanges() {
         setDraft(cloneDraft(project));
         setStatusText("Changes cancelled");
+    }
+
+    function renderGeneral() {
+        return (
+            <>
+                <section className="entry-editor-card">
+                    <h3>Project Identity</h3>
+                    <div className="entry-form-grid">
+                        <label style={{ gridColumn: "1 / -1" }}>
+                            Project Name
+                            <input
+                                type="text"
+                                value={draft.name}
+                                onChange={(e) => mutateDraft((d) => { d.name = e.target.value; })}
+                                placeholder="My Project"
+                            />
+                        </label>
+                    </div>
+
+                    <div style={{ marginTop: 16 }}>
+                        <p className="settings-general-label">Project Icon</p>
+                        <div className="settings-icon-grid">
+                            {PROJECT_ICONS.map((iconName) => {
+                                const active = draft.icon === iconName;
+                                return (
+                                    <button
+                                        key={iconName}
+                                        type="button"
+                                        className={`settings-icon-option ${active ? "active" : ""}`}
+                                        onClick={() => mutateDraft((d) => { d.icon = active ? "" : iconName; })}
+                                        title={iconName}
+                                    >
+                                        <span className="material-symbols-rounded">{iconName}</span>
+                                    </button>
+                                );
+                            })}
+                        </div>
+                        {draft.icon && (
+                            <div className="settings-icon-preview">
+                                <span className="material-symbols-rounded" style={{ fontSize: "2rem" }}>{draft.icon}</span>
+                                <span>{draft.icon}</span>
+                            </div>
+                        )}
+                    </div>
+                </section>
+
+                <section className="entry-editor-card settings-danger-zone">
+                    <h3 style={{ color: "var(--danger, #ef4444)" }}>Danger Zone</h3>
+                    <div className="settings-danger-block">
+                        <div className="settings-danger-info">
+                            <strong>Delete this project</strong>
+                            <p>
+                                Once you delete a project, there is no going back. All tasks will be cancelled and all project data will be permanently removed.
+                            </p>
+                        </div>
+                        {!deleteConfirmOpen ? (
+                            <button
+                                type="button"
+                                className="danger hover-levitate"
+                                onClick={() => {
+                                    setDeleteConfirmOpen(true);
+                                    setDeleteConfirmText("");
+                                }}
+                            >
+                                Delete Project
+                            </button>
+                        ) : (
+                            <div className="settings-danger-confirm">
+                                <p className="settings-danger-warning">
+                                    <span className="material-symbols-rounded" style={{ fontSize: "1rem", verticalAlign: "middle" }}>warning</span>
+                                    {" "}This action is irreversible. All jobs for this project will be cancelled.
+                                </p>
+                                <label>
+                                    Type <strong>{project.name}</strong> to confirm
+                                    <input
+                                        type="text"
+                                        value={deleteConfirmText}
+                                        onChange={(e) => setDeleteConfirmText(e.target.value)}
+                                        placeholder={project.name}
+                                        autoFocus
+                                    />
+                                </label>
+                                <div className="settings-danger-confirm-actions">
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            setDeleteConfirmOpen(false);
+                                            setDeleteConfirmText("");
+                                        }}
+                                    >
+                                        Cancel
+                                    </button>
+                                    <button
+                                        type="button"
+                                        className="danger hover-levitate"
+                                        disabled={deleteConfirmText.trim() !== project.name}
+                                        onClick={() => deleteProject(project.id)}
+                                    >
+                                        I understand, delete this project
+                                    </button>
+                                </div>
+                            </div>
+                        )}
+                    </div>
+                </section>
+            </>
+        );
+    }
+
+    function renderActors() {
+        const projectActors = draft.actors;
+        const projectTeams = draft.teams;
+
+        const q = actorSearch.trim().toLowerCase();
+        const filteredActors = availableActors.filter(
+            (node) =>
+                node.displayName.toLowerCase().includes(q) || node.id.toLowerCase().includes(q)
+        );
+        const listToShow = q && filteredActors.length > 0 ? filteredActors : availableActors;
+
+        function addActor(node) {
+            mutateDraft((d) => {
+                if (!d.actors.includes(node.displayName)) {
+                    d.actors.push(node.displayName);
+                }
+            });
+            setActorSearch("");
+        }
+
+        function removeActor(actorName) {
+            mutateDraft((d) => {
+                d.actors = d.actors.filter((a) => a !== actorName);
+            });
+        }
+
+        function removeTeam(teamName) {
+            mutateDraft((d) => {
+                d.teams = d.teams.filter((t) => t !== teamName);
+            });
+        }
+
+        return (
+            <section className="entry-editor-card">
+                <h3>Actors</h3>
+                <p style={{ margin: "0 0 12px", fontSize: "0.85rem", color: "var(--muted)" }}>
+                    Choose which actors can interact with this project. Actors will be able to receive tasks and work within this project scope.
+                </p>
+
+                <div className="actor-team-members-picker">
+                    <div className="actor-team-search-wrap">
+                        <input
+                            ref={actorSearchRef}
+                            className="actor-team-search"
+                            value={actorSearch}
+                            onChange={(e) => {
+                                setActorSearch(e.target.value);
+                                setActorDropdownOpen(true);
+                            }}
+                            onFocus={() => setActorDropdownOpen(true)}
+                            onBlur={() => setTimeout(() => setActorDropdownOpen(false), 150)}
+                            placeholder="Search actors…"
+                            autoComplete="off"
+                        />
+                        {actorDropdownOpen && (
+                            <ul className="actor-team-dropdown">
+                                {listToShow.length === 0 ? (
+                                    <li className="actor-team-dropdown-empty">No actors available</li>
+                                ) : (
+                                    listToShow.map((node) => {
+                                        const isSelected = projectActors.includes(node.displayName);
+                                        return (
+                                            <li
+                                                key={node.id}
+                                                className={`actor-team-dropdown-item ${isSelected ? "selected" : ""}`}
+                                                onMouseDown={(e) => {
+                                                    e.preventDefault();
+                                                    if (isSelected) {
+                                                        removeActor(node.displayName);
+                                                    } else {
+                                                        addActor(node);
+                                                    }
+                                                }}
+                                            >
+                                                <span className="actor-team-dropdown-name">{node.displayName}</span>
+                                                <span className="actor-team-dropdown-id">{node.id}</span>
+                                                {isSelected && (
+                                                    <span className="actor-team-dropdown-check">✓</span>
+                                                )}
+                                            </li>
+                                        );
+                                    })
+                                )}
+                            </ul>
+                        )}
+                    </div>
+                </div>
+
+                {projectActors.length > 0 && (
+                    <div className="project-created-list" style={{ marginTop: 16 }}>
+                        {projectActors.map((actorName) => (
+                            <article key={actorName} className="project-created-item" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                                    <span className="material-symbols-rounded" style={{ fontSize: "1.1rem", color: "var(--accent)" }}>person</span>
+                                    <strong>{actorName}</strong>
+                                </div>
+                                <button
+                                    type="button"
+                                    className="agent-channel-remove"
+                                    style={{ color: "var(--warn)", border: "none", background: "transparent", cursor: "pointer", padding: "4px" }}
+                                    onClick={() => removeActor(actorName)}
+                                >
+                                    <span className="material-symbols-rounded">close</span>
+                                </button>
+                            </article>
+                        ))}
+                    </div>
+                )}
+
+                {projectTeams.length > 0 && (
+                    <>
+                        <h3 style={{ marginTop: 24 }}>Teams</h3>
+                        <div className="project-created-list" style={{ marginTop: 8 }}>
+                            {projectTeams.map((teamName) => (
+                                <article key={teamName} className="project-created-item" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                                        <span className="material-symbols-rounded" style={{ fontSize: "1.1rem", color: "var(--accent)" }}>groups</span>
+                                        <strong>{teamName}</strong>
+                                    </div>
+                                    <button
+                                        type="button"
+                                        className="agent-channel-remove"
+                                        style={{ color: "var(--warn)", border: "none", background: "transparent", cursor: "pointer", padding: "4px" }}
+                                        onClick={() => removeTeam(teamName)}
+                                    >
+                                        <span className="material-symbols-rounded">close</span>
+                                    </button>
+                                </article>
+                            ))}
+                        </div>
+                    </>
+                )}
+
+                {projectActors.length === 0 && projectTeams.length === 0 && (
+                    <p className="placeholder-text" style={{ marginTop: 12 }}>No actors or teams assigned to this project.</p>
+                )}
+            </section>
+        );
     }
 
     function renderModels() {
@@ -320,42 +592,45 @@ export function ProjectSettingsTab({
                     </label>
                 </div>
 
-                <div className="review-section-divider" />
+                {isEnabled && (
+                    <>
+                        <div className="review-section-divider" />
+                        <div className="review-approval-section">
+                            <p className="review-approval-title">Approval mode</p>
+                            <p className="review-approval-subtitle">
+                                Choose how tasks are approved when they reach the Review stage.
+                            </p>
+                            <div className="review-approval-options">
+                                {APPROVAL_MODES.map((mode) => {
+                                    const active = draft.reviewSettings.approvalMode === mode.id;
+                                    return (
+                                        <button
+                                            key={mode.id}
+                                            type="button"
+                                            className={`review-approval-option ${active ? "active" : ""}`}
+                                            onClick={() => mutateDraft((d) => { d.reviewSettings.approvalMode = mode.id; })}
+                                        >
+                                            <span className="material-symbols-rounded review-approval-icon">{mode.icon}</span>
+                                            <strong className="review-approval-name">{mode.label}</strong>
+                                            <span className="review-approval-desc">{mode.description}</span>
+                                            {active && (
+                                                <span className="material-symbols-rounded review-approval-check">check_circle</span>
+                                            )}
+                                        </button>
+                                    );
+                                })}
+                            </div>
+                        </div>
 
-                <div className="review-approval-section">
-                    <p className="review-approval-title">Approval mode</p>
-                    <p className="review-approval-subtitle">
-                        Choose how tasks are approved when they reach the Review stage.
-                    </p>
-                    <div className="review-approval-options">
-                        {APPROVAL_MODES.map((mode) => {
-                            const active = draft.reviewSettings.approvalMode === mode.id;
-                            return (
-                                <button
-                                    key={mode.id}
-                                    type="button"
-                                    className={`review-approval-option ${active ? "active" : ""}`}
-                                    onClick={() => mutateDraft((d) => { d.reviewSettings.approvalMode = mode.id; })}
-                                >
-                                    <span className="material-symbols-rounded review-approval-icon">{mode.icon}</span>
-                                    <strong className="review-approval-name">{mode.label}</strong>
-                                    <span className="review-approval-desc">{mode.description}</span>
-                                    {active && (
-                                        <span className="material-symbols-rounded review-approval-check">check_circle</span>
-                                    )}
-                                </button>
-                            );
-                        })}
-                    </div>
-                </div>
-
-                {draft.reviewSettings.approvalMode === "agent" && (
-                    <div className="review-agent-hint">
-                        <span className="material-symbols-rounded" style={{ fontSize: "1rem", color: "var(--accent)" }}>info</span>
-                        <span>
-                            Add an actor with the <strong>Reviewer</strong> system role to the team in the Actor Board. The task will be handed off to that actor for review.
-                        </span>
-                    </div>
+                        {draft.reviewSettings.approvalMode === "agent" && (
+                            <div className="review-agent-hint">
+                                <span className="material-symbols-rounded" style={{ fontSize: "1rem", color: "var(--accent)" }}>info</span>
+                                <span>
+                                    Add an actor with the <strong>Reviewer</strong> system role to the team in the Actor Board. The task will be handed off to that actor for review.
+                                </span>
+                            </div>
+                        )}
+                    </>
                 )}
             </section>
         );
@@ -363,6 +638,10 @@ export function ProjectSettingsTab({
 
     function renderSettingsContent() {
         switch (selectedSettings) {
+            case "general":
+                return renderGeneral();
+            case "actors":
+                return renderActors();
             case "models":
                 return renderModels();
             case "agent_files":
@@ -397,17 +676,6 @@ export function ProjectSettingsTab({
                             <span>{item.title}</span>
                         </button>
                     ))}
-                </div>
-
-                <div style={{ marginTop: "auto", padding: "12px 0" }}>
-                    <button
-                        type="button"
-                        className="danger"
-                        style={{ width: "100%" }}
-                        onClick={() => deleteProject(project.id)}
-                    >
-                        Delete Project
-                    </button>
                 </div>
             </aside>
 

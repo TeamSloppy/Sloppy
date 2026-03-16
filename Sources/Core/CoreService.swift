@@ -989,6 +989,9 @@ public actor CoreService {
         if let nextDescription = request.description {
             project.description = normalizeProjectDescription(nextDescription)
         }
+        if request.icon != nil {
+            project.icon = request.icon
+        }
         if let nextActors = request.actors {
             project.actors = nextActors
         }
@@ -1017,13 +1020,23 @@ public actor CoreService {
     }
 
     /// Deletes one dashboard project and nested board entities.
+    /// Cancels all non-terminal tasks before deletion.
     public func deleteProject(projectID: String) async throws {
         guard let normalizedID = normalizedProjectID(projectID) else {
             throw ProjectError.invalidProjectID
         }
-        guard await store.project(id: normalizedID) != nil else {
+        guard var project = await store.project(id: normalizedID) else {
             throw ProjectError.notFound
         }
+        for i in project.tasks.indices {
+            let status = ProjectTaskStatus(rawValue: project.tasks[i].status)
+            if status == nil || !status!.isTerminal {
+                project.tasks[i].status = ProjectTaskStatus.cancelled.rawValue
+                project.tasks[i].updatedAt = Date()
+            }
+        }
+        project.updatedAt = Date()
+        await store.saveProject(project)
         await store.deleteProject(id: normalizedID)
     }
 

@@ -1355,6 +1355,8 @@ export function ProjectsView({
         deleteProject={deleteProject}
         openAddChannelModal={openAddChannelModal}
         removeProjectChannel={removeProjectChannel}
+        availableActors={createModalActors}
+        availableTeams={createModalTeams}
       />
     );
   }

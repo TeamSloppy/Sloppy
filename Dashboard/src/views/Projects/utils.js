@@ -118,6 +118,7 @@ export function normalizeProject(project, index = 0) {
     id,
     name,
     description: String(project?.description || "").trim(),
+    icon: String(project?.icon || "").trim() || null,
     createdAt: String(project?.createdAt || new Date().toISOString()),
     updatedAt: String(project?.updatedAt || project?.createdAt || new Date().toISOString()),
     chats,

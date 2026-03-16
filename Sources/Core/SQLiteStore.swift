@@ -518,7 +518,8 @@ public actor SQLiteStore: PersistenceStore {
             """
             SELECT id, name, description, actors_json, teams_json,
                    models_json, agent_files_json, heartbeat_json,
-                   created_at, updated_at, repo_path, review_settings_json
+                   created_at, updated_at, repo_path, review_settings_json,
+                   icon
             FROM dashboard_projects
             ORDER BY created_at ASC;
             """
@@ -561,6 +562,7 @@ public actor SQLiteStore: PersistenceStore {
             let repoPath = optionalText(statement: statement, index: 10)
             let reviewSettingsJSON = sqlite3_column_text(statement, 11).map { String(cString: $0) }
             let reviewSettings = reviewSettingsJSON.flatMap { try? JSONDecoder().decode(ProjectReviewSettings.self, from: Data($0.utf8)) } ?? ProjectReviewSettings()
+            let icon = optionalText(statement: statement, index: 12)
             let channels = loadProjectChannels(db: db, projectID: id)
             let tasks = loadProjectTasks(db: db, projectID: id)
             result.append(
@@ -568,6 +570,7 @@ public actor SQLiteStore: PersistenceStore {
                     id: id,
                     name: name,
                     description: description,
+                    icon: icon,
                     channels: channels,
                     tasks: tasks,
                     actors: actors,
@@ -596,7 +599,8 @@ public actor SQLiteStore: PersistenceStore {
                 """
                 SELECT id, name, description, actors_json, teams_json,
                        models_json, agent_files_json, heartbeat_json,
-                       created_at, updated_at, repo_path, review_settings_json
+                       created_at, updated_at, repo_path, review_settings_json,
+                       icon
                 FROM dashboard_projects
                 WHERE id = ?
                 LIMIT 1;
@@ -633,10 +637,12 @@ public actor SQLiteStore: PersistenceStore {
                 let repoPath = optionalText(statement: statement, index: 10)
                 let reviewSettingsJSON = sqlite3_column_text(statement, 11).map { String(cString: $0) }
                 let reviewSettings = reviewSettingsJSON.flatMap { try? JSONDecoder().decode(ProjectReviewSettings.self, from: Data($0.utf8)) } ?? ProjectReviewSettings()
+                let icon = optionalText(statement: statement, index: 12)
                 return ProjectRecord(
                     id: projectID,
                     name: String(cString: namePtr),
                     description: String(cString: descriptionPtr),
+                    icon: icon,
                     channels: loadProjectChannels(db: db, projectID: projectID),
                     tasks: loadProjectTasks(db: db, projectID: projectID),
                     actors: actors,
@@ -678,8 +684,9 @@ public actor SQLiteStore: PersistenceStore {
                 created_at,
                 updated_at,
                 repo_path,
-                review_settings_json
-            ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+                review_settings_json,
+                icon
+            ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
             """
 
         var projectStatement: OpaquePointer?
@@ -707,6 +714,7 @@ public actor SQLiteStore: PersistenceStore {
         bindText(isoFormatter.string(from: project.updatedAt), at: 10, statement: projectStatement)
         bindOptionalText(project.repoPath, at: 11, statement: projectStatement)
         bindText(reviewSettingsJSON, at: 12, statement: projectStatement)
+        bindOptionalText(project.icon, at: 13, statement: projectStatement)
         guard sqlite3_step(projectStatement) == SQLITE_DONE else {
             return
         }
@@ -2163,6 +2171,11 @@ public actor SQLiteStore: PersistenceStore {
         _ = sqlite3_exec(
             db,
             "ALTER TABLE dashboard_project_tasks ADD COLUMN worktree_branch TEXT;",
+            nil, nil, nil
+        )
+        _ = sqlite3_exec(
+            db,
+            "ALTER TABLE dashboard_projects ADD COLUMN icon TEXT;",
             nil, nil, nil
         )
     }
