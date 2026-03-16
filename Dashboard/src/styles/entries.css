@@ -120,6 +120,13 @@
   margin-top: -2px;
 }
 
+.entry-form-hint code {
+  font-family: "Fira Code", monospace;
+  font-size: 0.75rem;
+  color: var(--accent);
+  opacity: 1;
+}
+
 .entry-form-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
