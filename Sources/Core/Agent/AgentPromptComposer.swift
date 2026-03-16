@@ -13,7 +13,7 @@ struct AgentPromptComposer {
         self.templateLoader = templateLoader
     }
 
-    func compose(context: PromptRenderContext) throws -> String {
+    func compose(context: PromptRenderContext) throws -> Prompt {
         switch context.processKind {
         case .agentSessionBootstrap:
             return try composeAgentSessionBootstrap(context: context)
@@ -22,7 +22,7 @@ struct AgentPromptComposer {
         }
     }
 
-    private func composeAgentSessionBootstrap(context: PromptRenderContext) throws -> String {
+    private func composeAgentSessionBootstrap(context: PromptRenderContext) throws -> Prompt {
         guard let sessionID = context.sessionID,
               let bootstrapMarker = context.bootstrapMarker,
               let documents = context.documents
@@ -38,7 +38,7 @@ struct AgentPromptComposer {
         let memoryRules = try templateLoader.loadPartial(named: "memory_rules")
         let skillsEntries = buildSkillsEntries(skills: context.installedSkills)
 
-        let instructions = Instructions {
+        return Prompt {
             bootstrapMarker
             "Session context initialized."
             "Agent: \(context.agentID)"
@@ -82,8 +82,6 @@ struct AgentPromptComposer {
             ""
             memoryRules
         }
-
-        return instructions.description
     }
 
     private func buildSkillsEntries(skills: [InstalledSkill]) -> String {

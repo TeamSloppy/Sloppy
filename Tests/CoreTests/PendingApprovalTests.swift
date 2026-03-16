@@ -349,6 +349,42 @@ func checkAccessApprovedUserIsAllowed() async {
 }
 
 @Test
+func listPendingApprovalsExcludesBlockedUsers() async {
+    let service = makeApprovalService()
+
+    let baselineCount = await service.listPendingApprovals().count
+
+    _ = await service.pendingApprovalService.addPending(
+        platform: "telegram", platformUserId: "filter-ok", displayName: "OK User", chatId: "1"
+    )
+    let badEntry = await service.pendingApprovalService.addPending(
+        platform: "telegram", platformUserId: "filter-bad", displayName: "Bad User", chatId: "2"
+    )
+
+    let blocked = await service.blockPendingApproval(id: badEntry.id)
+    #expect(blocked)
+
+    _ = await service.pendingApprovalService.addPending(
+        platform: "telegram", platformUserId: "filter-bad", displayName: "Bad User", chatId: "2"
+    )
+
+    let rawPending = await service.pendingApprovalService.listPending()
+    #expect(rawPending.contains { $0.platformUserId == "filter-bad" })
+
+    let all = await service.listPendingApprovals()
+    #expect(all.count == baselineCount + 1)
+    #expect(!all.contains { $0.platformUserId == "filter-bad" })
+    #expect(all.contains { $0.platformUserId == "filter-ok" })
+
+    let byPlatform = await service.listPendingApprovals(platform: "telegram")
+    #expect(!byPlatform.contains { $0.platformUserId == "filter-bad" })
+    #expect(byPlatform.contains { $0.platformUserId == "filter-ok" })
+
+    let cleaned = await service.pendingApprovalService.findByUser(platform: "telegram", platformUserId: "filter-bad")
+    #expect(cleaned == nil)
+}
+
+@Test
 func checkAccessBlockedUserIsBlocked() async {
     let service = makeApprovalService()
 

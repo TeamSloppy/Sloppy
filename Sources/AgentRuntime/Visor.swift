@@ -1,3 +1,4 @@
+import AnyLanguageModel
 import Foundation
 import Protocols
 
@@ -375,16 +376,16 @@ public actor Visor {
 
             let mergedNote: String
             if let completionProvider {
-                let prompt = """
-                    Merge these two related memory entries into a single consolidated entry.
-                    Preserve all important information. Be concise.
-
-                    Memory A: \(candidate.note)
-                    Memory B: \(matchEntry.note)
-
-                    Respond with only the merged text.
-                    """
-                let synthesized = await completionProvider(prompt, 256)
+                let mergePrompt = Prompt {
+                    "Merge these two related memory entries into a single consolidated entry."
+                    "Preserve all important information. Be concise."
+                    ""
+                    "Memory A: \(candidate.note)"
+                    "Memory B: \(matchEntry.note)"
+                    ""
+                    "Respond with only the merged text."
+                }
+                let synthesized = await completionProvider(mergePrompt.description, 256)
                 let trimmed = synthesized?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
                 mergedNote = trimmed.isEmpty ? "\(candidate.note) | \(matchEntry.note)" : trimmed
             } else {
@@ -495,25 +496,17 @@ public actor Visor {
         let bulletinContext = lastBulletin?.digest ?? "No bulletin yet."
         let activeWorkers = workers.filter { $0.status == .running || $0.status == .waitingInput }
         let stateSummary = "Active channels: \(channels.count). Workers in progress: \(activeWorkers.count) / \(workers.count) total."
-        let prompt = """
-            You are Visor, the Sloppy system's self-awareness layer.
-            Answer the following question using only the context provided.
-
-            ## Current Bulletin
-            \(bulletinContext)
-
-            ## System State
-            \(stateSummary)
-
-            ## Question
-            \(question)
-            """
+        let prompt = buildVisorAnswerPrompt(
+            bulletinContext: bulletinContext,
+            stateSummary: stateSummary,
+            question: question
+        )
 
         guard let completionProvider else {
             return bulletinContext
         }
 
-        let response = await completionProvider(prompt, 512)
+        let response = await completionProvider(prompt.description, 512)
         return response?.trimmingCharacters(in: .whitespacesAndNewlines) ?? bulletinContext
     }
 
@@ -526,34 +519,47 @@ public actor Visor {
         let bulletinContext = lastBulletin?.digest ?? "No bulletin yet."
         let activeWorkers = workers.filter { $0.status == .running || $0.status == .waitingInput }
         let stateSummary = "Active channels: \(channels.count). Workers in progress: \(activeWorkers.count) / \(workers.count) total."
-        let prompt = """
-            You are Visor, the Sloppy system's self-awareness layer.
-            Answer the following question using only the context provided.
+        let prompt = buildVisorAnswerPrompt(
+            bulletinContext: bulletinContext,
+            stateSummary: stateSummary,
+            question: question
+        )
 
-            ## Current Bulletin
-            \(bulletinContext)
-
-            ## System State
-            \(stateSummary)
-
-            ## Question
-            \(question)
-            """
-
+        let promptString = prompt.description
         if let streamingProvider {
-            return streamingProvider(prompt, 512)
+            return streamingProvider(promptString, 512)
         }
 
         let completionProvider = self.completionProvider
         return AsyncStream<String> { continuation in
             Task {
-                if let text = await completionProvider?(prompt, 512) {
+                if let text = await completionProvider?(promptString, 512) {
                     continuation.yield(text.trimmingCharacters(in: .whitespacesAndNewlines))
                 } else {
                     continuation.yield(bulletinContext)
                 }
                 continuation.finish()
             }
+        }
+    }
+
+    private func buildVisorAnswerPrompt(
+        bulletinContext: String,
+        stateSummary: String,
+        question: String
+    ) -> Prompt {
+        Prompt {
+            "You are Visor, the Sloppy system's self-awareness layer."
+            "Answer the following question using only the context provided."
+            ""
+            "## Current Bulletin"
+            bulletinContext
+            ""
+            "## System State"
+            stateSummary
+            ""
+            "## Question"
+            question
         }
     }
 
@@ -624,7 +630,7 @@ public actor Visor {
         let prompt = buildSynthesisPrompt(sections: sections)
         let maxTokens = bulletinMaxWords * 2
 
-        guard let synthesized = await completionProvider(prompt, maxTokens),
+        guard let synthesized = await completionProvider(prompt.description, maxTokens),
               !synthesized.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         else {
             return (headline, programmaticDigest)
@@ -633,64 +639,52 @@ public actor Visor {
         return (headline, synthesized.trimmingCharacters(in: .whitespacesAndNewlines))
     }
 
-    private func buildSynthesisPrompt(sections: RetrievedSections) -> String {
-        var lines: [String] = [
-            "You are Visor, the system's self-awareness layer.",
-            "Synthesize a concise briefing (~\(bulletinMaxWords) words) from the runtime data below.",
-            "Focus on what any conversation would benefit from knowing right now.",
-            "Be factual and brief. Do not invent information.",
+    private func buildSynthesisPrompt(sections: RetrievedSections) -> Prompt {
+        Prompt {
+            "You are Visor, the system's self-awareness layer."
+            "Synthesize a concise briefing (~\(bulletinMaxWords) words) from the runtime data below."
+            "Focus on what any conversation would benefit from knowing right now."
+            "Be factual and brief. Do not invent information."
             ""
-        ]
+            "## Channel Activity"
+            sections.channelSummary
+            ""
+            "## Active Workers"
+            sections.workerSummary
 
-        lines.append("## Channel Activity")
-        lines.append(sections.channelSummary)
-        lines.append("")
-
-        lines.append("## Active Workers")
-        lines.append(sections.workerSummary)
-        lines.append("")
-
-        if let taskSummary = sections.taskSummary, !taskSummary.isEmpty {
-            lines.append("## Task Status")
-            lines.append(taskSummary)
-            lines.append("")
-        }
-
-        if !sections.decisions.isEmpty {
-            lines.append("## Recent Decisions")
-            for hit in sections.decisions {
-                lines.append("- \(hit.summary ?? hit.note)")
+            if let taskSummary = sections.taskSummary, !taskSummary.isEmpty {
+                ""
+                "## Task Status"
+                taskSummary
             }
-            lines.append("")
-        }
 
-        if !sections.goals.isEmpty {
-            lines.append("## Active Goals")
-            for hit in sections.goals {
-                lines.append("- \(hit.summary ?? hit.note)")
+            if !sections.decisions.isEmpty {
+                ""
+                "## Recent Decisions"
+                sections.decisions.map { "- \($0.summary ?? $0.note)" }
             }
-            lines.append("")
-        }
 
-        if !sections.recentMemories.isEmpty {
-            lines.append("## Recent Memories")
-            for hit in sections.recentMemories.prefix(5) {
-                lines.append("- \(hit.summary ?? hit.note)")
+            if !sections.goals.isEmpty {
+                ""
+                "## Active Goals"
+                sections.goals.map { "- \($0.summary ?? $0.note)" }
             }
-            lines.append("")
-        }
 
-        if !sections.events.isEmpty {
-            lines.append("## Recent Events")
-            for hit in sections.events.prefix(4) {
-                lines.append("- \(hit.summary ?? hit.note)")
+            if !sections.recentMemories.isEmpty {
+                ""
+                "## Recent Memories"
+                sections.recentMemories.prefix(5).map { "- \($0.summary ?? $0.note)" }
             }
-            lines.append("")
+
+            if !sections.events.isEmpty {
+                ""
+                "## Recent Events"
+                sections.events.prefix(4).map { "- \($0.summary ?? $0.note)" }
+            }
+
+            ""
+            "Respond with the briefing only. No preamble, no markdown headers."
         }
-
-        lines.append("Respond with the briefing only. No preamble, no markdown headers.")
-
-        return lines.joined(separator: "\n")
     }
 
     private func buildProgrammaticDigest(sections: RetrievedSections) -> String {

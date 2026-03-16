@@ -1,3 +1,4 @@
+import AnyLanguageModel
 import Foundation
 import Protocols
 
@@ -28,34 +29,34 @@ struct SwarmPlanner {
         let levelsPreview = actorLevels.enumerated().map { index, actors in
             "depth \(index + 1): \(actors.joined(separator: ", "))"
         }.joined(separator: "\n")
+        let maxDepth = max(actorLevels.count, 1)
 
-        let prompt =
-            """
-            [swarm_planner_v1]
-            Build a strict JSON object with key "subtasks" only.
-            Each subtask item fields:
-            - swarmTaskId: string (unique, lowercase slug-like)
-            - title: string
-            - objective: string
-            - depth: integer >= 1
-            - dependencyIds: string[]
-            - tools: string[]
+        let prompt = Prompt {
+            "[swarm_planner_v1]"
+            "Build a strict JSON object with key \"subtasks\" only."
+            "Each subtask item fields:"
+            "- swarmTaskId: string (unique, lowercase slug-like)"
+            "- title: string"
+            "- objective: string"
+            "- depth: integer >= 1"
+            "- dependencyIds: string[]"
+            "- tools: string[]"
+            ""
+            "Root task title: \(rootTask.title)"
+            "Root task description:"
+            rootTask.description
+            ""
+            "Actor hierarchy levels:"
+            levelsPreview
+            ""
+            "Constraints:"
+            "- depth must not exceed \(maxDepth)"
+            "- at least one subtask per level"
+            "- dependencyIds must reference existing swarmTaskId values"
+            "- return JSON only (no markdown, no comments)"
+        }
 
-            Root task title: \(rootTask.title)
-            Root task description:
-            \(rootTask.description)
-
-            Actor hierarchy levels:
-            \(levelsPreview)
-
-            Constraints:
-            - depth must not exceed \(max(actorLevels.count, 1))
-            - at least one subtask per level
-            - dependencyIds must reference existing swarmTaskId values
-            - return JSON only (no markdown, no comments)
-            """
-
-        guard let raw = await complete(prompt, 1_400) else {
+        guard let raw = await complete(prompt.description, 1_400) else {
             throw SwarmPlannerError.modelUnavailable
         }
 

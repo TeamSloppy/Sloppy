@@ -1,3 +1,4 @@
+import AnyLanguageModel
 import Foundation
 import AgentRuntime
 import Logging
@@ -667,9 +668,9 @@ actor AgentSessionOrchestrator {
             throw OrchestratorError.storageFailure
         }
         let installedSkills = loadInstalledSkills(agentID: agentID)
-        let bootstrapMessage: String
+        let bootstrapPrompt: Prompt
         do {
-            bootstrapMessage = try promptComposer.compose(
+            bootstrapPrompt = try promptComposer.compose(
                 context: .agentSessionBootstrap(
                     agentID: agentID,
                     sessionID: sessionID,
@@ -687,13 +688,14 @@ actor AgentSessionOrchestrator {
                     "error": .string(String(describing: error))
                 ]
             )
-            bootstrapMessage = fallbackSessionBootstrapContextMessage(
+            bootstrapPrompt = fallbackSessionBootstrapContextMessage(
                 agentID: agentID,
                 sessionID: sessionID,
                 documents: documents
             )
         }
 
+        let bootstrapContent = bootstrapPrompt.description
         logger.info(
             "Session bootstrap prompt prepared",
             metadata: [
@@ -704,18 +706,18 @@ actor AgentSessionOrchestrator {
                 "identity_md_chars": .stringConvertible(documents.identityMarkdown.count),
                 "soul_md_chars": .stringConvertible(documents.soulMarkdown.count),
                 "skills_count": .stringConvertible(installedSkills.count),
-                "bootstrap_prompt": .string(truncateForLog(bootstrapMessage, limit: 24000))
+                "bootstrap_prompt": .string(truncateForLog(bootstrapContent, limit: 24000))
             ]
         )
 
-        await runtime.appendSystemMessage(channelId: channelID, content: bootstrapMessage)
+        await runtime.appendSystemMessage(channelId: channelID, content: bootstrapContent)
     }
 
     private func fallbackSessionBootstrapContextMessage(
         agentID: String,
         sessionID: String,
         documents: AgentDocumentBundle
-    ) -> String {
+    ) -> Prompt {
         let capabilitiesSection = renderedFallbackPromptPartial(
             named: "session_capabilities",
             fallback:
@@ -779,34 +781,34 @@ actor AgentSessionOrchestrator {
                 """
         )
 
-        return """
-        \(Self.sessionContextBootstrapMarker)
-        Session context initialized.
-        Agent: \(agentID)
-        Session: \(sessionID)
-
-        [Agents.md]
-        \(documents.agentsMarkdown)
-
-        [User.md]
-        \(documents.userMarkdown)
-
-        [Identity.md]
-        \(documents.identityMarkdown)
-
-        [Soul.md]
-        \(documents.soulMarkdown)
-
-        \(capabilitiesSection)
-
-        \(runtimeRulesSection)
-
-        \(branchingRulesSection)
-
-        \(workerRulesSection)
-        
-        \(toolsInstructionSection)
-        """
+        return Prompt {
+            Self.sessionContextBootstrapMarker
+            "Session context initialized."
+            "Agent: \(agentID)"
+            "Session: \(sessionID)"
+            ""
+            "[Agents.md]"
+            documents.agentsMarkdown
+            ""
+            "[User.md]"
+            documents.userMarkdown
+            ""
+            "[Identity.md]"
+            documents.identityMarkdown
+            ""
+            "[Soul.md]"
+            documents.soulMarkdown
+            ""
+            capabilitiesSection
+            ""
+            runtimeRulesSection
+            ""
+            branchingRulesSection
+            ""
+            workerRulesSection
+            ""
+            toolsInstructionSection
+        }
     }
 
     private func renderedFallbackPromptPartial(named name: String, fallback: String) -> String {

@@ -16,6 +16,8 @@ hero:
 features:
   - title: Build Guides
     details: Step-by-step docs explain how to run Sloppy from the terminal, how to use Docker Compose, and what checks to run before opening a PR.
+  - title: Model Providers
+    details: Configure OpenAI, Google Gemini, Anthropic Claude, and Ollama. Manage API keys via environment variables or sloppy.json config.
   - title: API Reference
     details: OpenAPI endpoints now have a dedicated docs page with grouped operations, parameters, responses, and a direct link to the raw swagger spec.
   - title: Project Design

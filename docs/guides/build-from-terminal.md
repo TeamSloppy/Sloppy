@@ -151,6 +151,17 @@ npm run build
 
 - On first `swift run Core`, Sloppy can create a workspace layout and a default `sloppy.json`.
 - The generated config includes `visor.scheduler.enabled`, `visor.scheduler.intervalSeconds`, `visor.scheduler.jitterSeconds`, and `visor.bootstrapBulletin`.
-- OpenAI-backed model execution requires `OPENAI_API_KEY`.
-- Agent web search can use `BRAVE_API_KEY` or `PERPLEXITY_API_KEY`; environment values take precedence over `sloppy.json` `searchTools` keys.
-- Ollama uses the local endpoint by default.
+- Model providers use environment variables for API keys when no key is set in config. See the [Model Providers](./models.md) guide for details.
+- Ollama uses the local endpoint by default and requires no API key.
+
+### Environment variables
+
+| Variable | Purpose |
+| --- | --- |
+| `OPENAI_API_KEY` | OpenAI model provider |
+| `GEMINI_API_KEY` | Google Gemini model provider |
+| `ANTHROPIC_API_KEY` | Anthropic Claude model provider |
+| `BRAVE_API_KEY` | Brave web search tool |
+| `PERPLEXITY_API_KEY` | Perplexity web search tool |
+
+Environment values take precedence over empty `sloppy.json` keys but are overridden when a config key is explicitly set.

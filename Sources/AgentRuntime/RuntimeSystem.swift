@@ -259,6 +259,7 @@ public actor RuntimeSystem {
                 channelId: channelId,
                 fallbackUserMessage: userMessage
             )
+            let promptChars = contextualPrompt.description.count
 
             if let observationHandler {
                 let thinkingText =
@@ -305,7 +306,7 @@ public actor RuntimeSystem {
                     channelId: channelId,
                     model: activeModel,
                     reasoningEffort: reasoningEffort,
-                    promptChars: contextualPrompt.count,
+                    promptChars: promptChars,
                     mode: streamMode
                 )
             )
@@ -324,7 +325,7 @@ public actor RuntimeSystem {
                                     channelId: channelId,
                                     model: activeModel,
                                     reasoningEffort: reasoningEffort,
-                                    promptChars: contextualPrompt.count,
+                                    promptChars: promptChars,
                                     mode: streamMode,
                                     durationMs: elapsedMilliseconds(since: streamStartedAt),
                                     outputChars: latest.count,
@@ -345,7 +346,7 @@ public actor RuntimeSystem {
                         channelId: channelId,
                         model: activeModel,
                         reasoningEffort: reasoningEffort,
-                        promptChars: contextualPrompt.count,
+                        promptChars: promptChars,
                         mode: streamMode,
                         durationMs: elapsedMilliseconds(since: streamStartedAt),
                         outputChars: latest.count,
@@ -362,7 +363,7 @@ public actor RuntimeSystem {
                     channelId: channelId,
                     model: activeModel,
                     reasoningEffort: reasoningEffort,
-                    promptChars: contextualPrompt.count,
+                    promptChars: promptChars,
                     mode: streamMode,
                     durationMs: elapsedMilliseconds(since: streamStartedAt),
                     outputChars: latest.count,
@@ -378,7 +379,7 @@ public actor RuntimeSystem {
                         channelId: channelId,
                         model: activeModel,
                         reasoningEffort: reasoningEffort,
-                        promptChars: contextualPrompt.count,
+                        promptChars: promptChars,
                         mode: "respond_complete"
                     )
                 )
@@ -392,7 +393,7 @@ public actor RuntimeSystem {
                             channelId: channelId,
                             model: activeModel,
                             reasoningEffort: reasoningEffort,
-                            promptChars: contextualPrompt.count,
+                            promptChars: promptChars,
                             mode: "respond_complete",
                             durationMs: elapsedMilliseconds(since: completionStartedAt),
                             error: String(describing: error)
@@ -406,7 +407,7 @@ public actor RuntimeSystem {
                         channelId: channelId,
                         model: activeModel,
                         reasoningEffort: reasoningEffort,
-                        promptChars: contextualPrompt.count,
+                        promptChars: promptChars,
                         mode: "respond_complete",
                         durationMs: elapsedMilliseconds(since: completionStartedAt),
                         outputChars: latest.count
@@ -482,39 +483,37 @@ public actor RuntimeSystem {
         return metadata
     }
 
-    private func buildContextualPrompt(channelId: String, fallbackUserMessage: String) async -> String {
+    private func buildContextualPrompt(channelId: String, fallbackUserMessage: String) async -> Prompt {
         guard let snapshot = await channels.snapshot(channelId: channelId), !snapshot.messages.isEmpty else {
-            return fallbackUserMessage
+            return Prompt(fallbackUserMessage)
         }
 
-        var lines: [String] = [
-            "[channel_context_v1]",
-            "Use the conversation context below to answer the latest user request.",
+        let bulletinDigest = await visor.latestBulletinDigest()
+        let contextMessages = snapshot.messages.suffix(80)
+
+        return Prompt {
+            "[channel_context_v1]"
+            "Use the conversation context below to answer the latest user request."
             ""
-        ]
 
-        if let digest = await visor.latestBulletinDigest() {
-            lines.append("## Memory Context")
-            lines.append(digest)
-            lines.append("")
-        }
-
-        for message in snapshot.messages.suffix(80) {
-            let role: String
-            if message.userId == "system" {
-                role = "system"
-            } else if message.userId == "agent" || message.userId == "assistant" {
-                role = "assistant"
-            } else {
-                role = "user"
+            if let digest = bulletinDigest {
+                "## Memory Context"
+                digest
+                ""
             }
 
-            lines.append("[\(role)]")
-            lines.append(message.content)
-            lines.append("")
+            for message in contextMessages {
+                if message.userId == "system" {
+                    "[system]"
+                } else if message.userId == "agent" || message.userId == "assistant" {
+                    "[assistant]"
+                } else {
+                    "[user]"
+                }
+                message.content
+                ""
+            }
         }
-
-        return lines.joined(separator: "\n")
     }
 
     /// Routes interactive payload to worker bound to the channel.
@@ -539,7 +538,7 @@ public actor RuntimeSystem {
 
     /// Performs one-shot completion with currently configured model provider.
     /// Returns nil when no provider/model is configured or completion fails.
-    public func complete(prompt: String, maxTokens: Int = 1024) async -> String? {
+    public func complete(prompt: some PromptRepresentable, maxTokens: Int = 1024) async -> String? {
         guard let modelProvider, let defaultModel else {
             return nil
         }
@@ -553,7 +552,7 @@ public actor RuntimeSystem {
             session = LanguageModelSession(model: languageModel, tools: modelProvider.tools)
         }
         let options = modelProvider.generationOptions(for: defaultModel, maxTokens: maxTokens, reasoningEffort: nil)
-        return try? await session.respond(to: prompt, options: options).content
+        return try? await session.respond(to: prompt.promptRepresentation, options: options).content
     }
 
     /// Creates worker and attaches it to channel tracking.

@@ -29,6 +29,7 @@ Pick one of the build guides first:
 
 - [Build From Terminal](./build-from-terminal.md)
 - [Build With Docker](./build-with-docker.md)
+- [Model Providers](./models.md) — configure LLM providers and API keys
 
 For day-to-day development, direct terminal builds are the default path because they give a faster feedback loop.
 
