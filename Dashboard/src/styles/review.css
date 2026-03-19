@@ -843,3 +843,93 @@
   opacity: 0.4;
   cursor: not-allowed;
 }
+
+/* ── Embedded Review Tab (inside TaskDetailView) ─────── */
+
+.td-review-tab {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  height: 100%;
+  overflow: hidden;
+}
+
+.td-review-tab .review-diff-panel {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.td-review-submit-panel {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 14px;
+  border-top: 1px solid var(--line);
+  background: var(--surface);
+  flex-shrink: 0;
+  flex-wrap: wrap;
+}
+
+.td-review-submit-info {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.td-review-comment-count {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.td-review-comment-count .material-symbols-rounded {
+  font-size: 16px;
+}
+
+.td-review-submit-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.td-review-submit-status {
+  font-size: 12px;
+}
+
+.td-review-submit-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  font-size: 13px;
+  font-weight: 500;
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: var(--radius);
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+
+.td-review-submit-btn:hover:not(:disabled) {
+  opacity: 0.85;
+}
+
+.td-review-submit-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.td-review-submit-btn .material-symbols-rounded {
+  font-size: 16px;
+}
+
+.td-review-actor-dropdown {
+  bottom: calc(100% + 4px);
+  top: auto;
+}
