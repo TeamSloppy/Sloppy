@@ -1,13 +1,387 @@
-import React from "react";
+import React, { useState, useRef, useEffect } from "react";
 import {
     TASK_STATUSES,
     TASK_PRIORITIES,
     TASK_PRIORITY_LABELS,
+    TASK_STATUS_COLORS,
+    TASK_PRIORITY_ICONS,
     buildTaskCounts,
     buildSwarmGroups,
     formatRelativeTime,
     sortTasksByDate
 } from "./utils";
+
+function DetailDropdown({ label, icon, color, children }) {
+    const [open, setOpen] = useState(false);
+    const ref = useRef(null);
+
+    useEffect(() => {
+        if (!open) return;
+        function handleClick(e) {
+            if (ref.current && !ref.current.contains(e.target)) {
+                setOpen(false);
+            }
+        }
+        document.addEventListener("mousedown", handleClick);
+        return () => document.removeEventListener("mousedown", handleClick);
+    }, [open]);
+
+    return (
+        <div className="td-prop-dropdown-wrap" ref={ref}>
+            <button
+                type="button"
+                className={`td-prop-value ${open ? "active" : ""}`}
+                onClick={() => setOpen(!open)}
+            >
+                {color ? (
+                    <span className="tcm-status-dot" style={{ background: color }} />
+                ) : icon ? (
+                    <span className="material-symbols-rounded td-prop-value-icon">{icon}</span>
+                ) : null}
+                <span>{label}</span>
+            </button>
+            {open && (
+                <ul className="td-prop-dropdown" onClick={() => setOpen(false)}>
+                    {children}
+                </ul>
+            )}
+        </div>
+    );
+}
+
+function TaskDetailView({
+    project,
+    task,
+    editDraft,
+    updateEditDraft,
+    saveTaskEdit,
+    closeTaskDetails,
+    updateDetailAssignee,
+    deleteTaskFromModal,
+    createModalActors,
+    createModalTeams,
+    onOpenReview
+}) {
+    const [activeTab, setActiveTab] = useState("comments");
+    const [sidebarOpen, setSidebarOpen] = useState(true);
+
+    const resolvedActorId = task.claimedActorId || task.actorId || "";
+    const isDirty =
+        editDraft.title !== task.title ||
+        editDraft.description !== (task.description || "") ||
+        editDraft.priority !== task.priority ||
+        editDraft.status !== task.status ||
+        editDraft.actorId !== resolvedActorId ||
+        editDraft.teamId !== (task.teamId || "");
+
+    const currentStatus = TASK_STATUSES.find((s) => s.id === editDraft.status) || TASK_STATUSES[0];
+    const currentPriorityLabel = TASK_PRIORITY_LABELS[editDraft.priority] || "Medium";
+
+    const assigneeActor = createModalActors.find((a) => a.id === editDraft.actorId);
+    const assigneeTeam = createModalTeams.find((t) => t.id === editDraft.teamId);
+    const assigneeLabel = assigneeActor
+        ? assigneeActor.displayName
+        : assigneeTeam
+            ? assigneeTeam.name
+            : "Unassigned";
+
+    const assigneeToken = editDraft.actorId
+        ? `actor:${editDraft.actorId}`
+        : editDraft.teamId
+            ? `team:${editDraft.teamId}`
+            : "";
+
+    return (
+        <div className={`td-page ${sidebarOpen ? "" : "td-page--sidebar-closed"}`}>
+            <div className="td-main">
+                <header className="td-header">
+                    <div className="td-breadcrumbs">
+                        <button type="button" className="td-breadcrumb-link" onClick={closeTaskDetails}>
+                            Tasks
+                        </button>
+                        <span className="material-symbols-rounded td-breadcrumb-sep">chevron_right</span>
+                        <span className="td-breadcrumb-current">{task.title || "Untitled"}</span>
+                    </div>
+                    <div className="td-header-actions">
+                        {task.status === "needs_review" && task.worktreeBranch && onOpenReview && (
+                            <button
+                                type="button"
+                                className="task-review-open-btn"
+                                onClick={() => onOpenReview(task)}
+                            >
+                                <span className="material-symbols-rounded" aria-hidden="true">rate_review</span>
+                                Review
+                            </button>
+                        )}
+                        {isDirty && (
+                            <button type="button" className="td-save-btn" onClick={saveTaskEdit} disabled={!String(editDraft.title || "").trim()}>
+                                Save
+                            </button>
+                        )}
+                        {!sidebarOpen && (
+                            <button
+                                type="button"
+                                className="project-task-detail-icon-button"
+                                onClick={() => setSidebarOpen(true)}
+                                aria-label="Show properties"
+                                title="Show properties"
+                            >
+                                <span className="material-symbols-rounded">right_panel_open</span>
+                            </button>
+                        )}
+                    </div>
+                </header>
+
+                <div className="td-id-row">
+                    <span className="project-task-id">#{task.id}</span>
+                </div>
+
+                <div className="td-content">
+                    <input
+                        className="td-title-input"
+                        value={editDraft.title}
+                        onChange={(e) => updateEditDraft("title", e.target.value)}
+                        placeholder="Task title"
+                    />
+                    <textarea
+                        className="td-desc-input"
+                        value={editDraft.description}
+                        onChange={(e) => updateEditDraft("description", e.target.value)}
+                        placeholder="Add description..."
+                        rows={5}
+                    />
+                </div>
+
+                <div className="td-tabs-section">
+                    <div className="td-tabs-bar">
+                        <button
+                            type="button"
+                            className={`td-tab ${activeTab === "comments" ? "active" : ""}`}
+                            onClick={() => setActiveTab("comments")}
+                        >
+                            <span className="material-symbols-rounded td-tab-icon">chat_bubble_outline</span>
+                            Comments
+                        </button>
+                        <button
+                            type="button"
+                            className={`td-tab ${activeTab === "subtasks" ? "active" : ""}`}
+                            onClick={() => setActiveTab("subtasks")}
+                        >
+                            <span className="material-symbols-rounded td-tab-icon">account_tree</span>
+                            Sub-issues
+                        </button>
+                        <button
+                            type="button"
+                            className={`td-tab ${activeTab === "activity" ? "active" : ""}`}
+                            onClick={() => setActiveTab("activity")}
+                        >
+                            <span className="material-symbols-rounded td-tab-icon">history</span>
+                            Activity
+                        </button>
+                    </div>
+
+                    <div className="td-tab-content">
+                        {activeTab === "comments" && (
+                            <div className="td-tab-placeholder">
+                                <p className="placeholder-text">No comments yet.</p>
+                            </div>
+                        )}
+                        {activeTab === "subtasks" && (
+                            <div className="td-tab-placeholder">
+                                {task.swarmId ? (
+                                    <div className="td-subtasks-list">
+                                        {project.tasks
+                                            .filter((t) => t.swarmId === task.swarmId && t.swarmParentTaskId === (task.swarmTaskId || `task:${task.id}`))
+                                            .map((sub) => (
+                                                <div key={sub.id} className="td-subtask-row">
+                                                    <span className="tcm-status-dot" style={{ background: TASK_STATUS_COLORS[sub.status] || "#94a3b8" }} />
+                                                    <span className="td-subtask-title">{sub.title}</span>
+                                                    <span className="td-subtask-id">#{sub.id}</span>
+                                                </div>
+                                            ))
+                                        }
+                                    </div>
+                                ) : (
+                                    <p className="placeholder-text">No sub-issues.</p>
+                                )}
+                            </div>
+                        )}
+                        {activeTab === "activity" && (
+                            <div className="td-tab-placeholder">
+                                <div className="td-activity-list">
+                                    <div className="td-activity-item">
+                                        <span className="td-activity-dot" />
+                                        <span className="td-activity-text">Task created</span>
+                                        <span className="td-activity-time">{formatRelativeTime(task.createdAt)}</span>
+                                    </div>
+                                    {task.updatedAt && task.updatedAt !== task.createdAt && (
+                                        <div className="td-activity-item">
+                                            <span className="td-activity-dot" />
+                                            <span className="td-activity-text">Task updated</span>
+                                            <span className="td-activity-time">{formatRelativeTime(task.updatedAt)}</span>
+                                        </div>
+                                    )}
+                                    {task.claimedActorId && (
+                                        <div className="td-activity-item">
+                                            <span className="td-activity-dot" />
+                                            <span className="td-activity-text">Claimed by {task.claimedActorId}</span>
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+                        )}
+                    </div>
+                </div>
+            </div>
+
+            <aside className={`td-sidebar ${sidebarOpen ? "" : "td-sidebar--closed"}`}>
+                <div className="td-sidebar-header">
+                    <h4>Properties</h4>
+                    <button type="button" className="project-task-detail-icon-button" onClick={() => setSidebarOpen(false)} aria-label="Hide properties">
+                        <span className="material-symbols-rounded">close</span>
+                    </button>
+                </div>
+
+                <div className="td-props">
+                    <div className="td-prop-row">
+                        <span className="td-prop-label">Status</span>
+                        <DetailDropdown
+                            label={currentStatus.title}
+                            color={TASK_STATUS_COLORS[currentStatus.id]}
+                        >
+                            {TASK_STATUSES.map((status) => (
+                                <li
+                                    key={status.id}
+                                    className={`tcm-dropdown-item ${editDraft.status === status.id ? "selected" : ""}`}
+                                    onMouseDown={(e) => {
+                                        e.preventDefault();
+                                        updateEditDraft("status", status.id);
+                                    }}
+                                >
+                                    <span className="tcm-status-dot" style={{ background: TASK_STATUS_COLORS[status.id] }} />
+                                    <span>{status.title}</span>
+                                    {editDraft.status === status.id && <span className="tcm-dropdown-check">✓</span>}
+                                </li>
+                            ))}
+                        </DetailDropdown>
+                    </div>
+
+                    <div className="td-prop-row">
+                        <span className="td-prop-label">Priority</span>
+                        <DetailDropdown
+                            label={currentPriorityLabel}
+                            icon={TASK_PRIORITY_ICONS[editDraft.priority] || "remove"}
+                        >
+                            {TASK_PRIORITIES.map((priority) => (
+                                <li
+                                    key={priority}
+                                    className={`tcm-dropdown-item ${editDraft.priority === priority ? "selected" : ""}`}
+                                    onMouseDown={(e) => {
+                                        e.preventDefault();
+                                        updateEditDraft("priority", priority);
+                                    }}
+                                >
+                                    <span className="material-symbols-rounded tcm-dropdown-item-icon">{TASK_PRIORITY_ICONS[priority]}</span>
+                                    <span>{TASK_PRIORITY_LABELS[priority]}</span>
+                                    {editDraft.priority === priority && <span className="tcm-dropdown-check">✓</span>}
+                                </li>
+                            ))}
+                        </DetailDropdown>
+                    </div>
+
+                    <div className="td-prop-row">
+                        <span className="td-prop-label">Assignee</span>
+                        <DetailDropdown
+                            label={assigneeLabel}
+                            icon="person"
+                        >
+                            <li
+                                className={`tcm-dropdown-item ${!editDraft.actorId && !editDraft.teamId ? "selected" : ""}`}
+                                onMouseDown={(e) => {
+                                    e.preventDefault();
+                                    updateDetailAssignee("");
+                                }}
+                            >
+                                <span className="material-symbols-rounded tcm-dropdown-item-icon">person_off</span>
+                                <span>Unassigned</span>
+                                {!editDraft.actorId && !editDraft.teamId && <span className="tcm-dropdown-check">✓</span>}
+                            </li>
+                            {createModalActors.length > 0 && <li className="tcm-dropdown-divider-label">Actors</li>}
+                            {createModalActors.map((actor) => (
+                                <li
+                                    key={actor.id}
+                                    className={`tcm-dropdown-item ${editDraft.actorId === actor.id ? "selected" : ""}`}
+                                    onMouseDown={(e) => {
+                                        e.preventDefault();
+                                        updateDetailAssignee(`actor:${actor.id}`);
+                                    }}
+                                >
+                                    <span className="material-symbols-rounded tcm-dropdown-item-icon">person</span>
+                                    <span>{actor.displayName}</span>
+                                    <span className="tcm-dropdown-item-id">{actor.id}</span>
+                                    {editDraft.actorId === actor.id && <span className="tcm-dropdown-check">✓</span>}
+                                </li>
+                            ))}
+                            {createModalTeams.length > 0 && <li className="tcm-dropdown-divider-label">Teams</li>}
+                            {createModalTeams.map((team) => (
+                                <li
+                                    key={team.id}
+                                    className={`tcm-dropdown-item ${editDraft.teamId === team.id ? "selected" : ""}`}
+                                    onMouseDown={(e) => {
+                                        e.preventDefault();
+                                        updateDetailAssignee(`team:${team.id}`);
+                                    }}
+                                >
+                                    <span className="material-symbols-rounded tcm-dropdown-item-icon">groups</span>
+                                    <span>{team.name}</span>
+                                    <span className="tcm-dropdown-item-id">{team.id}</span>
+                                    {editDraft.teamId === team.id && <span className="tcm-dropdown-check">✓</span>}
+                                </li>
+                            ))}
+                        </DetailDropdown>
+                    </div>
+
+                    <div className="td-prop-row">
+                        <span className="td-prop-label">Project</span>
+                        <span className="td-prop-value td-prop-value--static">{project.name}</span>
+                    </div>
+
+                    <div className="td-prop-row">
+                        <span className="td-prop-label">Created</span>
+                        <span className="td-prop-value td-prop-value--static">
+                            {new Date(task.createdAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
+                        </span>
+                    </div>
+
+                    <div className="td-prop-row">
+                        <span className="td-prop-label">Updated</span>
+                        <span className="td-prop-value td-prop-value--static">{formatRelativeTime(task.updatedAt)}</span>
+                    </div>
+
+                    {task.claimedAgentId && (
+                        <div className="td-prop-row">
+                            <span className="td-prop-label">Agent</span>
+                            <span className="td-prop-value td-prop-value--static">{task.claimedAgentId}</span>
+                        </div>
+                    )}
+
+                    {task.swarmId && (
+                        <div className="td-prop-row">
+                            <span className="td-prop-label">Swarm</span>
+                            <span className="td-prop-value td-prop-value--static">{task.swarmId}</span>
+                        </div>
+                    )}
+                </div>
+
+                <div className="td-sidebar-danger">
+                    <button type="button" className="danger" onClick={deleteTaskFromModal}>
+                        Delete task
+                    </button>
+                </div>
+            </aside>
+        </div>
+    );
+}
 
 export function ProjectTasksTab({
     project,
@@ -31,138 +405,23 @@ export function ProjectTasksTab({
     const swarmGroups = buildSwarmGroups(project.tasks);
     const selectedTaskId = selectedTask ? String(selectedTask.id || "").trim() : "";
 
-    const renderTaskDetail = (task, isFullscreen = false) => {
-        const taskReference = String(task.id || "").trim();
-        const statusTitle = TASK_STATUSES.find((status) => status.id === editDraft.status)?.title || editDraft.status;
-        const priorityTitle = TASK_PRIORITY_LABELS[editDraft.priority] || "Medium";
-        const assigneeToken = editDraft.actorId
-            ? `actor:${editDraft.actorId}`
-            : editDraft.teamId
-                ? `team:${editDraft.teamId}`
-                : "";
-        const assigneeLabel = editDraft.actorId || editDraft.teamId || "Unassigned";
-
+    if (selectedTask) {
         return (
-            <article className={`project-task-composer ${isFullscreen ? "project-task-composer--fullscreen" : ""}`}>
-                <header className="project-task-composer-head">
-                    <div className="project-task-composer-breadcrumbs">
-                        <span className="project-task-composer-badge">{project.id}</span>
-                        <span className="material-symbols-rounded" aria-hidden="true">
-                            chevron_right
-                        </span>
-                        <span className="project-task-composer-badge">Task</span>
-                    </div>
-
-                    <div className="project-task-composer-actions">
-                        <button
-                            type="button"
-                            className="project-task-composer-save"
-                            onClick={saveTaskEdit}
-                            disabled={!String(editDraft.title || "").trim()}
-                        >
-                            Save as draft
-                        </button>
-                        <button
-                            type="button"
-                            className="project-task-detail-icon-button"
-                            onClick={() => setIsTaskDetailFullscreen((value) => !value)}
-                            aria-label={isTaskDetailFullscreen ? "Exit fullscreen task card" : "Expand task card fullscreen"}
-                            title={isTaskDetailFullscreen ? "Exit fullscreen" : "Fullscreen"}
-                        >
-                            <span className="material-symbols-rounded" aria-hidden="true">
-                                {isTaskDetailFullscreen ? "close_fullscreen" : "open_in_full"}
-                            </span>
-                        </button>
-                        <button
-                            type="button"
-                            className="project-task-detail-icon-button"
-                            onClick={closeTaskDetails}
-                            aria-label="Close task detail"
-                            title="Close task detail"
-                        >
-                            <span className="material-symbols-rounded" aria-hidden="true">
-                                close
-                            </span>
-                        </button>
-                    </div>
-                </header>
-
-                <div className="project-task-composer-editor">
-                    <input
-                        className="project-task-composer-title-input"
-                        value={editDraft.title}
-                        onChange={(event) => updateEditDraft("title", event.target.value)}
-                        placeholder="Task title..."
-                        autoFocus
-                    />
-                    <textarea
-                        className="project-task-composer-desc-input"
-                        value={editDraft.description}
-                        onChange={(event) => updateEditDraft("description", event.target.value)}
-                        rows={2}
-                        placeholder="Write a task note..."
-                    />
-                </div>
-
-                <div className="project-task-composer-row">
-                    <label className="project-task-composer-chip">
-                        <span className="material-symbols-rounded" aria-hidden="true">
-                            radio_button_unchecked
-                        </span>
-                        <select value={editDraft.status} onChange={(event) => updateEditDraft("status", event.target.value)} aria-label="Task status">
-                            {TASK_STATUSES.map((status) => (
-                                <option key={status.id} value={status.id}>
-                                    {status.title}
-                                </option>
-                            ))}
-                        </select>
-                    </label>
-
-                    <label className="project-task-composer-chip">
-                        <span className="material-symbols-rounded" aria-hidden="true">
-                            flag
-                        </span>
-                        <select value={editDraft.priority} onChange={(event) => updateEditDraft("priority", event.target.value)} aria-label="Task priority">
-                            {TASK_PRIORITIES.map((priority) => (
-                                <option key={priority} value={priority}>
-                                    {TASK_PRIORITY_LABELS[priority]}
-                                </option>
-                            ))}
-                        </select>
-                    </label>
-
-                    <label className="project-task-composer-chip">
-                        <span className="material-symbols-rounded" aria-hidden="true">
-                            person
-                        </span>
-                        <select value={assigneeToken} onChange={(event) => updateDetailAssignee(event.target.value)} aria-label="Task assignee">
-                            <option value="">Unassigned</option>
-                            {createModalActors.map((actor) => (
-                                <option key={`actor-${actor.id}`} value={`actor:${actor.id}`}>
-                                    {actor.displayName}
-                                </option>
-                            ))}
-                            {createModalTeams.map((team) => (
-                                <option key={`team-${team.id}`} value={`team:${team.id}`}>
-                                    {team.name}
-                                </option>
-                            ))}
-                        </select>
-                    </label>
-                </div>
-
-                <footer className="project-task-composer-footer">
-                    <span className="project-task-composer-meta">/tasks/{taskReference}</span>
-                    <span className="project-task-composer-meta">{statusTitle}</span>
-                    <span className="project-task-composer-meta">{priorityTitle}</span>
-                    <span className="project-task-composer-meta">{assigneeLabel}</span>
-                    <button type="button" className="danger" onClick={deleteTaskFromModal}>
-                        Delete task
-                    </button>
-                </footer>
-            </article>
+            <TaskDetailView
+                project={project}
+                task={selectedTask}
+                editDraft={editDraft}
+                updateEditDraft={updateEditDraft}
+                saveTaskEdit={saveTaskEdit}
+                closeTaskDetails={closeTaskDetails}
+                updateDetailAssignee={updateDetailAssignee}
+                deleteTaskFromModal={deleteTaskFromModal}
+                createModalActors={createModalActors}
+                createModalTeams={createModalTeams}
+                onOpenReview={onOpenReview}
+            />
         );
-    };
+    }
 
     const renderSwarmNode = (task, group, level = 0, visited = new Set()) => {
         const taskKey = task.swarmTaskId || `task:${task.id}`;
@@ -437,12 +696,6 @@ export function ProjectTasksTab({
                     })}
                 </div>
             </section>
-
-            {selectedTask ? (
-                <div className={`project-task-detail-overlay ${isTaskDetailFullscreen ? "project-task-detail-overlay--fullscreen" : ""}`} onClick={closeTaskDetails}>
-                    <div onClick={(event) => event.stopPropagation()}>{renderTaskDetail(selectedTask, isTaskDetailFullscreen)}</div>
-                </div>
-            ) : null}
         </section>
     );
 }

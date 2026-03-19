@@ -20,6 +20,8 @@ import {
   TASK_STATUSES,
   TASK_PRIORITIES,
   TASK_PRIORITY_LABELS,
+  TASK_STATUS_COLORS,
+  TASK_PRIORITY_ICONS,
   PROJECT_TAB_SET,
   TASK_STATUS_SET,
   TASK_PRIORITY_SET,
@@ -344,99 +346,200 @@ function ProjectCreateModal({ isOpen, draft, onChange, onClose, onCreate, actors
   );
 }
 
+function TaskCreateDropdown({ label, icon, color, isOpen, onToggle, children }) {
+  const ref = useRef(null);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    function handleClickOutside(e) {
+      if (ref.current && !ref.current.contains(e.target)) {
+        onToggle(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [isOpen, onToggle]);
+
+  return (
+    <div className="tcm-dropdown-wrap" ref={ref}>
+      <button
+        type="button"
+        className={`tcm-selector-btn ${isOpen ? "active" : ""}`}
+        onClick={() => onToggle(!isOpen)}
+      >
+        {color ? (
+          <span className="tcm-status-dot" style={{ background: color }} />
+        ) : icon ? (
+          <span className="material-symbols-rounded tcm-selector-icon">{icon}</span>
+        ) : null}
+        <span>{label}</span>
+      </button>
+      {isOpen && (
+        <ul className="tcm-dropdown-list">
+          {children}
+        </ul>
+      )}
+    </div>
+  );
+}
+
 function ProjectTaskCreateModal({ isOpen, draft, onChange, onClose, onCreate, actors = [], teams = [] }) {
+  const [openDropdown, setOpenDropdown] = useState(null);
+
   if (!isOpen) {
     return null;
   }
 
+  function toggle(name) {
+    return (open) => setOpenDropdown(open ? name : null);
+  }
+
+  const currentStatus = TASK_STATUSES.find((s) => s.id === draft.status) || TASK_STATUSES[0];
+  const currentPriorityLabel = TASK_PRIORITY_LABELS[draft.priority] || "Priority";
+  const currentActor = actors.find((a) => a.id === draft.actorId);
+  const currentTeam = teams.find((t) => t.id === draft.teamId);
+
+  const assigneeLabel = currentActor
+    ? currentActor.displayName
+    : currentTeam
+      ? currentTeam.name
+      : "Assignee";
+
   return (
     <div className="project-modal-overlay" onClick={onClose}>
-      <section className="project-modal" onClick={(event) => event.stopPropagation()}>
-        <div className="project-modal-head">
-          <h3>Create Task</h3>
-          <button type="button" className="project-modal-close" aria-label="Close" onClick={onClose}>
-            ×
-          </button>
-        </div>
-
-        <form className="project-task-form" onSubmit={onCreate}>
-          <label>
-            Title
+      <section className="tcm-modal" onClick={(event) => event.stopPropagation()}>
+        <form onSubmit={onCreate}>
+          <div className="tcm-body">
             <input
+              className="tcm-title-input"
               value={draft.title}
               onChange={(event) => onChange("title", event.target.value)}
-              placeholder="Task title..."
+              placeholder="Task title"
               autoFocus
             />
-          </label>
-
-          <label>
-            Description
             <textarea
+              className="tcm-desc-input"
               value={draft.description}
               onChange={(event) => onChange("description", event.target.value)}
-              rows={4}
-              placeholder="Optional description..."
+              placeholder="Add description..."
+              rows={6}
             />
-          </label>
+          </div>
 
-          <div className="project-task-form-grid">
-            <label>
-              Priority
-              <select value={draft.priority} onChange={(event) => onChange("priority", event.target.value)}>
-                {TASK_PRIORITIES.map((priority) => (
-                  <option key={priority} value={priority}>
-                    {TASK_PRIORITY_LABELS[priority]}
-                  </option>
-                ))}
-              </select>
-            </label>
-
-            <label>
-              Initial Status
-              <select value={draft.status} onChange={(event) => onChange("status", event.target.value)}>
+          <div className="tcm-toolbar">
+            <div className="tcm-selectors">
+              <TaskCreateDropdown
+                label={currentStatus.title}
+                color={TASK_STATUS_COLORS[currentStatus.id]}
+                isOpen={openDropdown === "status"}
+                onToggle={toggle("status")}
+              >
                 {TASK_STATUSES.map((status) => (
-                  <option key={status.id} value={status.id}>
-                    {status.title}
-                  </option>
+                  <li
+                    key={status.id}
+                    className={`tcm-dropdown-item ${draft.status === status.id ? "selected" : ""}`}
+                    onMouseDown={(e) => {
+                      e.preventDefault();
+                      onChange("status", status.id);
+                      setOpenDropdown(null);
+                    }}
+                  >
+                    <span className="tcm-status-dot" style={{ background: TASK_STATUS_COLORS[status.id] }} />
+                    <span>{status.title}</span>
+                    {draft.status === status.id && <span className="tcm-dropdown-check">✓</span>}
+                  </li>
                 ))}
-              </select>
-            </label>
-          </div>
+              </TaskCreateDropdown>
 
-          <div className="project-task-form-grid">
-            <label>
-              Assign Actor
-              <select value={draft.actorId || ""} onChange={(event) => onChange("actorId", event.target.value)}>
-                <option value="">Unassigned</option>
+              <TaskCreateDropdown
+                label={currentPriorityLabel}
+                icon={TASK_PRIORITY_ICONS[draft.priority] || "remove"}
+                isOpen={openDropdown === "priority"}
+                onToggle={toggle("priority")}
+              >
+                {TASK_PRIORITIES.map((priority) => (
+                  <li
+                    key={priority}
+                    className={`tcm-dropdown-item ${draft.priority === priority ? "selected" : ""}`}
+                    onMouseDown={(e) => {
+                      e.preventDefault();
+                      onChange("priority", priority);
+                      setOpenDropdown(null);
+                    }}
+                  >
+                    <span className="material-symbols-rounded tcm-dropdown-item-icon">{TASK_PRIORITY_ICONS[priority]}</span>
+                    <span>{TASK_PRIORITY_LABELS[priority]}</span>
+                    {draft.priority === priority && <span className="tcm-dropdown-check">✓</span>}
+                  </li>
+                ))}
+              </TaskCreateDropdown>
+
+              <TaskCreateDropdown
+                label={assigneeLabel}
+                icon="person"
+                isOpen={openDropdown === "assignee"}
+                onToggle={toggle("assignee")}
+              >
+                <li
+                  className={`tcm-dropdown-item ${!draft.actorId && !draft.teamId ? "selected" : ""}`}
+                  onMouseDown={(e) => {
+                    e.preventDefault();
+                    onChange("actorId", "");
+                    onChange("teamId", "");
+                    setOpenDropdown(null);
+                  }}
+                >
+                  <span className="material-symbols-rounded tcm-dropdown-item-icon">person_off</span>
+                  <span>Unassigned</span>
+                  {!draft.actorId && !draft.teamId && <span className="tcm-dropdown-check">✓</span>}
+                </li>
+                {actors.length > 0 && <li className="tcm-dropdown-divider-label">Actors</li>}
                 {actors.map((actor) => (
-                  <option key={actor.id} value={actor.id}>
-                    {actor.displayName} ({actor.id})
-                  </option>
+                  <li
+                    key={actor.id}
+                    className={`tcm-dropdown-item ${draft.actorId === actor.id ? "selected" : ""}`}
+                    onMouseDown={(e) => {
+                      e.preventDefault();
+                      onChange("actorId", actor.id);
+                      onChange("teamId", "");
+                      setOpenDropdown(null);
+                    }}
+                  >
+                    <span className="material-symbols-rounded tcm-dropdown-item-icon">person</span>
+                    <span>{actor.displayName}</span>
+                    <span className="tcm-dropdown-item-id">{actor.id}</span>
+                    {draft.actorId === actor.id && <span className="tcm-dropdown-check">✓</span>}
+                  </li>
                 ))}
-              </select>
-            </label>
-
-            <label>
-              Assign Team
-              <select value={draft.teamId || ""} onChange={(event) => onChange("teamId", event.target.value)}>
-                <option value="">Unassigned</option>
+                {teams.length > 0 && <li className="tcm-dropdown-divider-label">Teams</li>}
                 {teams.map((team) => (
-                  <option key={team.id} value={team.id}>
-                    {team.name} ({team.id})
-                  </option>
+                  <li
+                    key={team.id}
+                    className={`tcm-dropdown-item ${draft.teamId === team.id ? "selected" : ""}`}
+                    onMouseDown={(e) => {
+                      e.preventDefault();
+                      onChange("actorId", "");
+                      onChange("teamId", team.id);
+                      setOpenDropdown(null);
+                    }}
+                  >
+                    <span className="material-symbols-rounded tcm-dropdown-item-icon">groups</span>
+                    <span>{team.name}</span>
+                    <span className="tcm-dropdown-item-id">{team.id}</span>
+                    {draft.teamId === team.id && <span className="tcm-dropdown-check">✓</span>}
+                  </li>
                 ))}
-              </select>
-            </label>
-          </div>
+              </TaskCreateDropdown>
+            </div>
 
-          <div className="project-modal-actions">
-            <button type="button" onClick={onClose}>
-              Cancel
-            </button>
-            <button type="submit" className="project-primary hover-levitate" disabled={!draft.title.trim()}>
-              Create
-            </button>
+            <div className="tcm-actions">
+              <button type="button" className="tcm-discard-btn" onClick={onClose}>
+                Discard
+              </button>
+              <button type="submit" className="tcm-create-btn hover-levitate" disabled={!draft.title.trim()}>
+                Create Task
+              </button>
+            </div>
           </div>
         </form>
       </section>
