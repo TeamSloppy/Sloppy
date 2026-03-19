@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useCallback } from "react";
+import React, { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import {
     TASK_STATUSES,
     TASK_PRIORITIES,
@@ -10,7 +10,20 @@ import {
     formatRelativeTime,
     sortTasksByDate
 } from "./utils";
-import { fetchTaskComments, addTaskComment, deleteTaskComment, fetchTaskActivities } from "../../api";
+import {
+    fetchTaskComments,
+    addTaskComment,
+    deleteTaskComment,
+    fetchTaskActivities,
+    fetchTaskDiff,
+    fetchReviewComments,
+    addReviewComment,
+    updateReviewComment,
+    deleteReviewComment,
+    createAgentSession,
+    postAgentSessionMessage
+} from "../../api";
+import { ReviewDiffPanel } from "./ReviewDiffPanel";
 
 function DetailDropdown({ label, icon, color, children }) {
     const [open, setOpen] = useState(false);
@@ -351,6 +364,212 @@ function ActivityTab({ project, task, createModalActors }) {
     );
 }
 
+function ReviewTab({ project, task, createModalActors }) {
+    const [diffData, setDiffData] = useState(null);
+    const [comments, setComments] = useState([]);
+    const [loadingDiff, setLoadingDiff] = useState(true);
+    const [selectedActorId, setSelectedActorId] = useState("");
+    const [actorDropdownOpen, setActorDropdownOpen] = useState(false);
+    const [actorSearch, setActorSearch] = useState("");
+    const [submitting, setSubmitting] = useState(false);
+    const [submitStatus, setSubmitStatus] = useState("");
+    const dropdownRef = useRef(null);
+
+    const projectId = project.id;
+    const taskId = task.id;
+
+    useEffect(() => {
+        let cancelled = false;
+        setLoadingDiff(true);
+
+        async function load() {
+            const [diff, commentList] = await Promise.all([
+                fetchTaskDiff(projectId, taskId),
+                fetchReviewComments(projectId, taskId)
+            ]);
+            if (cancelled) return;
+            setDiffData(diff);
+            setComments(Array.isArray(commentList) ? commentList : []);
+            setLoadingDiff(false);
+        }
+
+        load().catch(() => { if (!cancelled) setLoadingDiff(false); });
+        return () => { cancelled = true; };
+    }, [projectId, taskId]);
+
+    useEffect(() => {
+        if (!actorDropdownOpen) return;
+        function handleClick(e) {
+            if (dropdownRef.current && !dropdownRef.current.contains(e.target)) {
+                setActorDropdownOpen(false);
+            }
+        }
+        document.addEventListener("mousedown", handleClick);
+        return () => document.removeEventListener("mousedown", handleClick);
+    }, [actorDropdownOpen]);
+
+    const handleAddComment = useCallback(async (payload) => {
+        const comment = await addReviewComment(projectId, taskId, payload);
+        if (comment) setComments((prev) => [...prev, comment]);
+    }, [projectId, taskId]);
+
+    const handleResolveComment = useCallback(async (commentId, resolved) => {
+        const updated = await updateReviewComment(projectId, taskId, commentId, { resolved });
+        if (updated) setComments((prev) => prev.map((c) => c.id === commentId ? updated : c));
+    }, [projectId, taskId]);
+
+    const handleDeleteComment = useCallback(async (commentId) => {
+        const ok = await deleteReviewComment(projectId, taskId, commentId);
+        if (ok) setComments((prev) => prev.filter((c) => c.id !== commentId));
+    }, [projectId, taskId]);
+
+    const agentActors = useMemo(
+        () => createModalActors.filter((a) => a.linkedAgentId),
+        [createModalActors]
+    );
+
+    const filteredActors = actorSearch.trim()
+        ? agentActors.filter(
+            (a) =>
+                a.displayName.toLowerCase().includes(actorSearch.toLowerCase()) ||
+                a.id.toLowerCase().includes(actorSearch.toLowerCase())
+        )
+        : agentActors;
+
+    const selectedActor = agentActors.find((a) => a.id === selectedActorId);
+    const unresolvedComments = comments.filter((c) => !c.resolved);
+
+    async function handleSubmitReview() {
+        if (submitting || !selectedActor?.linkedAgentId) return;
+
+        setSubmitting(true);
+        setSubmitStatus("Sending review...");
+
+        const agentId = selectedActor.linkedAgentId;
+
+        const lines = [
+            `**Code review for task: ${task.title || taskId}**`,
+            unresolvedComments.length > 0
+                ? `\nReview comments (${unresolvedComments.length}):`
+                : "\nNo inline comments — general review request.",
+            ...unresolvedComments.map((c, i) =>
+                `\n${i + 1}. **${c.filePath}** line ${c.lineNumber} (${c.side || "new"}):\n> ${c.content}`
+            )
+        ];
+        const message = lines.join("\n");
+
+        try {
+            const session = await createAgentSession(agentId, {});
+            if (!session) {
+                setSubmitStatus("Failed to create session.");
+                setSubmitting(false);
+                return;
+            }
+            await postAgentSessionMessage(agentId, session.id, {
+                userId: "dashboard",
+                content: message,
+                spawnSubSession: false
+            });
+            setSubmitStatus("Review sent.");
+        } catch {
+            setSubmitStatus("Failed to send review.");
+        }
+
+        setSubmitting(false);
+    }
+
+    const rawDiff = diffData?.diff || "";
+
+    return (
+        <div className="td-review-tab">
+            {loadingDiff ? (
+                <p className="placeholder-text">Loading diff...</p>
+            ) : (
+                <ReviewDiffPanel
+                    rawDiff={rawDiff}
+                    comments={comments}
+                    onAddComment={handleAddComment}
+                    onResolveComment={handleResolveComment}
+                    onDeleteComment={handleDeleteComment}
+                />
+            )}
+
+            <div className="td-review-submit-panel">
+                <div className="td-review-submit-info">
+                    {unresolvedComments.length > 0 ? (
+                        <span className="td-review-comment-count">
+                            <span className="material-symbols-rounded" aria-hidden="true">comment</span>
+                            {unresolvedComments.length} unresolved comment{unresolvedComments.length !== 1 ? "s" : ""}
+                        </span>
+                    ) : (
+                        <span className="placeholder-text">No unresolved comments</span>
+                    )}
+                </div>
+
+                <div className="td-review-submit-actions">
+                    <div className="td-comment-actor-wrap" ref={dropdownRef}>
+                        <button
+                            type="button"
+                            className={`td-comment-actor-btn ${actorDropdownOpen ? "active" : ""}`}
+                            onClick={() => setActorDropdownOpen((v) => !v)}
+                        >
+                            <span className="material-symbols-rounded">smart_toy</span>
+                            <span>{selectedActor ? selectedActor.displayName : "Select actor"}</span>
+                        </button>
+                        {actorDropdownOpen && (
+                            <div className="td-comment-actor-dropdown td-review-actor-dropdown">
+                                <input
+                                    className="td-comment-actor-search"
+                                    value={actorSearch}
+                                    onChange={(e) => setActorSearch(e.target.value)}
+                                    placeholder="Search actors..."
+                                    autoFocus
+                                />
+                                <ul>
+                                    {filteredActors.length === 0 && (
+                                        <li className="tcm-dropdown-item placeholder-text">No agents available</li>
+                                    )}
+                                    {filteredActors.map((actor) => (
+                                        <li
+                                            key={actor.id}
+                                            className={`tcm-dropdown-item ${selectedActorId === actor.id ? "selected" : ""}`}
+                                            onMouseDown={(e) => {
+                                                e.preventDefault();
+                                                setSelectedActorId(actor.id);
+                                                setActorDropdownOpen(false);
+                                                setActorSearch("");
+                                            }}
+                                        >
+                                            <span className="material-symbols-rounded tcm-dropdown-item-icon">smart_toy</span>
+                                            <span>{actor.displayName}</span>
+                                            <span className="tcm-dropdown-item-id">{actor.id}</span>
+                                            {selectedActorId === actor.id && <span className="tcm-dropdown-check">✓</span>}
+                                        </li>
+                                    ))}
+                                </ul>
+                            </div>
+                        )}
+                    </div>
+
+                    {submitStatus && (
+                        <span className="td-review-submit-status placeholder-text">{submitStatus}</span>
+                    )}
+
+                    <button
+                        type="button"
+                        className="td-review-submit-btn"
+                        onClick={handleSubmitReview}
+                        disabled={submitting || !selectedActor}
+                    >
+                        <span className="material-symbols-rounded" aria-hidden="true">send</span>
+                        Submit Review
+                    </button>
+                </div>
+            </div>
+        </div>
+    );
+}
+
 function TaskDetailView({
     project,
     task,
@@ -480,6 +699,14 @@ function TaskDetailView({
                             <span className="material-symbols-rounded td-tab-icon">history</span>
                             Activity
                         </button>
+                        <button
+                            type="button"
+                            className={`td-tab ${activeTab === "review" ? "active" : ""}`}
+                            onClick={() => setActiveTab("review")}
+                        >
+                            <span className="material-symbols-rounded td-tab-icon">rate_review</span>
+                            Review
+                        </button>
                     </div>
 
                     <div className="td-tab-content">
@@ -512,6 +739,13 @@ function TaskDetailView({
                         )}
                         {activeTab === "activity" && (
                             <ActivityTab
+                                project={project}
+                                task={task}
+                                createModalActors={createModalActors}
+                            />
+                        )}
+                        {activeTab === "review" && (
+                            <ReviewTab
                                 project={project}
                                 task={task}
                                 createModalActors={createModalActors}
