@@ -286,7 +286,7 @@ function ActivityTab({ project, task, createModalActors }) {
         const result = await fetchTaskActivities(project.id, task.id);
         if (result) setActivities(result);
         setLoading(false);
-    }, [project.id, task.id]);
+    }, [project.id, task.id, task.updatedAt]);
 
     useEffect(() => {
         setLoading(true);
