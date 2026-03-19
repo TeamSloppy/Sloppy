@@ -774,6 +774,165 @@ private func collectEvents(
     return await collector.all()
 }
 
+// MARK: - ReasoningContentCapture tests
+
+@Test
+func reasoningContentCaptureAppendAndConsume() {
+    let capture = ReasoningContentCapture()
+    capture.append("Hello")
+    capture.append(", world")
+    let result = capture.consume()
+    #expect(result == "Hello, world")
+    let afterConsume = capture.consume()
+    #expect(afterConsume.isEmpty)
+}
+
+@Test
+func reasoningContentCaptureConsumeResetsAccumulator() {
+    let capture = ReasoningContentCapture()
+    capture.append("first")
+    _ = capture.consume()
+    capture.append("second")
+    #expect(capture.consume() == "second")
+}
+
+// MARK: - Reasoning observation emission tests
+
+private final class ReasoningCapturingModelProvider: ModelProvider, @unchecked Sendable {
+    let id: String = "reasoning-capturing"
+    let supportedModels: [String] = ["mock-reasoning-model"]
+    let _capture = ReasoningContentCapture()
+    let responseText: String
+
+    init(responseText: String = "Response.", reasoning: String = "") {
+        self.responseText = responseText
+        if !reasoning.isEmpty {
+            _capture.append(reasoning)
+        }
+    }
+
+    func createLanguageModel(for modelName: String) async throws -> any LanguageModel {
+        ReasoningCapturingMockLanguageModel(responseText: responseText)
+    }
+
+    func reasoningCapture(for modelName: String) -> ReasoningContentCapture? {
+        _capture
+    }
+}
+
+private struct ReasoningCapturingMockLanguageModel: LanguageModel {
+    typealias UnavailableReason = Never
+    let responseText: String
+
+    func respond<Content>(
+        within session: LanguageModelSession,
+        to prompt: Prompt,
+        generating type: Content.Type,
+        includeSchemaInPrompt: Bool,
+        options: GenerationOptions
+    ) async throws -> LanguageModelSession.Response<Content> where Content: Generable {
+        LanguageModelSession.Response(
+            content: responseText as! Content,
+            rawContent: GeneratedContent(responseText),
+            transcriptEntries: []
+        )
+    }
+
+    func streamResponse<Content>(
+        within session: LanguageModelSession,
+        to prompt: Prompt,
+        generating type: Content.Type,
+        includeSchemaInPrompt: Bool,
+        options: GenerationOptions
+    ) -> sending LanguageModelSession.ResponseStream<Content> where Content: Generable {
+        let text = responseText
+        let stream = AsyncThrowingStream<LanguageModelSession.ResponseStream<Content>.Snapshot, any Error> { continuation in
+            Task {
+                continuation.yield(.init(content: text as! Content.PartiallyGenerated, rawContent: GeneratedContent(text)))
+                continuation.finish()
+            }
+        }
+        return LanguageModelSession.ResponseStream(stream: stream)
+    }
+}
+
+private actor ThinkingCollector {
+    var items: [String] = []
+    func append(_ text: String) { items.append(text) }
+    func all() -> [String] { items }
+}
+
+@Test
+func reasoningObservationIsEmittedAfterStream() async {
+    let provider = ReasoningCapturingModelProvider(
+        responseText: "Here is my answer.",
+        reasoning: "I think step by step..."
+    )
+    let system = RuntimeSystem(modelProvider: provider, defaultModel: "mock-reasoning-model")
+    let collector = ThinkingCollector()
+
+    _ = await system.postMessage(
+        channelId: "reasoning-channel",
+        request: ChannelMessageRequest(userId: "u1", content: "solve this"),
+        observationHandler: { observation in
+            if case .thinking(let text) = observation {
+                await collector.append(text)
+            }
+        }
+    )
+
+    let observed = await collector.all()
+    #expect(observed.count == 1)
+    #expect(observed.first == "I think step by step...")
+}
+
+@Test
+func noReasoningObservationWhenCaptureIsEmpty() async {
+    let provider = ReasoningCapturingModelProvider(responseText: "Answer.", reasoning: "")
+    let system = RuntimeSystem(modelProvider: provider, defaultModel: "mock-reasoning-model")
+    let collector = ThinkingCollector()
+
+    _ = await system.postMessage(
+        channelId: "no-reasoning-channel",
+        request: ChannelMessageRequest(userId: "u1", content: "hello"),
+        observationHandler: { observation in
+            if case .thinking(let text) = observation {
+                await collector.append(text)
+            }
+        }
+    )
+
+    let observed = await collector.all()
+    #expect(observed.isEmpty)
+}
+
+// MARK: - OpenAIOAuthModel SSE parsing tests
+
+@Test
+func openAIOAuthModelParsesOutputTextDelta() {
+    let model = OpenAIOAuthModel(bearerToken: "token", model: "gpt-5")
+    let line = #"data: {"type":"response.output_text.delta","delta":"Hello"}"#
+    let result = model.parseSSEOutputDelta(line)
+    #expect(result == "Hello")
+}
+
+@Test
+func openAIOAuthModelParsesReasoningDelta() {
+    let capture = ReasoningContentCapture()
+    let model = OpenAIOAuthModel(bearerToken: "token", model: "gpt-5", reasoningCapture: capture)
+    let line = #"data: {"type":"response.reasoning_summary_text.delta","delta":"Let me think"}"#
+    let result = model.parseSSEReasoningDelta(line)
+    #expect(result == "Let me think")
+}
+
+@Test
+func openAIOAuthModelIgnoresUnknownSSEEvents() {
+    let model = OpenAIOAuthModel(bearerToken: "token", model: "gpt-5")
+    let line = #"data: {"type":"response.created","response":{}}"#
+    #expect(model.parseSSEOutputDelta(line) == nil)
+    #expect(model.parseSSEReasoningDelta(line) == nil)
+}
+
 private extension JSONValue {
     var objectValue: [String: JSONValue] {
         if case .object(let object) = self {

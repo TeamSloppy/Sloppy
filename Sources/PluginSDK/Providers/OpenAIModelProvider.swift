@@ -33,6 +33,7 @@ public struct OpenAIModelProvider: ModelProvider {
     public let supportedModels: [String]
     public let systemInstructions: String?
     public let tools: [any Tool]
+    private let _reasoningCapture: ReasoningContentCapture
     private let settings: Settings
     private static let logger = Logger(label: "sloppy.provider.openai")
 
@@ -48,6 +49,11 @@ public struct OpenAIModelProvider: ModelProvider {
         self.settings = settings
         self.tools = tools
         self.systemInstructions = systemInstructions
+        self._reasoningCapture = ReasoningContentCapture()
+    }
+
+    public func reasoningCapture(for modelName: String) -> ReasoningContentCapture? {
+        _reasoningCapture
     }
 
     public func createLanguageModel(for modelName: String) async throws -> any LanguageModel {
@@ -59,7 +65,8 @@ public struct OpenAIModelProvider: ModelProvider {
                 bearerToken: token,
                 model: resolved,
                 accountId: settings.accountId,
-                instructions: systemInstructions ?? "You are an execution-focused assistant."
+                instructions: systemInstructions ?? "You are an execution-focused assistant.",
+                reasoningCapture: _reasoningCapture
             )
         }
         return OpenAIRetryingLanguageModel(

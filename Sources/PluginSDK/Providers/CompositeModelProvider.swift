@@ -45,4 +45,8 @@ public struct CompositeModelProvider: ModelProvider {
         }
         return provider.generationOptions(for: modelName, maxTokens: maxTokens, reasoningEffort: reasoningEffort)
     }
+
+    public func reasoningCapture(for modelName: String) -> ReasoningContentCapture? {
+        providers.first(where: { $0.supportedModels.contains(modelName) })?.reasoningCapture(for: modelName)
+    }
 }

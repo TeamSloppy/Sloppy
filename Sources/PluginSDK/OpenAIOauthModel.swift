@@ -16,6 +16,7 @@ public struct OpenAIOAuthModel: LanguageModel {
     private let modelName: String
     private let accountId: String?
     private let instructions: String
+    let reasoningCapture: ReasoningContentCapture?
 
     public var availability: Availability<String> {
         guard !bearerToken.isEmpty else {
@@ -29,13 +30,15 @@ public struct OpenAIOAuthModel: LanguageModel {
         bearerToken: String,
         model: String,
         accountId: String? = nil,
-        instructions: String = "You are a helpful assistant."
+        instructions: String = "You are a helpful assistant.",
+        reasoningCapture: ReasoningContentCapture? = nil
     ) {
         self.baseURL = baseURL
         self.bearerToken = bearerToken
         self.modelName = model
         self.accountId = accountId
         self.instructions = instructions
+        self.reasoningCapture = reasoningCapture
     }
 }
 
@@ -131,8 +134,10 @@ private extension OpenAIOAuthModel {
 
         var accumulated = ""
         for try await line in asyncBytes.lines {
-            if let delta = parseSSEDelta(line) {
+            if let delta = parseSSEOutputDelta(line) {
                 accumulated += delta
+            } else if let reasoning = parseSSEReasoningDelta(line) {
+                reasoningCapture?.append(reasoning)
             }
         }
         return accumulated
@@ -165,7 +170,7 @@ private extension OpenAIOAuthModel {
 
         var accumulated = ""
         for try await line in asyncBytes.lines {
-            if let delta = parseSSEDelta(line) {
+            if let delta = parseSSEOutputDelta(line) {
                 accumulated += delta
                 if Content.self == String.self {
                     let snapshot = LanguageModelSession.ResponseStream<Content>.Snapshot(
@@ -174,6 +179,8 @@ private extension OpenAIOAuthModel {
                     )
                     continuation.yield(snapshot)
                 }
+            } else if let reasoning = parseSSEReasoningDelta(line) {
+                reasoningCapture?.append(reasoning)
             }
         }
     }
@@ -212,16 +219,33 @@ private extension OpenAIOAuthModel {
         if let temperature = options.temperature {
             body["temperature"] = temperature
         }
+        if reasoningCapture != nil {
+            body["reasoning"] = ["summary": "auto"]
+        }
         return try JSONSerialization.data(withJSONObject: body)
     }
+}
 
-    func parseSSEDelta(_ line: String) -> String? {
+extension OpenAIOAuthModel {
+    func parseSSEOutputDelta(_ line: String) -> String? {
         guard line.hasPrefix("data: ") else { return nil }
         let payload = String(line.dropFirst(6))
         guard let data = payload.data(using: .utf8),
               let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let type = obj["type"] as? String,
               type == "response.output_text.delta",
+              let delta = obj["delta"] as? String
+        else { return nil }
+        return delta
+    }
+
+    func parseSSEReasoningDelta(_ line: String) -> String? {
+        guard line.hasPrefix("data: ") else { return nil }
+        let payload = String(line.dropFirst(6))
+        guard let data = payload.data(using: .utf8),
+              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let type = obj["type"] as? String,
+              type == "response.reasoning_summary_text.delta",
               let delta = obj["delta"] as? String
         else { return nil }
         return delta

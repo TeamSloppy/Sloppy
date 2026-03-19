@@ -261,17 +261,6 @@ public actor RuntimeSystem {
             )
             let promptChars = contextualPrompt.description.count
 
-            if let observationHandler {
-                let thinkingText =
-                    """
-                    Preparing inline response.
-                    - Channel: \(channelId)
-                    - Model: \(activeModel)
-                    - Tools: \(toolInvoker == nil ? "disabled" : "enabled")
-                    """
-                await observationHandler(.thinking(thinkingText))
-            }
-
             let languageModel = try await modelProvider.createLanguageModel(for: activeModel)
             let session: LanguageModelSession
             if let instructions = modelProvider.systemInstructions {
@@ -370,6 +359,13 @@ public actor RuntimeSystem {
                     streamChunks: streamChunks
                 )
             )
+
+            if let observationHandler {
+                let reasoningText = modelProvider.reasoningCapture(for: activeModel)?.consume() ?? ""
+                if !reasoningText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    await observationHandler(.thinking(reasoningText))
+                }
+            }
 
             if latest.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 let completionStartedAt = Date()

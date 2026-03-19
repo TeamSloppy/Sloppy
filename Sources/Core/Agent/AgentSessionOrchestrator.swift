@@ -364,6 +364,19 @@ actor AgentSessionOrchestrator {
                 )
 
                 return result
+            },
+            observationHandler: { [weak self] observation in
+                guard let self, case .thinking(let text) = observation else { return }
+                let thinkingEvent = AgentSessionEvent(
+                    agentId: agentID,
+                    sessionId: sessionID,
+                    type: .message,
+                    message: AgentSessionMessage(
+                        role: .assistant,
+                        segments: [AgentMessageSegment(kind: .thinking, text: text)]
+                    )
+                )
+                await self.appendEventsSafely(agentID: agentID, sessionID: sessionID, events: [thinkingEvent])
             }
         )
 

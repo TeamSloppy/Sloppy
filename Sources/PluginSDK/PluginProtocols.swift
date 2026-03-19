@@ -129,6 +129,30 @@ public protocol MemoryPlugin: Sendable {
     func save(note: String) async throws -> MemoryRef
 }
 
+/// Thread-safe accumulator for model reasoning content captured during a single inference call.
+///
+/// Providers that support reasoning summaries (e.g. OpenAI o-series via OAuth) write deltas here
+/// during streaming. The runtime reads the accumulated text once after the stream completes and
+/// emits it as a `.thinking` observation.
+public final class ReasoningContentCapture: @unchecked Sendable {
+    private let lock = NSLock()
+    private var _content: String = ""
+
+    public init() {}
+
+    public func append(_ delta: String) {
+        lock.withLock { _content += delta }
+    }
+
+    public func consume() -> String {
+        lock.withLock {
+            let text = _content
+            _content = ""
+            return text
+        }
+    }
+}
+
 /// Plugin interface for model providers (Large Language Model integrations).
 /// Providers create `LanguageModel` instances that are used via `LanguageModelSession`.
 public protocol ModelProvider: Sendable {
@@ -150,11 +174,17 @@ public protocol ModelProvider: Sendable {
 
     /// Builds provider-specific `GenerationOptions` for the given parameters.
     func generationOptions(for modelName: String, maxTokens: Int, reasoningEffort: ReasoningEffort?) -> GenerationOptions
+
+    /// Returns the reasoning capture object for the given model, or `nil` if not supported.
+    /// Composite providers should route to the matching sub-provider.
+    func reasoningCapture(for modelName: String) -> ReasoningContentCapture?
 }
 
 public extension ModelProvider {
     var systemInstructions: String? { nil }
     var tools: [any Tool] { [] }
+
+    func reasoningCapture(for modelName: String) -> ReasoningContentCapture? { nil }
 
     func generationOptions(for modelName: String, maxTokens: Int, reasoningEffort: ReasoningEffort?) -> GenerationOptions {
         GenerationOptions(maximumResponseTokens: maxTokens)
