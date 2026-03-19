@@ -26,6 +26,21 @@ export const TASK_PRIORITY_LABELS = {
   high: "High"
 };
 
+export const TASK_STATUS_COLORS = {
+  backlog: "#94a3b8",
+  ready: "#3b82f6",
+  in_progress: "#f59e0b",
+  blocked: "#ef4444",
+  needs_review: "#a78bfa",
+  done: "#22c55e"
+};
+
+export const TASK_PRIORITY_ICONS = {
+  low: "remove",
+  medium: "signal_cellular_alt_2_bar",
+  high: "signal_cellular_alt"
+};
+
 export const PROJECT_TAB_SET = new Set(PROJECT_TABS.map((tab) => tab.id));
 export const TASK_STATUS_SET = new Set(TASK_STATUSES.map((status) => status.id));
 export const TASK_PRIORITY_SET = new Set(TASK_PRIORITIES);
