@@ -140,6 +140,10 @@ export interface CoreApi {
   addReviewComment: (projectId: string, taskId: string, payload: AnyRecord) => Promise<AnyRecord | null>;
   updateReviewComment: (projectId: string, taskId: string, commentId: string, payload: AnyRecord) => Promise<AnyRecord | null>;
   deleteReviewComment: (projectId: string, taskId: string, commentId: string) => Promise<boolean>;
+  fetchTaskComments: (projectId: string, taskId: string) => Promise<AnyRecord[] | null>;
+  addTaskComment: (projectId: string, taskId: string, payload: AnyRecord) => Promise<AnyRecord | null>;
+  deleteTaskComment: (projectId: string, taskId: string, commentId: string) => Promise<boolean>;
+  fetchTaskActivities: (projectId: string, taskId: string) => Promise<AnyRecord[] | null>;
 }
 
 export function createCoreApi(): CoreApi {
@@ -1187,6 +1191,40 @@ export function createCoreApi(): CoreApi {
         method: "DELETE"
       });
       return response.ok;
+    },
+
+    fetchTaskComments: async (projectId, taskId) => {
+      const response = await requestJson<AnyRecord[]>({
+        path: `/v1/projects/${encodeURIComponent(projectId)}/tasks/${encodeURIComponent(taskId)}/comments`
+      });
+      if (!response.ok || !Array.isArray(response.data)) return null;
+      return response.data;
+    },
+
+    addTaskComment: async (projectId, taskId, payload) => {
+      const response = await requestJson<AnyRecord, AnyRecord>({
+        path: `/v1/projects/${encodeURIComponent(projectId)}/tasks/${encodeURIComponent(taskId)}/comments`,
+        method: "POST",
+        body: payload
+      });
+      if (!response.ok) return null;
+      return response.data;
+    },
+
+    deleteTaskComment: async (projectId, taskId, commentId) => {
+      const response = await requestJson<AnyRecord>({
+        path: `/v1/projects/${encodeURIComponent(projectId)}/tasks/${encodeURIComponent(taskId)}/comments/${encodeURIComponent(commentId)}`,
+        method: "DELETE"
+      });
+      return response.ok;
+    },
+
+    fetchTaskActivities: async (projectId, taskId) => {
+      const response = await requestJson<AnyRecord[]>({
+        path: `/v1/projects/${encodeURIComponent(projectId)}/tasks/${encodeURIComponent(taskId)}/activities`
+      });
+      if (!response.ok || !Array.isArray(response.data)) return null;
+      return response.data;
     }
   };
 }

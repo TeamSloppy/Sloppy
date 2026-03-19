@@ -1720,6 +1720,43 @@ public actor CoreRouter {
             return Self.json(status: HTTPStatus.notFound, payload: ["error": "Comment not found"])
         }
 
+        add(.get, "/v1/projects/:projectId/tasks/:taskId/comments", metadata: RouteMetadata(summary: "List task comments", description: "Returns all comments for a task", tags: ["Projects"])) { request in
+            let projectId = request.pathParam("projectId") ?? ""
+            let taskId = request.pathParam("taskId") ?? ""
+            let comments = await service.listTaskComments(projectID: projectId, taskID: taskId)
+            return Self.encodable(status: HTTPStatus.ok, payload: comments)
+        }
+
+        add(.post, "/v1/projects/:projectId/tasks/:taskId/comments", metadata: RouteMetadata(summary: "Add task comment", description: "Adds a comment to a task", tags: ["Projects"])) { request in
+            let projectId = request.pathParam("projectId") ?? ""
+            let taskId = request.pathParam("taskId") ?? ""
+            guard let body = request.body,
+                  let payload = try? JSONDecoder().decode(TaskCommentCreateRequest.self, from: body)
+            else {
+                return Self.json(status: HTTPStatus.badRequest, payload: ["error": "Invalid comment payload"])
+            }
+            let comment = await service.addTaskComment(projectID: projectId, taskID: taskId, request: payload)
+            return Self.encodable(status: HTTPStatus.created, payload: comment)
+        }
+
+        add(.delete, "/v1/projects/:projectId/tasks/:taskId/comments/:commentId", metadata: RouteMetadata(summary: "Delete task comment", description: "Deletes a task comment", tags: ["Projects"])) { request in
+            let projectId = request.pathParam("projectId") ?? ""
+            let taskId = request.pathParam("taskId") ?? ""
+            let commentId = request.pathParam("commentId") ?? ""
+            let deleted = await service.deleteTaskComment(projectID: projectId, taskID: taskId, commentID: commentId)
+            if deleted {
+                return Self.json(status: HTTPStatus.ok, payload: ["ok": "true"])
+            }
+            return Self.json(status: HTTPStatus.notFound, payload: ["error": "Comment not found"])
+        }
+
+        add(.get, "/v1/projects/:projectId/tasks/:taskId/activities", metadata: RouteMetadata(summary: "List task activities", description: "Returns the activity history for a task", tags: ["Projects"])) { request in
+            let projectId = request.pathParam("projectId") ?? ""
+            let taskId = request.pathParam("taskId") ?? ""
+            let activities = await service.listTaskActivities(projectID: projectId, taskID: taskId)
+            return Self.encodable(status: HTTPStatus.ok, payload: activities)
+        }
+
         // MARK: - Channel Plugins
 
         add(.get, "/v1/plugins", metadata: RouteMetadata(summary: "List channel plugins", description: "Returns a list of all available channel plugins", tags: ["Plugins"])) { _ in

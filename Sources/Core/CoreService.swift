@@ -1151,7 +1151,8 @@ public actor CoreService {
         }
 
         let previousStatus = project.tasks[taskIndex].status
-        var task = project.tasks[taskIndex]
+        let oldTask = project.tasks[taskIndex]
+        var task = oldTask
         if let title = request.title {
             task.title = try normalizeTaskTitle(title)
         }
@@ -1182,6 +1183,16 @@ public actor CoreService {
         project.tasks[taskIndex] = task
         project.updatedAt = Date()
         await store.saveProject(project)
+
+        let changedBy = request.changedBy ?? "user"
+        await recordTaskFieldChanges(
+            projectID: normalizedProject,
+            taskID: task.id,
+            oldTask: oldTask,
+            newTask: task,
+            changedBy: changedBy
+        )
+
         if previousStatus != ProjectTaskStatus.ready.rawValue, task.status == ProjectTaskStatus.ready.rawValue {
             await handleTaskBecameReady(projectID: normalizedProject, taskID: task.id)
             if let updated = await store.project(id: normalizedProject) {
@@ -4769,6 +4780,262 @@ public actor CoreService {
         guard let data = try? encoder.encode(comments) else { return }
         let url = reviewCommentsFileURL(projectID: projectID, taskID: taskID)
         try? data.write(to: url, options: .atomic)
+    }
+
+    // MARK: - Task Comments
+
+    public func listTaskComments(projectID: String, taskID: String) async -> [TaskComment] {
+        let url = taskCommentsFileURL(projectID: projectID, taskID: taskID)
+        guard let data = try? Data(contentsOf: url) else { return [] }
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        return (try? decoder.decode([TaskComment].self, from: data)) ?? []
+    }
+
+    public func addTaskComment(projectID: String, taskID: String, request: TaskCommentCreateRequest) async -> TaskComment {
+        var comments = await listTaskComments(projectID: projectID, taskID: taskID)
+        let comment = TaskComment(
+            id: UUID().uuidString,
+            taskId: taskID,
+            content: request.content,
+            authorActorId: request.authorActorId,
+            mentionedActorId: request.mentionedActorId
+        )
+        comments.append(comment)
+        saveTaskComments(comments, projectID: projectID, taskID: taskID)
+
+        if let mentionedActorId = request.mentionedActorId {
+            let agents = (try? listAgents()) ?? []
+            let board = (try? actorBoardStore.loadBoard(agents: agents))
+            if let node = board?.nodes.first(where: { $0.id == mentionedActorId }),
+               let agentID = node.linkedAgentId {
+                let projects = await store.listProjects()
+                if let project = projects.first(where: { $0.id == projectID }),
+                   let task = project.tasks.first(where: { $0.id == taskID }) {
+                    Task {
+                        await self.handleAgentCommentReply(
+                            projectID: projectID,
+                            taskID: taskID,
+                            task: task,
+                            agentID: agentID,
+                            comment: comment
+                        )
+                    }
+                }
+            }
+        }
+
+        return comment
+    }
+
+    public func deleteTaskComment(projectID: String, taskID: String, commentID: String) async -> Bool {
+        var comments = await listTaskComments(projectID: projectID, taskID: taskID)
+        let before = comments.count
+        comments.removeAll { $0.id == commentID }
+        if comments.count == before { return false }
+        saveTaskComments(comments, projectID: projectID, taskID: taskID)
+        return true
+    }
+
+    private func taskCommentsFileURL(projectID: String, taskID: String) -> URL {
+        projectArtifactsDirectoryURL(projectID: projectID)
+            .appendingPathComponent("task-comments-\(taskID).json")
+    }
+
+    private func saveTaskComments(_ comments: [TaskComment], projectID: String, taskID: String) {
+        ensureProjectWorkspaceDirectory(projectID: projectID)
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        guard let data = try? encoder.encode(comments) else { return }
+        let url = taskCommentsFileURL(projectID: projectID, taskID: taskID)
+        try? data.write(to: url, options: .atomic)
+    }
+
+    // MARK: - Task Activity
+
+    public func listTaskActivities(projectID: String, taskID: String) async -> [TaskActivity] {
+        let url = taskActivitiesFileURL(projectID: projectID, taskID: taskID)
+        guard let data = try? Data(contentsOf: url) else { return [] }
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        return (try? decoder.decode([TaskActivity].self, from: data)) ?? []
+    }
+
+    public func recordTaskActivity(
+        projectID: String,
+        taskID: String,
+        field: TaskActivityField,
+        oldValue: String?,
+        newValue: String?,
+        actorId: String
+    ) async {
+        var activities = await listTaskActivities(projectID: projectID, taskID: taskID)
+        let activity = TaskActivity(
+            id: UUID().uuidString,
+            taskId: taskID,
+            field: field,
+            oldValue: oldValue,
+            newValue: newValue,
+            actorId: actorId
+        )
+        activities.append(activity)
+        saveTaskActivities(activities, projectID: projectID, taskID: taskID)
+    }
+
+    private func taskActivitiesFileURL(projectID: String, taskID: String) -> URL {
+        projectArtifactsDirectoryURL(projectID: projectID)
+            .appendingPathComponent("task-activities-\(taskID).json")
+    }
+
+    private func saveTaskActivities(_ activities: [TaskActivity], projectID: String, taskID: String) {
+        ensureProjectWorkspaceDirectory(projectID: projectID)
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        guard let data = try? encoder.encode(activities) else { return }
+        let url = taskActivitiesFileURL(projectID: projectID, taskID: taskID)
+        try? data.write(to: url, options: .atomic)
+    }
+
+    private func recordTaskFieldChanges(
+        projectID: String,
+        taskID: String,
+        oldTask: ProjectTask,
+        newTask: ProjectTask,
+        changedBy: String
+    ) async {
+        if oldTask.status != newTask.status {
+            await recordTaskActivity(
+                projectID: projectID, taskID: taskID,
+                field: .status, oldValue: oldTask.status, newValue: newTask.status, actorId: changedBy
+            )
+        }
+        if oldTask.priority != newTask.priority {
+            await recordTaskActivity(
+                projectID: projectID, taskID: taskID,
+                field: .priority, oldValue: oldTask.priority, newValue: newTask.priority, actorId: changedBy
+            )
+        }
+        let oldAssignee = oldTask.actorId ?? oldTask.teamId ?? ""
+        let newAssignee = newTask.actorId ?? newTask.teamId ?? ""
+        if oldAssignee != newAssignee {
+            await recordTaskActivity(
+                projectID: projectID, taskID: taskID,
+                field: .assignee,
+                oldValue: oldAssignee.isEmpty ? nil : oldAssignee,
+                newValue: newAssignee.isEmpty ? nil : newAssignee,
+                actorId: changedBy
+            )
+        }
+        if oldTask.title != newTask.title {
+            await recordTaskActivity(
+                projectID: projectID, taskID: taskID,
+                field: .title, oldValue: oldTask.title, newValue: newTask.title, actorId: changedBy
+            )
+        }
+        if oldTask.description != newTask.description {
+            await recordTaskActivity(
+                projectID: projectID, taskID: taskID,
+                field: .description, oldValue: oldTask.description, newValue: newTask.description, actorId: changedBy
+            )
+        }
+    }
+
+    private func handleAgentCommentReply(
+        projectID: String,
+        taskID: String,
+        task: ProjectTask,
+        agentID: String,
+        comment: TaskComment
+    ) async {
+        let sessionTitle = "task-comment:\(projectID):\(taskID)"
+        let existingSession: AgentSessionSummary?
+        do {
+            existingSession = try listAgentSessions(agentID: agentID)
+                .first(where: { $0.title == sessionTitle })
+        } catch {
+            existingSession = nil
+        }
+
+        let session: AgentSessionSummary
+        do {
+            if let existing = existingSession {
+                session = existing
+            } else {
+                session = try await createAgentSession(
+                    agentID: agentID,
+                    request: AgentSessionCreateRequest(title: sessionTitle, kind: .chat)
+                )
+            }
+        } catch {
+            logger.warning(
+                "task.comment.agent_session_error",
+                metadata: ["agent_id": .string(agentID), "task_id": .string(taskID), "error": .string(error.localizedDescription)]
+            )
+            return
+        }
+
+        let recentComments = await listTaskComments(projectID: projectID, taskID: taskID)
+            .suffix(10)
+            .map { c in "[\(c.authorActorId)]: \(c.content)" }
+            .joined(separator: "\n")
+
+        let contextPrompt = """
+        You are responding to a comment in a task management system.
+
+        Task: \(task.title)
+        Status: \(task.status)
+        Description: \(task.description.isEmpty ? "(none)" : task.description)
+
+        Recent comments:
+        \(recentComments.isEmpty ? "(none)" : recentComments)
+
+        The user \(comment.authorActorId) has addressed you with:
+        \(comment.content)
+
+        Please respond concisely and helpfully.
+        """
+
+        let response: AgentSessionMessageResponse
+        do {
+            response = try await postAgentSessionMessage(
+                agentID: agentID,
+                sessionID: session.id,
+                request: AgentSessionPostMessageRequest(
+                    userId: "system_task_comment",
+                    content: contextPrompt
+                )
+            )
+        } catch {
+            logger.warning(
+                "task.comment.agent_reply_error",
+                metadata: ["agent_id": .string(agentID), "task_id": .string(taskID), "error": .string(error.localizedDescription)]
+            )
+            return
+        }
+
+        let replyText = response.appendedEvents
+            .filter { $0.type == .message && $0.message?.role == .assistant }
+            .compactMap { $0.message?.segments }
+            .flatMap { $0 }
+            .compactMap { $0.text }
+            .joined()
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        guard !replyText.isEmpty else {
+            return
+        }
+
+        var comments = await listTaskComments(projectID: projectID, taskID: taskID)
+        let reply = TaskComment(
+            id: UUID().uuidString,
+            taskId: taskID,
+            content: replyText,
+            authorActorId: agentID,
+            mentionedActorId: comment.authorActorId,
+            isAgentReply: true
+        )
+        comments.append(reply)
+        saveTaskComments(comments, projectID: projectID, taskID: taskID)
     }
 
     public func rejectTask(projectID: String, taskID: String, reason: String?) async throws {

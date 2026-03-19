@@ -450,6 +450,7 @@ public struct ProjectTaskUpdateRequest: Codable, Sendable {
     public var status: String?
     public var actorId: String?
     public var teamId: String?
+    public var changedBy: String?
 
     public init(
         title: String? = nil,
@@ -457,7 +458,8 @@ public struct ProjectTaskUpdateRequest: Codable, Sendable {
         priority: String? = nil,
         status: String? = nil,
         actorId: String? = nil,
-        teamId: String? = nil
+        teamId: String? = nil,
+        changedBy: String? = nil
     ) {
         self.title = title
         self.description = description
@@ -465,6 +467,7 @@ public struct ProjectTaskUpdateRequest: Codable, Sendable {
         self.status = status
         self.actorId = actorId
         self.teamId = teamId
+        self.changedBy = changedBy
     }
 }
 
@@ -2306,5 +2309,83 @@ public struct ReviewCommentUpdateRequest: Codable, Sendable {
     public init(resolved: Bool? = nil, content: String? = nil) {
         self.resolved = resolved
         self.content = content
+    }
+}
+
+public struct TaskComment: Codable, Sendable, Identifiable {
+    public var id: String
+    public var taskId: String
+    public var content: String
+    public var authorActorId: String
+    public var mentionedActorId: String?
+    public var isAgentReply: Bool
+    public var createdAt: Date
+
+    public init(
+        id: String,
+        taskId: String,
+        content: String,
+        authorActorId: String,
+        mentionedActorId: String? = nil,
+        isAgentReply: Bool = false,
+        createdAt: Date = Date()
+    ) {
+        self.id = id
+        self.taskId = taskId
+        self.content = content
+        self.authorActorId = authorActorId
+        self.mentionedActorId = mentionedActorId
+        self.isAgentReply = isAgentReply
+        self.createdAt = createdAt
+    }
+}
+
+public struct TaskCommentCreateRequest: Codable, Sendable {
+    public var content: String
+    public var authorActorId: String
+    public var mentionedActorId: String?
+
+    public init(content: String, authorActorId: String, mentionedActorId: String? = nil) {
+        self.content = content
+        self.authorActorId = authorActorId
+        self.mentionedActorId = mentionedActorId
+    }
+}
+
+// MARK: - Task Activity
+
+public enum TaskActivityField: String, Codable, Sendable {
+    case status
+    case priority
+    case assignee
+    case title
+    case description
+}
+
+public struct TaskActivity: Codable, Sendable, Identifiable {
+    public var id: String
+    public var taskId: String
+    public var field: TaskActivityField
+    public var oldValue: String?
+    public var newValue: String?
+    public var actorId: String
+    public var createdAt: Date
+
+    public init(
+        id: String,
+        taskId: String,
+        field: TaskActivityField,
+        oldValue: String? = nil,
+        newValue: String? = nil,
+        actorId: String,
+        createdAt: Date = Date()
+    ) {
+        self.id = id
+        self.taskId = taskId
+        self.field = field
+        self.oldValue = oldValue
+        self.newValue = newValue
+        self.actorId = actorId
+        self.createdAt = createdAt
     }
 }

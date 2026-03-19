@@ -783,7 +783,8 @@ export function ProjectsView({
       const nodes = Array.isArray(raw.nodes)
         ? raw.nodes.map((n) => ({
           id: String(n?.id ?? ""),
-          displayName: String(n?.displayName ?? n?.id ?? "")
+          displayName: String(n?.displayName ?? n?.id ?? ""),
+          linkedAgentId: n?.linkedAgentId || null
         }))
         : [];
       const teamList = Array.isArray(raw.teams)
@@ -1174,7 +1175,8 @@ export function ProjectsView({
       priority: editDraft.priority,
       status: editDraft.status,
       actorId: String(editDraft.actorId || "").trim() || null,
-      teamId: String(editDraft.teamId || "").trim() || null
+      teamId: String(editDraft.teamId || "").trim() || null,
+      changedBy: "user"
     });
     if (!updated) {
       setStatusText("Failed to update task in Core.");
@@ -1247,7 +1249,7 @@ export function ProjectsView({
       return;
     }
 
-    const updated = await updateProjectTaskRequest(selectedProject.id, taskId, { status: nextStatus });
+    const updated = await updateProjectTaskRequest(selectedProject.id, taskId, { status: nextStatus, changedBy: "user" });
     if (!updated) {
       setStatusText("Failed to update task status.");
       return;

@@ -1633,7 +1633,8 @@
 
 .td-activity-list {
   display: grid;
-  gap: 8px;
+  gap: 2px;
+  padding: 4px 0;
 }
 
 .td-activity-item {
@@ -1642,6 +1643,12 @@
   gap: 8px;
   font-size: 0.82rem;
   color: var(--muted);
+  padding: 6px 8px;
+  transition: background 120ms ease;
+}
+
+.td-activity-item:hover {
+  background: var(--surface-2);
 }
 
 .td-activity-dot {
@@ -1652,14 +1659,48 @@
   flex-shrink: 0;
 }
 
+.td-activity-dot--created {
+  background: var(--accent);
+}
+
+.td-activity-field-icon {
+  font-size: 15px;
+  color: var(--muted);
+  flex-shrink: 0;
+}
+
 .td-activity-text {
   color: var(--text);
+  min-width: 0;
+}
+
+.td-activity-actor {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.td-activity-value {
+  font-weight: 500;
+}
+
+.td-activity-value--old {
+  text-decoration: line-through;
+  opacity: 0.6;
+}
+
+.td-activity-value--new {
+  color: var(--accent);
+}
+
+.td-activity-value--status {
+  font-weight: 600;
 }
 
 .td-activity-time {
   margin-left: auto;
   font-size: 0.76rem;
   white-space: nowrap;
+  flex-shrink: 0;
 }
 
 /* ── Task Detail Sidebar ─────────────────────────────────── */
@@ -2002,6 +2043,231 @@
 .tcm-create-btn:disabled {
   opacity: 0.4;
   cursor: not-allowed;
+}
+
+.td-comments {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.td-comments-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.td-comment-item {
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.td-comment-item--agent {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 8%, var(--surface-2));
+}
+
+.td-comment-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.td-comment-avatar {
+  font-size: 16px;
+  color: var(--muted);
+}
+
+.td-comment-author {
+  font-size: 0.84rem;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.td-comment-agent-badge {
+  font-size: 0.7rem;
+  background: color-mix(in srgb, var(--accent) 20%, transparent);
+  color: var(--accent);
+  padding: 1px 6px;
+}
+
+.td-comment-mention {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+
+.td-comment-mention .material-symbols-rounded {
+  font-size: 14px;
+}
+
+.td-comment-time {
+  margin-left: auto;
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+
+.td-comment-delete-btn {
+  background: transparent;
+  border: 0;
+  color: var(--muted);
+  cursor: pointer;
+  padding: 0;
+  min-width: auto;
+  min-height: auto;
+  display: flex;
+  align-items: center;
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+
+.td-comment-delete-btn .material-symbols-rounded {
+  font-size: 16px;
+}
+
+.td-comment-item:hover .td-comment-delete-btn {
+  opacity: 1;
+}
+
+.td-comment-delete-btn:hover {
+  color: var(--danger, #ef4444);
+  border: 0;
+  background: transparent;
+}
+
+.td-comment-body {
+  font-size: 0.87rem;
+  color: var(--text);
+  line-height: 1.55;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.td-comment-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  border: 1px solid var(--line);
+  padding: 10px 12px;
+  background: var(--surface-2);
+}
+
+.td-comment-textarea {
+  width: 100%;
+  background: transparent;
+  border: none;
+  outline: none;
+  color: var(--text);
+  font-size: 0.87rem;
+  resize: none;
+  line-height: 1.55;
+  font-family: inherit;
+}
+
+.td-comment-textarea::placeholder {
+  color: var(--muted);
+}
+
+.td-comment-form-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.td-comment-attach-icon {
+  font-size: 18px;
+  color: var(--muted);
+  cursor: default;
+}
+
+.td-comment-actor-wrap {
+  position: relative;
+}
+
+.td-comment-actor-btn {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background: var(--surface-3);
+  border: 1px solid var(--line);
+  color: var(--text);
+  font-size: 0.82rem;
+  padding: 4px 10px;
+  cursor: pointer;
+  min-width: auto;
+  min-height: auto;
+}
+
+.td-comment-actor-btn .material-symbols-rounded {
+  font-size: 15px;
+}
+
+.td-comment-actor-btn.active,
+.td-comment-actor-btn:hover {
+  border-color: var(--line-strong);
+  background: var(--surface-3);
+}
+
+.td-comment-actor-dropdown {
+  position: absolute;
+  bottom: calc(100% + 4px);
+  left: 0;
+  min-width: 240px;
+  background: var(--surface-3);
+  border: 1px solid var(--line-strong);
+  z-index: 150;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  overflow: hidden;
+}
+
+.td-comment-actor-search {
+  width: 100%;
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid var(--line);
+  outline: none;
+  color: var(--text);
+  font-size: 0.84rem;
+  padding: 8px 12px;
+  font-family: inherit;
+}
+
+.td-comment-actor-dropdown ul {
+  list-style: none;
+  margin: 0;
+  padding: 4px 0;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.td-comment-submit-btn {
+  margin-left: auto;
+  background: var(--surface-3);
+  border: 1px solid var(--line-strong);
+  color: var(--text);
+  font-size: 0.84rem;
+  padding: 5px 14px;
+  cursor: pointer;
+  min-width: auto;
+  min-height: auto;
+}
+
+.td-comment-submit-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.td-comment-submit-btn:hover:not(:disabled) {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
 }
 
 @media (max-width: 1000px) {

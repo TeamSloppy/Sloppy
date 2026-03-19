@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useRef, useEffect, useCallback } from "react";
 import {
     TASK_STATUSES,
     TASK_PRIORITIES,
@@ -10,6 +10,7 @@ import {
     formatRelativeTime,
     sortTasksByDate
 } from "./utils";
+import { fetchTaskComments, addTaskComment, deleteTaskComment, fetchTaskActivities } from "../../api";
 
 function DetailDropdown({ label, icon, color, children }) {
     const [open, setOpen] = useState(false);
@@ -44,6 +45,307 @@ function DetailDropdown({ label, icon, color, children }) {
                 <ul className="td-prop-dropdown" onClick={() => setOpen(false)}>
                     {children}
                 </ul>
+            )}
+        </div>
+    );
+}
+
+function CommentsTab({ project, task, createModalActors }) {
+    const [comments, setComments] = useState([]);
+    const [loading, setLoading] = useState(true);
+    const [commentText, setCommentText] = useState("");
+    const [selectedActorId, setSelectedActorId] = useState("");
+    const [actorDropdownOpen, setActorDropdownOpen] = useState(false);
+    const [actorSearch, setActorSearch] = useState("");
+    const [submitting, setSubmitting] = useState(false);
+    const dropdownRef = useRef(null);
+
+    const loadComments = useCallback(async () => {
+        const result = await fetchTaskComments(project.id, task.id);
+        if (result) setComments(result);
+        setLoading(false);
+    }, [project.id, task.id]);
+
+    useEffect(() => {
+        setLoading(true);
+        loadComments();
+    }, [loadComments]);
+
+    useEffect(() => {
+        if (!actorDropdownOpen) return;
+        function handleClick(e) {
+            if (dropdownRef.current && !dropdownRef.current.contains(e.target)) {
+                setActorDropdownOpen(false);
+            }
+        }
+        document.addEventListener("mousedown", handleClick);
+        return () => document.removeEventListener("mousedown", handleClick);
+    }, [actorDropdownOpen]);
+
+    const selectedActor = createModalActors.find((a) => a.id === selectedActorId);
+    const filteredActors = actorSearch.trim()
+        ? createModalActors.filter(
+            (a) =>
+                a.displayName.toLowerCase().includes(actorSearch.toLowerCase()) ||
+                a.id.toLowerCase().includes(actorSearch.toLowerCase())
+        )
+        : createModalActors;
+
+    async function handleSubmit(e) {
+        e.preventDefault();
+        const text = commentText.trim();
+        if (!text) return;
+        setSubmitting(true);
+        const payload = {
+            content: text,
+            authorActorId: "user",
+            mentionedActorId: selectedActorId || null
+        };
+        await addTaskComment(project.id, task.id, payload);
+        setCommentText("");
+        setSelectedActorId("");
+        setActorSearch("");
+        await loadComments();
+        setSubmitting(false);
+    }
+
+    async function handleDelete(commentId) {
+        await deleteTaskComment(project.id, task.id, commentId);
+        setComments((prev) => prev.filter((c) => c.id !== commentId));
+    }
+
+    return (
+        <div className="td-comments">
+            {loading ? (
+                <p className="placeholder-text">Loading comments…</p>
+            ) : comments.length === 0 ? (
+                <p className="placeholder-text">No comments yet.</p>
+            ) : (
+                <div className="td-comments-list">
+                    {comments.map((comment) => {
+                        const author = createModalActors.find((a) => a.id === comment.authorActorId);
+                        const authorLabel = author ? author.displayName : comment.authorActorId;
+                        const mentionedActor = comment.mentionedActorId
+                            ? createModalActors.find((a) => a.id === comment.mentionedActorId)
+                            : null;
+                        return (
+                            <div key={comment.id} className={`td-comment-item ${comment.isAgentReply ? "td-comment-item--agent" : ""}`}>
+                                <div className="td-comment-header">
+                                    <span className="material-symbols-rounded td-comment-avatar">
+                                        {comment.isAgentReply ? "smart_toy" : "person"}
+                                    </span>
+                                    <span className="td-comment-author">{authorLabel}</span>
+                                    {comment.isAgentReply && (
+                                        <span className="td-comment-agent-badge">Agent reply</span>
+                                    )}
+                                    {mentionedActor && !comment.isAgentReply && (
+                                        <span className="td-comment-mention">
+                                            <span className="material-symbols-rounded">alternate_email</span>
+                                            {mentionedActor.displayName}
+                                            {mentionedActor.linkedAgentId && (
+                                                <span className="td-comment-agent-badge">Agent</span>
+                                            )}
+                                        </span>
+                                    )}
+                                    <span className="td-comment-time">{formatRelativeTime(comment.createdAt)}</span>
+                                    <button
+                                        type="button"
+                                        className="td-comment-delete-btn"
+                                        onClick={() => handleDelete(comment.id)}
+                                        aria-label="Delete comment"
+                                    >
+                                        <span className="material-symbols-rounded">delete</span>
+                                    </button>
+                                </div>
+                                <div className="td-comment-body">{comment.content}</div>
+                            </div>
+                        );
+                    })}
+                </div>
+            )}
+
+            <form className="td-comment-form" onSubmit={handleSubmit}>
+                <textarea
+                    className="td-comment-textarea"
+                    value={commentText}
+                    onChange={(e) => setCommentText(e.target.value)}
+                    placeholder="Leave a comment..."
+                    rows={3}
+                />
+                <div className="td-comment-form-actions">
+                    <span className="material-symbols-rounded td-comment-attach-icon">attachment</span>
+                    <div className="td-comment-actor-wrap" ref={dropdownRef}>
+                        <button
+                            type="button"
+                            className={`td-comment-actor-btn ${actorDropdownOpen ? "active" : ""}`}
+                            onClick={() => setActorDropdownOpen((v) => !v)}
+                        >
+                            <span className="material-symbols-rounded">
+                                {selectedActor?.linkedAgentId ? "smart_toy" : "person"}
+                            </span>
+                            <span>{selectedActor ? selectedActor.displayName : "No assignee"}</span>
+                        </button>
+                        {actorDropdownOpen && (
+                            <div className="td-comment-actor-dropdown">
+                                <input
+                                    className="td-comment-actor-search"
+                                    value={actorSearch}
+                                    onChange={(e) => setActorSearch(e.target.value)}
+                                    placeholder="Search assignees..."
+                                    autoFocus
+                                />
+                                <ul>
+                                    <li
+                                        className={`tcm-dropdown-item ${!selectedActorId ? "selected" : ""}`}
+                                        onMouseDown={(e) => {
+                                            e.preventDefault();
+                                            setSelectedActorId("");
+                                            setActorDropdownOpen(false);
+                                        }}
+                                    >
+                                        No assignee
+                                        {!selectedActorId && <span className="tcm-dropdown-check">✓</span>}
+                                    </li>
+                                    {filteredActors.map((actor) => (
+                                        <li
+                                            key={actor.id}
+                                            className={`tcm-dropdown-item ${selectedActorId === actor.id ? "selected" : ""}`}
+                                            onMouseDown={(e) => {
+                                                e.preventDefault();
+                                                setSelectedActorId(actor.id);
+                                                setActorDropdownOpen(false);
+                                                setActorSearch("");
+                                            }}
+                                        >
+                                            <span className="material-symbols-rounded tcm-dropdown-item-icon">
+                                                {actor.linkedAgentId ? "smart_toy" : "person"}
+                                            </span>
+                                            <span>{actor.displayName}</span>
+                                            <span className="tcm-dropdown-item-id">{actor.id}</span>
+                                            {selectedActorId === actor.id && <span className="tcm-dropdown-check">✓</span>}
+                                        </li>
+                                    ))}
+                                </ul>
+                            </div>
+                        )}
+                    </div>
+                    <button
+                        type="submit"
+                        className="td-comment-submit-btn"
+                        disabled={!commentText.trim() || submitting}
+                    >
+                        {submitting ? "Sending…" : "Comment"}
+                    </button>
+                </div>
+            </form>
+        </div>
+    );
+}
+
+const ACTIVITY_FIELD_LABELS = {
+    status: "Status",
+    priority: "Priority",
+    assignee: "Assignee",
+    title: "Title",
+    description: "Description"
+};
+
+const ACTIVITY_FIELD_ICONS = {
+    status: "swap_horiz",
+    priority: "flag",
+    assignee: "person",
+    title: "title",
+    description: "description"
+};
+
+function formatActivityValue(field, value, actors) {
+    if (!value) return "none";
+    if (field === "status") {
+        const s = TASK_STATUSES.find((st) => st.id === value);
+        return s ? s.title : value;
+    }
+    if (field === "priority") {
+        return TASK_PRIORITY_LABELS[value] || value;
+    }
+    if (field === "assignee") {
+        const actor = actors.find((a) => a.id === value);
+        return actor ? actor.displayName : value;
+    }
+    if (field === "description") {
+        if (value.length > 60) return value.slice(0, 60) + "…";
+        return value;
+    }
+    return value;
+}
+
+function ActivityTab({ project, task, createModalActors }) {
+    const [activities, setActivities] = useState([]);
+    const [loading, setLoading] = useState(true);
+
+    const loadActivities = useCallback(async () => {
+        const result = await fetchTaskActivities(project.id, task.id);
+        if (result) setActivities(result);
+        setLoading(false);
+    }, [project.id, task.id]);
+
+    useEffect(() => {
+        setLoading(true);
+        loadActivities();
+    }, [loadActivities]);
+
+    const resolveActorName = (actorId) => {
+        if (!actorId || actorId === "user") return "User";
+        const actor = createModalActors.find((a) => a.id === actorId);
+        return actor ? actor.displayName : actorId;
+    };
+
+    return (
+        <div className="td-activity-list">
+            <div className="td-activity-item">
+                <span className="td-activity-dot td-activity-dot--created" />
+                <span className="td-activity-text">Task created</span>
+                <span className="td-activity-time">{formatRelativeTime(task.createdAt)}</span>
+            </div>
+            {loading ? (
+                <p className="placeholder-text">Loading activity…</p>
+            ) : (
+                activities.map((activity) => {
+                    const icon = ACTIVITY_FIELD_ICONS[activity.field] || "edit";
+                    const label = ACTIVITY_FIELD_LABELS[activity.field] || activity.field;
+                    const oldVal = formatActivityValue(activity.field, activity.oldValue, createModalActors);
+                    const newVal = formatActivityValue(activity.field, activity.newValue, createModalActors);
+                    const actorName = resolveActorName(activity.actorId);
+
+                    return (
+                        <div key={activity.id} className="td-activity-item">
+                            <span className="td-activity-dot" />
+                            <span className="material-symbols-rounded td-activity-field-icon">{icon}</span>
+                            <span className="td-activity-text">
+                                <strong className="td-activity-actor">{actorName}</strong>
+                                {" changed "}
+                                <strong>{label}</strong>
+                                {activity.oldValue != null && (
+                                    <>
+                                        {" from "}
+                                        <span className="td-activity-value td-activity-value--old">{oldVal}</span>
+                                    </>
+                                )}
+                                {" to "}
+                                {activity.field === "status" && activity.newValue ? (
+                                    <span
+                                        className="td-activity-value td-activity-value--status"
+                                        style={{ color: TASK_STATUS_COLORS[activity.newValue] }}
+                                    >
+                                        {newVal}
+                                    </span>
+                                ) : (
+                                    <span className="td-activity-value td-activity-value--new">{newVal}</span>
+                                )}
+                            </span>
+                            <span className="td-activity-time">{formatRelativeTime(activity.createdAt)}</span>
+                        </div>
+                    );
+                })
             )}
         </div>
     );
@@ -182,9 +484,11 @@ function TaskDetailView({
 
                     <div className="td-tab-content">
                         {activeTab === "comments" && (
-                            <div className="td-tab-placeholder">
-                                <p className="placeholder-text">No comments yet.</p>
-                            </div>
+                            <CommentsTab
+                                project={project}
+                                task={task}
+                                createModalActors={createModalActors}
+                            />
                         )}
                         {activeTab === "subtasks" && (
                             <div className="td-tab-placeholder">
@@ -207,28 +511,11 @@ function TaskDetailView({
                             </div>
                         )}
                         {activeTab === "activity" && (
-                            <div className="td-tab-placeholder">
-                                <div className="td-activity-list">
-                                    <div className="td-activity-item">
-                                        <span className="td-activity-dot" />
-                                        <span className="td-activity-text">Task created</span>
-                                        <span className="td-activity-time">{formatRelativeTime(task.createdAt)}</span>
-                                    </div>
-                                    {task.updatedAt && task.updatedAt !== task.createdAt && (
-                                        <div className="td-activity-item">
-                                            <span className="td-activity-dot" />
-                                            <span className="td-activity-text">Task updated</span>
-                                            <span className="td-activity-time">{formatRelativeTime(task.updatedAt)}</span>
-                                        </div>
-                                    )}
-                                    {task.claimedActorId && (
-                                        <div className="td-activity-item">
-                                            <span className="td-activity-dot" />
-                                            <span className="td-activity-text">Claimed by {task.claimedActorId}</span>
-                                        </div>
-                                    )}
-                                </div>
-                            </div>
+                            <ActivityTab
+                                project={project}
+                                task={task}
+                                createModalActors={createModalActors}
+                            />
                         )}
                     </div>
                 </div>

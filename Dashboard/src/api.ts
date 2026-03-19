@@ -92,3 +92,7 @@ export const fetchReviewComments = coreApi.fetchReviewComments;
 export const addReviewComment = coreApi.addReviewComment;
 export const updateReviewComment = coreApi.updateReviewComment;
 export const deleteReviewComment = coreApi.deleteReviewComment;
+export const fetchTaskComments = coreApi.fetchTaskComments;
+export const addTaskComment = coreApi.addTaskComment;
+export const deleteTaskComment = coreApi.deleteTaskComment;
+export const fetchTaskActivities = coreApi.fetchTaskActivities;
