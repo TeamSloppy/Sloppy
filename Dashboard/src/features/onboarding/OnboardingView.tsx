@@ -554,7 +554,8 @@ export function OnboardingView({ coreApi, initialConfig, onCompleted }: Onboardi
     const created = await coreApi.createAgent({
       id: agentId,
       displayName: agentName.trim(),
-      role: agentRole.trim()
+      role: agentRole.trim(),
+      isSystem: false
     });
     if (created) {
       return created;
