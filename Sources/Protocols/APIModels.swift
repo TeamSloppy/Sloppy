@@ -2240,6 +2240,35 @@ public struct VisorChatResponse: Codable, Sendable {
 
 // MARK: - Task Review
 
+public struct ProjectFileEntry: Codable, Sendable {
+    public enum EntryType: String, Codable, Sendable {
+        case file
+        case directory
+    }
+
+    public var name: String
+    public var type: EntryType
+    public var size: Int?
+
+    public init(name: String, type: EntryType, size: Int? = nil) {
+        self.name = name
+        self.type = type
+        self.size = size
+    }
+}
+
+public struct ProjectFileContentResponse: Codable, Sendable {
+    public var path: String
+    public var content: String
+    public var sizeBytes: Int
+
+    public init(path: String, content: String, sizeBytes: Int) {
+        self.path = path
+        self.content = content
+        self.sizeBytes = sizeBytes
+    }
+}
+
 public struct TaskDiffResponse: Codable, Sendable {
     public var diff: String
     public var branchName: String

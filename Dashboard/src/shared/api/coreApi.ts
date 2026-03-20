@@ -144,6 +144,8 @@ export interface CoreApi {
   addTaskComment: (projectId: string, taskId: string, payload: AnyRecord) => Promise<AnyRecord | null>;
   deleteTaskComment: (projectId: string, taskId: string, commentId: string) => Promise<boolean>;
   fetchTaskActivities: (projectId: string, taskId: string) => Promise<AnyRecord[] | null>;
+  fetchProjectFiles: (projectId: string, path?: string) => Promise<AnyRecord[] | null>;
+  fetchProjectFileContent: (projectId: string, path: string) => Promise<AnyRecord | null>;
 }
 
 export function createCoreApi(): CoreApi {
@@ -1224,6 +1226,25 @@ export function createCoreApi(): CoreApi {
         path: `/v1/projects/${encodeURIComponent(projectId)}/tasks/${encodeURIComponent(taskId)}/activities`
       });
       if (!response.ok || !Array.isArray(response.data)) return null;
+      return response.data;
+    },
+
+    fetchProjectFiles: async (projectId, path = "") => {
+      const params = new URLSearchParams();
+      if (path) params.set("path", path);
+      const qs = params.toString();
+      const response = await requestJson<AnyRecord[]>({
+        path: `/v1/projects/${encodeURIComponent(projectId)}/files${qs ? `?${qs}` : ""}`
+      });
+      if (!response.ok || !Array.isArray(response.data)) return null;
+      return response.data;
+    },
+
+    fetchProjectFileContent: async (projectId, path) => {
+      const response = await requestJson<AnyRecord>({
+        path: `/v1/projects/${encodeURIComponent(projectId)}/files/content?path=${encodeURIComponent(path)}`
+      });
+      if (!response.ok) return null;
       return response.data;
     }
   };

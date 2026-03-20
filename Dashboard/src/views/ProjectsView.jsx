@@ -52,6 +52,7 @@ import { ProjectMemoriesTab } from "./Projects/ProjectMemoriesTab";
 import { ProjectVisorTab } from "./Projects/ProjectVisorTab";
 import { ProjectChannelsTab } from "./Projects/ProjectChannelsTab";
 import { ProjectSettingsTab } from "./Projects/ProjectSettingsTab";
+import { ProjectFilesTab } from "./Projects/ProjectFilesTab";
 import { ProjectList } from "./Projects/ProjectList";
 import { TaskReviewView } from "./Projects/TaskReviewView";
 
@@ -1439,6 +1440,10 @@ export function ProjectsView({
           onNavigateToChannelSession={onNavigateToChannelSession}
         />
       );
+    }
+
+    if (selectedTab === "files") {
+      return <ProjectFilesTab project={project} />;
     }
 
     if (selectedTab === "tasks") {

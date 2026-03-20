@@ -938,6 +938,89 @@ public actor CoreService {
         return project
     }
 
+    public func listProjectFiles(projectID: String, path: String) async throws -> [ProjectFileEntry] {
+        guard let normalizedID = normalizedProjectID(projectID) else {
+            throw ProjectError.invalidProjectID
+        }
+        guard let project = await store.project(id: normalizedID) else {
+            throw ProjectError.notFound
+        }
+
+        let rootPath = project.repoPath ?? projectDirectoryURL(projectID: normalizedID).path
+        let rootURL = URL(fileURLWithPath: rootPath, isDirectory: true).standardized
+
+        let targetURL: URL
+        let trimmedPath = path.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmedPath.isEmpty || trimmedPath == "/" {
+            targetURL = rootURL
+        } else {
+            targetURL = rootURL.appendingPathComponent(trimmedPath).standardized
+        }
+
+        guard targetURL.path.hasPrefix(rootURL.path) else {
+            throw ProjectError.invalidProjectID
+        }
+
+        let fm = FileManager.default
+        var isDir: ObjCBool = false
+        guard fm.fileExists(atPath: targetURL.path, isDirectory: &isDir), isDir.boolValue else {
+            throw ProjectError.notFound
+        }
+
+        let contents = try fm.contentsOfDirectory(at: targetURL, includingPropertiesForKeys: [.isDirectoryKey, .fileSizeKey], options: [.skipsHiddenFiles])
+        var entries: [ProjectFileEntry] = []
+        for url in contents {
+            let resourceValues = try? url.resourceValues(forKeys: [.isDirectoryKey, .fileSizeKey])
+            let isDirectory = resourceValues?.isDirectory ?? false
+            let size = resourceValues?.fileSize
+            entries.append(ProjectFileEntry(
+                name: url.lastPathComponent,
+                type: isDirectory ? .directory : .file,
+                size: isDirectory ? nil : size
+            ))
+        }
+        entries.sort {
+            if $0.type == $1.type { return $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+            return $0.type == .directory
+        }
+        return entries
+    }
+
+    public func readProjectFile(projectID: String, path: String) async throws -> ProjectFileContentResponse {
+        guard let normalizedID = normalizedProjectID(projectID) else {
+            throw ProjectError.invalidProjectID
+        }
+        guard let project = await store.project(id: normalizedID) else {
+            throw ProjectError.notFound
+        }
+
+        let rootPath = project.repoPath ?? projectDirectoryURL(projectID: normalizedID).path
+        let rootURL = URL(fileURLWithPath: rootPath, isDirectory: true).standardized
+
+        let trimmedPath = path.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedPath.isEmpty else {
+            throw ProjectError.invalidProjectID
+        }
+
+        let targetURL = rootURL.appendingPathComponent(trimmedPath).standardized
+        guard targetURL.path.hasPrefix(rootURL.path) else {
+            throw ProjectError.invalidProjectID
+        }
+
+        let maxBytes = 2 * 1024 * 1024
+        let data = try Data(contentsOf: targetURL)
+        guard data.count <= maxBytes else {
+            throw ProjectError.invalidProjectID
+        }
+        guard let text = String(data: data, encoding: .utf8) else {
+            throw ProjectError.invalidProjectID
+        }
+
+        let relativePath = String(targetURL.path.dropFirst(rootURL.path.count))
+            .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        return ProjectFileContentResponse(path: relativePath, content: text, sizeBytes: data.count)
+    }
+
     /// Creates a new dashboard project.
     public func createProject(_ request: ProjectCreateRequest) async throws -> ProjectRecord {
         let now = Date()

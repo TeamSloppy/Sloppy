@@ -2270,6 +2270,207 @@
   color: #fff;
 }
 
+/* ── Project Files Tab ──────────────────────────────────────────── */
+
+.pft-shell {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  height: 100%;
+  overflow: hidden;
+  border: 1px solid var(--line);
+}
+
+.pft-tree-panel {
+  display: flex;
+  flex-direction: column;
+  width: 240px;
+  min-width: 180px;
+  flex-shrink: 0;
+  border-right: 1px solid var(--line);
+  overflow: hidden;
+}
+
+.pft-tree-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--line);
+  background: var(--surface);
+  flex-shrink: 0;
+}
+
+.pft-tree-head-icon {
+  font-size: 1rem;
+  color: var(--muted);
+}
+
+.pft-tree-head-label {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--fg);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pft-tree-body {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 4px 0;
+}
+
+.pft-node {
+  display: flex;
+  flex-direction: column;
+}
+
+.pft-node-row {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  width: 100%;
+  background: transparent;
+  border: none;
+  color: var(--fg);
+  font-size: 0.8rem;
+  text-align: left;
+  padding: 4px 8px;
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.pft-node-row:hover {
+  background: var(--surface-alt, var(--line));
+}
+
+.pft-node-row.selected {
+  background: var(--accent-dim, color-mix(in srgb, var(--accent) 15%, transparent));
+  color: var(--accent);
+}
+
+.pft-node-icon {
+  font-size: 0.95rem;
+  flex-shrink: 0;
+}
+
+.pft-icon-dir {
+  color: #e5a62d;
+}
+
+.pft-icon-file {
+  color: var(--muted);
+}
+
+.pft-node-row.selected .pft-icon-file {
+  color: var(--accent);
+}
+
+.pft-node-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex: 1;
+}
+
+.pft-node-spinner {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border: 2px solid var(--muted);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: pft-spin 0.6s linear infinite;
+  flex-shrink: 0;
+}
+
+@keyframes pft-spin {
+  to { transform: rotate(360deg); }
+}
+
+.pft-children {
+  display: flex;
+  flex-direction: column;
+}
+
+.pft-empty-dir {
+  font-size: 0.75rem;
+  color: var(--muted);
+  padding: 3px 8px;
+}
+
+.pft-status {
+  padding: 16px 12px;
+  font-size: 0.82rem;
+  color: var(--muted);
+}
+
+.pft-status-error {
+  color: var(--error, #ef4444);
+}
+
+.pft-viewer-panel {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  background: var(--bg);
+}
+
+.pft-viewer-empty {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  color: var(--muted);
+}
+
+.pft-viewer-empty-icon {
+  font-size: 2.4rem;
+  opacity: 0.4;
+}
+
+.pft-viewer-empty p {
+  font-size: 0.85rem;
+  margin: 0;
+}
+
+.pft-viewer-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--line);
+  background: var(--surface);
+  flex-shrink: 0;
+}
+
+.pft-viewer-path-icon {
+  font-size: 0.9rem;
+  color: var(--muted);
+  flex-shrink: 0;
+}
+
+.pft-viewer-path {
+  font-size: 0.78rem;
+  color: var(--fg);
+  font-family: monospace;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pft-viewer-body {
+  flex: 1;
+  overflow: auto;
+  background: #282c34;
+}
+
 @media (max-width: 1000px) {
   .project-board-list {
     grid-template-columns: minmax(0, 1fr);
@@ -2281,5 +2482,16 @@
 
   .settings-danger-block {
     flex-direction: column;
+  }
+
+  .pft-shell {
+    flex-direction: column;
+  }
+
+  .pft-tree-panel {
+    width: 100%;
+    max-height: 180px;
+    border-right: none;
+    border-bottom: 1px solid var(--line);
   }
 }

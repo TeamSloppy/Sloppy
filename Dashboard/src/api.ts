@@ -96,3 +96,5 @@ export const fetchTaskComments = coreApi.fetchTaskComments;
 export const addTaskComment = coreApi.addTaskComment;
 export const deleteTaskComment = coreApi.deleteTaskComment;
 export const fetchTaskActivities = coreApi.fetchTaskActivities;
+export const fetchProjectFiles = coreApi.fetchProjectFiles;
+export const fetchProjectFileContent = coreApi.fetchProjectFileContent;

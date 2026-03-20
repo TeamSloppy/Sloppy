@@ -3,6 +3,7 @@ export const ACTIVE_WORKER_STATUSES = new Set(["queued", "running", "waitinginpu
 export const PROJECT_TABS = [
   { id: "overview", title: "Overview" },
   { id: "channels", title: "Channels" },
+  { id: "files", title: "Files" },
   { id: "tasks", title: "Tasks" },
   { id: "workers", title: "Workers" },
   { id: "memories", title: "Memories" },

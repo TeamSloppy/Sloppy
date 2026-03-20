@@ -610,6 +610,32 @@ public actor CoreRouter {
             }
         }
 
+        add(.get, "/v1/projects/:projectId/files", metadata: RouteMetadata(summary: "List project files", description: "Returns the file tree entries for a directory in the project workspace", tags: ["Projects"])) { request in
+            let projectId = request.pathParam("projectId") ?? ""
+            let path = request.queryParam("path") ?? ""
+            do {
+                let entries = try await service.listProjectFiles(projectID: projectId, path: path)
+                return Self.encodable(status: HTTPStatus.ok, payload: entries)
+            } catch let error as CoreService.ProjectError {
+                return Self.projectErrorResponse(error, fallback: ErrorCode.projectNotFound)
+            } catch {
+                return Self.json(status: HTTPStatus.internalServerError, payload: ["error": ErrorCode.projectNotFound])
+            }
+        }
+
+        add(.get, "/v1/projects/:projectId/files/content", metadata: RouteMetadata(summary: "Read project file", description: "Returns the text content of a file in the project workspace", tags: ["Projects"])) { request in
+            let projectId = request.pathParam("projectId") ?? ""
+            let path = request.queryParam("path") ?? ""
+            do {
+                let response = try await service.readProjectFile(projectID: projectId, path: path)
+                return Self.encodable(status: HTTPStatus.ok, payload: response)
+            } catch let error as CoreService.ProjectError {
+                return Self.projectErrorResponse(error, fallback: ErrorCode.projectNotFound)
+            } catch {
+                return Self.json(status: HTTPStatus.internalServerError, payload: ["error": ErrorCode.projectNotFound])
+            }
+        }
+
         let taskLookupHandler: (HTTPRequest) async -> CoreRouterResponse = { request in
             let taskReference = request.pathParam("taskReference") ?? ""
             do {
