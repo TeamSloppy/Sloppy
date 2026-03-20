@@ -745,8 +745,19 @@ public actor CoreService {
                     let options = modelProvider.generationOptions(for: activeModel, maxTokens: maxTokens, reasoningEffort: nil)
                     var previousLength = 0
                     do {
-                        for try await snapshot in session.streamResponse(to: prompt, options: options) {
-                            let full = snapshot.content
+                        let stream = session.streamResponse(
+                            to: Prompt(prompt),
+                            generating: GeneratedContent.self,
+                            includeSchemaInPrompt: false,
+                            options: options
+                        )
+                        for try await snapshot in stream {
+                            let full: String
+                            if case .string(let value) = snapshot.rawContent.kind {
+                                full = value
+                            } else {
+                                full = snapshot.rawContent.jsonString
+                            }
                             guard full.count > previousLength else { continue }
                             let startIndex = full.index(full.startIndex, offsetBy: previousLength)
                             let delta = String(full[startIndex...])

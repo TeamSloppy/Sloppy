@@ -29,21 +29,21 @@ enum GitWorktreeError: Error, LocalizedError {
     }
 }
 
-struct GitWorktreeResult {
+struct GitWorktreeResult: Sendable {
     let worktreePath: String
     let branchName: String
 }
 
-struct GitWorktreeService {
-    private let fileManager: FileManager
-
-    init(fileManager: FileManager = .default) {
-        self.fileManager = fileManager
-    }
+// Keep the service stateless so CoreService can safely await its methods across
+// actor boundaries. We still use FileManager.default, but only as a temporary
+// local dependency inside each call instead of storing a shared reference.
+struct GitWorktreeService: Sendable {
 
     /// Creates a git worktree for a task at `<repoPath>/.sloppy-worktrees/<taskId>/`
     /// and checks out a new branch `sloppy/task-<shortId>`.
     func createWorktree(repoPath: String, taskId: String, baseBranch: String = "HEAD") async throws -> GitWorktreeResult {
+        // Use a local FileManager so the service itself remains Sendable.
+        let fileManager = FileManager.default
         let repoURL = URL(fileURLWithPath: repoPath)
         guard fileManager.fileExists(atPath: repoURL.appendingPathComponent(".git").path) ||
               (try? isWorktreeRoot(repoPath: repoPath)) == true else {
@@ -75,6 +75,8 @@ struct GitWorktreeService {
 
     /// Removes a git worktree and its directory.
     func removeWorktree(repoPath: String, worktreePath: String) async throws {
+        // Use a local FileManager so the service itself remains Sendable.
+        let fileManager = FileManager.default
         let (exitCode, output) = try await runGit(
             args: ["worktree", "remove", "--force", worktreePath],
             cwd: repoPath
@@ -144,6 +146,8 @@ struct GitWorktreeService {
     }
 
     private func isWorktreeRoot(repoPath: String) throws -> Bool {
+        // Use a local FileManager so the service itself remains Sendable.
+        let fileManager = FileManager.default
         let gitFile = URL(fileURLWithPath: repoPath).appendingPathComponent(".git").path
         if fileManager.fileExists(atPath: gitFile) {
             return true
