@@ -705,7 +705,7 @@ export function ProjectsView({
   routeProjectTab = "overview",
   routeProjectTaskReference = null,
   onRouteProjectChange = () => { },
-  onNavigateToChannelSession = () => { }
+  onNavigateToChannelSession = (_sessionId) => { }
 }) {
   const [projects, setProjects] = useState([]);
   const [isLoadingProjects, setIsLoadingProjects] = useState(true);
@@ -1504,7 +1504,7 @@ export function ProjectsView({
   function renderProjectDetails(project) {
     const isReviewMode = selectedTab === "review";
     return (
-      <section className="project-workspace">
+      <section className="project-workspace" data-testid={`project-workspace-${project.id}`}>
         {!isReviewMode && (
           <section className="agent-tabs" aria-label="Project sections">
             {PROJECT_TABS.filter((tab) => tab.id !== "review").map((tab) => (

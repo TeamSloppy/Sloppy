@@ -779,7 +779,7 @@ function AgentChatEvents({
   }, [timelineItems, isLoadingSession, isSending, latestRunStatus?.id]);
 
   return (
-    <div className="agent-chat-events" ref={scrollRef}>
+    <div className="agent-chat-events" ref={scrollRef} data-testid="agent-chat-events">
       {isLoadingSession ? (
         <p className="placeholder-text">Loading session...</p>
       ) : timelineItems.length === 0 && !isSending ? (
@@ -851,7 +851,7 @@ function AgentChatEvents({
             const messageText = segmentsToPlainText(visibleSegments);
 
             return (
-              <article key={eventKey} className={`agent-chat-message ${role}`}>
+              <article key={eventKey} className={`agent-chat-message ${role}`} data-testid={`agent-chat-message-${role}-${index}`}>
                 <div className="agent-chat-message-head">
                   <strong>{role}</strong>
                   <span>{formatEventTime(eventItem?.message?.createdAt || eventItem?.createdAt)}</span>
@@ -1232,6 +1232,7 @@ function AgentChatComposer({
             <div
               ref={editorRef}
               className="agent-chat-compose-input"
+              data-testid="agent-chat-compose-input"
               contentEditable={!isSending}
               suppressContentEditableWarning
               data-placeholder={agentId ? `Message ${agentId}...` : "Message..."}
@@ -1401,6 +1402,7 @@ function AgentChatComposer({
                 <button
                   type="submit"
                   className="agent-chat-icon-button agent-chat-send-button"
+                  data-testid="agent-chat-send"
                   disabled={!canSend}
                   title="Send"
                 >
@@ -1801,8 +1803,12 @@ export function AgentChatTab({ agentId }) {
     }
 
     setActiveSession(detail);
-    if (detail.summary?.id) {
-      mergeSessionSummary(detail.summary);
+    const detailSummary =
+      detail.summary && typeof detail.summary === "object"
+        ? detail.summary as { id?: string }
+        : null;
+    if (detailSummary?.id) {
+      mergeSessionSummary(detailSummary);
     }
   }
 
@@ -2282,6 +2288,7 @@ export function AgentChatTab({ agentId }) {
           <button
             type="button"
             className="agent-chat-icon-button"
+            data-testid="agent-chat-new-session"
             onClick={() => createSession()}
             disabled={isSending}
             title="New session"
@@ -2291,7 +2298,7 @@ export function AgentChatTab({ agentId }) {
             </span>
           </button>
         </div>
-        <div className="agent-chat-session-list">
+        <div className="agent-chat-session-list" data-testid="agent-chat-session-list">
           {sessions.length === 0 ? (
             <p className="placeholder-text" style={{ padding: "0 12px" }}>
               {isLoadingSessions ? "Loading sessions..." : "No sessions"}
@@ -2302,6 +2309,7 @@ export function AgentChatTab({ agentId }) {
               key={session.id}
               type="button"
               className={`agent-chat-session-item ${session.id === activeSessionId ? "active" : ""}`}
+              data-testid={`agent-chat-session-${session.id}`}
               onClick={() => openSession(session.id)}
               disabled={isLoadingSessions || isSending}
             >

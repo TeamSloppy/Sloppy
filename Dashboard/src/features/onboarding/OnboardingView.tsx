@@ -605,13 +605,18 @@ export function OnboardingView({ coreApi, initialConfig, onCompleted }: Onboardi
         throw new Error("Failed to load agent config.");
       }
 
+      const currentDocuments =
+        agentConfig.documents && typeof agentConfig.documents === "object"
+          ? (agentConfig.documents as AnyRecord)
+          : {};
+
       const nextDocuments =
         shouldUseCeoPersona(agentId, agentName, agentRole)
           ? {
-              ...agentConfig.documents,
+              ...currentDocuments,
               agentsMarkdown: DEFAULT_PROMPT.trim()
             }
-          : agentConfig.documents;
+          : currentDocuments;
 
       const updatedAgentConfig = await coreApi.updateAgentConfig(agentId, {
         selectedModel: selectedRuntimeModel,
@@ -798,7 +803,6 @@ export function OnboardingView({ coreApi, initialConfig, onCompleted }: Onboardi
                       setProviderId(provider.id);
                       setProviderApiKey(provider.defaultEntry.apiKey);
                       setProviderApiUrl(provider.defaultEntry.apiUrl);
-                      setOAuthCallbackURL("");
                     }}
                   >
                     <span className="material-symbols-rounded" aria-hidden="true">

@@ -36,6 +36,23 @@ jobs:
       - name: Run Test Suite
         run: swift test --parallel
 
+  swift-test-macos:
+    name: Swift Tests (macOS)
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Swift Version
+        run: swift --version
+
+      - name: Resolve Swift Packages
+        run: swift package resolve
+
+      - name: Run Test Suite
+        run: swift test --parallel
+
   swift-build:
     name: Swift Build
     runs-on: ubuntu-latest
@@ -50,6 +67,26 @@ jobs:
         run: |
           apt-get update
           apt-get install -y libsqlite3-dev
+
+      - name: Build Core (Release)
+        run: swift build -c release --product Core
+
+      - name: Build Node (Release)
+        run: swift build -c release --product Node
+
+      - name: Build App (Release)
+        run: swift build -c release --product App
+
+  swift-build-macos:
+    name: Swift Build (macOS)
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Swift Version
+        run: swift --version
 
       - name: Build Core (Release)
         run: swift build -c release --product Core
@@ -80,3 +117,63 @@ jobs:
       - name: Build Dashboard
         working-directory: Dashboard
         run: npm run build
+
+  dashboard-happy-path:
+    name: Dashboard Happy Path
+    runs-on: ubuntu-latest
+    needs:
+      - swift-build
+      - dashboard-build
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install Dashboard Dependencies
+        working-directory: Dashboard
+        run: npm install
+
+      - name: Install Chromium
+        working-directory: Dashboard
+        run: npx playwright install --with-deps chromium
+
+      - name: Start Core and Dashboard
+        run: docker compose -f utils/docker/docker-compose.yml up -d --build
+
+      - name: Wait For Core
+        run: |
+          timeout 180 bash -lc 'until curl -fsS http://127.0.0.1:25101/v1/config >/dev/null; do sleep 2; done'
+
+      - name: Wait For Dashboard
+        run: |
+          timeout 180 bash -lc 'until curl -fsS http://127.0.0.1:25102 >/dev/null; do sleep 2; done'
+
+      - name: Seed Happy Path Data
+        working-directory: Dashboard
+        run: npm run seed:happy-path
+
+      - name: Run Dashboard Happy Path
+        working-directory: Dashboard
+        run: npm run e2e:happy-path
+
+      - name: Capture Docker Logs
+        if: failure()
+        run: |
+          mkdir -p Dashboard/output/playwright/happy-path
+          docker compose -f utils/docker/docker-compose.yml logs --no-color > Dashboard/output/playwright/happy-path/docker-compose.log
+
+      - name: Upload Happy Path Artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dashboard-happy-path-artifacts
+          path: Dashboard/output/playwright/happy-path
+
+      - name: Stop Core and Dashboard
+        if: always()
+        run: docker compose -f utils/docker/docker-compose.yml down -v

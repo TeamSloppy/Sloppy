@@ -4,6 +4,7 @@
 .DS_Store
 Dashboard/node_modules/
 Dashboard/dist/
+Dashboard/output/
 docs/node_modules/
 docs/.vitepress/cache/
 docs/.vitepress/dist/
