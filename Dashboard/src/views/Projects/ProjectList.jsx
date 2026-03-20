@@ -30,7 +30,7 @@ export function ProjectList({ projects, isLoadingProjects, openProject, openCrea
     }
 
     return (
-        <section className="project-board-list">
+        <section className="project-board-list" data-testid="project-list">
             {projects.map((project) => {
                 const relatedWorkers = workersForProject(project, workers);
                 const activeWorkers = activeWorkersForProject(project, workers);
@@ -40,6 +40,7 @@ export function ProjectList({ projects, isLoadingProjects, openProject, openCrea
                     <article
                         key={project.id}
                         className="project-board-card project-board-card--clickable"
+                        data-testid={`project-list-item-${project.id}`}
                         role="button"
                         tabIndex={0}
                         onClick={() => openProject(project.id)}

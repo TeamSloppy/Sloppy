@@ -7,7 +7,9 @@
     "dev": "vite",
     "build": "vite build",
     "typecheck": "tsc --noEmit",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "seed:happy-path": "node ./scripts/seedHappyPath.mjs",
+    "e2e:happy-path": "node ./scripts/happyPath.mjs"
   },
   "dependencies": {
     "@git-diff-view/file": "^0.1.2",
@@ -24,6 +26,7 @@
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
     "@types/react-syntax-highlighter": "^15.5.13",
+    "playwright": "^1.55.0",
     "typescript": "^5.6.3",
     "vite": "^5.4.10"
   }

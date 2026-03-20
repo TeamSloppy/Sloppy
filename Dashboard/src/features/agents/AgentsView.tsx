@@ -117,6 +117,7 @@ function AgentsIndexSection({
               key={agent.id}
               type="button"
               className="agent-list-item-card hover-levitate"
+              data-testid={`agent-list-item-${agent.id}`}
               onClick={() => onSelectAgent(agent.id)}
             >
               <span className="channel-agent-avatar agent-chart-avatar" aria-hidden="true" style={{ width: '40px', height: '40px', fontSize: '16px' }}>
@@ -395,6 +396,7 @@ export function AgentsView({ routeAgentId = null, routeTab = "overview", onRoute
             key={tab.id}
             type="button"
             className={`agent-tab ${activeTab === tab.id ? "active" : ""}`}
+            data-testid={`agent-tab-${tab.id}`}
             onClick={() => navigateToAgent(activeAgent.id, tab.id)}
           >
             {tab.title}

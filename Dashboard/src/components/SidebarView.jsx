@@ -46,6 +46,7 @@ export function SidebarView({
             key={item.id}
             type="button"
             className={`sidebar-item ${activeItemId === item.id ? "active" : ""}`}
+            data-testid={`sidebar-nav-${item.id}`}
             onClick={() => {
               onSelect(item.id);
               onRequestClose();
