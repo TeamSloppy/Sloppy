@@ -296,6 +296,15 @@
   gap: 10px;
 }
 
+.project-workspace:has(.pft-shell) {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
 .project-workspace-head {
   align-items: center;
   gap: 10px;
@@ -2469,6 +2478,12 @@
   flex: 1;
   overflow: auto;
   background: #282c34;
+  position: relative;
+}
+
+.pft-viewer-body > pre {
+  min-height: 100%;
+  box-sizing: border-box;
 }
 
 @media (max-width: 1000px) {
