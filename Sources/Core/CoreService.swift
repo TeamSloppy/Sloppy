@@ -6133,20 +6133,6 @@ public actor CoreService {
             )
         }
 
-        let subdirectories = [
-            projectArtifactsDirectoryURL(projectID: projectID),
-            projectLogsDirectoryURL(projectID: projectID)
-        ]
-        do {
-            for directory in subdirectories {
-                try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-            }
-        } catch {
-            logger.warning(
-                "project.clone.subdirs_failed",
-                metadata: ["project_id": .string(projectID)]
-            )
-        }
     }
 
     private func availableAgentModels() -> [ProviderModelOption] {
