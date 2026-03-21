@@ -246,7 +246,8 @@ public actor CoreService {
             oauthTokenProvider: { oauthService.currentAccessToken() },
             oauthAccountId: oauthService.currentAccountId(),
             oauthTokenRefresh: { try await oauthService.ensureValidToken() },
-            systemInstructions: "You are Sloppy core channel assistant."
+            systemInstructions: "You are Sloppy core channel assistant.",
+            proxySession: ProxySessionFactory.makeSession(proxy: config.proxy)
         )
         let runtimeMemoryStore: any MemoryStore
         let hybridMemoryStore: HybridMemoryStore?
@@ -2948,7 +2949,8 @@ public actor CoreService {
             oauthTokenProvider: { oauthSvc.currentAccessToken() },
             oauthAccountId: oauthSvc.currentAccountId(),
             oauthTokenRefresh: { try await oauthSvc.ensureValidToken() },
-            systemInstructions: "You are Sloppy core channel assistant."
+            systemInstructions: "You are Sloppy core channel assistant.",
+            proxySession: ProxySessionFactory.makeSession(proxy: config.proxy)
         )
         let defaultModel = modelProvider?.supportedModels.first ?? resolvedModels.first
         await runtime.updateModelProvider(modelProvider: modelProvider, defaultModel: defaultModel)

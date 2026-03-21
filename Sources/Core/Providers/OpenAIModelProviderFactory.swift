@@ -40,7 +40,8 @@ struct OpenAIModelProviderFactory: ModelProviderFactory {
             apiKey: keyProvider,
             baseURL: baseURL,
             accountId: resolvedAccountId,
-            refreshTokenIfNeeded: resolvedRefresh
+            refreshTokenIfNeeded: resolvedRefresh,
+            session: config.proxySession
         )
 
         return OpenAIModelProvider(

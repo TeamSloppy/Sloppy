@@ -326,3 +326,112 @@ func searchToolsDecodeWhenPresent() throws {
     #expect(decoded.searchTools.providers.brave.apiKey == "brave-config-key")
     #expect(decoded.searchTools.providers.perplexity.apiKey == "pplx-config-key")
 }
+
+@Test
+func missingProxyConfigFallsBackToDisabledDefaults() throws {
+    let json =
+        """
+        {
+          "listen": { "host": "0.0.0.0", "port": 25101 },
+          "auth": { "token": "dev-token" },
+          "models": [],
+          "memory": { "backend": "sqlite-local-vectors" },
+          "nodes": ["local"],
+          "gateways": [],
+          "plugins": [],
+          "sqlitePath": "core.sqlite"
+        }
+        """
+
+    let decoded = try JSONDecoder().decode(CoreConfig.self, from: Data(json.utf8))
+
+    #expect(decoded.proxy.enabled == false)
+    #expect(decoded.proxy.type == .socks5)
+    #expect(decoded.proxy.host == "")
+    #expect(decoded.proxy.port == 1080)
+    #expect(decoded.proxy.username == "")
+    #expect(decoded.proxy.password == "")
+}
+
+@Test
+func proxyConfigParsedFromJSON() throws {
+    let json =
+        """
+        {
+          "listen": { "host": "0.0.0.0", "port": 25101 },
+          "auth": { "token": "dev-token" },
+          "models": [],
+          "memory": { "backend": "sqlite-local-vectors" },
+          "nodes": ["local"],
+          "gateways": [],
+          "plugins": [],
+          "sqlitePath": "core.sqlite",
+          "proxy": {
+            "enabled": true,
+            "type": "socks5",
+            "host": "127.0.0.1",
+            "port": 1080,
+            "username": "user",
+            "password": "pass"
+          }
+        }
+        """
+
+    let decoded = try JSONDecoder().decode(CoreConfig.self, from: Data(json.utf8))
+
+    #expect(decoded.proxy.enabled == true)
+    #expect(decoded.proxy.type == .socks5)
+    #expect(decoded.proxy.host == "127.0.0.1")
+    #expect(decoded.proxy.port == 1080)
+    #expect(decoded.proxy.username == "user")
+    #expect(decoded.proxy.password == "pass")
+}
+
+@Test
+func proxyConfigHttpTypeParsedFromJSON() throws {
+    let json =
+        """
+        {
+          "listen": { "host": "0.0.0.0", "port": 25101 },
+          "auth": { "token": "dev-token" },
+          "models": [],
+          "memory": { "backend": "sqlite-local-vectors" },
+          "nodes": ["local"],
+          "gateways": [],
+          "plugins": [],
+          "sqlitePath": "core.sqlite",
+          "proxy": {
+            "enabled": true,
+            "type": "http",
+            "host": "proxy.example.com",
+            "port": 8080
+          }
+        }
+        """
+
+    let decoded = try JSONDecoder().decode(CoreConfig.self, from: Data(json.utf8))
+
+    #expect(decoded.proxy.enabled == true)
+    #expect(decoded.proxy.type == .http)
+    #expect(decoded.proxy.host == "proxy.example.com")
+    #expect(decoded.proxy.port == 8080)
+}
+
+@Test
+func proxyConfigRoundTrips() throws {
+    let original = CoreConfig.Proxy(
+        enabled: true,
+        type: .https,
+        host: "proxy.corp.internal",
+        port: 3128,
+        username: "alice",
+        password: "secret"
+    )
+
+    let encoder = JSONEncoder()
+    encoder.outputFormatting = .sortedKeys
+    let data = try encoder.encode(original)
+    let decoded = try JSONDecoder().decode(CoreConfig.Proxy.self, from: data)
+
+    #expect(decoded == original)
+}

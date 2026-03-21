@@ -1,5 +1,8 @@
 import AnyLanguageModel
 import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
 import PluginSDK
 
 struct ModelProviderBuildConfig: @unchecked Sendable {
@@ -10,6 +13,7 @@ struct ModelProviderBuildConfig: @unchecked Sendable {
     var oauthAccountId: String?
     var oauthTokenRefresh: (@Sendable () async throws -> Void)?
     var systemInstructions: String?
+    var proxySession: URLSession?
 }
 
 protocol ModelProviderFactory: Sendable {
@@ -31,7 +35,8 @@ enum CoreModelProviderFactory {
         oauthTokenProvider: (@Sendable () -> String?)? = nil,
         oauthAccountId: String? = nil,
         oauthTokenRefresh: (@Sendable () async throws -> Void)? = nil,
-        systemInstructions: String? = nil
+        systemInstructions: String? = nil,
+        proxySession: URLSession? = nil
     ) -> (any ModelProvider)? {
         let buildConfig = ModelProviderBuildConfig(
             coreConfig: config,
@@ -40,7 +45,8 @@ enum CoreModelProviderFactory {
             oauthTokenProvider: oauthTokenProvider,
             oauthAccountId: oauthAccountId,
             oauthTokenRefresh: oauthTokenRefresh,
-            systemInstructions: systemInstructions
+            systemInstructions: systemInstructions,
+            proxySession: proxySession
         )
 
         let providers = factories.compactMap { $0.buildProvider(from: buildConfig) }

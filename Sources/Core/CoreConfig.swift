@@ -300,6 +300,56 @@ public struct CoreConfig: Codable, Sendable {
         }
     }
 
+    public struct Proxy: Codable, Sendable, Equatable {
+        public enum ProxyType: String, Codable, Sendable, Equatable {
+            case socks5
+            case http
+            case https
+        }
+
+        public var enabled: Bool
+        public var type: ProxyType
+        public var host: String
+        public var port: Int
+        public var username: String
+        public var password: String
+
+        public init(
+            enabled: Bool = false,
+            type: ProxyType = .socks5,
+            host: String = "",
+            port: Int = 1080,
+            username: String = "",
+            password: String = ""
+        ) {
+            self.enabled = enabled
+            self.type = type
+            self.host = host
+            self.port = port
+            self.username = username
+            self.password = password
+        }
+
+        private enum CodingKeys: String, CodingKey {
+            case enabled
+            case type
+            case host
+            case port
+            case username
+            case password
+        }
+
+        public init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            enabled = try container.decodeIfPresent(Bool.self, forKey: .enabled) ?? false
+            type = try container.decodeIfPresent(ProxyType.self, forKey: .type) ?? .socks5
+            host = try container.decodeIfPresent(String.self, forKey: .host) ?? ""
+            port = try container.decodeIfPresent(Int.self, forKey: .port) ?? 1080
+            username = try container.decodeIfPresent(String.self, forKey: .username) ?? ""
+            password = try container.decodeIfPresent(String.self, forKey: .password) ?? ""
+        }
+    }
+
     public struct SearchTools: Codable, Sendable, Equatable {
         public enum ProviderID: String, Codable, Sendable, Equatable {
             case brave
@@ -573,6 +623,7 @@ public struct CoreConfig: Codable, Sendable {
     public var channels: ChannelConfig
     public var gitSync: GitSync
     public var searchTools: SearchTools
+    public var proxy: Proxy
     public var visor: Visor
     public var sqlitePath: String
 
@@ -589,6 +640,7 @@ public struct CoreConfig: Codable, Sendable {
         channels: ChannelConfig = ChannelConfig(),
         gitSync: GitSync = GitSync(),
         searchTools: SearchTools = SearchTools(),
+        proxy: Proxy = Proxy(),
         visor: Visor = Visor(),
         sqlitePath: String
     ) {
@@ -604,6 +656,7 @@ public struct CoreConfig: Codable, Sendable {
         self.channels = channels
         self.gitSync = gitSync
         self.searchTools = searchTools
+        self.proxy = proxy
         self.visor = visor
         self.sqlitePath = sqlitePath
     }
@@ -635,6 +688,7 @@ public struct CoreConfig: Codable, Sendable {
             channels: .init(),
             gitSync: .init(),
             searchTools: .init(),
+            proxy: .init(),
             visor: .init(),
             sqlitePath: CoreConfig.defaultSQLiteFileName
         )
@@ -695,6 +749,7 @@ public struct CoreConfig: Codable, Sendable {
         case channels
         case gitSync
         case searchTools
+        case proxy
         case visor
         case sqlitePath
     }
@@ -712,6 +767,7 @@ public struct CoreConfig: Codable, Sendable {
         channels = try container.decodeIfPresent(ChannelConfig.self, forKey: .channels) ?? .init()
         gitSync = try container.decodeIfPresent(GitSync.self, forKey: .gitSync) ?? .init()
         searchTools = try container.decodeIfPresent(SearchTools.self, forKey: .searchTools) ?? .init()
+        proxy = try container.decodeIfPresent(Proxy.self, forKey: .proxy) ?? .init()
         visor = try container.decodeIfPresent(Visor.self, forKey: .visor) ?? .init()
         sqlitePath = try container.decode(String.self, forKey: .sqlitePath)
         models = try container.decodeIfPresent([ModelConfig].self, forKey: .models) ?? []

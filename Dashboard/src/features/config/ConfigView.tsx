@@ -20,6 +20,7 @@ import { TelegramEditor } from "./components/TelegramEditor";
 import { DiscordEditor } from "./components/DiscordEditor";
 import { ApprovalsView } from "./components/ApprovalsView";
 import { ConfigRawView } from "./components/ConfigRawView";
+import { ProxyEditor } from "./components/ProxyEditor";
 
 const SETTINGS_ITEMS = [
   { id: "providers", title: "Providers", icon: "hub" },
@@ -35,6 +36,7 @@ const SETTINGS_ITEMS = [
   // { id: "audio", title: "Audio", icon: "volume_up" },
   // { id: "media", title: "Media", icon: "perm_media" },
   // { id: "session", title: "Session", icon: "manage_accounts" },
+  { id: "proxy", title: "Proxy", icon: "vpn_key" },
   { id: "git-sync", title: "Git Sync", icon: "sync" },
   { id: "config", title: "Config", icon: "edit_document" },
   // { id: "logging", title: "Logging", icon: "description" }
@@ -191,6 +193,14 @@ const EMPTY_CONFIG = {
       time: "18:00"
     },
     conflictStrategy: "remote_wins"
+  },
+  proxy: {
+    enabled: false,
+    type: "socks5",
+    host: "",
+    port: 1080,
+    username: "",
+    password: ""
   },
   sqlitePath: "core.sqlite"
 };
@@ -425,6 +435,13 @@ function normalizeConfig(config) {
   normalized.searchTools.providers.brave.apiKey = String(config?.searchTools?.providers?.brave?.apiKey || "");
   normalized.searchTools.providers.perplexity.apiKey = String(config?.searchTools?.providers?.perplexity?.apiKey || "");
 
+  normalized.proxy.enabled = Boolean(config?.proxy?.enabled);
+  normalized.proxy.type = normalizeProxyType(config?.proxy?.type);
+  normalized.proxy.host = String(config?.proxy?.host || "");
+  normalized.proxy.port = parseInteger(config?.proxy?.port ?? 1080, 1080);
+  normalized.proxy.username = String(config?.proxy?.username || "");
+  normalized.proxy.password = String(config?.proxy?.password || "");
+
   return normalized;
 }
 
@@ -462,6 +479,13 @@ function normalizeGitSyncConflictStrategy(value, fallback = "remote_wins") {
 function normalizeTimeValue(value, fallback = "18:00") {
   const normalized = String(value || "").trim();
   return /^([01]\d|2[0-3]):[0-5]\d$/.test(normalized) ? normalized : fallback;
+}
+
+const PROXY_TYPES = new Set(["socks5", "http", "https"]);
+
+function normalizeProxyType(value, fallback = "socks5") {
+  const normalized = String(value || "").trim().toLowerCase();
+  return PROXY_TYPES.has(normalized) ? normalized : fallback;
 }
 
 function isSettingsSection(id) {
@@ -1282,6 +1306,10 @@ export function ConfigView({ sectionId = "providers", onSectionChange = null }) 
           </div>
         </section>
       );
+    }
+
+    if (selectedSettings === "proxy") {
+      return <ProxyEditor draftConfig={draftConfig} mutateDraft={mutateDraft} />;
     }
 
     if (selectedSettings === "approvals") {

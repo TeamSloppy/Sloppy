@@ -24,7 +24,8 @@ struct AnthropicModelProviderFactory: ModelProviderFactory {
             apiKey: { resolvedKey },
             baseURL: baseURL,
             tools: config.tools,
-            systemInstructions: config.systemInstructions
+            systemInstructions: config.systemInstructions,
+            session: config.proxySession
         )
     }
 }

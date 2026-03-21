@@ -1,5 +1,8 @@
 import AnyLanguageModel
 import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
 import Logging
 import Protocols
 
@@ -13,19 +16,22 @@ public struct OpenAIModelProvider: ModelProvider {
         public var apiVariant: OpenAILanguageModel.APIVariant
         public var accountId: String?
         public var refreshTokenIfNeeded: (@Sendable () async throws -> Void)?
+        public var session: URLSession?
 
         public init(
             apiKey: @escaping @Sendable () -> String,
             baseURL: URL = OpenAILanguageModel.defaultBaseURL,
             apiVariant: OpenAILanguageModel.APIVariant = .chatCompletions,
             accountId: String? = nil,
-            refreshTokenIfNeeded: (@Sendable () async throws -> Void)? = nil
+            refreshTokenIfNeeded: (@Sendable () async throws -> Void)? = nil,
+            session: URLSession? = nil
         ) {
             self.apiKey = apiKey
             self.baseURL = baseURL
             self.apiVariant = apiVariant
             self.accountId = accountId
             self.refreshTokenIfNeeded = refreshTokenIfNeeded
+            self.session = session
         }
     }
 
@@ -73,7 +79,8 @@ public struct OpenAIModelProvider: ModelProvider {
             apiKey: settings.apiKey,
             baseURL: settings.baseURL,
             apiVariant: settings.apiVariant,
-            model: resolved
+            model: resolved,
+            session: settings.session
         )
     }
 
@@ -116,6 +123,21 @@ struct OpenAIRetryingLanguageModel: LanguageModel {
     let baseURL: URL
     let apiVariant: OpenAILanguageModel.APIVariant
     let model: String
+    let session: URLSession?
+
+    init(
+        apiKey: @escaping @Sendable () -> String,
+        baseURL: URL,
+        apiVariant: OpenAILanguageModel.APIVariant,
+        model: String,
+        session: URLSession? = nil
+    ) {
+        self.apiKey = apiKey
+        self.baseURL = baseURL
+        self.apiVariant = apiVariant
+        self.model = model
+        self.session = session
+    }
 
     func respond<Content>(
         within session: LanguageModelSession,
@@ -151,10 +173,13 @@ struct OpenAIRetryingLanguageModel: LanguageModel {
         let baseURL = self.baseURL
         let apiVariant = self.apiVariant
         let model = self.model
+        let urlSession = self.session
 
         let stream = AsyncThrowingStream<LanguageModelSession.ResponseStream<Content>.Snapshot, any Error> { continuation in
             Task {
-                let primary = OpenAILanguageModel(baseURL: baseURL, apiKey: apiKey, model: model, apiVariant: apiVariant)
+                let primary = urlSession.map {
+                    OpenAILanguageModel(baseURL: baseURL, apiKey: apiKey, model: model, apiVariant: apiVariant, session: $0)
+                } ?? OpenAILanguageModel(baseURL: baseURL, apiKey: apiKey, model: model, apiVariant: apiVariant)
                 let primaryStream = primary.streamResponse(
                     within: session, to: prompt, generating: type,
                     includeSchemaInPrompt: includeSchemaInPrompt, options: options
@@ -179,7 +204,9 @@ struct OpenAIRetryingLanguageModel: LanguageModel {
                     return
                 }
 
-                let fallback = OpenAILanguageModel(baseURL: baseURL, apiKey: apiKey, model: model, apiVariant: .responses)
+                let fallback = urlSession.map {
+                    OpenAILanguageModel(baseURL: baseURL, apiKey: apiKey, model: model, apiVariant: .responses, session: $0)
+                } ?? OpenAILanguageModel(baseURL: baseURL, apiKey: apiKey, model: model, apiVariant: .responses)
                 let fallbackStream = fallback.streamResponse(
                     within: session, to: prompt, generating: type,
                     includeSchemaInPrompt: includeSchemaInPrompt, options: options
@@ -198,7 +225,10 @@ struct OpenAIRetryingLanguageModel: LanguageModel {
     }
 
     private func makeModel(variant: OpenAILanguageModel.APIVariant) -> OpenAILanguageModel {
-        OpenAILanguageModel(baseURL: baseURL, apiKey: apiKey(), model: model, apiVariant: variant)
+        if let session {
+            return OpenAILanguageModel(baseURL: baseURL, apiKey: apiKey(), model: model, apiVariant: variant, session: session)
+        }
+        return OpenAILanguageModel(baseURL: baseURL, apiKey: apiKey(), model: model, apiVariant: variant)
     }
 
     private func shouldRetryWithResponses(error: any Error, currentVariant: OpenAILanguageModel.APIVariant) -> Bool {
