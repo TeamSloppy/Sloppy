@@ -48,6 +48,7 @@ struct ToolContext: @unchecked Sendable {
     let mcpRegistry: MCPClientRegistry
     let logger: Logger
     let projectService: (any ProjectToolService)?
+    let configService: (any RuntimeConfigToolService)?
 }
 
 // MARK: - ProjectToolService
@@ -62,6 +63,11 @@ protocol ProjectToolService: Sendable {
     func getTask(reference: String) async throws -> AgentTaskRecord
     func deliverMessage(channelId: String, content: String) async
     func actorBoard() async throws -> ActorBoardSnapshot
+}
+
+protocol RuntimeConfigToolService: Sendable {
+    func runtimeConfig() async -> CoreConfig
+    func updateRuntimeConfig(_ config: CoreConfig) async throws -> CoreConfig
 }
 
 // MARK: - Result helpers

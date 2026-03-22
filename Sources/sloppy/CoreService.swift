@@ -360,11 +360,11 @@ public actor CoreService {
                 .resolvedWorkspaceRootURL(currentDirectory: FileManager.default.currentDirectoryPath).path
         )
         self.currentConfig = config
-        self.toolExecution.projectService = self
         Task { [weak self] in
             guard let self else {
                 return
             }
+            await self.configureToolExecutionServices()
             await self.runtime.updateWorkerExecutor(
                 ToolExecutionWorkerExecutorAdapter(toolExecutionService: self.toolExecution)
             )
@@ -3024,6 +3024,11 @@ public actor CoreService {
         }
 
         return currentConfig
+    }
+
+    private func configureToolExecutionServices() {
+        toolExecution.projectService = self
+        toolExecution.configService = self
     }
 
     private func startBuiltInPlugin(
@@ -7095,5 +7100,15 @@ extension CoreService: ProjectToolService {
 
     func actorBoard() async throws -> ActorBoardSnapshot {
         try getActorBoard()
+    }
+}
+
+extension CoreService: RuntimeConfigToolService {
+    func runtimeConfig() async -> CoreConfig {
+        currentConfig
+    }
+
+    func updateRuntimeConfig(_ config: CoreConfig) async throws -> CoreConfig {
+        try await updateConfig(config)
     }
 }

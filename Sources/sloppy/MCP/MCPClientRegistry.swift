@@ -423,7 +423,9 @@ actor MCPClientRegistry {
         var discovered: [String: MCPDynamicTool] = [:]
         for server in config.servers where server.enabled && server.exposeTools {
             do {
-                let response = try await listTools(serverID: server.id)
+                let response = try await withDiscoveryTimeout(milliseconds: max(250, server.timeoutMs)) {
+                    try await self.listTools(serverID: server.id)
+                }
                 for tool in response.tools {
                     let toolID = Self.dynamicToolID(
                         serverID: server.id,
@@ -446,6 +448,25 @@ actor MCPClientRegistry {
             }
         }
         dynamicToolsByID = discovered
+    }
+
+    private func withDiscoveryTimeout<T: Sendable>(
+        milliseconds: Int,
+        operation: @escaping @Sendable () async throws -> T
+    ) async throws -> T {
+        try await withThrowingTaskGroup(of: T.self) { group in
+            group.addTask {
+                try await operation()
+            }
+            group.addTask {
+                try await Task.sleep(nanoseconds: UInt64(max(1, milliseconds)) * 1_000_000)
+                throw MCPRegistryError.invalidResult("Timed out while discovering MCP tools.")
+            }
+
+            let result = try await group.next()!
+            group.cancelAll()
+            return result
+        }
     }
 
     static func dynamicToolID(serverID: String, toolName: String, prefix: String?) -> String {
