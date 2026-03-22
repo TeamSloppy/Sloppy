@@ -856,7 +856,7 @@ public struct ChannelPluginRecord: Codable, Sendable, Equatable {
     public var channelIds: [String]
     public var config: [String: String]
     public var enabled: Bool
-    /// `"http"` (default) or `"in-process"`. Determines how Core delivers messages.
+    /// `"http"` (default) or `"in-process"`. Determines how sloppy delivers messages.
     public var deliveryMode: String
     public var createdAt: Date
     public var updatedAt: Date

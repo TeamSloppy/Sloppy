@@ -11,9 +11,9 @@ This guide covers the containerized workflow for running Sloppy with Docker Comp
 
 The Docker assets live in `utils/docker/`:
 
-- `utils/docker/core.Dockerfile` builds the `Core` executable in a Swift 6.2 image and packages it into an Ubuntu runtime image.
+- `utils/docker/sloppy.Dockerfile` builds the `sloppy` executable in a Swift 6.2 image and packages it into an Ubuntu runtime image.
 - `utils/docker/dashboard.Dockerfile` runs the React dashboard in a Node 20 container.
-- `utils/docker/docker-compose.yml` starts the `core` and `dashboard` services together.
+- `utils/docker/docker-compose.yml` starts the `sloppy` and `dashboard` services together.
 - `utils/docker/scripts/` contains thin wrappers around the Compose commands.
 
 ## Prerequisites
@@ -73,7 +73,7 @@ Wrapper script:
 
 | Service | URL | Notes |
 | --- | --- | --- |
-| `core` | `http://localhost:25101` | Exposes the Sloppy HTTP API |
+| `sloppy` | `http://localhost:25101` | Exposes the Sloppy HTTP API |
 | `dashboard` | `http://localhost:25102` | Runs the Vite development server in the container |
 
 ## Persistent data
@@ -82,7 +82,7 @@ The Compose stack defines a named volume:
 
 | Volume | Purpose |
 | --- | --- |
-| `core_data` | Persists the workspace mounted at `/root/workspace` inside the `core` container |
+| `sloppy` | Persists the workspace mounted at `/root/.sloppy` inside the `sloppy` container |
 
 ## Environment variables
 
@@ -98,11 +98,11 @@ PERPLEXITY_API_KEY=your_key_here
 
 ## Build details
 
-### Core image
+### sloppy image
 
 - Uses `swift:6.2-jammy` as the build stage
 - Installs `libsqlite3-dev`
-- Builds the `Core` product
+- Builds the `sloppy` product
 - Copies the binary and processed resources into a smaller Ubuntu runtime image
 
 ### Dashboard image
@@ -117,7 +117,7 @@ Use Docker when:
 
 - You want a reproducible environment close to CI
 - You want to avoid managing the host Swift toolchain manually
-- You want `Core` and `Dashboard` launched together
+- You want `sloppy` and `Dashboard` launched together
 
 Use direct terminal builds when:
 

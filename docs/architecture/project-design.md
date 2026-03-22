@@ -10,7 +10,7 @@ Sloppy is a local-first control plane for observable AI workflows. The system is
 
 At a high level the project combines:
 
-- a Swift runtime and API server (`Core`)
+- a Swift runtime and API server (`sloppy`)
 - an actor-based orchestration kernel (`AgentRuntime`)
 - shared wire and domain contracts (`Protocols`)
 - extension points for providers, tools, memory, and gateways (`PluginSDK`)
@@ -39,7 +39,7 @@ flowchart LR
     User["Operator or external user"]
     Dashboard["Dashboard (React/Vite)"]
     Telegram["Telegram or external gateway"]
-    Core["Core executable"]
+    Core["sloppy executable"]
     Router["CoreRouter + CoreHTTPServer"]
     Service["CoreService"]
     Runtime["RuntimeSystem"]
@@ -92,7 +92,7 @@ The API surface, event envelopes, memory bulletins, and dashboard sections are p
 | `Sources/Protocols` | Shared DTOs and runtime contracts | API payloads, event envelopes, memory and runtime models |
 | `Sources/PluginSDK` | Extension protocols | Model, tool, memory, and gateway plugin interfaces |
 | `Sources/AgentRuntime` | Orchestration kernel | Channel, branch, worker, compactor, visor, event bus |
-| `Sources/Core` | Main backend and control plane | Config, HTTP transport, routing, service layer, persistence, plugin bootstrap |
+| `Sources/sloppy` | Main backend and control plane | Config, HTTP transport, routing, service layer, persistence, plugin bootstrap |
 | `Sources/ChannelPluginTelegram` | In-process Telegram gateway | Bundled gateway implementation |
 | `Sources/Node` | Minimal process daemon | Current groundwork, not main scheduling path |
 | `Sources/App` | Placeholder app target | Logs a placeholder message only |
@@ -100,7 +100,7 @@ The API surface, event envelopes, memory bulletins, and dashboard sections are p
 
 ## Boot Sequence
 
-The `Core` executable is the real system entrypoint today.
+The `sloppy` executable is the real system entrypoint today.
 
 1. `CoreMain` resolves config from CLI, environment overrides, or workspace defaults.
 2. It creates the workspace directory tree if needed.
@@ -130,7 +130,7 @@ This gives the project a stable local operational boundary without requiring an 
 
 `RuntimeSystem` is the orchestration facade. It owns the runtime actors and exposes the main control-plane actions.
 
-### Core actors
+### sloppy actors
 
 | Runtime actor | Responsibility |
 | --- | --- |
@@ -356,7 +356,7 @@ If the configured workspace cannot be created, `CoreMain` falls back to `/tmp/sl
 
 Two gateway patterns exist:
 
-- in-process `GatewayPlugin` implementations linked directly into `Core`
+- in-process `GatewayPlugin` implementations linked directly into `sloppy`
 - out-of-process HTTP plugins registered through `/v1/plugins`
 
 The bundled Telegram plugin uses the in-process path. External plugins use the channel plugin protocol defined in `docs/specs/channel-plugin-protocol.md`.

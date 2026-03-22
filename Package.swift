@@ -13,7 +13,7 @@ let package = Package(
         .library(name: "ChannelPluginSupport", targets: ["ChannelPluginSupport"]),
         .library(name: "ChannelPluginTelegram", targets: ["ChannelPluginTelegram"]),
         .library(name: "ChannelPluginDiscord", targets: ["ChannelPluginDiscord"]),
-        .executable(name: "Core", targets: ["Core"]),
+        .executable(name: "sloppy", targets: ["sloppy"]),
         .executable(name: "Node", targets: ["Node"]),
         .executable(name: "App", targets: ["App"])
     ],
@@ -56,7 +56,7 @@ let package = Package(
             path: "Sources/AgentRuntime"
         ),
         .executableTarget(
-            name: "Core",
+            name: "sloppy",
             dependencies: [
                 "AgentRuntime",
                 "ChannelPluginDiscord",
@@ -74,7 +74,7 @@ let package = Package(
                 .product(name: "NIOWebSocket", package: "swift-nio"),
                 .product(name: "CodexBarCore", package: "CodexBar")
             ],
-            path: "Sources/Core",
+            path: "Sources/sloppy",
             resources: [
                 .process("Resources/Prompts"),
                 .process("Storage/schema.sql")
@@ -129,9 +129,9 @@ let package = Package(
             path: "Tests/AgentRuntimeTests"
         ),
         .testTarget(
-            name: "CoreTests",
+            name: "sloppyTests",
             dependencies: [
-                "Core",
+                "sloppy",
                 "AgentRuntime",
                 "ChannelPluginDiscord",
                 "ChannelPluginTelegram",
@@ -139,7 +139,7 @@ let package = Package(
                 "PluginSDK",
                 "CSQLite3"
             ],
-            path: "Tests/CoreTests"
+            path: "Tests/sloppyTests"
         ),
         .target(
             name: "CSQLite3",
@@ -150,7 +150,7 @@ let package = Package(
             capability: .command(
                 intent: .custom(
                     verb: "sloppy-run",
-                    description: "Builds Dashboard, builds Core, and launches Core locally"
+                    description: "Builds Dashboard, builds sloppy, and launches sloppy locally"
                 ),
                 permissions: [
                     .writeToPackageDirectory(

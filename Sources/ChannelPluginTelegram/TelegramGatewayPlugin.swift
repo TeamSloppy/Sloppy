@@ -4,7 +4,7 @@ import Logging
 import PluginSDK
 
 /// In-process GatewayPlugin that bridges Telegram to Sloppy channels.
-/// Uses long-polling to receive messages and InboundMessageReceiver to forward them to Core.
+/// Uses long-polling to receive messages and InboundMessageReceiver to forward them to Sloppy.
 public actor TelegramGatewayPlugin: StreamingGatewayPlugin {
     private struct StreamState: Sendable {
         let chatId: Int64
@@ -55,7 +55,7 @@ public actor TelegramGatewayPlugin: StreamingGatewayPlugin {
         let tokenPrefix = String(config.botToken.prefix(10))
         logger.info("Telegram gateway plugin starting. token=\(tokenPrefix)... channels=\(channelIds) allowedUsers=\(config.allowedUserIds.count)")
         if channelIds.isEmpty {
-            logger.warning("No channel-chat mappings configured. Bot will receive messages but cannot route them to Core channels.")
+            logger.warning("No channel-chat mappings configured. Bot will receive messages but cannot route them to Sloppy channels.")
         }
         let botCommands = ChannelCommandHandler.commands.map {
             ["command": $0.name, "description": $0.description]

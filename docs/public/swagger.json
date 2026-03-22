@@ -7,7 +7,7 @@
   "paths" : {
     "\/health" : {
       "get" : {
-        "description" : "Returns the current status of the core service",
+        "description" : "Returns the current status of the sloppy service",
         "responses" : {
           "200" : {
             "description" : "Successful response"
@@ -1129,7 +1129,7 @@
     },
     "\/v1\/config" : {
       "get" : {
-        "description" : "Returns the current core configuration",
+        "description" : "Returns the current sloppy configuration",
         "responses" : {
           "200" : {
             "description" : "Successful response"
@@ -1141,7 +1141,7 @@
         ]
       },
       "put" : {
-        "description" : "Updates the core configuration",
+        "description" : "Updates the sloppy configuration",
         "responses" : {
           "200" : {
             "description" : "Successful response"

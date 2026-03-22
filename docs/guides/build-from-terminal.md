@@ -54,7 +54,7 @@ swift build
 Release builds:
 
 ```bash
-swift build -c release --product Core
+swift build -c release --product sloppy
 swift build -c release --product Node
 swift build -c release --product App
 ```
@@ -70,8 +70,8 @@ swift package --allow-writing-to-package-directory --allow-network-connections a
 This command:
 
 - builds `Dashboard` with `npm run build` by default
-- builds `Core` in release mode
-- launches `Core` in the foreground
+- builds `sloppy` in release mode
+- launches `sloppy` in the foreground
 
 Useful variants:
 
@@ -82,23 +82,23 @@ swift package --allow-writing-to-package-directory --allow-network-connections a
 ```
 
 The plugin requires SwiftPM permission flags because it writes the Dashboard bundle into the package directory and may run `npm install` when `Dashboard/node_modules` is missing or unusable.
-Direct forwarding without `--` is intentionally supported only for common `Core` flags: `--oneshot`, `--run-demo-request`, and `--config-path`.
-Use `--` for any other `Core` arguments.
+Direct forwarding without `--` is intentionally supported only for common `sloppy` flags: `--oneshot`, `--run-demo-request`, and `--config-path`.
+Use `--` for any other `sloppy` arguments.
 
 ## Run the Swift targets manually
 
-Start the core runtime directly:
+Start the sloppy runtime directly:
 
 ```bash
-swift run Core
+swift run sloppy
 ```
 
 Useful runtime variants:
 
 ```bash
-swift run Core --oneshot
-swift run Core --run-demo-request
-swift run Core --config-path sloppy.json
+swift run sloppy --oneshot
+swift run sloppy --run-demo-request
+swift run sloppy --config-path sloppy.json
 ```
 
 Run the other executables when needed:
@@ -119,8 +119,8 @@ swift test --parallel
 Run a single test or group:
 
 ```bash
-swift test --filter CoreTests.postChannelMessageEndpoint
-swift test --filter CoreTests
+swift test --filter sloppyTests.postChannelMessageEndpoint
+swift test --filter sloppyTests
 swift test --filter AgentRuntimeTests
 ```
 
@@ -153,7 +153,7 @@ npm run preview
 
 ## Typical local development loop
 
-1. Start `Core` from the repository root with `swift package --allow-writing-to-package-directory --allow-network-connections all sloppy-run`.
+1. Start `sloppy` from the repository root with `swift package --allow-writing-to-package-directory --allow-network-connections all sloppy-run`.
 2. If you need the Vite development server, start the dashboard from `Dashboard/` with `npm run dev`.
 3. Make a focused code change.
 4. Run the smallest relevant verification first.
@@ -165,7 +165,7 @@ These are the commands the repository expects contributors to keep green:
 
 ```bash
 swift test --parallel
-swift build -c release --product Core
+swift build -c release --product sloppy
 swift build -c release --product Node
 swift build -c release --product App
 cd Dashboard
@@ -175,7 +175,7 @@ npm run build
 
 ## Notes
 
-- On first `swift package sloppy-run` or `swift run Core`, Sloppy can create a workspace layout and a default `sloppy.json`.
+- On first `swift package sloppy-run` or `swift run sloppy`, Sloppy can create a workspace layout and a default `sloppy.json`.
 - The generated config includes `visor.scheduler.enabled`, `visor.scheduler.intervalSeconds`, `visor.scheduler.jitterSeconds`, and `visor.bootstrapBulletin`.
 - Model providers use environment variables for API keys when no key is set in config. See the [Model Providers](./models.md) guide for details.
 - Ollama uses the local endpoint by default and requires no API key.

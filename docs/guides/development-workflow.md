@@ -11,7 +11,7 @@ This guide explains how to work on Sloppy in development and which repository ru
 
 | Path | Responsibility |
 | --- | --- |
-| `Sources/Core` | Backend executable, HTTP server, routing, orchestration, config, persistence |
+| `Sources/sloppy` | Backend executable, HTTP server, routing, orchestration, config, persistence |
 | `Sources/AgentRuntime` | Runtime actors and orchestration for channels, branches, workers, compactor, and visor |
 | `Sources/Protocols` | Shared wire models and JSON helpers |
 | `Sources/PluginSDK` | Plugin contracts for models, tools, memory, and gateways |
@@ -33,7 +33,7 @@ Pick one of the build guides first:
 
 For day-to-day development, direct terminal builds are the default path because they give a faster feedback loop.
 
-## Core development rules
+## sloppy development rules
 
 ### Architecture boundaries
 
@@ -98,9 +98,9 @@ Run the smallest relevant checks first, then move to broader validation.
 Examples:
 
 ```bash
-swift test --filter CoreTests
+swift test --filter sloppyTests
 swift test --filter AgentRuntimeTests
-swift build -c release --product Core
+swift build -c release --product sloppy
 ```
 
 For dashboard work:
@@ -116,14 +116,14 @@ Before opening a PR, run:
 
 ```bash
 swift test --parallel
-swift build -c release --product Core
+swift build -c release --product sloppy
 swift build -c release --product Node
 swift build -c release --product App
 cd Dashboard
 
 ## Built-in channel config
 
-Core can bootstrap built-in channel gateways directly from `sloppy.json`.
+sloppy can bootstrap built-in channel gateways directly from `sloppy.json`.
 
 Example Discord configuration:
 

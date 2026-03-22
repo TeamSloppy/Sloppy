@@ -9,7 +9,7 @@ public enum ChannelAccessResult: Sendable {
     case blocked
 }
 
-/// Receives inbound messages from external channels and routes them into Core.
+/// Receives inbound messages from external channels and routes them into sloppy.
 /// Implementations bridge external platforms (Telegram, Slack, etc.) to channel runtime.
 public protocol InboundMessageReceiver: Sendable {
     func postMessage(channelId: String, userId: String, content: String) async -> Bool

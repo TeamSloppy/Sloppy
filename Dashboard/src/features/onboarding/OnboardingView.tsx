@@ -68,7 +68,7 @@ const PROVIDERS: ProviderDefinition[] = [
     title: "OpenAI Codex",
     description: "ChatGPT/Codex login via OpenAI OAuth.",
     requiresApiKey: false,
-    authHint: "Uses OAuth tokens stored by Core. Connection test loads Codex models from the ChatGPT backend.",
+    authHint: "Uses OAuth tokens stored by Sloppy. Connection test loads Codex models from the ChatGPT backend.",
     defaultEntry: {
       title: "openai-oauth",
       apiKey: "",
@@ -386,7 +386,7 @@ export function OnboardingView({ coreApi, initialConfig, onCompleted }: Onboardi
     if (!response) {
       setProbeOk(false);
       setProbeModels([]);
-      setProbeStatus("Probe failed. Core did not return a provider response.");
+      setProbeStatus("Probe failed. Sloppy did not return a provider response.");
       return;
     }
 
@@ -759,7 +759,7 @@ export function OnboardingView({ coreApi, initialConfig, onCompleted }: Onboardi
                     <input
                       value={projectName}
                       onChange={(event) => setProjectName(event.target.value)}
-                      placeholder="Acme Core"
+                      placeholder="Acme Sloppy"
                       autoFocus
                     />
                   </label>

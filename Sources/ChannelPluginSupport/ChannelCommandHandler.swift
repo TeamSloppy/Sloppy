@@ -17,7 +17,7 @@ public struct ChannelCommandHandler: Sendable {
     public static let commands: [BotCommand] = [
         BotCommand(name: "help", description: "Show available commands"),
         BotCommand(name: "status", description: "Check plugin connectivity"),
-        BotCommand(name: "task", description: "Create a task via Core", argument: "description"),
+        BotCommand(name: "task", description: "Create a task via Sloppy", argument: "description"),
         BotCommand(name: "model", description: "Show or switch model", argument: "model_id"),
         BotCommand(name: "context", description: "Show token usage and context info"),
         BotCommand(name: "abort", description: "Abort current agent processing"),
@@ -50,7 +50,7 @@ public struct ChannelCommandHandler: Sendable {
         }
 
         if lower == "/status" {
-            return "Plugin is running. Messages are forwarded to Core."
+            return "Plugin is running. Messages are forwarded to Sloppy."
         }
 
         if lower.hasPrefix("/task ") {

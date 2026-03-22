@@ -1,8 +1,8 @@
 services:
-  core:
+  sloppy:
     build:
       context: ../..
-      dockerfile: utils/docker/core.Dockerfile
+      dockerfile: utils/docker/sloppy.Dockerfile
       args:
         SWIFT_BUILD_CONFIGURATION: ${SWIFT_BUILD_CONFIGURATION:-release}
     # env_file:
@@ -30,7 +30,7 @@ services:
       BRAVE_API_KEY: ${BRAVE_API_KEY:-}
       PERPLEXITY_API_KEY: ${PERPLEXITY_API_KEY:-}
     depends_on:
-      - core
+      - sloppy
 
 volumes:
   sloppy:

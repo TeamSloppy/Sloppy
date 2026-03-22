@@ -288,7 +288,7 @@ function CountersSection({ agents, workers }) {
       icon: "support_agent",
       value: agentCount,
       label: "Agents Available",
-      sub: `Registered in Core`
+      sub: "Registered in sloppy"
     },
     {
       id: "active",

@@ -32,7 +32,7 @@ async function request(pathname, options = {}) {
   const data = text ? safeParseJSON(text) : null;
 
   if (!response.ok) {
-    throw new Error(`Core request failed for ${pathname}: ${response.status} ${text}`);
+    throw new Error(`Sloppy request failed for ${pathname}: ${response.status} ${text}`);
   }
 
   return data;
@@ -46,7 +46,7 @@ async function requestOrNull(pathname) {
 
   const text = await response.text();
   if (!response.ok) {
-    throw new Error(`Core request failed for ${pathname}: ${response.status} ${text}`);
+    throw new Error(`Sloppy request failed for ${pathname}: ${response.status} ${text}`);
   }
 
   return text ? safeParseJSON(text) : null;

@@ -32,7 +32,7 @@ All control-plane events use JSON envelope:
 - `compactor.summary.applied`
 - `visor.bulletin.generated`
 
-## Core Policies
+## Sloppy Policies
 - Routing: rule-based thresholds and keyword heuristics.
 - Branch persistence: ephemeral; only conclusion and references survive.
 - Compactor thresholds: `>80%` soft, `>85%` aggressive, `>95%` emergency.

@@ -101,7 +101,7 @@ function AgentsIndexSection({
     <section className="agents-index">
       {isLoadingAgents ? (
         <div className="agents-empty-stage">
-          <p className="app-status-text">Loading agents from Core...</p>
+          <p className="app-status-text">Loading agents from Sloppy...</p>
         </div>
       ) : agents.length === 0 ? (
         <div className="agents-empty-stage">
@@ -167,7 +167,7 @@ export function AgentsView({ routeAgentId = null, routeTab = "overview", onRoute
 
   useEffect(() => {
     refreshAgents().catch(() => {
-      setStatusText("Failed to load agents from Core");
+      setStatusText("Failed to load agents from Sloppy");
       setIsLoadingAgents(false);
     });
   }, []);
@@ -192,7 +192,7 @@ export function AgentsView({ routeAgentId = null, routeTab = "overview", onRoute
     setIsLoadingAgents(true);
     const response = await fetchAgents();
     if (!Array.isArray(response)) {
-      setStatusText("Failed to load agents from Core");
+      setStatusText("Failed to load agents from Sloppy");
       setIsLoadingAgents(false);
       return;
     }
@@ -204,7 +204,7 @@ export function AgentsView({ routeAgentId = null, routeTab = "overview", onRoute
 
     setAgents(normalized);
     setIsLoadingAgents(false);
-    setStatusText(normalized.length > 0 ? `Loaded ${normalized.length} agents from Core` : "No agents yet. Create one.");
+    setStatusText(normalized.length > 0 ? `Loaded ${normalized.length} agents from Sloppy` : "No agents yet. Create one.");
   }
 
   function navigateToAgent(agentId, tab = "overview") {
@@ -258,13 +258,13 @@ export function AgentsView({ routeAgentId = null, routeTab = "overview", onRoute
     });
 
     if (!response) {
-      setCreateError("Failed to create agent in Core. Check ID format and duplicates.");
+      setCreateError("Failed to create agent in Sloppy. Check ID format and duplicates.");
       return;
     }
 
     setAgents((previous) => mergeAgent(previous, response));
     setForm(emptyAgentForm());
-    setStatusText(`Agent ${response.id} created in Core`);
+    setStatusText(`Agent ${response.id} created in Sloppy`);
     setIsCreateModalOpen(false);
   }
 
@@ -326,7 +326,7 @@ export function AgentsView({ routeAgentId = null, routeTab = "overview", onRoute
         <section className="entry-editor-card">
           <h2>{isLoadingAgents ? "Loading agent..." : "Agent Not Found"}</h2>
           <p className="placeholder-text">
-            {isLoadingAgents ? "Synchronizing agent data from Core." : `Agent with id ${routeAgentId} does not exist in Core.`}
+            {isLoadingAgents ? "Synchronizing agent data from Sloppy." : `Agent with id ${routeAgentId} does not exist in Sloppy.`}
           </p>
           <div className="agent-inline-actions">
             <button type="button" onClick={navigateToAgentList}>

@@ -118,7 +118,7 @@ export function LogsView({ coreApi }: LogsViewProps) {
 
       const response = await coreApi.fetchSystemLogs();
       if (!response) {
-        setStatusText("Failed to load logs from Core.");
+        setStatusText("Failed to load logs from Sloppy.");
         setIsLoading(false);
         return;
       }
@@ -136,7 +136,7 @@ export function LogsView({ coreApi }: LogsViewProps) {
 
   useEffect(() => {
     loadLogs().catch(() => {
-      setStatusText("Failed to load logs from Core.");
+      setStatusText("Failed to load logs from Sloppy.");
       setIsLoading(false);
     });
   }, [loadLogs]);

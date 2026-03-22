@@ -95,7 +95,7 @@ export function SearchToolsEditor({ draftConfig, searchProviderStatus, mutateDra
                     />
                     {status?.hasEnvironmentKey ? (
                       <span className="entry-form-hint">
-                        Using {provider.id === "brave" ? "BRAVE_API_KEY" : "PERPLEXITY_API_KEY"} from Core environment.
+                        Using {provider.id === "brave" ? "BRAVE_API_KEY" : "PERPLEXITY_API_KEY"} from Sloppy environment.
                       </span>
                     ) : (
                       <span className="entry-form-hint">Stored in runtime config as fallback when env is missing.</span>

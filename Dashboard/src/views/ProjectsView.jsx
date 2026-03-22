@@ -759,7 +759,7 @@ export function ProjectsView({
 
   useEffect(() => {
     loadProjects().catch(() => {
-      setStatusText("Failed to load projects from Core.");
+      setStatusText("Failed to load projects from Sloppy.");
       setIsLoadingProjects(false);
     });
   }, []);
@@ -924,7 +924,7 @@ export function ProjectsView({
     setIsLoadingProjects(true);
     const response = await fetchProjectsRequest();
     if (!Array.isArray(response)) {
-      setStatusText("Failed to load projects from Core.");
+      setStatusText("Failed to load projects from Sloppy.");
       setIsLoadingProjects(false);
       return;
     }
@@ -932,7 +932,7 @@ export function ProjectsView({
     const normalized = response.map((project, index) => normalizeProject(project, index));
 
     setProjects(normalized);
-    setStatusText(normalized.length > 0 ? `Loaded ${normalized.length} projects from Core` : "No projects yet.");
+    setStatusText(normalized.length > 0 ? `Loaded ${normalized.length} projects from Sloppy` : "No projects yet.");
     setIsLoadingProjects(false);
     if (routeProjectId && !normalized.some((project) => project.id === routeProjectId)) {
       onRouteProjectChange(null, null);
@@ -1044,7 +1044,7 @@ export function ProjectsView({
     });
 
     if (!created) {
-      setStatusText("Failed to create project in Core.");
+      setStatusText("Failed to create project in Sloppy.");
       return;
     }
 
@@ -1072,7 +1072,7 @@ export function ProjectsView({
 
     const updated = await updateProjectRequest(projectId, { name: nextName });
     if (!updated) {
-      setStatusText("Failed to rename project in Core.");
+      setStatusText("Failed to rename project in Sloppy.");
       return;
     }
 
@@ -1093,7 +1093,7 @@ export function ProjectsView({
 
     const ok = await deleteProjectRequest(projectId);
     if (!ok) {
-      setStatusText("Failed to delete project in Core.");
+      setStatusText("Failed to delete project in Sloppy.");
       return;
     }
 
@@ -1180,7 +1180,7 @@ export function ProjectsView({
       changedBy: "user"
     });
     if (!updated) {
-      setStatusText("Failed to update task in Core.");
+      setStatusText("Failed to update task in Sloppy.");
       return;
     }
     replaceProjectInState(updated);
@@ -1236,7 +1236,7 @@ export function ProjectsView({
     });
 
     if (!updated) {
-      setStatusText("Failed to create task in Core.");
+      setStatusText("Failed to create task in Sloppy.");
       return;
     }
 

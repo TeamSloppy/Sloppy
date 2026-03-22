@@ -16,7 +16,7 @@ struct SloppyRunPlugin: CommandPlugin {
         }
 
         let buildResult = try packageManager.build(
-            .product("Core"),
+            .product("sloppy"),
             parameters: .init(
                 configuration: .release,
                 logging: .concise,
@@ -29,15 +29,15 @@ struct SloppyRunPlugin: CommandPlugin {
         }
 
         guard let executableURL = buildResult.builtArtifacts.first(where: {
-            $0.kind == .executable && $0.url.lastPathComponent == "Core"
+            $0.kind == .executable && $0.url.lastPathComponent == "sloppy"
         })?.url else {
-            throw PluginError.message("SwiftPM built Core, but the executable artifact could not be located.")
+            throw PluginError.message("SwiftPM built sloppy, but the executable artifact could not be located.")
         }
 
-        Diagnostics.remark("Launching Core from \(executableURL.path)")
+        Diagnostics.remark("Launching sloppy from \(executableURL.path)")
         try runProcess(
             executableURL: executableURL,
-            arguments: invocation.coreArguments,
+            arguments: invocation.sloppyArguments,
             currentDirectoryURL: context.package.directoryURL,
             environment: ProcessInfo.processInfo.environment
         )
@@ -205,17 +205,17 @@ struct SloppyRunPlugin: CommandPlugin {
 
 private struct Invocation {
     let skipDashboard: Bool
-    let coreArguments: [String]
+    let sloppyArguments: [String]
 
     init(arguments: [String]) throws {
         var skipDashboard = false
-        var coreArguments: [String] = []
+        var sloppyArguments: [String] = []
         var index = 0
 
         while index < arguments.count {
             let argument = arguments[index]
             if argument == "--" {
-                coreArguments = Array(arguments[(index + 1)...])
+                sloppyArguments = Array(arguments[(index + 1)...])
                 break
             }
 
@@ -223,22 +223,22 @@ private struct Invocation {
             case "--no-dashboard":
                 skipDashboard = true
             case "--oneshot", "--run-demo-request":
-                coreArguments.append(argument)
+                sloppyArguments.append(argument)
             case "--config-path":
                 let valueIndex = index + 1
                 guard valueIndex < arguments.count else {
                     throw PluginError.message("Missing value for --config-path.")
                 }
-                coreArguments.append(argument)
-                coreArguments.append(arguments[valueIndex])
+                sloppyArguments.append(argument)
+                sloppyArguments.append(arguments[valueIndex])
                 index = valueIndex
             default:
                 if let value = Self.parseEqualsValue(argument, flag: "--config-path") {
-                    coreArguments.append("--config-path")
-                    coreArguments.append(value)
+                    sloppyArguments.append("--config-path")
+                    sloppyArguments.append(value)
                 } else {
                     throw PluginError.message(
-                        "Unknown plugin argument '\(argument)'. Supported direct Core flags: --oneshot, --run-demo-request, --config-path <path>. Use '--' for any other Core arguments."
+                        "Unknown plugin argument '\(argument)'. Supported direct sloppy flags: --oneshot, --run-demo-request, --config-path <path>. Use '--' for any other sloppy arguments."
                     )
                 }
             }
@@ -247,7 +247,7 @@ private struct Invocation {
         }
 
         self.skipDashboard = skipDashboard
-        self.coreArguments = coreArguments
+        self.sloppyArguments = sloppyArguments
     }
 
     private static func parseEqualsValue(_ argument: String, flag: String) -> String? {

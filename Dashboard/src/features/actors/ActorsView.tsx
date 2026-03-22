@@ -398,7 +398,7 @@ export function ActorsView() {
       }
 
       if (!response) {
-        setStatusText("Failed to load Actors board from Core");
+        setStatusText("Failed to load Actors board from sloppy");
         setIsLoading(false);
         return;
       }
@@ -413,7 +413,7 @@ export function ActorsView() {
 
     loadBoard().catch(() => {
       if (!isCancelled) {
-        setStatusText("Failed to load Actors board from Core");
+        setStatusText("Failed to load Actors board from sloppy");
         setIsLoading(false);
       }
     });

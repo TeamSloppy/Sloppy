@@ -1,0 +1,376 @@
+import ArgumentParser
+import Configuration
+import Foundation
+import Logging
+import Protocols
+#if os(Linux)
+import Glibc
+#else
+import Darwin
+#endif
+
+@main
+struct SloppyApp: AsyncParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "sloppy",
+        abstract: "Starts the Sloppy runtime entrypoint."
+    )
+
+    @Option(name: [.short, .long], help: "Path to JSON config file")
+    var configPath: String?
+
+    @Flag(name: .long, inversion: .prefixedNo, help: "Overrides config and controls the immediate visor bulletin after boot")
+    var bootstrapBulletin: Bool?
+
+    @Flag(name: .long, help: "Run one-shot startup flow and exit")
+    var oneshot: Bool = false
+
+    @Option(name: .customLong("generate-openapi"), help: "Generate OpenAPI (Swagger) specification and save to the provided path")
+    var openapiPath: String?
+
+    mutating func run() async throws {
+        var runtimeLogger: Logger?
+
+        do {
+            var explicitConfigPath = normalizedConfigPath(configPath)
+            var config = CoreConfig.load(from: explicitConfigPath)
+
+            if #available(macOS 15.0, *) {
+                let envConfig = ConfigReader(providers: [EnvironmentVariablesProvider()])
+                if let envConfigPath = normalizedConfigPath(
+                    envConfig.string(forKey: "core.config.path", default: "")
+                ) {
+                    explicitConfigPath = envConfigPath
+                    config = CoreConfig.load(from: explicitConfigPath)
+                }
+
+                applyEnvironmentOverrides(config: &config, envConfig: envConfig)
+
+                if explicitConfigPath == nil {
+                    let workspaceConfigPath = CoreConfig.defaultConfigPath(for: config.workspace)
+                    if FileManager.default.fileExists(atPath: workspaceConfigPath) {
+                        config = CoreConfig.load(from: workspaceConfigPath)
+                        applyEnvironmentOverrides(config: &config, envConfig: envConfig)
+                    }
+                }
+            } else if explicitConfigPath == nil {
+                let workspaceConfigPath = CoreConfig.defaultConfigPath(for: config.workspace)
+                if FileManager.default.fileExists(atPath: workspaceConfigPath) {
+                    config = CoreConfig.load(from: workspaceConfigPath)
+                }
+            }
+
+            let workspaceRoot = try prepareWorkspace(config: &config)
+            let systemLogFileURL = defaultSystemLogFileURL(in: workspaceRoot)
+            await LoggingBootstrapper.shared.bootstrapIfNeeded(logFileURL: systemLogFileURL)
+            let logger = Logger(label: "sloppy.core.main")
+            runtimeLogger = logger
+            await FatalSignalLogger.shared.installIfNeeded()
+            logger.info("Workspace prepared at \(workspaceRoot.path)")
+            logger.info("System logs are persisted at \(systemLogFileURL.path)")
+
+            let resolvedConfigPath = explicitConfigPath ??
+                workspaceRoot.appendingPathComponent(CoreConfig.defaultConfigFileName).path
+            try ensureConfigFileExists(path: resolvedConfigPath, config: config, logger: logger)
+
+            if let error = CorePersistenceFactory.prepareSQLiteDatabaseIfNeeded(config: config) {
+                logger.warning("SQLite initialization failed at \(config.sqlitePath): \(error); runtime will use fallback persistence if needed")
+            }
+
+            let service = CoreService(config: config, configPath: resolvedConfigPath)
+            let router = CoreRouter(service: service)
+            let server = CoreHTTPServer(
+                host: config.listen.host,
+                port: config.listen.port,
+                router: router,
+                logger: logger
+            )
+
+            if let openapiPath = openapiPath {
+                let data = try await router.generateOpenAPISpec()
+                try data.write(to: URL(fileURLWithPath: openapiPath))
+                logger.info("OpenAPI specification generated at \(openapiPath)")
+
+                let docsPublicURL = repoRootURL()
+                    .appendingPathComponent("docs/public/swagger.json")
+                try FileManager.default.createDirectory(
+                    at: docsPublicURL.deletingLastPathComponent(),
+                    withIntermediateDirectories: true
+                )
+                try data.write(to: docsPublicURL, options: .atomic)
+                logger.info("OpenAPI specification copied to \(docsPublicURL.path)")
+                return
+            }
+
+            logger.info("sloppy initialized")
+
+            await service.bootstrapChannelPlugins()
+
+            if !oneshot {
+                try server.start()
+                printStartupBanner(config: config)
+                logger.info("sloppy HTTP server listening on \(config.listen.host):\(config.listen.port)")
+            }
+
+            if shouldBootstrapVisorBulletin(cliOverride: bootstrapBulletin, config: config) {
+                let bulletin = await service.triggerVisorBulletin()
+                logger.info("Visor bulletin generated: \(bulletin.headline)")
+            }
+
+            // Foreground server mode by default: keep process alive for container/service runtime.
+            if !oneshot {
+                logger.info("sloppy foreground server mode is active")
+                defer {
+                    try? server.shutdown()
+                    Task { await service.shutdownChannelPlugins() }
+                }
+                try server.waitUntilClosed()
+            }
+        } catch {
+            if let runtimeLogger {
+                runtimeLogger.critical("sloppy is exiting because of an unrecoverable error: \(String(describing: error))")
+            } else {
+                emitBootstrapWarning("sloppy is exiting because of an unrecoverable error: \(String(describing: error))")
+            }
+            throw error
+        }
+    }
+}
+
+func shouldBootstrapVisorBulletin(cliOverride: Bool?, config: CoreConfig) -> Bool {
+    cliOverride ?? config.visor.bootstrapBulletin
+}
+
+@available(macOS 15.0, *)
+private func applyEnvironmentOverrides(config: inout CoreConfig, envConfig: ConfigReader) {
+    config.listen.host = envConfig.string(forKey: "core.listen.host", default: config.listen.host)
+    config.listen.port = envConfig.int(forKey: "core.listen.port", default: config.listen.port)
+    config.workspace.name = envConfig.string(forKey: "core.workspace.name", default: config.workspace.name)
+    let workspaceBasePath = envConfig.string(
+        forKey: "core.workspace.base_path",
+        default: config.workspace.basePath
+    )
+    config.workspace.basePath = envConfig.string(
+        forKey: "core.workspace.basePath",
+        default: workspaceBasePath
+    )
+    config.auth.token = envConfig.string(forKey: "core.auth.token", default: config.auth.token)
+    config.sqlitePath = envConfig.string(forKey: "core.sqlite.path", default: config.sqlitePath)
+}
+
+private func repoRootURL(filePath: String = #filePath) -> URL {
+    URL(fileURLWithPath: filePath)
+        .deletingLastPathComponent() // sloppy/
+        .deletingLastPathComponent() // Sources/
+        .deletingLastPathComponent() // repo root
+}
+
+private func normalizedConfigPath(_ raw: String?) -> String? {
+    guard let raw else {
+        return nil
+    }
+
+    let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !trimmed.isEmpty else {
+        return nil
+    }
+    return trimmed
+}
+
+private func ensureConfigFileExists(path: String, config: CoreConfig, logger: Logger) throws {
+    let fileManager = FileManager.default
+    let configURL = URL(fileURLWithPath: path)
+    if fileManager.fileExists(atPath: configURL.path) {
+        return
+    }
+
+    let parentDirectory = configURL.deletingLastPathComponent()
+    try fileManager.createDirectory(at: parentDirectory, withIntermediateDirectories: true)
+
+    let encoder = JSONEncoder()
+    encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+    let payload = try encoder.encode(config) + Data("\n".utf8)
+    try payload.write(to: configURL, options: .atomic)
+    logger.info("Config initialized at \(configURL.path)")
+}
+
+private func prepareWorkspace(config: inout CoreConfig) throws -> URL {
+    let workspaceRoot = config.resolvedWorkspaceRootURL()
+
+    do {
+        try createWorkspaceDirectories(at: workspaceRoot)
+        config.sqlitePath = resolveSQLitePath(sqlitePath: config.sqlitePath, workspaceRoot: workspaceRoot)
+        return workspaceRoot
+    } catch {
+        let fallbackBasePath = "/tmp/sloppy"
+        let fallbackRoot = URL(fileURLWithPath: fallbackBasePath, isDirectory: true)
+            .appendingPathComponent(config.workspace.name, isDirectory: true)
+
+        emitBootstrapWarning(
+            "Failed to create workspace at \(workspaceRoot.path), falling back to \(fallbackRoot.path): \(error)"
+        )
+
+        try createWorkspaceDirectories(at: fallbackRoot)
+        config.workspace.basePath = fallbackBasePath
+        config.sqlitePath = resolveSQLitePath(sqlitePath: config.sqlitePath, workspaceRoot: fallbackRoot)
+        return fallbackRoot
+    }
+}
+
+private func createWorkspaceDirectories(at workspaceRoot: URL) throws {
+    let fileManager = FileManager.default
+    let directories = [
+        workspaceRoot,
+        workspaceRoot.appendingPathComponent("agents", isDirectory: true),
+        workspaceRoot.appendingPathComponent("actors", isDirectory: true),
+        workspaceRoot.appendingPathComponent("sessions", isDirectory: true),
+        workspaceRoot.appendingPathComponent("artifacts", isDirectory: true),
+        workspaceRoot.appendingPathComponent("memory", isDirectory: true),
+        workspaceRoot.appendingPathComponent("logs", isDirectory: true),
+        workspaceRoot.appendingPathComponent("plugins", isDirectory: true),
+        workspaceRoot.appendingPathComponent("tmp", isDirectory: true)
+    ]
+
+    for directory in directories {
+        try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
+    }
+}
+
+private func resolveSQLitePath(sqlitePath: String, workspaceRoot: URL) -> String {
+    if sqlitePath.hasPrefix("/") {
+        return sqlitePath
+    }
+    return workspaceRoot.appendingPathComponent(sqlitePath).path
+}
+
+private func defaultSystemLogFileURL(in workspaceRoot: URL, now: Date = Date()) -> URL {
+    let formatter = DateFormatter()
+    formatter.locale = Locale(identifier: "en_US_POSIX")
+    formatter.timeZone = TimeZone(secondsFromGMT: 0)
+    formatter.dateFormat = "yyyy-MM-dd"
+    let suffix = formatter.string(from: now)
+    return workspaceRoot
+        .appendingPathComponent("logs", isDirectory: true)
+        .appendingPathComponent("core-\(suffix).log")
+}
+
+private func emitBootstrapWarning(_ message: String) {
+    let payload = "[warning] \(message)\n"
+    payload.withCString { pointer in
+        _ = write(STDERR_FILENO, pointer, strlen(pointer))
+    }
+}
+
+private actor LoggingBootstrapper {
+    static let shared = LoggingBootstrapper()
+
+    private var isBootstrapped = false
+
+    func bootstrapIfNeeded(logFileURL: URL) {
+        guard !isBootstrapped else {
+            return
+        }
+
+        SystemJSONLLogHandler.configure(fileURL: logFileURL)
+        LoggingSystem.bootstrap { label in
+            MultiplexLogHandler([
+                ColoredLogHandler.standardError(label: label),
+                SystemJSONLLogHandler(label: label)
+            ])
+        }
+        isBootstrapped = true
+    }
+}
+
+private actor FatalSignalLogger {
+    static let shared = FatalSignalLogger()
+
+    private var isInstalled = false
+    private let trackedSignals: [Int32] = [SIGABRT, SIGILL, SIGTRAP, SIGSEGV, SIGBUS, SIGFPE]
+
+    func installIfNeeded() {
+        guard !isInstalled else {
+            return
+        }
+        isInstalled = true
+
+        for code in trackedSignals {
+            _ = signal(code, coreFatalSignalHandler)
+        }
+    }
+}
+
+private func coreFatalSignalHandler(_ signalCode: Int32) {
+    let signalName = signalNameForCode(signalCode)
+    let text = "sloppy fatal signal \(signalCode) (\(signalName)). Process will exit.\n"
+    text.withCString { pointer in
+        _ = write(STDERR_FILENO, pointer, strlen(pointer))
+    }
+
+    _ = signal(signalCode, SIG_DFL)
+    _ = raise(signalCode)
+}
+
+private func printStartupBanner(config: CoreConfig) {
+    let isColor: Bool = {
+        if let term = ProcessInfo.processInfo.environment["TERM"], !term.isEmpty, term != "dumb" {
+            return true
+        }
+        return ProcessInfo.processInfo.environment["COLORTERM"] != nil
+            || ProcessInfo.processInfo.environment["FORCE_COLOR"] != nil
+    }()
+
+    let cyan  = isColor ? "\u{1B}[36m" : ""
+    let green = isColor ? "\u{1B}[32m" : ""
+    let dim   = isColor ? "\u{1B}[2m"  : ""
+    let bold  = isColor ? "\u{1B}[1m"  : ""
+    let reset = isColor ? "\u{1B}[0m"  : ""
+
+    let host = config.listen.host
+    let port = config.listen.port
+    let authStatus = config.auth.token.isEmpty ? "none" : "ready"
+
+    let rows: [(String, String)] = [
+        ("Server", "\(port)"),
+        ("API", "http://\(host):\(port)"),
+        ("Health", "http://\(host):\(port)/health"),
+        ("Auth", authStatus),
+        ("Memory", config.memory.backend),
+        ("Workspace", config.workspace.name),
+    ]
+
+    var info = ""
+    for (label, value) in rows {
+        let padded = label.padding(toLength: 16, withPad: " ", startingAt: 0)
+        info += "\(dim)\(padded)\(reset)\(green)\(value)\(reset)\n"
+    }
+
+    let banner = """
+
+    \(cyan)\(bold) ██████  ██       ██████  ██████  ██████  ██    ██
+    ██       ██      ██    ██ ██   ██ ██   ██  ██  ██
+     █████   ██      ██    ██ ██████  ██████    ████
+         ██  ██      ██    ██ ██      ██         ██
+    ██████   ███████  ██████  ██      ██         ██\(reset)
+
+    \(cyan)━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\(reset)
+    \(info)
+    """
+
+    let data = Array(banner.utf8)
+    data.withUnsafeBufferPointer { buf in
+        _ = write(STDERR_FILENO, buf.baseAddress, buf.count)
+    }
+}
+
+private func signalNameForCode(_ code: Int32) -> String {
+    switch code {
+    case SIGABRT: return "SIGABRT"
+    case SIGILL: return "SIGILL"
+    case SIGTRAP: return "SIGTRAP"
+    case SIGSEGV: return "SIGSEGV"
+    case SIGBUS: return "SIGBUS"
+    case SIGFPE: return "SIGFPE"
+    default: return "UNKNOWN"
+    }
+}

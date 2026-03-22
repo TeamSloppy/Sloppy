@@ -85,5 +85,5 @@ function emitNetworkError() {
   const now = Date.now();
   if (now - lastNetworkErrorTs < NETWORK_ERROR_THROTTLE_MS) return;
   lastNetworkErrorTs = now;
-  emitNotification("system_error", "Connection lost", "Failed to reach the backend. Check if Core is running.");
+  emitNotification("system_error", "Connection lost", "Failed to reach the backend. Check if Sloppy is running.");
 }

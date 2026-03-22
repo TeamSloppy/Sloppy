@@ -143,7 +143,7 @@ export function ProviderEditor({
                     placeholder="sk-..."
                   />
                   {providerModalMeta.id === "openai-api" && openAIProviderStatus.hasEnvironmentKey ? (
-                    <span className="placeholder-text">Using OPENAI_API_KEY from Core environment.</span>
+                    <span className="placeholder-text">Using OPENAI_API_KEY from Sloppy environment.</span>
                   ) : null}
                 </label>
               ) : null}

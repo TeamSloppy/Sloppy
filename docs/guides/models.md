@@ -109,7 +109,7 @@ No API key needed. Point `apiUrl` at any running Ollama instance. The probe endp
 
 ### Multiple providers
 
-The `models` array supports multiple entries. Core builds a composite model provider that routes requests based on the model prefix:
+The `models` array supports multiple entries. `sloppy` builds a composite model provider that routes requests based on the model prefix:
 
 ```json
 {
@@ -155,7 +155,7 @@ Set this via:
 
 ## Model resolution flow
 
-1. Core reads the `models` array from config at startup.
+1. `sloppy` reads the `models` array from config at startup.
 2. Each entry is resolved to a prefixed identifier (e.g. `openai:gpt-4.1-mini`) using either an explicit prefix in the `model` field or by inferring the provider from `title` and `apiUrl`.
 3. Factory classes build provider instances for each recognized prefix.
 4. A `CompositeModelProvider` combines all active providers.

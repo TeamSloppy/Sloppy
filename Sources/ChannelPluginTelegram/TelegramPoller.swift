@@ -3,7 +3,7 @@ import ChannelPluginSupport
 import Logging
 import PluginSDK
 
-/// Long-polls Telegram for updates and forwards messages to Core via InboundMessageReceiver.
+/// Long-polls Telegram for updates and forwards messages to sloppy via InboundMessageReceiver.
 actor TelegramPoller {
     private let bot: TelegramBotAPI
     private let receiver: any InboundMessageReceiver
@@ -99,7 +99,7 @@ actor TelegramPoller {
         logger.info("Routing message: chatId=\(chatId) → channelId=\(channelId)")
 
         if let localReply = commands.handle(text: text, from: displayName) {
-            logger.debug("Handled locally by CommandHandler, not forwarding to Core.")
+            logger.debug("Handled locally by CommandHandler, not forwarding to Sloppy.")
             _ = try? await bot.sendMessage(chatId: chatId, text: localReply)
             return
         }
@@ -113,10 +113,10 @@ actor TelegramPoller {
         )
 
         if ok {
-            logger.debug("Message forwarded to Core: channelId=\(channelId) userId=\(userIdString)")
+            logger.debug("Message forwarded to sloppy: channelId=\(channelId) userId=\(userIdString)")
         } else {
-            logger.warning("Failed to forward message to Core: channelId=\(channelId)")
-            _ = try? await bot.sendMessage(chatId: chatId, text: "Failed to reach Core. Please try again later.")
+            logger.warning("Failed to forward message to sloppy: channelId=\(channelId)")
+            _ = try? await bot.sendMessage(chatId: chatId, text: "Failed to reach Sloppy. Please try again later.")
         }
     }
 }

@@ -12,7 +12,7 @@ At its core, the project provides:
 
 | Component | Purpose |
 | --- | --- |
-| `Core` | HTTP API, routing layer, orchestration services, persistence, scheduling, and plugin bootstrap |
+| `sloppy` | HTTP API, routing layer, orchestration services, persistence, scheduling, and plugin bootstrap |
 | `AgentRuntime` | Runtime model built around `Channel`, `Branch`, `Worker`, `Compactor`, and `Visor` |
 | `PluginSDK` | Extension points for model providers, tools, memory, and gateways |
 | `Node` | Daemon for process execution |
@@ -81,10 +81,10 @@ swift package --allow-writing-to-package-directory --allow-network-connections a
 
 Notes:
 
-- By default this builds the production Dashboard bundle first, then builds and launches `Core`.
+- By default this builds the production Dashboard bundle first, then builds and launches `sloppy`.
 - Use `swift package --allow-writing-to-package-directory --allow-network-connections all sloppy-run --no-dashboard` to skip the Dashboard build step.
-- Common `Core` flags work directly, for example `swift package --allow-writing-to-package-directory --allow-network-connections all sloppy-run --config-path sloppy.json` or `swift package --allow-writing-to-package-directory --allow-network-connections all sloppy-run --oneshot`.
-- For any other `Core` arguments, keep using `--`, for example `swift package --allow-writing-to-package-directory --allow-network-connections all sloppy-run -- --your-custom-flag value`.
+- Common `sloppy` flags work directly, for example `swift package --allow-writing-to-package-directory --allow-network-connections all sloppy-run --config-path sloppy.json` or `swift package --allow-writing-to-package-directory --allow-network-connections all sloppy-run --oneshot`.
+- For any other `sloppy` arguments, keep using `--`, for example `swift package --allow-writing-to-package-directory --allow-network-connections all sloppy-run -- --your-custom-flag value`.
 - The SwiftPM plugin needs write access for the Dashboard bundle and declares network access so it can recover with `npm install` when Dashboard dependencies are missing or unusable.
 - On first start, Sloppy creates a workspace layout and a default `sloppy.json` config if one does not exist.
 - If `sqlitePath` points to a missing file, Sloppy creates `core.sqlite` and applies the schema automatically during startup.
@@ -96,7 +96,7 @@ Notes:
 Low-level alternative:
 
 ```bash
-swift run Core
+swift run sloppy
 ```
 
 ### 2. Start the dashboard
@@ -138,7 +138,7 @@ Yes. The repository includes a Telegram channel plugin that maps Telegram chats 
 
 ### Is the desktop app production-ready?
 
-Not yet. `Sources/App` exists, but the current MVP path is centered on `Core` and `Dashboard`.
+Not yet. `Sources/App` exists, but the current MVP path is centered on `sloppy` and `Dashboard`.
 
 ### Where can I read more about the runtime model?
 

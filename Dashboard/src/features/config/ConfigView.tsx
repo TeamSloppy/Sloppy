@@ -917,7 +917,7 @@ export function ConfigView({ sectionId = "providers", onSectionChange = null }) 
     });
 
     if (!response) {
-      setProviderStatus(provider.id, "Failed to load models from Core");
+      setProviderStatus(provider.id, "Failed to load models from sloppy");
       return;
     }
 
@@ -991,7 +991,7 @@ export function ConfigView({ sectionId = "providers", onSectionChange = null }) 
         return;
       }
       loadProviderModels(provider.id, providerForm).catch(() => {
-        setProviderStatus(provider.id, "Failed to load models from Core");
+        setProviderStatus(provider.id, "Failed to load models from sloppy");
       });
     }, 450);
 

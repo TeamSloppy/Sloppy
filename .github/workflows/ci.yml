@@ -73,8 +73,8 @@ jobs:
           apt-get update
           apt-get install -y libsqlite3-dev
 
-      - name: Build Core (Release)
-        run: swift build -c release --product Core
+      - name: Build sloppy (Release)
+        run: swift build -c release --product sloppy
 
       - name: Build Node (Release)
         run: swift build -c release --product Node
@@ -98,8 +98,8 @@ jobs:
       - name: Swift Version
         run: swift --version
 
-      - name: Build Core (Release)
-        run: swift build -c release --product Core
+      - name: Build sloppy (Release)
+        run: swift build -c release --product sloppy
 
       - name: Build Node (Release)
         run: swift build -c release --product Node
@@ -152,10 +152,10 @@ jobs:
         working-directory: Dashboard
         run: npx playwright install --with-deps chromium
 
-      - name: Start Core and Dashboard
+      - name: Start sloppy and Dashboard
         run: docker compose -f utils/docker/docker-compose.yml up -d --build
 
-      - name: Wait For Core
+      - name: Wait For sloppy
         run: |
           timeout 180 bash -lc 'until curl -fsS http://127.0.0.1:25101/v1/config >/dev/null; do sleep 2; done'
 
@@ -184,6 +184,6 @@ jobs:
           name: dashboard-happy-path-artifacts
           path: Dashboard/output/playwright/happy-path
 
-      - name: Stop Core and Dashboard
+      - name: Stop sloppy and Dashboard
         if: always()
         run: docker compose -f utils/docker/docker-compose.yml down -v

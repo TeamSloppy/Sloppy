@@ -6,7 +6,7 @@ export function ProjectList({ projects, isLoadingProjects, openProject, openCrea
         return (
             <section className="project-board-list">
                 <article className="project-board-card">
-                    <p className="app-status-text">Loading projects from Core...</p>
+                    <p className="app-status-text">Loading projects from Sloppy...</p>
                 </article>
             </section>
         );

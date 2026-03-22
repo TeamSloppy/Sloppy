@@ -332,7 +332,7 @@ actor DiscordGatewayLoop {
             content: text
         )
         if !ok {
-            logger.warning("Failed to forward interaction to Core: channelId=\(sloppyChannelId)")
+            logger.warning("Failed to forward interaction to sloppy: channelId=\(sloppyChannelId)")
         }
     }
 
@@ -434,7 +434,7 @@ actor DiscordGatewayLoop {
         if !ok {
             _ = try? await client.sendMessage(
                 channelId: message.channelId,
-                content: "Failed to reach Core. Please try again later."
+                content: "Failed to reach Sloppy. Please try again later."
             )
         }
     }
