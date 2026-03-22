@@ -2822,6 +2822,137 @@ func projectTaskUpdateAndCancelToolsMutateTaskState() async throws {
 }
 
 @Test
+func mcpConfigToolsSaveAndRemoveServer() async throws {
+    var config = CoreConfig.test
+    let configPath = FileManager.default.temporaryDirectory
+        .appendingPathComponent("sloppy-config-\(UUID().uuidString).json")
+        .path
+    let service = CoreService(config: config, configPath: configPath)
+    let agentID = "mcp-config-agent-\(UUID().uuidString)"
+
+    _ = try await service.createAgent(
+        AgentCreateRequest(
+            id: agentID,
+            displayName: "MCP Config Agent",
+            role: "MCP config tool regression"
+        )
+    )
+    let session = try await service.createAgentSession(
+        agentID: agentID,
+        request: AgentSessionCreateRequest(title: "MCP config tools")
+    )
+
+    let saveResult = await service.invokeToolFromRuntime(
+        agentID: agentID,
+        sessionID: session.id,
+        request: ToolInvocationRequest(
+            tool: "mcp.save_server",
+            arguments: [
+                "id": .string("docs"),
+                "transport": .string("stdio"),
+                "command": .string("/bin/echo"),
+                "arguments": .array([.string("hello")]),
+                "cwd": .string("."),
+                "timeoutMs": .number(250),
+                "toolPrefix": .string("docs")
+            ],
+            reason: "Persist MCP server config"
+        )
+    )
+    #expect(saveResult.ok)
+    #expect(saveResult.data?.asObject?["serverCount"]?.asInt == 1)
+
+    config = await service.runtimeConfig()
+    #expect(config.mcp.servers.count == 1)
+    #expect(config.mcp.servers.first?.id == "docs")
+    #expect(config.mcp.servers.first?.toolPrefix == "docs")
+
+    let removeResult = await service.invokeToolFromRuntime(
+        agentID: agentID,
+        sessionID: session.id,
+        request: ToolInvocationRequest(
+            tool: "mcp.remove_server",
+            arguments: ["server": .string("docs")],
+            reason: "Remove MCP server config"
+        )
+    )
+    #expect(removeResult.ok)
+    #expect(removeResult.data?.asObject?["serverCount"]?.asInt == 0)
+
+    config = await service.runtimeConfig()
+    #expect(config.mcp.servers.isEmpty)
+}
+
+@Test
+func mcpConfigToolsInstallAndUninstallServer() async throws {
+    var config = CoreConfig.test
+    let configPath = FileManager.default.temporaryDirectory
+        .appendingPathComponent("sloppy-config-\(UUID().uuidString).json")
+        .path
+    let service = CoreService(config: config, configPath: configPath)
+    let agentID = "mcp-install-agent-\(UUID().uuidString)"
+
+    _ = try await service.createAgent(
+        AgentCreateRequest(
+            id: agentID,
+            displayName: "MCP Install Agent",
+            role: "MCP install tool regression"
+        )
+    )
+    let session = try await service.createAgentSession(
+        agentID: agentID,
+        request: AgentSessionCreateRequest(title: "MCP install tools")
+    )
+
+    let installResult = await service.invokeToolFromRuntime(
+        agentID: agentID,
+        sessionID: session.id,
+        request: ToolInvocationRequest(
+            tool: "mcp.install_server",
+            arguments: [
+                "id": .string("echo"),
+                "transport": .string("stdio"),
+                "command": .string("/bin/echo"),
+                "arguments": .array([.string("server")]),
+                "cwd": .string("."),
+                "timeoutMs": .number(250),
+                "installCommand": .string("/bin/echo"),
+                "installArguments": .array([.string("install-ok")]),
+                "installCwd": .string(".")
+            ],
+            reason: "Install and persist MCP server"
+        )
+    )
+    #expect(installResult.ok)
+    #expect(installResult.data?.asObject?["install"]?.asObject?["exitCode"]?.asInt == 0)
+
+    config = await service.runtimeConfig()
+    #expect(config.mcp.servers.count == 1)
+    #expect(config.mcp.servers.first?.id == "echo")
+
+    let uninstallResult = await service.invokeToolFromRuntime(
+        agentID: agentID,
+        sessionID: session.id,
+        request: ToolInvocationRequest(
+            tool: "mcp.uninstall_server",
+            arguments: [
+                "server": .string("echo"),
+                "uninstallCommand": .string("/bin/echo"),
+                "uninstallArguments": .array([.string("uninstall-ok")]),
+                "uninstallCwd": .string("."),
+                "removeFromConfig": .bool(true)
+            ],
+            reason: "Uninstall and forget MCP server"
+        )
+    )
+    #expect(uninstallResult.ok)
+    #expect(uninstallResult.data?.asObject?["uninstall"]?.asObject?["exitCode"]?.asInt == 0)
+
+    config = await service.runtimeConfig()
+    #expect(config.mcp.servers.isEmpty)
+}
+
+@Test
 func tokenUsageEndpointFiltersByChannelId() async throws {
     let config = CoreConfig.test
     let service = CoreService(config: config)
