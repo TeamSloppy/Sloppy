@@ -59,9 +59,35 @@ swift build -c release --product Node
 swift build -c release --product App
 ```
 
-## Run the Swift targets
+## Preferred local launcher
 
-Start the core runtime:
+From the repository root:
+
+```bash
+swift package --allow-writing-to-package-directory --allow-network-connections all sloppy-run
+```
+
+This command:
+
+- builds `Dashboard` with `npm run build` by default
+- builds `Core` in release mode
+- launches `Core` in the foreground
+
+Useful variants:
+
+```bash
+swift package --allow-writing-to-package-directory --allow-network-connections all sloppy-run --no-dashboard
+swift package --allow-writing-to-package-directory --allow-network-connections all sloppy-run --config-path sloppy.json
+swift package --allow-writing-to-package-directory --allow-network-connections all sloppy-run --no-dashboard --oneshot
+```
+
+The plugin requires SwiftPM permission flags because it writes the Dashboard bundle into the package directory and may run `npm install` when `Dashboard/node_modules` is missing or unusable.
+Direct forwarding without `--` is intentionally supported only for common `Core` flags: `--oneshot`, `--run-demo-request`, and `--config-path`.
+Use `--` for any other `Core` arguments.
+
+## Run the Swift targets manually
+
+Start the core runtime directly:
 
 ```bash
 swift run Core
@@ -127,8 +153,8 @@ npm run preview
 
 ## Typical local development loop
 
-1. Start `Core` from the repository root with `swift run Core`.
-2. Start the dashboard from `Dashboard/` with `npm run dev`.
+1. Start `Core` from the repository root with `swift package --allow-writing-to-package-directory --allow-network-connections all sloppy-run`.
+2. If you need the Vite development server, start the dashboard from `Dashboard/` with `npm run dev`.
 3. Make a focused code change.
 4. Run the smallest relevant verification first.
 5. Before opening a PR, run the CI-parity checks listed below.
@@ -149,10 +175,11 @@ npm run build
 
 ## Notes
 
-- On first `swift run Core`, Sloppy can create a workspace layout and a default `sloppy.json`.
+- On first `swift package sloppy-run` or `swift run Core`, Sloppy can create a workspace layout and a default `sloppy.json`.
 - The generated config includes `visor.scheduler.enabled`, `visor.scheduler.intervalSeconds`, `visor.scheduler.jitterSeconds`, and `visor.bootstrapBulletin`.
 - Model providers use environment variables for API keys when no key is set in config. See the [Model Providers](./models.md) guide for details.
 - Ollama uses the local endpoint by default and requires no API key.
+- The plugin only builds the production Dashboard bundle; it does not start the Vite dev server.
 
 ### Environment variables
 

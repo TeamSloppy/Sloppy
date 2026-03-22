@@ -38,6 +38,72 @@ public struct WorkerSnapshot: Codable, Sendable, Equatable {
         self.latestReport = latestReport
         self.startedAt = startedAt
     }
+
+    enum CodingKeys: String, CodingKey {
+        case workerId
+        case channelId
+        case taskId
+        case status
+        case mode
+        case tools
+        case latestReport
+        case startedAt
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        workerId = try container.decode(String.self, forKey: .workerId)
+        channelId = try container.decode(String.self, forKey: .channelId)
+        taskId = try container.decode(String.self, forKey: .taskId)
+        status = try container.decode(WorkerStatus.self, forKey: .status)
+        mode = try container.decode(WorkerMode.self, forKey: .mode)
+        tools = try container.decode([String].self, forKey: .tools)
+        latestReport = try container.decodeIfPresent(String.self, forKey: .latestReport)
+        startedAt = try Self.decodeDateIfPresent(container: container, forKey: .startedAt)
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(workerId, forKey: .workerId)
+        try container.encode(channelId, forKey: .channelId)
+        try container.encode(taskId, forKey: .taskId)
+        try container.encode(status, forKey: .status)
+        try container.encode(mode, forKey: .mode)
+        try container.encode(tools, forKey: .tools)
+        try container.encodeIfPresent(latestReport, forKey: .latestReport)
+        try container.encodeIfPresent(startedAt, forKey: .startedAt)
+    }
+
+    private static func decodeDateIfPresent(
+        container: KeyedDecodingContainer<CodingKeys>,
+        forKey key: CodingKeys
+    ) throws -> Date? {
+        if let date = try? container.decodeIfPresent(Date.self, forKey: key) {
+            return date
+        }
+
+        guard let rawValue = try container.decodeIfPresent(String.self, forKey: key) else {
+            return nil
+        }
+
+        let iso8601Formatter = ISO8601DateFormatter()
+        iso8601Formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let date = iso8601Formatter.date(from: rawValue) {
+            return date
+        }
+
+        let fallbackFormatter = ISO8601DateFormatter()
+        fallbackFormatter.formatOptions = [.withInternetDateTime]
+        if let date = fallbackFormatter.date(from: rawValue) {
+            return date
+        }
+
+        throw DecodingError.dataCorruptedError(
+            forKey: key,
+            in: container,
+            debugDescription: "Unsupported date value: \(rawValue)"
+        )
+    }
 }
 
 public struct WorkerRouteResult: Sendable, Equatable {

@@ -73,20 +73,31 @@ Supported development environments:
 | macOS 14+ | Native development target for the Swift package |
 | Linux | Supported in CI and local terminal workflows; on Ubuntu/Debian install `libsqlite3-dev` |
 
-### 1. Start the Core runtime
+### 1. Start the local runtime
 
 ```bash
-swift run Core
+swift package --allow-writing-to-package-directory --allow-network-connections all sloppy-run
 ```
 
 Notes:
 
+- By default this builds the production Dashboard bundle first, then builds and launches `Core`.
+- Use `swift package --allow-writing-to-package-directory --allow-network-connections all sloppy-run --no-dashboard` to skip the Dashboard build step.
+- Common `Core` flags work directly, for example `swift package --allow-writing-to-package-directory --allow-network-connections all sloppy-run --config-path sloppy.json` or `swift package --allow-writing-to-package-directory --allow-network-connections all sloppy-run --oneshot`.
+- For any other `Core` arguments, keep using `--`, for example `swift package --allow-writing-to-package-directory --allow-network-connections all sloppy-run -- --your-custom-flag value`.
+- The SwiftPM plugin needs write access for the Dashboard bundle and declares network access so it can recover with `npm install` when Dashboard dependencies are missing or unusable.
 - On first start, Sloppy creates a workspace layout and a default `sloppy.json` config if one does not exist.
 - If `sqlitePath` points to a missing file, Sloppy creates `core.sqlite` and applies the schema automatically during startup.
 - Visor scheduling is configured through `sloppy.json` under `visor.scheduler`, and `visor.bootstrapBulletin` controls the immediate boot-time bulletin by default.
 - OpenAI-backed model flows require `OPENAI_API_KEY`.
 - Web search via tool `web.search` can use `BRAVE_API_KEY` or `PERPLEXITY_API_KEY`; environment keys override values saved in `sloppy.json` under `searchTools`.
 - Ollama-backed flows use the local Ollama endpoint by default.
+
+Low-level alternative:
+
+```bash
+swift run Core
+```
 
 ### 2. Start the dashboard
 

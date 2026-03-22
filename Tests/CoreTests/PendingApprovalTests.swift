@@ -160,7 +160,7 @@ func inMemoryAccessUserUpsert() async {
 // MARK: - CoreRouter channel-approvals endpoint tests
 
 private func makeApprovalService() -> CoreService {
-    CoreService(config: .default, persistenceBuilder: InMemoryCorePersistenceBuilder())
+    CoreService(config: .test, persistenceBuilder: InMemoryCorePersistenceBuilder())
 }
 
 @Test

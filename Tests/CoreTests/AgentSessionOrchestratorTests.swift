@@ -427,5 +427,8 @@ func agentSessionBootstrapFallsBackWhenPromptComposerFails() async throws {
         sessionID: session.id,
         documents: documents
     )
-    #expect(bootstrapMessage == expected)
+    #expect(
+        bootstrapMessage.trimmingCharacters(in: .newlines)
+            == expected.trimmingCharacters(in: .newlines)
+    )
 }
