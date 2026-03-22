@@ -5,20 +5,20 @@
             "request": "launch",
             "args": [],
             "cwd": "${workspaceFolder:Sloppy}",
-            "name": "Debug Core",
-            "target": "Core",
+            "name": "Debug Sloppy",
+            "target": "sloppy",
             "configuration": "debug",
-            "preLaunchTask": "swift: Build Debug Core"
+            "preLaunchTask": "swift: Build Debug Sloppy"
         },
         {
             "type": "swift",
             "request": "launch",
             "args": [],
             "cwd": "${workspaceFolder:Sloppy}",
-            "name": "Release Core",
-            "target": "Core",
+            "name": "Release Sloppy",
+            "target": "sloppy",
             "configuration": "release",
-            "preLaunchTask": "swift: Build Release Core"
+            "preLaunchTask": "swift: Build Release Sloppy"
         },
         {
             "type": "swift",
@@ -63,7 +63,7 @@
         {
             "type": "node",
             "request": "launch",
-            "name": "Docker: Core + Dashboard",
+            "name": "Docker: Sloppy + Dashboard",
             "skipFiles": [
                 "<node_internals>/**"
             ],
@@ -108,8 +108,8 @@
             "request": "launch",
             "args": [],
             "cwd": "${workspaceFolder:Sloppy}",
-            "name": "Local: Debug Core + Dashboard",
-            "target": "Core",
+            "name": "Local: Debug Sloppy + Dashboard",
+            "target": "sloppy",
             "configuration": "debug",
             "preLaunchTask": "Local: Dashboard Dev"
         }
