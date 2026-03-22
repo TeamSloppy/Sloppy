@@ -1,0 +1,309 @@
+import Foundation
+import Protocols
+
+struct ProjectsAPIRouter: APIRouter {
+    private let service: CoreService
+
+    init(service: CoreService) {
+        self.service = service
+    }
+
+    func configure(on router: CoreRouterRegistrar) {
+        router.get("/v1/projects", metadata: RouteMetadata(summary: "List projects", description: "Returns a list of all active projects", tags: ["Projects"])) { _ in
+            let projects = await service.listProjects()
+            return CoreRouter.encodable(status: HTTPStatus.ok, payload: projects)
+        }
+
+        router.get("/v1/projects/:projectId", metadata: RouteMetadata(summary: "Get project", description: "Returns details of a specific project", tags: ["Projects"])) { request in
+            let projectId = request.pathParam("projectId") ?? ""
+            do {
+                let project = try await service.getProject(id: projectId)
+                return CoreRouter.encodable(status: HTTPStatus.ok, payload: project)
+            } catch let error as CoreService.ProjectError {
+                return CoreRouter.projectErrorResponse(error, fallback: ErrorCode.projectReadFailed)
+            } catch {
+                return CoreRouter.json(status: HTTPStatus.internalServerError, payload: ["error": ErrorCode.projectReadFailed])
+            }
+        }
+
+        router.get("/v1/projects/:projectId/files", metadata: RouteMetadata(summary: "List project files", description: "Returns the file tree entries for a directory in the project workspace", tags: ["Projects"])) { request in
+            let projectId = request.pathParam("projectId") ?? ""
+            let path = request.queryParam("path") ?? ""
+            do {
+                let entries = try await service.listProjectFiles(projectID: projectId, path: path)
+                return CoreRouter.encodable(status: HTTPStatus.ok, payload: entries)
+            } catch let error as CoreService.ProjectError {
+                return CoreRouter.projectErrorResponse(error, fallback: ErrorCode.projectNotFound)
+            } catch {
+                return CoreRouter.json(status: HTTPStatus.internalServerError, payload: ["error": ErrorCode.projectNotFound])
+            }
+        }
+
+        router.get("/v1/projects/:projectId/files/content", metadata: RouteMetadata(summary: "Read project file", description: "Returns the text content of a file in the project workspace", tags: ["Projects"])) { request in
+            let projectId = request.pathParam("projectId") ?? ""
+            let path = request.queryParam("path") ?? ""
+            do {
+                let response = try await service.readProjectFile(projectID: projectId, path: path)
+                return CoreRouter.encodable(status: HTTPStatus.ok, payload: response)
+            } catch let error as CoreService.ProjectError {
+                return CoreRouter.projectErrorResponse(error, fallback: ErrorCode.projectNotFound)
+            } catch {
+                return CoreRouter.json(status: HTTPStatus.internalServerError, payload: ["error": ErrorCode.projectNotFound])
+            }
+        }
+
+        router.post("/v1/projects", metadata: RouteMetadata(summary: "Create project", description: "Creates a new project", tags: ["Projects"])) { request in
+            guard let body = request.body,
+                  let payload = CoreRouter.decode(body, as: ProjectCreateRequest.self)
+            else {
+                return CoreRouter.json(status: HTTPStatus.badRequest, payload: ["error": ErrorCode.invalidBody])
+            }
+
+            do {
+                let project = try await service.createProject(payload)
+                return CoreRouter.encodable(status: HTTPStatus.created, payload: project)
+            } catch let error as CoreService.ProjectError {
+                return CoreRouter.projectErrorResponse(error, fallback: ErrorCode.projectCreateFailed)
+            } catch {
+                return CoreRouter.json(status: HTTPStatus.internalServerError, payload: ["error": ErrorCode.projectCreateFailed])
+            }
+        }
+
+        router.post("/v1/projects/:projectId/channels", metadata: RouteMetadata(summary: "Create project channel", description: "Adds a new communication channel to a project", tags: ["Projects"])) { request in
+            let projectId = request.pathParam("projectId") ?? ""
+            guard let body = request.body,
+                  let payload = CoreRouter.decode(body, as: ProjectChannelCreateRequest.self)
+            else {
+                return CoreRouter.json(status: HTTPStatus.badRequest, payload: ["error": ErrorCode.invalidBody])
+            }
+
+            do {
+                let project = try await service.createProjectChannel(projectID: projectId, request: payload)
+                return CoreRouter.encodable(status: HTTPStatus.ok, payload: project)
+            } catch let error as CoreService.ProjectError {
+                return CoreRouter.projectErrorResponse(error, fallback: ErrorCode.projectUpdateFailed)
+            } catch {
+                return CoreRouter.json(status: HTTPStatus.internalServerError, payload: ["error": ErrorCode.projectUpdateFailed])
+            }
+        }
+
+        router.post("/v1/projects/:projectId/tasks", metadata: RouteMetadata(summary: "Create project task", description: "Adds a new task to a project", tags: ["Projects"])) { request in
+            let projectId = request.pathParam("projectId") ?? ""
+            guard let body = request.body,
+                  let payload = CoreRouter.decode(body, as: ProjectTaskCreateRequest.self)
+            else {
+                return CoreRouter.json(status: HTTPStatus.badRequest, payload: ["error": ErrorCode.invalidBody])
+            }
+
+            do {
+                let project = try await service.createProjectTask(projectID: projectId, request: payload)
+                return CoreRouter.encodable(status: HTTPStatus.ok, payload: project)
+            } catch let error as CoreService.ProjectError {
+                return CoreRouter.projectErrorResponse(error, fallback: ErrorCode.projectUpdateFailed)
+            } catch {
+                return CoreRouter.json(status: HTTPStatus.internalServerError, payload: ["error": ErrorCode.projectUpdateFailed])
+            }
+        }
+
+        router.patch("/v1/projects/:projectId", metadata: RouteMetadata(summary: "Update project", description: "Updates the details of an existing project", tags: ["Projects"])) { request in
+            let projectId = request.pathParam("projectId") ?? ""
+            guard let body = request.body,
+                  let payload = CoreRouter.decode(body, as: ProjectUpdateRequest.self)
+            else {
+                return CoreRouter.json(status: HTTPStatus.badRequest, payload: ["error": ErrorCode.invalidBody])
+            }
+
+            do {
+                let project = try await service.updateProject(projectID: projectId, request: payload)
+                return CoreRouter.encodable(status: HTTPStatus.ok, payload: project)
+            } catch let error as CoreService.ProjectError {
+                return CoreRouter.projectErrorResponse(error, fallback: ErrorCode.projectUpdateFailed)
+            } catch {
+                return CoreRouter.json(status: HTTPStatus.internalServerError, payload: ["error": ErrorCode.projectUpdateFailed])
+            }
+        }
+
+        router.patch("/v1/projects/:projectId/tasks/:taskId", metadata: RouteMetadata(summary: "Update project task", description: "Updates an existing task in a project", tags: ["Projects"])) { request in
+            let projectId = request.pathParam("projectId") ?? ""
+            let taskId = request.pathParam("taskId") ?? ""
+            guard let body = request.body,
+                  let payload = CoreRouter.decode(body, as: ProjectTaskUpdateRequest.self)
+            else {
+                return CoreRouter.json(status: HTTPStatus.badRequest, payload: ["error": ErrorCode.invalidBody])
+            }
+
+            do {
+                let project = try await service.updateProjectTask(projectID: projectId, taskID: taskId, request: payload)
+                return CoreRouter.encodable(status: HTTPStatus.ok, payload: project)
+            } catch let error as CoreService.ProjectError {
+                return CoreRouter.projectErrorResponse(error, fallback: ErrorCode.projectUpdateFailed)
+            } catch {
+                return CoreRouter.json(status: HTTPStatus.internalServerError, payload: ["error": ErrorCode.projectUpdateFailed])
+            }
+        }
+
+        router.delete("/v1/projects/:projectId", metadata: RouteMetadata(summary: "Delete project", description: "Deletes a specific project", tags: ["Projects"])) { request in
+            let projectId = request.pathParam("projectId") ?? ""
+            do {
+                try await service.deleteProject(projectID: projectId)
+                return CoreRouter.json(status: HTTPStatus.ok, payload: ["status": "deleted"])
+            } catch let error as CoreService.ProjectError {
+                return CoreRouter.projectErrorResponse(error, fallback: ErrorCode.projectDeleteFailed)
+            } catch {
+                return CoreRouter.json(status: HTTPStatus.internalServerError, payload: ["error": ErrorCode.projectDeleteFailed])
+            }
+        }
+
+        router.delete("/v1/projects/:projectId/channels/:channelId", metadata: RouteMetadata(summary: "Delete project channel", description: "Removes a specific channel from a project", tags: ["Projects"])) { request in
+            let projectId = request.pathParam("projectId") ?? ""
+            let channelId = request.pathParam("channelId") ?? ""
+            do {
+                let project = try await service.deleteProjectChannel(projectID: projectId, channelID: channelId)
+                return CoreRouter.encodable(status: HTTPStatus.ok, payload: project)
+            } catch let error as CoreService.ProjectError {
+                return CoreRouter.projectErrorResponse(error, fallback: ErrorCode.projectUpdateFailed)
+            } catch {
+                return CoreRouter.json(status: HTTPStatus.internalServerError, payload: ["error": ErrorCode.projectUpdateFailed])
+            }
+        }
+
+        router.delete("/v1/projects/:projectId/tasks/:taskId", metadata: RouteMetadata(summary: "Delete project task", description: "Removes a specific task from a project", tags: ["Projects"])) { request in
+            let projectId = request.pathParam("projectId") ?? ""
+            let taskId = request.pathParam("taskId") ?? ""
+            do {
+                let project = try await service.deleteProjectTask(projectID: projectId, taskID: taskId)
+                return CoreRouter.encodable(status: HTTPStatus.ok, payload: project)
+            } catch let error as CoreService.ProjectError {
+                return CoreRouter.projectErrorResponse(error, fallback: ErrorCode.projectUpdateFailed)
+            } catch {
+                return CoreRouter.json(status: HTTPStatus.internalServerError, payload: ["error": ErrorCode.projectUpdateFailed])
+            }
+        }
+
+        router.post("/v1/projects/:projectId/tasks/:taskId/approve", metadata: RouteMetadata(summary: "Approve project task review", description: "Merges the task worktree branch and marks the task as done", tags: ["Projects"])) { request in
+            let projectId = request.pathParam("projectId") ?? ""
+            let taskId = request.pathParam("taskId") ?? ""
+            do {
+                try await service.approveTask(projectID: projectId, taskID: taskId)
+                return CoreRouter.json(status: HTTPStatus.ok, payload: ["ok": "true"])
+            } catch let error as CoreService.ProjectError {
+                return CoreRouter.projectErrorResponse(error, fallback: ErrorCode.projectUpdateFailed)
+            } catch {
+                return CoreRouter.json(status: HTTPStatus.internalServerError, payload: ["error": ErrorCode.projectUpdateFailed])
+            }
+        }
+
+        router.post("/v1/projects/:projectId/tasks/:taskId/reject", metadata: RouteMetadata(summary: "Reject project task review", description: "Rejects the task review and returns it to the developer", tags: ["Projects"])) { request in
+            let projectId = request.pathParam("projectId") ?? ""
+            let taskId = request.pathParam("taskId") ?? ""
+            let payload = request.body.flatMap { CoreRouter.decode($0, as: TaskRejectRequest.self) }
+            do {
+                try await service.rejectTask(projectID: projectId, taskID: taskId, reason: payload?.reason)
+                return CoreRouter.json(status: HTTPStatus.ok, payload: ["ok": "true"])
+            } catch let error as CoreService.ProjectError {
+                return CoreRouter.projectErrorResponse(error, fallback: ErrorCode.projectUpdateFailed)
+            } catch {
+                return CoreRouter.json(status: HTTPStatus.internalServerError, payload: ["error": ErrorCode.projectUpdateFailed])
+            }
+        }
+
+        router.get("/v1/projects/:projectId/tasks/:taskId/diff", metadata: RouteMetadata(summary: "Get task git diff", description: "Returns the git diff for a task worktree branch", tags: ["Projects"])) { request in
+            let projectId = request.pathParam("projectId") ?? ""
+            let taskId = request.pathParam("taskId") ?? ""
+            do {
+                let response = try await service.getTaskDiff(projectID: projectId, taskID: taskId)
+                return CoreRouter.encodable(status: HTTPStatus.ok, payload: response)
+            } catch let error as CoreService.ProjectError {
+                return CoreRouter.projectErrorResponse(error, fallback: ErrorCode.projectNotFound)
+            } catch {
+                return CoreRouter.json(status: HTTPStatus.internalServerError, payload: ["error": ErrorCode.projectNotFound])
+            }
+        }
+
+        router.get("/v1/projects/:projectId/tasks/:taskId/review-comments", metadata: RouteMetadata(summary: "List review comments", description: "Returns all review comments for a task", tags: ["Projects"])) { request in
+            let projectId = request.pathParam("projectId") ?? ""
+            let taskId = request.pathParam("taskId") ?? ""
+            let comments = await service.listReviewComments(projectID: projectId, taskID: taskId)
+            return CoreRouter.encodable(status: HTTPStatus.ok, payload: comments)
+        }
+
+        router.post("/v1/projects/:projectId/tasks/:taskId/review-comments", metadata: RouteMetadata(summary: "Add review comment", description: "Adds a review comment to a task diff", tags: ["Projects"])) { request in
+            let projectId = request.pathParam("projectId") ?? ""
+            let taskId = request.pathParam("taskId") ?? ""
+            guard let body = request.body,
+                  let payload = CoreRouter.decode(body, as: ReviewCommentCreateRequest.self)
+            else {
+                return CoreRouter.json(status: HTTPStatus.badRequest, payload: ["error": "Invalid comment payload"])
+            }
+            let comment = await service.addReviewComment(projectID: projectId, taskID: taskId, request: payload)
+            return CoreRouter.encodable(status: HTTPStatus.created, payload: comment)
+        }
+
+        router.register(
+            path: "/v1/projects/:projectId/tasks/:taskId/review-comments/:commentId",
+            method: .patch,
+            metadata: RouteMetadata(summary: "Update review comment", description: "Updates a review comment (resolve/unresolve or edit content)", tags: ["Projects"]))
+        { request in
+            let projectId = request.pathParam("projectId") ?? ""
+            let taskId = request.pathParam("taskId") ?? ""
+            let commentId = request.pathParam("commentId") ?? ""
+            guard let body = request.body,
+                  let payload = CoreRouter.decode(body, as: ReviewCommentUpdateRequest.self)
+            else {
+                return CoreRouter.json(status: HTTPStatus.badRequest, payload: ["error": "Invalid comment payload"])
+            }
+            guard let updated = await service.updateReviewComment(projectID: projectId, taskID: taskId, commentID: commentId, request: payload) else {
+                return CoreRouter.json(status: HTTPStatus.notFound, payload: ["error": "Comment not found"])
+            }
+            return CoreRouter.encodable(status: HTTPStatus.ok, payload: updated)
+        }
+
+        router.delete("/v1/projects/:projectId/tasks/:taskId/review-comments/:commentId", metadata: RouteMetadata(summary: "Delete review comment", description: "Deletes a review comment", tags: ["Projects"])) { request in
+            let projectId = request.pathParam("projectId") ?? ""
+            let taskId = request.pathParam("taskId") ?? ""
+            let commentId = request.pathParam("commentId") ?? ""
+            let deleted = await service.deleteReviewComment(projectID: projectId, taskID: taskId, commentID: commentId)
+            if deleted {
+                return CoreRouter.json(status: HTTPStatus.ok, payload: ["ok": "true"])
+            }
+            return CoreRouter.json(status: HTTPStatus.notFound, payload: ["error": "Comment not found"])
+        }
+
+        router.get("/v1/projects/:projectId/tasks/:taskId/comments", metadata: RouteMetadata(summary: "List task comments", description: "Returns all comments for a task", tags: ["Projects"])) { request in
+            let projectId = request.pathParam("projectId") ?? ""
+            let taskId = request.pathParam("taskId") ?? ""
+            let comments = await service.listTaskComments(projectID: projectId, taskID: taskId)
+            return CoreRouter.encodable(status: HTTPStatus.ok, payload: comments)
+        }
+
+        router.post("/v1/projects/:projectId/tasks/:taskId/comments", metadata: RouteMetadata(summary: "Add task comment", description: "Adds a comment to a task", tags: ["Projects"])) { request in
+            let projectId = request.pathParam("projectId") ?? ""
+            let taskId = request.pathParam("taskId") ?? ""
+            guard let body = request.body,
+                  let payload = try? JSONDecoder().decode(TaskCommentCreateRequest.self, from: body)
+            else {
+                return CoreRouter.json(status: HTTPStatus.badRequest, payload: ["error": "Invalid comment payload"])
+            }
+            let comment = await service.addTaskComment(projectID: projectId, taskID: taskId, request: payload)
+            return CoreRouter.encodable(status: HTTPStatus.created, payload: comment)
+        }
+
+        router.delete("/v1/projects/:projectId/tasks/:taskId/comments/:commentId", metadata: RouteMetadata(summary: "Delete task comment", description: "Deletes a task comment", tags: ["Projects"])) { request in
+            let projectId = request.pathParam("projectId") ?? ""
+            let taskId = request.pathParam("taskId") ?? ""
+            let commentId = request.pathParam("commentId") ?? ""
+            let deleted = await service.deleteTaskComment(projectID: projectId, taskID: taskId, commentID: commentId)
+            if deleted {
+                return CoreRouter.json(status: HTTPStatus.ok, payload: ["ok": "true"])
+            }
+            return CoreRouter.json(status: HTTPStatus.notFound, payload: ["error": "Comment not found"])
+        }
+
+        router.get("/v1/projects/:projectId/tasks/:taskId/activities", metadata: RouteMetadata(summary: "List task activities", description: "Returns the activity history for a task", tags: ["Projects"])) { request in
+            let projectId = request.pathParam("projectId") ?? ""
+            let taskId = request.pathParam("taskId") ?? ""
+            let activities = await service.listTaskActivities(projectID: projectId, taskID: taskId)
+            return CoreRouter.encodable(status: HTTPStatus.ok, payload: activities)
+        }
+    }
+}
