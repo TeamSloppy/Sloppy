@@ -350,9 +350,14 @@ func channelCommandHandlerCommandsListIsComplete() {
     let names = ChannelCommandHandler.commands.map { $0.name }
     #expect(names.contains("help"))
     #expect(names.contains("status"))
+    #expect(names.contains("new"))
+    #expect(names.contains("whoami"))
     #expect(names.contains("task"))
     #expect(names.contains("model"))
     #expect(names.contains("abort"))
+    #expect(names.contains("create-skill"))
+    #expect(names.contains("create-subagent"))
+    #expect(names.contains("fork"))
     #expect(!ChannelCommandHandler.commands.isEmpty)
 }
 
@@ -420,9 +425,54 @@ func discordGatewayRegistersCommandsOnReady() async throws {
     let commandNames = snapshot.registeredCommands.compactMap { $0.asObject?["name"]?.asString }
     #expect(commandNames.contains("help"))
     #expect(commandNames.contains("status"))
+    #expect(commandNames.contains("new"))
+    #expect(commandNames.contains("whoami"))
     #expect(commandNames.contains("task"))
     #expect(commandNames.contains("model"))
     #expect(commandNames.contains("abort"))
+    #expect(commandNames.contains("create-skill"))
+    #expect(commandNames.contains("create-subagent"))
+    #expect(commandNames.contains("fork"))
+}
+
+@Test
+func channelCommandHandlerWhoamiReturnsContextInfo() {
+    let handler = ChannelCommandHandler(platformName: "TestPlatform")
+    let context = MessageContext(
+        channelId: "channel-42",
+        userId: "discord:user-99",
+        platform: "discord",
+        displayName: "Alice"
+    )
+    let reply = handler.handle(text: "/whoami", context: context)
+    #expect(reply != nil)
+    #expect(reply?.contains("channel-42") == true)
+    #expect(reply?.contains("discord:user-99") == true)
+    #expect(reply?.contains("discord") == true)
+    #expect(reply?.contains("Alice") == true)
+}
+
+@Test
+func channelCommandHandlerNewForwardsToCore() {
+    let handler = ChannelCommandHandler(platformName: "TestPlatform")
+    let context = MessageContext(channelId: "ch-1", userId: "u-1", platform: "discord", displayName: "Bob")
+    #expect(handler.handle(text: "/new", context: context) == nil)
+}
+
+@Test
+func channelCommandHandlerCreateSkillForwardsToCore() {
+    let handler = ChannelCommandHandler(platformName: "TestPlatform")
+    let context = MessageContext(channelId: "ch-1", userId: "u-1", platform: "discord", displayName: "Bob")
+    #expect(handler.handle(text: "/create-skill summarize emails", context: context) == nil)
+    #expect(handler.handle(text: "/create-skill", context: context) == nil)
+}
+
+@Test
+func channelCommandHandlerForkForwardsToCore() {
+    let handler = ChannelCommandHandler(platformName: "TestPlatform")
+    let context = MessageContext(channelId: "ch-1", userId: "u-1", platform: "discord", displayName: "Bob")
+    #expect(handler.handle(text: "/fork do something", context: context) == nil)
+    #expect(handler.handle(text: "/fork", context: context) == nil)
 }
 
 @Test

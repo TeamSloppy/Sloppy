@@ -24,6 +24,10 @@ interface InstalledSkill {
   description?: string;
   installedAt: string;
   localPath: string;
+  userInvocable?: boolean;
+  allowedTools?: string[];
+  context?: string;
+  agent?: string;
 }
 
 interface AgentSkillsTabProps {
