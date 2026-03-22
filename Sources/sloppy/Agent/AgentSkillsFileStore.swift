@@ -135,7 +135,11 @@ final class AgentSkillsFileStore {
         owner: String,
         repo: String,
         name: String,
-        description: String?
+        description: String?,
+        userInvocable: Bool = true,
+        allowedTools: [String] = [],
+        context: SkillContext? = nil,
+        agent: String? = nil
     ) throws -> InstalledSkill {
         let normalizedAgentID = try normalizedAgentID(agentID)
 
@@ -148,26 +152,26 @@ final class AgentSkillsFileStore {
             throw StoreError.agentNotFound
         }
 
-        // Check if skill already exists
         var manifest = try readManifest(agentID: normalizedAgentID)
         if manifest.installedSkills.contains(where: { $0.id == skillID }) {
             throw StoreError.skillAlreadyExists
         }
 
-        // Create skill directory
         try fileManager.createDirectory(at: skillDirectory, withIntermediateDirectories: true)
 
-        // Create skill entry
         let skill = InstalledSkill(
             id: skillID,
             owner: owner,
             repo: repo,
             name: name,
             description: description,
-            localPath: skillDirectory.path
+            localPath: skillDirectory.path,
+            userInvocable: userInvocable,
+            allowedTools: allowedTools,
+            context: context,
+            agent: agent
         )
 
-        // Update manifest
         manifest.installedSkills.append(skill)
         try writeManifest(manifest, agentID: normalizedAgentID)
 

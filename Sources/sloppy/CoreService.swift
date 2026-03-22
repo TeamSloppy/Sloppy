@@ -1855,13 +1855,25 @@ public actor CoreService {
                 destination: skillDestination
             )
 
-            // Register in manifest
+            let fm = downloadedSkill.frontmatter
+            let userInvocable = request.userInvocable ?? fm?.userInvocable ?? true
+            let allowedTools = request.allowedTools ?? fm?.allowedTools ?? []
+            let contextValue: SkillContext? = request.context ?? {
+                if let raw = fm?.context, raw.lowercased() == "fork" { return .fork }
+                return nil
+            }()
+            let agentValue = request.agent ?? fm?.agent
+
             let installedSkill = try agentSkillsStore.installSkill(
                 agentID: normalizedAgentID,
                 owner: owner,
                 repo: repo,
                 name: downloadedSkill.name,
-                description: downloadedSkill.description
+                description: downloadedSkill.description,
+                userInvocable: userInvocable,
+                allowedTools: allowedTools,
+                context: contextValue,
+                agent: agentValue
             )
 
             return installedSkill

@@ -2229,6 +2229,10 @@ public struct SkillsRegistryResponse: Codable, Sendable {
     }
 }
 
+public enum SkillContext: String, Codable, Sendable, Equatable {
+    case fork
+}
+
 /// Installed skill metadata stored locally
 public struct InstalledSkill: Codable, Sendable, Equatable {
     public var id: String
@@ -2239,6 +2243,10 @@ public struct InstalledSkill: Codable, Sendable, Equatable {
     public var installedAt: Date
     public var version: String?
     public var localPath: String
+    public var userInvocable: Bool
+    public var allowedTools: [String]
+    public var context: SkillContext?
+    public var agent: String?
 
     public init(
         id: String,
@@ -2248,7 +2256,11 @@ public struct InstalledSkill: Codable, Sendable, Equatable {
         description: String? = nil,
         installedAt: Date = Date(),
         version: String? = nil,
-        localPath: String
+        localPath: String,
+        userInvocable: Bool = true,
+        allowedTools: [String] = [],
+        context: SkillContext? = nil,
+        agent: String? = nil
     ) {
         self.id = id
         self.owner = owner
@@ -2258,6 +2270,31 @@ public struct InstalledSkill: Codable, Sendable, Equatable {
         self.installedAt = installedAt
         self.version = version
         self.localPath = localPath
+        self.userInvocable = userInvocable
+        self.allowedTools = allowedTools
+        self.context = context
+        self.agent = agent
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case id, owner, repo, name, description, installedAt, version, localPath
+        case userInvocable, allowedTools, context, agent
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        owner = try container.decode(String.self, forKey: .owner)
+        repo = try container.decode(String.self, forKey: .repo)
+        name = try container.decode(String.self, forKey: .name)
+        description = try container.decodeIfPresent(String.self, forKey: .description)
+        installedAt = try container.decode(Date.self, forKey: .installedAt)
+        version = try container.decodeIfPresent(String.self, forKey: .version)
+        localPath = try container.decode(String.self, forKey: .localPath)
+        userInvocable = try container.decodeIfPresent(Bool.self, forKey: .userInvocable) ?? true
+        allowedTools = try container.decodeIfPresent([String].self, forKey: .allowedTools) ?? []
+        context = try container.decodeIfPresent(SkillContext.self, forKey: .context)
+        agent = try container.decodeIfPresent(String.self, forKey: .agent)
     }
 }
 
@@ -2266,11 +2303,27 @@ public struct SkillInstallRequest: Codable, Sendable {
     public var owner: String
     public var repo: String
     public var version: String?
+    public var userInvocable: Bool?
+    public var allowedTools: [String]?
+    public var context: SkillContext?
+    public var agent: String?
 
-    public init(owner: String, repo: String, version: String? = nil) {
+    public init(
+        owner: String,
+        repo: String,
+        version: String? = nil,
+        userInvocable: Bool? = nil,
+        allowedTools: [String]? = nil,
+        context: SkillContext? = nil,
+        agent: String? = nil
+    ) {
         self.owner = owner
         self.repo = repo
         self.version = version
+        self.userInvocable = userInvocable
+        self.allowedTools = allowedTools
+        self.context = context
+        self.agent = agent
     }
 }
 
