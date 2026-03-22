@@ -26,7 +26,7 @@ let package = Package(
         .package(url: "https://github.com/mattt/AnyLanguageModel.git", branch: "main"),
         .package(url: "https://github.com/TeamSloppy/CodexBar.git", branch: "main"),
         .package(url: "https://github.com/modelcontextprotocol/swift-sdk.git", from: "0.11.0"),
-        .package(url: "https://github.com/wiedymi/swift-acp", branch: "main")
+        .package(url: "https://github.com/TeamSloppy/swift-acp", branch: "main")
     ],
     targets: [
         .target(

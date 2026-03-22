@@ -1323,7 +1323,7 @@ func agentConfigEndpointsReadAndUpdate() async throws {
     #expect(getResponse.status == 200)
     let fetched = try decoder.decode(AgentConfigDetail.self, from: getResponse.body)
     #expect(fetched.agentId == "agent-config")
-    #expect(!fetched.selectedModel.isEmpty)
+    #expect(fetched.selectedModel != nil && !fetched.selectedModel!.isEmpty)
     #expect(!fetched.availableModels.isEmpty)
     #expect(fetched.heartbeat.enabled == false)
     #expect(fetched.heartbeat.intervalMinutes == 5)
@@ -1332,7 +1332,7 @@ func agentConfigEndpointsReadAndUpdate() async throws {
     #expect(fetched.documents.heartbeatMarkdown.isEmpty)
     #expect(fetched.heartbeatStatus.lastRunAt == nil)
 
-    let nextModel = fetched.availableModels.last?.id ?? fetched.selectedModel
+    let nextModel = fetched.availableModels.last?.id ?? fetched.selectedModel ?? ""
     let updateRequest = AgentConfigUpdateRequest(
         selectedModel: nextModel,
         documents: AgentDocumentBundle(

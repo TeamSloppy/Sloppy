@@ -215,8 +215,8 @@ actor ACPSessionManager {
         let effectiveCwd = resolveCwd(runtime: runtime, target: target)
 
         let hadState = sessions[sessionKey] != nil
-        let didResetContext = (!hadState && localSessionHadPriorMessages)
-            || try await resetSessionIfNeeded(sessionKey: sessionKey, target: target, effectiveCwd: effectiveCwd)
+        let needsReset = try await resetSessionIfNeeded(sessionKey: sessionKey, target: target, effectiveCwd: effectiveCwd)
+        let didResetContext = (!hadState && localSessionHadPriorMessages) || needsReset
 
         if sessions[sessionKey] == nil {
             let managed = try await createManagedSession(
