@@ -38,6 +38,15 @@ struct MCPServerSummary: Sendable {
     let toolPrefix: String?
 }
 
+struct MCPDynamicTool: Sendable {
+    let id: String
+    let serverID: String
+    let toolName: String
+    let title: String
+    let description: String
+    let inputSchema: JSONValue
+}
+
 actor ManagedMCPStdioTransport: Transport {
     nonisolated let logger: Logger
 
@@ -261,6 +270,7 @@ actor MCPClientRegistry {
     private var config: CoreConfig.MCP
     private let logger: Logger
     private var connections: [String: MCPServerConnection] = [:]
+    private var dynamicToolsByID: [String: MCPDynamicTool] = [:]
 
     init(config: CoreConfig.MCP, logger: Logger = Logger(label: "sloppy.mcp")) {
         self.config = config
@@ -276,6 +286,7 @@ actor MCPClientRegistry {
             }
         }
         self.config = config
+        self.dynamicToolsByID = [:]
     }
 
     func listServers() -> [MCPServerSummary] {
@@ -324,6 +335,56 @@ actor MCPClientRegistry {
         return try await connection.getPrompt(name: name, arguments: convertedArguments)
     }
 
+    func dynamicTools() async -> [MCPDynamicTool] {
+        await refreshDynamicToolsIfNeeded()
+        return dynamicToolsByID.values.sorted { $0.id < $1.id }
+    }
+
+    func dynamicToolIDs() async -> Set<String> {
+        Set(await dynamicTools().map(\.id))
+    }
+
+    func isDynamicToolID(_ toolID: String) async -> Bool {
+        await refreshDynamicToolsIfNeeded()
+        return dynamicToolsByID[toolID] != nil
+    }
+
+    func dynamicTool(for toolID: String) async -> MCPDynamicTool? {
+        await refreshDynamicToolsIfNeeded()
+        return dynamicToolsByID[toolID]
+    }
+
+    func invokeDynamicTool(toolID: String, arguments: [String: JSONValue]) async throws -> ToolInvocationResult? {
+        await refreshDynamicToolsIfNeeded()
+        guard let dynamicTool = dynamicToolsByID[toolID] else {
+            return nil
+        }
+
+        let result = try await callTool(
+            serverID: dynamicTool.serverID,
+            name: dynamicTool.toolName,
+            arguments: arguments
+        )
+        let payload: JSONValue = .object([
+            "server": .string(dynamicTool.serverID),
+            "tool": .string(dynamicTool.toolName),
+            "isError": result.isError.map(JSONValue.bool) ?? .null,
+            "content": .array(result.content.map(Self.jsonValue(from:)))
+        ])
+        return ToolInvocationResult(
+            tool: toolID,
+            ok: result.isError != true,
+            data: result.isError == true ? nil : payload,
+            error: result.isError == true
+                ? ToolErrorPayload(
+                    code: "mcp_tool_error",
+                    message: "MCP tool '\(dynamicTool.toolName)' on server '\(dynamicTool.serverID)' returned an error result.",
+                    retryable: false
+                )
+                : nil
+        )
+    }
+
     func decodeJSONTextResult<T: Decodable>(serverID: String, toolName: String, arguments: [String: JSONValue], as type: T.Type) async throws -> T {
         let result = try await callTool(serverID: serverID, name: toolName, arguments: arguments)
         guard result.isError != true else {
@@ -352,6 +413,45 @@ actor MCPClientRegistry {
         )
         connections[serverID] = connection
         return connection
+    }
+
+    private func refreshDynamicToolsIfNeeded() async {
+        if !dynamicToolsByID.isEmpty {
+            return
+        }
+
+        var discovered: [String: MCPDynamicTool] = [:]
+        for server in config.servers where server.enabled && server.exposeTools {
+            do {
+                let response = try await listTools(serverID: server.id)
+                for tool in response.tools {
+                    let toolID = Self.dynamicToolID(
+                        serverID: server.id,
+                        toolName: tool.name,
+                        prefix: server.toolPrefix
+                    )
+                    discovered[toolID] = MCPDynamicTool(
+                        id: toolID,
+                        serverID: server.id,
+                        toolName: tool.name,
+                        title: tool.title ?? tool.name,
+                        description: tool.description ?? "MCP tool from server '\(server.id)'",
+                        inputSchema: Self.jsonValue(from: tool.inputSchema)
+                    )
+                }
+            } catch {
+                logger.warning(
+                    "Failed to discover MCP tools for server \(server.id): \(String(describing: error))"
+                )
+            }
+        }
+        dynamicToolsByID = discovered
+    }
+
+    static func dynamicToolID(serverID: String, toolName: String, prefix: String?) -> String {
+        let base = prefix?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalizedBase = (base?.isEmpty == false ? base! : "mcp.\(serverID)")
+        return "\(normalizedBase).\(toolName)"
     }
 
     static func mcpValue(from value: JSONValue) -> Value {

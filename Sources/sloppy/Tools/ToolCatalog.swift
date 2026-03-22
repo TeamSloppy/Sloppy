@@ -3,17 +3,44 @@ import Protocols
 
 enum ToolCatalog {
     /// Tool catalog entries auto-generated from the ToolRegistry.
-    static let entries: [AgentToolCatalogEntry] = ToolRegistry.makeDefault().catalogEntries
+    static let builtInEntries: [AgentToolCatalogEntry] = ToolRegistry.makeDefault().catalogEntries
 
-    static func listToolsPayload() -> [JSONValue] {
-        entries.map { entry in
-            .object([
+    static func entries(mcpRegistry: MCPClientRegistry?) async -> [AgentToolCatalogEntry] {
+        guard let mcpRegistry else {
+            return builtInEntries
+        }
+        let dynamicEntries = await mcpRegistry.dynamicTools().map { tool in
+            AgentToolCatalogEntry(
+                id: tool.id,
+                domain: "mcp",
+                title: tool.title,
+                status: "fully_functional",
+                description: tool.description
+            )
+        }
+        return (builtInEntries + dynamicEntries).sorted { $0.id < $1.id }
+    }
+
+    static func knownToolIDs(mcpRegistry: MCPClientRegistry?) async -> Set<String> {
+        guard let mcpRegistry else {
+            return knownToolIDs
+        }
+        return knownToolIDs.union(await mcpRegistry.dynamicToolIDs())
+    }
+
+    static func listToolsPayload(mcpRegistry: MCPClientRegistry?) async -> [JSONValue] {
+        let catalogEntries = await entries(mcpRegistry: mcpRegistry)
+        let dynamicTools = Dictionary(uniqueKeysWithValues: await (mcpRegistry?.dynamicTools() ?? []).map { ($0.id, $0) })
+
+        return catalogEntries.map { entry in
+            let parameters = dynamicTools[entry.id]?.inputSchema ?? parameterSchema(for: entry.id)
+            return .object([
                 "name": .string(entry.id),
                 "title": .string(entry.title),
                 "domain": .string(entry.domain),
                 "status": .string(entry.status),
                 "description": .string(entry.description),
-                "parameters": parameterSchema(for: entry.id)
+                "parameters": parameters
             ])
         }
     }

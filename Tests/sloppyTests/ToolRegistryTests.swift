@@ -52,7 +52,7 @@ struct ToolRegistryTests {
 
     @Test("ToolCatalog.entries is non-empty")
     func toolCatalogEntriesNonEmpty() {
-        #expect(!ToolCatalog.entries.isEmpty)
+        #expect(!ToolCatalog.builtInEntries.isEmpty)
     }
 
     @Test("ToolCatalog.knownToolIDs contains expected tools")
@@ -81,5 +81,17 @@ struct ToolRegistryTests {
         let tools = registry.allTools
         let catalog = registry.catalogEntries
         #expect(tools.count == catalog.count)
+    }
+
+    @Test("Dynamic MCP tool ids use configured prefix or server default")
+    func dynamicMCPToolIDNaming() {
+        #expect(
+            MCPClientRegistry.dynamicToolID(serverID: "fs", toolName: "read_file", prefix: nil)
+                == "mcp.fs.read_file"
+        )
+        #expect(
+            MCPClientRegistry.dynamicToolID(serverID: "fs", toolName: "read_file", prefix: "workspace")
+                == "workspace.read_file"
+        )
     }
 }

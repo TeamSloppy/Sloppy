@@ -329,7 +329,7 @@ public actor CoreService {
             availableModels: initialAvailableAgentModels
         )
         let toolsStore = AgentToolsFileStore(agentsRootURL: self.agentsRootURL)
-        self.toolsAuthorization = ToolAuthorizationService(store: toolsStore)
+        self.toolsAuthorization = ToolAuthorizationService(store: toolsStore, mcpRegistry: self.mcpRegistry)
         let processRegistry = SessionProcessRegistry()
         self.toolExecution = ToolExecutionService(
             workspaceRootURL: self.workspaceRootURL,
@@ -1720,8 +1720,8 @@ public actor CoreService {
     }
 
     /// Returns available tool catalog entries.
-    public func toolCatalog() -> [AgentToolCatalogEntry] {
-        ToolCatalog.entries
+    public func toolCatalog() async -> [AgentToolCatalogEntry] {
+        await ToolCatalog.entries(mcpRegistry: mcpRegistry)
     }
 
     /// Returns agent tools policy from `/agents/<agentID>/tools/tools.json`.
@@ -2941,6 +2941,7 @@ public actor CoreService {
         await sessionOrchestrator.updateAgentsRootURL(agentsRootURL)
         await toolsAuthorization.updateAgentsRootURL(agentsRootURL)
         await mcpRegistry.updateConfig(config.mcp)
+        await toolsAuthorization.invalidateCachedPolicies()
         toolExecution.updateWorkspaceRootURL(workspaceRootURL)
         toolExecution.updateStore(refreshedStore)
         systemLogStore.updateWorkspaceRootURL(workspaceRootURL)

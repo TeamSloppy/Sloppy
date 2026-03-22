@@ -75,6 +75,12 @@ final class ToolExecutionService: @unchecked Sendable {
         if let result = await registry.invoke(request: request, context: context) {
             return result
         }
+        if let result = try? await mcpRegistry.invokeDynamicTool(
+            toolID: request.tool.trimmingCharacters(in: .whitespacesAndNewlines),
+            arguments: request.arguments
+        ) {
+            return result
+        }
         let toolID = request.tool.trimmingCharacters(in: .whitespacesAndNewlines)
         return ToolInvocationResult(
             tool: toolID,

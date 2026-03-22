@@ -14,11 +14,18 @@ actor ToolAuthorizationService {
     }
 
     private let store: AgentToolsFileStore
+    private let mcpRegistry: MCPClientRegistry
     private var cache: [String: CachedPolicy] = [:]
     private var invocationsByAgent: [String: [Date]] = [:]
 
+    init(store: AgentToolsFileStore, mcpRegistry: MCPClientRegistry) {
+        self.store = store
+        self.mcpRegistry = mcpRegistry
+    }
+
     init(store: AgentToolsFileStore) {
         self.store = store
+        self.mcpRegistry = MCPClientRegistry(config: .init())
     }
 
     func updateAgentsRootURL(_ url: URL) {
@@ -27,25 +34,32 @@ actor ToolAuthorizationService {
         invocationsByAgent.removeAll()
     }
 
-    func policy(agentID: String) throws -> AgentToolsPolicy {
-        try reloadedPolicy(agentID: agentID)
+    func invalidateCachedPolicies() {
+        cache.removeAll()
     }
 
-    func updatePolicy(agentID: String, request: AgentToolsUpdateRequest) throws -> AgentToolsPolicy {
+    func policy(agentID: String) async throws -> AgentToolsPolicy {
+        let knownToolIDs = await ToolCatalog.knownToolIDs(mcpRegistry: mcpRegistry)
+        return try reloadedPolicy(agentID: agentID, knownToolIDs: knownToolIDs)
+    }
+
+    func updatePolicy(agentID: String, request: AgentToolsUpdateRequest) async throws -> AgentToolsPolicy {
+        let knownToolIDs = await ToolCatalog.knownToolIDs(mcpRegistry: mcpRegistry)
         let updated = try store.updatePolicy(
             agentID: agentID,
             request: request,
-            knownToolIDs: ToolCatalog.knownToolIDs
+            knownToolIDs: knownToolIDs
         )
         let mtime = try? modificationDate(agentID: agentID)
         cache[agentID] = CachedPolicy(policy: updated, modifiedAt: mtime)
         return updated
     }
 
-    func authorize(agentID: String, toolID: String) throws -> ToolAuthorizationDecision {
-        let policy = try reloadedPolicy(agentID: agentID)
+    func authorize(agentID: String, toolID: String) async throws -> ToolAuthorizationDecision {
+        let knownToolIDs = await ToolCatalog.knownToolIDs(mcpRegistry: mcpRegistry)
+        let policy = try reloadedPolicy(agentID: agentID, knownToolIDs: knownToolIDs)
 
-        guard ToolCatalog.knownToolIDs.contains(toolID) else {
+        guard knownToolIDs.contains(toolID) else {
             return ToolAuthorizationDecision(
                 allowed: false,
                 policy: policy,
@@ -93,17 +107,16 @@ actor ToolAuthorizationService {
         return ToolAuthorizationDecision(allowed: true, policy: policy, error: nil)
     }
 
-    private func reloadedPolicy(agentID: String) throws -> AgentToolsPolicy {
+    private func reloadedPolicy(agentID: String, knownToolIDs: Set<String>) throws -> AgentToolsPolicy {
         let currentMtime = try? modificationDate(agentID: agentID)
         if let cached = cache[agentID], cached.modifiedAt == currentMtime {
             return cached.policy
         }
 
-        let loaded = try store.getPolicy(agentID: agentID, knownToolIDs: ToolCatalog.knownToolIDs)
+        let loaded = try store.getPolicy(agentID: agentID, knownToolIDs: knownToolIDs)
         cache[agentID] = CachedPolicy(policy: loaded, modifiedAt: currentMtime)
         return loaded
     }
-
     private func modificationDate(agentID: String) throws -> Date? {
         guard let url = store.toolsConfigURL(agentID: agentID) else {
             return nil
