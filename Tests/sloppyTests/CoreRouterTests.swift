@@ -57,6 +57,25 @@ func workersEndpoint() async throws {
 }
 
 @Test
+func routerRegistersRoutesAcrossDomainsOnInitialization() async throws {
+    let config = CoreConfig.test
+    let service = CoreService(config: config)
+    let router = CoreRouter(service: service)
+
+    let healthResponse = await router.handle(method: "GET", path: "/health", body: nil)
+    #expect(healthResponse.status == 200)
+
+    let channelStateResponse = await router.handle(method: "GET", path: "/v1/channels/general/state", body: nil)
+    #expect(channelStateResponse.status == 200)
+
+    let agentsResponse = await router.handle(method: "GET", path: "/v1/agents", body: nil)
+    #expect(agentsResponse.status == 200)
+
+    let projectsResponse = await router.handle(method: "GET", path: "/v1/projects", body: nil)
+    #expect(projectsResponse.status == 200)
+}
+
+@Test
 func projectCrudEndpoints() async throws {
     let config = CoreConfig.test
     let service = CoreService(config: config)

@@ -125,7 +125,7 @@ enum CoreRouterConstants {
     static let emptyJSONData = Data("{}".utf8)
 }
 
-private enum HTTPStatus {
+enum HTTPStatus {
     static let ok = 200
     static let created = 201
     static let badRequest = 400
@@ -135,7 +135,7 @@ private enum HTTPStatus {
     static let internalServerError = 500
 }
 
-private enum ErrorCode {
+enum ErrorCode {
     static let invalidBody = "invalid_body"
     static let notFound = "not_found"
     static let artifactNotFound = "artifact_not_found"
@@ -199,11 +199,11 @@ private enum ErrorCode {
     static let tokenUsageReadFailed = "token_usage_read_failed"
 }
 
-private struct AcceptResponse: Encodable {
+struct AcceptResponse: Encodable {
     let accepted: Bool
 }
 
-private struct WorkerCreateResponse: Encodable {
+struct WorkerCreateResponse: Encodable {
     let workerId: String
 }
 
@@ -284,8 +284,8 @@ private struct WebSocketRouteDefinition {
 }
 
 public actor CoreRouter {
-    private static let logger = Logger(label: "sloppy.core.router")
-    private let service: CoreService
+    static let logger = Logger(label: "sloppy.core.router")
+    let service: CoreService
     private var routes: [RouteDefinition]
     private var webSocketRoutes: [WebSocketRouteDefinition]
 
@@ -315,6 +315,10 @@ public actor CoreRouter {
 
     public func put(_ path: String, metadata: RouteMetadata? = nil, callback: @escaping (HTTPRequest) async -> CoreRouterResponse) {
         register(path: path, method: .put, metadata: metadata, callback: callback)
+    }
+
+    public func patch(_ path: String, metadata: RouteMetadata? = nil, callback: @escaping (HTTPRequest) async -> CoreRouterResponse) {
+        register(path: path, method: .patch, metadata: metadata, callback: callback)
     }
 
     public func delete(_ path: String, metadata: RouteMetadata? = nil, callback: @escaping (HTTPRequest) async -> CoreRouterResponse) {
@@ -474,1442 +478,6 @@ public actor CoreRouter {
         return text
     }
 
-    private static func defaultRoutes(service: CoreService) -> [RouteDefinition] {
-        var routes: [RouteDefinition] = []
-
-        func add(
-            _ method: HTTPRouteMethod,
-            _ path: String,
-            metadata: RouteMetadata? = nil,
-            _ callback: @escaping (HTTPRequest) async -> CoreRouterResponse
-        ) {
-            routes.append(.init(method: method, path: path, metadata: metadata, callback: callback))
-        }
-
-        add(.get, "/health", metadata: RouteMetadata(summary: "Health check", description: "Returns the current status of the sloppy service", tags: ["System"])) { _ in
-            Self.json(status: HTTPStatus.ok, payload: ["status": "ok"])
-        }
-
-        add(.get, "/v1/channels/:channelId/state", metadata: RouteMetadata(summary: "Get channel state", description: "Returns the current state of a communication channel", tags: ["Channels"])) { request in
-            let channelId = request.pathParam("channelId") ?? ""
-            let state = await service.getChannelState(channelId: channelId) ?? ChannelSnapshot(
-                channelId: channelId,
-                messages: [],
-                contextUtilization: 0,
-                activeWorkerIds: [],
-                lastDecision: nil
-            )
-            return Self.encodable(status: HTTPStatus.ok, payload: state)
-        }
-
-        add(.get, "/v1/channels/:channelId/events", metadata: RouteMetadata(summary: "List channel events", description: "Returns a paginated list of events for a specific channel", tags: ["Channels"])) { request in
-            let channelId = request.pathParam("channelId") ?? ""
-            let parsedLimit = Int(request.queryParam("limit") ?? "") ?? 50
-            let limit = max(1, min(parsedLimit, 200))
-            let cursor = request.queryParam("cursor")
-            let before = request.queryParam("before").flatMap { Self.isoDate(from: $0) }
-            let after = request.queryParam("after").flatMap { Self.isoDate(from: $0) }
-            let response = await service.listChannelEvents(
-                channelId: channelId,
-                limit: limit,
-                cursor: cursor,
-                before: before,
-                after: after
-            )
-            return Self.encodable(status: HTTPStatus.ok, payload: response)
-        }
-
-        add(.get, "/v1/channel-sessions", metadata: RouteMetadata(summary: "List channel sessions", description: "Returns a list of all active channel sessions", tags: ["Sessions"])) { request in
-            let agentId = request.queryParam("agentId")
-            let statusValue = request.queryParam("status")?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-            let status: ChannelSessionStatus?
-            if let statusValue, !statusValue.isEmpty {
-                guard let parsedStatus = ChannelSessionStatus(rawValue: statusValue) else {
-                    return Self.json(status: HTTPStatus.badRequest, payload: ["error": ErrorCode.invalidBody])
-                }
-                status = parsedStatus
-            } else {
-                status = nil
-            }
-
-            do {
-                let sessions = try await service.listChannelSessions(status: status, agentID: agentId)
-                return Self.encodable(status: HTTPStatus.ok, payload: sessions)
-            } catch CoreService.AgentStorageError.invalidID {
-                return Self.json(status: HTTPStatus.badRequest, payload: ["error": ErrorCode.invalidAgentId])
-            } catch CoreService.AgentStorageError.notFound {
-                return Self.json(status: HTTPStatus.notFound, payload: ["error": ErrorCode.agentNotFound])
-            } catch {
-                return Self.json(status: HTTPStatus.internalServerError, payload: ["error": ErrorCode.sessionListFailed])
-            }
-        }
-
-        add(.get, "/v1/channel-sessions/:sessionId", metadata: RouteMetadata(summary: "Get channel session", description: "Returns details of a specific channel session", tags: ["Sessions"])) { request in
-            let sessionId = request.pathParam("sessionId") ?? ""
-
-            do {
-                let session = try await service.getChannelSession(sessionID: sessionId)
-                return Self.encodable(status: HTTPStatus.ok, payload: session)
-            } catch ChannelSessionFileStore.StoreError.invalidSessionID {
-                return Self.json(status: HTTPStatus.badRequest, payload: ["error": ErrorCode.invalidBody])
-            } catch ChannelSessionFileStore.StoreError.sessionNotFound {
-                return Self.json(status: HTTPStatus.notFound, payload: ["error": ErrorCode.sessionNotFound])
-            } catch {
-                return Self.json(status: HTTPStatus.internalServerError, payload: ["error": ErrorCode.sessionLoadFailed])
-            }
-        }
-
-        add(.get, "/v1/bulletins", metadata: RouteMetadata(summary: "List bulletins", description: "Returns a list of active system bulletins", tags: ["System"])) { _ in
-            let bulletins = await service.getBulletins()
-            return Self.encodable(status: HTTPStatus.ok, payload: bulletins)
-        }
-
-        add(.get, "/v1/visor/ready", metadata: RouteMetadata(summary: "Visor readiness", description: "Returns whether Visor has completed its first supervision tick", tags: ["System"])) { _ in
-            let ready = await service.isVisorReady()
-            return Self.encodable(status: HTTPStatus.ok, payload: VisorReadyResponse(ready: ready))
-        }
-
-        add(.post, "/v1/visor/chat", metadata: RouteMetadata(summary: "Ask Visor", description: "Sends a question to Visor and returns an answer", tags: ["System"])) { request in
-            guard let body = request.body,
-                  let payload = Self.decode(body, as: VisorChatRequest.self)
-            else {
-                return Self.json(status: HTTPStatus.badRequest, payload: ["error": ErrorCode.invalidBody])
-            }
-            let answer = await service.postVisorChat(question: payload.question)
-            return Self.encodable(status: HTTPStatus.ok, payload: VisorChatResponse(answer: answer))
-        }
-
-        add(.get, "/v1/visor/chat/stream", metadata: RouteMetadata(summary: "Stream Visor answer", description: "Streams a Visor answer as SSE delta events for a given question query param", tags: ["System"])) { request in
-            let question = request.queryParam("question") ?? ""
-            guard !question.isEmpty else {
-                return Self.json(status: HTTPStatus.badRequest, payload: ["error": ErrorCode.invalidBody])
-            }
-            let stream = await service.streamVisorChat(question: question)
-            return Self.sseText(status: HTTPStatus.ok, stream: stream)
-        }
-
-        add(.get, "/v1/workers", metadata: RouteMetadata(summary: "List workers", description: "Returns a list of active worker runtimes", tags: ["System"])) { _ in
-            let workers = await service.workerSnapshots()
-            return Self.encodable(status: HTTPStatus.ok, payload: workers)
-        }
-
-        add(.get, "/v1/projects", metadata: RouteMetadata(summary: "List projects", description: "Returns a list of all active projects", tags: ["Projects"])) { _ in
-            let projects = await service.listProjects()
-            return Self.encodable(status: HTTPStatus.ok, payload: projects)
-        }
-
-        add(.get, "/v1/projects/:projectId", metadata: RouteMetadata(summary: "Get project", description: "Returns details of a specific project", tags: ["Projects"])) { request in
-            let projectId = request.pathParam("projectId") ?? ""
-            do {
-                let project = try await service.getProject(id: projectId)
-                return Self.encodable(status: HTTPStatus.ok, payload: project)
-            } catch let error as CoreService.ProjectError {
-                return Self.projectErrorResponse(error, fallback: ErrorCode.projectReadFailed)
-            } catch {
-                return Self.json(status: HTTPStatus.internalServerError, payload: ["error": ErrorCode.projectReadFailed])
-            }
-        }
-
-        add(.get, "/v1/projects/:projectId/files", metadata: RouteMetadata(summary: "List project files", description: "Returns the file tree entries for a directory in the project workspace", tags: ["Projects"])) { request in
-            let projectId = request.pathParam("projectId") ?? ""
-            let path = request.queryParam("path") ?? ""
-            do {
-                let entries = try await service.listProjectFiles(projectID: projectId, path: path)
-                return Self.encodable(status: HTTPStatus.ok, payload: entries)
-            } catch let error as CoreService.ProjectError {
-                return Self.projectErrorResponse(error, fallback: ErrorCode.projectNotFound)
-            } catch {
-                return Self.json(status: HTTPStatus.internalServerError, payload: ["error": ErrorCode.projectNotFound])
-            }
-        }
-
-        add(.get, "/v1/projects/:projectId/files/content", metadata: RouteMetadata(summary: "Read project file", description: "Returns the text content of a file in the project workspace", tags: ["Projects"])) { request in
-            let projectId = request.pathParam("projectId") ?? ""
-            let path = request.queryParam("path") ?? ""
-            do {
-                let response = try await service.readProjectFile(projectID: projectId, path: path)
-                return Self.encodable(status: HTTPStatus.ok, payload: response)
-            } catch let error as CoreService.ProjectError {
-                return Self.projectErrorResponse(error, fallback: ErrorCode.projectNotFound)
-            } catch {
-                return Self.json(status: HTTPStatus.internalServerError, payload: ["error": ErrorCode.projectNotFound])
-            }
-        }
-
-        let taskLookupHandler: (HTTPRequest) async -> CoreRouterResponse = { request in
-            let taskReference = request.pathParam("taskReference") ?? ""
-            do {
-                let task = try await service.getProjectTask(taskReference: taskReference)
-                return Self.encodable(status: HTTPStatus.ok, payload: task)
-            } catch let error as CoreService.ProjectError {
-                return Self.projectErrorResponse(error, fallback: ErrorCode.projectReadFailed)
-            } catch {
-                return Self.json(status: HTTPStatus.internalServerError, payload: ["error": ErrorCode.projectReadFailed])
-            }
-        }
-
-        add(.get, "/v1/tasks/:taskReference", metadata: RouteMetadata(summary: "Get task", description: "Returns details of a specific task by its reference", tags: ["Tasks"]), taskLookupHandler)
-        add(.get, "/tasks/:taskReference", metadata: RouteMetadata(summary: "Get task (legacy)", description: "Returns details of a specific task by its reference (legacy path)", tags: ["Tasks"]), taskLookupHandler)
-
-        add(.get, "/v1/providers/openai/status", metadata: RouteMetadata(summary: "OpenAI status", description: "Returns the current status of the OpenAI provider", tags: ["Providers"])) { _ in
-            let status = await service.openAIProviderStatus()
-            return Self.encodable(status: HTTPStatus.ok, payload: status)
-        }
-
-        add(.post, "/v1/providers/openai/oauth/start", metadata: RouteMetadata(summary: "Start OpenAI OAuth", description: "Creates an OpenAI OAuth authorization URL", tags: ["Providers"])) { request in
-            guard let body = request.body,
-                  let payload = Self.decode(body, as: OpenAIOAuthStartRequest.self)
-            else {
-                return Self.json(status: HTTPStatus.badRequest, payload: ["error": ErrorCode.invalidBody])
-            }
-
-            do {
-                let response = try await service.startOpenAIOAuth(request: payload)
-                return Self.encodable(status: HTTPStatus.ok, payload: response)
-            } catch {
-                return Self.json(status: HTTPStatus.badRequest, payload: ["error": ErrorCode.invalidBody])
-            }
-        }
-
-        add(.post, "/v1/providers/openai/oauth/complete", metadata: RouteMetadata(summary: "Complete OpenAI OAuth", description: "Exchanges the OpenAI OAuth authorization code for tokens", tags: ["Providers"])) { request in
-            guard let body = request.body,
-                  let payload = Self.decode(body, as: OpenAIOAuthCompleteRequest.self)
-            else {
-                return Self.json(status: HTTPStatus.badRequest, payload: ["error": ErrorCode.invalidBody])
-            }
-
-            do {
-                let response = try await service.completeOpenAIOAuth(request: payload)
-                return Self.encodable(status: HTTPStatus.ok, payload: response)
-            } catch {
-                return Self.encodable(
-                    status: HTTPStatus.ok,
-                    payload: OpenAIOAuthCompleteResponse(
-                        ok: false,
-                        message: error.localizedDescription
-                    )
-                )
-            }
-        }
-
-        add(.post, "/v1/providers/openai/oauth/device-code/start", metadata: RouteMetadata(summary: "Start device code flow", description: "Requests a device code for OpenAI OAuth device authorization", tags: ["Providers"])) { _ in
-            do {
-                let response = try await service.startOpenAIDeviceCode()
-                return Self.encodable(status: HTTPStatus.ok, payload: response)
-            } catch {
-                return Self.json(status: HTTPStatus.badRequest, payload: ["error": error.localizedDescription])
-            }
-        }
-
-        add(.post, "/v1/providers/openai/oauth/device-code/poll", metadata: RouteMetadata(summary: "Poll device code", description: "Polls the device code authorization status", tags: ["Providers"])) { request in
-            guard let body = request.body,
-                  let payload = Self.decode(body, as: OpenAIDeviceCodePollRequest.self)
-            else {
-                return Self.json(status: HTTPStatus.badRequest, payload: ["error": ErrorCode.invalidBody])
-            }
-
-            do {
-                let response = try await service.pollOpenAIDeviceCode(request: payload)
-                return Self.encodable(status: HTTPStatus.ok, payload: response)
-            } catch {
-                return Self.encodable(
-                    status: HTTPStatus.ok,
-                    payload: OpenAIDeviceCodePollResponse(
-                        status: "error",
-                        ok: false,
-                        message: error.localizedDescription
-                    )
-                )
-            }
-        }
-
-        add(.post, "/v1/providers/openai/oauth/disconnect", metadata: RouteMetadata(summary: "Disconnect OpenAI OAuth", description: "Removes stored OpenAI OAuth credentials", tags: ["Providers"])) { _ in
-            do {
-                try await service.disconnectOpenAIOAuth()
-                return Self.json(status: HTTPStatus.ok, payload: ["ok": "true"])
-            } catch {
-                return Self.json(status: HTTPStatus.badRequest, payload: ["error": error.localizedDescription])
-            }
-        }
-
-        add(.get, "/v1/providers/search/status", metadata: RouteMetadata(summary: "Search status", description: "Returns the current status of the search provider", tags: ["Providers"])) { _ in
-            let status = await service.searchProviderStatus()
-            return Self.encodable(status: HTTPStatus.ok, payload: status)
-        }
-
-        add(.post, "/v1/providers/probe", metadata: RouteMetadata(summary: "Probe provider", description: "Tests a specific provider configuration", tags: ["Providers"])) { request in
-            guard let body = request.body,
-                  let payload = Self.decode(body, as: ProviderProbeRequest.self)
-            else {
-                return Self.json(status: HTTPStatus.badRequest, payload: ["error": ErrorCode.invalidBody])
-            }
-
-            let response = await service.probeProvider(request: payload)
-            return Self.encodable(status: HTTPStatus.ok, payload: response)
-        }
-
-        add(.get, "/v1/config", metadata: RouteMetadata(summary: "Get config", description: "Returns the current sloppy configuration", tags: ["System"])) { _ in
-            let config = await service.getConfig()
-            return Self.encodable(status: HTTPStatus.ok, payload: config)
-        }
-
-        add(.get, "/v1/logs", metadata: RouteMetadata(summary: "Get logs", description: "Returns the system logs", tags: ["System"])) { _ in
-            do {
-                let response = try await service.getSystemLogs()
-                return Self.encodable(status: HTTPStatus.ok, payload: response)
-            } catch let error as CoreService.SystemLogsError {
-                return Self.systemLogsErrorResponse(error, fallback: ErrorCode.systemLogsReadFailed)
-            } catch {
-                return Self.json(status: HTTPStatus.internalServerError, payload: ["error": ErrorCode.systemLogsReadFailed])
-            }
-        }
-
-        add(.get, "/v1/agents", metadata: RouteMetadata(summary: "List agents", description: "Returns a list of all available agents", tags: ["Agents"])) { request in
-            let includeSystem = request.queryParam("system").map { $0 != "false" } ?? true
-            do {
-                let agents = try await service.listAgents(includeSystem: includeSystem)
-                return Self.encodable(status: HTTPStatus.ok, payload: agents)
-            } catch {
-                return Self.json(status: HTTPStatus.internalServerError, payload: ["error": ErrorCode.agentsListFailed])
-            }
-        }
-
-        add(.get, "/v1/actors/board", metadata: RouteMetadata(summary: "Get actor board", description: "Returns the current state of the actor board", tags: ["Actors"])) { _ in
-            do {
-                let board = try await service.getActorBoard()
-                return Self.encodable(status: HTTPStatus.ok, payload: board)
-            } catch let error as CoreService.ActorBoardError {
-                return Self.actorBoardErrorResponse(error, fallback: ErrorCode.actorBoardReadFailed)
-            } catch {
-                return Self.json(status: HTTPStatus.internalServerError, payload: ["error": ErrorCode.actorBoardReadFailed])
-            }
-        }
-
-        add(.get, "/v1/agents/:agentId", metadata: RouteMetadata(summary: "Get agent", description: "Returns details of a specific agent", tags: ["Agents"])) { request in
-            let agentId = request.pathParam("agentId") ?? ""
-            do {
-                let agent = try await service.getAgent(id: agentId)
-                return Self.encodable(status: HTTPStatus.ok, payload: agent)
-            } catch CoreService.AgentStorageError.invalidID {
-                return Self.json(status: HTTPStatus.badRequest, payload: ["error": ErrorCode.invalidAgentId])
-            } catch CoreService.AgentStorageError.notFound {
-                return Self.json(status: HTTPStatus.notFound, payload: ["error": ErrorCode.agentNotFound])
-            } catch {
-                return Self.json(status: HTTPStatus.internalServerError, payload: ["error": ErrorCode.agentNotFound])
-            }
-        }
-
-        add(.get, "/v1/agents/:agentId/tasks", metadata: RouteMetadata(summary: "List agent tasks", description: "Returns a list of tasks assigned to a specific agent", tags: ["Agents"])) { request in
-            let agentId = request.pathParam("agentId") ?? ""
-            do {
-                let tasks = try await service.listAgentTasks(agentID: agentId)
-                return Self.encodable(status: HTTPStatus.ok, payload: tasks)
-            } catch CoreService.AgentStorageError.invalidID {
-                return Self.json(status: HTTPStatus.badRequest, payload: ["error": ErrorCode.invalidAgentId])
-            } catch CoreService.AgentStorageError.notFound {
-                return Self.json(status: HTTPStatus.notFound, payload: ["error": ErrorCode.agentNotFound])
-            } catch {
-                return Self.json(status: HTTPStatus.internalServerError, payload: ["error": ErrorCode.agentNotFound])
-            }
-        }
-
-        add(.get, "/v1/agents/:agentId/memories", metadata: RouteMetadata(summary: "List agent memories", description: "Returns a list of memories for a specific agent", tags: ["Agents"])) { request in
-            let agentId = request.pathParam("agentId") ?? ""
-            let search = request.queryParam("search")
-            let rawFilter = request.queryParam("filter")?.lowercased() ?? AgentMemoryFilter.all.rawValue
-            guard let filter = AgentMemoryFilter(rawValue: rawFilter) else {
-                return Self.json(status: HTTPStatus.badRequest, payload: ["error": ErrorCode.invalidBody])
-            }
-
-            let parsedLimit = Int(request.queryParam("limit") ?? "") ?? 20
-            let limit = max(1, min(parsedLimit, 100))
-            let offset = max(0, Int(request.queryParam("offset") ?? "") ?? 0)
-
-            do {
-                let response = try await service.listAgentMemories(
-                    agentID: agentId,
-                    search: search,
-                    filter: filter,
-                    limit: limit,
-                    offset: offset
-                )
-                return Self.encodable(status: HTTPStatus.ok, payload: response)
-            } catch CoreService.AgentStorageError.invalidID {
-                return Self.json(status: HTTPStatus.badRequest, payload: ["error": ErrorCode.invalidAgentId])
-            } catch CoreService.AgentStorageError.notFound {
-                return Self.json(status: HTTPStatus.notFound, payload: ["error": ErrorCode.agentNotFound])
-            } catch {
-                return Self.json(status: HTTPStatus.internalServerError, payload: ["error": ErrorCode.agentMemoryReadFailed])
-            }
-        }
-
-        add(.get, "/v1/agents/:agentId/memories/graph", metadata: RouteMetadata(summary: "Get agent memory graph", description: "Returns a graph representation of agent memories", tags: ["Agents"])) { request in
-            let agentId = request.pathParam("agentId") ?? ""
-            let search = request.queryParam("search")
-            let rawFilter = request.queryParam("filter")?.lowercased() ?? AgentMemoryFilter.all.rawValue
-            guard let filter = AgentMemoryFilter(rawValue: rawFilter) else {
-                return Self.json(status: HTTPStatus.badRequest, payload: ["error": ErrorCode.invalidBody])
-            }
-
-            do {
-                let response = try await service.agentMemoryGraph(
-                    agentID: agentId,
-                    search: search,
-                    filter: filter
-                )
-                return Self.encodable(status: HTTPStatus.ok, payload: response)
-            } catch CoreService.AgentStorageError.invalidID {
-                return Self.json(status: HTTPStatus.badRequest, payload: ["error": ErrorCode.invalidAgentId])
-            } catch CoreService.AgentStorageError.notFound {
-                return Self.json(status: HTTPStatus.notFound, payload: ["error": ErrorCode.agentNotFound])
-            } catch {
-                return Self.json(status: HTTPStatus.internalServerError, payload: ["error": ErrorCode.agentMemoryReadFailed])
-            }
-        }
-
-        add(.get, "/v1/agents/:agentId/sessions", metadata: RouteMetadata(summary: "List agent sessions", description: "Returns a list of sessions for a specific agent", tags: ["Agents"])) { request in
-            let agentId = request.pathParam("agentId") ?? ""
-            do {
-                let sessions = try await service.listAgentSessions(agentID: agentId)
-                return Self.encodable(status: HTTPStatus.ok, payload: sessions)
-            } catch let error as CoreService.AgentSessionError {
-                return Self.agentSessionErrorResponse(error, fallback: ErrorCode.sessionListFailed)
-            } catch {
-                return Self.json(status: HTTPStatus.internalServerError, payload: ["error": ErrorCode.sessionListFailed])
-            }
-        }
-
-        add(.get, "/v1/agents/:agentId/config", metadata: RouteMetadata(summary: "Get agent config", description: "Returns the configuration for a specific agent", tags: ["Agents"])) { request in
-            let agentId = request.pathParam("agentId") ?? ""
-            do {
-                let detail = try await service.getAgentConfig(agentID: agentId)
-                return Self.encodable(status: HTTPStatus.ok, payload: detail)
-            } catch let error as CoreService.AgentConfigError {
-                return Self.agentConfigErrorResponse(error, fallback: ErrorCode.agentConfigReadFailed)
-            } catch {
-                return Self.json(status: HTTPStatus.internalServerError, payload: ["error": ErrorCode.agentConfigReadFailed])
-            }
-        }
-
-        add(.get, "/v1/agents/:agentId/tools", metadata: RouteMetadata(summary: "Get agent tools", description: "Returns the tool policy for a specific agent", tags: ["Agents"])) { request in
-            let agentId = request.pathParam("agentId") ?? ""
-            do {
-                let policy = try await service.getAgentToolsPolicy(agentID: agentId)
-                return Self.encodable(status: HTTPStatus.ok, payload: policy)
-            } catch let error as CoreService.AgentToolsError {
-                return Self.agentToolsErrorResponse(error, fallback: ErrorCode.agentToolsReadFailed)
-            } catch {
-                return Self.json(status: HTTPStatus.internalServerError, payload: ["error": ErrorCode.agentToolsReadFailed])
-            }
-        }
-
-        add(.get, "/v1/agents/:agentId/tools/catalog", metadata: RouteMetadata(summary: "Get tool catalog", description: "Returns the catalog of available tools for an agent", tags: ["Agents"])) { _ in
-            let catalog = await service.toolCatalog()
-            return Self.encodable(status: HTTPStatus.ok, payload: catalog)
-        }
-
-        add(.get, "/v1/agents/:agentId/token-usage", metadata: RouteMetadata(summary: "Get agent token usage", description: "Returns token usage statistics for a specific agent", tags: ["Agents"])) { request in
-            let agentId = request.pathParam("agentId") ?? ""
-            do {
-                let usage = try await service.getAgentTokenUsage(agentID: agentId)
-                return Self.encodable(status: HTTPStatus.ok, payload: usage)
-            } catch CoreService.AgentStorageError.invalidID {
-                return Self.json(status: HTTPStatus.badRequest, payload: ["error": ErrorCode.invalidAgentId])
-            } catch CoreService.AgentStorageError.notFound {
-                return Self.json(status: HTTPStatus.notFound, payload: ["error": ErrorCode.agentNotFound])
-            } catch {
-                return Self.json(status: HTTPStatus.internalServerError, payload: ["error": ErrorCode.tokenUsageReadFailed])
-            }
-        }
-
-        add(.get, "/v1/agents/:agentId/cron", metadata: RouteMetadata(summary: "List agent cron tasks", description: "Returns a list of scheduled cron tasks for an agent", tags: ["Cron"])) { request in
-            let agentId = request.pathParam("agentId") ?? ""
-            do {
-                let tasks = try await service.listAgentCronTasks(agentID: agentId)
-                return Self.encodable(status: HTTPStatus.ok, payload: tasks)
-            } catch CoreService.AgentCronTaskError.invalidAgentID {
-                return Self.json(status: HTTPStatus.badRequest, payload: ["error": ErrorCode.invalidAgentId])
-            } catch {
-                return Self.json(status: HTTPStatus.internalServerError, payload: ["error": "internal_error"])
-            }
-        }
-
-        add(.post, "/v1/agents/:agentId/cron", metadata: RouteMetadata(summary: "Create agent cron task", description: "Creates a new scheduled cron task for an agent", tags: ["Cron"])) { request in
-            let agentId = request.pathParam("agentId") ?? ""
-            guard let body = request.body,
-                  let payload = Self.decode(body, as: AgentCronTaskCreateRequest.self)
-            else {
-                return Self.json(status: HTTPStatus.badRequest, payload: ["error": ErrorCode.invalidBody])
-            }
-
-            do {
-                let task = try await service.createAgentCronTask(agentID: agentId, request: payload)
-                return Self.encodable(status: HTTPStatus.created, payload: task)
-            } catch CoreService.AgentCronTaskError.invalidAgentID {
-                return Self.json(status: HTTPStatus.badRequest, payload: ["error": ErrorCode.invalidAgentId])
-            } catch {
-                return Self.json(status: HTTPStatus.internalServerError, payload: ["error": "internal_error"])
-            }
-        }
-
-        add(.put, "/v1/agents/:agentId/cron/:cronId", metadata: RouteMetadata(summary: "Update agent cron task", description: "Updates an existing scheduled cron task", tags: ["Cron"])) { request in
-            let agentId = request.pathParam("agentId") ?? ""
-            let cronId = request.pathParam("cronId") ?? ""
-            guard let body = request.body,
-                  let payload = Self.decode(body, as: AgentCronTaskUpdateRequest.self)
-            else {
-                return Self.json(status: HTTPStatus.badRequest, payload: ["error": ErrorCode.invalidBody])
-            }
-
-            do {
-                let task = try await service.updateAgentCronTask(agentID: agentId, cronID: cronId, request: payload)
-                return Self.encodable(status: HTTPStatus.ok, payload: task)
-            } catch CoreService.AgentCronTaskError.notFound {
-                return Self.json(status: HTTPStatus.notFound, payload: ["error": ErrorCode.notFound])
-            } catch {
-                return Self.json(status: HTTPStatus.internalServerError, payload: ["error": "internal_error"])
-            }
-        }
-
-        add(.delete, "/v1/agents/:agentId/cron/:cronId", metadata: RouteMetadata(summary: "Delete agent cron task", description: "Deletes a scheduled cron task", tags: ["Cron"])) { request in
-            let agentId = request.pathParam("agentId") ?? ""
-            let cronId = request.pathParam("cronId") ?? ""
-            do {
-                try await service.deleteAgentCronTask(agentID: agentId, cronID: cronId)
-                return Self.encodable(status: HTTPStatus.ok, payload: ["success": true])
-            } catch CoreService.AgentCronTaskError.notFound {
-                return Self.json(status: HTTPStatus.notFound, payload: ["error": ErrorCode.notFound])
-            } catch {
-                return Self.json(status: HTTPStatus.internalServerError, payload: ["error": "internal_error"])
-            }
-        }
-
-        add(.get, "/v1/agents/:agentId/sessions/:sessionId", metadata: RouteMetadata(summary: "Get agent session", description: "Returns details of a specific agent session", tags: ["Agents"])) { request in
-            let agentId = request.pathParam("agentId") ?? ""
-            let sessionId = request.pathParam("sessionId") ?? ""
-            do {
-                let detail = try await service.getAgentSession(agentID: agentId, sessionID: sessionId)
-                return Self.encodable(status: HTTPStatus.ok, payload: detail)
-            } catch let error as CoreService.AgentSessionError {
-                return Self.agentSessionErrorResponse(error, fallback: ErrorCode.sessionNotFound)
-            } catch {
-                return Self.json(status: HTTPStatus.internalServerError, payload: ["error": ErrorCode.sessionNotFound])
-            }
-        }
-
-        add(.get, "/v1/agents/:agentId/sessions/:sessionId/stream", metadata: RouteMetadata(summary: "Stream agent session", description: "Open a server-sent events stream for session updates", tags: ["Agents"])) { request in
-            let agentId = request.pathParam("agentId") ?? ""
-            let sessionId = request.pathParam("sessionId") ?? ""
-            do {
-                let stream = try await service.streamAgentSessionEvents(agentID: agentId, sessionID: sessionId)
-                return Self.sse(status: HTTPStatus.ok, updates: stream)
-            } catch let error as CoreService.AgentSessionError {
-                return Self.agentSessionErrorResponse(error, fallback: ErrorCode.sessionStreamFailed)
-            } catch {
-                return Self.json(status: HTTPStatus.internalServerError, payload: ["error": ErrorCode.sessionStreamFailed])
-            }
-        }
-
-        add(.get, "/v1/artifacts/:artifactId/content", metadata: RouteMetadata(summary: "Get artifact content", description: "Returns the content of a specific artifact", tags: ["Artifacts"])) { request in
-            let artifactId = request.pathParam("artifactId") ?? ""
-            guard let response = await service.getArtifactContent(id: artifactId) else {
-                return Self.json(status: HTTPStatus.notFound, payload: ["error": ErrorCode.artifactNotFound])
-            }
-            return Self.encodable(status: HTTPStatus.ok, payload: response)
-        }
-
-        add(.put, "/v1/config", metadata: RouteMetadata(summary: "Update config", description: "Updates the sloppy configuration", tags: ["System"])) { request in
-            guard let body = request.body,
-                  let payload = Self.decode(body, as: CoreConfig.self)
-            else {
-                return Self.json(status: HTTPStatus.badRequest, payload: ["error": ErrorCode.invalidBody])
-            }
-
-            do {
-                let config = try await service.updateConfig(payload)
-                return Self.encodable(status: HTTPStatus.ok, payload: config)
-            } catch {
-                return Self.json(status: HTTPStatus.internalServerError, payload: ["error": ErrorCode.configWriteFailed])
-            }
-        }
-
-        add(.put, "/v1/agents/:agentId/config", metadata: RouteMetadata(summary: "Update agent config", description: "Updates the configuration for a specific agent", tags: ["Agents"])) { request in
-            let agentId = request.pathParam("agentId") ?? ""
-            guard let body = request.body,
-                  let payload = Self.decode(body, as: AgentConfigUpdateRequest.self)
-            else {
-                return Self.json(status: HTTPStatus.badRequest, payload: ["error": ErrorCode.invalidAgentConfigPayload])
-            }
-
-            do {
-                let detail = try await service.updateAgentConfig(agentID: agentId, request: payload)
-                return Self.encodable(status: HTTPStatus.ok, payload: detail)
-            } catch let error as CoreService.AgentConfigError {
-                return Self.agentConfigErrorResponse(error, fallback: ErrorCode.agentConfigWriteFailed)
-            } catch {
-                return Self.json(status: HTTPStatus.internalServerError, payload: ["error": ErrorCode.agentConfigWriteFailed])
-            }
-        }
-
-        add(.put, "/v1/agents/:agentId/tools", metadata: RouteMetadata(summary: "Update agent tools", description: "Updates the tool policy for a specific agent", tags: ["Agents"])) { request in
-            let agentId = request.pathParam("agentId") ?? ""
-            guard let body = request.body,
-                  let payload = Self.decode(body, as: AgentToolsUpdateRequest.self)
-            else {
-                return Self.json(status: HTTPStatus.badRequest, payload: ["error": ErrorCode.invalidAgentToolsPayload])
-            }
-
-            do {
-                let policy = try await service.updateAgentToolsPolicy(agentID: agentId, request: payload)
-                return Self.encodable(status: HTTPStatus.ok, payload: policy)
-            } catch let error as CoreService.AgentToolsError {
-                return Self.agentToolsErrorResponse(error, fallback: ErrorCode.agentToolsWriteFailed)
-            } catch {
-                return Self.json(status: HTTPStatus.internalServerError, payload: ["error": ErrorCode.agentToolsWriteFailed])
-            }
-        }
-
-        // MARK: - Skills Routes
-
-        add(.get, "/v1/skills/registry", metadata: RouteMetadata(summary: "List skills registry", description: "Returns a list of skills available in the registry", tags: ["Skills"])) { request in
-            let search = request.queryParam("search")
-            let sort = request.queryParam("sort") ?? "installs"
-            let limit = Int(request.queryParam("limit") ?? "") ?? 20
-            let offset = Int(request.queryParam("offset") ?? "") ?? 0
-            Self.logger.debug("[skills.registry] path=\(request.path) query=\(request.query) -> search=\(search ?? "nil") sort=\(sort) limit=\(limit) offset=\(offset)")
-            do {
-                let response = try await service.fetchSkillsRegistry(search: search, sort: sort, limit: limit, offset: offset)
-                return Self.encodable(status: HTTPStatus.ok, payload: response)
-            } catch {
-                return Self.json(status: HTTPStatus.internalServerError, payload: ["error": ErrorCode.skillsRegistryFailed])
-            }
-        }
-
-        add(.get, "/v1/agents/:agentId/skills", metadata: RouteMetadata(summary: "List agent skills", description: "Returns a list of skills installed for an agent", tags: ["Skills"])) { request in
-            let agentId = request.pathParam("agentId") ?? ""
-            do {
-                let response = try await service.listAgentSkills(agentID: agentId)
-                return Self.encodable(status: HTTPStatus.ok, payload: response)
-            } catch let error as CoreService.AgentSkillsError {
-                return Self.agentSkillsErrorResponse(error, fallback: ErrorCode.skillsListFailed)
-            } catch {
-                return Self.json(status: HTTPStatus.internalServerError, payload: ["error": ErrorCode.skillsListFailed])
-            }
-        }
-
-        add(.post, "/v1/agents/:agentId/skills", metadata: RouteMetadata(summary: "Install agent skill", description: "Installs a new skill for an agent", tags: ["Skills"])) { request in
-            let agentId = request.pathParam("agentId") ?? ""
-            guard let body = request.body,
-                  let payload = Self.decode(body, as: SkillInstallRequest.self)
-            else {
-                return Self.json(status: HTTPStatus.badRequest, payload: ["error": ErrorCode.invalidBody])
-            }
-
-            do {
-                let skill = try await service.installAgentSkill(agentID: agentId, request: payload)
-                return Self.encodable(status: HTTPStatus.created, payload: skill)
-            } catch let error as CoreService.AgentSkillsError {
-                return Self.agentSkillsErrorResponse(error, fallback: ErrorCode.skillsInstallFailed)
-            } catch {
-                return Self.json(status: HTTPStatus.internalServerError, payload: ["error": ErrorCode.skillsInstallFailed])
-            }
-        }
-
-        add(.delete, "/v1/agents/:agentId/skills/:skillId", metadata: RouteMetadata(summary: "Uninstall agent skill", description: "Uninstalls a specific skill from an agent", tags: ["Skills"])) { request in
-            let agentId = request.pathParam("agentId") ?? ""
-            let skillId = request.pathParam("skillId") ?? ""
-            do {
-                try await service.uninstallAgentSkill(agentID: agentId, skillID: skillId)
-                return Self.json(status: HTTPStatus.ok, payload: ["success": "true"])
-            } catch let error as CoreService.AgentSkillsError {
-                return Self.agentSkillsErrorResponse(error, fallback: ErrorCode.skillsUninstallFailed)
-            } catch {
-                return Self.json(status: HTTPStatus.internalServerError, payload: ["error": ErrorCode.skillsUninstallFailed])
-            }
-        }
-
-        add(.put, "/v1/actors/board", metadata: RouteMetadata(summary: "Update actor board", description: "Updates the current state of the actor board", tags: ["Actors"])) { request in
-            guard let body = request.body,
-                  let payload = Self.decode(body, as: ActorBoardUpdateRequest.self)
-            else {
-                return Self.json(status: HTTPStatus.badRequest, payload: ["error": ErrorCode.invalidActorPayload])
-            }
-
-            do {
-                let board = try await service.updateActorBoard(request: payload)
-                return Self.encodable(status: HTTPStatus.ok, payload: board)
-            } catch let error as CoreService.ActorBoardError {
-                return Self.actorBoardErrorResponse(error, fallback: ErrorCode.actorBoardWriteFailed)
-            } catch {
-                return Self.json(status: HTTPStatus.internalServerError, payload: ["error": ErrorCode.actorBoardWriteFailed])
-            }
-        }
-
-        add(.put, "/v1/actors/nodes/:actorId", metadata: RouteMetadata(summary: "Update actor node", description: "Updates a specific actor node", tags: ["Actors"])) { request in
-            let actorId = request.pathParam("actorId") ?? ""
-            guard let body = request.body,
-                  let payload = Self.decode(body, as: ActorNode.self)
-            else {
-                return Self.json(status: HTTPStatus.badRequest, payload: ["error": ErrorCode.invalidActorPayload])
-            }
-
-            do {
-                let board = try await service.updateActorNode(actorID: actorId, node: payload)
-                return Self.encodable(status: HTTPStatus.ok, payload: board)
-            } catch let error as CoreService.ActorBoardError {
-                return Self.actorBoardErrorResponse(error, fallback: ErrorCode.actorBoardWriteFailed)
-            } catch {
-                return Self.json(status: HTTPStatus.internalServerError, payload: ["error": ErrorCode.actorBoardWriteFailed])
-            }
-        }
-
-        add(.put, "/v1/actors/links/:linkId", metadata: RouteMetadata(summary: "Update actor link", description: "Updates a specific actor link", tags: ["Actors"])) { request in
-            let linkId = request.pathParam("linkId") ?? ""
-            guard let body = request.body,
-                  let payload = Self.decode(body, as: ActorLink.self)
-            else {
-                return Self.json(status: HTTPStatus.badRequest, payload: ["error": ErrorCode.invalidActorPayload])
-            }
-
-            do {
-                let board = try await service.updateActorLink(linkID: linkId, link: payload)
-                return Self.encodable(status: HTTPStatus.ok, payload: board)
-            } catch let error as CoreService.ActorBoardError {
-                return Self.actorBoardErrorResponse(error, fallback: ErrorCode.actorBoardWriteFailed)
-            } catch {
-                return Self.json(status: HTTPStatus.internalServerError, payload: ["error": ErrorCode.actorBoardWriteFailed])
-            }
-        }
-
-        add(.put, "/v1/actors/teams/:teamId", metadata: RouteMetadata(summary: "Update actor team", description: "Updates a specific actor team", tags: ["Actors"])) { request in
-            let teamId = request.pathParam("teamId") ?? ""
-            guard let body = request.body,
-                  let payload = Self.decode(body, as: ActorTeam.self)
-            else {
-                return Self.json(status: HTTPStatus.badRequest, payload: ["error": ErrorCode.invalidActorPayload])
-            }
-
-            do {
-                let board = try await service.updateActorTeam(teamID: teamId, team: payload)
-                return Self.encodable(status: HTTPStatus.ok, payload: board)
-            } catch let error as CoreService.ActorBoardError {
-                return Self.actorBoardErrorResponse(error, fallback: ErrorCode.actorBoardWriteFailed)
-            } catch {
-                return Self.json(status: HTTPStatus.internalServerError, payload: ["error": ErrorCode.actorBoardWriteFailed])
-            }
-        }
-
-        add(.post, "/v1/providers/openai/models", metadata: RouteMetadata(summary: "List OpenAI models", description: "Returns a list of available models for OpenAI", tags: ["Providers"])) { request in
-            guard let body = request.body,
-                  let payload = Self.decode(body, as: OpenAIProviderModelsRequest.self)
-            else {
-                return Self.json(status: HTTPStatus.badRequest, payload: ["error": ErrorCode.invalidBody])
-            }
-
-            let response = await service.listOpenAIModels(request: payload)
-            return Self.encodable(status: HTTPStatus.ok, payload: response)
-        }
-
-        add(.post, "/v1/projects", metadata: RouteMetadata(summary: "Create project", description: "Creates a new project", tags: ["Projects"])) { request in
-            guard let body = request.body,
-                  let payload = Self.decode(body, as: ProjectCreateRequest.self)
-            else {
-                return Self.json(status: HTTPStatus.badRequest, payload: ["error": ErrorCode.invalidBody])
-            }
-
-            do {
-                let project = try await service.createProject(payload)
-                return Self.encodable(status: HTTPStatus.created, payload: project)
-            } catch let error as CoreService.ProjectError {
-                return Self.projectErrorResponse(error, fallback: ErrorCode.projectCreateFailed)
-            } catch {
-                return Self.json(status: HTTPStatus.internalServerError, payload: ["error": ErrorCode.projectCreateFailed])
-            }
-        }
-
-        add(.post, "/v1/projects/:projectId/channels", metadata: RouteMetadata(summary: "Create project channel", description: "Adds a new communication channel to a project", tags: ["Projects"])) { request in
-            let projectId = request.pathParam("projectId") ?? ""
-            guard let body = request.body,
-                  let payload = Self.decode(body, as: ProjectChannelCreateRequest.self)
-            else {
-                return Self.json(status: HTTPStatus.badRequest, payload: ["error": ErrorCode.invalidBody])
-            }
-
-            do {
-                let project = try await service.createProjectChannel(projectID: projectId, request: payload)
-                return Self.encodable(status: HTTPStatus.ok, payload: project)
-            } catch let error as CoreService.ProjectError {
-                return Self.projectErrorResponse(error, fallback: ErrorCode.projectUpdateFailed)
-            } catch {
-                return Self.json(status: HTTPStatus.internalServerError, payload: ["error": ErrorCode.projectUpdateFailed])
-            }
-        }
-
-        add(.post, "/v1/projects/:projectId/tasks", metadata: RouteMetadata(summary: "Create project task", description: "Adds a new task to a project", tags: ["Projects"])) { request in
-            let projectId = request.pathParam("projectId") ?? ""
-            guard let body = request.body,
-                  let payload = Self.decode(body, as: ProjectTaskCreateRequest.self)
-            else {
-                return Self.json(status: HTTPStatus.badRequest, payload: ["error": ErrorCode.invalidBody])
-            }
-
-            do {
-                let project = try await service.createProjectTask(projectID: projectId, request: payload)
-                return Self.encodable(status: HTTPStatus.ok, payload: project)
-            } catch let error as CoreService.ProjectError {
-                return Self.projectErrorResponse(error, fallback: ErrorCode.projectUpdateFailed)
-            } catch {
-                return Self.json(status: HTTPStatus.internalServerError, payload: ["error": ErrorCode.projectUpdateFailed])
-            }
-        }
-
-        add(.post, "/v1/agents", metadata: RouteMetadata(summary: "Create agent", description: "Creates a new agent", tags: ["Agents"])) { request in
-            guard let body = request.body,
-                  let payload = Self.decode(body, as: AgentCreateRequest.self)
-            else {
-                return Self.json(status: HTTPStatus.badRequest, payload: ["error": ErrorCode.invalidBody])
-            }
-
-            do {
-                let agent = try await service.createAgent(payload)
-                return Self.encodable(status: HTTPStatus.created, payload: agent)
-            } catch CoreService.AgentStorageError.invalidID {
-                return Self.json(status: HTTPStatus.badRequest, payload: ["error": ErrorCode.invalidAgentId])
-            } catch CoreService.AgentStorageError.invalidPayload {
-                return Self.json(status: HTTPStatus.badRequest, payload: ["error": ErrorCode.invalidAgentPayload])
-            } catch CoreService.AgentStorageError.alreadyExists {
-                return Self.json(status: HTTPStatus.conflict, payload: ["error": ErrorCode.agentAlreadyExists])
-            } catch {
-                return Self.json(status: HTTPStatus.internalServerError, payload: ["error": ErrorCode.agentCreateFailed])
-            }
-        }
-
-        add(.post, "/v1/actors/nodes", metadata: RouteMetadata(summary: "Create actor node", description: "Creates a new node in the actor board", tags: ["Actors"])) { request in
-            guard let body = request.body,
-                  let payload = Self.decode(body, as: ActorNode.self)
-            else {
-                return Self.json(status: HTTPStatus.badRequest, payload: ["error": ErrorCode.invalidActorPayload])
-            }
-
-            do {
-                let board = try await service.createActorNode(node: payload)
-                return Self.encodable(status: HTTPStatus.created, payload: board)
-            } catch let error as CoreService.ActorBoardError {
-                return Self.actorBoardErrorResponse(error, fallback: ErrorCode.actorBoardWriteFailed)
-            } catch {
-                return Self.json(status: HTTPStatus.internalServerError, payload: ["error": ErrorCode.actorBoardWriteFailed])
-            }
-        }
-
-        add(.post, "/v1/actors/links", metadata: RouteMetadata(summary: "Create actor link", description: "Creates a new link between actor nodes", tags: ["Actors"])) { request in
-            guard let body = request.body,
-                  let payload = Self.decode(body, as: ActorLink.self)
-            else {
-                return Self.json(status: HTTPStatus.badRequest, payload: ["error": ErrorCode.invalidActorPayload])
-            }
-
-            do {
-                let board = try await service.createActorLink(link: payload)
-                return Self.encodable(status: HTTPStatus.created, payload: board)
-            } catch let error as CoreService.ActorBoardError {
-                return Self.actorBoardErrorResponse(error, fallback: ErrorCode.actorBoardWriteFailed)
-            } catch {
-                return Self.json(status: HTTPStatus.internalServerError, payload: ["error": ErrorCode.actorBoardWriteFailed])
-            }
-        }
-
-        add(.post, "/v1/actors/teams", metadata: RouteMetadata(summary: "Create actor team", description: "Creates a new team of actors", tags: ["Actors"])) { request in
-            guard let body = request.body,
-                  let payload = Self.decode(body, as: ActorTeam.self)
-            else {
-                return Self.json(status: HTTPStatus.badRequest, payload: ["error": ErrorCode.invalidActorPayload])
-            }
-
-            do {
-                let board = try await service.createActorTeam(team: payload)
-                return Self.encodable(status: HTTPStatus.created, payload: board)
-            } catch let error as CoreService.ActorBoardError {
-                return Self.actorBoardErrorResponse(error, fallback: ErrorCode.actorBoardWriteFailed)
-            } catch {
-                return Self.json(status: HTTPStatus.internalServerError, payload: ["error": ErrorCode.actorBoardWriteFailed])
-            }
-        }
-
-        add(.post, "/v1/agents/:agentId/sessions", metadata: RouteMetadata(summary: "Create agent session", description: "Starts a new session with an agent", tags: ["Agents"])) { request in
-            let agentId = request.pathParam("agentId") ?? ""
-            let payload: AgentSessionCreateRequest
-
-            if let body = request.body {
-                guard let decoded = Self.decode(body, as: AgentSessionCreateRequest.self) else {
-                    return Self.json(status: HTTPStatus.badRequest, payload: ["error": ErrorCode.invalidBody])
-                }
-                payload = decoded
-            } else {
-                payload = AgentSessionCreateRequest()
-            }
-
-            do {
-                let summary = try await service.createAgentSession(agentID: agentId, request: payload)
-                return Self.encodable(status: HTTPStatus.created, payload: summary)
-            } catch let error as CoreService.AgentSessionError {
-                return Self.agentSessionErrorResponse(error, fallback: ErrorCode.sessionCreateFailed)
-            } catch {
-                return Self.json(status: HTTPStatus.internalServerError, payload: ["error": ErrorCode.sessionCreateFailed])
-            }
-        }
-
-        add(.post, "/v1/agents/:agentId/sessions/:sessionId/messages", metadata: RouteMetadata(summary: "Post session message", description: "Sends a new message to an active agent session", tags: ["Agents"])) { request in
-            let agentId = request.pathParam("agentId") ?? ""
-            let sessionId = request.pathParam("sessionId") ?? ""
-            guard let body = request.body,
-                  let payload = Self.decode(body, as: AgentSessionPostMessageRequest.self)
-            else {
-                return Self.json(status: HTTPStatus.badRequest, payload: ["error": ErrorCode.invalidBody])
-            }
-
-            do {
-                let response = try await service.postAgentSessionMessage(
-                    agentID: agentId,
-                    sessionID: sessionId,
-                    request: payload
-                )
-                return Self.encodable(status: HTTPStatus.ok, payload: response)
-            } catch let error as CoreService.AgentSessionError {
-                return Self.agentSessionErrorResponse(error, fallback: ErrorCode.sessionWriteFailed)
-            } catch {
-                return Self.json(status: HTTPStatus.internalServerError, payload: ["error": ErrorCode.sessionWriteFailed])
-            }
-        }
-
-        add(.post, "/v1/agents/:agentId/sessions/:sessionId/control", metadata: RouteMetadata(summary: "Control agent session", description: "Sends a control command (e.g., interrupt) to an agent session", tags: ["Agents"])) { request in
-            let agentId = request.pathParam("agentId") ?? ""
-            let sessionId = request.pathParam("sessionId") ?? ""
-            guard let body = request.body,
-                  let payload = Self.decode(body, as: AgentSessionControlRequest.self)
-            else {
-                return Self.json(status: HTTPStatus.badRequest, payload: ["error": ErrorCode.invalidBody])
-            }
-
-            do {
-                let response = try await service.controlAgentSession(
-                    agentID: agentId,
-                    sessionID: sessionId,
-                    request: payload
-                )
-                return Self.encodable(status: HTTPStatus.ok, payload: response)
-            } catch let error as CoreService.AgentSessionError {
-                return Self.agentSessionErrorResponse(error, fallback: ErrorCode.sessionWriteFailed)
-            } catch {
-                return Self.json(status: HTTPStatus.internalServerError, payload: ["error": ErrorCode.sessionWriteFailed])
-            }
-        }
-
-        add(.post, "/v1/agents/:agentId/sessions/:sessionId/tools/invoke", metadata: RouteMetadata(summary: "Invoke tool", description: "Manually invokes a tool for an agent session", tags: ["Agents"])) { request in
-            let agentId = request.pathParam("agentId") ?? ""
-            let sessionId = request.pathParam("sessionId") ?? ""
-            guard let body = request.body,
-                  let payload = Self.decode(body, as: ToolInvocationRequest.self)
-            else {
-                return Self.json(status: HTTPStatus.badRequest, payload: ["error": ErrorCode.invalidToolInvocationPayload])
-            }
-
-            do {
-                let result = try await service.invokeTool(agentID: agentId, sessionID: sessionId, request: payload)
-                return Self.encodable(status: HTTPStatus.ok, payload: result)
-            } catch let error as CoreService.ToolInvocationError {
-                return Self.toolInvocationErrorResponse(error, fallback: ErrorCode.toolInvokeFailed)
-            } catch {
-                return Self.json(status: HTTPStatus.internalServerError, payload: ["error": ErrorCode.toolInvokeFailed])
-            }
-        }
-
-        add(.post, "/v1/channels/:channelId/messages", metadata: RouteMetadata(summary: "Post channel message", description: "Sends a new message to a specific channel", tags: ["Channels"])) { request in
-            let channelId = request.pathParam("channelId") ?? ""
-            guard let body = request.body,
-                  let payload = Self.decode(body, as: ChannelMessageRequest.self)
-            else {
-                return Self.json(status: HTTPStatus.badRequest, payload: ["error": ErrorCode.invalidBody])
-            }
-
-            let decision = await service.postChannelMessage(channelId: channelId, request: payload)
-            return Self.encodable(status: HTTPStatus.ok, payload: decision)
-        }
-
-        add(.get, "/v1/channels/:channelId/model", metadata: RouteMetadata(summary: "Get channel model", description: "Returns the current model override and available models for a channel", tags: ["Channels"])) { request in
-            let channelId = request.pathParam("channelId") ?? ""
-            let response = await service.getChannelModel(channelId: channelId)
-            return Self.encodable(status: HTTPStatus.ok, payload: response)
-        }
-
-        add(.put, "/v1/channels/:channelId/model", metadata: RouteMetadata(summary: "Set channel model", description: "Sets the model override for a channel", tags: ["Channels"])) { request in
-            let channelId = request.pathParam("channelId") ?? ""
-            guard let body = request.body,
-                  let payload = Self.decode(body, as: ChannelModelUpdateRequest.self)
-            else {
-                return Self.json(status: HTTPStatus.badRequest, payload: ["error": ErrorCode.invalidBody])
-            }
-
-            do {
-                let response = try await service.setChannelModel(channelId: channelId, model: payload.model)
-                return Self.encodable(status: HTTPStatus.ok, payload: response)
-            } catch {
-                return Self.json(status: HTTPStatus.badRequest, payload: ["error": ErrorCode.invalidAgentModel])
-            }
-        }
-
-        add(.delete, "/v1/channels/:channelId/model", metadata: RouteMetadata(summary: "Clear channel model", description: "Removes the model override for a channel, reverting to default", tags: ["Channels"])) { request in
-            let channelId = request.pathParam("channelId") ?? ""
-            await service.removeChannelModel(channelId: channelId)
-            return Self.json(status: HTTPStatus.ok, payload: [:] as [String: String])
-        }
-
-        add(.post, "/v1/channels/:channelId/control", metadata: RouteMetadata(summary: "Control channel", description: "Sends a control command (abort/interrupt) to a channel's active processing", tags: ["Channels"])) { request in
-            let channelId = request.pathParam("channelId") ?? ""
-            guard let body = request.body,
-                  let payload = Self.decode(body, as: ChannelControlRequest.self)
-            else {
-                return Self.json(status: HTTPStatus.badRequest, payload: ["error": ErrorCode.invalidBody])
-            }
-
-            let response = await service.controlChannel(channelId: channelId, action: payload.action)
-            return Self.encodable(status: HTTPStatus.ok, payload: response)
-        }
-
-        add(.post, "/v1/actors/route", metadata: RouteMetadata(summary: "Route actor request", description: "Resolves the routing for an actor request", tags: ["Actors"])) { request in
-            guard let body = request.body,
-                  let payload = Self.decode(body, as: ActorRouteRequest.self)
-            else {
-                return Self.json(status: HTTPStatus.badRequest, payload: ["error": ErrorCode.invalidActorPayload])
-            }
-
-            do {
-                let response = try await service.resolveActorRoute(request: payload)
-                return Self.encodable(status: HTTPStatus.ok, payload: response)
-            } catch let error as CoreService.ActorBoardError {
-                return Self.actorBoardErrorResponse(error, fallback: ErrorCode.actorRouteFailed)
-            } catch {
-                return Self.json(status: HTTPStatus.internalServerError, payload: ["error": ErrorCode.actorRouteFailed])
-            }
-        }
-
-        add(.post, "/v1/channels/:channelId/route/:workerId", metadata: RouteMetadata(summary: "Route channel to worker", description: "Routes a specific channel to a worker", tags: ["Channels"])) { request in
-            let channelId = request.pathParam("channelId") ?? ""
-            let workerId = request.pathParam("workerId") ?? ""
-            guard let body = request.body,
-                  let payload = Self.decode(body, as: ChannelRouteRequest.self)
-            else {
-                return Self.json(status: HTTPStatus.badRequest, payload: ["error": ErrorCode.invalidBody])
-            }
-
-            let accepted = await service.postChannelRoute(
-                channelId: channelId,
-                workerId: workerId,
-                request: payload
-            )
-            return Self.encodable(
-                status: accepted ? HTTPStatus.ok : HTTPStatus.notFound,
-                payload: AcceptResponse(accepted: accepted)
-            )
-        }
-
-        add(.post, "/v1/workers", metadata: RouteMetadata(summary: "Create worker", description: "Registers a new worker runtime", tags: ["System"])) { request in
-            guard let body = request.body,
-                  let payload = Self.decode(body, as: WorkerCreateRequest.self)
-            else {
-                return Self.json(status: HTTPStatus.badRequest, payload: ["error": ErrorCode.invalidBody])
-            }
-
-            let workerId = await service.postWorker(request: payload)
-            return Self.encodable(status: HTTPStatus.created, payload: WorkerCreateResponse(workerId: workerId))
-        }
-
-        add(.get, "/v1/token-usage", metadata: RouteMetadata(summary: "List token usage", description: "Returns token usage statistics across all projects and agents", tags: ["System"])) { request in
-            let channelId = request.queryParam("channelId")
-            let taskId = request.queryParam("taskId")
-            let from: Date? = request.queryParam("from").flatMap { Self.isoDate(from: $0) }
-            let to: Date? = request.queryParam("to").flatMap { Self.isoDate(from: $0) }
-
-            let response = await service.listTokenUsage(channelId: channelId, taskId: taskId, from: from, to: to)
-            return Self.encodable(status: HTTPStatus.ok, payload: response)
-        }
-
-        add(.patch, "/v1/projects/:projectId", metadata: RouteMetadata(summary: "Update project", description: "Updates the details of an existing project", tags: ["Projects"])) { request in
-            let projectId = request.pathParam("projectId") ?? ""
-            guard let body = request.body,
-                  let payload = Self.decode(body, as: ProjectUpdateRequest.self)
-            else {
-                return Self.json(status: HTTPStatus.badRequest, payload: ["error": ErrorCode.invalidBody])
-            }
-
-            do {
-                let project = try await service.updateProject(projectID: projectId, request: payload)
-                return Self.encodable(status: HTTPStatus.ok, payload: project)
-            } catch let error as CoreService.ProjectError {
-                return Self.projectErrorResponse(error, fallback: ErrorCode.projectUpdateFailed)
-            } catch {
-                return Self.json(status: HTTPStatus.internalServerError, payload: ["error": ErrorCode.projectUpdateFailed])
-            }
-        }
-
-        add(.patch, "/v1/projects/:projectId/tasks/:taskId", metadata: RouteMetadata(summary: "Update project task", description: "Updates an existing task in a project", tags: ["Projects"])) { request in
-            let projectId = request.pathParam("projectId") ?? ""
-            let taskId = request.pathParam("taskId") ?? ""
-            guard let body = request.body,
-                  let payload = Self.decode(body, as: ProjectTaskUpdateRequest.self)
-            else {
-                return Self.json(status: HTTPStatus.badRequest, payload: ["error": ErrorCode.invalidBody])
-            }
-
-            do {
-                let project = try await service.updateProjectTask(projectID: projectId, taskID: taskId, request: payload)
-                return Self.encodable(status: HTTPStatus.ok, payload: project)
-            } catch let error as CoreService.ProjectError {
-                return Self.projectErrorResponse(error, fallback: ErrorCode.projectUpdateFailed)
-            } catch {
-                return Self.json(status: HTTPStatus.internalServerError, payload: ["error": ErrorCode.projectUpdateFailed])
-            }
-        }
-
-        add(.delete, "/v1/agents/:agentId/sessions/:sessionId", metadata: RouteMetadata(summary: "Delete agent session", description: "Deletes a specific agent session", tags: ["Agents"])) { request in
-            let agentId = request.pathParam("agentId") ?? ""
-            let sessionId = request.pathParam("sessionId") ?? ""
-
-            do {
-                try await service.deleteAgentSession(agentID: agentId, sessionID: sessionId)
-                return Self.json(status: HTTPStatus.ok, payload: ["status": "deleted"])
-            } catch let error as CoreService.AgentSessionError {
-                return Self.agentSessionErrorResponse(error, fallback: ErrorCode.sessionDeleteFailed)
-            } catch {
-                return Self.json(status: HTTPStatus.internalServerError, payload: ["error": ErrorCode.sessionDeleteFailed])
-            }
-        }
-
-        add(.delete, "/v1/actors/nodes/:actorId", metadata: RouteMetadata(summary: "Delete actor node", description: "Deletes a specific actor node", tags: ["Actors"])) { request in
-            let actorId = request.pathParam("actorId") ?? ""
-
-            do {
-                let board = try await service.deleteActorNode(actorID: actorId)
-                return Self.encodable(status: HTTPStatus.ok, payload: board)
-            } catch let error as CoreService.ActorBoardError {
-                return Self.actorBoardErrorResponse(error, fallback: ErrorCode.actorBoardWriteFailed)
-            } catch {
-                return Self.json(status: HTTPStatus.internalServerError, payload: ["error": ErrorCode.actorBoardWriteFailed])
-            }
-        }
-
-        add(.delete, "/v1/actors/links/:linkId", metadata: RouteMetadata(summary: "Delete actor link", description: "Deletes a specific actor link", tags: ["Actors"])) { request in
-            let linkId = request.pathParam("linkId") ?? ""
-
-            do {
-                let board = try await service.deleteActorLink(linkID: linkId)
-                return Self.encodable(status: HTTPStatus.ok, payload: board)
-            } catch let error as CoreService.ActorBoardError {
-                return Self.actorBoardErrorResponse(error, fallback: ErrorCode.actorBoardWriteFailed)
-            } catch {
-                return Self.json(status: HTTPStatus.internalServerError, payload: ["error": ErrorCode.actorBoardWriteFailed])
-            }
-        }
-
-        add(.delete, "/v1/actors/teams/:teamId", metadata: RouteMetadata(summary: "Delete actor team", description: "Deletes a specific actor team", tags: ["Actors"])) { request in
-            let teamId = request.pathParam("teamId") ?? ""
-
-            do {
-                let board = try await service.deleteActorTeam(teamID: teamId)
-                return Self.encodable(status: HTTPStatus.ok, payload: board)
-            } catch let error as CoreService.ActorBoardError {
-                return Self.actorBoardErrorResponse(error, fallback: ErrorCode.actorBoardWriteFailed)
-            } catch {
-                return Self.json(status: HTTPStatus.internalServerError, payload: ["error": ErrorCode.actorBoardWriteFailed])
-            }
-        }
-
-        add(.delete, "/v1/projects/:projectId", metadata: RouteMetadata(summary: "Delete project", description: "Deletes a specific project", tags: ["Projects"])) { request in
-            let projectId = request.pathParam("projectId") ?? ""
-            do {
-                try await service.deleteProject(projectID: projectId)
-                return Self.json(status: HTTPStatus.ok, payload: ["status": "deleted"])
-            } catch let error as CoreService.ProjectError {
-                return Self.projectErrorResponse(error, fallback: ErrorCode.projectDeleteFailed)
-            } catch {
-                return Self.json(status: HTTPStatus.internalServerError, payload: ["error": ErrorCode.projectDeleteFailed])
-            }
-        }
-
-        add(.delete, "/v1/projects/:projectId/channels/:channelId", metadata: RouteMetadata(summary: "Delete project channel", description: "Removes a specific channel from a project", tags: ["Projects"])) { request in
-            let projectId = request.pathParam("projectId") ?? ""
-            let channelId = request.pathParam("channelId") ?? ""
-            do {
-                let project = try await service.deleteProjectChannel(projectID: projectId, channelID: channelId)
-                return Self.encodable(status: HTTPStatus.ok, payload: project)
-            } catch let error as CoreService.ProjectError {
-                return Self.projectErrorResponse(error, fallback: ErrorCode.projectUpdateFailed)
-            } catch {
-                return Self.json(status: HTTPStatus.internalServerError, payload: ["error": ErrorCode.projectUpdateFailed])
-            }
-        }
-
-        add(.delete, "/v1/projects/:projectId/tasks/:taskId", metadata: RouteMetadata(summary: "Delete project task", description: "Removes a specific task from a project", tags: ["Projects"])) { request in
-            let projectId = request.pathParam("projectId") ?? ""
-            let taskId = request.pathParam("taskId") ?? ""
-            do {
-                let project = try await service.deleteProjectTask(projectID: projectId, taskID: taskId)
-                return Self.encodable(status: HTTPStatus.ok, payload: project)
-            } catch let error as CoreService.ProjectError {
-                return Self.projectErrorResponse(error, fallback: ErrorCode.projectUpdateFailed)
-            } catch {
-                return Self.json(status: HTTPStatus.internalServerError, payload: ["error": ErrorCode.projectUpdateFailed])
-            }
-        }
-
-        add(.post, "/v1/projects/:projectId/tasks/:taskId/approve", metadata: RouteMetadata(summary: "Approve project task review", description: "Merges the task worktree branch and marks the task as done", tags: ["Projects"])) { request in
-            let projectId = request.pathParam("projectId") ?? ""
-            let taskId = request.pathParam("taskId") ?? ""
-            do {
-                try await service.approveTask(projectID: projectId, taskID: taskId)
-                return Self.json(status: HTTPStatus.ok, payload: ["ok": "true"])
-            } catch let error as CoreService.ProjectError {
-                return Self.projectErrorResponse(error, fallback: ErrorCode.projectUpdateFailed)
-            } catch {
-                return Self.json(status: HTTPStatus.internalServerError, payload: ["error": ErrorCode.projectUpdateFailed])
-            }
-        }
-
-        add(.post, "/v1/projects/:projectId/tasks/:taskId/reject", metadata: RouteMetadata(summary: "Reject project task review", description: "Rejects the task review and returns it to the developer", tags: ["Projects"])) { request in
-            let projectId = request.pathParam("projectId") ?? ""
-            let taskId = request.pathParam("taskId") ?? ""
-            let payload = request.body.flatMap { Self.decode($0, as: TaskRejectRequest.self) }
-            do {
-                try await service.rejectTask(projectID: projectId, taskID: taskId, reason: payload?.reason)
-                return Self.json(status: HTTPStatus.ok, payload: ["ok": "true"])
-            } catch let error as CoreService.ProjectError {
-                return Self.projectErrorResponse(error, fallback: ErrorCode.projectUpdateFailed)
-            } catch {
-                return Self.json(status: HTTPStatus.internalServerError, payload: ["error": ErrorCode.projectUpdateFailed])
-            }
-        }
-
-        add(.get, "/v1/projects/:projectId/tasks/:taskId/diff", metadata: RouteMetadata(summary: "Get task git diff", description: "Returns the git diff for a task worktree branch", tags: ["Projects"])) { request in
-            let projectId = request.pathParam("projectId") ?? ""
-            let taskId = request.pathParam("taskId") ?? ""
-            do {
-                let response = try await service.getTaskDiff(projectID: projectId, taskID: taskId)
-                return Self.encodable(status: HTTPStatus.ok, payload: response)
-            } catch let error as CoreService.ProjectError {
-                return Self.projectErrorResponse(error, fallback: ErrorCode.projectNotFound)
-            } catch {
-                return Self.json(status: HTTPStatus.internalServerError, payload: ["error": ErrorCode.projectNotFound])
-            }
-        }
-
-        add(.get, "/v1/projects/:projectId/tasks/:taskId/review-comments", metadata: RouteMetadata(summary: "List review comments", description: "Returns all review comments for a task", tags: ["Projects"])) { request in
-            let projectId = request.pathParam("projectId") ?? ""
-            let taskId = request.pathParam("taskId") ?? ""
-            let comments = await service.listReviewComments(projectID: projectId, taskID: taskId)
-            return Self.encodable(status: HTTPStatus.ok, payload: comments)
-        }
-
-        add(.post, "/v1/projects/:projectId/tasks/:taskId/review-comments", metadata: RouteMetadata(summary: "Add review comment", description: "Adds a review comment to a task diff", tags: ["Projects"])) { request in
-            let projectId = request.pathParam("projectId") ?? ""
-            let taskId = request.pathParam("taskId") ?? ""
-            guard let body = request.body,
-                  let payload = Self.decode(body, as: ReviewCommentCreateRequest.self)
-            else {
-                return Self.json(status: HTTPStatus.badRequest, payload: ["error": "Invalid comment payload"])
-            }
-            let comment = await service.addReviewComment(projectID: projectId, taskID: taskId, request: payload)
-            return Self.encodable(status: HTTPStatus.created, payload: comment)
-        }
-
-        add(.patch, "/v1/projects/:projectId/tasks/:taskId/review-comments/:commentId", metadata: RouteMetadata(summary: "Update review comment", description: "Updates a review comment (resolve/unresolve or edit content)", tags: ["Projects"])) { request in
-            let projectId = request.pathParam("projectId") ?? ""
-            let taskId = request.pathParam("taskId") ?? ""
-            let commentId = request.pathParam("commentId") ?? ""
-            guard let body = request.body,
-                  let payload = Self.decode(body, as: ReviewCommentUpdateRequest.self)
-            else {
-                return Self.json(status: HTTPStatus.badRequest, payload: ["error": "Invalid comment payload"])
-            }
-            guard let updated = await service.updateReviewComment(projectID: projectId, taskID: taskId, commentID: commentId, request: payload) else {
-                return Self.json(status: HTTPStatus.notFound, payload: ["error": "Comment not found"])
-            }
-            return Self.encodable(status: HTTPStatus.ok, payload: updated)
-        }
-
-        add(.delete, "/v1/projects/:projectId/tasks/:taskId/review-comments/:commentId", metadata: RouteMetadata(summary: "Delete review comment", description: "Deletes a review comment", tags: ["Projects"])) { request in
-            let projectId = request.pathParam("projectId") ?? ""
-            let taskId = request.pathParam("taskId") ?? ""
-            let commentId = request.pathParam("commentId") ?? ""
-            let deleted = await service.deleteReviewComment(projectID: projectId, taskID: taskId, commentID: commentId)
-            if deleted {
-                return Self.json(status: HTTPStatus.ok, payload: ["ok": "true"])
-            }
-            return Self.json(status: HTTPStatus.notFound, payload: ["error": "Comment not found"])
-        }
-
-        add(.get, "/v1/projects/:projectId/tasks/:taskId/comments", metadata: RouteMetadata(summary: "List task comments", description: "Returns all comments for a task", tags: ["Projects"])) { request in
-            let projectId = request.pathParam("projectId") ?? ""
-            let taskId = request.pathParam("taskId") ?? ""
-            let comments = await service.listTaskComments(projectID: projectId, taskID: taskId)
-            return Self.encodable(status: HTTPStatus.ok, payload: comments)
-        }
-
-        add(.post, "/v1/projects/:projectId/tasks/:taskId/comments", metadata: RouteMetadata(summary: "Add task comment", description: "Adds a comment to a task", tags: ["Projects"])) { request in
-            let projectId = request.pathParam("projectId") ?? ""
-            let taskId = request.pathParam("taskId") ?? ""
-            guard let body = request.body,
-                  let payload = try? JSONDecoder().decode(TaskCommentCreateRequest.self, from: body)
-            else {
-                return Self.json(status: HTTPStatus.badRequest, payload: ["error": "Invalid comment payload"])
-            }
-            let comment = await service.addTaskComment(projectID: projectId, taskID: taskId, request: payload)
-            return Self.encodable(status: HTTPStatus.created, payload: comment)
-        }
-
-        add(.delete, "/v1/projects/:projectId/tasks/:taskId/comments/:commentId", metadata: RouteMetadata(summary: "Delete task comment", description: "Deletes a task comment", tags: ["Projects"])) { request in
-            let projectId = request.pathParam("projectId") ?? ""
-            let taskId = request.pathParam("taskId") ?? ""
-            let commentId = request.pathParam("commentId") ?? ""
-            let deleted = await service.deleteTaskComment(projectID: projectId, taskID: taskId, commentID: commentId)
-            if deleted {
-                return Self.json(status: HTTPStatus.ok, payload: ["ok": "true"])
-            }
-            return Self.json(status: HTTPStatus.notFound, payload: ["error": "Comment not found"])
-        }
-
-        add(.get, "/v1/projects/:projectId/tasks/:taskId/activities", metadata: RouteMetadata(summary: "List task activities", description: "Returns the activity history for a task", tags: ["Projects"])) { request in
-            let projectId = request.pathParam("projectId") ?? ""
-            let taskId = request.pathParam("taskId") ?? ""
-            let activities = await service.listTaskActivities(projectID: projectId, taskID: taskId)
-            return Self.encodable(status: HTTPStatus.ok, payload: activities)
-        }
-
-        // MARK: - Channel Plugins
-
-        add(.get, "/v1/plugins", metadata: RouteMetadata(summary: "List channel plugins", description: "Returns a list of all available channel plugins", tags: ["Plugins"])) { _ in
-            let plugins = await service.listChannelPlugins()
-            return Self.encodable(status: HTTPStatus.ok, payload: plugins)
-        }
-
-        add(.post, "/v1/plugins", metadata: RouteMetadata(summary: "Create channel plugin", description: "Creates a new channel plugin", tags: ["Plugins"])) { request in
-            guard let body = request.body,
-                  let payload = Self.decode(body, as: ChannelPluginCreateRequest.self)
-            else {
-                return Self.json(status: HTTPStatus.badRequest, payload: ["error": ErrorCode.invalidPluginPayload])
-            }
-            do {
-                let plugin = try await service.createChannelPlugin(payload)
-                return Self.encodable(status: HTTPStatus.created, payload: plugin)
-            } catch let error as CoreService.ChannelPluginError {
-                return Self.channelPluginErrorResponse(error)
-            } catch {
-                return Self.json(status: HTTPStatus.internalServerError, payload: ["error": ErrorCode.invalidPluginPayload])
-            }
-        }
-
-        add(.get, "/v1/plugins/:pluginId", metadata: RouteMetadata(summary: "Get channel plugin", description: "Returns details of a specific channel plugin", tags: ["Plugins"])) { request in
-            let pluginId = request.pathParam("pluginId") ?? ""
-            do {
-                let plugin = try await service.getChannelPlugin(id: pluginId)
-                return Self.encodable(status: HTTPStatus.ok, payload: plugin)
-            } catch let error as CoreService.ChannelPluginError {
-                return Self.channelPluginErrorResponse(error)
-            } catch {
-                return Self.json(status: HTTPStatus.internalServerError, payload: ["error": ErrorCode.pluginNotFound])
-            }
-        }
-
-        add(.put, "/v1/plugins/:pluginId", metadata: RouteMetadata(summary: "Update channel plugin", description: "Updates an existing channel plugin", tags: ["Plugins"])) { request in
-            let pluginId = request.pathParam("pluginId") ?? ""
-            guard let body = request.body,
-                  let payload = Self.decode(body, as: ChannelPluginUpdateRequest.self)
-            else {
-                return Self.json(status: HTTPStatus.badRequest, payload: ["error": ErrorCode.invalidPluginPayload])
-            }
-            do {
-                let plugin = try await service.updateChannelPlugin(id: pluginId, request: payload)
-                return Self.encodable(status: HTTPStatus.ok, payload: plugin)
-            } catch let error as CoreService.ChannelPluginError {
-                return Self.channelPluginErrorResponse(error)
-            } catch {
-                return Self.json(status: HTTPStatus.internalServerError, payload: ["error": ErrorCode.invalidPluginPayload])
-            }
-        }
-
-        add(.delete, "/v1/plugins/:pluginId", metadata: RouteMetadata(summary: "Delete channel plugin", description: "Deletes a specific channel plugin", tags: ["Plugins"])) { request in
-            let pluginId = request.pathParam("pluginId") ?? ""
-            do {
-                try await service.deleteChannelPlugin(id: pluginId)
-                return Self.json(status: HTTPStatus.ok, payload: ["ok": "true"])
-            } catch let error as CoreService.ChannelPluginError {
-                return Self.channelPluginErrorResponse(error)
-            } catch {
-                return Self.json(status: HTTPStatus.internalServerError, payload: ["error": ErrorCode.pluginNotFound])
-            }
-        }
-
-        // MARK: - Channel Approvals
-
-        add(.get, "/v1/channel-approvals/pending", metadata: RouteMetadata(summary: "List pending approvals", description: "Returns all pending channel access approval requests", tags: ["Channels"])) { request in
-            let platform = request.queryParam("platform")
-            let pending: [PendingApprovalEntry]
-            if let platform {
-                pending = await service.listPendingApprovals(platform: platform)
-            } else {
-                pending = await service.listPendingApprovals()
-            }
-            return Self.encodable(status: HTTPStatus.ok, payload: pending)
-        }
-
-        add(.get, "/v1/channel-approvals/users", metadata: RouteMetadata(summary: "List access users", description: "Returns approved and blocked channel access users", tags: ["Channels"])) { request in
-            let platform = request.queryParam("platform")
-            let users = await service.listAccessUsers(platform: platform)
-            return Self.encodable(status: HTTPStatus.ok, payload: users)
-        }
-
-        add(.post, "/v1/channel-approvals/:approvalId/approve", metadata: RouteMetadata(summary: "Approve pending request", description: "Approves a pending channel access request with verification code", tags: ["Channels"])) { request in
-            let approvalId = request.pathParam("approvalId") ?? ""
-            guard let body = request.body,
-                  let payload = Self.decode(body, as: ChannelApprovalCodeRequest.self)
-            else {
-                return Self.json(status: HTTPStatus.badRequest, payload: ["error": ErrorCode.invalidBody])
-            }
-            let ok = await service.approvePendingApproval(id: approvalId, code: payload.code)
-            if ok {
-                return Self.json(status: HTTPStatus.ok, payload: ["ok": "true"])
-            } else {
-                return Self.json(status: HTTPStatus.badRequest, payload: ["error": "invalid_code_or_not_found"])
-            }
-        }
-
-        add(.post, "/v1/channel-approvals/:approvalId/reject", metadata: RouteMetadata(summary: "Reject pending request", description: "Rejects and removes a pending channel access request", tags: ["Channels"])) { request in
-            let approvalId = request.pathParam("approvalId") ?? ""
-            await service.rejectPendingApproval(id: approvalId)
-            return Self.json(status: HTTPStatus.ok, payload: ["ok": "true"])
-        }
-
-        add(.post, "/v1/channel-approvals/:approvalId/block", metadata: RouteMetadata(summary: "Block pending request", description: "Blocks a user from a pending channel access request", tags: ["Channels"])) { request in
-            let approvalId = request.pathParam("approvalId") ?? ""
-            let ok = await service.blockPendingApproval(id: approvalId)
-            if ok {
-                return Self.json(status: HTTPStatus.ok, payload: ["ok": "true"])
-            } else {
-                return Self.json(status: HTTPStatus.notFound, payload: ["error": "not_found"])
-            }
-        }
-
-        add(.delete, "/v1/channel-approvals/users/:userId", metadata: RouteMetadata(summary: "Delete access user", description: "Removes an approved or blocked user from the channel access list", tags: ["Channels"])) { request in
-            let userId = request.pathParam("userId") ?? ""
-            let ok = await service.deleteAccessUser(id: userId)
-            if ok {
-                return Self.json(status: HTTPStatus.ok, payload: ["ok": "true"])
-            } else {
-                return Self.json(status: HTTPStatus.notFound, payload: ["error": "not_found"])
-            }
-        }
-
-        return routes
-    }
-
     private static func defaultWebSocketRoutes(service: CoreService) -> [WebSocketRouteDefinition] {
         var routes: [WebSocketRouteDefinition] = []
 
@@ -1991,7 +559,7 @@ public actor CoreRouter {
         return routes
     }
 
-    private static func channelPluginErrorResponse(_ error: CoreService.ChannelPluginError) -> CoreRouterResponse {
+    static func channelPluginErrorResponse(_ error: CoreService.ChannelPluginError) -> CoreRouterResponse {
         switch error {
         case .invalidID:
             return json(status: HTTPStatus.badRequest, payload: ["error": ErrorCode.invalidPluginId])
@@ -2004,7 +572,7 @@ public actor CoreRouter {
         }
     }
 
-    private static func agentSessionErrorResponse(_ error: CoreService.AgentSessionError, fallback: String) -> CoreRouterResponse {
+    static func agentSessionErrorResponse(_ error: CoreService.AgentSessionError, fallback: String) -> CoreRouterResponse {
         switch error {
         case .invalidAgentID:
             return json(status: HTTPStatus.badRequest, payload: ["error": ErrorCode.invalidAgentId])
@@ -2021,7 +589,7 @@ public actor CoreRouter {
         }
     }
 
-    private static func agentConfigErrorResponse(_ error: CoreService.AgentConfigError, fallback: String) -> CoreRouterResponse {
+    static func agentConfigErrorResponse(_ error: CoreService.AgentConfigError, fallback: String) -> CoreRouterResponse {
         switch error {
         case .invalidAgentID:
             return json(status: HTTPStatus.badRequest, payload: ["error": ErrorCode.invalidAgentId])
@@ -2036,7 +604,7 @@ public actor CoreRouter {
         }
     }
 
-    private static func agentToolsErrorResponse(_ error: CoreService.AgentToolsError, fallback: String) -> CoreRouterResponse {
+    static func agentToolsErrorResponse(_ error: CoreService.AgentToolsError, fallback: String) -> CoreRouterResponse {
         switch error {
         case .invalidAgentID:
             return json(status: HTTPStatus.badRequest, payload: ["error": ErrorCode.invalidAgentId])
@@ -2049,7 +617,7 @@ public actor CoreRouter {
         }
     }
 
-    private static func toolInvocationErrorResponse(_ error: CoreService.ToolInvocationError, fallback: String) -> CoreRouterResponse {
+    static func toolInvocationErrorResponse(_ error: CoreService.ToolInvocationError, fallback: String) -> CoreRouterResponse {
         switch error {
         case .invalidAgentID:
             return json(status: HTTPStatus.badRequest, payload: ["error": ErrorCode.invalidAgentId])
@@ -2068,14 +636,14 @@ public actor CoreRouter {
         }
     }
 
-    private static func systemLogsErrorResponse(_ error: CoreService.SystemLogsError, fallback: String) -> CoreRouterResponse {
+    static func systemLogsErrorResponse(_ error: CoreService.SystemLogsError, fallback: String) -> CoreRouterResponse {
         switch error {
         case .storageFailure:
             return json(status: HTTPStatus.internalServerError, payload: ["error": fallback])
         }
     }
 
-    private static func actorBoardErrorResponse(_ error: CoreService.ActorBoardError, fallback: String) -> CoreRouterResponse {
+    static func actorBoardErrorResponse(_ error: CoreService.ActorBoardError, fallback: String) -> CoreRouterResponse {
         switch error {
         case .invalidPayload:
             return json(status: HTTPStatus.badRequest, payload: ["error": ErrorCode.invalidActorPayload])
@@ -2092,7 +660,7 @@ public actor CoreRouter {
         }
     }
 
-    private static func projectErrorResponse(_ error: CoreService.ProjectError, fallback: String) -> CoreRouterResponse {
+    static func projectErrorResponse(_ error: CoreService.ProjectError, fallback: String) -> CoreRouterResponse {
         switch error {
         case .invalidProjectID:
             return json(status: HTTPStatus.badRequest, payload: ["error": ErrorCode.invalidProjectId])
@@ -2109,7 +677,7 @@ public actor CoreRouter {
         }
     }
 
-    private static func agentSkillsErrorResponse(_ error: CoreService.AgentSkillsError, fallback: String) -> CoreRouterResponse {
+    static func agentSkillsErrorResponse(_ error: CoreService.AgentSkillsError, fallback: String) -> CoreRouterResponse {
         switch error {
         case .invalidAgentID:
             return json(status: HTTPStatus.badRequest, payload: ["error": ErrorCode.invalidAgentId])
@@ -2126,12 +694,12 @@ public actor CoreRouter {
         }
     }
 
-    private static func json(status: Int, payload: [String: String]) -> CoreRouterResponse {
+    static func json(status: Int, payload: [String: String]) -> CoreRouterResponse {
         let data = (try? JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys])) ?? CoreRouterConstants.emptyJSONData
         return CoreRouterResponse(status: status, body: data)
     }
 
-    private static func encodable<T: Encodable>(status: Int, payload: T) -> CoreRouterResponse {
+    static func encodable<T: Encodable>(status: Int, payload: T) -> CoreRouterResponse {
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
         encoder.outputFormatting = .sortedKeys
@@ -2139,7 +707,7 @@ public actor CoreRouter {
         return CoreRouterResponse(status: status, body: data)
     }
 
-    private static func sse(status: Int, updates: AsyncStream<AgentSessionStreamUpdate>) -> CoreRouterResponse {
+    static func sse(status: Int, updates: AsyncStream<AgentSessionStreamUpdate>) -> CoreRouterResponse {
         let stream = AsyncStream<CoreRouterServerSentEvent>(bufferingPolicy: .bufferingNewest(128)) { continuation in
             let task = Task {
                 let encoder = JSONEncoder()
@@ -2173,7 +741,7 @@ public actor CoreRouter {
         )
     }
 
-    private static func sseText(status: Int, stream: AsyncStream<String>) -> CoreRouterResponse {
+    static func sseText(status: Int, stream: AsyncStream<String>) -> CoreRouterResponse {
         let sseStream = AsyncStream<CoreRouterServerSentEvent>(bufferingPolicy: .bufferingNewest(256)) { continuation in
             let task = Task {
                 for await chunk in stream {
@@ -2193,13 +761,13 @@ public actor CoreRouter {
         )
     }
 
-    private static func decode<T: Decodable>(_ data: Data, as type: T.Type) -> T? {
+    static func decode<T: Decodable>(_ data: Data, as type: T.Type) -> T? {
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
         return try? decoder.decode(type, from: data)
     }
 
-    private static func isoDate(from string: String) -> Date? {
+    static func isoDate(from string: String) -> Date? {
         let formatterWithFractions = ISO8601DateFormatter()
         formatterWithFractions.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         if let parsed = formatterWithFractions.date(from: string) {

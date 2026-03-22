@@ -1,0 +1,52 @@
+import Foundation
+import Protocols
+
+struct SessionsAPIRouter: APIRouter {
+    private let service: CoreService
+
+    init(service: CoreService) {
+        self.service = service
+    }
+
+    func configure(on router: CoreRouterRegistrar) {
+        router.get("/v1/channel-sessions", metadata: RouteMetadata(summary: "List channel sessions", description: "Returns a list of all active channel sessions", tags: ["Sessions"])) { request in
+            let agentId = request.queryParam("agentId")
+            let statusValue = request.queryParam("status")?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            let status: ChannelSessionStatus?
+            if let statusValue, !statusValue.isEmpty {
+                guard let parsedStatus = ChannelSessionStatus(rawValue: statusValue) else {
+                    return CoreRouter.json(status: HTTPStatus.badRequest, payload: ["error": ErrorCode.invalidBody])
+                }
+                status = parsedStatus
+            } else {
+                status = nil
+            }
+
+            do {
+                let sessions = try await service.listChannelSessions(status: status, agentID: agentId)
+                return CoreRouter.encodable(status: HTTPStatus.ok, payload: sessions)
+            } catch CoreService.AgentStorageError.invalidID {
+                return CoreRouter.json(status: HTTPStatus.badRequest, payload: ["error": ErrorCode.invalidAgentId])
+            } catch CoreService.AgentStorageError.notFound {
+                return CoreRouter.json(status: HTTPStatus.notFound, payload: ["error": ErrorCode.agentNotFound])
+            } catch {
+                return CoreRouter.json(status: HTTPStatus.internalServerError, payload: ["error": ErrorCode.sessionListFailed])
+            }
+        }
+
+        router.get("/v1/channel-sessions/:sessionId", metadata: RouteMetadata(summary: "Get channel session", description: "Returns details of a specific channel session", tags: ["Sessions"])) { request in
+            let sessionId = request.pathParam("sessionId") ?? ""
+
+            do {
+                let session = try await service.getChannelSession(sessionID: sessionId)
+                return CoreRouter.encodable(status: HTTPStatus.ok, payload: session)
+            } catch ChannelSessionFileStore.StoreError.invalidSessionID {
+                return CoreRouter.json(status: HTTPStatus.badRequest, payload: ["error": ErrorCode.invalidBody])
+            } catch ChannelSessionFileStore.StoreError.sessionNotFound {
+                return CoreRouter.json(status: HTTPStatus.notFound, payload: ["error": ErrorCode.sessionNotFound])
+            } catch {
+                return CoreRouter.json(status: HTTPStatus.internalServerError, payload: ["error": ErrorCode.sessionLoadFailed])
+            }
+        }
+    }
+}

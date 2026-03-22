@@ -1,0 +1,102 @@
+import Foundation
+import Protocols
+
+struct SystemAPIRouter: APIRouter {
+    private let service: CoreService
+
+    init(service: CoreService) {
+        self.service = service
+    }
+
+    func configure(on router: CoreRouterRegistrar) {
+        router.get("/health", metadata: RouteMetadata(summary: "Health check", description: "Returns the current status of the sloppy service", tags: ["System"])) { _ in
+            CoreRouter.json(status: HTTPStatus.ok, payload: ["status": "ok"])
+        }
+
+        router.get("/v1/bulletins", metadata: RouteMetadata(summary: "List bulletins", description: "Returns a list of active system bulletins", tags: ["System"])) { _ in
+            let bulletins = await service.getBulletins()
+            return CoreRouter.encodable(status: HTTPStatus.ok, payload: bulletins)
+        }
+
+        router.get("/v1/visor/ready", metadata: RouteMetadata(summary: "Visor readiness", description: "Returns whether Visor has completed its first supervision tick", tags: ["System"])) { _ in
+            let ready = await service.isVisorReady()
+            return CoreRouter.encodable(status: HTTPStatus.ok, payload: VisorReadyResponse(ready: ready))
+        }
+
+        router.post("/v1/visor/chat", metadata: RouteMetadata(summary: "Ask Visor", description: "Sends a question to Visor and returns an answer", tags: ["System"])) { request in
+            guard let body = request.body,
+                  let payload = CoreRouter.decode(body, as: VisorChatRequest.self)
+            else {
+                return CoreRouter.json(status: HTTPStatus.badRequest, payload: ["error": ErrorCode.invalidBody])
+            }
+            let answer = await service.postVisorChat(question: payload.question)
+            return CoreRouter.encodable(status: HTTPStatus.ok, payload: VisorChatResponse(answer: answer))
+        }
+
+        router.get("/v1/visor/chat/stream", metadata: RouteMetadata(summary: "Stream Visor answer", description: "Streams a Visor answer as SSE delta events for a given question query param", tags: ["System"])) { request in
+            let question = request.queryParam("question") ?? ""
+            guard !question.isEmpty else {
+                return CoreRouter.json(status: HTTPStatus.badRequest, payload: ["error": ErrorCode.invalidBody])
+            }
+            let stream = await service.streamVisorChat(question: question)
+            return CoreRouter.sseText(status: HTTPStatus.ok, stream: stream)
+        }
+
+        router.get("/v1/workers", metadata: RouteMetadata(summary: "List workers", description: "Returns a list of active worker runtimes", tags: ["System"])) { _ in
+            let workers = await service.workerSnapshots()
+            return CoreRouter.encodable(status: HTTPStatus.ok, payload: workers)
+        }
+
+        router.get("/v1/config", metadata: RouteMetadata(summary: "Get config", description: "Returns the current sloppy configuration", tags: ["System"])) { _ in
+            let config = await service.getConfig()
+            return CoreRouter.encodable(status: HTTPStatus.ok, payload: config)
+        }
+
+        router.get("/v1/logs", metadata: RouteMetadata(summary: "Get logs", description: "Returns the system logs", tags: ["System"])) { _ in
+            do {
+                let response = try await service.getSystemLogs()
+                return CoreRouter.encodable(status: HTTPStatus.ok, payload: response)
+            } catch let error as CoreService.SystemLogsError {
+                return CoreRouter.systemLogsErrorResponse(error, fallback: ErrorCode.systemLogsReadFailed)
+            } catch {
+                return CoreRouter.json(status: HTTPStatus.internalServerError, payload: ["error": ErrorCode.systemLogsReadFailed])
+            }
+        }
+
+        router.put("/v1/config", metadata: RouteMetadata(summary: "Update config", description: "Updates the sloppy configuration", tags: ["System"])) { request in
+            guard let body = request.body,
+                  let payload = CoreRouter.decode(body, as: CoreConfig.self)
+            else {
+                return CoreRouter.json(status: HTTPStatus.badRequest, payload: ["error": ErrorCode.invalidBody])
+            }
+
+            do {
+                let config = try await service.updateConfig(payload)
+                return CoreRouter.encodable(status: HTTPStatus.ok, payload: config)
+            } catch {
+                return CoreRouter.json(status: HTTPStatus.internalServerError, payload: ["error": ErrorCode.configWriteFailed])
+            }
+        }
+
+        router.post("/v1/workers", metadata: RouteMetadata(summary: "Create worker", description: "Registers a new worker runtime", tags: ["System"])) { request in
+            guard let body = request.body,
+                  let payload = CoreRouter.decode(body, as: WorkerCreateRequest.self)
+            else {
+                return CoreRouter.json(status: HTTPStatus.badRequest, payload: ["error": ErrorCode.invalidBody])
+            }
+
+            let workerId = await service.postWorker(request: payload)
+            return CoreRouter.encodable(status: HTTPStatus.created, payload: WorkerCreateResponse(workerId: workerId))
+        }
+
+        router.get("/v1/token-usage", metadata: RouteMetadata(summary: "List token usage", description: "Returns token usage statistics across all projects and agents", tags: ["System"])) { request in
+            let channelId = request.queryParam("channelId")
+            let taskId = request.queryParam("taskId")
+            let from: Date? = request.queryParam("from").flatMap { CoreRouter.isoDate(from: $0) }
+            let to: Date? = request.queryParam("to").flatMap { CoreRouter.isoDate(from: $0) }
+
+            let response = await service.listTokenUsage(channelId: channelId, taskId: taskId, from: from, to: to)
+            return CoreRouter.encodable(status: HTTPStatus.ok, payload: response)
+        }
+    }
+}
