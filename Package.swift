@@ -25,7 +25,8 @@ let package = Package(
         .package(url: "https://github.com/apple/swift-system.git", from: "1.6.0"),
         .package(url: "https://github.com/mattt/AnyLanguageModel.git", branch: "main"),
         .package(url: "https://github.com/TeamSloppy/CodexBar.git", branch: "main"),
-        .package(url: "https://github.com/modelcontextprotocol/swift-sdk.git", from: "0.11.0")
+        .package(url: "https://github.com/modelcontextprotocol/swift-sdk.git", from: "0.11.0"),
+        .package(url: "https://github.com/wiedymi/swift-acp", branch: "main")
     ],
     targets: [
         .target(
@@ -76,6 +77,8 @@ let package = Package(
                 .product(name: "NIOWebSocket", package: "swift-nio"),
                 .product(name: "CodexBarCore", package: "CodexBar"),
                 .product(name: "MCP", package: "swift-sdk"),
+                .product(name: "ACP", package: "swift-acp"),
+                .product(name: "ACPModel", package: "swift-acp"),
                 .product(name: "SystemPackage", package: "swift-system")
             ],
             path: "Sources/sloppy",

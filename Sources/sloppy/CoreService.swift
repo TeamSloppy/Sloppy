@@ -178,6 +178,7 @@ public actor CoreService {
     private let sessionStore: AgentSessionFileStore
     private let actorBoardStore: ActorBoardFileStore
     private let sessionOrchestrator: AgentSessionOrchestrator
+    private let acpSessionManager: ACPSessionManager
     private let toolsAuthorization: ToolAuthorizationService
     private var toolExecution: ToolExecutionService
     private let mcpRegistry: MCPClientRegistry
@@ -321,11 +322,16 @@ public actor CoreService {
         let orchestratorSessionStore = AgentSessionFileStore(agentsRootURL: self.agentsRootURL)
         let orchestratorSkillsStore = AgentSkillsFileStore(agentsRootURL: self.agentsRootURL)
         let initialAvailableAgentModels = Self.availableAgentModels(config: config, hasOAuthCredentials: hasOAuth)
+        self.acpSessionManager = ACPSessionManager(
+            config: config.acp,
+            workspaceRootURL: self.workspaceRootURL
+        )
         self.sessionOrchestrator = AgentSessionOrchestrator(
             runtime: self.runtime,
             sessionStore: orchestratorSessionStore,
             agentCatalogStore: orchestratorCatalogStore,
             agentSkillsStore: orchestratorSkillsStore,
+            acpSessionManager: self.acpSessionManager,
             availableModels: initialAvailableAgentModels
         )
         let toolsStore = AgentToolsFileStore(agentsRootURL: self.agentsRootURL)
@@ -518,6 +524,7 @@ public actor CoreService {
         await memoryOutboxIndexer?.stop()
         await cronRunner?.stop()
         await heartbeatRunner?.stop()
+        await acpSessionManager.shutdown()
     }
 
     private func seedBuiltInPluginRecord(
@@ -1512,6 +1519,13 @@ public actor CoreService {
     /// Creates an agent and provisions `/workspace/agents/<agent_id>` directory.
     public func createAgent(_ request: AgentCreateRequest) async throws -> AgentSummary {
         do {
+            if let runtime = request.runtime, runtime.type == .acp {
+                do {
+                    try await acpSessionManager.validateRuntime(runtime)
+                } catch {
+                    throw AgentStorageError.invalidPayload
+                }
+            }
             let summary = try agentCatalogStore.createAgent(request, availableModels: availableAgentModels())
             // Create skills directory for the new agent
             try await ensureAgentSkillsDirectory(agentID: summary.id)
@@ -1541,9 +1555,16 @@ public actor CoreService {
     }
 
     /// Updates agent-specific model and markdown docs.
-    public func updateAgentConfig(agentID: String, request: AgentConfigUpdateRequest) throws -> AgentConfigDetail {
+    public func updateAgentConfig(agentID: String, request: AgentConfigUpdateRequest) async throws -> AgentConfigDetail {
         let availableModels = availableAgentModels()
         do {
+            if request.runtime.type == .acp {
+                do {
+                    try await acpSessionManager.validateRuntime(request.runtime)
+                } catch {
+                    throw AgentConfigError.invalidPayload
+                }
+            }
             let updated = try agentCatalogStore.updateAgentConfig(
                 agentID: agentID,
                 request: request,
@@ -1554,7 +1575,7 @@ public actor CoreService {
                     "onboarding.agent_config.updated",
                     metadata: [
                         "agent_id": .string(agentID),
-                        "selected_model": .string(request.selectedModel)
+                        "selected_model": .string(request.selectedModel ?? "")
                     ]
                 )
             }
@@ -1573,7 +1594,7 @@ public actor CoreService {
         
         // Approximate provider from the selected model string
         let provider: UsageProvider
-        let model = config.selectedModel.lowercased()
+        let model = (config.selectedModel ?? "").lowercased()
         if model.contains("claude") {
             provider = .claude
         } else if model.contains("gemini") {
@@ -2593,6 +2614,7 @@ public actor CoreService {
                 sessionID: normalizedSessionID,
                 message: "Session was deleted."
             )
+            await acpSessionManager.removeSession(agentID: normalizedAgentID, sloppySessionID: normalizedSessionID)
             await toolExecution.cleanupSessionProcesses(normalizedSessionID)
         } catch {
             throw mapSessionStoreError(error)
@@ -2663,6 +2685,10 @@ public actor CoreService {
         } catch {
             throw mapSessionOrchestratorError(error)
         }
+    }
+
+    public func probeACPTarget(request: ACPTargetProbeRequest) async throws -> ACPTargetProbeResponse {
+        try await acpSessionManager.probeTarget(request.target)
     }
 
     /// Returns OpenAI model catalog using API key auth or environment fallback.
@@ -2941,6 +2967,7 @@ public actor CoreService {
         await sessionOrchestrator.updateAgentsRootURL(agentsRootURL)
         await toolsAuthorization.updateAgentsRootURL(agentsRootURL)
         await mcpRegistry.updateConfig(config.mcp)
+        await acpSessionManager.updateConfig(config.acp, workspaceRootURL: workspaceRootURL)
         await toolsAuthorization.invalidateCachedPolicies()
         toolExecution.updateWorkspaceRootURL(workspaceRootURL)
         toolExecution.updateStore(refreshedStore)
