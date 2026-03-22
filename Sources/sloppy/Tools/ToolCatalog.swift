@@ -200,6 +200,57 @@ enum ToolCatalog {
             ]),
             "required": .array([.string("note")])
         ]),
+        "mcp.list_servers": .object(["type": .string("object")]),
+        "mcp.list_tools": .object([
+            "type": .string("object"),
+            "properties": .object([
+                "server": .object(["type": .string("string")]),
+                "cursor": .object(["type": .string("string")])
+            ]),
+            "required": .array([.string("server")])
+        ]),
+        "mcp.call_tool": .object([
+            "type": .string("object"),
+            "properties": .object([
+                "server": .object(["type": .string("string")]),
+                "tool": .object(["type": .string("string")]),
+                "arguments": .object(["type": .string("object")])
+            ]),
+            "required": .array([.string("server"), .string("tool")])
+        ]),
+        "mcp.list_resources": .object([
+            "type": .string("object"),
+            "properties": .object([
+                "server": .object(["type": .string("string")]),
+                "cursor": .object(["type": .string("string")])
+            ]),
+            "required": .array([.string("server")])
+        ]),
+        "mcp.read_resource": .object([
+            "type": .string("object"),
+            "properties": .object([
+                "server": .object(["type": .string("string")]),
+                "uri": .object(["type": .string("string")])
+            ]),
+            "required": .array([.string("server"), .string("uri")])
+        ]),
+        "mcp.list_prompts": .object([
+            "type": .string("object"),
+            "properties": .object([
+                "server": .object(["type": .string("string")]),
+                "cursor": .object(["type": .string("string")])
+            ]),
+            "required": .array([.string("server")])
+        ]),
+        "mcp.get_prompt": .object([
+            "type": .string("object"),
+            "properties": .object([
+                "server": .object(["type": .string("string")]),
+                "name": .object(["type": .string("string")]),
+                "arguments": .object(["type": .string("object")])
+            ]),
+            "required": .array([.string("server"), .string("name")])
+        ]),
         "web.search": .object([
             "type": .string("object"),
             "properties": .object([

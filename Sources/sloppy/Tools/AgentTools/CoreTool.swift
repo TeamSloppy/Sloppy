@@ -45,6 +45,7 @@ struct ToolContext: @unchecked Sendable {
     let channelSessionStore: ChannelSessionFileStore
     let store: any PersistenceStore
     let searchProviderService: SearchProviderService
+    let mcpRegistry: MCPClientRegistry
     let logger: Logger
     let projectService: (any ProjectToolService)?
 }

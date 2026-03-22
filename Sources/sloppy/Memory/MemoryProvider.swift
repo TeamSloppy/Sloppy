@@ -290,39 +290,82 @@ actor MCPMemoryProviderAdapter: MemoryProvider {
         providerOwnsEmbeddings: true
     )
 
-    init(server: String) {
+    private let server: String
+    private let tools: CoreConfig.Memory.Provider.MCPTools
+    private let registry: MCPClientRegistry
+
+    init(server: String, tools: CoreConfig.Memory.Provider.MCPTools, registry: MCPClientRegistry) {
+        self.server = server
+        self.tools = tools
+        self.registry = registry
         id = "mcp:\(server)"
     }
 
     func upsert(document: MemoryProviderDocument) async throws {
-        _ = document
-        throw MemoryProviderError.notConfigured
+        let payload = encodeJSONValue(document)
+        _ = try await registry.callTool(
+            serverID: server,
+            name: tools.upsert,
+            arguments: ["document": payload]
+        )
     }
 
     func query(request: MemoryProviderQuery) async throws -> [MemoryProviderQueryResult] {
-        _ = request
-        throw MemoryProviderError.notConfigured
+        try await registry.decodeJSONTextResult(
+            serverID: server,
+            toolName: tools.query,
+            arguments: ["request": encodeJSONValue(request)],
+            as: [MemoryProviderQueryResult].self
+        )
     }
 
     func delete(id: String) async throws {
-        _ = id
-        throw MemoryProviderError.notConfigured
+        _ = try await registry.callTool(
+            serverID: server,
+            name: tools.delete,
+            arguments: ["id": .string(id)]
+        )
     }
 
     func health() async -> Bool {
-        false
+        do {
+            let result = try await registry.callTool(
+                serverID: server,
+                name: tools.health,
+                arguments: [:]
+            )
+            if result.isError == true {
+                return false
+            }
+            let flattened = MCPClientRegistry.flattenText(from: result.content)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .lowercased()
+            return flattened.isEmpty || flattened == "ok" || flattened == "true"
+        } catch {
+            return false
+        }
+    }
+
+    private func encodeJSONValue<T: Encodable>(_ value: T) -> JSONValue {
+        guard let data = try? JSONEncoder().encode(value),
+              let json = try? JSONDecoder().decode(JSONValue.self, from: data)
+        else {
+            return .null
+        }
+        return json
     }
 }
 
 enum MemoryProviderRegistry {
-    static func makeProvider(config: CoreConfig.Memory, logger: Logger) -> (any MemoryProvider)? {
-        switch config.provider.mode {
+    static func makeProvider(config: CoreConfig, mcpRegistry: MCPClientRegistry, logger: Logger) -> (any MemoryProvider)? {
+        let memory = config.memory
+        switch memory.provider.mode {
         case .local:
             logger.info("Memory provider: using built-in local provider")
             return SQLiteFallbackProvider()
         case .http:
             guard
-                let endpointRaw = config.provider.endpoint,
+                let endpointRaw = memory.provider.endpoint,
                 !endpointRaw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
                 let endpoint = parseEndpoint(endpointRaw)
             else {
@@ -332,18 +375,22 @@ enum MemoryProviderRegistry {
             logger.info("Memory provider: using remote HTTP endpoint \(endpoint.absoluteString)")
             return HTTPMemoryProviderAdapter(
                 endpoint: endpoint,
-                timeoutMs: config.provider.timeoutMs,
-                apiKeyEnv: config.provider.apiKeyEnv
+                timeoutMs: memory.provider.timeoutMs,
+                apiKeyEnv: memory.provider.apiKeyEnv
             )
         case .mcp:
-            guard let server = config.provider.mcpServer,
+            guard let server = memory.provider.mcpServer,
                   !server.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             else {
                 logger.warning("Memory provider mode is mcp but mcpServer is missing. Falling back to local provider.")
                 return SQLiteFallbackProvider()
             }
             logger.info("Memory provider: using remote MCP server \(server)")
-            return MCPMemoryProviderAdapter(server: server)
+            return MCPMemoryProviderAdapter(
+                server: server,
+                tools: memory.provider.mcpTools,
+                registry: mcpRegistry
+            )
         }
     }
 

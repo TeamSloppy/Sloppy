@@ -5,7 +5,7 @@ import Testing
 struct ToolRegistryTests {
     private let registry = ToolRegistry.makeDefault()
 
-    @Test("All 30 tools are registered")
+    @Test("Built-in and MCP tools are registered")
     func allToolsRegistered() {
         let expectedIDs: Set<String> = [
             "files.read", "files.edit", "files.write",
@@ -16,6 +16,9 @@ struct ToolRegistryTests {
             "sessions.spawn", "sessions.list", "sessions.history", "sessions.status",
             "messages.send", "sessions.send",
             "memory.recall", "memory.get", "memory.save", "memory.search",
+            "mcp.list_servers", "mcp.list_tools", "mcp.call_tool",
+            "mcp.list_resources", "mcp.read_resource",
+            "mcp.list_prompts", "mcp.get_prompt",
             "agents.list",
             "channel.history",
             "system.list_tools",
@@ -57,6 +60,7 @@ struct ToolRegistryTests {
         #expect(ToolCatalog.knownToolIDs.contains("files.read"))
         #expect(ToolCatalog.knownToolIDs.contains("project.task_list"))
         #expect(ToolCatalog.knownToolIDs.contains("actor.discuss_with_actor"))
+        #expect(ToolCatalog.knownToolIDs.contains("mcp.call_tool"))
     }
 
     @Test("allTools returns unique tools with valid names and parameters")

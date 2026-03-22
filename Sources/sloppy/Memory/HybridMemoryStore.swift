@@ -20,15 +20,17 @@ public actor HybridMemoryStore: MemoryStore {
     private let logger: Logger
     private let isoFormatter: ISO8601DateFormatter
 
-    public init(
+    init(
         config: CoreConfig,
+        mcpRegistry: MCPClientRegistry? = nil,
         embeddingService: EmbeddingService? = nil,
         logger: Logger = Logger(label: "sloppy.memory")
     ) {
         self.retrieval = config.memory.retrieval
         self.retention = config.memory.retention
         self.logger = logger
-        self.provider = MemoryProviderRegistry.makeProvider(config: config.memory, logger: logger)
+        let resolvedMCPRegistry = mcpRegistry ?? MCPClientRegistry(config: config.mcp)
+        self.provider = MemoryProviderRegistry.makeProvider(config: config, mcpRegistry: resolvedMCPRegistry, logger: logger)
         self.embeddingService = embeddingService
         self.isoFormatter = ISO8601DateFormatter()
 

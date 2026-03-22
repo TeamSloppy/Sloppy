@@ -79,6 +79,13 @@ struct ToolRegistry: Sendable {
             MemoryGetTool(),
             MemorySaveTool(),
             MemorySearchTool(),
+            MCPListServersTool(),
+            MCPListToolsTool(),
+            MCPCallToolTool(),
+            MCPListResourcesTool(),
+            MCPReadResourceTool(),
+            MCPListPromptsTool(),
+            MCPGetPromptTool(),
             AgentsListTool(),
             ChannelHistoryTool(),
             SystemListToolsTool(),
@@ -94,4 +101,3 @@ struct ToolRegistry: Sendable {
         ])
     }
 }
-

@@ -12,6 +12,7 @@ final class ToolExecutionService: @unchecked Sendable {
     private let channelSessionStore: ChannelSessionFileStore
     private var store: any PersistenceStore
     private let searchProviderService: SearchProviderService
+    private let mcpRegistry: MCPClientRegistry
     private let logger: Logger
     private var workspaceRootURL: URL
     private let registry: ToolRegistry
@@ -27,6 +28,7 @@ final class ToolExecutionService: @unchecked Sendable {
         channelSessionStore: ChannelSessionFileStore,
         store: any PersistenceStore,
         searchProviderService: SearchProviderService,
+        mcpRegistry: MCPClientRegistry,
         logger: Logger = Logger(label: "sloppy.core.tools")
     ) {
         self.workspaceRootURL = workspaceRootURL
@@ -38,6 +40,7 @@ final class ToolExecutionService: @unchecked Sendable {
         self.channelSessionStore = channelSessionStore
         self.store = store
         self.searchProviderService = searchProviderService
+        self.mcpRegistry = mcpRegistry
         self.logger = logger
         self.registry = ToolRegistry.makeDefault()
     }
@@ -94,6 +97,7 @@ final class ToolExecutionService: @unchecked Sendable {
             channelSessionStore: channelSessionStore,
             store: store,
             searchProviderService: searchProviderService,
+            mcpRegistry: mcpRegistry,
             logger: logger,
             projectService: projectService
         )

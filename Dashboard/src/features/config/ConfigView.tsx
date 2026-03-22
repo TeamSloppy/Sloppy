@@ -153,6 +153,12 @@ const EMPTY_CONFIG = {
       mode: "local",
       endpoint: "",
       mcpServer: "",
+      mcpTools: {
+        upsert: "memory_upsert",
+        query: "memory_query",
+        delete: "memory_delete",
+        health: "memory_health"
+      },
       timeoutMs: 2500,
       apiKeyEnv: ""
     },
@@ -170,6 +176,9 @@ const EMPTY_CONFIG = {
   },
   nodes: ["local"],
   gateways: [],
+  mcp: {
+    servers: []
+  },
   plugins: [],
   channels: { telegram: null, discord: null },
   searchTools: {
@@ -342,6 +351,10 @@ function normalizeConfig(config) {
   normalized.memory.provider.mode = String(config?.memory?.provider?.mode || normalized.memory.provider.mode);
   normalized.memory.provider.endpoint = String(config?.memory?.provider?.endpoint || "");
   normalized.memory.provider.mcpServer = String(config?.memory?.provider?.mcpServer || "");
+  normalized.memory.provider.mcpTools.upsert = String(config?.memory?.provider?.mcpTools?.upsert || normalized.memory.provider.mcpTools.upsert);
+  normalized.memory.provider.mcpTools.query = String(config?.memory?.provider?.mcpTools?.query || normalized.memory.provider.mcpTools.query);
+  normalized.memory.provider.mcpTools.delete = String(config?.memory?.provider?.mcpTools?.delete || normalized.memory.provider.mcpTools.delete);
+  normalized.memory.provider.mcpTools.health = String(config?.memory?.provider?.mcpTools?.health || normalized.memory.provider.mcpTools.health);
   normalized.memory.provider.timeoutMs = parseInteger(
     config?.memory?.provider?.timeoutMs ?? normalized.memory.provider.timeoutMs,
     normalized.memory.provider.timeoutMs
@@ -397,6 +410,7 @@ function normalizeConfig(config) {
 
   normalized.nodes = Array.isArray(config?.nodes) ? config.nodes.filter(Boolean) : [];
   normalized.gateways = Array.isArray(config?.gateways) ? config.gateways.filter(Boolean) : [];
+  normalized.mcp.servers = Array.isArray(config?.mcp?.servers) ? config.mcp.servers : [];
 
   const models = Array.isArray(config?.models) ? config.models : [];
   normalized.models = models.map(normalizeModel);

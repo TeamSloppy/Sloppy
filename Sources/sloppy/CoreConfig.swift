@@ -62,6 +62,25 @@ public struct CoreConfig: Codable, Sendable {
 
     public struct Memory: Codable, Sendable, Equatable {
         public struct Provider: Codable, Sendable, Equatable {
+            public struct MCPTools: Codable, Sendable, Equatable {
+                public var upsert: String
+                public var query: String
+                public var delete: String
+                public var health: String
+
+                public init(
+                    upsert: String = "memory_upsert",
+                    query: String = "memory_query",
+                    delete: String = "memory_delete",
+                    health: String = "memory_health"
+                ) {
+                    self.upsert = upsert
+                    self.query = query
+                    self.delete = delete
+                    self.health = health
+                }
+            }
+
             public enum Mode: String, Codable, Sendable, Equatable {
                 case local
                 case http
@@ -97,21 +116,43 @@ public struct CoreConfig: Codable, Sendable {
             public var mode: Mode
             public var endpoint: String?
             public var mcpServer: String?
+            public var mcpTools: MCPTools
             public var timeoutMs: Int
             public var apiKeyEnv: String?
+
+            private enum CodingKeys: String, CodingKey {
+                case mode
+                case endpoint
+                case mcpServer
+                case mcpTools
+                case timeoutMs
+                case apiKeyEnv
+            }
 
             public init(
                 mode: Mode = .local,
                 endpoint: String? = nil,
                 mcpServer: String? = nil,
+                mcpTools: MCPTools = MCPTools(),
                 timeoutMs: Int = 2_500,
                 apiKeyEnv: String? = nil
             ) {
                 self.mode = mode
                 self.endpoint = endpoint
                 self.mcpServer = mcpServer
+                self.mcpTools = mcpTools
                 self.timeoutMs = timeoutMs
                 self.apiKeyEnv = apiKeyEnv
+            }
+
+            public init(from decoder: Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                mode = try container.decodeIfPresent(Mode.self, forKey: .mode) ?? .local
+                endpoint = try container.decodeIfPresent(String.self, forKey: .endpoint)
+                mcpServer = try container.decodeIfPresent(String.self, forKey: .mcpServer)
+                mcpTools = try container.decodeIfPresent(MCPTools.self, forKey: .mcpTools) ?? .init()
+                timeoutMs = try container.decodeIfPresent(Int.self, forKey: .timeoutMs) ?? 2_500
+                apiKeyEnv = try container.decodeIfPresent(String.self, forKey: .apiKeyEnv)
             }
         }
 
@@ -212,6 +253,98 @@ public struct CoreConfig: Codable, Sendable {
             retrieval = try container.decodeIfPresent(Retrieval.self, forKey: .retrieval) ?? Retrieval()
             retention = try container.decodeIfPresent(Retention.self, forKey: .retention) ?? Retention()
             embedding = try container.decodeIfPresent(Embedding.self, forKey: .embedding) ?? Embedding()
+        }
+    }
+
+    public struct MCP: Codable, Sendable, Equatable {
+        public struct Server: Codable, Sendable, Equatable {
+            public enum Transport: String, Codable, Sendable, Equatable {
+                case stdio
+                case http
+            }
+
+            public var id: String
+            public var transport: Transport
+            public var command: String?
+            public var arguments: [String]
+            public var cwd: String?
+            public var endpoint: String?
+            public var headers: [String: String]
+            public var timeoutMs: Int
+            public var enabled: Bool
+            public var exposeTools: Bool
+            public var exposeResources: Bool
+            public var exposePrompts: Bool
+            public var toolPrefix: String?
+
+            private enum CodingKeys: String, CodingKey {
+                case id
+                case transport
+                case command
+                case arguments
+                case cwd
+                case endpoint
+                case headers
+                case timeoutMs
+                case enabled
+                case exposeTools
+                case exposeResources
+                case exposePrompts
+                case toolPrefix
+            }
+
+            public init(
+                id: String,
+                transport: Transport = .stdio,
+                command: String? = nil,
+                arguments: [String] = [],
+                cwd: String? = nil,
+                endpoint: String? = nil,
+                headers: [String: String] = [:],
+                timeoutMs: Int = 15_000,
+                enabled: Bool = true,
+                exposeTools: Bool = true,
+                exposeResources: Bool = true,
+                exposePrompts: Bool = true,
+                toolPrefix: String? = nil
+            ) {
+                self.id = id
+                self.transport = transport
+                self.command = command
+                self.arguments = arguments
+                self.cwd = cwd
+                self.endpoint = endpoint
+                self.headers = headers
+                self.timeoutMs = timeoutMs
+                self.enabled = enabled
+                self.exposeTools = exposeTools
+                self.exposeResources = exposeResources
+                self.exposePrompts = exposePrompts
+                self.toolPrefix = toolPrefix
+            }
+
+            public init(from decoder: Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                id = try container.decode(String.self, forKey: .id)
+                transport = try container.decodeIfPresent(Transport.self, forKey: .transport) ?? .stdio
+                command = try container.decodeIfPresent(String.self, forKey: .command)
+                arguments = try container.decodeIfPresent([String].self, forKey: .arguments) ?? []
+                cwd = try container.decodeIfPresent(String.self, forKey: .cwd)
+                endpoint = try container.decodeIfPresent(String.self, forKey: .endpoint)
+                headers = try container.decodeIfPresent([String: String].self, forKey: .headers) ?? [:]
+                timeoutMs = try container.decodeIfPresent(Int.self, forKey: .timeoutMs) ?? 15_000
+                enabled = try container.decodeIfPresent(Bool.self, forKey: .enabled) ?? true
+                exposeTools = try container.decodeIfPresent(Bool.self, forKey: .exposeTools) ?? true
+                exposeResources = try container.decodeIfPresent(Bool.self, forKey: .exposeResources) ?? true
+                exposePrompts = try container.decodeIfPresent(Bool.self, forKey: .exposePrompts) ?? true
+                toolPrefix = try container.decodeIfPresent(String.self, forKey: .toolPrefix)
+            }
+        }
+
+        public var servers: [Server]
+
+        public init(servers: [Server] = []) {
+            self.servers = servers
         }
     }
 
@@ -622,6 +755,7 @@ public struct CoreConfig: Codable, Sendable {
     public var plugins: [PluginConfig]
     public var channels: ChannelConfig
     public var gitSync: GitSync
+    public var mcp: MCP
     public var searchTools: SearchTools
     public var proxy: Proxy
     public var visor: Visor
@@ -639,6 +773,7 @@ public struct CoreConfig: Codable, Sendable {
         plugins: [PluginConfig],
         channels: ChannelConfig = ChannelConfig(),
         gitSync: GitSync = GitSync(),
+        mcp: MCP = MCP(),
         searchTools: SearchTools = SearchTools(),
         proxy: Proxy = Proxy(),
         visor: Visor = Visor(),
@@ -655,6 +790,7 @@ public struct CoreConfig: Codable, Sendable {
         self.plugins = plugins
         self.channels = channels
         self.gitSync = gitSync
+        self.mcp = mcp
         self.searchTools = searchTools
         self.proxy = proxy
         self.visor = visor
@@ -687,6 +823,7 @@ public struct CoreConfig: Codable, Sendable {
             plugins: [],
             channels: .init(),
             gitSync: .init(),
+            mcp: .init(),
             searchTools: .init(),
             proxy: .init(),
             visor: .init(),
@@ -748,6 +885,7 @@ public struct CoreConfig: Codable, Sendable {
         case plugins
         case channels
         case gitSync
+        case mcp
         case searchTools
         case proxy
         case visor
@@ -766,6 +904,7 @@ public struct CoreConfig: Codable, Sendable {
         gateways = try container.decodeIfPresent([String].self, forKey: .gateways) ?? []
         channels = try container.decodeIfPresent(ChannelConfig.self, forKey: .channels) ?? .init()
         gitSync = try container.decodeIfPresent(GitSync.self, forKey: .gitSync) ?? .init()
+        mcp = try container.decodeIfPresent(MCP.self, forKey: .mcp) ?? .init()
         searchTools = try container.decodeIfPresent(SearchTools.self, forKey: .searchTools) ?? .init()
         proxy = try container.decodeIfPresent(Proxy.self, forKey: .proxy) ?? .init()
         visor = try container.decodeIfPresent(Visor.self, forKey: .visor) ?? .init()

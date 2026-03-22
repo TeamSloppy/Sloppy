@@ -172,6 +172,75 @@ func memoryProviderSupportsRemoteAliasAndKeepsSettings() throws {
 }
 
 @Test
+func memoryProviderSupportsMCPModeAndCustomToolNames() throws {
+    let json =
+        """
+        {
+          "listen": { "host": "0.0.0.0", "port": 25101 },
+          "workspace": { "name": "workspace", "basePath": "~" },
+          "auth": { "token": "dev-token" },
+          "models": [],
+          "memory": {
+            "backend": "sqlite-local-vectors",
+            "provider": {
+              "mode": "mcp",
+              "mcpServer": "memory-server",
+              "mcpTools": {
+                "upsert": "mem_upsert",
+                "query": "mem_query",
+                "delete": "mem_delete",
+                "health": "mem_health"
+              }
+            }
+          },
+          "mcp": {
+            "servers": [
+              {
+                "id": "memory-server",
+                "transport": "stdio",
+                "command": "npx",
+                "arguments": ["-y", "@acme/memory-mcp"]
+              }
+            ]
+          },
+          "nodes": ["local"],
+          "gateways": [],
+          "plugins": [],
+          "sqlitePath": "core.sqlite"
+        }
+        """
+
+    let decoded = try JSONDecoder().decode(CoreConfig.self, from: Data(json.utf8))
+    #expect(decoded.memory.provider.mode == .mcp)
+    #expect(decoded.memory.provider.mcpServer == "memory-server")
+    #expect(decoded.memory.provider.mcpTools.upsert == "mem_upsert")
+    #expect(decoded.memory.provider.mcpTools.query == "mem_query")
+    #expect(decoded.mcp.servers.count == 1)
+    #expect(decoded.mcp.servers[0].transport == .stdio)
+}
+
+@Test
+func missingMCPConfigFallsBackToEmptyServers() throws {
+    let json =
+        """
+        {
+          "listen": { "host": "0.0.0.0", "port": 25101 },
+          "auth": { "token": "dev-token" },
+          "models": [],
+          "memory": { "backend": "sqlite-local-vectors" },
+          "nodes": ["local"],
+          "gateways": [],
+          "plugins": [],
+          "sqlitePath": "core.sqlite"
+        }
+        """
+
+    let decoded = try JSONDecoder().decode(CoreConfig.self, from: Data(json.utf8))
+    #expect(decoded.mcp.servers.isEmpty)
+    #expect(decoded.memory.provider.mcpTools.upsert == "memory_upsert")
+}
+
+@Test
 func discordChannelSettingsDecodeWhenPresent() throws {
     let json =
         """

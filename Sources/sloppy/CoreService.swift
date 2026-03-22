@@ -180,6 +180,7 @@ public actor CoreService {
     private let sessionOrchestrator: AgentSessionOrchestrator
     private let toolsAuthorization: ToolAuthorizationService
     private var toolExecution: ToolExecutionService
+    private let mcpRegistry: MCPClientRegistry
     private let systemLogStore: SystemLogFileStore
     private var channelDelivery: ChannelDeliveryService
     private let channelSessionStore: ChannelSessionFileStore
@@ -233,6 +234,10 @@ public actor CoreService {
     ) {
         self.openAIOAuthService = OpenAIOAuthService(workspaceRootURL: config
             .resolvedWorkspaceRootURL(currentDirectory: FileManager.default.currentDirectoryPath))
+        self.mcpRegistry = MCPClientRegistry(
+            config: config.mcp,
+            logger: Logger(label: "sloppy.mcp")
+        )
         let oauthService = self.openAIOAuthService
         let hasOAuth = oauthService.currentAccessToken() != nil
         let resolvedModels = CoreModelProviderFactory.resolveModelIdentifiers(
@@ -259,7 +264,11 @@ public actor CoreService {
                 config: config,
                 logger: Logger(label: "sloppy.memory.embedding")
             )
-            let store = HybridMemoryStore(config: config, embeddingService: embeddingService)
+            let store = HybridMemoryStore(
+                config: config,
+                mcpRegistry: self.mcpRegistry,
+                embeddingService: embeddingService
+            )
             hybridMemoryStore = store
             runtimeMemoryStore = store
         }
@@ -331,7 +340,8 @@ public actor CoreService {
             processRegistry: processRegistry,
             channelSessionStore: self.channelSessionStore,
             store: self.store,
-            searchProviderService: self.searchProviderService
+            searchProviderService: self.searchProviderService,
+            mcpRegistry: self.mcpRegistry
         )
         self.logger = Logger(label: "sloppy.core.visor")
         self.builtInGatewayPluginFactory = builtInGatewayPluginFactory
@@ -2930,6 +2940,7 @@ public actor CoreService {
         await channelModelStore.updateWorkspaceRootURL(workspaceRootURL)
         await sessionOrchestrator.updateAgentsRootURL(agentsRootURL)
         await toolsAuthorization.updateAgentsRootURL(agentsRootURL)
+        await mcpRegistry.updateConfig(config.mcp)
         toolExecution.updateWorkspaceRootURL(workspaceRootURL)
         toolExecution.updateStore(refreshedStore)
         systemLogStore.updateWorkspaceRootURL(workspaceRootURL)
