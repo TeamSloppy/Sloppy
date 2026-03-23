@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import type { CoreApi } from "../../shared/api/coreApi";
+import { AgentGeneratePreview, type GeneratedAgentFiles } from "../agents/components/AgentGeneratePreview";
 
 type AnyRecord = Record<string, unknown>;
 
@@ -104,6 +105,52 @@ const DEFAULT_PROMPT =
 
 function clone<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
+}
+
+function buildOnboardingGeneratePrompt(agentId: string, agentName: string, agentRole: string, description: string) {
+  return `Generate 4 markdown configuration files for a Sloppy AI agent.
+
+Agent ID: ${agentId}
+Display Name: ${agentName}
+Role: ${agentRole}
+Agent responsibility: ${description}
+
+Output exactly 4 files using the markers below. Include only the file content between markers — no extra text outside the markers.
+
+--- AGENTS.md ---
+(Write main behavior instructions, responsibilities, operating rules, and capabilities for this agent)
+--- Identity.md ---
+(Write personality, communication style, tone, and character traits)
+--- Soul.md ---
+(Write core values, principles, and decision-making framework)
+--- User.md ---
+(Write how to interact with users, preferred response format, and user interaction guidelines)`;
+}
+
+function parseOnboardingGeneratedFiles(text: string): GeneratedAgentFiles {
+  const markers: Record<keyof GeneratedAgentFiles, string> = {
+    agentsMarkdown: "--- AGENTS.md ---",
+    identityMarkdown: "--- Identity.md ---",
+    soulMarkdown: "--- Soul.md ---",
+    userMarkdown: "--- User.md ---"
+  };
+
+  const markerKeys = Object.keys(markers) as (keyof GeneratedAgentFiles)[];
+  const result: GeneratedAgentFiles = { agentsMarkdown: "", identityMarkdown: "", soulMarkdown: "", userMarkdown: "" };
+
+  for (let i = 0; i < markerKeys.length; i++) {
+    const key = markerKeys[i];
+    const marker = markers[key];
+    const startIdx = text.indexOf(marker);
+    if (startIdx === -1) continue;
+
+    const contentStart = startIdx + marker.length;
+    const nextMarker = i + 1 < markerKeys.length ? markers[markerKeys[i + 1]] : null;
+    const endIdx = nextMarker ? text.indexOf(nextMarker, contentStart) : text.length;
+    result[key] = (endIdx === -1 ? text.slice(contentStart) : text.slice(contentStart, endIdx)).trim();
+  }
+
+  return result;
 }
 
 function toSlug(value: string) {
@@ -336,6 +383,10 @@ export function OnboardingView({ coreApi, initialConfig, onCompleted }: Onboardi
   const [probeModels, setProbeModels] = useState<AnyRecord[]>([]);
   const [agentName, setAgentName] = useState("CEO");
   const [agentRole, setAgentRole] = useState("CEO");
+  const [generateEnabled, setGenerateEnabled] = useState(false);
+  const [generateDescription, setGenerateDescription] = useState("");
+  const [generationPhase, setGenerationPhase] = useState<"form" | "generating" | "preview">("form");
+  const [generatedFiles, setGeneratedFiles] = useState<GeneratedAgentFiles>({ agentsMarkdown: "", identityMarkdown: "", soulMarkdown: "", userMarkdown: "" });
   const [launchPrompt, setLaunchPrompt] = useState(DEFAULT_PROMPT);
   const [statusText, setStatusText] = useState("Preparing first-run setup.");
   const [isProbing, setIsProbing] = useState(false);
@@ -515,7 +566,9 @@ export function OnboardingView({ coreApi, initialConfig, onCompleted }: Onboardi
       return probeOk && selectedModel.trim().length > 0;
     }
     if (stepIndex === 2) {
-      return agentName.trim().length > 0 && agentRole.trim().length > 0 && agentId.length > 0;
+      if (agentName.trim().length === 0 || agentRole.trim().length === 0 || agentId.length === 0) return false;
+      if (generateEnabled && generateDescription.trim().length === 0) return false;
+      return true;
     }
     return launchPrompt.trim().length > 0;
   }
@@ -610,8 +663,22 @@ export function OnboardingView({ coreApi, initialConfig, onCompleted }: Onboardi
           ? (agentConfig.documents as AnyRecord)
           : {};
 
-      const nextDocuments =
-        shouldUseCeoPersona(agentId, agentName, agentRole)
+      const hasGeneratedFiles = generateEnabled && (
+        generatedFiles.agentsMarkdown ||
+        generatedFiles.identityMarkdown ||
+        generatedFiles.soulMarkdown ||
+        generatedFiles.userMarkdown
+      );
+
+      const nextDocuments = hasGeneratedFiles
+        ? {
+            ...currentDocuments,
+            agentsMarkdown: generatedFiles.agentsMarkdown,
+            identityMarkdown: generatedFiles.identityMarkdown,
+            soulMarkdown: generatedFiles.soulMarkdown,
+            userMarkdown: generatedFiles.userMarkdown
+          }
+        : shouldUseCeoPersona(agentId, agentName, agentRole)
           ? {
               ...currentDocuments,
               agentsMarkdown: DEFAULT_PROMPT.trim()
@@ -673,8 +740,31 @@ export function OnboardingView({ coreApi, initialConfig, onCompleted }: Onboardi
     setIsSubmitting(false);
   }
 
+  async function runAgentGeneration() {
+    setGenerationPhase("generating");
+    setStatusText("Generating agent files…");
+
+    const prompt = buildOnboardingGeneratePrompt(agentId, agentName.trim(), agentRole.trim(), generateDescription);
+    const result = await coreApi.generateText({ model: selectedModel, prompt });
+
+    if (!result || typeof result.text !== "string") {
+      setGenerationPhase("form");
+      setStatusText("Generation failed. Please try again or disable generate.");
+      return;
+    }
+
+    const parsed = parseOnboardingGeneratedFiles(result.text as string);
+    setGeneratedFiles(parsed);
+    setGenerationPhase("preview");
+    setStatusText("Review and edit the generated files.");
+  }
+
   function nextStep() {
     if (!canAdvance()) {
+      return;
+    }
+    if (stepIndex === 2 && generateEnabled && generationPhase === "form") {
+      void runAgentGeneration();
       return;
     }
     if (stepIndex === STEP_TITLES.length - 1) {
@@ -968,6 +1058,37 @@ export function OnboardingView({ coreApi, initialConfig, onCompleted }: Onboardi
               <div className="onboarding-inline-note">
                 Agent id preview: <strong>{agentId || "ceo"}</strong>
               </div>
+              <div className="agent-generate-section">
+                <label className="agent-generate-toggle cron-form-toggle">
+                  <div className="agent-generate-toggle-copy">
+                    <span className="agent-generate-toggle-label">Generate Agent</span>
+                    <span className="agent-generate-toggle-hint">
+                      Uses an LLM to generate AGENTS.md, Identity.md, Soul.md, User.md files.
+                    </span>
+                  </div>
+                  <span className="agent-tools-switch">
+                    <input
+                      type="checkbox"
+                      checked={generateEnabled}
+                      onChange={(event) => setGenerateEnabled(event.target.checked)}
+                    />
+                    <span className="agent-tools-switch-track" />
+                  </span>
+                </label>
+                {generateEnabled && (
+                  <div className="agent-generate-fields">
+                    <label>
+                      Agent responsibility <span className="agent-field-note">(required for generation)</span>
+                      <textarea
+                        value={generateDescription}
+                        onChange={(event) => setGenerateDescription(event.target.value)}
+                        placeholder="Describe what this agent is responsible for, its main goals, and how it should behave…"
+                        rows={4}
+                      />
+                    </label>
+                  </div>
+                )}
+              </div>
             </div>
           ) : null}
 
@@ -1011,9 +1132,13 @@ export function OnboardingView({ coreApi, initialConfig, onCompleted }: Onboardi
             type="button"
             className="onboarding-primary-button hover-levitate"
             onClick={nextStep}
-            disabled={!canAdvance() || isSubmitting}
+            disabled={!canAdvance() || isSubmitting || generationPhase === "generating"}
           >
-            {stepIndex === STEP_TITLES.length - 1 ? (isSubmitting ? "Booting..." : "Finish setup") : "Next"}
+            {stepIndex === STEP_TITLES.length - 1
+              ? (isSubmitting ? "Booting..." : "Finish setup")
+              : stepIndex === 2 && generateEnabled && generationPhase === "form"
+                ? (generationPhase === "generating" ? "Generating…" : "Generate & Continue")
+                : "Next"}
           </button>
         </div>
       </section>
@@ -1038,6 +1163,24 @@ export function OnboardingView({ coreApi, initialConfig, onCompleted }: Onboardi
           providerTitle={activeProvider.title}
         />
       </section>
+
+      {generationPhase === "preview" && (
+        <AgentGeneratePreview
+          files={generatedFiles}
+          onFilesChange={setGeneratedFiles}
+          onBack={() => {
+            setGenerationPhase("form");
+            setStatusText("Step 3 of 4.");
+          }}
+          onDone={() => {
+            setGenerationPhase("form");
+            setStepIndex((value) => Math.min(STEP_TITLES.length - 1, value + 1));
+            setStatusText(`Step 4 of ${STEP_TITLES.length}.`);
+          }}
+          isSubmitting={false}
+          submitLabel="Done"
+        />
+      )}
     </div>
   );
 }

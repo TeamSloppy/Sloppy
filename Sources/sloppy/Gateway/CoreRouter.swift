@@ -428,7 +428,8 @@ public actor CoreRouter {
             "/v1/providers/openai/oauth/complete",
             "/v1/providers/openai/oauth/device-code/start",
             "/v1/providers/openai/oauth/device-code/poll",
-            "/v1/agents"
+            "/v1/agents",
+            "/v1/generate"
         ])
         if exactOnboardingPaths.contains(path) {
             return true

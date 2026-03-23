@@ -155,6 +155,7 @@ export interface CoreApi {
   fetchProjectFileContent: (projectId: string, path: string) => Promise<AnyRecord | null>;
   fetchUpdateStatus: () => Promise<AnyRecord | null>;
   forceUpdateCheck: () => Promise<AnyRecord | null>;
+  generateText: (payload: AnyRecord) => Promise<AnyRecord | null>;
 }
 
 export function createCoreApi(): CoreApi {
@@ -1290,6 +1291,16 @@ export function createCoreApi(): CoreApi {
 
     forceUpdateCheck: async () => {
       const response = await requestJson<AnyRecord>({ path: "/v1/updates/check", method: "POST" });
+      if (!response.ok) return null;
+      return response.data;
+    },
+
+    generateText: async (payload) => {
+      const response = await requestJson<AnyRecord, AnyRecord>({
+        path: "/v1/generate",
+        method: "POST",
+        body: payload
+      });
       if (!response.ok) return null;
       return response.data;
     }

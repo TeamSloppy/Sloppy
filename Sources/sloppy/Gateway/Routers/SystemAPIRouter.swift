@@ -130,5 +130,20 @@ struct SystemAPIRouter: APIRouter {
             let status = await service.forceUpdateCheck()
             return CoreRouter.encodable(status: HTTPStatus.ok, payload: UpdateStatusResponse(status))
         }
+
+        router.post("/v1/generate", metadata: RouteMetadata(summary: "Generate text", description: "Generates text using the configured model provider for one-shot completion tasks", tags: ["System"])) { request in
+            guard let body = request.body,
+                  let payload = CoreRouter.decode(body, as: GenerateTextRequest.self)
+            else {
+                return CoreRouter.json(status: HTTPStatus.badRequest, payload: ["error": ErrorCode.invalidBody])
+            }
+
+            do {
+                let response = try await service.generateText(request: payload)
+                return CoreRouter.encodable(status: HTTPStatus.ok, payload: response)
+            } catch {
+                return CoreRouter.json(status: HTTPStatus.internalServerError, payload: ["error": "generation_failed"])
+            }
+        }
     }
 }

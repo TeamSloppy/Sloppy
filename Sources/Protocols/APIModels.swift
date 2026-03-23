@@ -2614,3 +2614,23 @@ public struct TaskActivity: Codable, Sendable, Identifiable {
         self.createdAt = createdAt
     }
 }
+
+public struct GenerateTextRequest: Codable, Sendable {
+    public var model: String
+    public var prompt: String
+
+    public init(model: String, prompt: String) {
+        self.model = model
+        self.prompt = prompt
+    }
+}
+
+public struct GenerateTextResponse: Codable, Sendable {
+    public var text: String
+    public var model: String
+
+    public init(text: String, model: String) {
+        self.text = text
+        self.model = model
+    }
+}

@@ -158,6 +158,12 @@ public actor CoreService {
         case downloadFailure
     }
 
+    public enum GenerateError: Error {
+        case noModelProvider
+        case noModelAvailable
+        case generationFailed
+    }
+
     public enum AgentCronTaskError: Error {
         case invalidAgentID
         case invalidPayload
@@ -2782,6 +2788,38 @@ public actor CoreService {
             return await openAIOAuthService.probe()
         }
         return await providerProbeService.probe(config: currentConfig, request: request)
+    }
+
+    /// Generates text using the specified model and prompt, for one-shot completion tasks.
+    public func generateText(request: GenerateTextRequest) async throws -> GenerateTextResponse {
+        let config = currentConfig
+        let oauthService = openAIOAuthService
+        let hasOAuth = oauthService.currentAccessToken() != nil
+        let resolvedModels = CoreModelProviderFactory.resolveModelIdentifiers(
+            config: config,
+            hasOAuthCredentials: hasOAuth
+        )
+        guard let modelProvider = CoreModelProviderFactory.buildModelProvider(
+            config: config,
+            resolvedModels: resolvedModels,
+            oauthTokenProvider: { oauthService.currentAccessToken() },
+            oauthAccountId: oauthService.currentAccountId(),
+            oauthTokenRefresh: { try await oauthService.ensureValidToken() },
+            proxySession: ProxySessionFactory.makeSession(proxy: config.proxy)
+        ) else {
+            throw GenerateError.noModelProvider
+        }
+
+        let modelId = request.model.isEmpty ? (modelProvider.supportedModels.first ?? resolvedModels.first ?? "") : request.model
+        guard !modelId.isEmpty else {
+            throw GenerateError.noModelAvailable
+        }
+
+        let languageModel = try await modelProvider.createLanguageModel(for: modelId)
+        let session = LanguageModelSession(model: languageModel, tools: [])
+        let options = modelProvider.generationOptions(for: modelId, maxTokens: 4096, reasoningEffort: nil)
+        let response = try await session.respond(to: request.prompt, options: options)
+        return GenerateTextResponse(text: response.content, model: modelId)
     }
 
     public func startOpenAIOAuth(request: OpenAIOAuthStartRequest) throws -> OpenAIOAuthStartResponse {
