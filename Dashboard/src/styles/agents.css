@@ -214,8 +214,11 @@
   border-radius: 0;
   padding: 14px;
   display: grid;
-  gap: 8px;
+  grid-template-columns: 40px minmax(0, 1fr);
+  align-items: start;
+  gap: 8px 12px;
   background: var(--surface-2);
+  text-align: left;
 }
 
 .agent-list-item-card:hover {
@@ -259,17 +262,26 @@
 .agent-list-head h4 {
   margin: 0;
   font-size: 1rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .agent-list-main p {
   margin: 0;
   color: var(--muted);
   font-size: 1.03rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .agent-list-id {
   font-size: 0.94rem;
   color: #c5cbda;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .agents-create-layout {
@@ -332,7 +344,7 @@
   background: rgba(255, 255, 255, 0.015);
 }
 
-.agent-list-main {
+.agent-list-item .agent-list-main {
   display: inline-flex;
   align-items: baseline;
   gap: 10px;
@@ -343,7 +355,7 @@
   font-size: 0.94rem;
 }
 
-.agent-list-main span {
+.agent-list-item .agent-list-main span {
   color: var(--accent);
   font-size: 0.78rem;
   letter-spacing: 0.02em;

@@ -230,7 +230,7 @@
 
 .project-board-card-head {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
   gap: 8px;
 }
@@ -243,7 +243,14 @@
 }
 
 .project-board-card-icon {
-  font-size: 1.25rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  background: var(--surface-3);
+  border: 1px solid var(--line);
+  font-size: 20px;
   color: var(--accent);
   flex-shrink: 0;
 }
