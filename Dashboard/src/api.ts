@@ -99,3 +99,5 @@ export const deleteTaskComment = coreApi.deleteTaskComment;
 export const fetchTaskActivities = coreApi.fetchTaskActivities;
 export const fetchProjectFiles = coreApi.fetchProjectFiles;
 export const fetchProjectFileContent = coreApi.fetchProjectFileContent;
+export const fetchUpdateStatus = coreApi.fetchUpdateStatus;
+export const forceUpdateCheck = coreApi.forceUpdateCheck;

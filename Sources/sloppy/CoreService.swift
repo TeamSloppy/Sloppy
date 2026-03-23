@@ -188,6 +188,7 @@ public actor CoreService {
     private let agentSkillsStore: AgentSkillsFileStore
     private let skillsRegistryService: SkillsRegistryService
     private let skillsGitHubClient: SkillsGitHubClient
+    private let updateChecker: UpdateCheckerService
     private let swarmPlanner: SwarmPlanner
     private let gitWorktreeService: GitWorktreeService
     private let logger: Logger
@@ -314,6 +315,7 @@ public actor CoreService {
         self.agentSkillsStore = AgentSkillsFileStore(agentsRootURL: self.agentsRootURL)
         self.skillsRegistryService = SkillsRegistryService()
         self.skillsGitHubClient = SkillsGitHubClient()
+        self.updateChecker = UpdateCheckerService()
         self.swarmPlanner = SwarmPlanner { prompt, maxTokens in
             await runtime.complete(prompt: prompt, maxTokens: maxTokens)
         }
@@ -2781,6 +2783,14 @@ public actor CoreService {
     }
 
     /// Returns latest persisted system logs from `/workspace/logs/*.log`.
+    public func getUpdateStatus() async -> UpdateStatus {
+        await updateChecker.status()
+    }
+
+    public func forceUpdateCheck() async -> UpdateStatus {
+        await updateChecker.forceCheck()
+    }
+
     public func getSystemLogs(limit: Int = 1500) throws -> SystemLogsResponse {
         do {
             return try systemLogStore.readRecentEntries(limit: limit)

@@ -9,6 +9,8 @@ import { NotificationToastContainer } from "./features/notifications/Notificatio
 import { useNotificationSocket } from "./features/notifications/useNotificationSocket";
 import { OnboardingView } from "./features/onboarding/OnboardingView";
 import { useRuntimeOverview } from "./features/runtime-overview/model/useRuntimeOverview";
+import { UpdateBanner } from "./features/updates/UpdateBanner";
+import { useUpdateCheck } from "./features/updates/useUpdateCheck";
 import { AgentsView } from "./views/AgentsView";
 import { ActorsView } from "./views/ActorsView";
 import { ConfigView } from "./views/ConfigView";
@@ -34,6 +36,7 @@ function DashboardShell({ dependencies }: { dependencies: ReturnType<typeof crea
   const { route, setSection, setConfigSection, setProjectRoute, setAgentRoute, setSessionRoute } = useDashboardRoute();
   const [sidebarCompact, setSidebarCompact] = useState(true);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
+  const { status: updateStatus } = useUpdateCheck();
   useNotificationSocket();
 
   useEffect(() => {
@@ -222,6 +225,7 @@ function DashboardShell({ dependencies }: { dependencies: ReturnType<typeof crea
             menu
           </span>
         </button>
+        {updateStatus && <UpdateBanner status={updateStatus} />}
         {pageContent}
       </div>
       <NotificationToastContainer />

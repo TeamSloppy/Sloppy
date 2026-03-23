@@ -1,0 +1,75 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Build and Release
+    runs-on: ubuntu-latest
+    container:
+      image: swift:6.2-jammy
+
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install System Dependencies
+        run: |
+          apt-get update
+          apt-get install -y libsqlite3-dev
+
+      - name: Extract Version from Tag
+        id: version
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=$GITHUB_REF_NAME" >> "$GITHUB_OUTPUT"
+
+      - name: Inject Version into sloppy-version.json
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          sed -i "s/__SLOPPY_APP_VERSION__/$VERSION/g" Sources/sloppy/Resources/sloppy-version.json
+          cat Sources/sloppy/Resources/sloppy-version.json
+
+      - name: Inject Version into Dashboard package.json
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          sed -i "s/\"version\": \"[^\"]*\"/\"version\": \"$VERSION\"/" Dashboard/package.json
+          grep '"version"' Dashboard/package.json
+
+      - name: Swift Version
+        run: swift --version
+
+      - name: Resolve Swift Packages
+        run: swift package resolve
+
+      - name: Run Test Suite
+        run: swift test --parallel
+
+      - name: Build sloppy (Release)
+        run: swift build -c release --product sloppy
+
+      - name: Build Node (Release)
+        run: swift build -c release --product Node
+
+      - name: Build App (Release)
+        run: swift build -c release --product App
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.tag }}
+          name: "Sloppy ${{ steps.version.outputs.version }}"
+          generate_release_notes: true
+          draft: false
+          prerelease: false

@@ -52,7 +52,12 @@ export function ProjectList({ projects, isLoadingProjects, openProject, openCrea
                         }}
                     >
                         <div className="project-board-card-head">
-                            <h3>{project.name}</h3>
+                            <div className="project-board-card-title">
+                                {project.icon && (
+                                    <span className="material-symbols-rounded project-board-card-icon">{project.icon}</span>
+                                )}
+                                <h3>{project.name}</h3>
+                            </div>
                             <span className="project-board-updated">{formatRelativeTime(project.updatedAt)}</span>
                         </div>
 

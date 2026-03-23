@@ -323,3 +323,158 @@
   color: var(--muted);
 }
 
+/* Updates section */
+.updates-shell {
+  display: grid;
+  gap: 12px;
+  align-content: start;
+}
+
+.updates-section-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.updates-section-header h4 {
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 600;
+}
+
+.updates-badge-new {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--accent);
+  border: 1px solid var(--accent);
+  padding: 2px 8px;
+  white-space: nowrap;
+}
+
+.updates-status-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px 24px;
+  margin-bottom: 16px;
+}
+
+.updates-status-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.updates-status-label {
+  font-size: 0.78rem;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.updates-status-value {
+  font-size: 0.88rem;
+  color: var(--text);
+}
+
+.updates-status-mono {
+  font-family: "Fira Code", monospace;
+  font-size: 0.82rem;
+}
+
+.updates-status-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.updates-check-btn {
+  font-size: 0.82rem;
+  padding: 5px 14px;
+}
+
+.updates-release-link {
+  font-size: 0.82rem;
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.updates-release-link:hover {
+  text-decoration: underline;
+}
+
+.updates-oneclick-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 10px;
+}
+
+.updates-docker-sock-hint {
+  font-size: 0.82rem;
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.updates-docker-sock-hint:hover {
+  text-decoration: underline;
+}
+
+.updates-update-now-btn {
+  min-width: 110px;
+  font-size: 0.82rem;
+  padding: 5px 16px;
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.updates-update-now-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.updates-command-block {
+  margin-top: 14px;
+  border: 1px solid var(--line);
+}
+
+.updates-command-label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 12px;
+  background: var(--surface-3);
+  border-bottom: 1px solid var(--line);
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+  text-transform: uppercase;
+}
+
+.updates-copy-btn {
+  font-size: 0.75rem;
+  padding: 2px 10px;
+  color: var(--muted);
+  background: transparent;
+  border: 1px solid var(--line);
+}
+
+.updates-copy-btn:hover {
+  color: var(--text);
+  border-color: var(--accent);
+}
+
+.updates-command-pre {
+  margin: 0;
+  padding: 10px 12px;
+  font-family: "Fira Code", monospace;
+  font-size: 0.82rem;
+  color: var(--text);
+  background: var(--bg);
+  white-space: pre;
+  overflow-x: auto;
+  line-height: 1.5;
+}
+
