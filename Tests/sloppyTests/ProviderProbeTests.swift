@@ -109,7 +109,7 @@ func providerProbeEndpointMapsOllamaModelsFromTagsResponse() async throws {
 
 @Test
 func providerProbeEndpointRejectsInvalidProviderID() async throws {
-    let router = CoreRouter(service: CoreService(config: .default))
+    let router = CoreRouter(service: CoreService(config: .test))
     let body = Data(#"{"providerId":"invalid-provider"}"#.utf8)
     let response = await router.handle(method: "POST", path: "/v1/providers/probe", body: body)
 

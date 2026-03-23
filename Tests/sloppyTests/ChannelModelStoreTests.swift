@@ -43,7 +43,7 @@ func channelModelStoreRemove() async throws {
 
 @Test
 func channelModelEndpointGetReturnsAvailableModels() async throws {
-    let service = CoreService(config: .default)
+    let service = CoreService(config: .test)
     let router = CoreRouter(service: service)
 
     let response = await router.handle(method: "GET", path: "/v1/channels/general/model", body: nil)
@@ -59,7 +59,7 @@ func channelModelEndpointGetReturnsAvailableModels() async throws {
 
 @Test
 func channelModelEndpointSetAndGet() async throws {
-    let service = CoreService(config: .default)
+    let service = CoreService(config: .test)
     let router = CoreRouter(service: service)
     let channelId = "model-test-\(UUID().uuidString)"
 
@@ -85,7 +85,7 @@ func channelModelEndpointSetAndGet() async throws {
 
 @Test
 func channelModelEndpointRejectsInvalidModel() async throws {
-    let service = CoreService(config: .default)
+    let service = CoreService(config: .test)
     let router = CoreRouter(service: service)
 
     let putBody = try JSONEncoder().encode(ChannelModelUpdateRequest(model: "not-a-real-model"))
@@ -99,7 +99,7 @@ func channelModelEndpointRejectsInvalidModel() async throws {
 
 @Test
 func channelModelEndpointDelete() async throws {
-    let service = CoreService(config: .default)
+    let service = CoreService(config: .test)
     let router = CoreRouter(service: service)
     let channelId = "model-delete-\(UUID().uuidString)"
 
@@ -125,7 +125,7 @@ func channelModelEndpointDelete() async throws {
 
 @Test
 func modelCommandListReturnsAvailableModels() async throws {
-    let service = CoreService(config: .default)
+    let service = CoreService(config: .test)
     let channelId = "model-cmd-\(UUID().uuidString)"
 
     let ok = await service.postMessage(channelId: channelId, userId: "tg:1", content: "/model")
@@ -134,7 +134,7 @@ func modelCommandListReturnsAvailableModels() async throws {
 
 @Test
 func modelCommandSetStoresOverride() async throws {
-    let service = CoreService(config: .default)
+    let service = CoreService(config: .test)
     let channelId = "model-set-\(UUID().uuidString)"
 
     let channelModelResponse = await service.getChannelModel(channelId: channelId)
@@ -149,7 +149,7 @@ func modelCommandSetStoresOverride() async throws {
 
 @Test
 func modelCommandRejectsUnknownModel() async throws {
-    let service = CoreService(config: .default)
+    let service = CoreService(config: .test)
     let channelId = "model-reject-\(UUID().uuidString)"
 
     let ok = await service.postMessage(channelId: channelId, userId: "tg:1", content: "/model unknown-model-xyz")
@@ -161,7 +161,7 @@ func modelCommandRejectsUnknownModel() async throws {
 
 @Test
 func contextCommandReturnsUsageInfo() async throws {
-    let service = CoreService(config: .default)
+    let service = CoreService(config: .test)
     let channelId = "context-cmd-\(UUID().uuidString)"
 
     let ok = await service.postMessage(channelId: channelId, userId: "tg:1", content: "/context")
