@@ -7,8 +7,8 @@ hero:
   tagline: "VitePress portal rebuilt around the current Dashboard language: mono typography, acid-lime signals, square surfaces, and a dedicated OpenAPI reference."
   actions:
     - theme: brand
-      text: Open Specs
-      link: /specs/protocol-v1
+      text: Get Started
+      link: /install
     - theme: alt
       text: Open API
       link: /api/reference

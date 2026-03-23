@@ -177,6 +177,10 @@ body::after {
   background: var(--sl-surface);
 }
 
+.VPDoc .content {
+  background: transparent !important;
+}
+
 .VPDoc,
 .VPDocAsideOutline .content,
 .VPDocAsideCarbonAds,
@@ -209,13 +213,7 @@ body::after {
 
 .vp-doc h1,
 .vp-doc h2 {
-  border-top: 1px solid var(--sl-line);
-  padding-top: 1rem;
-}
-
-.vp-doc h1:first-child {
-  border-top: 0;
-  padding-top: 0;
+  border-top: none;
 }
 
 .vp-doc a {
@@ -231,7 +229,6 @@ body::after {
 .custom-block,
 .vp-doc div[class*="language-"],
 .vp-doc table,
-.VPFeature,
 .VPDocAsideOutline .content,
 .VPDoc .content-container,
 .VPHomeFeatures .container,
@@ -246,11 +243,23 @@ body::after {
 }
 
 .VPHomeHero .container,
-.VPHomeFeatures .container,
 .VPDoc .content-container,
 .VPDocAsideOutline .content {
   position: relative;
   overflow: hidden;
+}
+
+.VPHomeFeatures .container {
+  position: relative;
+  overflow: visible;
+}
+
+.VPHomeFeatures .items {
+  overflow: visible !important;
+}
+
+.VPHomeFeatures .item {
+  overflow: visible !important;
 }
 
 .VPHomeHero .container {
@@ -313,7 +322,16 @@ body::after {
 
 .VPFeature {
   border: 1px solid var(--sl-line);
+  border-radius: 0 !important;
   padding: 24px;
+  background: rgba(10, 10, 10, 0.92);
+  box-shadow: inset 0 0 0 1px rgba(204, 255, 0, 0.03);
+  transition: transform 120ms ease, box-shadow 120ms ease, border-color 120ms ease, background-color 120ms ease;
+}
+
+.VPFeature:hover {
+  transform: translate(-4px, -4px) !important;
+  box-shadow: 4px 4px 0px var(--sl-accent) !important;
 }
 
 .VPFeature .title {

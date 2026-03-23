@@ -27,8 +27,7 @@ export default defineConfig({
       { text: "Guides", link: "/guides/build-from-terminal" },
       { text: "API", link: "/api/reference" },
       { text: "Design", link: "/architecture/project-design" },
-      { text: "Specs", link: "/specs/protocol-v1" },
-      { text: "ADR", link: "/adr/0001-runtime-architecture" },
+      { text: "Specs", link: "/specs/channel-plugin-protocol" },
       { text: "Dashboard UI", link: "/dashboard-style" }
     ],
     sidebar: [
@@ -36,6 +35,7 @@ export default defineConfig({
         text: "Overview",
         items: [
           { text: "Home", link: "/" },
+          { text: "Install", link: "/install" },
           { text: "Dashboard Style", link: "/dashboard-style" },
           { text: "API Reference", link: "/api/reference" }
         ]
@@ -56,13 +56,11 @@ export default defineConfig({
           { text: "Project Design", link: "/architecture/project-design" },
           { text: "Actors Board", link: "/architecture/actors-board" },
           { text: "Swarm", link: "/architecture/swarm" },
-          { text: "ADR-0001 Runtime Architecture", link: "/adr/0001-runtime-architecture" }
         ]
       },
       {
         text: "Specifications",
         items: [
-          { text: "Protocol v1", link: "/specs/protocol-v1" },
           { text: "Channel Plugin Protocol v1", link: "/specs/channel-plugin-protocol" },
           { text: "PRD Runtime v1", link: "/specs/prd-runtime-v1" }
         ]
