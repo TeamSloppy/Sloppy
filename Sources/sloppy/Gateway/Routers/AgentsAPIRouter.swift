@@ -308,6 +308,29 @@ struct AgentsAPIRouter: APIRouter {
             }
         }
 
+        router.post("/v1/agents/:agentId/sessions/:sessionId/events", metadata: RouteMetadata(summary: "Append session events", description: "Appends events to a session without triggering agent processing", tags: ["Agents"])) { request in
+            let agentId = request.pathParam("agentId") ?? ""
+            let sessionId = request.pathParam("sessionId") ?? ""
+            guard let body = request.body,
+                  let payload = CoreRouter.decode(body, as: AgentSessionAppendEventsRequest.self)
+            else {
+                return CoreRouter.json(status: HTTPStatus.badRequest, payload: ["error": ErrorCode.invalidBody])
+            }
+
+            do {
+                let response = try await service.appendAgentSessionEvents(
+                    agentID: agentId,
+                    sessionID: sessionId,
+                    request: payload
+                )
+                return CoreRouter.encodable(status: HTTPStatus.ok, payload: response)
+            } catch let error as CoreService.AgentSessionError {
+                return CoreRouter.agentSessionErrorResponse(error, fallback: ErrorCode.sessionWriteFailed)
+            } catch {
+                return CoreRouter.json(status: HTTPStatus.internalServerError, payload: ["error": ErrorCode.sessionWriteFailed])
+            }
+        }
+
         router.post("/v1/agents/:agentId/sessions/:sessionId/tools/invoke", metadata: RouteMetadata(summary: "Invoke tool", description: "Manually invokes a tool for an agent session", tags: ["Agents"])) { request in
             let agentId = request.pathParam("agentId") ?? ""
             let sessionId = request.pathParam("sessionId") ?? ""

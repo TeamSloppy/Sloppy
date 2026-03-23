@@ -9,6 +9,7 @@ import {
   fetchAgentSessions,
   fetchTaskByReference,
   postAgentSessionControl,
+  postAgentSessionEvents,
   postAgentSessionMessage,
   subscribeAgentSessionStream
 } from "../../../api";
@@ -22,6 +23,20 @@ const TASK_TAG_PATTERN = /#([A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?)/g;
 const TASK_TAG_REMOVE_PATTERN = /(^|\s)#([A-Za-z0-9][A-Za-z0-9._-]*)(\s?)$/;
 const TASK_TAG_QUERY_VALUE_PATTERN = /^[A-Za-z0-9._-]*$/;
 const DEFAULT_REASONING_EFFORT = "medium";
+
+const SLASH_COMMANDS = [
+  { name: "help", description: "Show available commands" },
+  { name: "status", description: "Check agent connectivity" },
+  { name: "new", description: "Start a new session with the agent" },
+  { name: "abort", description: "Abort current agent processing" },
+  { name: "model", description: "Show or switch model" },
+  { name: "context", description: "Show token usage and context info" },
+  { name: "tasks", description: "List available tasks" },
+  { name: "clear", description: "Clear conversation (new session)" },
+];
+const SLASH_COMMAND_NAMES = new Set(SLASH_COMMANDS.map((c) => c.name));
+const SLASH_CMD_INLINE_PATTERN = /\/([a-z][a-z0-9_-]*)/g;
+const SLASH_CMD_REMOVE_PATTERN = /(^|\s)(\/[a-z][a-z0-9_-]*)(\s?)$/;
 
 function normalizeTaskReference(value) {
   return String(value || "").trim();
@@ -196,6 +211,42 @@ function getTaskQueryAtCursor(value, caret) {
   };
 }
 
+function getSlashCommandAtCursor(value, caret) {
+  const text = String(value || "");
+  const safeCaret = Math.max(0, Math.min(Number.isFinite(caret) ? caret : text.length, text.length));
+  const slashIndex = text.lastIndexOf("/", Math.max(0, safeCaret - 1));
+
+  if (slashIndex < 0) {
+    return null;
+  }
+
+  const charBeforeSlash = slashIndex > 0 ? text[slashIndex - 1] : "";
+  if (charBeforeSlash && !/\s/.test(charBeforeSlash)) {
+    return null;
+  }
+
+  const queryBeforeCaret = text.slice(slashIndex + 1, safeCaret);
+  if (/\s/.test(queryBeforeCaret)) {
+    return null;
+  }
+
+  let tokenEnd = safeCaret;
+  while (tokenEnd < text.length && !/\s/.test(text[tokenEnd])) {
+    tokenEnd += 1;
+  }
+
+  const fullTokenValue = text.slice(slashIndex + 1, tokenEnd);
+  if (!/^[a-z0-9_-]*$/i.test(fullTokenValue)) {
+    return null;
+  }
+
+  return {
+    start: slashIndex,
+    end: tokenEnd,
+    query: queryBeforeCaret
+  };
+}
+
 function findBackwardTaskTag(value, caret) {
   const text = String(value || "");
   const safeCaret = Math.max(0, Math.min(Number.isFinite(caret) ? caret : text.length, text.length));
@@ -216,6 +267,99 @@ function findBackwardTaskTag(value, caret) {
     end,
     reference
   };
+}
+
+function findBackwardSlashCommand(value, caret) {
+  const text = String(value || "");
+  const safeCaret = Math.max(0, Math.min(Number.isFinite(caret) ? caret : text.length, text.length));
+  const beforeCaret = text.slice(0, safeCaret);
+  const match = beforeCaret.match(SLASH_CMD_REMOVE_PATTERN);
+  if (!match) {
+    return null;
+  }
+
+  const prefix = match[1] || "";
+  const full = match[0];
+  const commandValue = match[2];
+  const name = commandValue.slice(1);
+  if (!SLASH_COMMAND_NAMES.has(name)) {
+    return null;
+  }
+
+  const start = beforeCaret.length - full.length + prefix.length;
+  const end = beforeCaret.length;
+
+  return { start, end, name };
+}
+
+function splitTextBySlashCommands(value) {
+  const text = String(value || "");
+  if (!text) {
+    return [{ kind: "text", value: "" }];
+  }
+
+  const parts = [];
+  let cursor = 0;
+
+  SLASH_CMD_INLINE_PATTERN.lastIndex = 0;
+  let match = SLASH_CMD_INLINE_PATTERN.exec(text);
+  while (match) {
+    const full = match[0];
+    const name = match[1];
+    const start = match.index;
+    const end = start + full.length;
+    const previousChar = start > 0 ? text[start - 1] : "";
+
+    if (previousChar && !/\s/.test(previousChar)) {
+      match = SLASH_CMD_INLINE_PATTERN.exec(text);
+      continue;
+    }
+
+    if (!SLASH_COMMAND_NAMES.has(name)) {
+      match = SLASH_CMD_INLINE_PATTERN.exec(text);
+      continue;
+    }
+
+    if (start > cursor) {
+      parts.push({ kind: "text", value: text.slice(cursor, start) });
+    }
+
+    parts.push({ kind: "command", name, value: full });
+    cursor = end;
+    match = SLASH_CMD_INLINE_PATTERN.exec(text);
+  }
+
+  if (cursor < text.length) {
+    parts.push({ kind: "text", value: text.slice(cursor) });
+  }
+
+  return parts.length > 0 ? parts : [{ kind: "text", value: text }];
+}
+
+function filterSlashCommandSuggestions(commands, query, limit = 8) {
+  const normalizedQuery = String(query || "").trim().toLowerCase();
+  return commands
+    .filter((cmd) => {
+      if (!normalizedQuery) {
+        return true;
+      }
+      return cmd.name.toLowerCase().includes(normalizedQuery);
+    })
+    .sort((a, b) => {
+      if (!normalizedQuery) {
+        return 0;
+      }
+      const aStarts = a.name.toLowerCase().startsWith(normalizedQuery);
+      const bStarts = b.name.toLowerCase().startsWith(normalizedQuery);
+      if (aStarts && !bStarts) {
+        return -1;
+      }
+      if (!aStarts && bStarts) {
+        return 1;
+      }
+      return a.name.localeCompare(b.name);
+    })
+    .slice(0, limit);
 }
 
 function scoreTaskSuggestion(task, queryLower) {
@@ -539,6 +683,7 @@ function TaskTaggedText({ text, onTaskTagClick, onTaskTagHoverStart, onTaskTagHo
 }
 
 const INLINE_TASK_TAG_SELECTOR = ".agent-chat-inline-task-tag";
+const INLINE_SLASH_COMMAND_SELECTOR = ".agent-chat-inline-slash-command";
 
 function isBlockElementNode(node) {
   return node?.nodeType === Node.ELEMENT_NODE && /^(DIV|P)$/i.test(node.tagName || "");
@@ -559,6 +704,9 @@ function readEditorNodeText(node) {
 
   const element = node;
   if (element.matches(INLINE_TASK_TAG_SELECTOR)) {
+    return element.dataset.rawValue || element.textContent || "";
+  }
+  if (element.matches(INLINE_SLASH_COMMAND_SELECTOR)) {
     return element.dataset.rawValue || element.textContent || "";
   }
   if (element.tagName === "BR") {
@@ -603,7 +751,20 @@ function setEditorContentFromText(root, text) {
       tag.textContent = part.value;
       fragment.appendChild(tag);
     } else if (part.value) {
-      fragment.appendChild(document.createTextNode(part.value));
+      const subParts = splitTextBySlashCommands(part.value);
+      for (const sub of subParts) {
+        if (sub.kind === "command") {
+          const cmdTag = document.createElement("span");
+          cmdTag.className = "agent-chat-inline-slash-command";
+          cmdTag.setAttribute("contenteditable", "false");
+          cmdTag.dataset.commandName = sub.name;
+          cmdTag.dataset.rawValue = sub.value;
+          cmdTag.textContent = sub.value;
+          fragment.appendChild(cmdTag);
+        } else if (sub.value) {
+          fragment.appendChild(document.createTextNode(sub.value));
+        }
+      }
     }
   }
 
@@ -673,6 +834,17 @@ function setCaretOffsetInEditor(root, offset) {
 
     const element = node;
     if (element.matches(INLINE_TASK_TAG_SELECTOR)) {
+      const length = (element.dataset.rawValue || element.textContent || "").length;
+      if (remaining <= length) {
+        range.setStartAfter(element);
+        range.collapse(true);
+        return true;
+      }
+      remaining -= length;
+      return false;
+    }
+
+    if (element.matches(INLINE_SLASH_COMMAND_SELECTOR)) {
       const length = (element.dataset.rawValue || element.textContent || "").length;
       if (remaining <= length) {
         range.setStartAfter(element);
@@ -1051,6 +1223,7 @@ function AgentChatComposer({
   const [caretIndex, setCaretIndex] = useState(0);
   const [isInputFocused, setIsInputFocused] = useState(false);
   const [activeSuggestionIndex, setActiveSuggestionIndex] = useState(0);
+  const [activeSlashIndex, setActiveSlashIndex] = useState(0);
   const pendingCaretOffsetRef = useRef(null);
   const taskQuery = useMemo(() => getTaskQueryAtCursor(inputText, caretIndex), [inputText, caretIndex]);
   const taskSuggestions = useMemo(
@@ -1058,11 +1231,21 @@ function AgentChatComposer({
     [availableTasks, taskQuery?.query]
   );
   const isTaskDropdownOpen = isInputFocused && Boolean(taskQuery);
+  const slashQuery = useMemo(() => getSlashCommandAtCursor(inputText, caretIndex), [inputText, caretIndex]);
+  const slashSuggestions = useMemo(
+    () => filterSlashCommandSuggestions(SLASH_COMMANDS, slashQuery?.query || ""),
+    [slashQuery?.query]
+  );
+  const isSlashDropdownOpen = isInputFocused && Boolean(slashQuery) && !isTaskDropdownOpen;
   const editorRef = textareaRef;
 
   useEffect(() => {
     setActiveSuggestionIndex(0);
   }, [taskQuery?.start, taskQuery?.query, taskSuggestions.length]);
+
+  useEffect(() => {
+    setActiveSlashIndex(0);
+  }, [slashQuery?.start, slashQuery?.query, slashSuggestions.length]);
 
   useEffect(() => {
     const editor = editorRef.current;
@@ -1112,6 +1295,19 @@ function AgentChatComposer({
     applyInputValue(nextValue, nextCaret);
   }
 
+  function applySlashCommandSuggestion(command) {
+    if (!slashQuery || !command?.name) {
+      return;
+    }
+    const before = inputText.slice(0, slashQuery.start);
+    const after = inputText.slice(slashQuery.end);
+    const shouldAddSpace = after.length === 0 || !/^\s/.test(after);
+    const replacement = `/${command.name}${shouldAddSpace ? " " : ""}`;
+    const nextValue = `${before}${replacement}${after}`;
+    const nextCaret = before.length + replacement.length;
+    applyInputValue(nextValue, nextCaret);
+  }
+
   function updateCaretFromEditor(target) {
     if (!target) {
       return;
@@ -1142,6 +1338,7 @@ function AgentChatComposer({
             return (
               <button
                 key={task.reference}
+                ref={isActive ? (el) => el?.scrollIntoView({ block: "nearest" }) : undefined}
                 type="button"
                 className={`agent-chat-task-dropdown-item ${isActive ? "active" : ""}`}
                 onMouseDown={(event) => {
@@ -1171,6 +1368,42 @@ function AgentChatComposer({
     );
   }
 
+  function renderSlashDropdown() {
+    if (!isSlashDropdownOpen) {
+      return null;
+    }
+
+    return (
+      <div className="agent-chat-task-dropdown" role="listbox" aria-label="Command suggestions">
+        {slashSuggestions.length === 0 ? (
+          <p className="agent-chat-task-dropdown-empty">No commands found</p>
+        ) : (
+          slashSuggestions.map((cmd, index) => {
+            const isActive = index === activeSlashIndex;
+            return (
+              <button
+                key={cmd.name}
+                ref={isActive ? (el) => el?.scrollIntoView({ block: "nearest" }) : undefined}
+                type="button"
+                className={`agent-chat-task-dropdown-item ${isActive ? "active" : ""}`}
+                onMouseDown={(event) => {
+                  event.preventDefault();
+                  applySlashCommandSuggestion(cmd);
+                }}
+                onMouseEnter={() => setActiveSlashIndex(index)}
+              >
+                <div className="agent-chat-task-dropdown-row">
+                  <strong>/{cmd.name}</strong>
+                </div>
+                <p>{cmd.description}</p>
+              </button>
+            );
+          })
+        )}
+      </div>
+    );
+  }
+
   return (
     <>
       {replyTarget ? (
@@ -1189,6 +1422,7 @@ function AgentChatComposer({
 
       <div className="agent-chat-compose-shell">
         {renderTaskDropdown()}
+        {renderSlashDropdown()}
 
         <form className="agent-chat-compose" onSubmit={onSend}>
           <input
@@ -1292,6 +1526,7 @@ function AgentChatComposer({
               onKeyDown={(event) => {
                 const target = event.currentTarget;
                 const hasSuggestions = taskSuggestions.length > 0;
+                const hasSlashSuggestions = slashSuggestions.length > 0;
 
                 if (isTaskDropdownOpen) {
                   if (event.key === "ArrowDown" && hasSuggestions) {
@@ -1333,6 +1568,46 @@ function AgentChatComposer({
                   }
                 }
 
+                if (isSlashDropdownOpen) {
+                  if (event.key === "ArrowDown" && hasSlashSuggestions) {
+                    event.preventDefault();
+                    setActiveSlashIndex((current) => (current + 1) % slashSuggestions.length);
+                    return;
+                  }
+
+                  if (event.key === "ArrowUp" && hasSlashSuggestions) {
+                    event.preventDefault();
+                    setActiveSlashIndex((current) => {
+                      if (current <= 0) {
+                        return slashSuggestions.length - 1;
+                      }
+                      return current - 1;
+                    });
+                    return;
+                  }
+
+                  if (event.key === "Enter" && hasSlashSuggestions) {
+                    event.preventDefault();
+                    const selectedCmd = slashSuggestions[Math.min(activeSlashIndex, slashSuggestions.length - 1)];
+                    applySlashCommandSuggestion(selectedCmd);
+                    return;
+                  }
+
+                  if (event.key === "Tab" && hasSlashSuggestions) {
+                    event.preventDefault();
+                    const selectedCmd = slashSuggestions[Math.min(activeSlashIndex, slashSuggestions.length - 1)];
+                    applySlashCommandSuggestion(selectedCmd);
+                    return;
+                  }
+
+                  if (event.key === "Escape") {
+                    event.preventDefault();
+                    setIsInputFocused(false);
+                    target.blur();
+                    return;
+                  }
+                }
+
                 if (
                   event.key === "Backspace" &&
                   !event.altKey &&
@@ -1345,6 +1620,13 @@ function AgentChatComposer({
                     event.preventDefault();
                     const nextValue = `${inputText.slice(0, resolved.start)}${inputText.slice(resolved.end)}`;
                     applyInputValue(nextValue, resolved.start);
+                    return;
+                  }
+                  const resolvedCmd = findBackwardSlashCommand(inputText, getCaretOffsetInEditor(target));
+                  if (resolvedCmd) {
+                    event.preventDefault();
+                    const nextValue = `${inputText.slice(0, resolvedCmd.start)}${inputText.slice(resolvedCmd.end)}`;
+                    applyInputValue(nextValue, resolvedCmd.start);
                     return;
                   }
                 }
@@ -1956,6 +2238,112 @@ export function AgentChatTab({ agentId }) {
     setPendingFiles((previous) => previous.filter((_, itemIndex) => itemIndex !== index));
   }
 
+  async function persistCommandEvents(commandText, responseText) {
+    const sessionId = activeSessionId;
+    if (!sessionId) {
+      return;
+    }
+
+    const now = new Date().toISOString();
+    const events = [
+      {
+        type: "message",
+        createdAt: now,
+        message: {
+          role: "user",
+          createdAt: now,
+          segments: [{ kind: "text", text: commandText }]
+        }
+      },
+      {
+        type: "message",
+        createdAt: now,
+        message: {
+          role: "assistant",
+          createdAt: now,
+          segments: [{ kind: "text", text: responseText }]
+        }
+      }
+    ];
+
+    const response = await postAgentSessionEvents(agentId, sessionId, { events });
+    if (response) {
+      await syncSessionDetail(sessionId);
+    }
+  }
+
+  async function handleSlashCommand(text) {
+    const lower = text.toLowerCase();
+
+    if (lower === "/help") {
+      const lines = SLASH_COMMANDS.map((cmd) => `/${cmd.name} — ${cmd.description}`).join("\n");
+      await persistCommandEvents(text, `Available commands:\n${lines}\n\nAny other message is forwarded to the agent.`);
+      return true;
+    }
+
+    if (lower === "/status") {
+      const modelLabel = selectedModel || "default";
+      const sessionLabel = activeSessionId || "none";
+      const stateLabel = isSending ? "Running" : "Idle";
+      await persistCommandEvents(text, `Agent: ${agentId}\nSession: ${sessionLabel}\nModel: ${modelLabel}\nState: ${stateLabel}`);
+      return true;
+    }
+
+    if (lower === "/new" || lower === "/clear") {
+      setInputText("");
+      createSession();
+      setStatusText("New session created.");
+      return true;
+    }
+
+    if (lower === "/abort" || lower === "/stop") {
+      if (isSending) {
+        handleStop();
+      } else {
+        setStatusText("Nothing to abort.");
+      }
+      setInputText("");
+      return true;
+    }
+
+    if (lower === "/model") {
+      const modelLabel = selectedModel || "not set";
+      const modelsList = availableModels.length > 0
+        ? availableModels.map((m) => `  ${m.id === selectedModel ? "▸ " : "  "}${m.id}`).join("\n")
+        : "  No models available.";
+      await persistCommandEvents(text, `Current model: ${modelLabel}\n\nAvailable models:\n${modelsList}`);
+      return true;
+    }
+
+    if (lower === "/context") {
+      const eventCount = Array.isArray(activeSession?.events) ? activeSession.events.length : 0;
+      await persistCommandEvents(text, `Session: ${activeSessionId || "none"}\nEvents in session: ${eventCount}`);
+      return true;
+    }
+
+    if (lower === "/tasks") {
+      if (knownTaskRecords.length === 0) {
+        await persistCommandEvents(text, "No tasks found.");
+      } else {
+        const lines = knownTaskRecords.slice(0, 15).map(
+          (t) => `#${t.reference} — ${t.title} [${t.status}]`
+        ).join("\n");
+        await persistCommandEvents(text, `Tasks (${knownTaskRecords.length}):\n${lines}`);
+      }
+      return true;
+    }
+
+    if (lower.startsWith("/") && !lower.slice(1).includes(" ")) {
+      const cmdName = lower.slice(1);
+      if (!SLASH_COMMAND_NAMES.has(cmdName)) {
+        await persistCommandEvents(text, "Unknown command. Send /help for available commands.");
+        return true;
+      }
+    }
+
+    return false;
+  }
+
   async function handleSend(event) {
     event?.preventDefault?.();
     if (isSending) {
@@ -1963,6 +2351,14 @@ export function AgentChatTab({ agentId }) {
     }
 
     const trimmed = String(inputText || "").trim();
+
+    if (trimmed.startsWith("/") && pendingFiles.length === 0 && !replyTarget) {
+      if (await handleSlashCommand(trimmed)) {
+        setInputText("");
+        return;
+      }
+    }
+
     const replyContext = replyTarget ? `Reply to assistant: "${replyTarget.text}"` : "";
     const contentForSend = trimmed ? (replyContext ? `${replyContext}\n\n${trimmed}` : trimmed) : replyContext;
     if (!contentForSend && pendingFiles.length === 0) {

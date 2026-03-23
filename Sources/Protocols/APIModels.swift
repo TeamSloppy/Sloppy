@@ -1705,6 +1705,14 @@ public struct AgentSessionControlRequest: Codable, Sendable {
     }
 }
 
+public struct AgentSessionAppendEventsRequest: Codable, Sendable {
+    public var events: [AgentSessionEvent]
+
+    public init(events: [AgentSessionEvent]) {
+        self.events = events
+    }
+}
+
 public struct AgentSessionMessageResponse: Codable, Sendable {
     public var summary: AgentSessionSummary
     public var appendedEvents: [AgentSessionEvent]

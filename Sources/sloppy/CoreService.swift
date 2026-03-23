@@ -2701,6 +2701,33 @@ public actor CoreService {
         }
     }
 
+    public func appendAgentSessionEvents(
+        agentID: String,
+        sessionID: String,
+        request: AgentSessionAppendEventsRequest
+    ) async throws -> AgentSessionMessageResponse {
+        await waitForStartup()
+        guard let normalizedAgentID = normalizedAgentID(agentID) else {
+            throw AgentSessionError.invalidAgentID
+        }
+
+        guard let normalizedSessionID = normalizedSessionID(sessionID) else {
+            throw AgentSessionError.invalidSessionID
+        }
+
+        _ = try getAgent(id: normalizedAgentID)
+
+        do {
+            return try await sessionOrchestrator.appendSessionEvents(
+                agentID: normalizedAgentID,
+                sessionID: normalizedSessionID,
+                events: request.events
+            )
+        } catch {
+            throw mapSessionOrchestratorError(error)
+        }
+    }
+
     public func probeACPTarget(request: ACPTargetProbeRequest) async throws -> ACPTargetProbeResponse {
         try await acpSessionManager.probeTarget(request.target)
     }

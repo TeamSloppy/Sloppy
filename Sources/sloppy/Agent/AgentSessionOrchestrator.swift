@@ -528,6 +528,42 @@ actor AgentSessionOrchestrator {
         return AgentSessionMessageResponse(summary: summary, appendedEvents: events, routeDecision: nil)
     }
 
+    func appendSessionEvents(
+        agentID: String,
+        sessionID: String,
+        events: [AgentSessionEvent]
+    ) async throws -> AgentSessionMessageResponse {
+        do {
+            try await ensureSessionContextLoaded(agentID: agentID, sessionID: sessionID)
+        } catch {
+            throw OrchestratorError.storageFailure
+        }
+
+        guard !events.isEmpty else {
+            throw OrchestratorError.invalidPayload
+        }
+
+        let stamped = events.map { event -> AgentSessionEvent in
+            var copy = event
+            copy.agentId = agentID
+            copy.sessionId = sessionID
+            return copy
+        }
+
+        let summary: AgentSessionSummary
+        do {
+            summary = try appendEventsAndNotify(
+                agentID: agentID,
+                sessionID: sessionID,
+                events: stamped
+            )
+        } catch {
+            throw mapSessionStoreError(error)
+        }
+
+        return AgentSessionMessageResponse(summary: summary, appendedEvents: stamped, routeDecision: nil)
+    }
+
     private struct SessionRuntimeOutcome {
         var assistantText: String
         var routeDecision: ChannelRouteDecision?

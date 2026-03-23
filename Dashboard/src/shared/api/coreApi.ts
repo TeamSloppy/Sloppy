@@ -98,6 +98,12 @@ export interface CoreApi {
     payload: AnyRecord,
     options?: RequestOptions
   ) => Promise<AnyRecord | null>;
+  postAgentSessionEvents: (
+    agentId: string,
+    sessionId: string,
+    payload: AnyRecord,
+    options?: RequestOptions
+  ) => Promise<AnyRecord | null>;
   subscribeAgentSessionStream: (
     agentId: string,
     sessionId: string,
@@ -798,6 +804,19 @@ export function createCoreApi(): CoreApi {
     postAgentSessionControl: async (agentId, sessionId, payload, options = {}) => {
       const response = await requestJson<AnyRecord, AnyRecord>({
         path: `/v1/agents/${encodeURIComponent(agentId)}/sessions/${encodeURIComponent(sessionId)}/control`,
+        method: "POST",
+        body: payload,
+        signal: options.signal
+      });
+      if (!response.ok) {
+        return null;
+      }
+      return response.data;
+    },
+
+    postAgentSessionEvents: async (agentId, sessionId, payload, options = {}) => {
+      const response = await requestJson<AnyRecord, AnyRecord>({
+        path: `/v1/agents/${encodeURIComponent(agentId)}/sessions/${encodeURIComponent(sessionId)}/events`,
         method: "POST",
         body: payload,
         signal: options.signal

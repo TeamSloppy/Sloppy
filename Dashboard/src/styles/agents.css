@@ -1032,6 +1032,21 @@ body.agent-chat-no-page-scroll .page {
   transform: translateY(-1px);
 }
 
+.agent-chat-inline-slash-command {
+  display: inline-flex;
+  align-items: center;
+  cursor: default;
+  border-radius: 0;
+  border: 1px solid var(--accent);
+  color: var(--accent);
+  font-size: 0.79rem;
+  line-height: 1.1;
+  padding: 3px 8px;
+  margin: 0 2px;
+  transform: translateY(-1px);
+  font-weight: 500;
+}
+
 .agent-chat-compose-right {
   display: inline-flex;
   align-items: center;
