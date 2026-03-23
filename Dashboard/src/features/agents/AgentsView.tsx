@@ -3,6 +3,10 @@ import {
   createAgent as createAgentRequest,
   fetchAgent,
   fetchAgents,
+  fetchRuntimeConfig,
+  generateText,
+  updateAgentConfig,
+  fetchAgentConfig,
 } from "../../api";
 import { AgentOverviewTab } from "./components/AgentOverviewTab";
 import { AgentTasksTab } from "./components/AgentTasksTab";
@@ -15,6 +19,7 @@ import { AgentCronTab } from "./components/AgentCronTab";
 import { AgentMemoriesTab } from "./components/AgentMemoriesTab";
 import { Breadcrumbs } from "../../components/Breadcrumbs/Breadcrumbs";
 import { AgentCreateForm, resolveSystemRole, emptyAgentFormValues } from "./components/AgentCreateForm";
+import { AgentGeneratePreview, type GeneratedAgentFiles } from "./components/AgentGeneratePreview";
 
 const AGENT_TABS = [
   { id: "overview", title: "Overview" },
@@ -31,6 +36,13 @@ const AGENT_TABS = [
 const AGENT_TAB_SET = new Set(AGENT_TABS.map((tab) => tab.id));
 
 const emptyAgentForm = emptyAgentFormValues;
+
+const EMPTY_GENERATED_FILES: GeneratedAgentFiles = {
+  agentsMarkdown: "",
+  identityMarkdown: "",
+  soulMarkdown: "",
+  userMarkdown: ""
+};
 
 function agentInitials(name) {
   const parts = String(name || "?")
@@ -64,7 +76,63 @@ function tabTitle(tabId) {
   return AGENT_TABS.find((tab) => tab.id === tabId)?.title || "Overview";
 }
 
-function AgentCreateModal({ isOpen, form, createError, onFormChange, onClose, onSubmit }) {
+function buildGeneratePrompt(form: { id: string; displayName: string; role: string; generateDescription: string }) {
+  return `Generate 4 markdown configuration files for a Sloppy AI agent.
+
+Agent ID: ${form.id || "agent"}
+Display Name: ${form.displayName || form.id || "Agent"}
+Role: ${form.role || "General-purpose assistant"}
+Agent responsibility: ${form.generateDescription}
+
+Output exactly 4 files using the markers below. Include only the file content between markers — no extra text outside the markers.
+
+--- AGENTS.md ---
+(Write main behavior instructions, responsibilities, operating rules, and capabilities for this agent)
+--- Identity.md ---
+(Write personality, communication style, tone, and character traits)
+--- Soul.md ---
+(Write core values, principles, and decision-making framework)
+--- User.md ---
+(Write how to interact with users, preferred response format, and user interaction guidelines)`;
+}
+
+function parseGeneratedFiles(text: string): GeneratedAgentFiles {
+  const markers = {
+    agentsMarkdown: "--- AGENTS.md ---",
+    identityMarkdown: "--- Identity.md ---",
+    soulMarkdown: "--- Soul.md ---",
+    userMarkdown: "--- User.md ---"
+  };
+
+  const markerKeys = Object.keys(markers) as (keyof GeneratedAgentFiles)[];
+  const result: GeneratedAgentFiles = { agentsMarkdown: "", identityMarkdown: "", soulMarkdown: "", userMarkdown: "" };
+
+  for (let i = 0; i < markerKeys.length; i++) {
+    const key = markerKeys[i];
+    const marker = markers[key];
+    const startIdx = text.indexOf(marker);
+    if (startIdx === -1) continue;
+
+    const contentStart = startIdx + marker.length;
+    const nextMarker = i + 1 < markerKeys.length ? markers[markerKeys[i + 1]] : null;
+    const endIdx = nextMarker ? text.indexOf(nextMarker, contentStart) : text.length;
+    result[key] = (endIdx === -1 ? text.slice(contentStart) : text.slice(contentStart, endIdx)).trim();
+  }
+
+  return result;
+}
+
+function normalizeAvailableModels(config: Record<string, unknown> | null): { id: string; title: string }[] {
+  if (!config || !Array.isArray(config.models)) return [];
+  return (config.models as Record<string, unknown>[]).flatMap((m) => {
+    const modelId = String(m.model || "");
+    const title = String(m.title || modelId);
+    if (!modelId) return [];
+    return [{ id: modelId, title }];
+  });
+}
+
+function AgentCreateModal({ isOpen, form, createError, onFormChange, onClose, onSubmit, availableModels, providerConfigured, isGenerating }) {
   if (!isOpen) {
     return null;
   }
@@ -84,6 +152,9 @@ function AgentCreateModal({ isOpen, form, createError, onFormChange, onClose, on
           onFormChange={onFormChange}
           onSubmit={onSubmit}
           onCancel={onClose}
+          availableModels={availableModels}
+          providerConfigured={providerConfigured}
+          isGenerating={isGenerating}
         />
       </section>
     </div>
@@ -149,6 +220,11 @@ export function AgentsView({ routeAgentId = null, routeTab = "overview", onRoute
   const [form, setForm] = useState(emptyAgentForm);
   const [createError, setCreateError] = useState("");
   const [statusText, setStatusText] = useState("Loading agents...");
+  const [availableModels, setAvailableModels] = useState<{ id: string; title: string }[]>([]);
+  const [providerConfigured, setProviderConfigured] = useState(false);
+  const [generationPhase, setGenerationPhase] = useState<"form" | "generating" | "preview">("form");
+  const [generatedFiles, setGeneratedFiles] = useState<GeneratedAgentFiles>(EMPTY_GENERATED_FILES);
+  const [isSubmittingAgent, setIsSubmittingAgent] = useState(false);
 
   const activeAgent = useMemo(
     () => agents.find((agent) => agent.id === routeAgentId) || null,
@@ -170,6 +246,7 @@ export function AgentsView({ routeAgentId = null, routeTab = "overview", onRoute
       setStatusText("Failed to load agents from Sloppy");
       setIsLoadingAgents(false);
     });
+    loadRuntimeConfig();
   }, []);
 
   useEffect(() => {
@@ -187,6 +264,14 @@ export function AgentsView({ routeAgentId = null, routeTab = "overview", onRoute
       setAgents((previous) => mergeAgent(previous, agent));
     });
   }, [routeAgentId, agents]);
+
+  async function loadRuntimeConfig() {
+    const config = await fetchRuntimeConfig();
+    if (!config) return;
+    const models = normalizeAvailableModels(config);
+    setAvailableModels(models);
+    setProviderConfigured(models.length > 0);
+  }
 
   async function refreshAgents() {
     setIsLoadingAgents(true);
@@ -229,26 +314,66 @@ export function AgentsView({ routeAgentId = null, routeTab = "overview", onRoute
   function openCreateModal() {
     setForm(emptyAgentForm());
     setCreateError("");
+    setGenerationPhase("form");
+    setGeneratedFiles(EMPTY_GENERATED_FILES);
     setIsCreateModalOpen(true);
   }
 
   function closeCreateModal() {
     setCreateError("");
     setIsCreateModalOpen(false);
+    setGenerationPhase("form");
+    setGeneratedFiles(EMPTY_GENERATED_FILES);
   }
 
-  async function createAgent(event) {
+  async function handleCreateSubmit(event) {
     event.preventDefault();
 
     const rawId = String(form.id || "").trim();
     const normalizedId = rawId.replace(/\s+/g, "-");
-    const displayName = String(form.displayName || "").trim();
-    const role = String(form.role || "").trim();
 
     if (!normalizedId) {
       setCreateError("Agent ID is required.");
       return;
     }
+
+    if (form.generateEnabled && providerConfigured) {
+      if (!form.generateDescription.trim()) {
+        setCreateError("Agent responsibility description is required for generation.");
+        return;
+      }
+      await runGeneration(normalizedId);
+    } else {
+      await createAgentDirectly(normalizedId);
+    }
+  }
+
+  async function runGeneration(normalizedId: string) {
+    setGenerationPhase("generating");
+    setCreateError("");
+
+    const prompt = buildGeneratePrompt({
+      id: normalizedId,
+      displayName: String(form.displayName || "").trim(),
+      role: String(form.role || "").trim(),
+      generateDescription: form.generateDescription
+    });
+
+    const result = await generateText({ model: form.generateModel, prompt });
+    if (!result || typeof result.text !== "string") {
+      setGenerationPhase("form");
+      setCreateError("Failed to generate agent files. Please try again.");
+      return;
+    }
+
+    const parsed = parseGeneratedFiles(result.text);
+    setGeneratedFiles(parsed);
+    setGenerationPhase("preview");
+  }
+
+  async function createAgentDirectly(normalizedId: string) {
+    const displayName = String(form.displayName || "").trim();
+    const role = String(form.role || "").trim();
 
     const response = await createAgentRequest({
       id: normalizedId,
@@ -266,6 +391,53 @@ export function AgentsView({ routeAgentId = null, routeTab = "overview", onRoute
     setForm(emptyAgentForm());
     setStatusText(`Agent ${response.id} created in Sloppy`);
     setIsCreateModalOpen(false);
+  }
+
+  async function handlePreviewDone() {
+    const normalizedId = String(form.id || "").trim().replace(/\s+/g, "-");
+    const displayName = String(form.displayName || "").trim();
+    const role = String(form.role || "").trim();
+
+    setIsSubmittingAgent(true);
+    setCreateError("");
+
+    const response = await createAgentRequest({
+      id: normalizedId,
+      displayName: displayName || normalizedId,
+      role: role || "General-purpose assistant",
+      systemRole: resolveSystemRole(role) || undefined
+    });
+
+    if (!response) {
+      setIsSubmittingAgent(false);
+      setCreateError("Failed to create agent in Sloppy. Check ID format and duplicates.");
+      setGenerationPhase("form");
+      return;
+    }
+
+    const agentConfig = await fetchAgentConfig(normalizedId);
+    if (agentConfig) {
+      await updateAgentConfig(normalizedId, {
+        selectedModel: agentConfig.selectedModel || form.generateModel || "",
+        documents: {
+          agentsMarkdown: generatedFiles.agentsMarkdown,
+          identityMarkdown: generatedFiles.identityMarkdown,
+          soulMarkdown: generatedFiles.soulMarkdown,
+          userMarkdown: generatedFiles.userMarkdown,
+          heartbeatMarkdown: String((agentConfig.documents as Record<string, unknown>)?.heartbeatMarkdown || "")
+        },
+        heartbeat: agentConfig.heartbeat,
+        channelSessions: agentConfig.channelSessions
+      });
+    }
+
+    setAgents((previous) => mergeAgent(previous, response));
+    setForm(emptyAgentForm());
+    setStatusText(`Agent ${response.id} created in Sloppy`);
+    setIsSubmittingAgent(false);
+    setIsCreateModalOpen(false);
+    setGenerationPhase("form");
+    setGeneratedFiles(EMPTY_GENERATED_FILES);
   }
 
   function renderAgentTabContent(agent, tab) {
@@ -362,13 +534,26 @@ export function AgentsView({ routeAgentId = null, routeTab = "overview", onRoute
         />
 
         <AgentCreateModal
-          isOpen={isCreateModalOpen}
+          isOpen={isCreateModalOpen && generationPhase !== "preview"}
           form={form}
           createError={createError}
           onFormChange={updateForm}
           onClose={closeCreateModal}
-          onSubmit={createAgent}
+          onSubmit={handleCreateSubmit}
+          availableModels={availableModels}
+          providerConfigured={providerConfigured}
+          isGenerating={generationPhase === "generating"}
         />
+
+        {isCreateModalOpen && generationPhase === "preview" && (
+          <AgentGeneratePreview
+            files={generatedFiles}
+            onFilesChange={setGeneratedFiles}
+            onBack={() => setGenerationPhase("form")}
+            onDone={handlePreviewDone}
+            isSubmitting={isSubmittingAgent}
+          />
+        )}
       </main>
     );
   }
@@ -407,6 +592,28 @@ export function AgentsView({ routeAgentId = null, routeTab = "overview", onRoute
       <section className="agent-content-shell">
         {renderAgentTabContent(activeAgent, activeTab)}
       </section>
+
+      <AgentCreateModal
+        isOpen={isCreateModalOpen && generationPhase !== "preview"}
+        form={form}
+        createError={createError}
+        onFormChange={updateForm}
+        onClose={closeCreateModal}
+        onSubmit={handleCreateSubmit}
+        availableModels={availableModels}
+        providerConfigured={providerConfigured}
+        isGenerating={generationPhase === "generating"}
+      />
+
+      {isCreateModalOpen && generationPhase === "preview" && (
+        <AgentGeneratePreview
+          files={generatedFiles}
+          onFilesChange={setGeneratedFiles}
+          onBack={() => setGenerationPhase("form")}
+          onDone={handlePreviewDone}
+          isSubmitting={isSubmittingAgent}
+        />
+      )}
     </main>
   );
 }

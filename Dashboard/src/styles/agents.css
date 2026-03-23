@@ -2315,6 +2315,9 @@ body.agent-chat-no-page-scroll .page {
   display: flex;
   align-items: center;
   justify-content: center;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  background: rgba(0, 0, 0, 0.35);
 }
 
 .agent-modal-card {
@@ -2365,4 +2368,91 @@ body.agent-chat-no-page-scroll .page {
 .agent-create-confirm {
   border-color: var(--accent-color);
   color: var(--text);
+}
+
+/* ── Agent Generate Section ──────────────────────────────── */
+
+.agent-generate-section {
+  border: 1px solid var(--line);
+  border-radius: 0;
+  padding: 10px 12px;
+  display: grid;
+  gap: 10px;
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.agent-generate-toggle {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  cursor: pointer;
+}
+
+.agent-generate-toggle-copy {
+  display: grid;
+  gap: 3px;
+}
+
+.agent-generate-toggle-label {
+  font-size: 0.88rem;
+  color: var(--text);
+  font-weight: 500;
+}
+
+.agent-generate-toggle-hint {
+  font-size: 0.78rem;
+  color: var(--muted);
+  line-height: 1.4;
+}
+
+.agent-generate-no-provider {
+  margin: 0;
+  padding-top: 2px;
+}
+
+.agent-generate-fields {
+  display: grid;
+  gap: 10px;
+}
+
+/* ── Agent Generate Preview Modal ───────────────────────── */
+
+.agent-generate-preview-card {
+  width: min(720px, 100%);
+  max-height: 90vh;
+  overflow-y: auto;
+}
+
+.agent-generate-preview-card .agent-doc-files {
+  display: grid;
+  grid-template-columns: 160px 1fr;
+  gap: 0;
+  border: 1px solid var(--line);
+  min-height: 360px;
+}
+
+.agent-generate-preview-card .agent-doc-files-nav {
+  border-right: 1px solid var(--line);
+  padding: 6px;
+  display: grid;
+  align-content: start;
+  gap: 2px;
+}
+
+.agent-generate-preview-card .agent-doc-files-editor {
+  padding: 10px;
+}
+
+.agent-generate-preview-card .agent-doc-files-editor label {
+  display: grid;
+  gap: 6px;
+  height: 100%;
+}
+
+.agent-generate-preview-card .agent-doc-files-editor textarea {
+  resize: vertical;
+  min-height: 300px;
+  font-family: "Fira Code", monospace;
+  font-size: 0.82rem;
 }

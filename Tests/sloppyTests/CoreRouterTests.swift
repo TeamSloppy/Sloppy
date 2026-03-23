@@ -3048,3 +3048,33 @@ private func waitForCondition(
     }
     return await condition()
 }
+
+@Test
+func generateTextEndpointReturnsBadRequestWithEmptyBody() async throws {
+    let service = CoreService(config: .default)
+    let router = CoreRouter(service: service)
+
+    let response = await router.handle(method: "POST", path: "/v1/generate", body: nil)
+    #expect(response.status == 400)
+}
+
+@Test
+func generateTextEndpointReturnsBadRequestWithInvalidBody() async throws {
+    let service = CoreService(config: .default)
+    let router = CoreRouter(service: service)
+
+    let body = Data("{\"invalid\":true}".utf8)
+    let response = await router.handle(method: "POST", path: "/v1/generate", body: body)
+    #expect(response.status == 400)
+}
+
+@Test
+func generateTextEndpointFailsGracefullyWithNoProvider() async throws {
+    let config = CoreConfig.test
+    let service = CoreService(config: config)
+    let router = CoreRouter(service: service)
+
+    let requestBody = try JSONEncoder().encode(GenerateTextRequest(model: "", prompt: "Hello"))
+    let response = await router.handle(method: "POST", path: "/v1/generate", body: requestBody)
+    #expect(response.status == 500)
+}
