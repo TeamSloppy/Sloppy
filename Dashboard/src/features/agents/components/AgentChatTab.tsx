@@ -2245,30 +2245,50 @@ export function AgentChatTab({ agentId }) {
     }
 
     const now = new Date().toISOString();
-    const events = [
-      {
-        type: "message",
+    const userEvent = {
+      id: `cmd-user-${Date.now()}`,
+      agentId,
+      sessionId,
+      type: "message",
+      createdAt: now,
+      message: {
+        role: "user",
         createdAt: now,
-        message: {
-          role: "user",
-          createdAt: now,
-          segments: [{ kind: "text", text: commandText }]
-        }
-      },
-      {
-        type: "message",
-        createdAt: now,
-        message: {
-          role: "assistant",
-          createdAt: now,
-          segments: [{ kind: "text", text: responseText }]
-        }
+        segments: [{ kind: "text", text: commandText }]
       }
-    ];
+    };
+    const assistantEvent = {
+      id: `cmd-assistant-${Date.now()}`,
+      agentId,
+      sessionId,
+      type: "message",
+      createdAt: now,
+      message: {
+        role: "assistant",
+        createdAt: now,
+        segments: [{ kind: "text", text: responseText }]
+      }
+    };
 
-    const response = await postAgentSessionEvents(agentId, sessionId, { events });
-    if (response) {
-      await syncSessionDetail(sessionId);
+    setActiveSession((previous) => {
+      if (!previous) {
+        return previous;
+      }
+      return {
+        ...previous,
+        events: [...(Array.isArray(previous.events) ? previous.events : []), userEvent, assistantEvent]
+      };
+    });
+
+    try {
+      const response = await postAgentSessionEvents(agentId, sessionId, {
+        events: [userEvent, assistantEvent]
+      });
+      if (response) {
+        await syncSessionDetail(sessionId);
+      }
+    } catch {
+      // Events already shown locally
     }
   }
 
