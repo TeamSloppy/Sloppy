@@ -113,6 +113,13 @@ function statusValue(value, fallback = "None") {
   return normalized || fallback;
 }
 
+const AGENT_DOC_FILES = [
+  { id: "userMarkdown", name: "User.md", icon: "person" },
+  { id: "agentsMarkdown", name: "Agents.md", icon: "smart_toy" },
+  { id: "soulMarkdown", name: "Soul.md", icon: "psychology" },
+  { id: "identityMarkdown", name: "Identity.md", icon: "badge" }
+];
+
 export function AgentConfigTab({ agentId }) {
   const [draft, setDraft] = useState(() => emptyAgentConfigDraft(agentId));
   const [savedDraft, setSavedDraft] = useState(() => emptyAgentConfigDraft(agentId));
@@ -122,6 +129,7 @@ export function AgentConfigTab({ agentId }) {
   const [channelNodes, setChannelNodes] = useState([]);
   const [selectedSection, setSelectedSection] = useState("runtime");
   const [acpTargets, setAcpTargets] = useState([]);
+  const [selectedDocFile, setSelectedDocFile] = useState("userMarkdown");
 
   useEffect(() => {
     let isCancelled = false;
@@ -425,42 +433,39 @@ export function AgentConfigTab({ agentId }) {
     }
 
     if (selectedSection === "files") {
+      const activeFile = AGENT_DOC_FILES.find((f) => f.id === selectedDocFile) || AGENT_DOC_FILES[0];
       return (
         <section className="entry-editor-card">
           <h3>Agent Files</h3>
-          <div className="agent-config-docs">
-            <label>
-              User.md
-              <textarea
-                rows={8}
-                value={draft.documents.userMarkdown}
-                onChange={(event) => updateDocumentField("userMarkdown", event.target.value)}
-              />
-            </label>
-            <label>
-              Agents.md
-              <textarea
-                rows={8}
-                value={draft.documents.agentsMarkdown}
-                onChange={(event) => updateDocumentField("agentsMarkdown", event.target.value)}
-              />
-            </label>
-            <label>
-              Soul.md
-              <textarea
-                rows={8}
-                value={draft.documents.soulMarkdown}
-                onChange={(event) => updateDocumentField("soulMarkdown", event.target.value)}
-              />
-            </label>
-            <label>
-              Identity.md
-              <textarea
-                rows={8}
-                value={draft.documents.identityMarkdown}
-                onChange={(event) => updateDocumentField("identityMarkdown", event.target.value)}
-              />
-            </label>
+          <div className="agent-doc-files">
+            <nav className="agent-doc-files-nav">
+              {AGENT_DOC_FILES.map((file) => {
+                const isActive = file.id === activeFile.id;
+                const hasContent = Boolean(draft.documents[file.id]?.trim());
+                return (
+                  <button
+                    key={file.id}
+                    type="button"
+                    className={`agent-doc-files-item ${isActive ? "active" : ""}`}
+                    onClick={() => setSelectedDocFile(file.id)}
+                  >
+                    <span className="material-symbols-rounded agent-doc-files-icon">{file.icon}</span>
+                    <span className="agent-doc-files-name">{file.name}</span>
+                    {!hasContent && <span className="agent-doc-files-empty">empty</span>}
+                  </button>
+                );
+              })}
+            </nav>
+            <div className="agent-doc-files-editor">
+              <label>
+                {activeFile.name}
+                <textarea
+                  rows={18}
+                  value={draft.documents[activeFile.id]}
+                  onChange={(event) => updateDocumentField(activeFile.id, event.target.value)}
+                />
+              </label>
+            </div>
           </div>
         </section>
       );
