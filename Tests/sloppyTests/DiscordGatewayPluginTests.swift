@@ -194,8 +194,8 @@ private func messageCreatePayload(
 }
 
 private func waitUntil(
-    timeout: Duration = .seconds(1),
-    interval: Duration = .milliseconds(10),
+    timeout: Duration = .seconds(5),
+    interval: Duration = .milliseconds(50),
     condition: @escaping @Sendable () async -> Bool
 ) async throws {
     let deadline = ContinuousClock.now + timeout

@@ -51,9 +51,7 @@
 }
 
 .entry-editor-card {
-  border: 1px solid var(--line);
   border-radius: 0;
-  background: var(--surface-3);
   padding: 10px;
 }
 
