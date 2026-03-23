@@ -47,7 +47,8 @@ export default defineConfig({
           { text: "Build With Docker", link: "/guides/build-with-docker" },
           { text: "Development Workflow", link: "/guides/development-workflow" },
           { text: "MCP Integration", link: "/guides/mcp" },
-          { text: "ACP Integration", link: "/guides/acp" }
+          { text: "ACP Integration", link: "/guides/acp" },
+          { text: "Plugins", link: "/guides/plugins" }
         ]
       },
       {
