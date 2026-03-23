@@ -10,7 +10,7 @@ import CSQLite3
 
 @Test
 func postChannelMessageEndpoint() async throws {
-    let service = CoreService(config: .default)
+    let service = CoreService(config: .test)
     let router = CoreRouter(service: service)
 
     let body = try JSONEncoder().encode(ChannelMessageRequest(userId: "u1", content: "respond please"))
@@ -21,7 +21,7 @@ func postChannelMessageEndpoint() async throws {
 
 @Test
 func bulletinsEndpoint() async {
-    let service = CoreService(config: .default)
+    let service = CoreService(config: .test)
     _ = await service.triggerVisorBulletin()
     let router = CoreRouter(service: service)
 
@@ -31,7 +31,7 @@ func bulletinsEndpoint() async {
 
 @Test
 func workersEndpoint() async throws {
-    let service = CoreService(config: .default)
+    let service = CoreService(config: .test)
     let router = CoreRouter(service: service)
 
     let createBody = try JSONEncoder().encode(
@@ -475,7 +475,7 @@ func projectTaskReadyStatusTriggersVisorBulletin() async throws {
 
 @Test
 func openAIModelsEndpoint() async throws {
-    let service = CoreService(config: .default)
+    let service = CoreService(config: .test)
     let router = CoreRouter(service: service)
 
     let request = OpenAIProviderModelsRequest(authMethod: .apiKey, apiKey: "", apiUrl: "https://api.openai.com/v1")
@@ -490,7 +490,7 @@ func openAIModelsEndpoint() async throws {
 
 @Test
 func openAIProviderStatusEndpoint() async throws {
-    let service = CoreService(config: .default)
+    let service = CoreService(config: .test)
     let router = CoreRouter(service: service)
 
     let response = await router.handle(method: "GET", path: "/v1/providers/openai/status", body: nil)
@@ -631,7 +631,7 @@ func channelEventsEndpointSupportsCursorAndTimeFilters() async throws {
 
 @Test
 func getConfigEndpoint() async throws {
-    let service = CoreService(config: .default)
+    let service = CoreService(config: .test)
     let router = CoreRouter(service: service)
 
     let response = await router.handle(method: "GET", path: "/v1/config", body: nil)
@@ -770,7 +770,7 @@ func putConfigEndpoint() async throws {
         .appendingPathComponent("sloppy-config-\(UUID().uuidString).json")
         .path
 
-    let service = CoreService(config: .default, configPath: tempPath)
+    let service = CoreService(config: .test, configPath: tempPath)
     let router = CoreRouter(service: service)
 
     var config = CoreConfig.default
@@ -846,7 +846,7 @@ func putConfigHotReloadsRuntimeModelProvider() async throws {
 
 @Test
 func artifactContentNotFound() async {
-    let service = CoreService(config: .default)
+    let service = CoreService(config: .test)
     let router = CoreRouter(service: service)
 
     let response = await router.handle(method: "GET", path: "/v1/artifacts/missing/content", body: nil)
@@ -3051,7 +3051,7 @@ private func waitForCondition(
 
 @Test
 func generateTextEndpointReturnsBadRequestWithEmptyBody() async throws {
-    let service = CoreService(config: .default)
+    let service = CoreService(config: .test)
     let router = CoreRouter(service: service)
 
     let response = await router.handle(method: "POST", path: "/v1/generate", body: nil)
@@ -3060,7 +3060,7 @@ func generateTextEndpointReturnsBadRequestWithEmptyBody() async throws {
 
 @Test
 func generateTextEndpointReturnsBadRequestWithInvalidBody() async throws {
-    let service = CoreService(config: .default)
+    let service = CoreService(config: .test)
     let router = CoreRouter(service: service)
 
     let body = Data("{\"invalid\":true}".utf8)
