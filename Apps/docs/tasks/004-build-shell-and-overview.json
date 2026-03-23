@@ -1,0 +1,36 @@
+{
+  "id": "sloppy-apple-004",
+  "title": "Build the root app shell and Overview surface",
+  "status": "todo",
+  "priority": "high",
+  "depends_on": [
+    "sloppy-apple-003"
+  ],
+  "adr_refs": [
+    "0001",
+    "0003",
+    "0004"
+  ],
+  "summary": "Create the first working vertical slice with route state, app shell, and a read-only Overview screen mirroring the dashboard.",
+  "scope": [
+    "Add root route model for Overview, Projects, Agents, Tasks, Review",
+    "Build macOS/iPad sidebar and iPhone tab-bar shell",
+    "Implement Overview data loading from existing Sloppy APIs",
+    "Add navigation from overview cards into detail routes"
+  ],
+  "deliverables": [
+    "route enum and navigation state",
+    "root shell view",
+    "Overview screen with live-fetching read model"
+  ],
+  "acceptance_criteria": [
+    "App can launch into Overview on macOS and iOS",
+    "Overview loads runtime/project/agent summary data",
+    "Navigation actions from Overview change routes correctly"
+  ],
+  "suggested_files": [
+    "Apps/Client/Sources/SloppyAppleApp",
+    "Apps/Client/Sources/SloppyClientCore",
+    "Apps/Client/Sources/SloppyFeatureOverview"
+  ]
+}

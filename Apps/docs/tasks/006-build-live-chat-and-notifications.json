@@ -1,0 +1,37 @@
+{
+  "id": "sloppy-apple-006",
+  "title": "Build live chat and notification transport on top of REST plus WebSocket",
+  "status": "todo",
+  "priority": "high",
+  "depends_on": [
+    "sloppy-apple-005"
+  ],
+  "adr_refs": [
+    "0003",
+    "0004"
+  ],
+  "summary": "Implement agent chat, live session streaming, and in-app notifications using the existing Sloppy REST and WebSocket routes.",
+  "scope": [
+    "API client actor for REST",
+    "notification socket manager",
+    "agent session socket manager",
+    "chat transcript rendering and composer",
+    "reconnect and resync behavior"
+  ],
+  "deliverables": [
+    "network actors for REST and WS",
+    "chat feature with live streaming",
+    "in-app notification presentation"
+  ],
+  "acceptance_criteria": [
+    "User can open an agent chat and send a message",
+    "Assistant responses stream over WS and recover after disconnect",
+    "Notifications arrive over the global notifications socket",
+    "Reconnect path resyncs stale state through REST"
+  ],
+  "suggested_files": [
+    "Apps/Client/Sources/SloppyClientNetwork",
+    "Apps/Client/Sources/SloppyFeatureAgents",
+    "Apps/Client/Sources/SloppyClientUI"
+  ]
+}

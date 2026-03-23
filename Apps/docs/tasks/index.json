@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "project": "sloppy-apple-client",
+  "target_root": "Apps/Client",
+  "docs_root": "Apps/docs",
+  "adrs": [
+    "Apps/docs/adr/0001-sloppy-apple-client-foundation.md",
+    "Apps/docs/adr/0002-adaengine-fork-and-submodule.md",
+    "Apps/docs/adr/0003-networking-remote-access-and-auth.md",
+    "Apps/docs/adr/0004-adaui-product-shell-and-feature-mapping.md",
+    "Apps/docs/adr/0005-build-distribution-and-push.md"
+  ],
+  "tasks": [
+    "Apps/docs/tasks/001-bootstrap-client-workspace.json",
+    "Apps/docs/tasks/002-vendor-adaengine-fork.json",
+    "Apps/docs/tasks/003-build-adaui-foundation-primitives.json",
+    "Apps/docs/tasks/004-build-shell-and-overview.json",
+    "Apps/docs/tasks/005-build-projects-and-agents.json",
+    "Apps/docs/tasks/006-build-live-chat-and-notifications.json",
+    "Apps/docs/tasks/007-build-review-and-diff.json",
+    "Apps/docs/tasks/008-build-push-and-internal-release.json"
+  ]
+}

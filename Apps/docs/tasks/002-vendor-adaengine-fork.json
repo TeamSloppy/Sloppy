@@ -1,0 +1,35 @@
+{
+  "id": "sloppy-apple-002",
+  "title": "Vendor the AdaEngine fork as Vendor/AdaEngine and define ownership boundaries",
+  "status": "todo",
+  "priority": "high",
+  "depends_on": [
+    "sloppy-apple-001"
+  ],
+  "adr_refs": [
+    "0002"
+  ],
+  "summary": "Add the AdaEngine fork as a pinned submodule and wire the new app workspace to consume it reproducibly.",
+  "scope": [
+    "Add Vendor/AdaEngine git submodule",
+    "Point Apps/Client dependencies at the vendored engine",
+    "Document what belongs in engine vs app layer",
+    "Ensure local dev and CI can resolve the engine from repo state"
+  ],
+  "deliverables": [
+    "Vendor/AdaEngine submodule",
+    "dependency wiring from Apps/Client to Vendor/AdaEngine",
+    "developer notes for updating the pinned engine revision"
+  ],
+  "acceptance_criteria": [
+    "Fresh clone can initialize submodules and build the app workspace",
+    "No dependency points at a personal local path",
+    "Ownership boundary between app code and engine code is documented"
+  ],
+  "suggested_files": [
+    ".gitmodules",
+    "Vendor/AdaEngine",
+    "Apps/Client/Package.swift",
+    "Apps/Client/README.md"
+  ]
+}

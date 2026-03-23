@@ -1,0 +1,35 @@
+{
+  "id": "sloppy-apple-005",
+  "title": "Build Projects and Agents read-only flows with nested tabs",
+  "status": "todo",
+  "priority": "high",
+  "depends_on": [
+    "sloppy-apple-004"
+  ],
+  "adr_refs": [
+    "0001",
+    "0004"
+  ],
+  "summary": "Implement the dashboard-equivalent Projects and Agents surfaces first in read-only mode, including nested detail tabs.",
+  "scope": [
+    "Project list and project detail shell",
+    "Agent list and agent detail shell",
+    "Nested tabs for project and agent sections",
+    "Shared list/card components for reusable entity presentation"
+  ],
+  "deliverables": [
+    "Projects feature module",
+    "Agents feature module",
+    "nested tab routing for project and agent screens"
+  ],
+  "acceptance_criteria": [
+    "Projects and Agents lists load from Sloppy APIs",
+    "Detail screens open from list selection",
+    "Nested tabs preserve route state and selected entity"
+  ],
+  "suggested_files": [
+    "Apps/Client/Sources/SloppyFeatureProjects",
+    "Apps/Client/Sources/SloppyFeatureAgents",
+    "Apps/Client/Sources/SloppyClientUI"
+  ]
+}
