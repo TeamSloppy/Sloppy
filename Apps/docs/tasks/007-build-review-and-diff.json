@@ -1,0 +1,36 @@
+{
+  "id": "sloppy-apple-007",
+  "title": "Build task review and unified diff flows",
+  "status": "todo",
+  "priority": "medium",
+  "depends_on": [
+    "sloppy-apple-005",
+    "sloppy-apple-006"
+  ],
+  "adr_refs": [
+    "0004"
+  ],
+  "summary": "Implement the review surface with unified diff rendering and review comments, reusing existing backend APIs where available.",
+  "scope": [
+    "Unified diff renderer with hunk sections",
+    "Task review screen entry points from projects/tasks",
+    "Review comment listing and submission",
+    "Readability and performance tuning for medium-sized diffs"
+  ],
+  "deliverables": [
+    "Review feature module",
+    "unified diff component",
+    "review comments integration"
+  ],
+  "acceptance_criteria": [
+    "Task review can load diff data from Sloppy",
+    "Added, removed, and context lines render distinctly",
+    "Existing review comments display correctly",
+    "User can add a new review comment from the client"
+  ],
+  "suggested_files": [
+    "Apps/Client/Sources/SloppyFeatureReview",
+    "Apps/Client/Sources/SloppyFeatureProjects",
+    "Apps/Client/Sources/SloppyClientUI"
+  ]
+}

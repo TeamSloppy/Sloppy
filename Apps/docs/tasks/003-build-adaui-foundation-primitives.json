@@ -1,0 +1,36 @@
+{
+  "id": "sloppy-apple-003",
+  "title": "Build AdaUI foundation primitives required by a dashboard-style app",
+  "status": "todo",
+  "priority": "high",
+  "depends_on": [
+    "sloppy-apple-002"
+  ],
+  "adr_refs": [
+    "0002",
+    "0004"
+  ],
+  "summary": "Close the AdaUI gaps that block the shell and interactive surfaces: focus, text input, tabs, and stable scrolling.",
+  "scope": [
+    "Implement focus routing needed for keyboard-first interactions",
+    "Implement a reusable text input foundation for chat and forms",
+    "Build app-level tab controls on AdaUI",
+    "Fix scroll behavior required for long feeds and transcripts"
+  ],
+  "deliverables": [
+    "AdaUI-compatible AppTabBar or TabContainer",
+    "text input primitive with insert/delete behavior",
+    "focus model usable by chat and settings forms",
+    "tests for input and scroll regressions"
+  ],
+  "acceptance_criteria": [
+    "Tabs can switch content without layout corruption",
+    "Text input supports insert and backspace on macOS and iOS",
+    "Long scrollable lists remain stable while content updates",
+    "New generic primitives are covered by focused tests"
+  ],
+  "suggested_files": [
+    "Vendor/AdaEngine/Sources/AdaUI",
+    "Apps/Client/Sources/SloppyClientUI"
+  ]
+}

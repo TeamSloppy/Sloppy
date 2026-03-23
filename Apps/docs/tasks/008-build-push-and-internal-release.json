@@ -1,0 +1,39 @@
+{
+  "id": "sloppy-apple-008",
+  "title": "Add APNs support and complete the internal release path",
+  "status": "todo",
+  "priority": "medium",
+  "depends_on": [
+    "sloppy-apple-006"
+  ],
+  "adr_refs": [
+    "0003",
+    "0005"
+  ],
+  "summary": "Extend Sloppy and the Apple client for device registration, APNs delivery, and internal testing distribution over the Tailscale-first deployment model.",
+  "scope": [
+    "Device registration and preferences endpoints in Sloppy",
+    "APNs sender integration on the backend",
+    "Apple client token registration flow",
+    "Deep-link handling from push payloads",
+    "Internal distribution and tester setup notes"
+  ],
+  "deliverables": [
+    "backend APNs pipeline",
+    "client device registration flow",
+    "push deep-link routing",
+    "internal release checklist"
+  ],
+  "acceptance_criteria": [
+    "A registered device can receive a test push",
+    "Push opens the app into the intended route",
+    "The app works against a Tailscale-accessible Sloppy instance",
+    "Internal testers have a documented setup path"
+  ],
+  "suggested_files": [
+    "Sources/sloppy",
+    "Apps/Client/Sources/SloppyClientCore",
+    "Apps/Client/Sources/SloppyAppleApp",
+    "Apps/Client/README.md"
+  ]
+}

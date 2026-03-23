@@ -1,0 +1,35 @@
+{
+  "id": "sloppy-apple-001",
+  "title": "Bootstrap Apps/Client workspace and generated Apple project flow",
+  "status": "todo",
+  "priority": "high",
+  "depends_on": [],
+  "adr_refs": [
+    "0001",
+    "0005"
+  ],
+  "summary": "Create the initial Apps/Client layout, package boundaries, and Xcode project generation strategy without removing the current Sources/App placeholder.",
+  "scope": [
+    "Create Apps/Client package skeleton and module directories",
+    "Add project generation config for a reproducible .xcodeproj",
+    "Document how Sources/App coexists temporarily with Apps/Client",
+    "Add initial README/build notes for the new app workspace"
+  ],
+  "deliverables": [
+    "Apps/Client directory scaffold",
+    "Package.swift for the client workspace",
+    "project generation config",
+    "basic build instructions"
+  ],
+  "acceptance_criteria": [
+    "Apps/Client exists and has a compilable package skeleton",
+    "An .xcodeproj can be generated from repo state",
+    "No existing root package products are broken",
+    "Sources/App remains untouched or only documented"
+  ],
+  "suggested_files": [
+    "Apps/Client/Package.swift",
+    "Apps/Client/README.md",
+    "Apps/Client/project.yml"
+  ]
+}
