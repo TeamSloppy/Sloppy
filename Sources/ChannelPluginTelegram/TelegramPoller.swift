@@ -98,13 +98,19 @@ actor TelegramPoller {
         await onMessageRouted?(channelId, chatId)
         logger.info("Routing message: chatId=\(chatId) → channelId=\(channelId)")
 
-        if let localReply = commands.handle(text: text, from: displayName) {
+        let userIdString = "tg:\(userId)"
+
+        let messageContext = MessageContext(
+            channelId: channelId,
+            userId: userIdString,
+            platform: "telegram",
+            displayName: displayName
+        )
+        if let localReply = commands.handle(text: text, context: messageContext) {
             logger.debug("Handled locally by CommandHandler, not forwarding to Sloppy.")
             _ = try? await bot.sendMessage(chatId: chatId, text: localReply)
             return
         }
-
-        let userIdString = "tg:\(userId)"
 
         let ok = await receiver.postMessage(
             channelId: channelId,

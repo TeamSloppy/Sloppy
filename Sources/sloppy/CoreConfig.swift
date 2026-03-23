@@ -348,6 +348,79 @@ public struct CoreConfig: Codable, Sendable {
         }
     }
 
+    public struct ACP: Codable, Sendable, Equatable {
+        public struct Target: Codable, Sendable, Equatable {
+            public enum Transport: String, Codable, Sendable, Equatable {
+                case stdio
+            }
+
+            public var id: String
+            public var title: String
+            public var transport: Transport
+            public var command: String
+            public var arguments: [String]
+            public var cwd: String?
+            public var environment: [String: String]
+            public var timeoutMs: Int
+            public var enabled: Bool
+
+            private enum CodingKeys: String, CodingKey {
+                case id
+                case title
+                case transport
+                case command
+                case arguments
+                case cwd
+                case environment
+                case timeoutMs
+                case enabled
+            }
+
+            public init(
+                id: String,
+                title: String,
+                transport: Transport = .stdio,
+                command: String,
+                arguments: [String] = [],
+                cwd: String? = nil,
+                environment: [String: String] = [:],
+                timeoutMs: Int = 30_000,
+                enabled: Bool = true
+            ) {
+                self.id = id
+                self.title = title
+                self.transport = transport
+                self.command = command
+                self.arguments = arguments
+                self.cwd = cwd
+                self.environment = environment
+                self.timeoutMs = timeoutMs
+                self.enabled = enabled
+            }
+
+            public init(from decoder: Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                id = try container.decode(String.self, forKey: .id)
+                title = try container.decodeIfPresent(String.self, forKey: .title) ?? id
+                transport = try container.decodeIfPresent(Transport.self, forKey: .transport) ?? .stdio
+                command = try container.decodeIfPresent(String.self, forKey: .command) ?? ""
+                arguments = try container.decodeIfPresent([String].self, forKey: .arguments) ?? []
+                cwd = try container.decodeIfPresent(String.self, forKey: .cwd)
+                environment = try container.decodeIfPresent([String: String].self, forKey: .environment) ?? [:]
+                timeoutMs = try container.decodeIfPresent(Int.self, forKey: .timeoutMs) ?? 30_000
+                enabled = try container.decodeIfPresent(Bool.self, forKey: .enabled) ?? true
+            }
+        }
+
+        public var enabled: Bool
+        public var targets: [Target]
+
+        public init(enabled: Bool = false, targets: [Target] = []) {
+            self.enabled = enabled
+            self.targets = targets
+        }
+    }
+
     public struct Auth: Codable, Sendable {
         public var token: String
 
@@ -756,6 +829,7 @@ public struct CoreConfig: Codable, Sendable {
     public var channels: ChannelConfig
     public var gitSync: GitSync
     public var mcp: MCP
+    public var acp: ACP
     public var searchTools: SearchTools
     public var proxy: Proxy
     public var visor: Visor
@@ -774,6 +848,7 @@ public struct CoreConfig: Codable, Sendable {
         channels: ChannelConfig = ChannelConfig(),
         gitSync: GitSync = GitSync(),
         mcp: MCP = MCP(),
+        acp: ACP = ACP(),
         searchTools: SearchTools = SearchTools(),
         proxy: Proxy = Proxy(),
         visor: Visor = Visor(),
@@ -791,6 +866,7 @@ public struct CoreConfig: Codable, Sendable {
         self.channels = channels
         self.gitSync = gitSync
         self.mcp = mcp
+        self.acp = acp
         self.searchTools = searchTools
         self.proxy = proxy
         self.visor = visor
@@ -824,6 +900,7 @@ public struct CoreConfig: Codable, Sendable {
             channels: .init(),
             gitSync: .init(),
             mcp: .init(),
+            acp: .init(),
             searchTools: .init(),
             proxy: .init(),
             visor: .init(),
@@ -886,6 +963,7 @@ public struct CoreConfig: Codable, Sendable {
         case channels
         case gitSync
         case mcp
+        case acp
         case searchTools
         case proxy
         case visor
@@ -905,6 +983,7 @@ public struct CoreConfig: Codable, Sendable {
         channels = try container.decodeIfPresent(ChannelConfig.self, forKey: .channels) ?? .init()
         gitSync = try container.decodeIfPresent(GitSync.self, forKey: .gitSync) ?? .init()
         mcp = try container.decodeIfPresent(MCP.self, forKey: .mcp) ?? .init()
+        acp = try container.decodeIfPresent(ACP.self, forKey: .acp) ?? .init()
         searchTools = try container.decodeIfPresent(SearchTools.self, forKey: .searchTools) ?? .init()
         proxy = try container.decodeIfPresent(Proxy.self, forKey: .proxy) ?? .init()
         visor = try container.decodeIfPresent(Visor.self, forKey: .visor) ?? .init()

@@ -19,6 +19,7 @@ final class AgentCatalogFileStore {
         let selectedModel: String?
         let heartbeat: AgentHeartbeatSettings?
         let channelSessions: AgentChannelSessionSettings?
+        let runtime: AgentRuntimeConfig?
     }
 
     private struct AgentHeartbeatStatusFile: Codable {
@@ -128,7 +129,8 @@ final class AgentCatalogFileStore {
             displayName: displayName,
             role: role,
             createdAt: Date(),
-            isSystem: request.isSystem
+            isSystem: request.isSystem,
+            runtime: request.runtime ?? .init()
         )
 
         do {
@@ -148,18 +150,18 @@ final class AgentCatalogFileStore {
 
         let summary = try getAgent(id: normalizedAgentID)
         let configFile = try readAgentConfigFile(for: summary, availableModels: availableModels)
-        let selectedModel = configFile.selectedModel ?? ""
         let documents = try readAgentDocuments(agentID: normalizedAgentID)
         let heartbeatStatus = try readHeartbeatStatus(agentID: normalizedAgentID, isSystem: summary.isSystem)
 
         return AgentConfigDetail(
             agentId: normalizedAgentID,
-            selectedModel: selectedModel,
+            selectedModel: configFile.selectedModel,
             availableModels: availableModels,
             documents: documents,
             heartbeat: configFile.heartbeat ?? AgentHeartbeatSettings(),
             channelSessions: configFile.channelSessions ?? AgentChannelSessionSettings(),
-            heartbeatStatus: heartbeatStatus
+            heartbeatStatus: heartbeatStatus,
+            runtime: configFile.runtime ?? summary.runtime
         )
     }
 
@@ -174,14 +176,26 @@ final class AgentCatalogFileStore {
 
         let summary = try getAgent(id: normalizedAgentID)
 
-        let selectedModel = request.selectedModel.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !selectedModel.isEmpty else {
-            throw StoreError.invalidModel
-        }
+        let runtime = request.runtime
+        let normalizedSelectedModel = request.selectedModel?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let selectedModel: String?
+        switch runtime.type {
+        case .native:
+            guard let normalizedSelectedModel, !normalizedSelectedModel.isEmpty else {
+                throw StoreError.invalidModel
+            }
 
-        let allowedModelIDs = Set(availableModels.map(\.id))
-        guard allowedModelIDs.contains(selectedModel) else {
-            throw StoreError.invalidModel
+            let allowedModelIDs = Set(availableModels.map(\.id))
+            guard allowedModelIDs.contains(normalizedSelectedModel) else {
+                throw StoreError.invalidModel
+            }
+            selectedModel = normalizedSelectedModel
+        case .acp:
+            let targetId = runtime.acp?.targetId.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            guard !targetId.isEmpty else {
+                throw StoreError.invalidPayload
+            }
+            selectedModel = nil
         }
 
         let normalizedDocuments = AgentDocumentBundle(
@@ -218,7 +232,8 @@ final class AgentCatalogFileStore {
                     createdAt: summary.createdAt,
                     selectedModel: selectedModel,
                     heartbeat: heartbeat,
-                    channelSessions: channelSessions
+                    channelSessions: channelSessions,
+                    runtime: runtime
                 ),
                 isSystem: summary.isSystem
             )
@@ -243,7 +258,8 @@ final class AgentCatalogFileStore {
             documents: normalizedDocuments,
             heartbeat: heartbeat,
             channelSessions: channelSessions,
-            heartbeatStatus: try readHeartbeatStatus(agentID: normalizedAgentID, isSystem: summary.isSystem)
+            heartbeatStatus: try readHeartbeatStatus(agentID: normalizedAgentID, isSystem: summary.isSystem),
+            runtime: runtime
         )
     }
 
@@ -402,7 +418,8 @@ final class AgentCatalogFileStore {
                 createdAt: summary.createdAt,
                 selectedModel: availableModels.first?.id,
                 heartbeat: AgentHeartbeatSettings(),
-                channelSessions: AgentChannelSessionSettings()
+                channelSessions: AgentChannelSessionSettings(),
+                runtime: summary.runtime
             ),
             isSystem: summary.isSystem
         )
@@ -447,7 +464,8 @@ final class AgentCatalogFileStore {
                 createdAt: summary.createdAt,
                 selectedModel: availableModels.first?.id,
                 heartbeat: AgentHeartbeatSettings(),
-                channelSessions: AgentChannelSessionSettings()
+                channelSessions: AgentChannelSessionSettings(),
+                runtime: summary.runtime
             )
             try writeAgentConfigFile(fallback, isSystem: summary.isSystem)
             return fallback
@@ -459,7 +477,10 @@ final class AgentCatalogFileStore {
         var decoded = try decoder.decode(AgentConfigFile.self, from: data)
         let selectedModel = decoded.selectedModel?.trimmingCharacters(in: .whitespacesAndNewlines)
         let availableModelIDs = Set(availableModels.map(\.id))
-        if selectedModel?.isEmpty ?? true || !(selectedModel.map { availableModelIDs.contains($0) } ?? false) {
+        let runtime = decoded.runtime ?? summary.runtime
+        let requiresDefaultModel = runtime.type == .native
+            && (selectedModel?.isEmpty ?? true || !(selectedModel.map { availableModelIDs.contains($0) } ?? false))
+        if requiresDefaultModel {
             decoded = AgentConfigFile(
                 id: decoded.id,
                 displayName: decoded.displayName,
@@ -467,18 +488,20 @@ final class AgentCatalogFileStore {
                 createdAt: decoded.createdAt,
                 selectedModel: availableModels.first?.id,
                 heartbeat: decoded.heartbeat ?? AgentHeartbeatSettings(),
-                channelSessions: decoded.channelSessions ?? AgentChannelSessionSettings()
+                channelSessions: decoded.channelSessions ?? AgentChannelSessionSettings(),
+                runtime: runtime
             )
             try writeAgentConfigFile(decoded, isSystem: summary.isSystem)
-        } else if decoded.heartbeat == nil || decoded.channelSessions == nil {
+        } else if decoded.heartbeat == nil || decoded.channelSessions == nil || decoded.runtime == nil {
             decoded = AgentConfigFile(
                 id: decoded.id,
                 displayName: decoded.displayName,
                 role: decoded.role,
                 createdAt: decoded.createdAt,
-                selectedModel: decoded.selectedModel,
+                selectedModel: runtime.type == .native ? decoded.selectedModel : nil,
                 heartbeat: decoded.heartbeat ?? AgentHeartbeatSettings(),
-                channelSessions: decoded.channelSessions ?? AgentChannelSessionSettings()
+                channelSessions: decoded.channelSessions ?? AgentChannelSessionSettings(),
+                runtime: runtime
             )
             try writeAgentConfigFile(decoded, isSystem: summary.isSystem)
         }

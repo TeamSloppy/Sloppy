@@ -1,8 +1,9 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { fetchActorsBoard, fetchAgentConfig, updateAgentConfig } from "../../../api";
+import { fetchActorsBoard, fetchAgentConfig, fetchRuntimeConfig, updateAgentConfig } from "../../../api";
 import { ChannelModelSelector } from "./ChannelModelSelector";
 
 const AGENT_CONFIG_SECTIONS = [
+  { id: "runtime", title: "Runtime", icon: "smart_toy" },
   { id: "models", title: "Models", icon: "hub" },
   { id: "files", title: "Agent Files", icon: "description" },
   { id: "channel", title: "Channel", icon: "forum" },
@@ -36,6 +37,10 @@ function emptyAgentConfigDraft(agentId) {
       lastResult: "",
       lastErrorMessage: "",
       lastSessionId: ""
+    },
+    runtime: {
+      type: "native",
+      acp: null
     }
   };
 }
@@ -67,6 +72,15 @@ function normalizeConfigDraft(agentId, config) {
       lastResult: String(config.heartbeatStatus?.lastResult || ""),
       lastErrorMessage: String(config.heartbeatStatus?.lastErrorMessage || ""),
       lastSessionId: String(config.heartbeatStatus?.lastSessionId || "")
+    },
+    runtime: {
+      type: String(config.runtime?.type || "native"),
+      acp: config.runtime?.acp
+        ? {
+            targetId: String(config.runtime.acp.targetId || ""),
+            cwd: config.runtime.acp.cwd || null
+          }
+        : null
     }
   };
 }
@@ -106,7 +120,8 @@ export function AgentConfigTab({ agentId }) {
   const [isSaving, setIsSaving] = useState(false);
   const [statusText, setStatusText] = useState("Loading agent config...");
   const [channelNodes, setChannelNodes] = useState([]);
-  const [selectedSection, setSelectedSection] = useState("models");
+  const [selectedSection, setSelectedSection] = useState("runtime");
+  const [acpTargets, setAcpTargets] = useState([]);
 
   useEffect(() => {
     let isCancelled = false;
@@ -114,9 +129,10 @@ export function AgentConfigTab({ agentId }) {
     async function load() {
       setIsLoading(true);
       setStatusText("Loading agent config...");
-      const [response, board] = await Promise.all([
+      const [response, board, runtimeCfg] = await Promise.all([
         fetchAgentConfig(agentId),
-        fetchActorsBoard()
+        fetchActorsBoard(),
+        fetchRuntimeConfig()
       ]);
       if (isCancelled) {
         return;
@@ -124,6 +140,10 @@ export function AgentConfigTab({ agentId }) {
 
       if (board && Array.isArray(board.nodes)) {
         setChannelNodes(board.nodes.filter((n) => n.linkedAgentId === agentId));
+      }
+
+      if (runtimeCfg && Array.isArray(runtimeCfg.acp?.targets)) {
+        setAcpTargets(runtimeCfg.acp.targets.filter((t) => t.enabled !== false));
       }
 
       if (!response) {
@@ -195,6 +215,29 @@ export function AgentConfigTab({ agentId }) {
     }));
   }
 
+  function updateRuntimeType(type) {
+    setDraft((previous) => ({
+      ...previous,
+      runtime: {
+        type,
+        acp: type === "acp" ? (previous.runtime.acp || { targetId: "", cwd: null }) : null
+      }
+    }));
+  }
+
+  function updateRuntimeACPField(field, value) {
+    setDraft((previous) => ({
+      ...previous,
+      runtime: {
+        ...previous.runtime,
+        acp: {
+          ...(previous.runtime.acp || { targetId: "", cwd: null }),
+          [field]: value
+        }
+      }
+    }));
+  }
+
   function cancelChanges() {
     setDraft(clone(savedDraft));
     setStatusText("Changes cancelled.");
@@ -205,9 +248,14 @@ export function AgentConfigTab({ agentId }) {
       return;
     }
 
+    const runtimeType = draft.runtime?.type || "native";
     const selectedModel = String(draft.selectedModel || "").trim();
-    if (!selectedModel) {
-      setStatusText("Model is required.");
+    if (runtimeType === "native" && !selectedModel) {
+      setStatusText("Model is required for native runtime.");
+      return;
+    }
+    if (runtimeType === "acp" && !draft.runtime?.acp?.targetId?.trim()) {
+      setStatusText("ACP target is required.");
       return;
     }
 
@@ -222,8 +270,16 @@ export function AgentConfigTab({ agentId }) {
       return;
     }
 
+    const runtime = { type: runtimeType };
+    if (runtimeType === "acp" && draft.runtime?.acp) {
+      (runtime as any).acp = {
+        targetId: draft.runtime.acp.targetId,
+        cwd: draft.runtime.acp.cwd || undefined
+      };
+    }
+
     const payload = {
-      selectedModel,
+      selectedModel: runtimeType === "native" ? selectedModel : null,
       documents: {
         userMarkdown: String(draft.documents.userMarkdown || ""),
         agentsMarkdown: String(draft.documents.agentsMarkdown || ""),
@@ -238,7 +294,8 @@ export function AgentConfigTab({ agentId }) {
       channelSessions: {
         autoCloseEnabled: Boolean(draft.channelSessions.autoCloseEnabled),
         autoCloseAfterMinutes: autoCloseAfterMinutes || 30
-      }
+      },
+      runtime
     };
 
     setIsSaving(true);
@@ -256,7 +313,63 @@ export function AgentConfigTab({ agentId }) {
     setIsSaving(false);
   }
 
+  const isACP = draft.runtime?.type === "acp";
+
   function renderSectionContent() {
+    if (selectedSection === "runtime") {
+      return (
+        <section className="entry-editor-card">
+          <h3>Agent Runtime</h3>
+          <p className="placeholder-text">
+            Choose how this agent processes messages. <strong>Native</strong> uses the built-in Sloppy runtime with a selected model.{" "}
+            <strong>ACP</strong> delegates to an external agent (e.g. Claude Code) via the Agent Client Protocol.
+          </p>
+          <div className="entry-form-grid">
+            <label style={{ gridColumn: "1 / -1" }}>
+              Runtime Type
+              <select
+                value={draft.runtime?.type || "native"}
+                onChange={(e) => updateRuntimeType(e.target.value)}
+              >
+                <option value="native">Native</option>
+                <option value="acp">ACP (Agent Client Protocol)</option>
+              </select>
+            </label>
+
+            {isACP && (
+              <>
+                <label style={{ gridColumn: "1 / -1" }}>
+                  ACP Target
+                  <select
+                    value={draft.runtime?.acp?.targetId || ""}
+                    onChange={(e) => updateRuntimeACPField("targetId", e.target.value)}
+                  >
+                    <option value="">Select a target...</option>
+                    {acpTargets.map((t) => (
+                      <option key={t.id} value={t.id}>
+                        {t.title} ({t.id})
+                      </option>
+                    ))}
+                  </select>
+                  {acpTargets.length === 0 && (
+                    <span className="entry-form-hint">No ACP targets configured. Add targets in Settings &gt; ACP.</span>
+                  )}
+                </label>
+                <label style={{ gridColumn: "1 / -1" }}>
+                  Working Directory Override
+                  <input
+                    placeholder="(defaults to target cwd or workspace root)"
+                    value={draft.runtime?.acp?.cwd || ""}
+                    onChange={(e) => updateRuntimeACPField("cwd", e.target.value || null)}
+                  />
+                </label>
+              </>
+            )}
+          </div>
+        </section>
+      );
+    }
+
     if (selectedSection === "models") {
       return (
         <section className="entry-editor-card">

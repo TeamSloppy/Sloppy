@@ -21,6 +21,7 @@ import { DiscordEditor } from "./components/DiscordEditor";
 import { ApprovalsView } from "./components/ApprovalsView";
 import { ConfigRawView } from "./components/ConfigRawView";
 import { ProxyEditor } from "./components/ProxyEditor";
+import { ACPEditor } from "./components/ACPEditor";
 
 const SETTINGS_ITEMS = [
   { id: "providers", title: "Providers", icon: "hub" },
@@ -36,6 +37,7 @@ const SETTINGS_ITEMS = [
   // { id: "audio", title: "Audio", icon: "volume_up" },
   // { id: "media", title: "Media", icon: "perm_media" },
   // { id: "session", title: "Session", icon: "manage_accounts" },
+  { id: "acp", title: "ACP", icon: "smart_toy" },
   { id: "proxy", title: "Proxy", icon: "vpn_key" },
   { id: "git-sync", title: "Git Sync", icon: "sync" },
   { id: "config", title: "Config", icon: "edit_document" },
@@ -202,6 +204,10 @@ const EMPTY_CONFIG = {
       time: "18:00"
     },
     conflictStrategy: "remote_wins"
+  },
+  acp: {
+    enabled: false,
+    targets: []
   },
   proxy: {
     enabled: false,
@@ -448,6 +454,9 @@ function normalizeConfig(config) {
       : "perplexity";
   normalized.searchTools.providers.brave.apiKey = String(config?.searchTools?.providers?.brave?.apiKey || "");
   normalized.searchTools.providers.perplexity.apiKey = String(config?.searchTools?.providers?.perplexity?.apiKey || "");
+
+  normalized.acp.enabled = Boolean(config?.acp?.enabled);
+  normalized.acp.targets = Array.isArray(config?.acp?.targets) ? config.acp.targets : [];
 
   normalized.proxy.enabled = Boolean(config?.proxy?.enabled);
   normalized.proxy.type = normalizeProxyType(config?.proxy?.type);
@@ -1320,6 +1329,10 @@ export function ConfigView({ sectionId = "providers", onSectionChange = null }) 
           </div>
         </section>
       );
+    }
+
+    if (selectedSettings === "acp") {
+      return <ACPEditor draftConfig={draftConfig} mutateDraft={mutateDraft} />;
     }
 
     if (selectedSettings === "proxy") {

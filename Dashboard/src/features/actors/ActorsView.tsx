@@ -302,6 +302,7 @@ export function ActorsView() {
   const [newActorRole, setNewActorRole] = useState("");
   const [newActorStep, setNewActorStep] = useState("kind-select");
   const [agentsList, setAgentsList] = useState([]);
+  const [agentRuntimeMap, setAgentRuntimeMap] = useState({});
   const [selectedAgentId, setSelectedAgentId] = useState(null);
   const [agentSearch, setAgentSearch] = useState("");
   const [agentDropdownOpen, setAgentDropdownOpen] = useState(false);
@@ -392,9 +393,22 @@ export function ActorsView() {
 
     async function loadBoard() {
       setIsLoading(true);
-      const response = await fetchActorsBoard();
+      const [response, agentsResult] = await Promise.all([
+        fetchActorsBoard(),
+        fetchAgents()
+      ]);
       if (isCancelled) {
         return;
+      }
+
+      if (Array.isArray(agentsResult)) {
+        const rmap = {};
+        for (const a of agentsResult) {
+          if (a.runtime?.type) {
+            rmap[a.id] = a.runtime;
+          }
+        }
+        setAgentRuntimeMap(rmap);
       }
 
       if (!response) {
@@ -1378,7 +1392,12 @@ export function ActorsView() {
 
                     <strong>{node.displayName}</strong>
                     <span>{node.id}</span>
-                    <small>{node.kind}</small>
+                    <small>
+                      {node.kind}
+                      {node.linkedAgentId && agentRuntimeMap[node.linkedAgentId]?.type === "acp" && (
+                        <span className="actor-acp-badge">ACP</span>
+                      )}
+                    </small>
                   </div>
                 );
               })}
@@ -1448,6 +1467,9 @@ export function ActorsView() {
                   </header>
                   <p className="actor-link-menu-title">
                     {selectedNode.id} · <span className="actor-node-menu-kind">{selectedNode.kind}</span>
+                    {selectedNode.linkedAgentId && agentRuntimeMap[selectedNode.linkedAgentId]?.type === "acp" && (
+                      <span className="actor-acp-badge" style={{ marginLeft: 6 }}>ACP</span>
+                    )}
                   </p>
                   {isSystemNode(selectedNode.id) ? (
                     <p className="actor-link-menu-title">System actor — position only</p>

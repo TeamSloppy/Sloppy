@@ -52,6 +52,7 @@ export interface CoreApi {
   pollOpenAIDeviceCode: (payload: AnyRecord) => Promise<AnyRecord | null>;
   disconnectOpenAIOAuth: () => Promise<boolean>;
   probeProvider: (payload: AnyRecord) => Promise<AnyRecord | null>;
+  probeACPTarget: (payload: AnyRecord) => Promise<AnyRecord | null>;
   fetchSearchProviderStatus: () => Promise<AnyRecord | null>;
   fetchProjects: () => Promise<AnyRecord[] | null>;
   fetchProject: (projectId: string) => Promise<AnyRecord | null>;
@@ -371,6 +372,18 @@ export function createCoreApi(): CoreApi {
     probeProvider: async (payload) => {
       const response = await requestJson<AnyRecord, AnyRecord>({
         path: "/v1/providers/probe",
+        method: "POST",
+        body: payload
+      });
+      if (!response.ok) {
+        return null;
+      }
+      return response.data;
+    },
+
+    probeACPTarget: async (payload) => {
+      const response = await requestJson<AnyRecord, AnyRecord>({
+        path: "/v1/acp/targets/probe",
         method: "POST",
         body: payload
       });

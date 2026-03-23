@@ -1,6 +1,7 @@
 import AnyLanguageModel
 import Foundation
 import AgentRuntime
+import ACPModel
 import Logging
 import Protocols
 
@@ -23,6 +24,7 @@ actor AgentSessionOrchestrator {
     private let sessionStore: AgentSessionFileStore
     private let agentCatalogStore: AgentCatalogFileStore
     private let agentSkillsStore: AgentSkillsFileStore?
+    private let acpSessionManager: ACPSessionManager?
     private let promptComposer: AgentPromptComposer
     private var availableModels: [ProviderModelOption]
     private let logger: Logger
@@ -41,6 +43,7 @@ actor AgentSessionOrchestrator {
         sessionStore: AgentSessionFileStore,
         agentCatalogStore: AgentCatalogFileStore,
         agentSkillsStore: AgentSkillsFileStore? = nil,
+        acpSessionManager: ACPSessionManager? = nil,
         promptComposer: AgentPromptComposer = AgentPromptComposer(),
         availableModels: [ProviderModelOption],
         toolInvoker: ToolInvoker? = nil,
@@ -52,6 +55,7 @@ actor AgentSessionOrchestrator {
         self.sessionStore = sessionStore
         self.agentCatalogStore = agentCatalogStore
         self.agentSkillsStore = agentSkillsStore
+        self.acpSessionManager = acpSessionManager
         self.promptComposer = promptComposer
         self.availableModels = availableModels
         self.toolInvoker = toolInvoker
@@ -140,19 +144,23 @@ actor AgentSessionOrchestrator {
             throw OrchestratorError.storageFailure
         }
 
-        let selectedModel = agentConfig.selectedModel.trimmingCharacters(in: .whitespacesAndNewlines)
+        let selectedModel = agentConfig.selectedModel?.trimmingCharacters(in: .whitespacesAndNewlines)
         let selectedModelCapabilities = Set(
             agentConfig.availableModels
                 .first(where: { $0.id == selectedModel })?
                 .capabilities
                 .map { $0.lowercased() } ?? []
         )
-        let reasoningEffort = selectedModelCapabilities.contains("reasoning") ? request.reasoningEffort : nil
+        let reasoningEffort = agentConfig.runtime.type == .native && selectedModelCapabilities.contains("reasoning")
+            ? request.reasoningEffort
+            : nil
 
         let content = request.content.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !content.isEmpty || !request.attachments.isEmpty else {
             throw OrchestratorError.invalidPayload
         }
+
+        let localSessionHadPriorMessages = sessionHasPriorMessages(agentID: agentID, sessionID: sessionID)
 
         logger.info(
             "Session prompt accepted",
@@ -260,6 +268,281 @@ actor AgentSessionOrchestrator {
             throw mapSessionStoreError(error)
         }
 
+        let runtimeOutcome: SessionRuntimeOutcome
+        switch agentConfig.runtime.type {
+        case .native:
+            runtimeOutcome = await postNativeMessage(
+                agentID: agentID,
+                sessionID: sessionID,
+                userID: request.userId,
+                content: content,
+                selectedModel: selectedModel,
+                reasoningEffort: reasoningEffort
+            )
+        case .acp:
+            guard let acpSessionManager else {
+                throw OrchestratorError.storageFailure
+            }
+            do {
+                let blocks = makeACPContentBlocks(content: content, attachments: attachments)
+                let result = try await acpSessionManager.postMessage(
+                    agentID: agentID,
+                    sloppySessionID: sessionID,
+                    runtime: agentConfig.runtime,
+                    content: blocks,
+                    localSessionHadPriorMessages: localSessionHadPriorMessages,
+                    onChunk: { [weak self] partialText in
+                        guard let self else { return }
+                        await self.handleSessionResponseChunk(
+                            agentID: agentID,
+                            sessionID: sessionID,
+                            channelID: self.sessionChannelID(agentID: agentID, sessionID: sessionID),
+                            partialText: partialText
+                        )
+                    },
+                    onEvent: { [weak self] event in
+                        guard let self else { return }
+                        await self.appendEventsSafely(agentID: agentID, sessionID: sessionID, events: [event])
+                    }
+                )
+                runtimeOutcome = SessionRuntimeOutcome(
+                    assistantText: result.assistantText.isEmpty ? "Done." : result.assistantText,
+                    routeDecision: nil,
+                    wasInterrupted: result.stopReason == .cancelled,
+                    didResetContext: result.didResetContext
+                )
+            } catch {
+                throw OrchestratorError.storageFailure
+            }
+        }
+
+        var finalEvents: [AgentSessionEvent] = []
+        if runtimeOutcome.didResetContext {
+            finalEvents.append(
+                AgentSessionEvent(
+                    agentId: agentID,
+                    sessionId: sessionID,
+                    type: .message,
+                    message: AgentSessionMessage(
+                        role: .system,
+                        segments: [
+                            .init(
+                                kind: .text,
+                                text: "ACP upstream session was recreated, so external harness context was reset before this turn."
+                            )
+                        ]
+                    )
+                )
+            )
+        }
+        if request.spawnSubSession {
+            let childSummary: AgentSessionSummary
+            do {
+                childSummary = try sessionStore.createSession(
+                    agentID: agentID,
+                    request: AgentSessionCreateRequest(
+                        title: "Sub-session \(Date().formatted(date: .omitted, time: .shortened))",
+                        parentSessionId: sessionID
+                    )
+                )
+                try await ensureSessionContextLoaded(agentID: agentID, sessionID: childSummary.id)
+            } catch {
+                if let storeError = error as? AgentSessionFileStore.StoreError {
+                    throw mapSessionStoreError(storeError)
+                }
+                throw OrchestratorError.storageFailure
+            }
+
+            logger.info(
+                "Sub-session created from parent session",
+                metadata: [
+                    "agent_id": .string(agentID),
+                    "parent_session_id": .string(sessionID),
+                    "child_session_id": .string(childSummary.id),
+                    "child_title": .string(childSummary.title)
+                ]
+            )
+
+            finalEvents.append(
+                AgentSessionEvent(
+                    agentId: agentID,
+                    sessionId: sessionID,
+                    type: .subSession,
+                    subSession: AgentSubSessionEvent(
+                        childSessionId: childSummary.id,
+                        title: childSummary.title
+                    )
+                )
+            )
+        }
+
+        if !runtimeOutcome.assistantText.isEmpty {
+            finalEvents.append(
+                AgentSessionEvent(
+                    agentId: agentID,
+                    sessionId: sessionID,
+                    type: .message,
+                    message: AgentSessionMessage(
+                        role: .assistant,
+                        segments: [
+                            .init(kind: .text, text: runtimeOutcome.assistantText)
+                        ],
+                        userId: "agent"
+                    )
+                )
+            )
+        }
+
+        if runtimeOutcome.wasInterrupted {
+            finalEvents.append(
+                AgentSessionEvent(
+                    agentId: agentID,
+                    sessionId: sessionID,
+                    type: .runStatus,
+                    runStatus: AgentRunStatusEvent(
+                        stage: .interrupted,
+                        label: "Interrupted",
+                        details: "Response generation stopped."
+                    )
+                )
+            )
+        } else if isAssistantErrorText(runtimeOutcome.assistantText) {
+            finalEvents.append(
+                AgentSessionEvent(
+                    agentId: agentID,
+                    sessionId: sessionID,
+                    type: .runStatus,
+                    runStatus: AgentRunStatusEvent(
+                        stage: .interrupted,
+                        label: "Error",
+                        details: runtimeOutcome.assistantText
+                    )
+                )
+            )
+        } else {
+            finalEvents.append(
+                AgentSessionEvent(
+                    agentId: agentID,
+                    sessionId: sessionID,
+                    type: .runStatus,
+                    runStatus: AgentRunStatusEvent(
+                        stage: .done,
+                        label: "Done",
+                        details: "Response is ready."
+                    )
+                )
+            )
+        }
+
+        if !finalEvents.isEmpty {
+            do {
+                summary = try appendEventsAndNotify(
+                    agentID: agentID,
+                    sessionID: sessionID,
+                    events: finalEvents
+                )
+            } catch {
+                throw mapSessionStoreError(error)
+            }
+        }
+
+        return AgentSessionMessageResponse(
+            summary: summary,
+            appendedEvents: initialEvents + finalEvents,
+            routeDecision: runtimeOutcome.routeDecision
+        )
+    }
+
+    func controlSession(
+        agentID: String,
+        sessionID: String,
+        request: AgentSessionControlRequest
+    ) async throws -> AgentSessionMessageResponse {
+        if let runtime = try? agentCatalogStore.getAgentConfig(agentID: agentID, availableModels: availableModels).runtime,
+           runtime.type == .acp,
+           let acpSessionManager
+        {
+            if request.action != .interrupt {
+                throw OrchestratorError.invalidPayload
+            }
+            do {
+                try await acpSessionManager.controlSession(
+                    agentID: agentID,
+                    sloppySessionID: sessionID,
+                    action: request.action
+                )
+            } catch {
+                throw OrchestratorError.storageFailure
+            }
+        }
+
+        let statusStage: AgentRunStage
+        let statusLabel: String
+        switch request.action {
+        case .pause:
+            statusStage = .paused
+            statusLabel = "Paused"
+        case .resume:
+            statusStage = .thinking
+            statusLabel = "Resumed"
+        case .interrupt:
+            statusStage = .interrupted
+            statusLabel = "Interrupted"
+            interruptedSessionRunChannels.insert(sessionChannelID(agentID: agentID, sessionID: sessionID))
+        }
+
+        let events = [
+            AgentSessionEvent(
+                agentId: agentID,
+                sessionId: sessionID,
+                type: .runControl,
+                runControl: AgentRunControlEvent(
+                    action: request.action,
+                    requestedBy: request.requestedBy,
+                    reason: request.reason
+                )
+            ),
+            AgentSessionEvent(
+                agentId: agentID,
+                sessionId: sessionID,
+                type: .runStatus,
+                runStatus: AgentRunStatusEvent(
+                    stage: statusStage,
+                    label: statusLabel,
+                    details: request.reason
+                )
+            )
+        ]
+
+        let summary: AgentSessionSummary
+        do {
+            summary = try appendEventsAndNotify(
+                agentID: agentID,
+                sessionID: sessionID,
+                events: events
+            )
+        } catch {
+            throw mapSessionStoreError(error)
+        }
+
+        return AgentSessionMessageResponse(summary: summary, appendedEvents: events, routeDecision: nil)
+    }
+
+    private struct SessionRuntimeOutcome {
+        var assistantText: String
+        var routeDecision: ChannelRouteDecision?
+        var wasInterrupted: Bool
+        var didResetContext: Bool
+    }
+
+    private func postNativeMessage(
+        agentID: String,
+        sessionID: String,
+        userID: String,
+        content: String,
+        selectedModel: String?,
+        reasoningEffort: ReasoningEffort?
+    ) async -> SessionRuntimeOutcome {
         let channelID = sessionChannelID(agentID: agentID, sessionID: sessionID)
         activeSessionRunChannels.insert(channelID)
         interruptedSessionRunChannels.remove(channelID)
@@ -274,9 +557,9 @@ actor AgentSessionOrchestrator {
         let routeDecision = await runtime.postMessage(
             channelId: channelID,
             request: ChannelMessageRequest(
-                userId: request.userId,
+                userId: userID,
                 content: messageContent,
-                model: selectedModel.isEmpty ? nil : selectedModel,
+                model: selectedModel?.isEmpty == false ? selectedModel : nil,
                 reasoningEffort: reasoningEffort
             ),
             onResponseChunk: { [weak self] partialText in
@@ -302,7 +585,7 @@ actor AgentSessionOrchestrator {
                         )
                     )
                 }
-                
+
                 let toolCallEvent = AgentSessionEvent(
                     agentId: agentID,
                     sessionId: sessionID,
@@ -313,7 +596,7 @@ actor AgentSessionOrchestrator {
                         reason: toolRequest.reason
                     )
                 )
-                
+
                 let toolCallStatusEvent = AgentSessionEvent(
                     agentId: agentID,
                     sessionId: sessionID,
@@ -385,185 +668,46 @@ actor AgentSessionOrchestrator {
         let assistantTextFromSnapshot = snapshot?.messages.reversed().first(where: {
             $0.userId == "system" && !$0.content.contains(Self.sessionContextBootstrapMarker)
         })?.content.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        let assistantText = !streamedAssistantText.isEmpty
-            ? streamedAssistantText
-            : (!assistantTextFromSnapshot.isEmpty ? assistantTextFromSnapshot : "Done.")
-        let wasInterrupted = interruptedSessionRunChannels.contains(channelID)
 
-        var finalEvents: [AgentSessionEvent] = []
-        if request.spawnSubSession {
-            let childSummary: AgentSessionSummary
-            do {
-                childSummary = try sessionStore.createSession(
-                    agentID: agentID,
-                    request: AgentSessionCreateRequest(
-                        title: "Sub-session \(Date().formatted(date: .omitted, time: .shortened))",
-                        parentSessionId: sessionID
-                    )
-                )
-                try await ensureSessionContextLoaded(agentID: agentID, sessionID: childSummary.id)
-            } catch {
-                if let storeError = error as? AgentSessionFileStore.StoreError {
-                    throw mapSessionStoreError(storeError)
-                }
-                throw OrchestratorError.storageFailure
-            }
-
-            logger.info(
-                "Sub-session created from parent session",
-                metadata: [
-                    "agent_id": .string(agentID),
-                    "parent_session_id": .string(sessionID),
-                    "child_session_id": .string(childSummary.id),
-                    "child_title": .string(childSummary.title)
-                ]
-            )
-
-            finalEvents.append(
-                AgentSessionEvent(
-                    agentId: agentID,
-                    sessionId: sessionID,
-                    type: .subSession,
-                    subSession: AgentSubSessionEvent(
-                        childSessionId: childSummary.id,
-                        title: childSummary.title
-                    )
-                )
-            )
-        }
-
-        if !assistantText.isEmpty {
-            finalEvents.append(
-                AgentSessionEvent(
-                    agentId: agentID,
-                    sessionId: sessionID,
-                    type: .message,
-                    message: AgentSessionMessage(
-                        role: .assistant,
-                        segments: [
-                            .init(kind: .text, text: assistantText)
-                        ],
-                        userId: "agent"
-                    )
-                )
-            )
-        }
-
-        if wasInterrupted {
-            finalEvents.append(
-                AgentSessionEvent(
-                    agentId: agentID,
-                    sessionId: sessionID,
-                    type: .runStatus,
-                    runStatus: AgentRunStatusEvent(
-                        stage: .interrupted,
-                        label: "Interrupted",
-                        details: "Response generation stopped."
-                    )
-                )
-            )
-        } else if isAssistantErrorText(assistantText) {
-            finalEvents.append(
-                AgentSessionEvent(
-                    agentId: agentID,
-                    sessionId: sessionID,
-                    type: .runStatus,
-                    runStatus: AgentRunStatusEvent(
-                        stage: .interrupted,
-                        label: "Error",
-                        details: assistantText
-                    )
-                )
-            )
-        } else {
-            finalEvents.append(
-                AgentSessionEvent(
-                    agentId: agentID,
-                    sessionId: sessionID,
-                    type: .runStatus,
-                    runStatus: AgentRunStatusEvent(
-                        stage: .done,
-                        label: "Done",
-                        details: "Response is ready."
-                    )
-                )
-            )
-        }
-
-        if !finalEvents.isEmpty {
-            do {
-                summary = try appendEventsAndNotify(
-                    agentID: agentID,
-                    sessionID: sessionID,
-                    events: finalEvents
-                )
-            } catch {
-                throw mapSessionStoreError(error)
-            }
-        }
-
-        return AgentSessionMessageResponse(
-            summary: summary,
-            appendedEvents: initialEvents + finalEvents,
-            routeDecision: routeDecision
+        return SessionRuntimeOutcome(
+            assistantText: !streamedAssistantText.isEmpty
+                ? streamedAssistantText
+                : (!assistantTextFromSnapshot.isEmpty ? assistantTextFromSnapshot : "Done."),
+            routeDecision: routeDecision,
+            wasInterrupted: interruptedSessionRunChannels.contains(channelID),
+            didResetContext: false
         )
     }
 
-    func controlSession(
-        agentID: String,
-        sessionID: String,
-        request: AgentSessionControlRequest
-    ) throws -> AgentSessionMessageResponse {
-        let statusStage: AgentRunStage
-        let statusLabel: String
-        switch request.action {
-        case .pause:
-            statusStage = .paused
-            statusLabel = "Paused"
-        case .resume:
-            statusStage = .thinking
-            statusLabel = "Resumed"
-        case .interrupt:
-            statusStage = .interrupted
-            statusLabel = "Interrupted"
-            interruptedSessionRunChannels.insert(sessionChannelID(agentID: agentID, sessionID: sessionID))
+    private func sessionHasPriorMessages(agentID: String, sessionID: String) -> Bool {
+        guard let detail = try? sessionStore.loadSession(agentID: agentID, sessionID: sessionID) else {
+            return false
         }
 
-        let events = [
-            AgentSessionEvent(
-                agentId: agentID,
-                sessionId: sessionID,
-                type: .runControl,
-                runControl: AgentRunControlEvent(
-                    action: request.action,
-                    requestedBy: request.requestedBy,
-                    reason: request.reason
-                )
-            ),
-            AgentSessionEvent(
-                agentId: agentID,
-                sessionId: sessionID,
-                type: .runStatus,
-                runStatus: AgentRunStatusEvent(
-                    stage: statusStage,
-                    label: statusLabel,
-                    details: request.reason
-                )
-            )
-        ]
+        return detail.events.contains { event in
+            guard event.type == .message else {
+                return false
+            }
+            let text = event.message?.segments.compactMap(\.text).joined(separator: "\n") ?? ""
+            return !text.contains(Self.sessionContextBootstrapMarker)
+        }
+    }
 
-        let summary: AgentSessionSummary
-        do {
-            summary = try appendEventsAndNotify(
-                agentID: agentID,
-                sessionID: sessionID,
-                events: events
-            )
-        } catch {
-            throw mapSessionStoreError(error)
+    private func makeACPContentBlocks(content: String, attachments: [AgentAttachment]) -> [ContentBlock] {
+        var blocks: [ContentBlock] = []
+        if !content.isEmpty {
+            blocks.append(.text(TextContent(text: content)))
         }
 
-        return AgentSessionMessageResponse(summary: summary, appendedEvents: events, routeDecision: nil)
+        for attachment in attachments {
+            let description = "Attachment: \(attachment.name) (\(attachment.mimeType), \(attachment.sizeBytes) bytes)"
+            blocks.append(.text(TextContent(text: description)))
+        }
+
+        if blocks.isEmpty {
+            blocks.append(.text(TextContent(text: "User attached files.")))
+        }
+        return blocks
     }
 
     private func appendEventsAndNotify(

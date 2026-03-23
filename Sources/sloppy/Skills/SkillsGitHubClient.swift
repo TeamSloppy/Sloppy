@@ -56,10 +56,10 @@ actor SkillsGitHubClient {
         let fileManager = FileManager.default
         try fileManager.createDirectory(at: destination, withIntermediateDirectories: true)
 
-        // Download files
         var downloadedFiles: [String] = []
         var skillName = normalizedRepo
         var skillDescription: String?
+        var skillFrontmatter: SkillFrontmatter?
 
         // Look for common skill files
         let skillFiles = contents.filter { item in
@@ -83,11 +83,22 @@ actor SkillsGitHubClient {
                     try await downloadFile(from: downloadURL, to: fileURL)
                     downloadedFiles.append(item.name)
 
-                    // Try to extract skill name from common files
                     if item.name.lowercased() == "skill.json" {
                         if let metadata = try? extractSkillMetadata(from: fileURL) {
                             skillName = metadata.name ?? skillName
                             skillDescription = metadata.description
+                        }
+                    } else if item.name.lowercased() == "skill.md" {
+                        if let mdContent = try? String(contentsOf: fileURL, encoding: .utf8) {
+                            if let fm = Self.parseFrontmatter(from: mdContent) {
+                                skillFrontmatter = fm
+                                if let fmName = fm.name, !fmName.isEmpty {
+                                    skillName = fmName
+                                }
+                                if let fmDesc = fm.description, !fmDesc.isEmpty {
+                                    skillDescription = fmDesc
+                                }
+                            }
                         }
                     } else if item.name.lowercased() == "readme.md" {
                         if let readmeContent = try? String(contentsOf: fileURL, encoding: .utf8) {
@@ -123,7 +134,8 @@ actor SkillsGitHubClient {
             description: skillDescription,
             version: ref,
             files: downloadedFiles,
-            localPath: destination.path
+            localPath: destination.path,
+            frontmatter: skillFrontmatter
         )
     }
 
@@ -325,6 +337,15 @@ extension SkillsGitHubClient {
         let version: String?
     }
 
+    struct SkillFrontmatter {
+        var name: String?
+        var description: String?
+        var userInvocable: Bool?
+        var allowedTools: [String]?
+        var context: String?
+        var agent: String?
+    }
+
     struct DownloadedSkill {
         let owner: String
         let repo: String
@@ -333,5 +354,56 @@ extension SkillsGitHubClient {
         let version: String
         let files: [String]
         let localPath: String
+        var frontmatter: SkillFrontmatter?
+    }
+
+    static func parseFrontmatter(from content: String) -> SkillFrontmatter? {
+        let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.hasPrefix("---") else { return nil }
+
+        let lines = trimmed.components(separatedBy: .newlines)
+        guard lines.count >= 2 else { return nil }
+
+        var endIndex: Int?
+        for i in 1..<lines.count {
+            if lines[i].trimmingCharacters(in: .whitespaces) == "---" {
+                endIndex = i
+                break
+            }
+        }
+        guard let end = endIndex else { return nil }
+
+        var fm = SkillFrontmatter()
+        for i in 1..<end {
+            let line = lines[i]
+            guard let colonIndex = line.firstIndex(of: ":") else { continue }
+            let key = line[line.startIndex..<colonIndex]
+                .trimmingCharacters(in: .whitespaces)
+                .lowercased()
+                .replacingOccurrences(of: "-", with: "_")
+            let value = line[line.index(after: colonIndex)...]
+                .trimmingCharacters(in: .whitespaces)
+
+            switch key {
+            case "name":
+                fm.name = value
+            case "description":
+                fm.description = value
+            case "user_invocable", "userinvocable":
+                fm.userInvocable = value.lowercased() == "true"
+            case "allowed_tools", "allowedtools":
+                fm.allowedTools = value
+                    .components(separatedBy: ",")
+                    .map { $0.trimmingCharacters(in: .whitespaces) }
+                    .filter { !$0.isEmpty }
+            case "context":
+                fm.context = value
+            case "agent":
+                fm.agent = value
+            default:
+                break
+            }
+        }
+        return fm
     }
 }
