@@ -48,8 +48,8 @@
   --vp-code-link-hover-color: #ccff00;
   --vp-code-bg: rgba(204, 255, 0, 0.06);
   --vp-code-block-color: #f4f4ee;
-  --vp-code-block-bg: #080909;
-  --vp-code-block-divider-color: rgba(204, 255, 0, 0.08);
+  --vp-code-block-bg: #141516;
+  --vp-code-block-divider-color: rgba(204, 255, 0, 0.14);
   --vp-code-lang-color: #9aa58a;
   --vp-code-line-highlight-color: rgba(255, 255, 255, 0.03);
   --vp-code-line-number-color: #626b58;
@@ -230,12 +230,15 @@ body::after {
 .vp-doc div[class*="language-"],
 .vp-doc table,
 .VPDocAsideOutline .content,
-.VPDoc .content-container,
 .VPHomeFeatures .container,
 .VPLocalNav,
 .VPDocFooter .pager-link {
   background: rgba(10, 10, 10, 0.92);
   box-shadow: inset 0 0 0 1px rgba(204, 255, 0, 0.03);
+}
+
+.VPDoc .content-container {
+  background: var(--sl-bg);
 }
 
 .VPHomeHero {
@@ -337,6 +340,10 @@ body::after {
 .VPFeature .title {
   text-transform: uppercase;
   letter-spacing: 0.05em;
+}
+
+.vp-doc div[class*="language-"] {
+  border-color: rgba(204, 255, 0, 0.18) !important;
 }
 
 .vp-doc table {
