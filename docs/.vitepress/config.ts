@@ -51,6 +51,14 @@ export default defineConfig({
         ]
       },
       {
+        text: "Channels",
+        items: [
+          { text: "About Channels", link: "/channels/about" },
+          { text: "Setup Telegram", link: "/channels/setup-telegram" },
+          { text: "Setup Discord", link: "/channels/setup-discord" }
+        ]
+      },
+      {
         text: "Architecture",
         items: [
           { text: "Project Design", link: "/architecture/project-design" },
