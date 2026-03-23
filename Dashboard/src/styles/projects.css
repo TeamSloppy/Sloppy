@@ -235,6 +235,19 @@
   gap: 8px;
 }
 
+.project-board-card-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.project-board-card-icon {
+  font-size: 1.25rem;
+  color: var(--accent);
+  flex-shrink: 0;
+}
+
 .project-board-card-head h3 {
   margin: 0;
   font-size: 0.98rem;

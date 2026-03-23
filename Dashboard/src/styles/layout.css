@@ -230,6 +230,79 @@
   background: var(--surface);
 }
 
+.update-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 14px;
+  background: var(--surface-2);
+  border: 1px solid var(--accent);
+  border-radius: 0;
+  margin-bottom: 10px;
+  font-size: 0.85rem;
+}
+
+.update-banner-icon {
+  font-size: 18px;
+  color: var(--accent);
+  flex: 0 0 auto;
+}
+
+.update-banner-text {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.update-banner-text strong {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.update-banner-current {
+  color: var(--muted);
+}
+
+.update-banner-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 0 0 auto;
+}
+
+.update-banner-learn-more {
+  color: var(--accent);
+  font-size: 0.82rem;
+  font-weight: 600;
+  text-decoration: none;
+  border: 1px solid var(--accent);
+  padding: 3px 10px;
+  white-space: nowrap;
+  transition: background 150ms ease, color 150ms ease;
+}
+
+.update-banner-learn-more:hover {
+  background: var(--accent);
+  color: var(--bg);
+}
+
+.update-banner-close {
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--muted);
+  padding: 2px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.update-banner-close:hover {
+  color: var(--text);
+  border-color: var(--line);
+}
+
 .agents-shell.chat-layout {
   min-height: 0;
   overflow: hidden;

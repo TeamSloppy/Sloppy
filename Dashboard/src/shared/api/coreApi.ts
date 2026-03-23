@@ -147,6 +147,8 @@ export interface CoreApi {
   fetchTaskActivities: (projectId: string, taskId: string) => Promise<AnyRecord[] | null>;
   fetchProjectFiles: (projectId: string, path?: string) => Promise<AnyRecord[] | null>;
   fetchProjectFileContent: (projectId: string, path: string) => Promise<AnyRecord | null>;
+  fetchUpdateStatus: () => Promise<AnyRecord | null>;
+  forceUpdateCheck: () => Promise<AnyRecord | null>;
 }
 
 export function createCoreApi(): CoreApi {
@@ -1257,6 +1259,18 @@ export function createCoreApi(): CoreApi {
       const response = await requestJson<AnyRecord>({
         path: `/v1/projects/${encodeURIComponent(projectId)}/files/content?path=${encodeURIComponent(path)}`
       });
+      if (!response.ok) return null;
+      return response.data;
+    },
+
+    fetchUpdateStatus: async () => {
+      const response = await requestJson<AnyRecord>({ path: "/v1/updates/check" });
+      if (!response.ok) return null;
+      return response.data;
+    },
+
+    forceUpdateCheck: async () => {
+      const response = await requestJson<AnyRecord>({ path: "/v1/updates/check", method: "POST" });
       if (!response.ok) return null;
       return response.data;
     }

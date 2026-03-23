@@ -22,6 +22,8 @@ import { ApprovalsView } from "./components/ApprovalsView";
 import { ConfigRawView } from "./components/ConfigRawView";
 import { ProxyEditor } from "./components/ProxyEditor";
 import { ACPEditor } from "./components/ACPEditor";
+import { UpdatesView } from "../updates/UpdatesView";
+import { useUpdateCheck } from "../updates/useUpdateCheck";
 
 const SETTINGS_ITEMS = [
   { id: "providers", title: "Providers", icon: "hub" },
@@ -41,6 +43,7 @@ const SETTINGS_ITEMS = [
   { id: "proxy", title: "Proxy", icon: "vpn_key" },
   { id: "git-sync", title: "Git Sync", icon: "sync" },
   { id: "config", title: "Config", icon: "edit_document" },
+  { id: "updates", title: "Updates", icon: "system_update" },
   // { id: "logging", title: "Logging", icon: "description" }
 ];
 
@@ -550,6 +553,7 @@ export function ConfigView({ sectionId = "providers", onSectionChange = null }) 
   const initialSectionId = isSettingsSection(sectionId) ? sectionId : "providers";
   const [query, setQuery] = useState("");
   const [selectedSettings, setSelectedSettings] = useState(initialSectionId);
+  const { status: updateStatus, isChecking: isUpdateChecking, forceCheck: forceUpdateCheck } = useUpdateCheck();
   const [draftConfig, setDraftConfig] = useState(clone(EMPTY_CONFIG));
   const [savedConfig, setSavedConfig] = useState(clone(EMPTY_CONFIG));
   const [rawConfig, setRawConfig] = useState(JSON.stringify(EMPTY_CONFIG, null, 2));
@@ -1341,6 +1345,16 @@ export function ConfigView({ sectionId = "providers", onSectionChange = null }) 
 
     if (selectedSettings === "approvals") {
       return <ApprovalsView />;
+    }
+
+    if (selectedSettings === "updates") {
+      return (
+        <UpdatesView
+          status={updateStatus}
+          isChecking={isUpdateChecking}
+          onForceCheck={forceUpdateCheck}
+        />
+      );
     }
 
     if (selectedSettings === "config") {

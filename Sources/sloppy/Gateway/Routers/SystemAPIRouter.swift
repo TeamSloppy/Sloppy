@@ -1,6 +1,28 @@
 import Foundation
 import Protocols
 
+private struct UpdateStatusResponse: Encodable {
+    var currentVersion: String
+    var latestVersion: String?
+    var updateAvailable: Bool
+    var releaseUrl: String?
+    var publishedAt: Date?
+    var lastCheckedAt: Date?
+    var isReleaseBuild: Bool
+}
+
+private extension UpdateStatusResponse {
+    init(_ status: UpdateStatus) {
+        self.currentVersion = status.currentVersion
+        self.latestVersion = status.latestVersion
+        self.updateAvailable = status.updateAvailable
+        self.releaseUrl = status.releaseUrl
+        self.publishedAt = status.publishedAt
+        self.lastCheckedAt = status.lastCheckedAt
+        self.isReleaseBuild = status.isReleaseBuild
+    }
+}
+
 struct SystemAPIRouter: APIRouter {
     private let service: CoreService
 
@@ -97,6 +119,16 @@ struct SystemAPIRouter: APIRouter {
 
             let response = await service.listTokenUsage(channelId: channelId, taskId: taskId, from: from, to: to)
             return CoreRouter.encodable(status: HTTPStatus.ok, payload: response)
+        }
+
+        router.get("/v1/updates/check", metadata: RouteMetadata(summary: "Get update status", description: "Returns the current and latest available version of Sloppy", tags: ["System"])) { _ in
+            let status = await service.getUpdateStatus()
+            return CoreRouter.encodable(status: HTTPStatus.ok, payload: UpdateStatusResponse(status))
+        }
+
+        router.post("/v1/updates/check", metadata: RouteMetadata(summary: "Force update check", description: "Forces a fresh check against GitHub releases and returns the result", tags: ["System"])) { _ in
+            let status = await service.forceUpdateCheck()
+            return CoreRouter.encodable(status: HTTPStatus.ok, payload: UpdateStatusResponse(status))
         }
     }
 }
