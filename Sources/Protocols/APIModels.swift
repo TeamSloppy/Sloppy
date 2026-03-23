@@ -484,12 +484,45 @@ public struct AgentCreateRequest: Codable, Sendable {
     public var displayName: String
     public var role: String
     public var isSystem: Bool
+    public var runtime: AgentRuntimeConfig?
 
-    public init(id: String, displayName: String, role: String, isSystem: Bool = false) {
+    public init(
+        id: String,
+        displayName: String,
+        role: String,
+        isSystem: Bool = false,
+        runtime: AgentRuntimeConfig? = nil
+    ) {
         self.id = id
         self.displayName = displayName
         self.role = role
         self.isSystem = isSystem
+        self.runtime = runtime
+    }
+}
+
+public enum AgentRuntimeType: String, Codable, Sendable, Equatable {
+    case native
+    case acp
+}
+
+public struct AgentACPConfig: Codable, Sendable, Equatable {
+    public var targetId: String
+    public var cwd: String?
+
+    public init(targetId: String, cwd: String? = nil) {
+        self.targetId = targetId
+        self.cwd = cwd
+    }
+}
+
+public struct AgentRuntimeConfig: Codable, Sendable, Equatable {
+    public var type: AgentRuntimeType
+    public var acp: AgentACPConfig?
+
+    public init(type: AgentRuntimeType = .native, acp: AgentACPConfig? = nil) {
+        self.type = type
+        self.acp = acp
     }
 }
 
@@ -499,17 +532,26 @@ public struct AgentSummary: Codable, Sendable, Equatable {
     public var role: String
     public var createdAt: Date
     public var isSystem: Bool
+    public var runtime: AgentRuntimeConfig
 
     enum CodingKeys: String, CodingKey {
-        case id, displayName, role, createdAt, isSystem
+        case id, displayName, role, createdAt, isSystem, runtime
     }
 
-    public init(id: String, displayName: String, role: String, createdAt: Date = Date(), isSystem: Bool = false) {
+    public init(
+        id: String,
+        displayName: String,
+        role: String,
+        createdAt: Date = Date(),
+        isSystem: Bool = false,
+        runtime: AgentRuntimeConfig = AgentRuntimeConfig()
+    ) {
         self.id = id
         self.displayName = displayName
         self.role = role
         self.createdAt = createdAt
         self.isSystem = isSystem
+        self.runtime = runtime
     }
 
     public init(from decoder: Decoder) throws {
@@ -519,6 +561,7 @@ public struct AgentSummary: Codable, Sendable, Equatable {
         role = try container.decode(String.self, forKey: .role)
         createdAt = try container.decode(Date.self, forKey: .createdAt)
         isSystem = try container.decodeIfPresent(Bool.self, forKey: .isSystem) ?? false
+        runtime = try container.decodeIfPresent(AgentRuntimeConfig.self, forKey: .runtime) ?? .init()
     }
 }
 
@@ -745,21 +788,23 @@ public struct AgentChannelSessionSettings: Codable, Sendable, Equatable {
 
 public struct AgentConfigDetail: Codable, Sendable, Equatable {
     public var agentId: String
-    public var selectedModel: String
+    public var selectedModel: String?
     public var availableModels: [ProviderModelOption]
     public var documents: AgentDocumentBundle
     public var heartbeat: AgentHeartbeatSettings
     public var channelSessions: AgentChannelSessionSettings
     public var heartbeatStatus: AgentHeartbeatStatus
+    public var runtime: AgentRuntimeConfig
 
     public init(
         agentId: String,
-        selectedModel: String,
+        selectedModel: String?,
         availableModels: [ProviderModelOption],
         documents: AgentDocumentBundle,
         heartbeat: AgentHeartbeatSettings = AgentHeartbeatSettings(),
         channelSessions: AgentChannelSessionSettings = AgentChannelSessionSettings(),
-        heartbeatStatus: AgentHeartbeatStatus = AgentHeartbeatStatus()
+        heartbeatStatus: AgentHeartbeatStatus = AgentHeartbeatStatus(),
+        runtime: AgentRuntimeConfig = AgentRuntimeConfig()
     ) {
         self.agentId = agentId
         self.selectedModel = selectedModel
@@ -768,6 +813,7 @@ public struct AgentConfigDetail: Codable, Sendable, Equatable {
         self.heartbeat = heartbeat
         self.channelSessions = channelSessions
         self.heartbeatStatus = heartbeatStatus
+        self.runtime = runtime
     }
 
     enum CodingKeys: String, CodingKey {
@@ -778,36 +824,41 @@ public struct AgentConfigDetail: Codable, Sendable, Equatable {
         case heartbeat
         case channelSessions
         case heartbeatStatus
+        case runtime
     }
 
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         agentId = try container.decode(String.self, forKey: .agentId)
-        selectedModel = try container.decode(String.self, forKey: .selectedModel)
+        selectedModel = try container.decodeIfPresent(String.self, forKey: .selectedModel)
         availableModels = try container.decode([ProviderModelOption].self, forKey: .availableModels)
         documents = try container.decode(AgentDocumentBundle.self, forKey: .documents)
         heartbeat = try container.decodeIfPresent(AgentHeartbeatSettings.self, forKey: .heartbeat) ?? AgentHeartbeatSettings()
         channelSessions = try container.decodeIfPresent(AgentChannelSessionSettings.self, forKey: .channelSessions) ?? AgentChannelSessionSettings()
         heartbeatStatus = try container.decodeIfPresent(AgentHeartbeatStatus.self, forKey: .heartbeatStatus) ?? AgentHeartbeatStatus()
+        runtime = try container.decodeIfPresent(AgentRuntimeConfig.self, forKey: .runtime) ?? .init()
     }
 }
 
 public struct AgentConfigUpdateRequest: Codable, Sendable {
-    public var selectedModel: String
+    public var selectedModel: String?
     public var documents: AgentDocumentBundle
     public var heartbeat: AgentHeartbeatSettings
     public var channelSessions: AgentChannelSessionSettings
+    public var runtime: AgentRuntimeConfig
 
     public init(
-        selectedModel: String,
+        selectedModel: String?,
         documents: AgentDocumentBundle,
         heartbeat: AgentHeartbeatSettings = AgentHeartbeatSettings(),
-        channelSessions: AgentChannelSessionSettings = AgentChannelSessionSettings()
+        channelSessions: AgentChannelSessionSettings = AgentChannelSessionSettings(),
+        runtime: AgentRuntimeConfig = AgentRuntimeConfig()
     ) {
         self.selectedModel = selectedModel
         self.documents = documents
         self.heartbeat = heartbeat
         self.channelSessions = channelSessions
+        self.runtime = runtime
     }
 
     enum CodingKeys: String, CodingKey {
@@ -815,14 +866,98 @@ public struct AgentConfigUpdateRequest: Codable, Sendable {
         case documents
         case heartbeat
         case channelSessions
+        case runtime
     }
 
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        selectedModel = try container.decode(String.self, forKey: .selectedModel)
+        selectedModel = try container.decodeIfPresent(String.self, forKey: .selectedModel)
         documents = try container.decode(AgentDocumentBundle.self, forKey: .documents)
         heartbeat = try container.decodeIfPresent(AgentHeartbeatSettings.self, forKey: .heartbeat) ?? AgentHeartbeatSettings()
         channelSessions = try container.decodeIfPresent(AgentChannelSessionSettings.self, forKey: .channelSessions) ?? AgentChannelSessionSettings()
+        runtime = try container.decodeIfPresent(AgentRuntimeConfig.self, forKey: .runtime) ?? .init()
+    }
+}
+
+public struct ACPTargetProbeRequest: Codable, Sendable {
+    public var target: ACPProbeTarget
+
+    public init(target: ACPProbeTarget) {
+        self.target = target
+    }
+}
+
+public struct ACPProbeTarget: Codable, Sendable, Equatable {
+    public var id: String
+    public var title: String
+    public var transport: String
+    public var command: String
+    public var arguments: [String]
+    public var cwd: String?
+    public var environment: [String: String]
+    public var timeoutMs: Int
+    public var enabled: Bool
+
+    public init(
+        id: String,
+        title: String,
+        transport: String = "stdio",
+        command: String,
+        arguments: [String] = [],
+        cwd: String? = nil,
+        environment: [String: String] = [:],
+        timeoutMs: Int = 30_000,
+        enabled: Bool = true
+    ) {
+        self.id = id
+        self.title = title
+        self.transport = transport
+        self.command = command
+        self.arguments = arguments
+        self.cwd = cwd
+        self.environment = environment
+        self.timeoutMs = timeoutMs
+        self.enabled = enabled
+    }
+}
+
+public struct ACPTargetProbeResponse: Codable, Sendable, Equatable {
+    public var ok: Bool
+    public var targetId: String
+    public var targetTitle: String
+    public var agentName: String?
+    public var agentVersion: String?
+    public var supportsSessionList: Bool
+    public var supportsLoadSession: Bool
+    public var supportsPromptImage: Bool
+    public var supportsMCPHTTP: Bool
+    public var supportsMCPSSE: Bool
+    public var message: String
+
+    public init(
+        ok: Bool,
+        targetId: String,
+        targetTitle: String,
+        agentName: String? = nil,
+        agentVersion: String? = nil,
+        supportsSessionList: Bool = false,
+        supportsLoadSession: Bool = false,
+        supportsPromptImage: Bool = false,
+        supportsMCPHTTP: Bool = false,
+        supportsMCPSSE: Bool = false,
+        message: String
+    ) {
+        self.ok = ok
+        self.targetId = targetId
+        self.targetTitle = targetTitle
+        self.agentName = agentName
+        self.agentVersion = agentVersion
+        self.supportsSessionList = supportsSessionList
+        self.supportsLoadSession = supportsLoadSession
+        self.supportsPromptImage = supportsPromptImage
+        self.supportsMCPHTTP = supportsMCPHTTP
+        self.supportsMCPSSE = supportsMCPSSE
+        self.message = message
     }
 }
 
@@ -2094,6 +2229,10 @@ public struct SkillsRegistryResponse: Codable, Sendable {
     }
 }
 
+public enum SkillContext: String, Codable, Sendable, Equatable {
+    case fork
+}
+
 /// Installed skill metadata stored locally
 public struct InstalledSkill: Codable, Sendable, Equatable {
     public var id: String
@@ -2104,6 +2243,10 @@ public struct InstalledSkill: Codable, Sendable, Equatable {
     public var installedAt: Date
     public var version: String?
     public var localPath: String
+    public var userInvocable: Bool
+    public var allowedTools: [String]
+    public var context: SkillContext?
+    public var agent: String?
 
     public init(
         id: String,
@@ -2113,7 +2256,11 @@ public struct InstalledSkill: Codable, Sendable, Equatable {
         description: String? = nil,
         installedAt: Date = Date(),
         version: String? = nil,
-        localPath: String
+        localPath: String,
+        userInvocable: Bool = true,
+        allowedTools: [String] = [],
+        context: SkillContext? = nil,
+        agent: String? = nil
     ) {
         self.id = id
         self.owner = owner
@@ -2123,6 +2270,31 @@ public struct InstalledSkill: Codable, Sendable, Equatable {
         self.installedAt = installedAt
         self.version = version
         self.localPath = localPath
+        self.userInvocable = userInvocable
+        self.allowedTools = allowedTools
+        self.context = context
+        self.agent = agent
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case id, owner, repo, name, description, installedAt, version, localPath
+        case userInvocable, allowedTools, context, agent
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        owner = try container.decode(String.self, forKey: .owner)
+        repo = try container.decode(String.self, forKey: .repo)
+        name = try container.decode(String.self, forKey: .name)
+        description = try container.decodeIfPresent(String.self, forKey: .description)
+        installedAt = try container.decode(Date.self, forKey: .installedAt)
+        version = try container.decodeIfPresent(String.self, forKey: .version)
+        localPath = try container.decode(String.self, forKey: .localPath)
+        userInvocable = try container.decodeIfPresent(Bool.self, forKey: .userInvocable) ?? true
+        allowedTools = try container.decodeIfPresent([String].self, forKey: .allowedTools) ?? []
+        context = try container.decodeIfPresent(SkillContext.self, forKey: .context)
+        agent = try container.decodeIfPresent(String.self, forKey: .agent)
     }
 }
 
@@ -2131,11 +2303,27 @@ public struct SkillInstallRequest: Codable, Sendable {
     public var owner: String
     public var repo: String
     public var version: String?
+    public var userInvocable: Bool?
+    public var allowedTools: [String]?
+    public var context: SkillContext?
+    public var agent: String?
 
-    public init(owner: String, repo: String, version: String? = nil) {
+    public init(
+        owner: String,
+        repo: String,
+        version: String? = nil,
+        userInvocable: Bool? = nil,
+        allowedTools: [String]? = nil,
+        context: SkillContext? = nil,
+        agent: String? = nil
+    ) {
         self.owner = owner
         self.repo = repo
         self.version = version
+        self.userInvocable = userInvocable
+        self.allowedTools = allowedTools
+        self.context = context
+        self.agent = agent
     }
 }
 

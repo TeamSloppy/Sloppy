@@ -807,3 +807,111 @@ func tokenUsageDecodesWithUnknownFields() throws {
     #expect(usage.completion == 500)
     #expect(usage.total == 1500)
 }
+
+// MARK: - InstalledSkill Compatibility
+
+@Test
+func installedSkillDecodesWithoutNewFields() throws {
+    let json = """
+    {
+        "id": "acme/deploy",
+        "owner": "acme",
+        "repo": "skills",
+        "name": "deploy",
+        "description": "Deploy stuff",
+        "installedAt": "2026-03-20T10:00:00Z",
+        "localPath": "/workspace/agents/ceo/skills/acme/skills"
+    }
+    """.data(using: .utf8)!
+
+    let decoder = JSONDecoder()
+    decoder.dateDecodingStrategy = .iso8601
+
+    let skill = try decoder.decode(InstalledSkill.self, from: json)
+
+    #expect(skill.id == "acme/deploy")
+    #expect(skill.userInvocable == true)
+    #expect(skill.allowedTools.isEmpty)
+    #expect(skill.context == nil)
+    #expect(skill.agent == nil)
+}
+
+@Test
+func installedSkillDecodesWithAllNewFields() throws {
+    let json = """
+    {
+        "id": "acme/deploy",
+        "owner": "acme",
+        "repo": "skills",
+        "name": "deploy",
+        "installedAt": "2026-03-20T10:00:00Z",
+        "localPath": "/workspace/agents/ceo/skills/acme/skills",
+        "userInvocable": false,
+        "allowedTools": ["Bash", "Read"],
+        "context": "fork",
+        "agent": "Explore"
+    }
+    """.data(using: .utf8)!
+
+    let decoder = JSONDecoder()
+    decoder.dateDecodingStrategy = .iso8601
+
+    let skill = try decoder.decode(InstalledSkill.self, from: json)
+
+    #expect(skill.userInvocable == false)
+    #expect(skill.allowedTools == ["Bash", "Read"])
+    #expect(skill.context == .fork)
+    #expect(skill.agent == "Explore")
+}
+
+@Test
+func installedSkillRoundTripsWithNewFields() throws {
+    let skill = InstalledSkill(
+        id: "test/skill",
+        owner: "test",
+        repo: "skill",
+        name: "test-skill",
+        localPath: "/tmp/skills/test",
+        userInvocable: false,
+        allowedTools: ["Read", "Grep"],
+        context: .fork,
+        agent: "Explorer"
+    )
+
+    let encoder = JSONEncoder()
+    encoder.dateEncodingStrategy = .iso8601
+    let decoder = JSONDecoder()
+    decoder.dateDecodingStrategy = .iso8601
+
+    let data = try encoder.encode(skill)
+    let decoded = try decoder.decode(InstalledSkill.self, from: data)
+
+    #expect(decoded.id == skill.id)
+    #expect(decoded.owner == skill.owner)
+    #expect(decoded.repo == skill.repo)
+    #expect(decoded.name == skill.name)
+    #expect(decoded.localPath == skill.localPath)
+    #expect(decoded.userInvocable == false)
+    #expect(decoded.allowedTools == ["Read", "Grep"])
+    #expect(decoded.context == .fork)
+    #expect(decoded.agent == "Explorer")
+}
+
+@Test
+func skillContextEncodesAsRawString() throws {
+    let skill = InstalledSkill(
+        id: "x/y",
+        owner: "x",
+        repo: "y",
+        name: "y",
+        localPath: "/tmp",
+        context: .fork
+    )
+
+    let encoder = JSONEncoder()
+    encoder.dateEncodingStrategy = .iso8601
+    let data = try encoder.encode(skill)
+    let jsonString = String(data: data, encoding: .utf8)!
+
+    #expect(jsonString.contains("\"fork\""))
+}

@@ -88,11 +88,25 @@ struct AgentPromptComposer {
         skills
             .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
             .map { skill in
+                var parts: [String] = ["`\(skill.id)`", skill.name]
                 let description = skill.description?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-                if description.isEmpty {
-                    return "- `\(skill.id)` | \(skill.name) | path: `\(skill.localPath)`"
+                if !description.isEmpty {
+                    parts.append(description)
                 }
-                return "- `\(skill.id)` | \(skill.name) | \(description) | path: `\(skill.localPath)`"
+                if !skill.userInvocable {
+                    parts.append("user-invocable: false")
+                }
+                if !skill.allowedTools.isEmpty {
+                    parts.append("allowed-tools: \(skill.allowedTools.joined(separator: ", "))")
+                }
+                if let ctx = skill.context {
+                    parts.append("context: \(ctx.rawValue)")
+                }
+                if let agent = skill.agent, !agent.isEmpty {
+                    parts.append("agent: \(agent)")
+                }
+                parts.append("path: `\(skill.localPath)`")
+                return "- " + parts.joined(separator: " | ")
             }
             .joined(separator: "\n")
     }

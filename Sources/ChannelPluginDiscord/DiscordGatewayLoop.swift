@@ -295,8 +295,15 @@ actor DiscordGatewayLoop {
             ?? "unknown"
 
         let discordChannelId = data["channel_id"]?.asString ?? ""
+        let sloppyChannelId = config.channelId(forDiscordChannelId: discordChannelId)
 
-        if let localReply = commands.handle(text: text, from: displayName) {
+        let messageContext = MessageContext(
+            channelId: sloppyChannelId ?? discordChannelId,
+            userId: "discord:\(userId)",
+            platform: "discord",
+            displayName: displayName
+        )
+        if let localReply = commands.handle(text: text, context: messageContext) {
             do {
                 try await client.createInteractionResponse(
                     interactionId: interactionId,
@@ -321,7 +328,7 @@ actor DiscordGatewayLoop {
             logger.warning("Failed to ack interaction \(interactionId): \(error)")
         }
 
-        guard let sloppyChannelId = config.channelId(forDiscordChannelId: discordChannelId) else {
+        guard let sloppyChannelId else {
             logger.warning("No Discord channel mapping for interaction channelId=\(discordChannelId).")
             return
         }
@@ -417,7 +424,13 @@ actor DiscordGatewayLoop {
             return
         }
 
-        if let localReply = commands.handle(text: content, from: message.author.displayName) {
+        let messageContext = MessageContext(
+            channelId: sloppyChannelId,
+            userId: "discord:\(message.author.id)",
+            platform: "discord",
+            displayName: message.author.displayName
+        )
+        if let localReply = commands.handle(text: content, context: messageContext) {
             _ = try? await client.sendMessage(
                 channelId: message.channelId,
                 content: trimmedContent(localReply)

@@ -112,6 +112,26 @@
             "target": "sloppy",
             "configuration": "debug",
             "preLaunchTask": "Local: Dashboard Dev"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:Sloppy}",
+            "name": "Debug sloppy",
+            "target": "sloppy",
+            "configuration": "debug",
+            "preLaunchTask": "swift: Build Debug sloppy"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:Sloppy}",
+            "name": "Release sloppy",
+            "target": "sloppy",
+            "configuration": "release",
+            "preLaunchTask": "swift: Build Release sloppy"
         }
     ]
 }

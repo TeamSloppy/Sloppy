@@ -22,6 +22,7 @@ export const startOpenAIDeviceCode = coreApi.startOpenAIDeviceCode;
 export const pollOpenAIDeviceCode = coreApi.pollOpenAIDeviceCode;
 export const disconnectOpenAIOAuth = coreApi.disconnectOpenAIOAuth;
 export const probeProvider = coreApi.probeProvider;
+export const probeACPTarget = coreApi.probeACPTarget;
 export const fetchSearchProviderStatus = coreApi.fetchSearchProviderStatus;
 export const fetchProjects = coreApi.fetchProjects;
 export const fetchProject = coreApi.fetchProject;
