@@ -7,6 +7,7 @@ import {
   generateText,
   updateAgentConfig,
   fetchAgentConfig,
+  probeProvider,
 } from "../../api";
 import { AgentOverviewTab } from "./components/AgentOverviewTab";
 import { AgentTasksTab } from "./components/AgentTasksTab";
@@ -18,7 +19,7 @@ import { AgentSkillsTab } from "./components/AgentSkillsTab";
 import { AgentCronTab } from "./components/AgentCronTab";
 import { AgentMemoriesTab } from "./components/AgentMemoriesTab";
 import { Breadcrumbs } from "../../components/Breadcrumbs/Breadcrumbs";
-import { AgentCreateForm, resolveSystemRole, emptyAgentFormValues } from "./components/AgentCreateForm";
+import { AgentCreateForm, emptyAgentFormValues } from "./components/AgentCreateForm";
 import { AgentGeneratePreview, type GeneratedAgentFiles } from "./components/AgentGeneratePreview";
 
 const AGENT_TABS = [
@@ -35,7 +36,6 @@ const AGENT_TABS = [
 
 const AGENT_TAB_SET = new Set(AGENT_TABS.map((tab) => tab.id));
 
-const emptyAgentForm = emptyAgentFormValues;
 
 const EMPTY_GENERATED_FILES: GeneratedAgentFiles = {
   agentsMarkdown: "",
@@ -122,14 +122,14 @@ function parseGeneratedFiles(text: string): GeneratedAgentFiles {
   return result;
 }
 
-function normalizeAvailableModels(config: Record<string, unknown> | null): { id: string; title: string }[] {
-  if (!config || !Array.isArray(config.models)) return [];
-  return (config.models as Record<string, unknown>[]).flatMap((m) => {
-    const modelId = String(m.model || "");
-    const title = String(m.title || modelId);
-    if (!modelId) return [];
-    return [{ id: modelId, title }];
-  });
+function inferProviderId(entry: Record<string, unknown>): string {
+  const title = String(entry.title || "").toLowerCase();
+  const apiUrl = String(entry.apiUrl || "").toLowerCase();
+  if (title.includes("oauth")) return "openai-oauth";
+  if (title.includes("ollama") || apiUrl.includes("11434") || apiUrl.includes("ollama")) return "ollama";
+  if (title.includes("gemini") || apiUrl.includes("generativelanguage.googleapis.com")) return "gemini";
+  if (title.includes("anthropic") || apiUrl.includes("anthropic")) return "anthropic";
+  return "openai-api";
 }
 
 function AgentCreateModal({ isOpen, form, createError, onFormChange, onClose, onSubmit, availableModels, providerConfigured, isGenerating }) {
@@ -217,7 +217,7 @@ export function AgentsView({ routeAgentId = null, routeTab = "overview", onRoute
   const [agents, setAgents] = useState([]);
   const [isLoadingAgents, setIsLoadingAgents] = useState(true);
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
-  const [form, setForm] = useState(emptyAgentForm);
+  const [form, setForm] = useState(emptyAgentFormValues);
   const [createError, setCreateError] = useState("");
   const [statusText, setStatusText] = useState("Loading agents...");
   const [availableModels, setAvailableModels] = useState<{ id: string; title: string }[]>([]);
@@ -267,10 +267,36 @@ export function AgentsView({ routeAgentId = null, routeTab = "overview", onRoute
 
   async function loadRuntimeConfig() {
     const config = await fetchRuntimeConfig();
-    if (!config) return;
-    const models = normalizeAvailableModels(config);
-    setAvailableModels(models);
-    setProviderConfigured(models.length > 0);
+    if (!config || !Array.isArray(config.models) || (config.models as unknown[]).length === 0) {
+      setProviderConfigured(false);
+      return;
+    }
+
+    setProviderConfigured(true);
+
+    const allModels: { id: string; title: string }[] = [];
+
+    for (const entry of config.models as Record<string, unknown>[]) {
+      const providerId = inferProviderId(entry);
+      const result = await probeProvider({
+        providerId,
+        apiKey: String(entry.apiKey || ""),
+        apiUrl: String(entry.apiUrl || "")
+      });
+
+      if (result?.ok && Array.isArray(result.models)) {
+        for (const model of result.models as Record<string, unknown>[]) {
+          const id = String(model.id || "");
+          const title = String(model.title || id);
+          if (id && !allModels.some((m) => m.id === id)) {
+            allModels.push({ id, title });
+          }
+        }
+      }
+    }
+
+    setAvailableModels(allModels);
+    setProviderConfigured(allModels.length > 0);
   }
 
   async function refreshAgents() {
@@ -312,7 +338,8 @@ export function AgentsView({ routeAgentId = null, routeTab = "overview", onRoute
   }
 
   function openCreateModal() {
-    setForm(emptyAgentForm());
+    const defaultModel = availableModels[0]?.id ?? "";
+    setForm({ ...emptyAgentFormValues(), generateModel: defaultModel });
     setCreateError("");
     setGenerationPhase("form");
     setGeneratedFiles(EMPTY_GENERATED_FILES);
@@ -379,7 +406,7 @@ export function AgentsView({ routeAgentId = null, routeTab = "overview", onRoute
       id: normalizedId,
       displayName: displayName || normalizedId,
       role: role || "General-purpose assistant",
-      systemRole: resolveSystemRole(role) || undefined
+      isSystem: false
     });
 
     if (!response) {
@@ -388,7 +415,7 @@ export function AgentsView({ routeAgentId = null, routeTab = "overview", onRoute
     }
 
     setAgents((previous) => mergeAgent(previous, response));
-    setForm(emptyAgentForm());
+    setForm(emptyAgentFormValues());
     setStatusText(`Agent ${response.id} created in Sloppy`);
     setIsCreateModalOpen(false);
   }
@@ -405,7 +432,7 @@ export function AgentsView({ routeAgentId = null, routeTab = "overview", onRoute
       id: normalizedId,
       displayName: displayName || normalizedId,
       role: role || "General-purpose assistant",
-      systemRole: resolveSystemRole(role) || undefined
+      isSystem: false
     });
 
     if (!response) {
@@ -432,7 +459,7 @@ export function AgentsView({ routeAgentId = null, routeTab = "overview", onRoute
     }
 
     setAgents((previous) => mergeAgent(previous, response));
-    setForm(emptyAgentForm());
+    setForm(emptyAgentFormValues());
     setStatusText(`Agent ${response.id} created in Sloppy`);
     setIsSubmittingAgent(false);
     setIsCreateModalOpen(false);
