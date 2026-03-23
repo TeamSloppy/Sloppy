@@ -22,6 +22,7 @@ import { ApprovalsView } from "./components/ApprovalsView";
 import { ConfigRawView } from "./components/ConfigRawView";
 import { ProxyEditor } from "./components/ProxyEditor";
 import { ACPEditor } from "./components/ACPEditor";
+import { UIEditor } from "./components/UIEditor";
 import { UpdatesView } from "../updates/UpdatesView";
 import { useUpdateCheck } from "../updates/useUpdateCheck";
 
@@ -32,7 +33,7 @@ const SETTINGS_ITEMS = [
   { id: "approvals", title: "Approvals", icon: "fact_check" },
   { id: "plugins", title: "Plugins", icon: "extension" },
   // { id: "browser", title: "Browser", icon: "open_in_browser" },
-  // { id: "ui", title: "UI", icon: "palette" },
+  { id: "ui", title: "UI", icon: "palette" },
   { id: "nodehost", title: "NodeHost", icon: "dns" },
   // { id: "bindings", title: "Bindings", icon: "cable" },
   // { id: "broadcast", title: "Broadcast", icon: "cell_tower" },
@@ -1337,6 +1338,10 @@ export function ConfigView({ sectionId = "providers", onSectionChange = null }) 
 
     if (selectedSettings === "acp") {
       return <ACPEditor draftConfig={draftConfig} mutateDraft={mutateDraft} />;
+    }
+
+    if (selectedSettings === "ui") {
+      return <UIEditor />;
     }
 
     if (selectedSettings === "proxy") {

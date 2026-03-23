@@ -4,14 +4,17 @@ import { App } from "./App";
 import { ErrorBoundary } from "./components/ErrorBoundary/ErrorBoundary";
 import "./styles/index.css";
 
-const configuredAccentColor = window.__SLOPPY_CONFIG__?.accentColor;
+const storedAccentColor = localStorage.getItem("sloppy_accent_color");
+const resolvedAccentColor = storedAccentColor || window.__SLOPPY_CONFIG__?.accentColor;
 if (
-  typeof configuredAccentColor === "string" &&
-  configuredAccentColor.trim().length > 0 &&
+  typeof resolvedAccentColor === "string" &&
+  resolvedAccentColor.trim().length > 0 &&
   typeof window.CSS !== "undefined" &&
-  window.CSS.supports("color", configuredAccentColor.trim())
+  window.CSS.supports("color", resolvedAccentColor.trim())
 ) {
-  document.documentElement.style.setProperty("--accent-color", configuredAccentColor.trim());
+  const color = resolvedAccentColor.trim();
+  document.documentElement.style.setProperty("--accent-color", color);
+  document.documentElement.style.setProperty("--accent-opacity-bg", color + "97");
 }
 
 const rootElement = document.getElementById("root");

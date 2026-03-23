@@ -478,3 +478,66 @@
   line-height: 1.5;
 }
 
+/* UI / Appearance editor */
+
+.ui-accent-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.ui-color-picker {
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border: 1px solid var(--line);
+  background: transparent;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.ui-color-picker::-webkit-color-swatch-wrapper {
+  padding: 2px;
+}
+
+.ui-color-picker::-webkit-color-swatch {
+  border: none;
+}
+
+.ui-color-picker::-moz-color-swatch {
+  border: none;
+}
+
+.ui-hex-input {
+  width: 120px;
+  font-family: "Fira Code", monospace;
+  font-size: 0.88rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.ui-preset-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.ui-preset-swatch {
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 2px solid var(--line);
+  cursor: pointer;
+  transition: border-color 120ms ease, transform 120ms ease;
+}
+
+.ui-preset-swatch:hover {
+  border-color: var(--text);
+  transform: scale(1.1);
+}
+
+.ui-preset-swatch.active {
+  border-color: var(--text);
+  box-shadow: 0 0 0 2px var(--bg), 0 0 0 4px var(--text);
+}
+
