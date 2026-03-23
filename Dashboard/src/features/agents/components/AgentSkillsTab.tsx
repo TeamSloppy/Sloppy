@@ -109,6 +109,11 @@ function InstalledSkillCard({
   isUninstalling: boolean;
   onUninstall: () => void;
 }) {
+  const hasMetadata = (skill.userInvocable === false) ||
+    (skill.allowedTools && skill.allowedTools.length > 0) ||
+    skill.context ||
+    skill.agent;
+
   return (
     <div className="skill-card hover-levitate">
       <div className="skill-card-header">
@@ -120,6 +125,23 @@ function InstalledSkillCard({
       <p className="skill-description">
         {skill.description || "No description provided"}
       </p>
+      {hasMetadata && (
+        <div className="skill-metadata">
+          {skill.userInvocable === false && (
+            <span className="skill-badge skill-badge-muted">model-only</span>
+          )}
+          {skill.context === "fork" && (
+            <span className="skill-badge skill-badge-context">
+              fork{skill.agent ? `: ${skill.agent}` : ""}
+            </span>
+          )}
+          {skill.allowedTools && skill.allowedTools.length > 0 && (
+            <span className="skill-badge skill-badge-tools" title={skill.allowedTools.join(", ")}>
+              {skill.allowedTools.length} allowed tool{skill.allowedTools.length > 1 ? "s" : ""}
+            </span>
+          )}
+        </div>
+      )}
       <div className="skill-card-footer">
         <span className="skill-installs">
           Installed {new Date(skill.installedAt).toLocaleDateString()}

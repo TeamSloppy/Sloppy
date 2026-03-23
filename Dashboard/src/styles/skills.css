@@ -411,3 +411,39 @@
 .skills-load-more-btn .material-symbols-rounded {
   font-size: 16px;
 }
+
+/* Skill metadata badges */
+.skill-metadata {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.skill-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 0;
+  font-size: 0.75rem;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  border: 1px solid var(--line);
+  background: var(--surface-2);
+  color: var(--text-2);
+}
+
+.skill-badge-muted {
+  border-color: rgba(248, 113, 113, 0.3);
+  color: var(--danger);
+}
+
+.skill-badge-context {
+  border-color: rgba(96, 165, 250, 0.3);
+  color: var(--accent);
+}
+
+.skill-badge-tools {
+  border-color: rgba(52, 211, 153, 0.3);
+  color: var(--success, #34d399);
+}
