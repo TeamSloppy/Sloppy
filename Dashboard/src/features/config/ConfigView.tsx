@@ -23,6 +23,7 @@ import { ConfigRawView } from "./components/ConfigRawView";
 import { ProxyEditor } from "./components/ProxyEditor";
 import { ACPEditor } from "./components/ACPEditor";
 import { UIEditor } from "./components/UIEditor";
+import { VisorEditor } from "./components/VisorEditor";
 import { UpdatesView } from "../updates/UpdatesView";
 import { useUpdateCheck } from "../updates/useUpdateCheck";
 
@@ -40,6 +41,7 @@ const SETTINGS_ITEMS = [
   // { id: "audio", title: "Audio", icon: "volume_up" },
   // { id: "media", title: "Media", icon: "perm_media" },
   // { id: "session", title: "Session", icon: "manage_accounts" },
+  { id: "visor", title: "Visor", icon: "visibility" },
   { id: "acp", title: "ACP", icon: "smart_toy" },
   { id: "proxy", title: "Proxy", icon: "vpn_key" },
   { id: "git-sync", title: "Git Sync", icon: "sync" },
@@ -220,6 +222,30 @@ const EMPTY_CONFIG = {
     port: 1080,
     username: "",
     password: ""
+  },
+  visor: {
+    scheduler: {
+      enabled: true,
+      intervalSeconds: 300,
+      jitterSeconds: 60
+    },
+    bootstrapBulletin: true,
+    model: null,
+    bulletinMaxWords: 300,
+    tickIntervalSeconds: 30,
+    workerTimeoutSeconds: 600,
+    branchTimeoutSeconds: 60,
+    maintenanceIntervalSeconds: 3600,
+    decayRatePerDay: 0.05,
+    pruneImportanceThreshold: 0.1,
+    pruneMinAgeDays: 30,
+    channelDegradedFailureCount: 3,
+    channelDegradedWindowSeconds: 600,
+    idleThresholdSeconds: 1800,
+    webhookURLs: [],
+    mergeEnabled: false,
+    mergeSimilarityThreshold: 0.80,
+    mergeMaxPerRun: 10
   },
   sqlitePath: "core.sqlite"
 };
@@ -468,6 +494,28 @@ function normalizeConfig(config) {
   normalized.proxy.port = parseInteger(config?.proxy?.port ?? 1080, 1080);
   normalized.proxy.username = String(config?.proxy?.username || "");
   normalized.proxy.password = String(config?.proxy?.password || "");
+
+  const vc = config?.visor;
+  normalized.visor.scheduler.enabled = vc?.scheduler?.enabled !== false;
+  normalized.visor.scheduler.intervalSeconds = parseInteger(vc?.scheduler?.intervalSeconds ?? 300, 300);
+  normalized.visor.scheduler.jitterSeconds = parseInteger(vc?.scheduler?.jitterSeconds ?? 60, 60);
+  normalized.visor.bootstrapBulletin = vc?.bootstrapBulletin !== false;
+  normalized.visor.model = vc?.model ? String(vc.model) : null;
+  normalized.visor.bulletinMaxWords = parseInteger(vc?.bulletinMaxWords ?? 300, 300);
+  normalized.visor.tickIntervalSeconds = parseInteger(vc?.tickIntervalSeconds ?? 30, 30);
+  normalized.visor.workerTimeoutSeconds = parseInteger(vc?.workerTimeoutSeconds ?? 600, 600);
+  normalized.visor.branchTimeoutSeconds = parseInteger(vc?.branchTimeoutSeconds ?? 60, 60);
+  normalized.visor.maintenanceIntervalSeconds = parseInteger(vc?.maintenanceIntervalSeconds ?? 3600, 3600);
+  normalized.visor.decayRatePerDay = parseNumber(vc?.decayRatePerDay ?? 0.05, 0.05);
+  normalized.visor.pruneImportanceThreshold = parseNumber(vc?.pruneImportanceThreshold ?? 0.1, 0.1);
+  normalized.visor.pruneMinAgeDays = parseInteger(vc?.pruneMinAgeDays ?? 30, 30);
+  normalized.visor.channelDegradedFailureCount = parseInteger(vc?.channelDegradedFailureCount ?? 3, 3);
+  normalized.visor.channelDegradedWindowSeconds = parseInteger(vc?.channelDegradedWindowSeconds ?? 600, 600);
+  normalized.visor.idleThresholdSeconds = parseInteger(vc?.idleThresholdSeconds ?? 1800, 1800);
+  normalized.visor.webhookURLs = Array.isArray(vc?.webhookURLs) ? vc.webhookURLs.filter(Boolean) : [];
+  normalized.visor.mergeEnabled = Boolean(vc?.mergeEnabled);
+  normalized.visor.mergeSimilarityThreshold = parseNumber(vc?.mergeSimilarityThreshold ?? 0.80, 0.80);
+  normalized.visor.mergeMaxPerRun = parseInteger(vc?.mergeMaxPerRun ?? 10, 10);
 
   return normalized;
 }
@@ -1346,6 +1394,10 @@ export function ConfigView({ sectionId = "providers", onSectionChange = null }) 
 
     if (selectedSettings === "proxy") {
       return <ProxyEditor draftConfig={draftConfig} mutateDraft={mutateDraft} />;
+    }
+
+    if (selectedSettings === "visor") {
+      return <VisorEditor draftConfig={draftConfig} mutateDraft={mutateDraft} parseLines={parseLines} />;
     }
 
     if (selectedSettings === "approvals") {
