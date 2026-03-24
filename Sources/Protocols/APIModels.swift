@@ -699,6 +699,28 @@ public struct AgentMemoryGraphResponse: Codable, Sendable, Equatable {
     }
 }
 
+public struct AgentMemoryUpdateRequest: Codable, Sendable, Equatable {
+    public var note: String?
+    public var summary: String?
+    public var kind: MemoryKind?
+    public var importance: Double?
+    public var confidence: Double?
+
+    public init(
+        note: String? = nil,
+        summary: String? = nil,
+        kind: MemoryKind? = nil,
+        importance: Double? = nil,
+        confidence: Double? = nil
+    ) {
+        self.note = note
+        self.summary = summary
+        self.kind = kind
+        self.importance = importance
+        self.confidence = confidence
+    }
+}
+
 public struct AgentDocumentBundle: Codable, Sendable, Equatable {
     public var userMarkdown: String
     public var agentsMarkdown: String

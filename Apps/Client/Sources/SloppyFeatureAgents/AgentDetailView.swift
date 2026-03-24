@@ -5,11 +5,13 @@ import SloppyClientUI
 enum AgentDetailTab: String, CaseIterable, Hashable {
     case info
     case tasks
+    case chat
 
     var title: String {
         switch self {
         case .info: "INFO"
         case .tasks: "TASKS"
+        case .chat: "CHAT"
         }
     }
 }
@@ -59,6 +61,8 @@ struct AgentDetailView: View {
             agentInfoTab
         case .tasks:
             agentTasksTab
+        case .chat:
+            AgentChatView(agent: agent, apiClient: apiClient)
         }
     }
 

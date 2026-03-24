@@ -325,6 +325,38 @@ public actor HybridMemoryStore: MemoryStore {
 #endif
     }
 
+    public func updateEntry(id: String, note: String?, summary: String?, kind: MemoryKind?, importance: Double?, confidence: Double?) async -> MemoryEntry? {
+#if canImport(CSQLite3)
+        guard let db else { return nil }
+        var setClauses: [String] = []
+        if note != nil { setClauses.append("note = ?") }
+        if summary != nil { setClauses.append("summary = ?") }
+        if kind != nil { setClauses.append("kind = ?") }
+        if importance != nil { setClauses.append("importance = ?") }
+        if confidence != nil { setClauses.append("confidence = ?") }
+        guard !setClauses.isEmpty else { return nil }
+        setClauses.append("updated_at = ?")
+        let sql = "UPDATE memory_entries SET \(setClauses.joined(separator: ", ")) WHERE id = ? AND deleted_at IS NULL;"
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK else { return nil }
+        defer { sqlite3_finalize(statement) }
+        var idx: Int32 = 1
+        if let note { bindText(note, at: idx, statement: statement); idx += 1 }
+        if let summary { bindText(summary, at: idx, statement: statement); idx += 1 }
+        if let kind { bindText(kind.rawValue, at: idx, statement: statement); idx += 1 }
+        if let importance { sqlite3_bind_double(statement, idx, min(max(importance, 0), 1)); idx += 1 }
+        if let confidence { sqlite3_bind_double(statement, idx, min(max(confidence, 0), 1)); idx += 1 }
+        let now = isoFormatter.string(from: Date())
+        bindText(now, at: idx, statement: statement); idx += 1
+        bindText(id, at: idx, statement: statement)
+        _ = sqlite3_step(statement)
+        guard sqlite3_changes(db) > 0 else { return nil }
+        return loadEntry(id: id)
+#else
+        return nil
+#endif
+    }
+
     public func softDelete(id: String) async -> Bool {
 #if canImport(CSQLite3)
         guard let db else { return false }
