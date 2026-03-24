@@ -5,7 +5,6 @@ import SloppyClientUI
 struct ProjectListView: View {
     let projects: [APIProjectRecord]
     let isLoading: Bool
-    let onSelect: (APIProjectRecord) -> Void
     let onRefresh: () -> Void
 
     var body: some View {
@@ -23,13 +22,14 @@ struct ProjectListView: View {
                 } else {
                     VStack(alignment: .leading, spacing: Theme.spacingS) {
                         ForEach(projects) { project in
-                            EntityCard(
-                                title: project.name,
-                                subtitle: project.description.isEmpty ? "No description" : project.description,
-                                trailing: taskSummary(project),
-                                accentColor: Theme.accent,
-                                onTap: { onSelect(project) }
-                            )
+                            NavigationLink(value: project.id) {
+                                EntityCard(
+                                    title: project.name,
+                                    subtitle: project.description.isEmpty ? "No description" : project.description,
+                                    trailing: taskSummary(project),
+                                    accentColor: Theme.accent
+                                )
+                            }
                         }
                     }
                 }

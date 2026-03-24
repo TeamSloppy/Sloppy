@@ -8,6 +8,7 @@ struct AgentChatView: View {
 
     @State private var sessions: [ChatSessionSummary] = []
     @State private var selectedSessionId: String?
+    @State private var showTranscript = false
     @State private var messages: [ChatMessage] = []
     @State private var isLoadingSessions = false
     @State private var isSending = false
@@ -15,14 +16,21 @@ struct AgentChatView: View {
     @State private var streamTask: Task<Void, Never>?
 
     var body: some View {
-        if let sessionId = selectedSessionId {
-            transcriptView(sessionId: sessionId)
-        } else {
-            sessionListView
-        }
+        sessionListView
+            .fullScreenCover(isPresented: $showTranscript) {
+                if let sessionId = selectedSessionId {
+                    ChatTranscriptView(
+                        sessionId: sessionId,
+                        agentId: agent.id,
+                        messages: $messages,
+                        isSending: isSending,
+                        onSend: { content in
+                            sendMessage(agentId: agent.id, sessionId: sessionId, content: content)
+                        }
+                    )
+                }
+            }
     }
-
-    // MARK: - Session list
 
     private var sessionListView: some View {
         ScrollView {
@@ -57,37 +65,6 @@ struct AgentChatView: View {
         .onAppear { loadSessions() }
     }
 
-    // MARK: - Transcript
-
-    private func transcriptView(sessionId: String) -> some View {
-        VStack(alignment: .leading, spacing: 0) {
-            HStack(spacing: Theme.spacingM) {
-                BackButton("Sessions", action: { disconnectAndClearSession() })
-                Spacer()
-            }
-            .padding(.horizontal, Theme.spacingL)
-            .padding(.vertical, Theme.spacingM)
-
-            ScrollView {
-                VStack(alignment: .leading, spacing: Theme.spacingS) {
-                    if messages.isEmpty {
-                        EmptyStateView("No messages yet")
-                            .padding(.vertical, Theme.spacingXL)
-                    } else {
-                        ForEach(messages) { msg in
-                            ChatBubbleView(message: msg)
-                        }
-                    }
-                }
-                .padding(Theme.spacingM)
-            }
-
-            ChatComposerView { content in
-                sendMessage(agentId: agent.id, sessionId: sessionId, content: content)
-            }
-        }
-    }
-
     // MARK: - Session management
 
     private func selectSession(_ sessionId: String) {
@@ -96,6 +73,7 @@ struct AgentChatView: View {
         socketManager = nil
         messages = []
         selectedSessionId = sessionId
+        showTranscript = true
         loadSessionAndConnect(sessionId: sessionId)
     }
 
@@ -105,6 +83,7 @@ struct AgentChatView: View {
         socketManager = nil
         messages = []
         selectedSessionId = nil
+        showTranscript = false
     }
 
     // MARK: - Actions
@@ -194,6 +173,46 @@ struct AgentChatView: View {
             )
             isSending = false
         }
+    }
+}
+
+struct ChatTranscriptView: View {
+    let sessionId: String
+    let agentId: String
+    @Binding var messages: [ChatMessage]
+    let isSending: Bool
+    let onSend: (String) -> Void
+
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: Theme.spacingM) {
+                BackButton("Sessions", action: { dismiss() })
+                Spacer()
+            }
+            .padding(.horizontal, Theme.spacingL)
+            .padding(.vertical, Theme.spacingM)
+
+            ScrollView {
+                VStack(alignment: .leading, spacing: Theme.spacingS) {
+                    if messages.isEmpty {
+                        EmptyStateView("No messages yet")
+                            .padding(.vertical, Theme.spacingXL)
+                    } else {
+                        ForEach(messages) { msg in
+                            ChatBubbleView(message: msg)
+                        }
+                    }
+                }
+                .padding(Theme.spacingM)
+            }
+
+            ChatComposerView { content in
+                onSend(content)
+            }
+        }
+        .background(Theme.bg)
     }
 }
 

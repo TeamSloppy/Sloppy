@@ -4,7 +4,6 @@ import SloppyClientUI
 
 public struct AgentsScreen: View {
     @State private var agents: [APIAgentRecord] = []
-    @State private var selectedAgentId: String?
     @State private var isLoading = false
 
     private let apiClient: SloppyAPIClient
@@ -14,21 +13,18 @@ public struct AgentsScreen: View {
     }
 
     public var body: some View {
-        if let agentId = selectedAgentId,
-           let agent = agents.first(where: { $0.id == agentId }) {
-            AgentDetailView(
-                agent: agent,
-                apiClient: apiClient,
-                onBack: { selectedAgentId = nil }
-            )
-        } else {
+        NavigationStack {
             AgentListView(
                 agents: agents,
                 isLoading: isLoading,
-                onSelect: { selectedAgentId = $0.id },
                 onRefresh: { loadAgents() }
             )
             .onAppear { loadAgents() }
+            .navigate(for: String.self) { agentId in
+                if let agent = agents.first(where: { $0.id == agentId }) {
+                    AgentDetailView(agent: agent, apiClient: apiClient)
+                }
+            }
         }
     }
 

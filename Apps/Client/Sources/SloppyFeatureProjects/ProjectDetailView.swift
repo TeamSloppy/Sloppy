@@ -18,14 +18,14 @@ enum ProjectDetailTab: String, CaseIterable, Hashable {
 
 struct ProjectDetailView: View {
     let project: APIProjectRecord
-    let onBack: () -> Void
 
+    @Environment(\.dismiss) private var dismiss
     @State private var selectedTab: ProjectDetailTab = .info
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: Theme.spacingM) {
-                BackButton("Projects", action: onBack)
+                BackButton("Projects", action: { dismiss() })
                 Spacer()
             }
             .padding(.horizontal, Theme.spacingL)
