@@ -27,6 +27,12 @@ export const TASK_PRIORITY_LABELS = {
   high: "High"
 };
 
+export const TASK_PRIORITY_ORDER = {
+  high: 0,
+  medium: 1,
+  low: 2
+};
+
 export const TASK_STATUS_COLORS = {
   backlog: "#94a3b8",
   ready: "#3b82f6",
@@ -132,6 +138,14 @@ export function normalizeProject(project, index = 0) {
     }
     : { enabled: false, intervalMinutes: 5 };
 
+  const reviewSettingsRaw = project?.reviewSettings;
+  const reviewSettings = reviewSettingsRaw && typeof reviewSettingsRaw === "object"
+    ? {
+      enabled: Boolean(reviewSettingsRaw.enabled),
+      approvalMode: String(reviewSettingsRaw.approvalMode || "human").trim() || "human"
+    }
+    : { enabled: false, approvalMode: "human" };
+
   return {
     id,
     name,
@@ -145,7 +159,9 @@ export function normalizeProject(project, index = 0) {
     teams: Array.isArray(project?.teams) ? project.teams : [],
     models: Array.isArray(project?.models) ? project.models : [],
     agentFiles: Array.isArray(project?.agentFiles) ? project.agentFiles : [],
-    heartbeat
+    heartbeat,
+    repoPath: String(project?.repoPath || "").trim() || null,
+    reviewSettings
   };
 }
 
@@ -220,6 +236,168 @@ export function buildTaskCounts(tasks) {
     counts[status.id] = tasks.filter((task) => task.status === status.id).length;
   }
   return counts;
+}
+
+export function buildOverviewMetrics(project, taskCounts, activeWorkers, chatSnapshots) {
+  const totalTasks = Number(taskCounts?.total || 0);
+  const doneTasks = Number(taskCounts?.done || 0);
+  const openTasks = Math.max(0, totalTasks - doneTasks);
+  const needsAttention = Number(taskCounts?.blocked || 0) + Number(taskCounts?.needs_review || 0);
+  const channelActivity = buildChannelActivity(project, chatSnapshots, activeWorkers);
+  const activeChannelCount = channelActivity.filter((channel) => channel.hasActivity).length;
+  const relatedChannelCount = Array.isArray(project?.chats) ? project.chats.length : 0;
+  const activeWorkerCount = Array.isArray(activeWorkers) ? activeWorkers.length : 0;
+
+  return [
+    {
+      id: "open",
+      label: "Open tasks",
+      value: openTasks,
+      sublabel: totalTasks > 0 ? `${doneTasks} done` : "No tasks yet",
+      tabId: "tasks"
+    },
+    {
+      id: "attention",
+      label: "Needs attention",
+      value: needsAttention,
+      sublabel: `${Number(taskCounts?.blocked || 0)} blocked / ${Number(taskCounts?.needs_review || 0)} review`,
+      tabId: "tasks"
+    },
+    {
+      id: "workers",
+      label: "Active workers",
+      value: activeWorkerCount,
+      sublabel: activeWorkerCount > 0 ? "Live execution in progress" : "No active workers",
+      tabId: "workers"
+    },
+    {
+      id: "channels",
+      label: "Active channels",
+      value: activeChannelCount,
+      sublabel: relatedChannelCount > 0 ? `${relatedChannelCount} configured` : "No channels",
+      tabId: "channels"
+    }
+  ];
+}
+
+export function buildAttentionTasks(tasks) {
+  const taskList = Array.isArray(tasks) ? tasks : [];
+  return taskList
+    .filter((task) => task.status === "blocked" || task.status === "needs_review")
+    .sort((left, right) => {
+      const leftStatusRank = left.status === "blocked" ? 0 : 1;
+      const rightStatusRank = right.status === "blocked" ? 0 : 1;
+      if (leftStatusRank !== rightStatusRank) {
+        return leftStatusRank - rightStatusRank;
+      }
+
+      const leftPriorityRank = TASK_PRIORITY_ORDER[left.priority] ?? TASK_PRIORITY_ORDER.medium;
+      const rightPriorityRank = TASK_PRIORITY_ORDER[right.priority] ?? TASK_PRIORITY_ORDER.medium;
+      if (leftPriorityRank !== rightPriorityRank) {
+        return leftPriorityRank - rightPriorityRank;
+      }
+
+      return new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime();
+    });
+}
+
+function resolveMessageTimestamp(message) {
+  const raw = message?.createdAt || message?.updatedAt || message?.ts || null;
+  const time = raw ? new Date(raw).getTime() : Number.NaN;
+  return Number.isNaN(time) ? 0 : time;
+}
+
+export function buildChannelActivity(project, chatSnapshots, activeWorkers) {
+  const chats = Array.isArray(project?.chats) ? project.chats : [];
+  const activeWorkerCountByChannel = new Map();
+
+  for (const worker of Array.isArray(activeWorkers) ? activeWorkers : []) {
+    const channelId = String(worker?.channelId || "").trim();
+    if (!channelId) {
+      continue;
+    }
+    activeWorkerCountByChannel.set(channelId, (activeWorkerCountByChannel.get(channelId) || 0) + 1);
+  }
+
+  return chats
+    .map((chat) => {
+      const channelId = String(chat?.channelId || "").trim();
+      const snapshot = chatSnapshots?.[channelId];
+      const messages = Array.isArray(snapshot?.messages) ? snapshot.messages : [];
+      const lastMessage = messages.length > 0 ? messages[messages.length - 1] : null;
+      const lastMessageAt = resolveMessageTimestamp(lastMessage);
+      const activeWorkerCount = activeWorkerCountByChannel.get(channelId) || 0;
+      const lastDecision = snapshot?.lastDecision || null;
+      const previewText = lastMessage?.content
+        ? String(lastMessage.content).replace(/\s+/g, " ").trim()
+        : lastDecision?.reason
+          ? String(lastDecision.reason).replace(/\s+/g, " ").trim()
+          : "";
+
+      return {
+        id: String(chat?.id || channelId),
+        channelId,
+        title: String(chat?.title || channelId || "Channel"),
+        messageCount: messages.length,
+        activeWorkerCount,
+        lastMessageUserId: String(lastMessage?.userId || "").trim(),
+        lastMessageAt: lastMessageAt > 0 ? new Date(lastMessageAt).toISOString() : "",
+        lastDecision,
+        previewText,
+        hasActivity: activeWorkerCount > 0 || messages.length > 0
+      };
+    })
+    .sort((left, right) => {
+      if (left.activeWorkerCount !== right.activeWorkerCount) {
+        return right.activeWorkerCount - left.activeWorkerCount;
+      }
+      return new Date(right.lastMessageAt || 0).getTime() - new Date(left.lastMessageAt || 0).getTime();
+    });
+}
+
+export function buildProjectReadiness(project) {
+  const repoPath = String(project?.repoPath || "").trim();
+  const reviewEnabled = Boolean(project?.reviewSettings?.enabled);
+  const approvalMode = String(project?.reviewSettings?.approvalMode || "human").trim() || "human";
+  const heartbeatEnabled = Boolean(project?.heartbeat?.enabled);
+  const heartbeatInterval = Number.isFinite(Number(project?.heartbeat?.intervalMinutes))
+    ? Number(project.heartbeat.intervalMinutes)
+    : 5;
+  const modelCount = Array.isArray(project?.models) ? project.models.length : 0;
+  const agentFileCount = Array.isArray(project?.agentFiles) ? project.agentFiles.length : 0;
+
+  return [
+    {
+      id: "repo",
+      label: "Repository",
+      value: repoPath ? "Connected" : "Missing",
+      detail: repoPath || "Attach a repo path in settings"
+    },
+    {
+      id: "review",
+      label: "Review flow",
+      value: reviewEnabled ? "Enabled" : "Off",
+      detail: reviewEnabled ? `Mode: ${approvalMode}` : "Review gate is disabled"
+    },
+    {
+      id: "heartbeat",
+      label: "Heartbeat",
+      value: heartbeatEnabled ? "On" : "Off",
+      detail: heartbeatEnabled ? `Every ${heartbeatInterval} min` : "No scheduled checks"
+    },
+    {
+      id: "models",
+      label: "Models",
+      value: String(modelCount),
+      detail: modelCount > 0 ? "Project model overrides available" : "Using default runtime models"
+    },
+    {
+      id: "files",
+      label: "Agent files",
+      value: String(agentFileCount),
+      detail: agentFileCount > 0 ? "Attached to this project" : "No project-specific files"
+    }
+  ];
 }
 
 export function buildSwarmGroups(tasks) {

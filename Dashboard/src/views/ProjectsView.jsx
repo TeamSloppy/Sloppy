@@ -1417,7 +1417,6 @@ export function ProjectsView({
     }
 
     if (selectedTab === "overview") {
-      const relatedWorkers = workersForProject(project, workers);
       const activeWorkers = activeWorkersForProject(project, workers);
       const taskCounts = buildTaskCounts(project.tasks);
       const createdItems = extractCreatedItems(project, chatSnapshots);
@@ -1427,8 +1426,10 @@ export function ProjectsView({
           project={project}
           taskCounts={taskCounts}
           activeWorkers={activeWorkers}
-          relatedWorkers={relatedWorkers}
+          chatSnapshots={chatSnapshots}
           createdItems={createdItems}
+          onOpenTab={(tabId) => openProject(project.id, tabId)}
+          onOpenTask={openTaskDetails}
         />
       );
     }
