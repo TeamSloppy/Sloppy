@@ -1,7 +1,7 @@
 {
   "id": "sloppy-apple-004",
   "title": "Build the root app shell and Overview surface",
-  "status": "todo",
+  "status": "done",
   "priority": "high",
   "depends_on": [
     "sloppy-apple-003"

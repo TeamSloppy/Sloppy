@@ -1,7 +1,7 @@
 {
   "id": "sloppy-apple-005",
   "title": "Build Projects and Agents read-only flows with nested tabs",
-  "status": "todo",
+  "status": "done",
   "priority": "high",
   "depends_on": [
     "sloppy-apple-004"

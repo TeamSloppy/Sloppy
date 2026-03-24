@@ -1,7 +1,7 @@
 {
   "id": "sloppy-apple-002",
   "title": "Vendor the AdaEngine fork as Vendor/AdaEngine and define ownership boundaries",
-  "status": "todo",
+  "status": "done",
   "priority": "high",
   "depends_on": [
     "sloppy-apple-001"

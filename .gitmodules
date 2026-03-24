@@ -1,0 +1,3 @@
+[submodule "Vendor/AdaEngine"]
+	path = Vendor/AdaEngine
+	url = https://github.com/AdaEngine/AdaEngine.git

@@ -47,10 +47,28 @@
   display: grid;
   gap: 10px;
   cursor: pointer;
+  transition: transform var(--motion-duration-fast) var(--motion-ease-brutalist),
+              box-shadow var(--motion-duration-fast) var(--motion-ease-brutalist),
+              border-color var(--motion-duration-fast) ease;
+  animation: motion-hard-cut var(--motion-duration-normal) var(--motion-ease-brutalist) both;
 }
+
+.projects-list .project-card:nth-child(1) { animation-delay: 60ms; }
+.projects-list .project-card:nth-child(2) { animation-delay: 120ms; }
+.projects-list .project-card:nth-child(3) { animation-delay: 180ms; }
+.projects-list .project-card:nth-child(4) { animation-delay: 240ms; }
+.projects-list .project-card:nth-child(5) { animation-delay: 300ms; }
+.projects-list .project-card:nth-child(6) { animation-delay: 360ms; }
 
 .project-card:hover {
   border-color: var(--line-strong);
+  transform: translate(-4px, -4px);
+  box-shadow: var(--shadow-brutalist);
+}
+
+.project-card:active {
+  transform: translate(1px, 1px);
+  box-shadow: none;
 }
 
 .project-card-head {
@@ -217,7 +235,10 @@
 
 .project-board-card--clickable {
   cursor: pointer;
-  transition: border-color 120ms ease, background-color 120ms ease, transform 120ms ease, box-shadow 120ms ease;
+  transition: border-color var(--motion-duration-fast) ease,
+              background-color var(--motion-duration-fast) ease,
+              transform var(--motion-duration-fast) var(--motion-ease-brutalist),
+              box-shadow var(--motion-duration-fast) var(--motion-ease-brutalist);
 }
 
 .project-board-card--clickable:hover,
@@ -225,7 +246,12 @@
   border-color: var(--line-strong);
   background: var(--surface-2);
   transform: translate(-4px, -4px);
-  box-shadow: 4px 4px 0px var(--accent);
+  box-shadow: var(--shadow-brutalist);
+}
+
+.project-board-card--clickable:active {
+  transform: translate(1px, 1px);
+  box-shadow: none;
 }
 
 .project-board-card-head {
@@ -898,11 +924,21 @@
 
 .project-kanban-task--clickable {
   cursor: pointer;
+  transition: transform var(--motion-duration-fast) var(--motion-ease-brutalist),
+              box-shadow var(--motion-duration-fast) var(--motion-ease-brutalist),
+              border-color var(--motion-duration-fast) ease;
 }
 
 .project-kanban-task--clickable:hover {
   border-color: var(--line-strong);
   background: var(--surface-2);
+  transform: translate(-2px, -2px);
+  box-shadow: var(--shadow-brutalist-sm);
+}
+
+.project-kanban-task--clickable:active {
+  transform: translate(1px, 1px);
+  box-shadow: none;
 }
 
 .project-kanban-task--selected {

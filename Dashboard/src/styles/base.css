@@ -27,6 +27,28 @@ body::after {
   mix-blend-mode: overlay;
 }
 
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 9998;
+  background: repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 2px,
+    rgba(0, 0, 0, 0.12) 2px,
+    rgba(0, 0, 0, 0.12) 4px
+  );
+  opacity: 0.35;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  body::before {
+    display: none;
+  }
+}
+
 body.mobile-menu-open {
   overflow: hidden;
 }
@@ -57,10 +79,18 @@ button {
   color: var(--text);
   font-weight: 600;
   cursor: pointer;
+  transition: transform var(--motion-duration-fast) var(--motion-ease-brutalist),
+              box-shadow var(--motion-duration-fast) var(--motion-ease-brutalist),
+              border-color var(--motion-duration-fast) ease,
+              background var(--motion-duration-fast) ease;
 }
 
 button:hover {
   border-color: var(--line-strong);
+}
+
+button:active:not(:disabled) {
+  transform: translate(1px, 1px);
 }
 
 .danger {

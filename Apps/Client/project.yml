@@ -1,0 +1,65 @@
+name: SloppyClient
+
+options:
+  bundleIdPrefix: com.teamsloppy
+  deploymentTarget:
+    macOS: "15.0"
+    iOS: "17.0"
+  createIntermediateGroups: true
+
+packages:
+  SloppyClient:
+    path: .
+
+targets:
+  SloppyClient:
+    type: application
+    platform: macOS
+    deploymentTarget: "15.0"
+    sources: Sources/SloppyClient
+    dependencies:
+      - package: SloppyClient
+        product: SloppyClient
+    info:
+      path: SupportingFiles/macOS/Info.plist
+      properties:
+        CFBundleDisplayName: Sloppy
+        CFBundleIdentifier: com.teamsloppy.SloppyClient
+        CFBundleShortVersionString: "0.1.0"
+        CFBundleVersion: "1"
+        NSPrincipalClass: NSApplication
+        NSHighResolutionCapable: true
+    entitlements:
+      path: SupportingFiles/macOS/SloppyClient.entitlements
+      properties:
+        com.apple.security.app-sandbox: true
+        com.apple.security.network.client: true
+        aps-environment: development
+
+  SloppyClient-iOS:
+    type: application
+    platform: iOS
+    deploymentTarget: "17.0"
+    sources: Sources/SloppyClient
+    dependencies:
+      - package: SloppyClient
+        product: SloppyClient
+    info:
+      path: SupportingFiles/iOS/Info.plist
+      properties:
+        CFBundleDisplayName: Sloppy
+        CFBundleIdentifier: com.teamsloppy.SloppyClient.ios
+        CFBundleShortVersionString: "0.1.0"
+        CFBundleVersion: "1"
+        UILaunchScreen: {}
+        UIRequiredDeviceCapabilities:
+          - arm64
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+    entitlements:
+      path: SupportingFiles/iOS/SloppyClient-iOS.entitlements
+      properties:
+        com.apple.security.app-sandbox: false
+        aps-environment: development

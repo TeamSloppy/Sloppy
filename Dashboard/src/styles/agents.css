@@ -219,11 +219,29 @@
   gap: 8px 12px;
   background: var(--surface-2);
   text-align: left;
+  transition: transform var(--motion-duration-fast) var(--motion-ease-brutalist),
+              box-shadow var(--motion-duration-fast) var(--motion-ease-brutalist),
+              border-color var(--motion-duration-fast) ease;
+  animation: motion-hard-cut var(--motion-duration-normal) var(--motion-ease-brutalist) both;
 }
+
+.agent-list-container .agent-list-item-card:nth-child(1) { animation-delay: 60ms; }
+.agent-list-container .agent-list-item-card:nth-child(2) { animation-delay: 120ms; }
+.agent-list-container .agent-list-item-card:nth-child(3) { animation-delay: 180ms; }
+.agent-list-container .agent-list-item-card:nth-child(4) { animation-delay: 240ms; }
+.agent-list-container .agent-list-item-card:nth-child(5) { animation-delay: 300ms; }
+.agent-list-container .agent-list-item-card:nth-child(6) { animation-delay: 360ms; }
 
 .agent-list-item-card:hover {
   border-color: var(--line-strong);
   background: var(--surface-2);
+  transform: translate(-4px, -4px);
+  box-shadow: var(--shadow-brutalist);
+}
+
+.agent-list-item-card:active {
+  transform: translate(1px, 1px);
+  box-shadow: none;
 }
 
 .agent-list-item-card:focus-visible {
@@ -434,17 +452,23 @@
   background: transparent;
   color: var(--muted);
   padding: 6px 10px;
+  transition: transform var(--motion-duration-fast) var(--motion-ease-brutalist),
+              border-color var(--motion-duration-fast) ease,
+              color var(--motion-duration-fast) ease,
+              background var(--motion-duration-fast) ease;
 }
 
 .agent-tab:hover {
   border-color: var(--line);
   color: var(--text);
+  transform: translateY(-1px);
 }
 
 .agent-tab.active {
   border-color: var(--accent);
   color: var(--accent);
   background: var(--surface-3);
+  border-bottom: 2px solid var(--accent);
 }
 
 .agent-content-shell {
@@ -655,7 +679,8 @@ body.agent-chat-no-page-scroll .page {
   padding: 10px 14px;
   background: var(--surface);
   border: 1px solid var(--accent);
-  box-shadow: 4px 4px 0px var(--accent);
+  box-shadow: var(--shadow-brutalist);
+  animation: motion-slide-up 0.25s var(--motion-ease-brutalist) both;
 }
 
 .agent-chat-message.assistant {

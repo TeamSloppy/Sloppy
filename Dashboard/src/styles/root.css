@@ -4,20 +4,24 @@
   --surface-2: #111111;
   --surface-3: #1a1a1a;
   --line: #333333;
-  /* Grey borders for inactive cards */
   --line-strong: var(--accent);
-  /* Accent color for hover/active */
   --text: #f0f0f0;
   --muted: #888888;
   --accent-color: #ccff00;
   --accent-opacity-bg: #ccff0097;
-  /* Acid lime */
   --accent: var(--accent-color);
   --success: #00ffff;
-  /* Cyan */
   --warn: #ffcc00;
   --danger: #ff00ff;
-  /* Magenta glitch */
   --radius: 0px;
-  /* Brutalist UI */
+
+  --motion-ease-brutalist: cubic-bezier(0.16, 1, 0.3, 1);
+  --motion-ease-snap: cubic-bezier(0.22, 0.61, 0.36, 1);
+  --motion-duration-fast: 120ms;
+  --motion-duration-normal: 280ms;
+  --motion-duration-slow: 500ms;
+
+  --shadow-brutalist: 4px 4px 0px var(--accent);
+  --shadow-brutalist-danger: 4px 4px 0px var(--danger);
+  --shadow-brutalist-sm: 2px 2px 0px var(--accent);
 }

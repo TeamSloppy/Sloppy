@@ -23,6 +23,7 @@
   font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
+  animation: motion-glitch-in 0.5s steps(4, end) both;
 }
 
 .overview-loading-badge {
@@ -79,6 +80,14 @@
   letter-spacing: 0.1em;
   text-transform: uppercase;
   color: var(--muted);
+  animation: motion-slide-up 0.3s var(--motion-ease-snap) both;
+}
+
+.overview-section-header h2::before {
+  content: "//";
+  color: var(--accent);
+  font-weight: 700;
+  opacity: 0.6;
 }
 
 .overview-section-header h2 .material-symbols-rounded {
@@ -137,6 +146,13 @@
   gap: 10px;
 }
 
+.active-channels-grid .channel-card:nth-child(1) { animation-delay: 50ms; }
+.active-channels-grid .channel-card:nth-child(2) { animation-delay: 110ms; }
+.active-channels-grid .channel-card:nth-child(3) { animation-delay: 170ms; }
+.active-channels-grid .channel-card:nth-child(4) { animation-delay: 230ms; }
+.active-channels-grid .channel-card:nth-child(5) { animation-delay: 290ms; }
+.active-channels-grid .channel-card:nth-child(6) { animation-delay: 350ms; }
+
 .channel-card {
   all: unset;
   box-sizing: border-box;
@@ -149,10 +165,21 @@
   cursor: pointer;
   text-align: left;
   width: 100%;
+  transition: transform var(--motion-duration-fast) var(--motion-ease-brutalist),
+              box-shadow var(--motion-duration-fast) var(--motion-ease-brutalist),
+              border-color var(--motion-duration-fast) ease;
+  animation: motion-hard-cut var(--motion-duration-normal) var(--motion-ease-brutalist) both;
 }
 
 .channel-card:hover {
   border-color: var(--accent);
+  transform: translate(-4px, -4px);
+  box-shadow: var(--shadow-brutalist);
+}
+
+.channel-card:active {
+  transform: translate(1px, 1px);
+  box-shadow: none;
 }
 
 .channel-card:disabled {
@@ -609,6 +636,22 @@
   padding: 16px 16px 14px;
   border: 1px solid var(--line);
   background: var(--surface);
+  position: relative;
+  transition: transform var(--motion-duration-fast) var(--motion-ease-brutalist),
+              box-shadow var(--motion-duration-fast) var(--motion-ease-brutalist),
+              border-color var(--motion-duration-fast) ease;
+  animation: motion-slide-up 0.35s var(--motion-ease-snap) both;
+}
+
+.stat-row .stat-card:nth-child(1) { animation-delay: 100ms; }
+.stat-row .stat-card:nth-child(2) { animation-delay: 160ms; }
+.stat-row .stat-card:nth-child(3) { animation-delay: 220ms; }
+.stat-row .stat-card:nth-child(4) { animation-delay: 280ms; }
+
+.stat-card:hover {
+  transform: translate(-3px, -3px);
+  box-shadow: var(--shadow-brutalist-sm);
+  border-color: var(--accent);
 }
 
 .stat-card-icon .material-symbols-rounded {
@@ -622,6 +665,12 @@
   color: var(--text);
   line-height: 1;
   letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+}
+
+.stat-card:hover .stat-card-value {
+  color: var(--accent);
+  text-shadow: 0 0 8px rgba(204, 255, 0, 0.3);
 }
 
 .stat-card-label {
@@ -687,6 +736,13 @@
   gap: 10px;
   padding: 10px 14px;
   border-bottom: 1px solid var(--line);
+  transition: background var(--motion-duration-fast) ease,
+              transform var(--motion-duration-fast) var(--motion-ease-brutalist);
+}
+
+.closed-task-item:hover {
+  background: rgba(255, 255, 255, 0.02);
+  transform: translateX(4px);
 }
 
 .closed-task-item:last-child {

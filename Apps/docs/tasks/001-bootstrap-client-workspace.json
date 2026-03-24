@@ -1,7 +1,7 @@
 {
   "id": "sloppy-apple-001",
   "title": "Bootstrap Apps/Client workspace and generated Apple project flow",
-  "status": "todo",
+  "status": "done",
   "priority": "high",
   "depends_on": [],
   "adr_refs": [

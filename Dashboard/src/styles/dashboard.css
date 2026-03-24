@@ -63,6 +63,12 @@
   border: 1px solid var(--line);
   padding: 16px 20px;
   border-radius: 0;
+  animation: motion-hard-cut var(--motion-duration-normal) var(--motion-ease-brutalist) both;
+  transition: border-color var(--motion-duration-fast) ease;
+}
+
+.latest-run-card:hover {
+  border-color: var(--accent);
 }
 
 .latest-run-status {
@@ -125,6 +131,21 @@
   padding: 16px;
   display: flex;
   flex-direction: column;
+  transition: transform var(--motion-duration-fast) var(--motion-ease-brutalist),
+              box-shadow var(--motion-duration-fast) var(--motion-ease-brutalist),
+              border-color var(--motion-duration-fast) ease;
+  animation: motion-slide-up 0.35s var(--motion-ease-snap) both;
+}
+
+.dashboard-charts-grid .chart-card:nth-child(1) { animation-delay: 80ms; }
+.dashboard-charts-grid .chart-card:nth-child(2) { animation-delay: 150ms; }
+.dashboard-charts-grid .chart-card:nth-child(3) { animation-delay: 220ms; }
+.dashboard-charts-grid .chart-card:nth-child(4) { animation-delay: 290ms; }
+
+.chart-card:hover {
+  border-color: var(--accent);
+  transform: translate(-3px, -3px);
+  box-shadow: var(--shadow-brutalist-sm);
 }
 
 .chart-header {
@@ -172,6 +193,19 @@
   width: 10px;
   border-radius: 0;
   min-height: 2px;
+  animation: chart-bar-grow 0.6s var(--motion-ease-brutalist) both;
+  transform-origin: bottom;
+}
+
+@keyframes chart-bar-grow {
+  from {
+    transform: scaleY(0);
+    opacity: 0;
+  }
+  to {
+    transform: scaleY(1);
+    opacity: 1;
+  }
 }
 
 .bg-gray {
@@ -254,6 +288,13 @@
   padding: 12px 16px;
   border-bottom: 1px solid var(--line);
   gap: 16px;
+  transition: background var(--motion-duration-fast) ease,
+              transform var(--motion-duration-fast) var(--motion-ease-brutalist);
+}
+
+.recent-issue-item:hover {
+  background: rgba(255, 255, 255, 0.02);
+  transform: translateX(4px);
 }
 
 .recent-issue-item:last-child {
@@ -303,15 +344,32 @@
   font-size: 1.5rem;
   font-weight: 600;
   color: var(--text);
+  font-variant-numeric: tabular-nums;
+  transition: color var(--motion-duration-fast) ease,
+              text-shadow var(--motion-duration-fast) ease;
+}
+
+.cost-metric:hover .cost-value {
+  color: var(--accent);
+  text-shadow: 0 0 6px rgba(204, 255, 0, 0.25);
 }
 
 .hover-levitate {
-  transition: transform 120ms ease, box-shadow 120ms ease, border-color 120ms ease, background-color 120ms ease !important;
+  transition: transform var(--motion-duration-fast) var(--motion-ease-brutalist),
+              box-shadow var(--motion-duration-fast) var(--motion-ease-brutalist),
+              border-color var(--motion-duration-fast) ease,
+              background-color var(--motion-duration-fast) ease !important;
 }
 
 .hover-levitate:hover:not(:disabled) {
   transform: translate(-4px, -4px) !important;
-  box-shadow: 4px 4px 0px var(--accent) !important;
+  box-shadow: var(--shadow-brutalist) !important;
+  border-color: var(--accent) !important;
+}
+
+.hover-levitate:active:not(:disabled) {
+  transform: translate(1px, 1px) !important;
+  box-shadow: none !important;
 }
 
 
