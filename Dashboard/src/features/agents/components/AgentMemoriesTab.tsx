@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Network, DataSet } from "vis-network/standalone";
-import { fetchAgentMemories, fetchAgentMemoryGraph } from "../../../api";
+import { fetchAgentMemories, fetchAgentMemoryGraph, updateAgentMemory, deleteAgentMemory } from "../../../api";
 
 const PAGE_SIZE = 20;
 
@@ -716,7 +716,28 @@ function VisNetworkGraph({
   );
 }
 
-function MemoryInspector({ item }: { item: AgentMemoryItem | null }) {
+function MemoryInspector({
+  item,
+  agentId,
+  onUpdated,
+  onDeleted,
+}: {
+  item: AgentMemoryItem | null;
+  agentId: string;
+  onUpdated: (updated: AgentMemoryItem) => void;
+  onDeleted: (id: string) => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [editNote, setEditNote] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+
+  useEffect(() => {
+    setEditing(false);
+    setConfirmDelete(false);
+  }, [item?.id]);
+
   if (!item) {
     return (
       <aside className="agent-memory-inspector">
@@ -724,6 +745,44 @@ function MemoryInspector({ item }: { item: AgentMemoryItem | null }) {
       </aside>
     );
   }
+
+  const handleEdit = () => {
+    setEditNote(item.note);
+    setEditing(true);
+    setConfirmDelete(false);
+  };
+
+  const handleCancelEdit = () => {
+    setEditing(false);
+  };
+
+  const handleSave = async () => {
+    const trimmed = editNote.trim();
+    if (!trimmed || trimmed === item.note) {
+      setEditing(false);
+      return;
+    }
+    setSaving(true);
+    const result = await updateAgentMemory(agentId, item.id, { note: trimmed });
+    setSaving(false);
+    if (result) {
+      const normalized = normalizeMemoryItem(result);
+      if (normalized) {
+        onUpdated(normalized);
+      }
+      setEditing(false);
+    }
+  };
+
+  const handleDelete = async () => {
+    setDeleting(true);
+    const ok = await deleteAgentMemory(agentId, item.id);
+    setDeleting(false);
+    if (ok) {
+      onDeleted(item.id);
+      setConfirmDelete(false);
+    }
+  };
 
   return (
     <aside className="agent-memory-inspector">
@@ -736,7 +795,24 @@ function MemoryInspector({ item }: { item: AgentMemoryItem | null }) {
         <span className="agent-memory-date">{formatRelativeDate(item.createdAt)}</span>
       </div>
       <h4>{memoryCardTitle(item)}</h4>
-      <p className="agent-memory-note">{item.note}</p>
+      {editing ? (
+        <div className="agent-memory-edit-block">
+          <textarea
+            className="agent-memory-edit-textarea"
+            value={editNote}
+            onChange={(e) => setEditNote(e.target.value)}
+            rows={5}
+          />
+          <div className="agent-memory-edit-actions">
+            <button type="button" onClick={handleCancelEdit} disabled={saving}>Cancel</button>
+            <button type="button" className="agent-memory-save-btn" onClick={handleSave} disabled={saving || !editNote.trim()}>
+              {saving ? "Saving..." : "Save"}
+            </button>
+          </div>
+        </div>
+      ) : (
+        <p className="agent-memory-note">{item.note}</p>
+      )}
       <dl className="agent-memory-inspector-meta">
         <div>
           <dt>Scope</dt>
@@ -763,6 +839,30 @@ function MemoryInspector({ item }: { item: AgentMemoryItem | null }) {
           <dd>{item.expiresAt ? formatRelativeDate(item.expiresAt) : "Never"}</dd>
         </div>
       </dl>
+      {!editing && (
+        <div className="agent-memory-inspector-actions">
+          <button type="button" className="agent-memory-action-btn" onClick={handleEdit}>
+            <span className="material-symbols-rounded">edit</span>
+            Edit
+          </button>
+          {confirmDelete ? (
+            <div className="agent-memory-confirm-delete">
+              <span>Delete this memory?</span>
+              <button type="button" className="agent-memory-action-btn danger" onClick={handleDelete} disabled={deleting}>
+                {deleting ? "Deleting..." : "Confirm"}
+              </button>
+              <button type="button" className="agent-memory-action-btn" onClick={() => setConfirmDelete(false)} disabled={deleting}>
+                Cancel
+              </button>
+            </div>
+          ) : (
+            <button type="button" className="agent-memory-action-btn danger" onClick={() => setConfirmDelete(true)}>
+              <span className="material-symbols-rounded">delete</span>
+              Delete
+            </button>
+          )}
+        </div>
+      )}
     </aside>
   );
 }
@@ -794,6 +894,7 @@ export function AgentMemoriesTab({ agentId }: { agentId: string }) {
   const [selectedMemoryId, setSelectedMemoryId] = useState<string | null>(null);
   const [graphSettings, setGraphSettings] = useState<GraphSettings>(loadGraphSettings);
   const [showGraphSettings, setShowGraphSettings] = useState(false);
+  const [refreshKey, setRefreshKey] = useState(0);
 
   useEffect(() => {
     const timer = setTimeout(() => setSearchQuery(searchInput.trim()), 300);
@@ -862,7 +963,7 @@ export function AgentMemoriesTab({ agentId }: { agentId: string }) {
     return () => {
       cancelled = true;
     };
-  }, [agentId, searchQuery, filter, offset]);
+  }, [agentId, searchQuery, filter, offset, refreshKey]);
 
   useEffect(() => {
     let cancelled = false;
@@ -920,7 +1021,7 @@ export function AgentMemoriesTab({ agentId }: { agentId: string }) {
     return () => {
       cancelled = true;
     };
-  }, [agentId, searchQuery, filter]);
+  }, [agentId, searchQuery, filter, refreshKey]);
 
   const visibleItems = view === "graph" ? graphResponse.nodes : listResponse.items;
   const selectedItem = useMemo(
@@ -944,6 +1045,17 @@ export function AgentMemoriesTab({ agentId }: { agentId: string }) {
   const handleGraphNodeSelect = useCallback((id: string | null) => {
     setSelectedMemoryId(id);
   }, []);
+
+  const handleMemoryUpdated = useCallback((_updated: AgentMemoryItem) => {
+    setRefreshKey((k) => k + 1);
+  }, []);
+
+  const handleMemoryDeleted = useCallback((id: string) => {
+    if (selectedMemoryId === id) {
+      setSelectedMemoryId(null);
+    }
+    setRefreshKey((k) => k + 1);
+  }, [selectedMemoryId]);
 
   const canGoBackward = listResponse.offset > 0;
   const canGoForward = listResponse.offset + listResponse.items.length < listResponse.total;
@@ -1095,7 +1207,12 @@ export function AgentMemoriesTab({ agentId }: { agentId: string }) {
           )}
         </div>
 
-        <MemoryInspector item={selectedItem} />
+        <MemoryInspector
+          item={selectedItem}
+          agentId={agentId}
+          onUpdated={handleMemoryUpdated}
+          onDeleted={handleMemoryDeleted}
+        />
       </div>
     </section>
   );

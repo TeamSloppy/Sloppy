@@ -275,6 +275,38 @@ private actor TimeoutTracker {
     #expect(entry?.deletedAt != nil)
 }
 
+@Test func inMemoryStoreUpdateEntryWorks() async {
+    let store = InMemoryMemoryStore()
+    let ref = await store.save(entry: MemoryWriteRequest(note: "original note", importance: 0.5, confidence: 0.7))
+
+    let updated = await store.updateEntry(id: ref.id, note: "updated note", summary: nil, kind: .goal, importance: 0.9, confidence: nil)
+    #expect(updated != nil)
+    #expect(updated?.note == "updated note")
+    #expect(updated?.kind == .goal)
+    #expect(updated?.importance == 0.9)
+    #expect(updated?.confidence == 0.7)
+
+    let entries = await store.entries(filter: .default)
+    let entry = entries.first(where: { $0.id == ref.id })
+    #expect(entry?.note == "updated note")
+    #expect(entry?.kind == .goal)
+}
+
+@Test func inMemoryStoreUpdateEntryReturnsNilForDeletedEntry() async {
+    let store = InMemoryMemoryStore()
+    let ref = await store.save(entry: MemoryWriteRequest(note: "to be deleted"))
+
+    _ = await store.softDelete(id: ref.id)
+    let updated = await store.updateEntry(id: ref.id, note: "should fail", summary: nil, kind: nil, importance: nil, confidence: nil)
+    #expect(updated == nil)
+}
+
+@Test func inMemoryStoreUpdateEntryReturnsNilForMissingId() async {
+    let store = InMemoryMemoryStore()
+    let updated = await store.updateEntry(id: "nonexistent", note: "nope", summary: nil, kind: nil, importance: nil, confidence: nil)
+    #expect(updated == nil)
+}
+
 // MARK: - Memory merge
 
 @Test func visorMergesSimilarMemories() async {

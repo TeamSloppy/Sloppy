@@ -70,6 +70,8 @@ export interface CoreApi {
   fetchAgentTasks: (agentId: string) => Promise<AnyRecord[] | null>;
   fetchAgentMemories: (agentId: string, query?: AgentMemoryQuery) => Promise<AnyRecord | null>;
   fetchAgentMemoryGraph: (agentId: string, query?: Pick<AgentMemoryQuery, "search" | "filter">) => Promise<AnyRecord | null>;
+  updateAgentMemory: (agentId: string, memoryId: string, payload: AnyRecord) => Promise<AnyRecord | null>;
+  deleteAgentMemory: (agentId: string, memoryId: string) => Promise<boolean>;
   createAgent: (payload: AnyRecord) => Promise<AnyRecord | null>;
   fetchActorsBoard: () => Promise<AnyRecord | null>;
   updateActorsBoard: (payload: AnyRecord) => Promise<AnyRecord | null>;
@@ -604,6 +606,26 @@ export function createCoreApi(): CoreApi {
         return null;
       }
       return response.data;
+    },
+
+    updateAgentMemory: async (agentId, memoryId, payload) => {
+      const response = await requestJson<AnyRecord, AnyRecord>({
+        path: `/v1/agents/${encodeURIComponent(agentId)}/memories/${encodeURIComponent(memoryId)}`,
+        method: "PATCH",
+        body: payload
+      });
+      if (!response.ok) {
+        return null;
+      }
+      return response.data;
+    },
+
+    deleteAgentMemory: async (agentId, memoryId) => {
+      const response = await requestJson<AnyRecord>({
+        path: `/v1/agents/${encodeURIComponent(agentId)}/memories/${encodeURIComponent(memoryId)}`,
+        method: "DELETE"
+      });
+      return response.ok;
     },
 
     createAgent: async (payload) => {

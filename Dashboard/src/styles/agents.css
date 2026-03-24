@@ -2120,6 +2120,120 @@ body.agent-chat-no-page-scroll .page {
   border-color: var(--accent);
 }
 
+.agent-memory-edit-block {
+  display: grid;
+  gap: 8px;
+}
+
+.agent-memory-edit-textarea {
+  width: 100%;
+  min-height: 100px;
+  resize: vertical;
+  font-family: inherit;
+  font-size: 0.88rem;
+  line-height: 1.45;
+  padding: 8px 10px;
+  border: 1px solid var(--accent);
+  background: var(--surface-3);
+  color: var(--text);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.agent-memory-edit-textarea:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.agent-memory-edit-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.agent-memory-edit-actions button {
+  min-width: auto;
+  padding: 5px 14px;
+  font-size: 0.82rem;
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.agent-memory-edit-actions button:hover {
+  color: var(--text);
+  border-color: var(--text);
+}
+
+.agent-memory-save-btn {
+  border-color: var(--accent) !important;
+  color: var(--accent) !important;
+}
+
+.agent-memory-save-btn:hover {
+  background: rgba(139, 92, 246, 0.1) !important;
+}
+
+.agent-memory-save-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.agent-memory-inspector-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding-top: 4px;
+  border-top: 1px solid var(--line);
+}
+
+.agent-memory-action-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: auto;
+  padding: 5px 12px;
+  font-size: 0.82rem;
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.agent-memory-action-btn:hover {
+  color: var(--text);
+  border-color: var(--text);
+}
+
+.agent-memory-action-btn .material-symbols-rounded {
+  font-size: 16px;
+}
+
+.agent-memory-action-btn.danger {
+  color: var(--danger, #f87171);
+  border-color: rgba(248, 113, 113, 0.35);
+}
+
+.agent-memory-action-btn.danger:hover {
+  border-color: var(--danger, #f87171);
+  background: rgba(248, 113, 113, 0.08);
+}
+
+.agent-memory-action-btn.danger:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.agent-memory-confirm-delete {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.82rem;
+  color: var(--danger, #f87171);
+}
+
 .agent-tools-head {
   align-items: flex-start;
 }

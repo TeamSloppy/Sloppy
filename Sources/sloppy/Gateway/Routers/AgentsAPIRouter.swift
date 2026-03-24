@@ -136,7 +136,7 @@ struct AgentsAPIRouter: APIRouter {
 
             do {
                 try await service.deleteAgentMemory(agentID: agentId, memoryID: memoryId)
-                return CoreRouter.json(status: HTTPStatus.ok, payload: ["ok": true])
+                return CoreRouter.json(status: HTTPStatus.ok, payload: ["status": "deleted"])
             } catch CoreService.AgentStorageError.invalidID {
                 return CoreRouter.json(status: HTTPStatus.badRequest, payload: ["error": ErrorCode.invalidAgentId])
             } catch CoreService.AgentStorageError.notFound {
