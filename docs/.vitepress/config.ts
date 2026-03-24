@@ -26,6 +26,7 @@ export default defineConfig({
     nav: [
       { text: "Guides", link: "/guides/build-from-terminal" },
       { text: "API", link: "/api/reference" },
+      { text: "Agents", link: "/agents/memory" },
       { text: "Design", link: "/architecture/project-design" },
       { text: "Specs", link: "/specs/channel-plugin-protocol" },
       { text: "Dashboard UI", link: "/dashboard-style" }
@@ -57,6 +58,15 @@ export default defineConfig({
           { text: "About Channels", link: "/channels/about" },
           { text: "Setup Telegram", link: "/channels/setup-telegram" },
           { text: "Setup Discord", link: "/channels/setup-discord" }
+        ]
+      },
+      {
+        text: "Agents",
+        items: [
+          { text: "Memory", link: "/agents/memory" },
+          { text: "Context Compactor", link: "/agents/context-compactor" },
+          { text: "Runtime", link: "/agents/runtime" },
+          { text: "Workspace", link: "/agents/workspace" }
         ]
       },
       {
