@@ -15,12 +15,10 @@ struct AgentChatView: View {
     @State private var streamTask: Task<Void, Never>?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            if let sessionId = selectedSessionId {
-                transcriptView(sessionId: sessionId)
-            } else {
-                sessionListView
-            }
+        if let sessionId = selectedSessionId {
+            transcriptView(sessionId: sessionId)
+        } else {
+            sessionListView
         }
     }
 
@@ -32,19 +30,15 @@ struct AgentChatView: View {
                 HStack {
                     SectionHeader("Chat Sessions", accentColor: Theme.accentCyan)
                     Spacer()
+                    Button("REFRESH") { loadSessions() }
+                        .foregroundColor(Theme.accentCyan)
                     Button("NEW CHAT") { createSession() }
                         .foregroundColor(Theme.accentCyan)
                 }
 
                 if sessions.isEmpty {
-                    VStack(spacing: Theme.spacingM) {
-                        EmptyStateView(isLoadingSessions ? "Loading..." : "No sessions")
-                        if !isLoadingSessions {
-                            Button("LOAD SESSIONS") { loadSessions() }
-                                .foregroundColor(Theme.accentCyan)
-                        }
-                    }
-                    .padding(.vertical, Theme.spacingXL)
+                    EmptyStateView(isLoadingSessions ? "Loading..." : "No sessions")
+                        .padding(.vertical, Theme.spacingXL)
                 } else {
                     VStack(spacing: Theme.spacingS) {
                         ForEach(sessions) { session in
@@ -60,6 +54,7 @@ struct AgentChatView: View {
             }
             .padding(Theme.spacingL)
         }
+        .onAppear { loadSessions() }
     }
 
     // MARK: - Transcript

@@ -14,6 +14,8 @@ struct ChatComposerView: View {
                 .background(Theme.surface)
                 .border(Theme.border, lineWidth: Theme.borderThin)
 
+            Spacer(minLength: 0)
+
             Button("SEND") {
                 let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
                 guard !trimmed.isEmpty else { return }

@@ -28,6 +28,7 @@ public struct AgentsScreen: View {
                 onSelect: { selectedAgentId = $0.id },
                 onRefresh: { loadAgents() }
             )
+            .onAppear { loadAgents() }
         }
     }
 

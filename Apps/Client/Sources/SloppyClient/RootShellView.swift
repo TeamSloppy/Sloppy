@@ -27,7 +27,9 @@ struct RootShellView: View {
                     .padding(Theme.spacingM)
             }
         }
-        .onAppear { startNotificationListener() }
+        .onAppear {
+            startNotificationListener()
+        }
     }
 
     @ViewBuilder

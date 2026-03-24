@@ -21,7 +21,7 @@ struct AgentListView: View {
                 if agents.isEmpty {
                     EmptyStateView(isLoading ? "Loading..." : "No agents registered")
                 } else {
-                    VStack(spacing: Theme.spacingS) {
+                    VStack(alignment: .leading, spacing: Theme.spacingS) {
                         ForEach(agents) { agent in
                             EntityCard(
                                 title: agent.displayName,

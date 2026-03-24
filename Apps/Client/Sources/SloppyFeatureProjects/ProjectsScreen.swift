@@ -27,6 +27,7 @@ public struct ProjectsScreen: View {
                 onSelect: { selectedProjectId = $0.id },
                 onRefresh: { loadProjects() }
             )
+            .onAppear { loadProjects() }
         }
     }
 

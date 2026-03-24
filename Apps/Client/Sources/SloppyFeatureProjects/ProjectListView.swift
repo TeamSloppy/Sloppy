@@ -21,7 +21,7 @@ struct ProjectListView: View {
                 if projects.isEmpty {
                     EmptyStateView(isLoading ? "Loading..." : "No projects found")
                 } else {
-                    VStack(spacing: Theme.spacingS) {
+                    VStack(alignment: .leading, spacing: Theme.spacingS) {
                         ForEach(projects) { project in
                             EntityCard(
                                 title: project.name,
