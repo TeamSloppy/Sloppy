@@ -5,14 +5,14 @@ public struct EntityCard: View {
     let subtitle: String
     let trailing: String?
     let accentColor: Color
-    let onTap: () -> Void
+    let onTap: (() -> Void)?
 
     public init(
         title: String,
         subtitle: String,
         trailing: String? = nil,
         accentColor: Color = Theme.accent,
-        onTap: @escaping () -> Void
+        onTap: (() -> Void)? = nil
     ) {
         self.title = title
         self.subtitle = subtitle
@@ -22,32 +22,40 @@ public struct EntityCard: View {
     }
 
     public var body: some View {
-        Button(action: onTap) {
-            HStack(spacing: 0) {
-                Color.clear
-                    .frame(width: Theme.borderThick)
-                    .background(accentColor)
-
-                HStack(spacing: Theme.spacingM) {
-                    VStack(alignment: .leading, spacing: Theme.spacingXS) {
-                        Text(title.uppercased())
-                            .font(.system(size: Theme.fontBody))
-                            .foregroundColor(Theme.textPrimary)
-                        Text(subtitle)
-                            .font(.system(size: Theme.fontCaption))
-                            .foregroundColor(Theme.textSecondary)
-                    }
-                    Spacer()
-                    if let trailing {
-                        Text(trailing.uppercased())
-                            .font(.system(size: Theme.fontMicro))
-                            .foregroundColor(Theme.textMuted)
-                    }
-                }
-                .padding(Theme.spacingM)
+        if let onTap {
+            Button(action: onTap) {
+                cardContent
             }
-            .background(Theme.surface)
-            .border(Theme.border, lineWidth: Theme.borderThin)
+        } else {
+            cardContent
         }
+    }
+
+    private var cardContent: some View {
+        HStack(spacing: 0) {
+            Color.clear
+                .frame(width: Theme.borderThick)
+                .background(accentColor)
+
+            HStack(spacing: Theme.spacingM) {
+                VStack(alignment: .leading, spacing: Theme.spacingXS) {
+                    Text(title.uppercased())
+                        .font(.system(size: Theme.fontBody))
+                        .foregroundColor(Theme.textPrimary)
+                    Text(subtitle)
+                        .font(.system(size: Theme.fontCaption))
+                        .foregroundColor(Theme.textSecondary)
+                }
+                Spacer()
+                if let trailing {
+                    Text(trailing.uppercased())
+                        .font(.system(size: Theme.fontMicro))
+                        .foregroundColor(Theme.textMuted)
+                }
+            }
+            .padding(Theme.spacingM)
+        }
+        .background(Theme.surface)
+        .border(Theme.border, lineWidth: Theme.borderThin)
     }
 }

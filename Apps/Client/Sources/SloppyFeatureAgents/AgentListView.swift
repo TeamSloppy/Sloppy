@@ -5,7 +5,6 @@ import SloppyClientUI
 struct AgentListView: View {
     let agents: [APIAgentRecord]
     let isLoading: Bool
-    let onSelect: (APIAgentRecord) -> Void
     let onRefresh: () -> Void
 
     var body: some View {
@@ -23,13 +22,14 @@ struct AgentListView: View {
                 } else {
                     VStack(alignment: .leading, spacing: Theme.spacingS) {
                         ForEach(agents) { agent in
-                            EntityCard(
-                                title: agent.displayName,
-                                subtitle: agent.role.isEmpty ? "No role" : agent.role,
-                                trailing: agent.isSystem == true ? "SYS" : nil,
-                                accentColor: Theme.accentCyan,
-                                onTap: { onSelect(agent) }
-                            )
+                            NavigationLink(value: agent.id) {
+                                EntityCard(
+                                    title: agent.displayName,
+                                    subtitle: agent.role.isEmpty ? "No role" : agent.role,
+                                    trailing: agent.isSystem == true ? "SYS" : nil,
+                                    accentColor: Theme.accentCyan
+                                )
+                            }
                         }
                     }
                 }

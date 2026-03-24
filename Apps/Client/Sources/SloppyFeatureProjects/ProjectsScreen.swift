@@ -4,7 +4,6 @@ import SloppyClientUI
 
 public struct ProjectsScreen: View {
     @State private var projects: [APIProjectRecord] = []
-    @State private var selectedProjectId: String?
     @State private var isLoading = false
 
     private let apiClient: SloppyAPIClient
@@ -14,20 +13,18 @@ public struct ProjectsScreen: View {
     }
 
     public var body: some View {
-        if let projectId = selectedProjectId,
-           let project = projects.first(where: { $0.id == projectId }) {
-            ProjectDetailView(
-                project: project,
-                onBack: { selectedProjectId = nil }
-            )
-        } else {
+        NavigationStack {
             ProjectListView(
                 projects: projects,
                 isLoading: isLoading,
-                onSelect: { selectedProjectId = $0.id },
                 onRefresh: { loadProjects() }
             )
             .onAppear { loadProjects() }
+            .navigate(for: String.self) { projectId in
+                if let project = projects.first(where: { $0.id == projectId }) {
+                    ProjectDetailView(project: project)
+                }
+            }
         }
     }
 

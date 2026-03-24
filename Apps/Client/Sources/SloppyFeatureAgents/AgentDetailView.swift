@@ -19,8 +19,8 @@ enum AgentDetailTab: String, CaseIterable, Hashable {
 struct AgentDetailView: View {
     let agent: APIAgentRecord
     let apiClient: SloppyAPIClient
-    let onBack: () -> Void
 
+    @Environment(\.dismiss) private var dismiss
     @State private var selectedTab: AgentDetailTab = .info
     @State private var agentTasks: [APIAgentTaskRecord] = []
     @State private var tasksLoaded = false
@@ -28,7 +28,7 @@ struct AgentDetailView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: Theme.spacingM) {
-                BackButton("Agents", action: onBack)
+                BackButton("Agents", action: { dismiss() })
                 Spacer()
             }
             .padding(.horizontal, Theme.spacingL)
