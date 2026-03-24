@@ -1,14 +1,45 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Network, DataSet } from "vis-network/standalone";
 import { fetchAgentMemories, fetchAgentMemoryGraph } from "../../../api";
 
 const PAGE_SIZE = 20;
-const GRAPH_NODE_WIDTH = 240;
-const GRAPH_NODE_HEIGHT = 112;
-const GRAPH_COLUMN_X = {
-  left: 32,
-  center: 332,
-  right: 632
+
+const GRAPH_SETTINGS_KEY = "sloppy:memory-graph-settings";
+
+interface GraphSettings {
+  physics: boolean;
+  nodeSize: number;
+  edgeWidth: number;
+  showLabels: boolean;
+  showEdgeLabels: boolean;
+  stabilize: boolean;
+  layout: "physics" | "hierarchical";
+}
+
+const DEFAULT_GRAPH_SETTINGS: GraphSettings = {
+  physics: true,
+  nodeSize: 28,
+  edgeWidth: 2,
+  showLabels: true,
+  showEdgeLabels: true,
+  stabilize: true,
+  layout: "physics",
 };
+
+function loadGraphSettings(): GraphSettings {
+  try {
+    const raw = localStorage.getItem(GRAPH_SETTINGS_KEY);
+    if (!raw) return { ...DEFAULT_GRAPH_SETTINGS };
+    const parsed = JSON.parse(raw);
+    return { ...DEFAULT_GRAPH_SETTINGS, ...parsed };
+  } catch {
+    return { ...DEFAULT_GRAPH_SETTINGS };
+  }
+}
+
+function saveGraphSettings(settings: GraphSettings) {
+  localStorage.setItem(GRAPH_SETTINGS_KEY, JSON.stringify(settings));
+}
 
 type MemoryFilter = "all" | "persistent" | "temporary" | "todo";
 type MemoryView = "list" | "graph";
@@ -232,53 +263,457 @@ function filterLabel(value: MemoryFilter) {
   return categoryLabel(value);
 }
 
-function edgePath(
-  fromNode: { x: number; y: number },
-  toNode: { x: number; y: number }
-) {
-  const startX = fromNode.x + GRAPH_NODE_WIDTH / 2;
-  const startY = fromNode.y + GRAPH_NODE_HEIGHT / 2;
-  const endX = toNode.x + GRAPH_NODE_WIDTH / 2;
-  const endY = toNode.y + GRAPH_NODE_HEIGHT / 2;
-  const controlOffset = Math.max(60, Math.abs(endX - startX) * 0.35);
-  return `M ${startX} ${startY} C ${startX + controlOffset} ${startY}, ${endX - controlOffset} ${endY}, ${endX} ${endY}`;
+const NODE_COLOR = "#555555";
+const NODE_COLOR_SEED = "#777777";
+const ACCENT = "#ccff00";
+const DIMMED_OPACITY = 0.15;
+const ANIM_DURATION = 220;
+
+type RGB = [number, number, number];
+
+function hexToRgb(hex: string): RGB {
+  const h = hex.replace("#", "");
+  return [
+    parseInt(h.substring(0, 2), 16),
+    parseInt(h.substring(2, 4), 16),
+    parseInt(h.substring(4, 6), 16),
+  ];
 }
 
-function layoutGraph(nodes: AgentMemoryItem[], seedIds: string[]) {
-  const seedSet = new Set(seedIds);
-  const seeds = nodes.filter((node) => seedSet.has(node.id));
-  const neighbors = nodes.filter((node) => !seedSet.has(node.id));
-  const leftColumn: AgentMemoryItem[] = [];
-  const rightColumn: AgentMemoryItem[] = [];
+function rgbToHex([r, g, b]: RGB): string {
+  return "#" + [r, g, b].map((c) => Math.round(c).toString(16).padStart(2, "0")).join("");
+}
 
-  neighbors.forEach((node, index) => {
-    if (index % 2 === 0) {
-      leftColumn.push(node);
-    } else {
-      rightColumn.push(node);
+function lerpColor(from: string, to: string, t: number): string {
+  const a = hexToRgb(from);
+  const b = hexToRgb(to);
+  return rgbToHex([
+    a[0] + (b[0] - a[0]) * t,
+    a[1] + (b[1] - a[1]) * t,
+    a[2] + (b[2] - a[2]) * t,
+  ]);
+}
+
+function lerp(a: number, b: number, t: number): number {
+  return a + (b - a) * t;
+}
+
+function easeOutCubic(t: number): number {
+  return 1 - Math.pow(1 - t, 3);
+}
+
+interface AnimTarget {
+  color: string;
+  opacity: number;
+}
+
+class NodeAnimator {
+  private targets = new Map<string, AnimTarget>();
+  private current = new Map<string, AnimTarget>();
+  private rafId: number | null = null;
+  private startTime: number | null = null;
+  private duration: number;
+  private snapshotFrom = new Map<string, AnimTarget>();
+
+  constructor(
+    private nodesDS: DataSet<Record<string, unknown>>,
+    duration = ANIM_DURATION,
+  ) {
+    this.duration = duration;
+  }
+
+  setTargets(entries: Array<{ id: string; color: string; opacity: number }>) {
+    this.snapshotFrom.clear();
+    for (const e of entries) {
+      const cur = this.current.get(e.id) ?? { color: e.color, opacity: e.opacity };
+      this.snapshotFrom.set(e.id, { ...cur });
+      this.targets.set(e.id, { color: e.color, opacity: e.opacity });
     }
-  });
+    this.startTime = null;
+    if (!this.rafId) this.tick();
+  }
 
-  const positions = new Map<string, { x: number; y: number }>();
-  const placeColumn = (items: AgentMemoryItem[], x: number) => {
-    items.forEach((item, index) => {
-      positions.set(item.id, {
-        x,
-        y: 32 + index * (GRAPH_NODE_HEIGHT + 36)
+  private tick = () => {
+    if (!this.startTime) this.startTime = performance.now();
+    const elapsed = performance.now() - this.startTime;
+    const rawT = Math.min(elapsed / this.duration, 1);
+    const t = easeOutCubic(rawT);
+
+    const updates: Array<Record<string, unknown>> = [];
+    for (const [id, target] of this.targets) {
+      const from = this.snapshotFrom.get(id) ?? target;
+      const c = lerpColor(from.color, target.color, t);
+      const o = lerp(from.opacity, target.opacity, t);
+      const state: AnimTarget = { color: c, opacity: o };
+      this.current.set(id, state);
+      updates.push({
+        id,
+        color: { background: c, border: c, highlight: { background: ACCENT, border: ACCENT }, hover: { background: ACCENT, border: ACCENT } },
+        opacity: o,
       });
+    }
+    this.nodesDS.update(updates);
+
+    if (rawT < 1) {
+      this.rafId = requestAnimationFrame(this.tick);
+    } else {
+      this.rafId = null;
+    }
+  };
+
+  destroy() {
+    if (this.rafId) cancelAnimationFrame(this.rafId);
+    this.rafId = null;
+  }
+}
+
+function buildVisOptions(settings: GraphSettings): Record<string, unknown> {
+  const base: Record<string, unknown> = {
+    autoResize: true,
+    nodes: {
+      shape: "dot",
+      size: settings.nodeSize,
+      font: {
+        face: "Fira Code, monospace",
+        size: 11,
+        color: "rgba(240,240,240,0.85)",
+        vadjust: 2,
+      },
+      borderWidth: 0,
+      borderWidthSelected: 0,
+      color: {
+        background: NODE_COLOR,
+        border: NODE_COLOR,
+        highlight: { background: ACCENT, border: ACCENT },
+        hover: { background: ACCENT, border: ACCENT },
+      },
+      shadow: false,
+      chosen: false,
+    },
+    edges: {
+      color: {
+        color: "rgba(180,190,210,0.2)",
+        highlight: "rgba(204,255,0,0.7)",
+        hover: "rgba(204,255,0,0.5)",
+        opacity: 1,
+      },
+      width: settings.edgeWidth,
+      smooth: { type: "continuous" },
+      arrows: { to: { enabled: true, scaleFactor: 0.4, type: "arrow" } },
+      font: {
+        face: "Fira Code, monospace",
+        size: settings.showEdgeLabels ? 10 : 0,
+        color: "#888888",
+        strokeWidth: 3,
+        strokeColor: "#000000",
+      },
+      chosen: false,
+    },
+    interaction: {
+      hover: true,
+      tooltipDelay: 200,
+      zoomView: true,
+      dragView: true,
+      dragNodes: true,
+      multiselect: false,
+    },
+    physics: {
+      enabled: settings.physics,
+      barnesHut: {
+        gravitationalConstant: -6000,
+        centralGravity: 0.15,
+        springLength: 320,
+        springConstant: 0.025,
+        damping: 0.09,
+      },
+      stabilization: {
+        enabled: settings.stabilize,
+        iterations: 150,
+        updateInterval: 25,
+      },
+    },
+  };
+
+  if (settings.layout === "hierarchical") {
+    base.layout = {
+      hierarchical: {
+        enabled: true,
+        direction: "UD",
+        sortMethod: "directed",
+        levelSeparation: 200,
+        nodeSpacing: 240,
+      },
+    };
+    base.physics = { enabled: false };
+  }
+
+  return base;
+}
+
+function MemoryGraphSettingsPanel({
+  settings,
+  onChange,
+  onClose,
+}: {
+  settings: GraphSettings;
+  onChange: (next: GraphSettings) => void;
+  onClose: () => void;
+}) {
+  const update = (patch: Partial<GraphSettings>) => {
+    const next = { ...settings, ...patch };
+    onChange(next);
+    saveGraphSettings(next);
+  };
+
+  const reset = () => {
+    onChange({ ...DEFAULT_GRAPH_SETTINGS });
+    saveGraphSettings({ ...DEFAULT_GRAPH_SETTINGS });
+  };
+
+  return (
+    <div className="memory-graph-settings-panel">
+      <div className="memory-graph-settings-head">
+        <strong>Graph Settings</strong>
+        <button type="button" className="icon-btn" onClick={onClose} title="Close">
+          <span className="material-symbols-rounded">close</span>
+        </button>
+      </div>
+
+      <label className="memory-graph-setting-row">
+        <span>Layout</span>
+        <select
+          value={settings.layout}
+          onChange={(e) => update({ layout: e.target.value as GraphSettings["layout"] })}
+        >
+          <option value="physics">Force-directed</option>
+          <option value="hierarchical">Hierarchical</option>
+        </select>
+      </label>
+
+      <label className="memory-graph-setting-row">
+        <span>Physics simulation</span>
+        <input
+          type="checkbox"
+          checked={settings.physics}
+          onChange={(e) => update({ physics: e.target.checked })}
+        />
+      </label>
+
+      <label className="memory-graph-setting-row">
+        <span>Node labels</span>
+        <input
+          type="checkbox"
+          checked={settings.showLabels}
+          onChange={(e) => update({ showLabels: e.target.checked })}
+        />
+      </label>
+
+      <label className="memory-graph-setting-row">
+        <span>Edge labels</span>
+        <input
+          type="checkbox"
+          checked={settings.showEdgeLabels}
+          onChange={(e) => update({ showEdgeLabels: e.target.checked })}
+        />
+      </label>
+
+      <label className="memory-graph-setting-row">
+        <span>Node size</span>
+        <input
+          type="range"
+          min={16}
+          max={48}
+          step={2}
+          value={settings.nodeSize}
+          onChange={(e) => update({ nodeSize: Number(e.target.value) })}
+        />
+        <span className="memory-graph-setting-value">{settings.nodeSize}</span>
+      </label>
+
+      <label className="memory-graph-setting-row">
+        <span>Edge width</span>
+        <input
+          type="range"
+          min={1}
+          max={6}
+          step={0.5}
+          value={settings.edgeWidth}
+          onChange={(e) => update({ edgeWidth: Number(e.target.value) })}
+        />
+        <span className="memory-graph-setting-value">{settings.edgeWidth}</span>
+      </label>
+
+      <label className="memory-graph-setting-row">
+        <span>Stabilize on load</span>
+        <input
+          type="checkbox"
+          checked={settings.stabilize}
+          onChange={(e) => update({ stabilize: e.target.checked })}
+        />
+      </label>
+
+      <div className="memory-graph-settings-actions">
+        <button type="button" onClick={reset}>Reset defaults</button>
+      </div>
+    </div>
+  );
+}
+
+function VisNetworkGraph({
+  graphData,
+  settings,
+  selectedMemoryId,
+  onSelectNode,
+}: {
+  graphData: AgentMemoryGraphResponse;
+  settings: GraphSettings;
+  selectedMemoryId: string | null;
+  onSelectNode: (id: string | null) => void;
+}) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const networkRef = useRef<Network | null>(null);
+  const nodesDatasetRef = useRef<DataSet<Record<string, unknown>> | null>(null);
+  const edgesDatasetRef = useRef<DataSet<Record<string, unknown>> | null>(null);
+
+  const connectedMap = useMemo(() => {
+    const map = new Map<string, Set<string>>();
+    for (const edge of graphData.edges) {
+      if (!map.has(edge.fromMemoryId)) map.set(edge.fromMemoryId, new Set());
+      if (!map.has(edge.toMemoryId)) map.set(edge.toMemoryId, new Set());
+      map.get(edge.fromMemoryId)!.add(edge.toMemoryId);
+      map.get(edge.toMemoryId)!.add(edge.fromMemoryId);
+    }
+    return map;
+  }, [graphData.edges]);
+
+  const connectedEdgesMap = useMemo(() => {
+    const map = new Map<string, Set<string>>();
+    for (const edge of graphData.edges) {
+      const edgeId = `${edge.fromMemoryId}→${edge.toMemoryId}`;
+      if (!map.has(edge.fromMemoryId)) map.set(edge.fromMemoryId, new Set());
+      if (!map.has(edge.toMemoryId)) map.set(edge.toMemoryId, new Set());
+      map.get(edge.fromMemoryId)!.add(edgeId);
+      map.get(edge.toMemoryId)!.add(edgeId);
+    }
+    return map;
+  }, [graphData.edges]);
+
+  const buildNodeColor = useCallback((_item: AgentMemoryItem, isSeed: boolean) => {
+    const bg = isSeed ? NODE_COLOR_SEED : NODE_COLOR;
+    return {
+      background: bg,
+      border: bg,
+      highlight: { background: ACCENT, border: ACCENT },
+      hover: { background: ACCENT, border: ACCENT },
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!containerRef.current || graphData.nodes.length === 0) return;
+
+    const seedSet = new Set(graphData.seedIds);
+    const visNodes = graphData.nodes.map((item) => {
+      const isSeed = seedSet.has(item.id);
+      const label = settings.showLabels
+        ? memoryCardTitle(item)
+        : "";
+      return {
+        id: item.id,
+        label,
+        title: `${categoryLabel(item.derivedCategory)} · ${item.kind}\n${item.note.slice(0, 200)}`,
+        color: buildNodeColor(item, isSeed),
+        size: (isSeed ? settings.nodeSize * 1.4 : settings.nodeSize) * 0.8,
+        font: { size: 11, color: "rgba(240,240,240,0.85)" },
+        borderWidth: 0,
+      };
     });
-  };
 
-  placeColumn(leftColumn, GRAPH_COLUMN_X.left);
-  placeColumn(seeds, GRAPH_COLUMN_X.center);
-  placeColumn(rightColumn, GRAPH_COLUMN_X.right);
+    const visEdges = graphData.edges.map((edge) => ({
+      id: `${edge.fromMemoryId}→${edge.toMemoryId}`,
+      from: edge.fromMemoryId,
+      to: edge.toMemoryId,
+      label: settings.showEdgeLabels ? edge.relation : undefined,
+      title: `${edge.relation} (weight: ${edge.weight})`,
+      width: settings.edgeWidth,
+    }));
 
-  const maxColumnCount = Math.max(leftColumn.length, seeds.length, rightColumn.length, 1);
-  return {
-    positions,
-    width: GRAPH_COLUMN_X.right + GRAPH_NODE_WIDTH + 32,
-    height: 32 + maxColumnCount * (GRAPH_NODE_HEIGHT + 36)
-  };
+    const nodesDS = new DataSet(visNodes);
+    const edgesDS = new DataSet(visEdges);
+    nodesDatasetRef.current = nodesDS as unknown as DataSet<Record<string, unknown>>;
+    edgesDatasetRef.current = edgesDS as unknown as DataSet<Record<string, unknown>>;
+
+    const options = buildVisOptions(settings);
+    const net = new Network(containerRef.current, { nodes: nodesDS, edges: edgesDS }, options);
+    networkRef.current = net;
+
+    net.on("click", (params: { nodes: string[] }) => {
+      if (params.nodes.length > 0) {
+        onSelectNode(params.nodes[0]);
+      }
+    });
+
+    const animator = new NodeAnimator(nodesDS as unknown as DataSet<Record<string, unknown>>);
+
+    net.on("hoverNode", (params: { node: string }) => {
+      const hoveredId = params.node;
+      const connected = connectedMap.get(hoveredId) ?? new Set();
+      const connEdges = connectedEdgesMap.get(hoveredId) ?? new Set();
+
+      const animEntries = graphData.nodes.map((item) => {
+        const isHovered = item.id === hoveredId;
+        const isConnected = connected.has(item.id);
+        const isSeed = seedSet.has(item.id);
+
+        if (isHovered) {
+          return { id: item.id, color: ACCENT, opacity: 1 };
+        }
+        if (isConnected) {
+          return { id: item.id, color: isSeed ? NODE_COLOR_SEED : NODE_COLOR, opacity: 1 };
+        }
+        return { id: item.id, color: isSeed ? NODE_COLOR_SEED : NODE_COLOR, opacity: DIMMED_OPACITY };
+      });
+      animator.setTargets(animEntries);
+
+      const edgeUpdates = graphData.edges.map((edge) => {
+        const edgeId = `${edge.fromMemoryId}→${edge.toMemoryId}`;
+        if (connEdges.has(edgeId)) {
+          return { id: edgeId, color: { color: "rgba(204,255,0,0.7)", opacity: 1 }, width: settings.edgeWidth + 1 };
+        }
+        return { id: edgeId, color: { color: "rgba(180,190,210,0.2)", opacity: DIMMED_OPACITY }, width: settings.edgeWidth };
+      });
+      edgesDS.update(edgeUpdates);
+    });
+
+    net.on("blurNode", () => {
+      const animEntries = graphData.nodes.map((item) => {
+        const isSeed = seedSet.has(item.id);
+        return { id: item.id, color: isSeed ? NODE_COLOR_SEED : NODE_COLOR, opacity: 1 };
+      });
+      animator.setTargets(animEntries);
+
+      const edgeResets = graphData.edges.map((edge) => ({
+        id: `${edge.fromMemoryId}→${edge.toMemoryId}`,
+        color: { color: "rgba(180,190,210,0.2)", opacity: 1 },
+        width: settings.edgeWidth,
+      }));
+      edgesDS.update(edgeResets);
+    });
+
+    return () => {
+      animator.destroy();
+      net.destroy();
+      networkRef.current = null;
+    };
+  }, [graphData, settings, buildNodeColor, connectedMap, connectedEdgesMap, onSelectNode]);
+
+  useEffect(() => {
+    if (!networkRef.current || !selectedMemoryId) return;
+    networkRef.current.selectNodes([selectedMemoryId], false);
+  }, [selectedMemoryId]);
+
+  return (
+    <div ref={containerRef} className="memory-graph-vis-container" />
+  );
 }
 
 function MemoryInspector({ item }: { item: AgentMemoryItem | null }) {
@@ -357,6 +792,8 @@ export function AgentMemoriesTab({ agentId }: { agentId: string }) {
   const [isLoadingList, setIsLoadingList] = useState(true);
   const [isLoadingGraph, setIsLoadingGraph] = useState(false);
   const [selectedMemoryId, setSelectedMemoryId] = useState<string | null>(null);
+  const [graphSettings, setGraphSettings] = useState<GraphSettings>(loadGraphSettings);
+  const [showGraphSettings, setShowGraphSettings] = useState(false);
 
   useEffect(() => {
     const timer = setTimeout(() => setSearchQuery(searchInput.trim()), 300);
@@ -504,12 +941,10 @@ export function AgentMemoriesTab({ agentId }: { agentId: string }) {
     setSelectedMemoryId(null);
   }, [selectedItem, visibleItems]);
 
-  const graphLayout = useMemo(
-    () => layoutGraph(graphResponse.nodes, graphResponse.seedIds),
-    [graphResponse.nodes, graphResponse.seedIds]
-  );
+  const handleGraphNodeSelect = useCallback((id: string | null) => {
+    setSelectedMemoryId(id);
+  }, []);
 
-  const graphNodePositions = graphLayout.positions;
   const canGoBackward = listResponse.offset > 0;
   const canGoForward = listResponse.offset + listResponse.items.length < listResponse.total;
 
@@ -615,6 +1050,24 @@ export function AgentMemoriesTab({ agentId }: { agentId: string }) {
             </div>
           ) : (
             <div className="agent-memory-graph-shell">
+              <div className="agent-memory-graph-toolbar">
+                <button
+                  type="button"
+                  className={`agent-memory-segment ${showGraphSettings ? "active" : ""}`}
+                  onClick={() => setShowGraphSettings((v) => !v)}
+                  title="Graph settings"
+                >
+                  <span className="material-symbols-rounded" style={{ fontSize: "18px" }}>tune</span>
+                  Settings
+                </button>
+              </div>
+              {showGraphSettings && (
+                <MemoryGraphSettingsPanel
+                  settings={graphSettings}
+                  onChange={setGraphSettings}
+                  onClose={() => setShowGraphSettings(false)}
+                />
+              )}
               {isLoadingGraph ? (
                 <div className="agent-memories-empty">
                   <p className="placeholder-text">Loading memory graph...</p>
@@ -630,59 +1083,12 @@ export function AgentMemoriesTab({ agentId }: { agentId: string }) {
                       Graph view is truncated to the top matching seeds and their one-hop neighbors.
                     </div>
                   ) : null}
-                  <div className="agent-memory-graph-stage">
-                    <div
-                      className="agent-memory-graph-canvas"
-                      style={{ width: graphLayout.width, height: graphLayout.height }}
-                    >
-                      <svg
-                        className="agent-memory-graph-svg"
-                        viewBox={`0 0 ${graphLayout.width} ${graphLayout.height}`}
-                        role="img"
-                        aria-label="Agent memory graph"
-                      >
-                        {graphResponse.edges.map((edge) => {
-                          const fromNode = graphNodePositions.get(edge.fromMemoryId);
-                          const toNode = graphNodePositions.get(edge.toMemoryId);
-                          if (!fromNode || !toNode) {
-                            return null;
-                          }
-
-                          return (
-                            <path
-                              key={`${edge.fromMemoryId}:${edge.toMemoryId}:${edge.relation}`}
-                              d={edgePath(fromNode, toNode)}
-                              className="agent-memory-graph-edge"
-                            />
-                          );
-                        })}
-                      </svg>
-
-                      {graphResponse.nodes.map((item) => {
-                        const position = graphNodePositions.get(item.id);
-                        if (!position) {
-                          return null;
-                        }
-
-                        return (
-                          <button
-                            key={item.id}
-                            type="button"
-                            className={`agent-memory-graph-node ${selectedMemoryId === item.id ? "selected" : ""} ${graphResponse.seedIds.includes(item.id) ? "seed" : "neighbor"}`}
-                            style={{ left: position.x, top: position.y, width: GRAPH_NODE_WIDTH, minHeight: GRAPH_NODE_HEIGHT }}
-                            onClick={() => setSelectedMemoryId(item.id)}
-                          >
-                            <div className="agent-memory-badges">
-                              <span className={`agent-memory-badge agent-memory-badge-${item.derivedCategory}`}>{categoryLabel(item.derivedCategory)}</span>
-                              <span className="agent-memory-badge agent-memory-badge-neutral">{item.kind}</span>
-                            </div>
-                            <strong>{memoryCardTitle(item)}</strong>
-                            <p>{item.note.length > 120 ? `${item.note.slice(0, 120)}…` : item.note}</p>
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
+                  <VisNetworkGraph
+                    graphData={graphResponse}
+                    settings={graphSettings}
+                    selectedMemoryId={selectedMemoryId}
+                    onSelectNode={handleGraphNodeSelect}
+                  />
                 </>
               )}
             </div>

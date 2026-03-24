@@ -1882,8 +1882,7 @@ body.agent-chat-no-page-scroll .page {
   gap: 12px;
 }
 
-.agent-memory-card-head strong,
-.agent-memory-graph-node strong {
+.agent-memory-card-head strong {
   font-size: 0.92rem;
 }
 
@@ -2002,6 +2001,18 @@ body.agent-chat-no-page-scroll .page {
   gap: 10px;
 }
 
+.agent-memory-graph-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.agent-memory-graph-toolbar .agent-memory-segment {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
 .agent-memory-graph-notice {
   padding: 10px 12px;
   border: 1px solid rgba(245, 158, 11, 0.35);
@@ -2010,71 +2021,103 @@ body.agent-chat-no-page-scroll .page {
   font-size: 0.82rem;
 }
 
-.agent-memory-graph-stage {
-  position: relative;
-  min-height: 420px;
-  overflow: auto;
-  border: 1px solid var(--line);
-  background:
-    linear-gradient(transparent 31px, rgba(255, 255, 255, 0.03) 32px),
-    linear-gradient(90deg, transparent 31px, rgba(255, 255, 255, 0.03) 32px),
-    var(--bg);
-  background-size: 32px 32px;
-}
-
-.agent-memory-graph-canvas {
-  position: relative;
-  min-width: 904px;
-  min-height: 420px;
-}
-
-.agent-memory-graph-svg {
-  position: absolute;
-  inset: 0;
+.memory-graph-vis-container {
   width: 100%;
-  height: 100%;
-  pointer-events: none;
-}
-
-.agent-memory-graph-edge {
-  fill: none;
-  stroke: color-mix(in srgb, var(--accent) 55%, var(--line) 45%);
-  stroke-width: 2;
-  opacity: 0.7;
-}
-
-.agent-memory-graph-node {
-  position: absolute;
-  display: grid;
-  align-content: start;
-  gap: 8px;
-  padding: 12px;
-  text-align: left;
+  height: 520px;
   border: 1px solid var(--line);
-  background: rgba(7, 10, 18, 0.92);
+  background: var(--bg);
+}
+
+.memory-graph-vis-container canvas {
+  outline: none;
+}
+
+.memory-graph-vis-container .vis-tooltip {
+  font-family: "Fira Code", monospace;
+  font-size: 0.78rem;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  color: var(--text);
+  padding: 8px 10px;
+  max-width: 320px;
+  white-space: pre-wrap;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+}
+
+.memory-graph-settings-panel {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  background: var(--surface-2);
+}
+
+.memory-graph-settings-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.memory-graph-settings-head strong {
+  font-size: 0.88rem;
+}
+
+.memory-graph-setting-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 0.82rem;
   color: var(--text);
   cursor: pointer;
-  box-shadow: 0 14px 36px rgba(0, 0, 0, 0.28);
 }
 
-.agent-memory-graph-node p {
-  margin: 0;
+.memory-graph-setting-row select {
+  background: var(--surface-3);
+  border: 1px solid var(--line);
+  color: var(--text);
+  padding: 4px 8px;
+  font-family: "Fira Code", monospace;
+  font-size: 0.78rem;
+}
+
+.memory-graph-setting-row input[type="checkbox"] {
+  accent-color: var(--accent);
+  width: 16px;
+  height: 16px;
+}
+
+.memory-graph-setting-row input[type="range"] {
+  accent-color: var(--accent);
+  flex: 0 0 100px;
+}
+
+.memory-graph-setting-value {
+  font-size: 0.75rem;
   color: var(--muted);
-  font-size: 0.82rem;
-  line-height: 1.35;
+  min-width: 24px;
+  text-align: right;
 }
 
-.agent-memory-graph-node.seed {
-  border-color: color-mix(in srgb, var(--accent) 60%, var(--line) 40%);
+.memory-graph-settings-actions {
+  display: flex;
+  justify-content: flex-end;
+  padding-top: 4px;
 }
 
-.agent-memory-graph-node.selected {
-  outline: 1px solid var(--accent);
-  transform: translateY(-1px);
+.memory-graph-settings-actions button {
+  font-size: 0.78rem;
+  padding: 5px 12px;
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
 }
 
-.agent-memory-graph-node.neighbor {
-  background: rgba(17, 23, 33, 0.92);
+.memory-graph-settings-actions button:hover {
+  color: var(--text);
+  border-color: var(--accent);
 }
 
 .agent-tools-head {

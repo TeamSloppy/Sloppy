@@ -63,6 +63,8 @@ public protocol MemoryStore: Sendable {
     func edges(for memoryIDs: [String]) async -> [MemoryEdgeRecord]
     /// Updates the importance score of a memory entry. Returns true on success.
     func updateImportance(id: String, importance: Double) async -> Bool
+    /// Updates mutable fields of a memory entry. Returns the updated entry on success.
+    func updateEntry(id: String, note: String?, summary: String?, kind: MemoryKind?, importance: Double?, confidence: Double?) async -> MemoryEntry?
     /// Soft-deletes a memory entry by setting deletedAt. Returns true on success.
     func softDelete(id: String) async -> Bool
 }
@@ -89,6 +91,10 @@ public extension MemoryStore {
 
     func updateImportance(id: String, importance: Double) async -> Bool {
         false
+    }
+
+    func updateEntry(id: String, note: String?, summary: String?, kind: MemoryKind?, importance: Double?, confidence: Double?) async -> MemoryEntry? {
+        nil
     }
 
     func softDelete(id: String) async -> Bool {
@@ -300,6 +306,21 @@ public actor InMemoryMemoryStore: MemoryStore {
             storage[index] = entry
         }
         return true
+    }
+
+    public func updateEntry(id: String, note: String?, summary: String?, kind: MemoryKind?, importance: Double?, confidence: Double?) async -> MemoryEntry? {
+        guard var entry = byID[id], entry.deletedAt == nil else { return nil }
+        if let note { entry.note = note }
+        if let summary { entry.summary = summary }
+        if let kind { entry.kind = kind }
+        if let importance { entry.importance = min(max(importance, 0), 1) }
+        if let confidence { entry.confidence = min(max(confidence, 0), 1) }
+        entry.updatedAt = Date()
+        byID[id] = entry
+        if let index = storage.firstIndex(where: { $0.id == id }) {
+            storage[index] = entry
+        }
+        return entry
     }
 
     public func softDelete(id: String) async -> Bool {

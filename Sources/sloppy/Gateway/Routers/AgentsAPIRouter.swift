@@ -101,6 +101,51 @@ struct AgentsAPIRouter: APIRouter {
             }
         }
 
+        router.patch("/v1/agents/:agentId/memories/:memoryId", metadata: RouteMetadata(summary: "Update agent memory", description: "Updates a specific memory entry for an agent", tags: ["Agents"])) { request in
+            let agentId = request.pathParam("agentId") ?? ""
+            let memoryId = request.pathParam("memoryId") ?? ""
+            guard let body = request.body,
+                  let payload = CoreRouter.decode(body, as: AgentMemoryUpdateRequest.self)
+            else {
+                return CoreRouter.json(status: HTTPStatus.badRequest, payload: ["error": ErrorCode.invalidBody])
+            }
+
+            do {
+                let item = try await service.updateAgentMemory(
+                    agentID: agentId,
+                    memoryID: memoryId,
+                    note: payload.note,
+                    summary: payload.summary,
+                    kind: payload.kind,
+                    importance: payload.importance,
+                    confidence: payload.confidence
+                )
+                return CoreRouter.encodable(status: HTTPStatus.ok, payload: item)
+            } catch CoreService.AgentStorageError.invalidID {
+                return CoreRouter.json(status: HTTPStatus.badRequest, payload: ["error": ErrorCode.invalidAgentId])
+            } catch CoreService.AgentStorageError.notFound {
+                return CoreRouter.json(status: HTTPStatus.notFound, payload: ["error": ErrorCode.agentMemoryNotFound])
+            } catch {
+                return CoreRouter.json(status: HTTPStatus.internalServerError, payload: ["error": ErrorCode.agentMemoryUpdateFailed])
+            }
+        }
+
+        router.delete("/v1/agents/:agentId/memories/:memoryId", metadata: RouteMetadata(summary: "Delete agent memory", description: "Soft-deletes a specific memory entry for an agent", tags: ["Agents"])) { request in
+            let agentId = request.pathParam("agentId") ?? ""
+            let memoryId = request.pathParam("memoryId") ?? ""
+
+            do {
+                try await service.deleteAgentMemory(agentID: agentId, memoryID: memoryId)
+                return CoreRouter.json(status: HTTPStatus.ok, payload: ["ok": true])
+            } catch CoreService.AgentStorageError.invalidID {
+                return CoreRouter.json(status: HTTPStatus.badRequest, payload: ["error": ErrorCode.invalidAgentId])
+            } catch CoreService.AgentStorageError.notFound {
+                return CoreRouter.json(status: HTTPStatus.notFound, payload: ["error": ErrorCode.agentMemoryNotFound])
+            } catch {
+                return CoreRouter.json(status: HTTPStatus.internalServerError, payload: ["error": ErrorCode.agentMemoryDeleteFailed])
+            }
+        }
+
         router.get("/v1/agents/:agentId/sessions", metadata: RouteMetadata(summary: "List agent sessions", description: "Returns a list of sessions for a specific agent", tags: ["Agents"])) { request in
             let agentId = request.pathParam("agentId") ?? ""
             do {

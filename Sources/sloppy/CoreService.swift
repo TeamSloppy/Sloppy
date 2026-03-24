@@ -1524,6 +1524,58 @@ public actor CoreService {
         )
     }
 
+    public func updateAgentMemory(
+        agentID: String,
+        memoryID: String,
+        note: String?,
+        summary: String?,
+        kind: MemoryKind?,
+        importance: Double?,
+        confidence: Double?
+    ) async throws -> AgentMemoryItem {
+        guard let normalizedID = normalizedAgentID(agentID) else {
+            throw AgentStorageError.invalidID
+        }
+        _ = try getAgent(id: normalizedID)
+
+        guard let updated = await memoryStore.updateEntry(
+            id: memoryID,
+            note: note,
+            summary: summary,
+            kind: kind,
+            importance: importance,
+            confidence: confidence
+        ) else {
+            throw AgentStorageError.notFound
+        }
+
+        guard belongsToAgentMemory(updated, agentID: normalizedID) else {
+            throw AgentStorageError.notFound
+        }
+
+        return makeAgentMemoryItem(from: updated)
+    }
+
+    public func deleteAgentMemory(
+        agentID: String,
+        memoryID: String
+    ) async throws {
+        guard let normalizedID = normalizedAgentID(agentID) else {
+            throw AgentStorageError.invalidID
+        }
+        _ = try getAgent(id: normalizedID)
+
+        let entries = await allAgentMemoryEntries(agentID: normalizedID)
+        guard entries.contains(where: { $0.id == memoryID }) else {
+            throw AgentStorageError.notFound
+        }
+
+        let deleted = await memoryStore.softDelete(id: memoryID)
+        guard deleted else {
+            throw AgentStorageError.notFound
+        }
+    }
+
     /// Creates an agent and provisions `/workspace/agents/<agent_id>` directory.
     public func createAgent(_ request: AgentCreateRequest) async throws -> AgentSummary {
         do {

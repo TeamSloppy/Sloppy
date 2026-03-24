@@ -2,9 +2,10 @@ import Foundation
 import Logging
 
 public actor SloppyAPIClient {
-    private let baseURL: URL
+    public nonisolated let baseURL: URL
     private let session: URLSession
     private let decoder: JSONDecoder
+    private let encoder: JSONEncoder
     private let logger: Logger
 
     public init(
@@ -30,6 +31,10 @@ public actor SloppyAPIClient {
             )
         }
         self.decoder = decoder
+
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        self.encoder = encoder
     }
 
     public func fetchProjects() async throws -> [APIProjectRecord] {
@@ -74,6 +79,48 @@ public actor SloppyAPIClient {
         )
     }
 
+    // MARK: - Session REST API
+
+    public func fetchAgentSessions(agentId: String) async throws -> [ChatSessionSummary] {
+        try await get("/v1/agents/\(agentId)/sessions")
+    }
+
+    public func fetchAgentSession(agentId: String, sessionId: String) async throws -> ChatSessionDetail {
+        try await get("/v1/agents/\(agentId)/sessions/\(sessionId)")
+    }
+
+    public func createAgentSession(agentId: String, title: String? = nil) async throws -> ChatSessionSummary {
+        struct Payload: Encodable {
+            var title: String?
+            var kind: String = "chat"
+        }
+        return try await post("/v1/agents/\(agentId)/sessions", body: Payload(title: title))
+    }
+
+    public func postSessionMessage(
+        agentId: String,
+        sessionId: String,
+        content: String,
+        userId: String = "user"
+    ) async throws -> ChatSessionSummary {
+        struct Payload: Encodable {
+            var userId: String
+            var content: String
+            var attachments: [String] = []
+            var spawnSubSession: Bool = false
+        }
+        struct Response: Decodable {
+            var summary: ChatSessionSummary
+        }
+        let response: Response = try await post(
+            "/v1/agents/\(agentId)/sessions/\(sessionId)/messages",
+            body: Payload(userId: userId, content: content)
+        )
+        return response.summary
+    }
+
+    // MARK: - Private helpers
+
     private func get<T: Decodable>(_ path: String) async throws -> T {
         let url = baseURL.appendingPathComponent(path)
         var request = URLRequest(url: url)
@@ -81,6 +128,27 @@ public actor SloppyAPIClient {
         request.setValue("application/json", forHTTPHeaderField: "Accept")
 
         logger.debug("GET \(url.absoluteString)")
+        let (data, response) = try await session.data(for: request)
+
+        guard let http = response as? HTTPURLResponse else {
+            throw APIError.invalidResponse
+        }
+        guard (200..<300).contains(http.statusCode) else {
+            throw APIError.httpError(statusCode: http.statusCode)
+        }
+
+        return try decoder.decode(T.self, from: data)
+    }
+
+    private func post<Body: Encodable, T: Decodable>(_ path: String, body: Body) async throws -> T {
+        let url = baseURL.appendingPathComponent(path)
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        request.httpBody = try encoder.encode(body)
+
+        logger.debug("POST \(url.absoluteString)")
         let (data, response) = try await session.data(for: request)
 
         guard let http = response as? HTTPURLResponse else {
