@@ -352,9 +352,17 @@
   gap: 12px;
 }
 
+.project-overview-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
 .project-pane {
+  border: 1px solid var(--line);
   padding: 12px;
   min-width: 0;
+  background: var(--surface-2);
 }
 
 .project-pane h4 {
@@ -380,8 +388,9 @@
   border-radius: 0;
   padding: 10px;
   display: grid;
-  gap: 2px;
+  gap: 4px;
   background: var(--surface-2);
+  text-align: left;
 }
 
 .project-metric-card p {
@@ -392,6 +401,171 @@
 
 .project-metric-card strong {
   font-size: 1.1rem;
+}
+
+.project-metric-card--interactive {
+  cursor: pointer;
+}
+
+.project-metric-card--interactive:hover {
+  border-color: var(--accent);
+}
+
+.project-metric-sub {
+  color: var(--muted);
+  font-size: 0.76rem;
+}
+
+.project-pane-link {
+  min-width: auto;
+  padding: 6px 10px;
+  font-size: 0.76rem;
+}
+
+.project-overview-empty {
+  min-height: 120px;
+  display: flex;
+  align-items: center;
+}
+
+.project-funnel {
+  display: grid;
+  gap: 12px;
+}
+
+.project-funnel-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.project-funnel-progress {
+  width: 100%;
+  height: 8px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.project-funnel-progress-bar {
+  height: 100%;
+  background: var(--accent);
+}
+
+.project-funnel-list {
+  display: grid;
+  gap: 10px;
+}
+
+.project-funnel-row {
+  display: grid;
+  gap: 6px;
+}
+
+.project-funnel-row-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  align-items: center;
+}
+
+.project-funnel-label {
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.project-funnel-track {
+  width: 100%;
+  height: 6px;
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.project-funnel-fill {
+  height: 100%;
+  min-width: 0;
+}
+
+.project-overview-task-list,
+.project-overview-channel-list {
+  display: grid;
+  gap: 8px;
+}
+
+.project-overview-task {
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.015);
+  padding: 10px;
+  display: grid;
+  gap: 8px;
+  text-align: left;
+}
+
+.project-overview-task:hover {
+  border-color: var(--accent);
+}
+
+.project-overview-task-head,
+.project-overview-channel-head,
+.project-overview-output-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.project-overview-task-status {
+  border: 1px solid currentColor;
+  padding: 2px 6px;
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+
+.project-overview-task-meta,
+.project-overview-channel-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.project-overview-channel {
+  border: 1px solid var(--line);
+  padding: 10px;
+  display: grid;
+  gap: 8px;
+  background: rgba(255, 255, 255, 0.015);
+}
+
+.project-overview-channel p {
+  margin: 0;
+}
+
+.project-readiness-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.project-readiness-item {
+  border: 1px solid var(--line);
+  padding: 10px;
+  display: grid;
+  gap: 4px;
+  background: rgba(255, 255, 255, 0.015);
+}
+
+.project-readiness-item p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.project-readiness-label {
+  color: var(--muted);
+  font-size: 0.78rem;
 }
 
 .project-workers-list {
@@ -426,6 +600,14 @@
 .project-created-item p {
   margin: 4px 0 0;
   color: var(--muted);
+}
+
+@media (max-width: 980px) {
+  .project-overview-metrics,
+  .project-overview-grid,
+  .project-readiness-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 .project-kanban-pane {
