@@ -27,6 +27,7 @@ export default defineConfig({
       { text: "Guides", link: "/guides/build-from-terminal" },
       { text: "API", link: "/api/reference" },
       { text: "Agents", link: "/agents/memory" },
+      { text: "Visor", link: "/visor/overview" },
       { text: "Design", link: "/architecture/project-design" },
       { text: "Specs", link: "/specs/channel-plugin-protocol" },
       { text: "Dashboard UI", link: "/dashboard-style" }
@@ -67,6 +68,13 @@ export default defineConfig({
           { text: "Context Compactor", link: "/agents/context-compactor" },
           { text: "Runtime", link: "/agents/runtime" },
           { text: "Workspace", link: "/agents/workspace" }
+        ]
+      },
+      {
+        text: "Visor",
+        items: [
+          { text: "Overview", link: "/visor/overview" },
+          { text: "Configuration", link: "/visor/configuration" }
         ]
       },
       {

@@ -48,7 +48,6 @@ import {
 import { ProjectOverviewTab } from "./Projects/ProjectOverviewTab";
 import { ProjectTasksTab } from "./Projects/ProjectTasksTab";
 import { ProjectWorkersTab } from "./Projects/ProjectWorkersTab";
-import { ProjectMemoriesTab } from "./Projects/ProjectMemoriesTab";
 import { ProjectVisorTab } from "./Projects/ProjectVisorTab";
 import { ProjectChannelsTab } from "./Projects/ProjectChannelsTab";
 import { ProjectSettingsTab } from "./Projects/ProjectSettingsTab";
@@ -1472,10 +1471,6 @@ export function ProjectsView({
 
     if (selectedTab === "workers") {
       return <ProjectWorkersTab project={project} workers={workers} />;
-    }
-
-    if (selectedTab === "memories") {
-      return <ProjectMemoriesTab project={project} chatSnapshots={chatSnapshots} />;
     }
 
     if (selectedTab === "visor") {
