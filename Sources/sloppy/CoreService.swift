@@ -1524,6 +1524,106 @@ public actor CoreService {
         )
     }
 
+    public func listProjectMemories(
+        projectID: String,
+        search: String?,
+        filter: AgentMemoryFilter,
+        limit: Int,
+        offset: Int
+    ) async throws -> ProjectMemoryListResponse {
+        guard let normalizedID = normalizedProjectID(projectID) else {
+            throw ProjectError.invalidProjectID
+        }
+        _ = try await getProject(id: normalizedID)
+
+        let boundedLimit = max(1, min(limit, 100))
+        let boundedOffset = max(0, offset)
+        let entries = await allProjectMemoryEntries(projectID: normalizedID)
+        let matching = filterAgentMemoryEntries(entries, search: search, filter: filter)
+        let page = Array(matching.dropFirst(boundedOffset).prefix(boundedLimit))
+
+        return ProjectMemoryListResponse(
+            projectId: normalizedID,
+            items: page.map { makeAgentMemoryItem(from: $0) },
+            total: matching.count,
+            limit: boundedLimit,
+            offset: boundedOffset
+        )
+    }
+
+    public func projectMemoryGraph(
+        projectID: String,
+        search: String?,
+        filter: AgentMemoryFilter
+    ) async throws -> ProjectMemoryGraphResponse {
+        guard let normalizedID = normalizedProjectID(projectID) else {
+            throw ProjectError.invalidProjectID
+        }
+        _ = try await getProject(id: normalizedID)
+
+        let allEntries = await allProjectMemoryEntries(projectID: normalizedID)
+        let matchingEntries = filterAgentMemoryEntries(allEntries, search: search, filter: filter)
+        let seedEntries = Array(matchingEntries.prefix(Self.agentMemoryGraphSeedLimit))
+        let seedIDs = seedEntries.map(\.id)
+        var truncated = matchingEntries.count > Self.agentMemoryGraphSeedLimit
+
+        guard !seedIDs.isEmpty else {
+            return ProjectMemoryGraphResponse(
+                projectId: normalizedID,
+                nodes: [],
+                edges: [],
+                seedIds: [],
+                truncated: false
+            )
+        }
+
+        let edgeRecords = await memoryStore.edges(for: seedIDs)
+        let entriesByID = Dictionary(uniqueKeysWithValues: allEntries.map { ($0.id, $0) })
+        var neighborIDs: [String] = []
+        var seenNeighborIDs = Set<String>()
+        let seedIDSet = Set(seedIDs)
+
+        for edge in edgeRecords {
+            for candidateID in [edge.fromMemoryId, edge.toMemoryId] {
+                guard !seedIDSet.contains(candidateID),
+                      entriesByID[candidateID] != nil,
+                      seenNeighborIDs.insert(candidateID).inserted
+                else {
+                    continue
+                }
+                neighborIDs.append(candidateID)
+            }
+        }
+
+        if neighborIDs.count > Self.agentMemoryGraphNeighborLimit {
+            neighborIDs = Array(neighborIDs.prefix(Self.agentMemoryGraphNeighborLimit))
+            truncated = true
+        }
+
+        let includedNodeIDs = Set(seedIDs + neighborIDs)
+        let includedNodes = seedEntries + neighborIDs.compactMap { entriesByID[$0] }
+        let filteredEdges = edgeRecords
+            .filter { includedNodeIDs.contains($0.fromMemoryId) && includedNodeIDs.contains($0.toMemoryId) }
+            .map {
+                AgentMemoryEdgeRecord(
+                    fromMemoryId: $0.fromMemoryId,
+                    toMemoryId: $0.toMemoryId,
+                    relation: $0.relation,
+                    weight: $0.weight,
+                    provenance: $0.provenance,
+                    createdAt: $0.createdAt
+                )
+            }
+
+        return ProjectMemoryGraphResponse(
+            projectId: normalizedID,
+            nodes: includedNodes.map { makeAgentMemoryItem(from: $0) },
+            edges: filteredEdges,
+            seedIds: seedIDs,
+            truncated: truncated
+        )
+    }
+
     public func updateAgentMemory(
         agentID: String,
         memoryID: String,
@@ -6544,6 +6644,18 @@ public actor CoreService {
             }
     }
 
+    private func allProjectMemoryEntries(projectID: String) async -> [MemoryEntry] {
+        let entries = await memoryStore.entries(filter: .default)
+        return entries
+            .filter { belongsToProjectMemory($0, projectID: projectID) }
+            .sorted { left, right in
+                if left.createdAt == right.createdAt {
+                    return left.id.localizedCaseInsensitiveCompare(right.id) == .orderedAscending
+                }
+                return left.createdAt > right.createdAt
+            }
+    }
+
     private func matchingAgentMemoryEntries(
         agentID: String,
         search: String?,
@@ -6585,6 +6697,16 @@ public actor CoreService {
 
         let channelID = entry.scope.channelId ?? entry.scope.id
         return channelID.hasPrefix("agent:\(agentID):session:")
+    }
+
+    private func belongsToProjectMemory(_ entry: MemoryEntry, projectID: String) -> Bool {
+        if entry.scope.type == .project, entry.scope.id.caseInsensitiveCompare(projectID) == .orderedSame {
+            return true
+        }
+        if let scopeProjectID = entry.scope.projectId, scopeProjectID.caseInsensitiveCompare(projectID) == .orderedSame {
+            return true
+        }
+        return false
     }
 
     private func matchesAgentMemoryFilter(_ entry: MemoryEntry, filter: AgentMemoryFilter) -> Bool {

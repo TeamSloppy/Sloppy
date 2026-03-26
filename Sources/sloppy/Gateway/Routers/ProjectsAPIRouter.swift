@@ -305,5 +305,55 @@ struct ProjectsAPIRouter: APIRouter {
             let activities = await service.listTaskActivities(projectID: projectId, taskID: taskId)
             return CoreRouter.encodable(status: HTTPStatus.ok, payload: activities)
         }
+
+        router.get("/v1/projects/:projectId/memories", metadata: RouteMetadata(summary: "List project memories", description: "Returns a list of memory entries scoped to a specific project", tags: ["Projects"])) { request in
+            let projectId = request.pathParam("projectId") ?? ""
+            let search = request.queryParam("search")
+            let rawFilter = request.queryParam("filter")?.lowercased() ?? AgentMemoryFilter.all.rawValue
+            guard let filter = AgentMemoryFilter(rawValue: rawFilter) else {
+                return CoreRouter.json(status: HTTPStatus.badRequest, payload: ["error": ErrorCode.invalidBody])
+            }
+
+            let parsedLimit = Int(request.queryParam("limit") ?? "") ?? 20
+            let limit = max(1, min(parsedLimit, 100))
+            let offset = max(0, Int(request.queryParam("offset") ?? "") ?? 0)
+
+            do {
+                let response = try await service.listProjectMemories(
+                    projectID: projectId,
+                    search: search,
+                    filter: filter,
+                    limit: limit,
+                    offset: offset
+                )
+                return CoreRouter.encodable(status: HTTPStatus.ok, payload: response)
+            } catch let error as CoreService.ProjectError {
+                return CoreRouter.projectErrorResponse(error, fallback: ErrorCode.projectMemoryReadFailed)
+            } catch {
+                return CoreRouter.json(status: HTTPStatus.internalServerError, payload: ["error": ErrorCode.projectMemoryReadFailed])
+            }
+        }
+
+        router.get("/v1/projects/:projectId/memories/graph", metadata: RouteMetadata(summary: "Get project memory graph", description: "Returns a graph representation of memory entries scoped to a specific project", tags: ["Projects"])) { request in
+            let projectId = request.pathParam("projectId") ?? ""
+            let search = request.queryParam("search")
+            let rawFilter = request.queryParam("filter")?.lowercased() ?? AgentMemoryFilter.all.rawValue
+            guard let filter = AgentMemoryFilter(rawValue: rawFilter) else {
+                return CoreRouter.json(status: HTTPStatus.badRequest, payload: ["error": ErrorCode.invalidBody])
+            }
+
+            do {
+                let response = try await service.projectMemoryGraph(
+                    projectID: projectId,
+                    search: search,
+                    filter: filter
+                )
+                return CoreRouter.encodable(status: HTTPStatus.ok, payload: response)
+            } catch let error as CoreService.ProjectError {
+                return CoreRouter.projectErrorResponse(error, fallback: ErrorCode.projectMemoryReadFailed)
+            } catch {
+                return CoreRouter.json(status: HTTPStatus.internalServerError, payload: ["error": ErrorCode.projectMemoryReadFailed])
+            }
+        }
     }
 }

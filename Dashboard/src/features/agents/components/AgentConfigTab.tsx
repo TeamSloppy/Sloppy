@@ -114,10 +114,10 @@ function statusValue(value, fallback = "None") {
 }
 
 const AGENT_DOC_FILES = [
-  { id: "userMarkdown", name: "User.md", icon: "person" },
-  { id: "agentsMarkdown", name: "Agents.md", icon: "smart_toy" },
-  { id: "soulMarkdown", name: "Soul.md", icon: "psychology" },
-  { id: "identityMarkdown", name: "Identity.md", icon: "badge" }
+  { id: "userMarkdown", name: "USER.md", icon: "person" },
+  { id: "agentsMarkdown", name: "AGENTS.md", icon: "smart_toy" },
+  { id: "soulMarkdown", name: "SOUL.md", icon: "psychology" },
+  { id: "identityMarkdown", name: "IDENTITY.md", icon: "badge" }
 ];
 
 export function AgentConfigTab({ agentId }) {
@@ -150,8 +150,8 @@ export function AgentConfigTab({ agentId }) {
         setChannelNodes(board.nodes.filter((n) => n.linkedAgentId === agentId));
       }
 
-      if (runtimeCfg && Array.isArray(runtimeCfg.acp?.targets)) {
-        setAcpTargets(runtimeCfg.acp.targets.filter((t) => t.enabled !== false));
+      if (runtimeCfg && Array.isArray((runtimeCfg as any).acp?.targets)) {
+        setAcpTargets((runtimeCfg as any).acp.targets.filter((t) => t.enabled !== false));
       }
 
       if (!response) {

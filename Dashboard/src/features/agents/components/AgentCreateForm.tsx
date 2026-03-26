@@ -131,7 +131,7 @@ export function AgentCreateForm({
           <div className="agent-generate-toggle-copy">
             <span className="agent-generate-toggle-label">Generate Agent</span>
             <span className="agent-generate-toggle-hint">
-              Uses an LLM to generate AGENTS.md, Identity.md, Soul.md, User.md files for this agent.
+              Uses an LLM to generate AGENTS.md, IDENTITY.md, SOUL.md, USER.md files for this agent.
             </span>
           </div>
           <span className="agent-tools-switch">

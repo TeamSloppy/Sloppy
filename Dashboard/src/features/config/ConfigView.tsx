@@ -180,6 +180,13 @@ const EMPTY_CONFIG = {
       episodicDays: 90,
       todoCompletedDays: 30,
       bulletinDays: 180
+    },
+    embedding: {
+      enabled: false,
+      model: "text-embedding-3-small",
+      dimensions: 1536,
+      endpoint: "",
+      apiKeyEnv: ""
     }
   },
   nodes: ["local"],
@@ -426,6 +433,14 @@ function normalizeConfig(config) {
     config?.memory?.retention?.bulletinDays ?? normalized.memory.retention.bulletinDays,
     normalized.memory.retention.bulletinDays
   );
+  normalized.memory.embedding.enabled = Boolean(config?.memory?.embedding?.enabled);
+  normalized.memory.embedding.model = String(config?.memory?.embedding?.model || normalized.memory.embedding.model);
+  normalized.memory.embedding.dimensions = parseInteger(
+    config?.memory?.embedding?.dimensions ?? normalized.memory.embedding.dimensions,
+    normalized.memory.embedding.dimensions
+  );
+  normalized.memory.embedding.endpoint = String(config?.memory?.embedding?.endpoint || "");
+  normalized.memory.embedding.apiKeyEnv = String(config?.memory?.embedding?.apiKeyEnv || "");
   normalized.sqlitePath = config?.sqlitePath || normalized.sqlitePath;
   normalized.gitSync.enabled = Boolean(config?.gitSync?.enabled);
   normalized.gitSync.authToken = String(config?.gitSync?.authToken || "");

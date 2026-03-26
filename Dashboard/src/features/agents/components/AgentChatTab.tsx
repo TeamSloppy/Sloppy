@@ -11,7 +11,8 @@ import {
   postAgentSessionControl,
   postAgentSessionEvents,
   postAgentSessionMessage,
-  subscribeAgentSessionStream
+  subscribeAgentSessionStream,
+  fetchAgentTokenUsage
 } from "../../../api";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -540,7 +541,7 @@ function buildTechnicalRecord(eventItem, index) {
 
   if (eventItem?.type === "run_status" && eventItem.runStatus) {
     const stage = String(eventItem.runStatus.stage || "").toLowerCase();
-    if (stage === "responding" || stage === "done") {
+    if (stage === "responding" || stage === "done" || stage === "thinking") {
       return null;
     }
 
@@ -932,6 +933,41 @@ function AgentChatExpandable({
   );
 }
 
+const TECH_GROUP_THRESHOLD = 3;
+
+function groupTimelineItems(items) {
+  const result = [];
+  let techBuffer = [];
+
+  function flush(followedByAssistant) {
+    if (techBuffer.length === 0) return;
+    if (techBuffer.length >= TECH_GROUP_THRESHOLD && followedByAssistant) {
+      result.push({
+        kind: "tech-group",
+        id: `tech-group-${techBuffer[0]?.id || "g"}`,
+        items: [...techBuffer],
+        count: techBuffer.length
+      });
+    } else {
+      result.push(...techBuffer);
+    }
+    techBuffer = [];
+  }
+
+  for (const item of items) {
+    if (item.kind === "technical") {
+      techBuffer.push(item);
+    } else {
+      const isAssistant = item.kind === "message" && item.event?.message?.role === "assistant";
+      flush(isAssistant);
+      result.push(item);
+    }
+  }
+
+  flush(false);
+  return result;
+}
+
 function AgentChatEvents({
   isLoadingSession,
   isSending,
@@ -947,74 +983,119 @@ function AgentChatEvents({
   onTaskTagHoverEnd
 }) {
   const scrollRef = useRef(null);
+  const wasNearBottomRef = useRef(true);
 
   useEffect(() => {
-    if (!scrollRef.current) {
+    const el = scrollRef.current;
+    if (!el) return;
+    const onScroll = () => {
+      wasNearBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+    };
+    el.addEventListener("scroll", onScroll, { passive: true });
+    return () => el.removeEventListener("scroll", onScroll);
+  }, []);
+
+  useEffect(() => {
+    if (!scrollRef.current || !wasNearBottomRef.current) {
       return;
     }
     scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
   }, [timelineItems, isLoadingSession, isSending, latestRunStatus?.id]);
 
+  const displayGroups = useMemo(() => groupTimelineItems(timelineItems), [timelineItems]);
+
+  function renderTechEntry(techItem, techIndex) {
+    const record = techItem.record;
+    if (!record) return null;
+    const isExpanded = Boolean(expandedRecordIds[record.id]);
+    const isLatestActive =
+      latestRunStatus &&
+      record.isActive &&
+      record.id.includes(latestRunStatus.id || "");
+
+    return (
+      <div key={techItem.id || `tech-${techIndex}`} className="agent-chat-tech-entry">
+        <button
+          type="button"
+          className={`agent-chat-tech-trigger ${isExpanded ? "expanded" : ""} ${isLatestActive ? "shimmer" : ""}`}
+          onClick={() => onToggleRecord(record.id)}
+          aria-expanded={isExpanded}
+        >
+          <span className="agent-chat-tech-trigger-label">{record.title || "Technical event"}</span>
+          <span className="material-symbols-rounded agent-chat-tech-trigger-arrow" aria-hidden="true">
+            chevron_right
+          </span>
+        </button>
+        {isExpanded ? (
+          <article className="agent-chat-technical">
+            <div className="agent-chat-technical-body">
+              <pre className="agent-chat-expandable-pre">{record.detail || "No details."}</pre>
+              {record.childSessionId ? (
+                <button
+                  type="button"
+                  className="agent-chat-technical-link"
+                  onClick={() => onOpenSession(record.childSessionId)}
+                >
+                  Open sub-session
+                </button>
+              ) : null}
+              {containsOAuthError(record.detail) || containsOAuthError(record.summary) ? (
+                <button
+                  type="button"
+                  className="agent-chat-oauth-reauth-button"
+                  onClick={navigateToOAuthSettings}
+                >
+                  <span className="material-symbols-rounded" aria-hidden="true">
+                    login
+                  </span>
+                  Reconnect OpenAI
+                </button>
+              ) : null}
+            </div>
+          </article>
+        ) : null}
+      </div>
+    );
+  }
+
   return (
     <div className="agent-chat-events" ref={scrollRef} data-testid="agent-chat-events">
       {isLoadingSession ? (
         <p className="placeholder-text">Loading session...</p>
-      ) : timelineItems.length === 0 && !isSending ? (
+      ) : displayGroups.length === 0 && !isSending ? (
         <p className="placeholder-text">No messages yet.</p>
       ) : (
         <>
-          {timelineItems.map((timelineItem, index) => {
-            if (timelineItem.kind === "technical" && timelineItem.record) {
-              const record = timelineItem.record;
-              const isExpanded = Boolean(expandedRecordIds[record.id]);
-              const isLatestActive =
-                latestRunStatus &&
-                record.isActive &&
-                record.id.includes(latestRunStatus.id || "");
-
+          {displayGroups.map((timelineItem, index) => {
+            if (timelineItem.kind === "tech-group") {
+              const groupId = timelineItem.id;
+              const isGroupOpen = Boolean(expandedRecordIds[groupId]);
               return (
-                <div key={timelineItem.id || `tech-${index}`} className="agent-chat-tech-entry">
+                <div key={groupId} className="agent-chat-tech-group">
                   <button
                     type="button"
-                    className={`agent-chat-tech-trigger ${isExpanded ? "expanded" : ""} ${isLatestActive ? "shimmer" : ""}`}
-                    onClick={() => onToggleRecord(record.id)}
-                    aria-expanded={isExpanded}
+                    className={`agent-chat-tech-trigger ${isGroupOpen ? "expanded" : ""}`}
+                    onClick={() => onToggleRecord(groupId)}
+                    aria-expanded={isGroupOpen}
                   >
-                    <span className="agent-chat-tech-trigger-label">{record.title || "Technical event"}</span>
+                    <span className="agent-chat-tech-trigger-label">
+                      {timelineItem.count} steps
+                    </span>
                     <span className="material-symbols-rounded agent-chat-tech-trigger-arrow" aria-hidden="true">
                       chevron_right
                     </span>
                   </button>
-                  {isExpanded ? (
-                    <article className="agent-chat-technical">
-                      <div className="agent-chat-technical-body">
-                        <pre className="agent-chat-expandable-pre">{record.detail || "No details."}</pre>
-                        {record.childSessionId ? (
-                          <button
-                            type="button"
-                            className="agent-chat-technical-link"
-                            onClick={() => onOpenSession(record.childSessionId)}
-                          >
-                            Open sub-session
-                          </button>
-                        ) : null}
-                        {containsOAuthError(record.detail) || containsOAuthError(record.summary) ? (
-                          <button
-                            type="button"
-                            className="agent-chat-oauth-reauth-button"
-                            onClick={navigateToOAuthSettings}
-                          >
-                            <span className="material-symbols-rounded" aria-hidden="true">
-                              login
-                            </span>
-                            Reconnect OpenAI
-                          </button>
-                        ) : null}
-                      </div>
-                    </article>
+                  {isGroupOpen ? (
+                    <div className="agent-chat-tech-group-body">
+                      {timelineItem.items.map((innerItem, innerIdx) => renderTechEntry(innerItem, innerIdx))}
+                    </div>
                   ) : null}
                 </div>
               );
+            }
+
+            if (timelineItem.kind === "technical" && timelineItem.record) {
+              return renderTechEntry(timelineItem, index);
             }
 
             const eventItem = timelineItem.event;
@@ -1037,60 +1118,70 @@ function AgentChatEvents({
                   {thinkingSegments.map((segment) => {
                     const thoughtId = `${eventKey}-thinking-${segment.segmentIndex}`;
                     const thoughtText = String(segment.text || "").trim();
+                    const isThoughtExpanded = Boolean(expandedRecordIds[thoughtId]);
                     return (
-                      <AgentChatExpandable
-                        key={thoughtId}
-                        recordId={thoughtId}
-                        icon="psychology_alt"
-                        title="Thinking"
-                        summary={previewText(thoughtText, "No details")}
-                        isExpanded={Boolean(expandedRecordIds[thoughtId])}
-                        onToggle={onToggleRecord}
-                      >
-                        <div className="markdown-body">
-                          <ReactMarkdown
-                            remarkPlugins={[remarkGfm]}
-                            components={{
-                              code(props: any) {
-                                const { inline, className, children, ...rest } = props;
-                                const match = /language-(\w+)/.exec(className || "");
-                                return !inline && match ? (
-                                  <SyntaxHighlighter
-                                    style={oneDark as any}
-                                    language={match[1]}
-                                    PreTag="div"
-                                    {...rest}
-                                  >
-                                    {String(children).replace(/\n$/, "")}
-                                  </SyntaxHighlighter>
-                                ) : (
-                                  <code className={className} {...rest}>
-                                    {children}
-                                  </code>
-                                );
-                              },
-                              p: ({ children }) => (
-                                <p>
-                                  {React.Children.map(children, (child) =>
-                                    typeof child === "string" ? (
-                                      <TaskTaggedText
-                                        text={child}
-                                        onTaskTagClick={onTaskTagClick}
-                                        onTaskTagHoverStart={onTaskTagHoverStart}
-                                        onTaskTagHoverEnd={onTaskTagHoverEnd}
-                                      />
-                                    ) : (
-                                      child
+                      <div key={thoughtId} className="agent-chat-tech-entry">
+                        <button
+                          type="button"
+                          className={`agent-chat-tech-trigger ${isThoughtExpanded ? "expanded" : ""}`}
+                          onClick={() => onToggleRecord(thoughtId)}
+                          aria-expanded={isThoughtExpanded}
+                        >
+                          <span className="agent-chat-tech-trigger-label">Thinking</span>
+                          <span className="material-symbols-rounded agent-chat-tech-trigger-arrow" aria-hidden="true">
+                            chevron_right
+                          </span>
+                        </button>
+                        {isThoughtExpanded ? (
+                          <article className="agent-chat-technical">
+                            <div className="agent-chat-technical-body">
+                              <div className="markdown-body">
+                                <ReactMarkdown
+                                  remarkPlugins={[remarkGfm]}
+                                  components={{
+                                    code(props: any) {
+                                      const { inline, className, children, ...rest } = props;
+                                      const match = /language-(\w+)/.exec(className || "");
+                                      return !inline && match ? (
+                                        <SyntaxHighlighter
+                                          style={oneDark as any}
+                                          language={match[1]}
+                                          PreTag="div"
+                                          {...rest}
+                                        >
+                                          {String(children).replace(/\n$/, "")}
+                                        </SyntaxHighlighter>
+                                      ) : (
+                                        <code className={className} {...rest}>
+                                          {children}
+                                        </code>
+                                      );
+                                    },
+                                    p: ({ children }) => (
+                                      <p>
+                                        {React.Children.map(children, (child) =>
+                                          typeof child === "string" ? (
+                                            <TaskTaggedText
+                                              text={child}
+                                              onTaskTagClick={onTaskTagClick}
+                                              onTaskTagHoverStart={onTaskTagHoverStart}
+                                              onTaskTagHoverEnd={onTaskTagHoverEnd}
+                                            />
+                                          ) : (
+                                            child
+                                          )
+                                        )}
+                                      </p>
                                     )
-                                  )}
-                                </p>
-                              )
-                            }}
-                          >
-                            {thoughtText || "No details."}
-                          </ReactMarkdown>
-                        </div>
-                      </AgentChatExpandable>
+                                  }}
+                                >
+                                  {thoughtText || "No details."}
+                                </ReactMarkdown>
+                              </div>
+                            </div>
+                          </article>
+                        ) : null}
+                      </div>
                     );
                   })}
 
@@ -1152,7 +1243,7 @@ function AgentChatEvents({
                     );
                   })}
                 </div>
-                {role === "assistant" ? (
+                {role === "assistant" && messageText ? (
                   <div className="agent-chat-message-actions">
                     <button
                       type="button"
@@ -2089,7 +2180,17 @@ export function AgentChatTab({ agentId }) {
       return;
     }
 
-    setActiveSession(detail);
+    setActiveSession((previous) => {
+      if (!previous) return detail;
+      const serverEvents = Array.isArray(detail.events) ? detail.events : [];
+      const localEvents = Array.isArray(previous.events) ? previous.events : [];
+      const serverIds = new Set(serverEvents.map((e) => e?.id).filter(Boolean));
+      const localOnly = localEvents.filter(
+        (e) => e?.id && !serverIds.has(e.id) && String(e.id).startsWith("cmd-")
+      );
+      if (localOnly.length === 0) return detail;
+      return { ...detail, events: [...serverEvents, ...localOnly] };
+    });
     const detailSummary =
       detail.summary && typeof detail.summary === "object"
         ? detail.summary as { id?: string }
@@ -2342,7 +2443,23 @@ export function AgentChatTab({ agentId }) {
 
     if (lower === "/context") {
       const eventCount = Array.isArray(activeSession?.events) ? activeSession.events.length : 0;
-      await persistCommandEvents(text, `Session: ${activeSessionId || "none"}\nEvents in session: ${eventCount}`);
+      let usageText = `Session: ${activeSessionId || "none"}\nEvents in session: ${eventCount}`;
+      try {
+        const usage = await fetchAgentTokenUsage(agentId);
+        if (usage) {
+          const promptTokens = usage.promptTokens ?? usage.prompt_tokens ?? "—";
+          const completionTokens = usage.completionTokens ?? usage.completion_tokens ?? "—";
+          const totalTokens = usage.totalTokens ?? usage.total_tokens ?? "—";
+          const contextWindow = usage.contextWindow ?? usage.context_window ?? null;
+          usageText += `\n\nToken usage:\n  Prompt tokens: ${promptTokens}\n  Completion tokens: ${completionTokens}\n  Total tokens: ${totalTokens}`;
+          if (contextWindow) {
+            usageText += `\n  Context window: ${contextWindow}`;
+          }
+        }
+      } catch {
+        usageText += "\n\n(Token usage data unavailable)";
+      }
+      await persistCommandEvents(text, usageText);
       return true;
     }
 
@@ -2380,6 +2497,7 @@ export function AgentChatTab({ agentId }) {
     if (trimmed.startsWith("/") && pendingFiles.length === 0 && !replyTarget) {
       if (await handleSlashCommand(trimmed)) {
         setInputText("");
+        composeInputRef.current?.focus();
         return;
       }
     }
@@ -2504,6 +2622,7 @@ export function AgentChatTab({ agentId }) {
       setOptimisticUserEvent(null);
       setOptimisticAssistantText("");
       setIsSending(false);
+      composeInputRef.current?.focus();
     }
   }
 
@@ -2749,6 +2868,11 @@ export function AgentChatTab({ agentId }) {
         <div className="agent-chat-main-head">
           <div className="agent-chat-head-title">
             {activeSession ? getSessionDisplayLabel(activeSession) : "Select a session"}
+            {selectedModel ? (
+              <span className="agent-chat-head-model">
+                {activeModelOption?.title || selectedModel}
+              </span>
+            ) : null}
           </div>
           <div className="agent-chat-actions">
             <button

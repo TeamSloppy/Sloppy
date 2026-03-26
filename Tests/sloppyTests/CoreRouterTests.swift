@@ -1041,7 +1041,7 @@ func createListAndGetAgentsEndpoints() async throws {
         .appendingPathComponent("agent-dev", isDirectory: true)
     #expect(FileManager.default.fileExists(atPath: workspaceAgentsURL.path))
 
-    let scaffoldFiles = ["Agents.md", "User.md", "Soul.md", "Identity.id", "Identity.md", "config.json", "agent.json"]
+    let scaffoldFiles = ["AGENTS.md", "USER.md", "SOUL.md", "IDENTITY.id", "IDENTITY.md", "config.json", "agent.json"]
     for file in scaffoldFiles {
         let fileURL = workspaceAgentsURL.appendingPathComponent(file)
         #expect(FileManager.default.fileExists(atPath: fileURL.path))
@@ -1368,9 +1368,9 @@ func agentConfigEndpointsReadAndUpdate() async throws {
         .resolvedWorkspaceRootURL()
         .appendingPathComponent("agents", isDirectory: true)
         .appendingPathComponent("agent-config", isDirectory: true)
-    let identityPath = agentDirectory.appendingPathComponent("Identity.id")
+    let identityPath = agentDirectory.appendingPathComponent("IDENTITY.md")
     let heartbeatPath = agentDirectory.appendingPathComponent("HEARTBEAT.md")
-    let userPath = agentDirectory.appendingPathComponent("User.md")
+    let userPath = agentDirectory.appendingPathComponent("USER.md")
     let configPath = agentDirectory.appendingPathComponent("config.json")
 
     let identityFileText = try String(contentsOf: identityPath, encoding: .utf8)
@@ -2286,10 +2286,10 @@ func agentSessionLifecycleEndpoints() async throws {
         $0.userId == "system" && $0.content.contains("[agent_session_context_bootstrap_v1]")
     })
     #expect(bootstrapMessage != nil)
-    #expect(bootstrapMessage?.content.contains("[Agents.md]") == true)
-    #expect(bootstrapMessage?.content.contains("[User.md]") == true)
-    #expect(bootstrapMessage?.content.contains("[Identity.md]") == true)
-    #expect(bootstrapMessage?.content.contains("[Soul.md]") == true)
+    #expect(bootstrapMessage?.content.contains("[AGENTS.md]") == true)
+    #expect(bootstrapMessage?.content.contains("[USER.md]") == true)
+    #expect(bootstrapMessage?.content.contains("[IDENTITY.md]") == true)
+    #expect(bootstrapMessage?.content.contains("[SOUL.md]") == true)
     #expect(bootstrapMessage?.content.contains("[Skills]") == false)
 
     let sessionFileURL = config
@@ -3077,4 +3077,114 @@ func generateTextEndpointFailsGracefullyWithNoProvider() async throws {
     let requestBody = try JSONEncoder().encode(GenerateTextRequest(model: "", prompt: "Hello"))
     let response = await router.handle(method: "POST", path: "/v1/generate", body: requestBody)
     #expect(response.status == 500)
+}
+
+@Test
+func projectMemoriesEndpointListAndFilterRecords() async throws {
+    let config = CoreConfig.test
+    let service = CoreService(config: config)
+    let router = CoreRouter(service: service)
+    let memoryStore = HybridMemoryStore(config: config)
+
+    let projectID = "proj-memory-\(UUID().uuidString)"
+    let createBody = try JSONEncoder().encode(
+        ProjectCreateRequest(id: projectID, name: "Memory Test Project", description: "Tests project memory listing")
+    )
+    let createResponse = await router.handle(method: "POST", path: "/v1/projects", body: createBody)
+    #expect(createResponse.status == 201)
+
+    let projectScopedRef = await memoryStore.save(
+        entry: MemoryWriteRequest(
+            note: "Project architecture decision: use layered approach.",
+            summary: "Architecture decision",
+            kind: .decision,
+            memoryClass: .semantic,
+            scope: .project(projectID)
+        )
+    )
+    let agentWithProjectRef = await memoryStore.save(
+        entry: MemoryWriteRequest(
+            note: "Agent remembered the project workflow steps.",
+            summary: "Project workflow",
+            kind: .fact,
+            memoryClass: .procedural,
+            scope: .agent("agent-proj-test")
+        )
+    )
+
+    let linkedScope = MemoryScope(
+        type: .channel,
+        id: "agent:some-agent:session:s1",
+        channelId: "agent:some-agent:session:s1",
+        projectId: projectID,
+        agentId: "some-agent"
+    )
+    let crossScopeRef = await memoryStore.save(
+        entry: MemoryWriteRequest(
+            note: "Agent wrote this for the project during a session.",
+            summary: "Cross-scope entry",
+            kind: .fact,
+            memoryClass: .episodic,
+            scope: linkedScope
+        )
+    )
+    _ = await memoryStore.save(
+        entry: MemoryWriteRequest(
+            note: "Unrelated memory from a different project.",
+            summary: "Other project memory",
+            kind: .fact,
+            memoryClass: .semantic,
+            scope: .project("other-project-xyz")
+        )
+    )
+
+    let decoder = JSONDecoder()
+    decoder.dateDecodingStrategy = .iso8601
+
+    let listResponse = await router.handle(method: "GET", path: "/v1/projects/\(projectID)/memories", body: nil)
+    #expect(listResponse.status == 200)
+    let listPage = try decoder.decode(ProjectMemoryListResponse.self, from: listResponse.body)
+    #expect(listPage.projectId == projectID)
+    let returnedIDs = Set(listPage.items.map(\.id))
+    #expect(returnedIDs.contains(projectScopedRef.id))
+    #expect(returnedIDs.contains(crossScopeRef.id))
+    #expect(!returnedIDs.contains(agentWithProjectRef.id))
+
+    let searchResponse = await router.handle(
+        method: "GET",
+        path: "/v1/projects/\(projectID)/memories?search=architecture&filter=persistent",
+        body: nil
+    )
+    #expect(searchResponse.status == 200)
+    let searchPage = try decoder.decode(ProjectMemoryListResponse.self, from: searchResponse.body)
+    #expect(searchPage.items.first?.id == projectScopedRef.id)
+
+    let graphResponse = await router.handle(
+        method: "GET",
+        path: "/v1/projects/\(projectID)/memories/graph",
+        body: nil
+    )
+    #expect(graphResponse.status == 200)
+    let graph = try decoder.decode(ProjectMemoryGraphResponse.self, from: graphResponse.body)
+    #expect(graph.projectId == projectID)
+    let graphNodeIDs = Set(graph.nodes.map(\.id))
+    #expect(graphNodeIDs.contains(projectScopedRef.id))
+    #expect(graphNodeIDs.contains(crossScopeRef.id))
+    #expect(!graphNodeIDs.contains(agentWithProjectRef.id))
+}
+
+@Test
+func projectMemoriesEndpointValidatesProjectID() async throws {
+    let config = CoreConfig.test
+    let service = CoreService(config: config)
+    let router = CoreRouter(service: service)
+
+    let invalidResponse = await router.handle(method: "GET", path: "/v1/projects/invalid!/memories", body: nil)
+    #expect(invalidResponse.status == 400)
+
+    let missingResponse = await router.handle(method: "GET", path: "/v1/projects/nonexistent-project/memories", body: nil)
+    #expect(missingResponse.status == 404)
+
+    let missingGraphResponse = await router.handle(method: "GET", path: "/v1/projects/nonexistent-project/memories/graph", body: nil)
+    #expect(missingGraphResponse.status == 404)
 }

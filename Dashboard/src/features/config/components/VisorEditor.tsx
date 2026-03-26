@@ -1,5 +1,21 @@
 import React from "react";
 
+const EMBEDDING_PRESETS = [
+  { id: "text-embedding-3-small", label: "text-embedding-3-small (OpenAI)", model: "text-embedding-3-small", dimensions: 1536, endpoint: "", apiKeyEnv: "OPENAI_API_KEY" },
+  { id: "text-embedding-3-large", label: "text-embedding-3-large (OpenAI)", model: "text-embedding-3-large", dimensions: 3072, endpoint: "", apiKeyEnv: "OPENAI_API_KEY" },
+  { id: "nomic-embed-text", label: "nomic-embed-text (Ollama)", model: "nomic-embed-text", dimensions: 768, endpoint: "http://127.0.0.1:11434/v1/embeddings", apiKeyEnv: "" },
+  { id: "mxbai-embed-large", label: "mxbai-embed-large (Ollama)", model: "mxbai-embed-large", dimensions: 1024, endpoint: "http://127.0.0.1:11434/v1/embeddings", apiKeyEnv: "" },
+  { id: "snowflake-arctic-embed", label: "snowflake-arctic-embed (Ollama)", model: "snowflake-arctic-embed", dimensions: 1024, endpoint: "http://127.0.0.1:11434/v1/embeddings", apiKeyEnv: "" },
+  { id: "custom", label: "Custom", model: "", dimensions: 1536, endpoint: "", apiKeyEnv: "" },
+];
+
+function detectPreset(model, endpoint) {
+  const m = String(model || "").trim();
+  const e = String(endpoint || "").trim();
+  const match = EMBEDDING_PRESETS.find((p) => p.id !== "custom" && p.model === m && p.endpoint === e);
+  return match ? match.id : "custom";
+}
+
 function buildModelOptions(models) {
   const options = [{ value: "", label: "Default system model" }];
   for (const entry of Array.isArray(models) ? models : []) {
@@ -36,6 +52,14 @@ export function VisorEditor({ draftConfig, mutateDraft, parseLines }) {
   const mergeSimilarityThreshold = visor.mergeSimilarityThreshold ?? 0.80;
   const mergeMaxPerRun = visor.mergeMaxPerRun ?? 10;
 
+  const embedding = draftConfig.memory?.embedding || {};
+  const embeddingEnabled = Boolean(embedding.enabled);
+  const embeddingModel = String(embedding.model || "text-embedding-3-small");
+  const embeddingDimensions = embedding.dimensions ?? 1536;
+  const embeddingEndpoint = String(embedding.endpoint || "");
+  const embeddingApiKeyEnv = String(embedding.apiKeyEnv || "");
+  const selectedPreset = detectPreset(embeddingModel, embeddingEndpoint);
+
   function setVisor(field, value) {
     mutateDraft((draft) => {
       if (!draft.visor) draft.visor = {};
@@ -48,6 +72,25 @@ export function VisorEditor({ draftConfig, mutateDraft, parseLines }) {
       if (!draft.visor) draft.visor = {};
       if (!draft.visor.scheduler) draft.visor.scheduler = {};
       draft.visor.scheduler[field] = value;
+    });
+  }
+
+  function setEmbedding(patch) {
+    mutateDraft((draft) => {
+      if (!draft.memory) draft.memory = {};
+      if (!draft.memory.embedding) draft.memory.embedding = {};
+      Object.assign(draft.memory.embedding, patch);
+    });
+  }
+
+  function applyEmbeddingPreset(presetId) {
+    const preset = EMBEDDING_PRESETS.find((p) => p.id === presetId);
+    if (!preset || preset.id === "custom") return;
+    setEmbedding({
+      model: preset.model,
+      dimensions: preset.dimensions,
+      endpoint: preset.endpoint,
+      apiKeyEnv: preset.apiKeyEnv,
     });
   }
 
@@ -338,6 +381,85 @@ export function VisorEditor({ draftConfig, mutateDraft, parseLines }) {
               onChange={(event) => setVisor("mergeMaxPerRun", parseIntField(event.target.value, 10))}
             />
             <span className="entry-form-hint">Maximum number of merge operations per maintenance pass. Default: 10.</span>
+          </label>
+        </div>
+      </section>
+
+      <section className="entry-editor-card">
+        <h3>Embedding Model</h3>
+        <div className="entry-form-grid">
+          <label style={{ gridColumn: "1 / -1" }}>
+            Embedding
+            <select
+              value={embeddingEnabled ? "enabled" : "disabled"}
+              onChange={(event) => setEmbedding({ enabled: event.target.value === "enabled" })}
+            >
+              <option value="disabled">Disabled</option>
+              <option value="enabled">Enabled</option>
+            </select>
+            <span className="entry-form-hint">When enabled, memory entries are vectorized using the configured embedding model for semantic recall. Requires a compatible endpoint.</span>
+          </label>
+
+          <label style={{ gridColumn: "1 / -1" }}>
+            Preset
+            <select
+              disabled={!embeddingEnabled}
+              value={selectedPreset}
+              onChange={(event) => applyEmbeddingPreset(event.target.value)}
+            >
+              {EMBEDDING_PRESETS.map((preset) => (
+                <option key={preset.id} value={preset.id}>{preset.label}</option>
+              ))}
+            </select>
+            <span className="entry-form-hint">Selecting a preset auto-fills the model name, dimensions, endpoint, and API key settings below.</span>
+          </label>
+
+          <label>
+            Model Name
+            <input
+              type="text"
+              disabled={!embeddingEnabled}
+              placeholder="text-embedding-3-small"
+              value={embeddingModel}
+              onChange={(event) => setEmbedding({ model: event.target.value })}
+            />
+            <span className="entry-form-hint">Model identifier sent to the embedding endpoint.</span>
+          </label>
+
+          <label>
+            Dimensions
+            <input
+              type="number"
+              min={1}
+              disabled={!embeddingEnabled}
+              value={embeddingDimensions}
+              onChange={(event) => setEmbedding({ dimensions: parseIntField(event.target.value, 1536) })}
+            />
+            <span className="entry-form-hint">Output vector dimensionality. Must match the model (e.g. 1536 for text-embedding-3-small, 768 for nomic-embed-text).</span>
+          </label>
+
+          <label style={{ gridColumn: "1 / -1" }}>
+            Endpoint
+            <input
+              type="text"
+              disabled={!embeddingEnabled}
+              placeholder="Leave empty to auto-detect from configured providers"
+              value={embeddingEndpoint}
+              onChange={(event) => setEmbedding({ endpoint: event.target.value })}
+            />
+            <span className="entry-form-hint">Full URL to the embeddings endpoint. For Ollama: <code>http://127.0.0.1:11434/v1/embeddings</code>. Leave empty to use the first configured OpenAI provider.</span>
+          </label>
+
+          <label style={{ gridColumn: "1 / -1" }}>
+            API Key Env Var
+            <input
+              type="text"
+              disabled={!embeddingEnabled}
+              placeholder="OPENAI_API_KEY"
+              value={embeddingApiKeyEnv}
+              onChange={(event) => setEmbedding({ apiKeyEnv: event.target.value })}
+            />
+            <span className="entry-form-hint">Name of the environment variable holding the API key. Leave empty for Ollama (no auth required) or to use <code>OPENAI_API_KEY</code> as default.</span>
           </label>
         </div>
       </section>

@@ -243,6 +243,7 @@ private final class MockCallStore: @unchecked Sendable {
     var models: [String] { lock.withLock { _models } }
     var reasoningEfforts: [ReasoningEffort?] { lock.withLock { _reasoningEfforts } }
     var lastPrompt: String? { lock.withLock { _prompts.last } }
+    var allPrompts: [String] { lock.withLock { _prompts } }
 }
 
 private func extractPromptText(from prompt: Prompt) -> String {
@@ -444,6 +445,7 @@ private final class PromptCapturingModelProvider: ModelProvider, @unchecked Send
     }
 
     func lastPrompt() async -> String? { callStore.lastPrompt }
+    func allPrompts() async -> [String] { callStore.allPrompts }
     func requestedModelsSnapshot() async -> [String] { callStore.models }
     func requestedReasoningEffortsSnapshot() async -> [ReasoningEffort?] { callStore.reasoningEfforts }
 }
@@ -524,24 +526,25 @@ func respondInlineIncludesBootstrapContextInPrompt() async {
     let system = RuntimeSystem(modelProvider: provider, defaultModel: "mock-model")
     let channelId = "session-bootstrap"
 
-    await system.appendSystemMessage(
-        channelId: channelId,
-        content: """
-        [agent_session_context_bootstrap_v1]
-        [Identity.md]
-        Тебя зовут Серега
-        """
-    )
+    let bootstrapContent = """
+    [agent_session_context_bootstrap_v1]
+    [IDENTITY.md]
+    Тебя зовут Серега
+    """
+    await system.setChannelBootstrap(channelId: channelId, content: bootstrapContent)
 
     _ = await system.postMessage(
         channelId: channelId,
         request: ChannelMessageRequest(userId: "dashboard", content: "привет, как тебя зовут?")
     )
 
-    let prompt = await provider.lastPrompt() ?? ""
-    #expect(prompt.contains("[agent_session_context_bootstrap_v1]"))
-    #expect(prompt.contains("Тебя зовут Серега"))
-    #expect(prompt.contains("привет, как тебя зовут?"))
+    let prompts = await provider.allPrompts()
+    let bootstrapPrompt = prompts.first ?? ""
+    let userPrompt = prompts.last ?? ""
+
+    #expect(bootstrapPrompt.contains("[agent_session_context_bootstrap_v1]"))
+    #expect(bootstrapPrompt.contains("Тебя зовут Серега"))
+    #expect(userPrompt.contains("привет, как тебя зовут?"))
 }
 
 @Test
@@ -772,6 +775,159 @@ private func collectEvents(
     try? await Task.sleep(nanoseconds: timeoutNanoseconds)
     task.cancel()
     return await collector.all()
+}
+
+// MARK: - Persistent session tests
+
+@Test
+func persistentSessionReusesLanguageModelAcrossMessages() async {
+    let provider = PromptCapturingModelProvider(models: ["mock-model"])
+    let system = RuntimeSystem(modelProvider: provider, defaultModel: "mock-model")
+
+    _ = await system.postMessage(
+        channelId: "reuse-channel",
+        request: ChannelMessageRequest(userId: "u1", content: "first message")
+    )
+    _ = await system.postMessage(
+        channelId: "reuse-channel",
+        request: ChannelMessageRequest(userId: "u1", content: "second message")
+    )
+
+    #expect(await provider.requestedModelsSnapshot().count == 1)
+}
+
+@Test
+func persistentSessionInvalidatedOnModelProviderUpdate() async {
+    let provider = PromptCapturingModelProvider(models: ["mock-model"])
+    let system = RuntimeSystem(modelProvider: provider, defaultModel: "mock-model")
+
+    _ = await system.postMessage(
+        channelId: "invalidation-channel",
+        request: ChannelMessageRequest(userId: "u1", content: "first message")
+    )
+
+    await system.updateModelProvider(modelProvider: provider, defaultModel: "mock-model")
+
+    _ = await system.postMessage(
+        channelId: "invalidation-channel",
+        request: ChannelMessageRequest(userId: "u1", content: "second message")
+    )
+
+    #expect(await provider.requestedModelsSnapshot().count == 2)
+}
+
+@Test
+func persistentSessionContextOverflowCreatesNewSession() async {
+    let provider = ContextOverflowModelProvider(recoveryResponse: "Recovered response.")
+    let system = RuntimeSystem(modelProvider: provider, defaultModel: "mock-model")
+
+    _ = await system.postMessage(
+        channelId: "overflow-channel",
+        request: ChannelMessageRequest(userId: "u1", content: "hello")
+    )
+
+    let snapshot = await system.channelState(channelId: "overflow-channel")
+    let lastSystemMessage = snapshot?.messages.last(where: { $0.userId == "system" })?.content ?? ""
+    #expect(lastSystemMessage == "Recovered response.")
+    #expect(await provider.currentCallCount() == 2)
+}
+
+// MARK: - ContextOverflowModelProvider
+
+private actor ContextOverflowModelProvider: ModelProvider {
+    let id: String = "context-overflow"
+    nonisolated let supportedModels: [String] = ["mock-model"]
+    private var callCount = 0
+    private let recoveryResponse: String
+
+    init(recoveryResponse: String) {
+        self.recoveryResponse = recoveryResponse
+    }
+
+    func createLanguageModel(for modelName: String) async throws -> any LanguageModel {
+        callCount += 1
+        if callCount == 1 {
+            return ContextOverflowLanguageModel()
+        }
+        return FixedResponseLanguageModel(text: recoveryResponse)
+    }
+
+    nonisolated func generationOptions(for modelName: String, maxTokens: Int, reasoningEffort: ReasoningEffort?) -> GenerationOptions {
+        GenerationOptions(maximumResponseTokens: maxTokens)
+    }
+
+    func currentCallCount() -> Int { callCount }
+}
+
+private struct ContextOverflowLanguageModel: LanguageModel {
+    typealias UnavailableReason = Never
+
+    func respond<Content>(
+        within session: LanguageModelSession,
+        to prompt: Prompt,
+        generating type: Content.Type,
+        includeSchemaInPrompt: Bool,
+        options: GenerationOptions
+    ) async throws -> LanguageModelSession.Response<Content> where Content: Generable {
+        guard type == String.self else { fatalError("only String supported") }
+        return LanguageModelSession.Response(
+            content: "" as! Content,
+            rawContent: GeneratedContent(""),
+            transcriptEntries: []
+        )
+    }
+
+    func streamResponse<Content>(
+        within session: LanguageModelSession,
+        to prompt: Prompt,
+        generating type: Content.Type,
+        includeSchemaInPrompt: Bool,
+        options: GenerationOptions
+    ) -> sending LanguageModelSession.ResponseStream<Content> where Content: Generable {
+        let stream = AsyncThrowingStream<LanguageModelSession.ResponseStream<Content>.Snapshot, any Error> { continuation in
+            continuation.finish(throwing: LanguageModelSession.GenerationError.exceededContextWindowSize(
+                LanguageModelSession.GenerationError.Context(debugDescription: "test context overflow")
+            ))
+        }
+        return LanguageModelSession.ResponseStream(stream: stream)
+    }
+}
+
+private struct FixedResponseLanguageModel: LanguageModel {
+    typealias UnavailableReason = Never
+    let text: String
+
+    func respond<Content>(
+        within session: LanguageModelSession,
+        to prompt: Prompt,
+        generating type: Content.Type,
+        includeSchemaInPrompt: Bool,
+        options: GenerationOptions
+    ) async throws -> LanguageModelSession.Response<Content> where Content: Generable {
+        guard type == String.self else { fatalError("only String supported") }
+        return LanguageModelSession.Response(
+            content: text as! Content,
+            rawContent: GeneratedContent(text),
+            transcriptEntries: []
+        )
+    }
+
+    func streamResponse<Content>(
+        within session: LanguageModelSession,
+        to prompt: Prompt,
+        generating type: Content.Type,
+        includeSchemaInPrompt: Bool,
+        options: GenerationOptions
+    ) -> sending LanguageModelSession.ResponseStream<Content> where Content: Generable {
+        let output = text
+        let stream = AsyncThrowingStream<LanguageModelSession.ResponseStream<Content>.Snapshot, any Error> { continuation in
+            Task {
+                continuation.yield(.init(content: output as! Content.PartiallyGenerated, rawContent: GeneratedContent(output)))
+                continuation.finish()
+            }
+        }
+        return LanguageModelSession.ResponseStream(stream: stream)
+    }
 }
 
 // MARK: - ReasoningContentCapture tests

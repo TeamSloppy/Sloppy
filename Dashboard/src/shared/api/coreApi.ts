@@ -70,6 +70,8 @@ export interface CoreApi {
   fetchAgentTasks: (agentId: string) => Promise<AnyRecord[] | null>;
   fetchAgentMemories: (agentId: string, query?: AgentMemoryQuery) => Promise<AnyRecord | null>;
   fetchAgentMemoryGraph: (agentId: string, query?: Pick<AgentMemoryQuery, "search" | "filter">) => Promise<AnyRecord | null>;
+  fetchProjectMemories: (projectId: string, query?: AgentMemoryQuery) => Promise<AnyRecord | null>;
+  fetchProjectMemoryGraph: (projectId: string, query?: Pick<AgentMemoryQuery, "search" | "filter">) => Promise<AnyRecord | null>;
   updateAgentMemory: (agentId: string, memoryId: string, payload: AnyRecord) => Promise<AnyRecord | null>;
   deleteAgentMemory: (agentId: string, memoryId: string) => Promise<boolean>;
   createAgent: (payload: AnyRecord) => Promise<AnyRecord | null>;
@@ -601,6 +603,50 @@ export function createCoreApi(): CoreApi {
       const queryString = params.toString();
       const response = await requestJson<AnyRecord>({
         path: `/v1/agents/${encodeURIComponent(agentId)}/memories/graph${queryString ? `?${queryString}` : ""}`
+      });
+      if (!response.ok) {
+        return null;
+      }
+      return response.data;
+    },
+
+    fetchProjectMemories: async (projectId, query = {}) => {
+      const params = new URLSearchParams();
+      if (typeof query.search === "string" && query.search.trim().length > 0) {
+        params.set("search", query.search.trim());
+      }
+      if (typeof query.filter === "string" && query.filter.trim().length > 0) {
+        params.set("filter", query.filter.trim());
+      }
+      if (Number.isFinite(query.limit)) {
+        params.set("limit", String(query.limit));
+      }
+      if (Number.isFinite(query.offset)) {
+        params.set("offset", String(query.offset));
+      }
+
+      const queryString = params.toString();
+      const response = await requestJson<AnyRecord>({
+        path: `/v1/projects/${encodeURIComponent(projectId)}/memories${queryString ? `?${queryString}` : ""}`
+      });
+      if (!response.ok) {
+        return null;
+      }
+      return response.data;
+    },
+
+    fetchProjectMemoryGraph: async (projectId, query = {}) => {
+      const params = new URLSearchParams();
+      if (typeof query.search === "string" && query.search.trim().length > 0) {
+        params.set("search", query.search.trim());
+      }
+      if (typeof query.filter === "string" && query.filter.trim().length > 0) {
+        params.set("filter", query.filter.trim());
+      }
+
+      const queryString = params.toString();
+      const response = await requestJson<AnyRecord>({
+        path: `/v1/projects/${encodeURIComponent(projectId)}/memories/graph${queryString ? `?${queryString}` : ""}`
       });
       if (!response.ok) {
         return null;

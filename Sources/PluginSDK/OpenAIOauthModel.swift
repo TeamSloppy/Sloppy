@@ -52,13 +52,55 @@ extension OpenAIOAuthModel {
         includeSchemaInPrompt: Bool,
         options: GenerationOptions
     ) async throws -> LanguageModelSession.Response<Content> where Content: Generable {
-        let requestBody = try buildRequestBody(prompt: prompt, options: options)
-        let fullText = try await collectStreamingResponse(body: requestBody)
-        let content = fullText as! Content
+        let conversion = convertToolsToAPI(session.tools)
+        let requestBody = try buildRequestBody(prompt: prompt, options: options, tools: conversion.definitions)
+        let result = try await collectStreamingResponseWithTools(body: requestBody)
+
+        var transcriptEntries: [Transcript.Entry] = []
+        var text = result.text
+        var pendingCalls = result.functionCalls
+
+        while !pendingCalls.isEmpty, let delegate = session.toolExecutionDelegate {
+            var toolOutputs: [(callId: String, output: String)] = []
+            for call in pendingCalls {
+                let originalName = conversion.nameMap[call.name] ?? call.name
+                let toolCall = Transcript.ToolCall(
+                    id: call.callId,
+                    toolName: originalName,
+                    arguments: parseGeneratedContent(call.arguments)
+                )
+                await delegate.didGenerateToolCalls([toolCall], in: session)
+                let decision = await delegate.toolCallDecision(for: toolCall, in: session)
+                if case .provideOutput(let segments) = decision {
+                    let outputText = segments.compactMap { segment -> String? in
+                        if case .text(let t) = segment { return t.content }
+                        return nil
+                    }.joined(separator: "\n")
+                    let output = Transcript.ToolOutput(id: toolCall.id, toolName: toolCall.toolName, segments: segments)
+                    await delegate.didExecuteToolCall(toolCall, output: output, in: session)
+                    toolOutputs.append((callId: call.callId, output: outputText))
+                    transcriptEntries.append(.toolCalls(Transcript.ToolCalls([toolCall])))
+                    transcriptEntries.append(.toolOutput(output))
+                }
+            }
+
+            let followUp = try buildFollowUpRequestBody(
+                functionCalls: pendingCalls,
+                toolOutputs: toolOutputs,
+                options: options,
+                tools: conversion.definitions
+            )
+
+            let next = try await collectStreamingResponseWithTools(body: followUp)
+            text = next.text
+            pendingCalls = next.functionCalls
+        }
+
+        let content = text as! Content
         return LanguageModelSession.Response(
             content: content,
-            rawContent: GeneratedContent(fullText),
-            transcriptEntries: []
+            rawContent: GeneratedContent(text),
+            transcriptEntries: ArraySlice(transcriptEntries)
         )
     }
 
@@ -72,12 +114,54 @@ extension OpenAIOAuthModel {
         let stream = AsyncThrowingStream<LanguageModelSession.ResponseStream<Content>.Snapshot, Error> { continuation in
             let task = Task {
                 do {
-                    let requestBody = try buildRequestBody(prompt: prompt, options: options)
-                    try await performStreamingRequest(
+                    let conversion = convertToolsToAPI(session.tools)
+                    let requestBody = try buildRequestBody(prompt: prompt, options: options, tools: conversion.definitions)
+                    let result = try await performStreamingRequestWithTools(
                         body: requestBody,
                         continuation: continuation,
                         contentType: type
                     )
+
+                    var pendingCalls = result.functionCalls
+
+                    while !pendingCalls.isEmpty, let delegate = session.toolExecutionDelegate {
+                        var toolOutputs: [(callId: String, output: String)] = []
+                        for call in pendingCalls {
+                            let originalName = conversion.nameMap[call.name] ?? call.name
+                            let toolCall = Transcript.ToolCall(
+                                id: call.callId,
+                                toolName: originalName,
+                                arguments: parseGeneratedContent(call.arguments)
+                            )
+                            await delegate.didGenerateToolCalls([toolCall], in: session)
+                            let decision = await delegate.toolCallDecision(for: toolCall, in: session)
+                            if case .provideOutput(let segments) = decision {
+                                let outputText = segments.compactMap { segment -> String? in
+                                    if case .text(let t) = segment { return t.content }
+                                    return nil
+                                }.joined(separator: "\n")
+                                let output = Transcript.ToolOutput(
+                                    id: toolCall.id, toolName: toolCall.toolName, segments: segments
+                                )
+                                await delegate.didExecuteToolCall(toolCall, output: output, in: session)
+                                toolOutputs.append((callId: call.callId, output: outputText))
+                            }
+                        }
+
+                        let followUp = try buildFollowUpRequestBody(
+                            functionCalls: pendingCalls,
+                            toolOutputs: toolOutputs,
+                            options: options,
+                            tools: conversion.definitions
+                        )
+                        let next = try await performStreamingRequestWithTools(
+                            body: followUp,
+                            continuation: continuation,
+                            contentType: type
+                        )
+                        pendingCalls = next.functionCalls
+                    }
+
                     continuation.finish()
                 } catch {
                     continuation.finish(throwing: error)
@@ -94,6 +178,18 @@ extension OpenAIOAuthModel {
 // MARK: - HTTP Client
 
 private extension OpenAIOAuthModel {
+    struct FunctionCall {
+        var callId: String
+        var name: String
+        var arguments: String
+    }
+
+    struct StreamResult {
+        var text: String
+        var functionCalls: [FunctionCall]
+        var responseId: String?
+    }
+
     var responsesEndpoint: URL {
         baseURL.appendingPathComponent("responses")
     }
@@ -111,7 +207,7 @@ private extension OpenAIOAuthModel {
         return request
     }
 
-    func collectStreamingResponse(body: Data) async throws -> String {
+    func collectStreamingResponseWithTools(body: Data) async throws -> StreamResult {
         let request = buildHTTPRequest(body: body)
 
         #if canImport(FoundationNetworking)
@@ -133,21 +229,37 @@ private extension OpenAIOAuthModel {
         }
 
         var accumulated = ""
+        var functionCalls: [FunctionCall] = []
+        var activeFunctionCall: FunctionCall?
+        var responseId: String?
+
         for try await line in asyncBytes.lines {
             if let delta = parseSSEOutputDelta(line) {
                 accumulated += delta
             } else if let reasoning = parseSSEReasoningDelta(line) {
                 reasoningCapture?.append(reasoning)
+            } else if let fc = parseSSEFunctionCallAdded(line) {
+                activeFunctionCall = FunctionCall(callId: fc.callId, name: fc.name, arguments: "")
+            } else if let argsDelta = parseSSEFunctionCallArgsDelta(line) {
+                activeFunctionCall?.arguments.append(argsDelta)
+            } else if parseSSEFunctionCallArgsDone(line) {
+                if let call = activeFunctionCall {
+                    functionCalls.append(call)
+                    activeFunctionCall = nil
+                }
+            } else if let rid = parseSSEResponseId(line) {
+                responseId = rid
             }
         }
-        return accumulated
+
+        return StreamResult(text: accumulated, functionCalls: functionCalls, responseId: responseId)
     }
 
-    func performStreamingRequest<Content>(
+    func performStreamingRequestWithTools<Content>(
         body: Data,
         continuation: AsyncThrowingStream<LanguageModelSession.ResponseStream<Content>.Snapshot, Error>.Continuation,
         contentType: Content.Type
-    ) async throws where Content: Generable {
+    ) async throws -> StreamResult where Content: Generable {
         let request = buildHTTPRequest(body: body)
 
         #if canImport(FoundationNetworking)
@@ -169,6 +281,10 @@ private extension OpenAIOAuthModel {
         }
 
         var accumulated = ""
+        var functionCalls: [FunctionCall] = []
+        var activeFunctionCall: FunctionCall?
+        var responseId: String?
+
         for try await line in asyncBytes.lines {
             if let delta = parseSSEOutputDelta(line) {
                 accumulated += delta
@@ -181,8 +297,21 @@ private extension OpenAIOAuthModel {
                 }
             } else if let reasoning = parseSSEReasoningDelta(line) {
                 reasoningCapture?.append(reasoning)
+            } else if let fc = parseSSEFunctionCallAdded(line) {
+                activeFunctionCall = FunctionCall(callId: fc.callId, name: fc.name, arguments: "")
+            } else if let argsDelta = parseSSEFunctionCallArgsDelta(line) {
+                activeFunctionCall?.arguments.append(argsDelta)
+            } else if parseSSEFunctionCallArgsDone(line) {
+                if let call = activeFunctionCall {
+                    functionCalls.append(call)
+                    activeFunctionCall = nil
+                }
+            } else if let rid = parseSSEResponseId(line) {
+                responseId = rid
             }
         }
+
+        return StreamResult(text: accumulated, functionCalls: functionCalls, responseId: responseId)
     }
 
     func classifyHTTPError(statusCode: Int, body: String) -> OpenAIError {
@@ -203,10 +332,10 @@ private extension OpenAIOAuthModel {
     }
 }
 
-// MARK: - Request/Response Parsing
+// MARK: - Request Building
 
 private extension OpenAIOAuthModel {
-    func buildRequestBody(prompt: Prompt, options: GenerationOptions) throws -> Data {
+    func buildRequestBody(prompt: Prompt, options: GenerationOptions, tools: [[String: Any]]) throws -> Data {
         var body: [String: Any] = [
             "model": modelName,
             "instructions": instructions,
@@ -216,6 +345,9 @@ private extension OpenAIOAuthModel {
             "stream": true,
             "store": false
         ]
+        if !tools.isEmpty {
+            body["tools"] = tools
+        }
         if let temperature = options.temperature {
             body["temperature"] = temperature
         }
@@ -224,7 +356,120 @@ private extension OpenAIOAuthModel {
         }
         return try JSONSerialization.data(withJSONObject: body)
     }
+
+    func buildFollowUpRequestBody(
+        functionCalls: [FunctionCall],
+        toolOutputs: [(callId: String, output: String)],
+        options: GenerationOptions,
+        tools: [[String: Any]]
+    ) throws -> Data {
+        var inputItems: [[String: Any]] = functionCalls.map { call in
+            [
+                "type": "function_call",
+                "call_id": call.callId,
+                "name": call.name,
+                "arguments": call.arguments
+            ]
+        }
+        inputItems += toolOutputs.map { output in
+            [
+                "type": "function_call_output",
+                "call_id": output.callId,
+                "output": output.output
+            ]
+        }
+
+        var body: [String: Any] = [
+            "model": modelName,
+            "instructions": instructions,
+            "input": inputItems,
+            "stream": true,
+            "store": false
+        ]
+        if !tools.isEmpty {
+            body["tools"] = tools
+        }
+        if let temperature = options.temperature {
+            body["temperature"] = temperature
+        }
+        if reasoningCapture != nil {
+            body["reasoning"] = ["summary": "auto"]
+        }
+        return try JSONSerialization.data(withJSONObject: body)
+    }
+
+    struct ToolConversion {
+        var definitions: [[String: Any]]
+        var nameMap: [String: String]
+    }
+
+    func convertToolsToAPI(_ tools: [any Tool]) -> ToolConversion {
+        var definitions: [[String: Any]] = []
+        var nameMap: [String: String] = [:]
+        for tool in tools {
+            let sanitized = tool.name.replacingOccurrences(of: ".", with: "_")
+            nameMap[sanitized] = tool.name
+            let params = resolveSchemaToObject(tool.parameters)
+            definitions.append([
+                "type": "function",
+                "name": sanitized,
+                "description": tool.description,
+                "parameters": params
+            ])
+        }
+        return ToolConversion(definitions: definitions, nameMap: nameMap)
+    }
+
+    private func resolveSchemaToObject(_ schema: GenerationSchema) -> [String: Any] {
+        let fallback: [String: Any] = ["type": "object"]
+        guard let data = try? JSONEncoder().encode(schema),
+              var json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return fallback
+        }
+        if let ref = json["$ref"] as? String,
+           let defs = json["$defs"] as? [String: Any] {
+            let defName = ref.replacingOccurrences(of: "#/$defs/", with: "")
+            if var resolved = defs[defName] as? [String: Any] {
+                resolved.removeValue(forKey: "$defs")
+                if resolved["type"] as? String == nil {
+                    resolved["type"] = "object"
+                }
+                return resolved
+            }
+        }
+        json.removeValue(forKey: "$defs")
+        if json["type"] as? String == nil {
+            json["type"] = "object"
+        }
+        return json
+    }
+
+    func parseGeneratedContent(_ jsonString: String) -> GeneratedContent {
+        guard let data = jsonString.data(using: .utf8),
+              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        else {
+            return GeneratedContent(jsonString)
+        }
+        return GeneratedContent(properties: obj.map { ($0.key, generatedContentValue($0.value)) },
+                                uniquingKeysWith: { _, new in new })
+    }
+
+    func generatedContentValue(_ value: Any) -> GeneratedContent {
+        switch value {
+        case let str as String: return GeneratedContent(str)
+        case let b as Bool: return GeneratedContent(b)
+        case let num as Double: return GeneratedContent(num)
+        case let num as Int: return GeneratedContent(Double(num))
+        case let arr as [Any]: return GeneratedContent(arr.map { generatedContentValue($0) })
+        case let dict as [String: Any]:
+            return GeneratedContent(properties: dict.map { ($0.key, generatedContentValue($0.value)) },
+                                    uniquingKeysWith: { _, new in new })
+        default: return GeneratedContent("")
+        }
+    }
 }
+
+// MARK: - SSE Parsing
 
 extension OpenAIOAuthModel {
     func parseSSEOutputDelta(_ line: String) -> String? {
@@ -249,6 +494,58 @@ extension OpenAIOAuthModel {
               let delta = obj["delta"] as? String
         else { return nil }
         return delta
+    }
+
+    func parseSSEFunctionCallAdded(_ line: String) -> (callId: String, name: String)? {
+        guard line.hasPrefix("data: ") else { return nil }
+        let payload = String(line.dropFirst(6))
+        guard let data = payload.data(using: .utf8),
+              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let type = obj["type"] as? String,
+              type == "response.output_item.added",
+              let item = obj["item"] as? [String: Any],
+              let itemType = item["type"] as? String,
+              itemType == "function_call",
+              let callId = item["call_id"] as? String,
+              let name = item["name"] as? String
+        else { return nil }
+        return (callId, name)
+    }
+
+    func parseSSEFunctionCallArgsDelta(_ line: String) -> String? {
+        guard line.hasPrefix("data: ") else { return nil }
+        let payload = String(line.dropFirst(6))
+        guard let data = payload.data(using: .utf8),
+              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let type = obj["type"] as? String,
+              type == "response.function_call_arguments.delta",
+              let delta = obj["delta"] as? String
+        else { return nil }
+        return delta
+    }
+
+    func parseSSEFunctionCallArgsDone(_ line: String) -> Bool {
+        guard line.hasPrefix("data: ") else { return false }
+        let payload = String(line.dropFirst(6))
+        guard let data = payload.data(using: .utf8),
+              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let type = obj["type"] as? String,
+              type == "response.function_call_arguments.done"
+        else { return false }
+        return true
+    }
+
+    func parseSSEResponseId(_ line: String) -> String? {
+        guard line.hasPrefix("data: ") else { return nil }
+        let payload = String(line.dropFirst(6))
+        guard let data = payload.data(using: .utf8),
+              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let type = obj["type"] as? String,
+              type == "response.completed",
+              let resp = obj["response"] as? [String: Any],
+              let id = resp["id"] as? String
+        else { return nil }
+        return id
     }
 }
 

@@ -88,20 +88,20 @@ Output exactly 4 files using the markers below. Include only the file content be
 
 --- AGENTS.md ---
 (Write main behavior instructions, responsibilities, operating rules, and capabilities for this agent)
---- Identity.md ---
+--- IDENTITY.md ---
 (Write personality, communication style, tone, and character traits)
---- Soul.md ---
+--- SOULD.md ---
 (Write core values, principles, and decision-making framework)
---- User.md ---
+--- USER.md ---
 (Write how to interact with users, preferred response format, and user interaction guidelines)`;
 }
 
 function parseGeneratedFiles(text: string): GeneratedAgentFiles {
   const markers = {
     agentsMarkdown: "--- AGENTS.md ---",
-    identityMarkdown: "--- Identity.md ---",
-    soulMarkdown: "--- Soul.md ---",
-    userMarkdown: "--- User.md ---"
+    identityMarkdown: "--- IDENTITY.md ---",
+    soulMarkdown: "--- SOUL.md ---",
+    userMarkdown: "--- USER.md ---"
   };
 
   const markerKeys = Object.keys(markers) as (keyof GeneratedAgentFiles)[];

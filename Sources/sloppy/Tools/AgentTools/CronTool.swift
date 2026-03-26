@@ -4,17 +4,16 @@ import Protocols
 
 struct CronTool: CoreTool {
     let domain = "automation"
-    let title = "Schedule task"
+    let title = "Schedule cron job"
     let status = "fully_functional"
     let name = "cron"
-    let description = "Schedule a recurring background task."
+    let description = "Schedule a recurring cron job that sends a message into the session channel on a cron schedule. Use this to set up periodic reminders, greetings, or automated triggers."
 
     var parameters: GenerationSchema {
         .objectSchema([
-            .init(name: "schedule", description: "Cron expression (e.g. '*/5 * * * *')", schema: DynamicGenerationSchema(type: String.self), isOptional: true),
-            .init(name: "command", description: "Command to schedule", schema: DynamicGenerationSchema(type: String.self), isOptional: true),
-            .init(name: "channel_id", description: "Target channel ID (defaults to current session)", schema: DynamicGenerationSchema(type: String.self), isOptional: true),
-            .init(name: "action", description: "Action type", schema: DynamicGenerationSchema(type: String.self), isOptional: true)
+            .init(name: "schedule", description: "Cron expression (e.g. '0 9 * * *' for every day at 9 AM)", schema: DynamicGenerationSchema(type: String.self), isOptional: false),
+            .init(name: "command", description: "Message text or trigger command to send on each cron tick", schema: DynamicGenerationSchema(type: String.self), isOptional: false),
+            .init(name: "channel_id", description: "Target channel ID (defaults to current session channel)", schema: DynamicGenerationSchema(type: String.self), isOptional: true),
         ])
     }
 

@@ -904,6 +904,7 @@ actor AgentSessionOrchestrator {
         )
 
         await runtime.appendSystemMessage(channelId: channelID, content: bootstrapContent)
+        await runtime.setChannelBootstrap(channelId: channelID, content: bootstrapContent)
     }
 
     private func fallbackSessionBootstrapContextMessage(
@@ -917,15 +918,9 @@ actor AgentSessionOrchestrator {
                 """
                 [Runtime capabilities]
                 - This session runs with a persistent channel history and agent bootstrap context.
-                - You can use available tools when the runtime exposes tool calls.
-                - To call a tool, respond with exactly one JSON object and no surrounding prose: `{"tool":"<tool-id>","arguments":{},"reason":"<short reason>"}`
-                - If you don't know the exact arguments or tools available, you MUST call `{"tool":"system.list_tools","arguments":{},"reason":"Discovering available tools"}` to get the catalog before attempting any unknown tool.
-                - Common tools:
-                  - `system.list_tools` with `{}`
-                  - `files.read` with `{"path":"path/to/file"}`
-                  - `files.write` with `{"path":"path/to/file","content":"..."}`
-                  - `files.edit` with `{"path":"path/to/file","search":"old","replace":"new"}`
-                  - `runtime.exec` with `{"command":"mkdir","arguments":["-p","agents/ceo"]}`
+                - You have access to tools via native function calling. Use them directly — do not output JSON tool-call objects as text.
+                - All tools are already registered and available. Do not call `system.list_tools` unless you need to discover dynamically added MCP tools.
+                - To schedule recurring messages or actions, use the `cron` tool with a cron expression and a command string.
                 """
         )
         let runtimeRulesSection = renderedFallbackPromptPartial(
@@ -946,7 +941,7 @@ actor AgentSessionOrchestrator {
                 [Branching rules]
                 - Decide yourself when a request needs a focused side branch for deeper analysis, isolated investigation, or a separate execution thread.
                 - Do not rely on keywords or a specific language when making that decision. Judge the user's intent semantically.
-                - If a side branch would help, call `{"tool":"branches.spawn","arguments":{"prompt":"<focused standalone branch objective>"},"reason":"<why the branch is useful>"}`.
+                - If a side branch would help, call `branches.spawn` with a focused standalone branch objective.
                 - After `branches.spawn` returns, use its conclusion in your answer.
                 """
         )
@@ -957,9 +952,9 @@ actor AgentSessionOrchestrator {
                 [Worker rules]
                 - Decide yourself when a request needs a focused worker for a bounded execution task, tool-driven implementation pass, or delegated follow-up.
                 - Do not rely on keywords or a specific language when making that decision. Judge the user's intent semantically.
-                - If a worker would help, call `{"tool":"workers.spawn","arguments":{"title":"<short worker title>","objective":"<focused standalone worker objective>","mode":"fire_and_forget"},"reason":"<why the worker is useful>"}`.
+                - If a worker would help, call `workers.spawn` with a short title, a focused standalone objective, and mode (`fire_and_forget` or `interactive`).
                 - Prefer `fire_and_forget` for self-contained execution. Use `interactive` only when you expect to continue or finish the worker later.
-                - To continue or finish an interactive worker, call `{"tool":"workers.route","arguments":{"workerId":"<worker-id>","command":"continue|complete|fail","report":"<optional progress update>","summary":"<required when command=complete>","error":"<required when command=fail>"},"reason":"<why this route update is needed>"}`.
+                - To continue or finish an interactive worker, call `workers.route` with the worker ID and the appropriate command (`continue`, `complete`, or `fail`).
                 - After `workers.spawn` or `workers.route` returns, use the resulting worker status in your answer.
                 """
         )
@@ -968,9 +963,9 @@ actor AgentSessionOrchestrator {
             fallback:
                 """
                 [Tools usage rules]
-                - You MUST request the list of available tools before answering the user if you don't know what tools are available.
-                - You can get the available tools by using the appropriately named tool (e.g. `get_available_tools` or similar).
-                - Do not guess the tool schemas or names. Always check the available tools first.
+                - All available tools are registered as native function calls. Use them directly without calling `system.list_tools` first.
+                - Only call `system.list_tools` if you need to discover dynamically added MCP tools.
+                - When using a tool, follow its parameter schema exactly. Required parameters must be provided.
                 """
         )
 
@@ -980,16 +975,16 @@ actor AgentSessionOrchestrator {
             "Agent: \(agentID)"
             "Session: \(sessionID)"
             ""
-            "[Agents.md]"
+            "[AGENTS.md]"
             documents.agentsMarkdown
             ""
-            "[User.md]"
+            "[USER.md]"
             documents.userMarkdown
             ""
-            "[Identity.md]"
+            "[IDENTITY.md]"
             documents.identityMarkdown
             ""
-            "[Soul.md]"
+            "[SOUL.md]"
             documents.soulMarkdown
             ""
             capabilitiesSection

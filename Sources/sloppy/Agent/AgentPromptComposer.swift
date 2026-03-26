@@ -46,22 +46,22 @@ struct AgentPromptComposer {
 
             if !documents.agentsMarkdown.isEmpty {
                 ""
-                "[Agents.md]"
+                "[AGENTS.md]"
                 documents.agentsMarkdown
             }
             if !documents.userMarkdown.isEmpty {
                 ""
-                "[User.md]"
+                "[USER.md]"
                 documents.userMarkdown
             }
             if !documents.identityMarkdown.isEmpty {
                 ""
-                "[Identity.md]"
+                "[IDENTITY.md]"
                 documents.identityMarkdown
             }
             if !documents.soulMarkdown.isEmpty {
                 ""
-                "[Soul.md]"
+                "[SOUL.md]"
                 documents.soulMarkdown
             }
             if !context.installedSkills.isEmpty {
