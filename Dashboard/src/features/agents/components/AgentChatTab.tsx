@@ -463,6 +463,11 @@ async function encodeFileBase64(file) {
   return btoa(binary);
 }
 
+function isUserCreatedSession(session) {
+  const title = String(session?.title || "").trim();
+  return !title.startsWith("task-comment:");
+}
+
 function sortSessionsByUpdate(list) {
   return [...list].sort((left, right) => {
     const leftDate = new Date(left?.updatedAt || 0).getTime();
@@ -1933,7 +1938,7 @@ export function AgentChatTab({ agentId }) {
         setAvailableModels(Array.isArray(configResponse.availableModels) ? configResponse.availableModels : []);
       }
 
-      const nextSessions = Array.isArray(sessionsResponse) ? sortSessionsByUpdate(sessionsResponse) : [];
+      const nextSessions = Array.isArray(sessionsResponse) ? sortSessionsByUpdate(sessionsResponse.filter(isUserCreatedSession)) : [];
       setSessions(nextSessions);
       setIsLoadingSessions(false);
 
@@ -2000,7 +2005,7 @@ export function AgentChatTab({ agentId }) {
       return;
     }
 
-    const nextSessions = sortSessionsByUpdate(response);
+    const nextSessions = sortSessionsByUpdate(response.filter(isUserCreatedSession));
     setSessions(nextSessions);
 
     if (nextSessions.length === 0) {
@@ -2039,7 +2044,7 @@ export function AgentChatTab({ agentId }) {
   }
 
   function mergeSessionSummary(summary) {
-    if (!summary?.id) {
+    if (!summary?.id || !isUserCreatedSession(summary)) {
       return;
     }
     setSessions((previous) =>

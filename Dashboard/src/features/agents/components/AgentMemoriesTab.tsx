@@ -265,9 +265,24 @@ function filterLabel(value: MemoryFilter) {
 
 const NODE_COLOR = "#555555";
 const NODE_COLOR_SEED = "#777777";
-const ACCENT = "#ccff00";
 const DIMMED_OPACITY = 0.15;
 const ANIM_DURATION = 220;
+
+const ACCENT_STORAGE_KEY = "sloppy_accent_color";
+const DEFAULT_ACCENT = "#ccff00";
+
+function getAccentColor(): string {
+  const stored = localStorage.getItem(ACCENT_STORAGE_KEY);
+  if (stored && /^#([0-9a-fA-F]{3}){1,2}$/.test(stored)) {
+    return stored;
+  }
+  return DEFAULT_ACCENT;
+}
+
+function accentRgba(accent: string, alpha: number): string {
+  const [r, g, b] = hexToRgb(accent);
+  return `rgba(${r},${g},${b},${alpha})`;
+}
 
 type RGB = [number, number, number];
 
@@ -314,12 +329,15 @@ class NodeAnimator {
   private startTime: number | null = null;
   private duration: number;
   private snapshotFrom = new Map<string, AnimTarget>();
+  private accent: string;
 
   constructor(
     private nodesDS: DataSet<Record<string, unknown>>,
     duration = ANIM_DURATION,
+    accent = DEFAULT_ACCENT,
   ) {
     this.duration = duration;
+    this.accent = accent;
   }
 
   setTargets(entries: Array<{ id: string; color: string; opacity: number }>) {
@@ -348,7 +366,7 @@ class NodeAnimator {
       this.current.set(id, state);
       updates.push({
         id,
-        color: { background: c, border: c, highlight: { background: ACCENT, border: ACCENT }, hover: { background: ACCENT, border: ACCENT } },
+        color: { background: c, border: c, highlight: { background: this.accent, border: this.accent }, hover: { background: this.accent, border: this.accent } },
         opacity: o,
       });
     }
@@ -367,7 +385,7 @@ class NodeAnimator {
   }
 }
 
-function buildVisOptions(settings: GraphSettings): Record<string, unknown> {
+function buildVisOptions(settings: GraphSettings, accent: string): Record<string, unknown> {
   const base: Record<string, unknown> = {
     autoResize: true,
     nodes: {
@@ -384,8 +402,8 @@ function buildVisOptions(settings: GraphSettings): Record<string, unknown> {
       color: {
         background: NODE_COLOR,
         border: NODE_COLOR,
-        highlight: { background: ACCENT, border: ACCENT },
-        hover: { background: ACCENT, border: ACCENT },
+        highlight: { background: accent, border: accent },
+        hover: { background: accent, border: accent },
       },
       shadow: false,
       chosen: false,
@@ -393,8 +411,8 @@ function buildVisOptions(settings: GraphSettings): Record<string, unknown> {
     edges: {
       color: {
         color: "rgba(180,190,210,0.2)",
-        highlight: "rgba(204,255,0,0.7)",
-        hover: "rgba(204,255,0,0.5)",
+        highlight: accentRgba(accent, 0.7),
+        hover: accentRgba(accent, 0.5),
         opacity: 1,
       },
       width: settings.edgeWidth,
@@ -598,15 +616,17 @@ function VisNetworkGraph({
     return map;
   }, [graphData.edges]);
 
+  const accent = getAccentColor();
+
   const buildNodeColor = useCallback((_item: AgentMemoryItem, isSeed: boolean) => {
     const bg = isSeed ? NODE_COLOR_SEED : NODE_COLOR;
     return {
       background: bg,
       border: bg,
-      highlight: { background: ACCENT, border: ACCENT },
-      hover: { background: ACCENT, border: ACCENT },
+      highlight: { background: accent, border: accent },
+      hover: { background: accent, border: accent },
     };
-  }, []);
+  }, [accent]);
 
   useEffect(() => {
     if (!containerRef.current || graphData.nodes.length === 0) return;
@@ -642,7 +662,7 @@ function VisNetworkGraph({
     nodesDatasetRef.current = nodesDS as unknown as DataSet<Record<string, unknown>>;
     edgesDatasetRef.current = edgesDS as unknown as DataSet<Record<string, unknown>>;
 
-    const options = buildVisOptions(settings);
+    const options = buildVisOptions(settings, accent);
     const net = new Network(containerRef.current, { nodes: nodesDS, edges: edgesDS }, options);
     networkRef.current = net;
 
@@ -652,7 +672,7 @@ function VisNetworkGraph({
       }
     });
 
-    const animator = new NodeAnimator(nodesDS as unknown as DataSet<Record<string, unknown>>);
+    const animator = new NodeAnimator(nodesDS as unknown as DataSet<Record<string, unknown>>, ANIM_DURATION, accent);
 
     net.on("hoverNode", (params: { node: string }) => {
       const hoveredId = params.node;
@@ -665,7 +685,7 @@ function VisNetworkGraph({
         const isSeed = seedSet.has(item.id);
 
         if (isHovered) {
-          return { id: item.id, color: ACCENT, opacity: 1 };
+          return { id: item.id, color: accent, opacity: 1 };
         }
         if (isConnected) {
           return { id: item.id, color: isSeed ? NODE_COLOR_SEED : NODE_COLOR, opacity: 1 };
@@ -677,7 +697,7 @@ function VisNetworkGraph({
       const edgeUpdates = graphData.edges.map((edge) => {
         const edgeId = `${edge.fromMemoryId}→${edge.toMemoryId}`;
         if (connEdges.has(edgeId)) {
-          return { id: edgeId, color: { color: "rgba(204,255,0,0.7)", opacity: 1 }, width: settings.edgeWidth + 1 };
+          return { id: edgeId, color: { color: accentRgba(accent, 0.7), opacity: 1 }, width: settings.edgeWidth + 1 };
         }
         return { id: edgeId, color: { color: "rgba(180,190,210,0.2)", opacity: DIMMED_OPACITY }, width: settings.edgeWidth };
       });

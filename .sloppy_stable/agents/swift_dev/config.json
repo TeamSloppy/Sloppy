@@ -1,0 +1,18 @@
+{
+  "channelSessions" : {
+    "autoCloseAfterMinutes" : 30,
+    "autoCloseEnabled" : false
+  },
+  "createdAt" : "2026-03-23T16:17:17Z",
+  "displayName" : "Владик",
+  "heartbeat" : {
+    "enabled" : false,
+    "intervalMinutes" : 5
+  },
+  "id" : "swift_dev",
+  "role" : "Developer",
+  "runtime" : {
+    "type" : "native"
+  },
+  "selectedModel" : "openai:gpt-5.3-codex"
+}

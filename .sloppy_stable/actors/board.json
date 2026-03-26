@@ -1,0 +1,85 @@
+{
+  "links" : [
+    {
+      "communicationType" : "chat",
+      "createdAt" : "2026-03-16T07:41:39Z",
+      "direction" : "one_way",
+      "id" : "link:human-admin:agent-ceo",
+      "relationship" : "hierarchical",
+      "sourceActorId" : "human:admin",
+      "sourceSocket" : "bottom",
+      "targetActorId" : "agent:ceo",
+      "targetSocket" : "top"
+    },
+    {
+      "communicationType" : "chat",
+      "createdAt" : "2026-03-16T07:41:50Z",
+      "direction" : "one_way",
+      "id" : "link:human-admin:human-dispatcher",
+      "relationship" : "peer",
+      "sourceActorId" : "human:admin",
+      "sourceSocket" : "left",
+      "targetActorId" : "human:dispatcher",
+      "targetSocket" : "right"
+    }
+  ],
+  "nodes" : [
+    {
+      "channelId" : "channel:admin",
+      "createdAt" : "2026-03-15T11:09:25Z",
+      "displayName" : "Admin",
+      "id" : "human:admin",
+      "kind" : "human",
+      "positionX" : -512.7868499119134,
+      "positionY" : 119.53672852016233,
+      "role" : "Workspace administrator",
+      "systemRole" : "manager"
+    },
+    {
+      "channelId" : "agent:ceo",
+      "createdAt" : "2026-03-11T21:46:31Z",
+      "displayName" : "CEO",
+      "id" : "agent:ceo",
+      "kind" : "agent",
+      "linkedAgentId" : "ceo",
+      "positionX" : -512.4761578155558,
+      "positionY" : 303.1138598471306,
+      "role" : "CEO"
+    },
+    {
+      "channelId" : "general",
+      "createdAt" : "2026-03-15T11:09:25Z",
+      "displayName" : "Dispatcher",
+      "id" : "human:dispatcher",
+      "kind" : "human",
+      "positionX" : -841.9698551991399,
+      "positionY" : 105.09513432753158
+    },
+    {
+      "channelId" : "agent:happy-path-agent",
+      "createdAt" : "2026-03-20T20:37:21Z",
+      "displayName" : "Happy Path Agent",
+      "id" : "agent:happy-path-agent",
+      "kind" : "agent",
+      "linkedAgentId" : "happy-path-agent",
+      "positionX" : -534.004611805126,
+      "positionY" : -74.74014144027677,
+      "role" : "QA Driver"
+    },
+    {
+      "channelId" : "agent:swift_dev",
+      "createdAt" : "2026-03-23T16:17:17Z",
+      "displayName" : "Владик",
+      "id" : "agent:swift_dev",
+      "kind" : "agent",
+      "linkedAgentId" : "swift_dev",
+      "positionX" : -227.93028838618588,
+      "positionY" : 53.1286449596563,
+      "role" : "Developer"
+    }
+  ],
+  "teams" : [
+
+  ],
+  "updatedAt" : "2026-03-24T20:39:19Z"
+}
