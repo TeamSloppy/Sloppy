@@ -1,2 +1,0 @@
-# Identity
-happy-path-agent
