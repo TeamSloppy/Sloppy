@@ -9,9 +9,9 @@ export interface GeneratedAgentFiles {
 
 const PREVIEW_FILES = [
   { id: "agentsMarkdown" as keyof GeneratedAgentFiles, name: "AGENTS.md", icon: "smart_toy" },
-  { id: "identityMarkdown" as keyof GeneratedAgentFiles, name: "Identity.md", icon: "badge" },
-  { id: "soulMarkdown" as keyof GeneratedAgentFiles, name: "Soul.md", icon: "psychology" },
-  { id: "userMarkdown" as keyof GeneratedAgentFiles, name: "User.md", icon: "person" }
+  { id: "identityMarkdown" as keyof GeneratedAgentFiles, name: "IDENTITY.md", icon: "badge" },
+  { id: "soulMarkdown" as keyof GeneratedAgentFiles, name: "SOUL.md", icon: "psychology" },
+  { id: "userMarkdown" as keyof GeneratedAgentFiles, name: "USER.md", icon: "person" }
 ];
 
 interface AgentGeneratePreviewProps {

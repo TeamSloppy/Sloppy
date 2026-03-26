@@ -33,21 +33,21 @@ The agent's core metadata — its ID, display name, role, creation timestamp, an
 
 The agent's runtime configuration. This is the file you update when you want to change settings — which model the agent uses, whether the heartbeat is enabled, and how channel sessions behave. Updated via the Dashboard or the API.
 
-### Agents.md
+### AGENTS.md
 
 The primary instruction document for the agent. This is where you define how the agent should approach tasks, what tools it should use, how it should communicate, and any project-specific rules you want it to follow.
 
 A default scaffold is written on agent creation with sensible baseline behaviors (work toward user goals, keep answers actionable, fetch task details before referencing them, etc.). You should customize this file for your specific use case.
 
-### User.md
+### USER.md
 
-Describes the person the agent is working with. Use this file to tell the agent about your communication preferences, the context you're working in, and what kind of responses you find most useful. This gets injected into the system prompt alongside `Agents.md`.
+Describes the person the agent is working with. Use this file to tell the agent about your communication preferences, the context you're working in, and what kind of responses you find most useful. This gets injected into the system prompt alongside `AGENTS.md`.
 
-### Soul.md
+### SOUL.md
 
 Defines the agent's core values and behavioral constraints — things like "prioritize correctness over speed", "never hide risks", "avoid hallucinations". These act as a backstop that applies regardless of what the task instructions say.
 
-### Identity.md
+### IDENTITY.md
 
 A short self-description of the agent in markdown. Included during prompt construction to give the model a consistent sense of its own identity and purpose.
 
@@ -100,10 +100,10 @@ Stores the persisted session history for this agent. Each session is written as 
 .sloppy/agents/my-agent/
 ├── agent.json              ← immutable metadata
 ├── config.json             ← mutable runtime config
-├── Agents.md               ← behavior instructions
-├── User.md                 ← user preferences
-├── Soul.md                 ← core values
-├── Identity.md             ← identity description
+├── AGENTS.md               ← behavior instructions
+├── USER.md                 ← user preferences
+├── SOUL.md                 ← core values
+├── IDENTITY.md             ← identity description
 ├── HEARTBEAT.md            ← heartbeat prompt template
 ├── heartbeat-status.json   ← last heartbeat outcome
 ├── tools/

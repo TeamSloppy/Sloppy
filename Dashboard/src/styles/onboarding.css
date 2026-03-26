@@ -32,7 +32,7 @@
 }
 
 .onboarding-shell {
-  min-height: 100vh;
+  height: 100vh;
   display: grid;
   grid-template-columns: minmax(440px, 620px) 1fr;
   background:
@@ -46,7 +46,8 @@
   display: flex;
   flex-direction: column;
   gap: 28px;
-  min-height: 100vh;
+  height: 100vh;
+  overflow-y: auto;
   padding: 36px 40px 30px;
   border-right: 1px solid rgba(204, 255, 0, 0.12);
   background:
@@ -244,6 +245,53 @@
 .onboarding-provider-card span:last-child {
   color: #98a48f;
   line-height: 1.45;
+}
+
+.onboarding-preset-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.onboarding-preset-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  min-height: 110px;
+  padding: 16px;
+  border: 1px solid rgba(204, 255, 0, 0.16);
+  background: rgba(6, 8, 7, 0.92);
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+  transition: transform 140ms ease, border-color 140ms ease, background 140ms ease;
+}
+
+.onboarding-preset-card:hover {
+  transform: translate(-4px, -4px);
+  border-color: rgba(204, 255, 0, 0.4);
+}
+
+.onboarding-preset-card.active {
+  border-color: var(--accent);
+  background: rgba(204, 255, 0, 0.09);
+  box-shadow: 6px 6px 0 rgba(204, 255, 0, 0.2);
+}
+
+.onboarding-preset-card .material-symbols-rounded {
+  font-size: 1.5rem;
+  color: var(--accent);
+}
+
+.onboarding-preset-card strong {
+  font-size: 0.95rem;
+}
+
+.onboarding-preset-card span:last-child {
+  font-size: 0.82rem;
+  color: #98a48f;
+  line-height: 1.4;
 }
 
 .onboarding-provider-actions {
@@ -471,7 +519,7 @@
 
 .onboarding-visual {
   position: relative;
-  min-height: 100vh;
+  height: 100vh;
   overflow: hidden;
   background:
     linear-gradient(180deg, rgba(6, 8, 7, 0.72) 0%, rgba(1, 2, 1, 0.88) 100%);

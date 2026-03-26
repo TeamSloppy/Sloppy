@@ -617,9 +617,24 @@ body.agent-chat-no-page-scroll .page {
 }
 
 .agent-chat-head-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   font-weight: 600;
   font-size: 0.9rem;
   color: var(--text);
+  min-width: 0;
+  overflow: hidden;
+}
+
+.agent-chat-head-model {
+  flex-shrink: 0;
+  font-weight: 500;
+  font-size: 0.75rem;
+  color: var(--muted);
+  background: var(--surface-alt, rgba(255, 255, 255, 0.06));
+  padding: 2px 8px;
+  white-space: nowrap;
 }
 
 .agent-chat-actions {
@@ -712,6 +727,20 @@ body.agent-chat-no-page-scroll .page {
   width: 100%;
   display: grid;
   gap: 8px;
+}
+
+.agent-chat-tech-group {
+  width: 100%;
+  display: grid;
+  gap: 4px;
+}
+
+.agent-chat-tech-group-body {
+  display: grid;
+  gap: 4px;
+  padding-left: 12px;
+  border-left: 1px solid var(--line);
+  margin-left: 4px;
 }
 
 .agent-chat-tech-trigger {

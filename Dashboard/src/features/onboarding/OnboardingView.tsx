@@ -1,6 +1,11 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import type { CoreApi } from "../../shared/api/coreApi";
 import { AgentGeneratePreview, type GeneratedAgentFiles } from "../agents/components/AgentGeneratePreview";
+import orchestratorImage from "../../assets/orchestrator.png";
+import sloppyAgentsMd from "./agents/sloppy/AGENTS.md?raw";
+import sloppyBootstrapMd from "./agents/sloppy/BOOTSTRAP.md?raw";
+import ceoAgentsMd from "./agents/ceo/AGENTS.md?raw";
+import ceoBootstrapMd from "./agents/ceo/BOOTSTRAP.md?raw";
 
 type AnyRecord = Record<string, unknown>;
 
@@ -93,15 +98,64 @@ const PROVIDERS: ProviderDefinition[] = [
 ];
 
 const STEP_TITLES = [
-  "First project",
   "LLM provider",
   "First agent",
   "Launch prompt"
 ];
 
-const DEFAULT_PROMPT =
-  "You are already configured as the CEO. Use the ceo persona found here: https://github.com/TeamSloppy/Sloppy/blob/main/Assets/Agents/ceo/AGENTS.md.\n\n" +
-  "Start operating as the CEO of this company and project. First, inspect the current workspace and establish the company's immediate priorities.\n\n";
+interface AgentPresetDefinition {
+  id: string;
+  title: string;
+  description: string;
+  icon: string;
+  defaultName: string;
+  defaultRole: string;
+  agentsMarkdown: string;
+  bootstrapPrompt: string;
+}
+
+const AGENT_PRESETS: AgentPresetDefinition[] = [
+  {
+    id: "sloppy",
+    title: "Sloppy",
+    description: "Default Sloppy AI agent — universal helper and operator.",
+    icon: "smart_toy",
+    defaultName: "SLOPPY",
+    defaultRole: "SLOPPY",
+    agentsMarkdown: sloppyAgentsMd,
+    bootstrapPrompt: sloppyBootstrapMd
+  },
+  {
+    id: "ceo",
+    title: "CEO",
+    description: "Strategic CEO agent — sets direction, delegates, and reviews.",
+    icon: "business_center",
+    defaultName: "CEO",
+    defaultRole: "CEO",
+    agentsMarkdown: ceoAgentsMd,
+    bootstrapPrompt: ceoBootstrapMd
+  },
+  {
+    id: "custom",
+    title: "Custom",
+    description: "Write your own agent instructions from scratch.",
+    icon: "edit_note",
+    defaultName: "",
+    defaultRole: "",
+    agentsMarkdown: "",
+    bootstrapPrompt: ""
+  },
+  {
+    id: "generate",
+    title: "AI Generate",
+    description: "Let AI generate full agent configuration files.",
+    icon: "auto_awesome",
+    defaultName: "",
+    defaultRole: "",
+    agentsMarkdown: "",
+    bootstrapPrompt: sloppyBootstrapMd
+  }
+];
 
 function clone<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
@@ -119,20 +173,20 @@ Output exactly 4 files using the markers below. Include only the file content be
 
 --- AGENTS.md ---
 (Write main behavior instructions, responsibilities, operating rules, and capabilities for this agent)
---- Identity.md ---
+--- IDENTITY.md ---
 (Write personality, communication style, tone, and character traits)
---- Soul.md ---
+--- SOUL.md ---
 (Write core values, principles, and decision-making framework)
---- User.md ---
+--- USER.md ---
 (Write how to interact with users, preferred response format, and user interaction guidelines)`;
 }
 
 function parseOnboardingGeneratedFiles(text: string): GeneratedAgentFiles {
   const markers: Record<keyof GeneratedAgentFiles, string> = {
     agentsMarkdown: "--- AGENTS.md ---",
-    identityMarkdown: "--- Identity.md ---",
-    soulMarkdown: "--- Soul.md ---",
-    userMarkdown: "--- User.md ---"
+    identityMarkdown: "--- IDENTITY.md ---",
+    soulMarkdown: "--- SOUL.md ---",
+    userMarkdown: "--- USER.md ---"
   };
 
   const markerKeys = Object.keys(markers) as (keyof GeneratedAgentFiles)[];
@@ -214,14 +268,6 @@ function runtimeModelId(providerId: string, modelId: string) {
   return modelId;
 }
 
-function shouldUseCeoPersona(agentId: string, agentName: string, agentRole: string) {
-  const normalizedId = agentId.trim().toLowerCase();
-  const normalizedName = agentName.trim().toLowerCase();
-  const normalizedRole = agentRole.trim().toLowerCase();
-
-  return normalizedId === "ceo" || normalizedName === "ceo" || normalizedRole === "ceo";
-}
-
 function createConfigWithProvider(
   config: AnyRecord,
   provider: ProviderDefinition,
@@ -264,63 +310,137 @@ function providerCardIcon(providerId: string) {
   return "deployed_code";
 }
 
+const ASCII_RAMPS = [
+  "  .`',;:-~+=!|xXYH$&#@",
+  "   .^\":;!iIlYVWHM#&@",
+  "  ._-~:;+=*xX#%$@"
+];
+
+function clampValue(value: number, min: number, max: number) {
+  return Math.min(Math.max(value, min), max);
+}
+
+function buildAsciiGrid(source: HTMLImageElement, columns: number) {
+  const rows = Math.max(22, Math.round(columns * (source.height / source.width) * 0.54));
+  const offscreen = document.createElement("canvas");
+  offscreen.width = columns;
+  offscreen.height = rows;
+
+  const ctx = offscreen.getContext("2d", { willReadFrequently: true });
+  if (!ctx) return null;
+
+  ctx.drawImage(source, 0, 0, columns, rows);
+  const pixels = ctx.getImageData(0, 0, columns, rows).data;
+  const grid: number[][] = [];
+
+  for (let r = 0; r < rows; r++) {
+    const row: number[] = [];
+    for (let c = 0; c < columns; c++) {
+      const offset = (r * columns + c) * 4;
+      const brightness = pixels[offset] * 0.299 + pixels[offset + 1] * 0.587 + pixels[offset + 2] * 0.114;
+      row.push(brightness);
+    }
+    grid.push(row);
+  }
+  return grid;
+}
+
 function OnboardingAsciiCanvas({
   stepIndex,
-  projectName,
   agentName,
   providerTitle
 }: {
   stepIndex: number;
-  projectName: string;
   agentName: string;
   providerTitle: string;
 }) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const gridRef = useRef<number[][] | null>(null);
+  const imageLoadedRef = useRef(false);
+
+  useEffect(() => {
+    if (imageLoadedRef.current) return;
+
+    const img = new Image();
+    img.onload = () => {
+      imageLoadedRef.current = true;
+      gridRef.current = buildAsciiGrid(img, 96);
+    };
+    img.src = orchestratorImage;
+  }, []);
 
   useEffect(() => {
     const canvas = canvasRef.current;
-    if (!canvas) {
-      return;
-    }
+    if (!canvas) return;
 
     const context = canvas.getContext("2d");
-    if (!context) {
-      return;
-    }
+    if (!context) return;
 
     let frame = 0;
     let animationFrame = 0;
 
     function draw() {
-      const parent = canvas.parentElement;
+      const parent = canvas!.parentElement;
       const width = parent?.clientWidth || 640;
       const height = parent?.clientHeight || 720;
       const scale = window.devicePixelRatio || 1;
-      canvas.width = Math.floor(width * scale);
-      canvas.height = Math.floor(height * scale);
-      canvas.style.width = `${width}px`;
-      canvas.style.height = `${height}px`;
-      context.setTransform(scale, 0, 0, scale, 0, 0);
+      canvas!.width = Math.floor(width * scale);
+      canvas!.height = Math.floor(height * scale);
+      canvas!.style.width = `${width}px`;
+      canvas!.style.height = `${height}px`;
+      context!.setTransform(scale, 0, 0, scale, 0, 0);
 
-      context.fillStyle = "#020403";
-      context.fillRect(0, 0, width, height);
+      context!.fillStyle = "#020403";
+      context!.fillRect(0, 0, width, height);
 
-      context.font = "13px 'Fira Code', monospace";
-      context.textBaseline = "top";
+      context!.font = "9px 'Fira Code', monospace";
+      context!.textBaseline = "top";
 
-      const cols = Math.floor(width / 14);
-      const rows = Math.floor(height / 16);
-      const glyphs = [".", ":", "+", "=", "/", "\\", "[", "]", "0", "1"];
+      const charW = 5.4;
+      const charH = 10;
+      const grid = gridRef.current;
 
-      for (let row = 0; row < rows; row += 1) {
-        for (let col = 0; col < cols; col += 1) {
-          const seed = (row * 17 + col * 31 + frame) % 19;
-          if ((row + col + frame) % 7 !== 0 && seed % 5 !== 0) {
-            continue;
+      if (grid && grid.length > 0) {
+        const gridRows = grid.length;
+        const gridCols = grid[0].length;
+        const artWidth = gridCols * charW;
+        const artHeight = gridRows * charH;
+        const offsetX = Math.max(0, (width - artWidth) / 2);
+        const offsetY = Math.max(40, (height - artHeight) / 2 - 40);
+
+        const ramp = ASCII_RAMPS[frame % ASCII_RAMPS.length];
+        const phase = frame * 0.06;
+
+        for (let r = 0; r < gridRows; r++) {
+          for (let c = 0; c < gridCols; c++) {
+            const brightness = grid[r][c];
+            const pulse = brightness > 18
+              ? Math.sin(c * 0.22 + r * 0.14 + phase) * 12
+              : 0;
+            const adjusted = clampValue(brightness + pulse, 0, 255);
+            const rampIndex = Math.round((adjusted / 255) * (ramp.length - 1));
+            const ch = ramp[rampIndex];
+
+            if (ch === " ") continue;
+
+            const alpha = 0.25 + (adjusted / 255) * 0.75;
+            context!.fillStyle = `rgba(204,255,0,${alpha.toFixed(2)})`;
+            context!.fillText(ch, offsetX + c * charW, offsetY + r * charH);
           }
-          const glyph = glyphs[(seed + stepIndex) % glyphs.length];
-          context.fillStyle = seed % 3 === 0 ? "rgba(204,255,0,0.78)" : "rgba(204,255,0,0.22)";
-          context.fillText(glyph, col * 14, row * 16);
+        }
+      } else {
+        const cols = Math.floor(width / 14);
+        const rows = Math.floor(height / 16);
+        const glyphs = [".", ":", "+", "=", "/", "\\", "[", "]", "0", "1"];
+
+        for (let row = 0; row < rows; row++) {
+          for (let col = 0; col < cols; col++) {
+            const seed = (row * 17 + col * 31 + frame) % 19;
+            if ((row + col + frame) % 7 !== 0 && seed % 5 !== 0) continue;
+            const glyph = glyphs[(seed + stepIndex) % glyphs.length];
+            context!.fillStyle = seed % 3 === 0 ? "rgba(204,255,0,0.78)" : "rgba(204,255,0,0.22)";
+            context!.fillText(glyph, col * 14, row * 16);
+          }
         }
       }
 
@@ -330,29 +450,26 @@ function OnboardingAsciiCanvas({
         "║   INIT / BOOT      ║",
         "╚════════════════════╝"
       ];
-      context.fillStyle = "#d9ff57";
+      context!.fillStyle = "#d9ff57";
+      context!.font = "13px 'Fira Code', monospace";
       logo.forEach((line, index) => {
-        context.fillText(line, 56, 72 + index * 18);
+        context!.fillText(line, 56, 72 + index * 18);
       });
 
       const meta = [
         `STEP 0${stepIndex + 1} // ${STEP_TITLES[stepIndex].toUpperCase()}`,
-        `PROJECT: ${(projectName || "untitled").slice(0, 28).toUpperCase()}`,
         `AGENT: ${(agentName || "pending").slice(0, 28).toUpperCase()}`,
         `LINK: ${(providerTitle || "No uplink").toUpperCase()}`
       ];
-      context.fillStyle = "rgba(240,255,214,0.88)";
+      context!.fillStyle = "rgba(240,255,214,0.88)";
       meta.forEach((line, index) => {
-        context.fillText(line, 56, height - 176 + index * 20);
+        context!.fillText(line, 67, height - 137 + index * 20);
       });
 
-      context.strokeStyle = "rgba(204,255,0,0.65)";
-      context.lineWidth = 1;
-      context.strokeRect(34, 42, width - 68, height - 84);
-      context.strokeRect(48, 56, width - 96, height - 112);
-
-      context.fillStyle = "rgba(204,255,0,0.12)";
-      context.fillRect(56, height - 212, width - 112, 108);
+      context!.strokeStyle = "rgba(204,255,0,0.65)";
+      context!.lineWidth = 1;
+      context!.strokeRect(34, 42, width - 68, height - 84);
+      context!.strokeRect(48, 56, width - 96, height - 112);
 
       frame += 1;
       animationFrame = window.requestAnimationFrame(draw);
@@ -360,7 +477,7 @@ function OnboardingAsciiCanvas({
 
     draw();
     return () => window.cancelAnimationFrame(animationFrame);
-  }, [agentName, projectName, providerTitle, stepIndex]);
+  }, [agentName, providerTitle, stepIndex]);
 
   return <canvas ref={canvasRef} className="onboarding-ascii-canvas" aria-hidden="true" />;
 }
@@ -368,11 +485,6 @@ function OnboardingAsciiCanvas({
 export function OnboardingView({ coreApi, initialConfig, onCompleted }: OnboardingViewProps) {
   const initialProvider = useMemo(() => initialProviderState(initialConfig), [initialConfig]);
   const [stepIndex, setStepIndex] = useState(0);
-  const [projectSkipped, setProjectSkipped] = useState(false);
-  const [projectSourceType, setProjectSourceType] = useState<"empty" | "git">("empty");
-  const [projectRepoUrl, setProjectRepoUrl] = useState("");
-  const [projectName, setProjectName] = useState("");
-  const [projectDescription, setProjectDescription] = useState("");
   const [providerId, setProviderId] = useState(initialProvider.providerId);
   const [providerApiKey, setProviderApiKey] = useState(initialProvider.apiKey);
   const [providerApiUrl, setProviderApiUrl] = useState(initialProvider.apiUrl);
@@ -381,13 +493,14 @@ export function OnboardingView({ coreApi, initialConfig, onCompleted }: Onboardi
   const [probeStatus, setProbeStatus] = useState("Pick a provider and test the connection.");
   const [probeOk, setProbeOk] = useState(false);
   const [probeModels, setProbeModels] = useState<AnyRecord[]>([]);
-  const [agentName, setAgentName] = useState("CEO");
-  const [agentRole, setAgentRole] = useState("CEO");
-  const [generateEnabled, setGenerateEnabled] = useState(false);
+  const [agentPreset, setAgentPreset] = useState("sloppy");
+  const [agentName, setAgentName] = useState("SLOPPY");
+  const [agentRole, setAgentRole] = useState("SLOPPY");
+  const [customAgentsMarkdown, setCustomAgentsMarkdown] = useState("");
   const [generateDescription, setGenerateDescription] = useState("");
   const [generationPhase, setGenerationPhase] = useState<"form" | "generating" | "preview">("form");
   const [generatedFiles, setGeneratedFiles] = useState<GeneratedAgentFiles>({ agentsMarkdown: "", identityMarkdown: "", soulMarkdown: "", userMarkdown: "" });
-  const [launchPrompt, setLaunchPrompt] = useState(DEFAULT_PROMPT);
+  const [launchPrompt, setLaunchPrompt] = useState(sloppyBootstrapMd);
   const [statusText, setStatusText] = useState("Preparing first-run setup.");
   const [isProbing, setIsProbing] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -400,7 +513,6 @@ export function OnboardingView({ coreApi, initialConfig, onCompleted }: Onboardi
     () => PROVIDERS.find((provider) => provider.id === providerId) || PROVIDERS[0],
     [providerId]
   );
-  const projectId = useMemo(() => toSlug(projectName), [projectName]);
   const agentId = useMemo(() => toSlug(agentName), [agentName]);
   const selectedRuntimeModel = useMemo(
     () => runtimeModelId(providerId, selectedModel),
@@ -555,47 +667,27 @@ export function OnboardingView({ coreApi, initialConfig, onCompleted }: Onboardi
     await runProviderProbe();
   }
 
+  function selectPreset(presetId: string) {
+    const preset = AGENT_PRESETS.find((p) => p.id === presetId);
+    if (!preset) return;
+    setAgentPreset(presetId);
+    if (preset.defaultName) setAgentName(preset.defaultName);
+    if (preset.defaultRole) setAgentRole(preset.defaultRole);
+    if (preset.bootstrapPrompt) setLaunchPrompt(preset.bootstrapPrompt);
+    setGenerationPhase("form");
+  }
+
   function canAdvance() {
     if (stepIndex === 0) {
-      if (projectSkipped) return true;
-      if (projectName.trim().length === 0) return false;
-      if (projectSourceType === "git") return projectRepoUrl.trim().length > 0;
-      return true;
-    }
-    if (stepIndex === 1) {
       return probeOk && selectedModel.trim().length > 0;
     }
-    if (stepIndex === 2) {
+    if (stepIndex === 1) {
       if (agentName.trim().length === 0 || agentRole.trim().length === 0 || agentId.length === 0) return false;
-      if (generateEnabled && generateDescription.trim().length === 0) return false;
+      if (agentPreset === "generate" && generateDescription.trim().length === 0) return false;
+      if (agentPreset === "custom" && customAgentsMarkdown.trim().length === 0) return false;
       return true;
     }
     return launchPrompt.trim().length > 0;
-  }
-
-  async function ensureProject() {
-    const existing = await coreApi.fetchProject(projectId);
-    if (existing) {
-      return existing;
-    }
-
-    const created = await coreApi.createProject({
-      id: projectId,
-      name: projectName.trim(),
-      description: projectDescription.trim(),
-      channels: [],
-      ...(projectSourceType === "git" && projectRepoUrl.trim() ? { repoUrl: projectRepoUrl.trim() } : {})
-    });
-    if (created) {
-      return created;
-    }
-
-    const retried = await coreApi.fetchProject(projectId);
-    if (retried) {
-      return retried;
-    }
-
-    throw new Error("Failed to create or reuse the first project.");
   }
 
   async function ensureAgent() {
@@ -644,11 +736,6 @@ export function OnboardingView({ coreApi, initialConfig, onCompleted }: Onboardi
         throw new Error("Failed to save runtime config.");
       }
 
-      if (!projectSkipped) {
-        setStatusText("Creating the first project...");
-        await ensureProject();
-      }
-
       setStatusText("Creating the first agent...");
       await ensureAgent();
 
@@ -663,27 +750,24 @@ export function OnboardingView({ coreApi, initialConfig, onCompleted }: Onboardi
           ? (agentConfig.documents as AnyRecord)
           : {};
 
-      const hasGeneratedFiles = generateEnabled && (
-        generatedFiles.agentsMarkdown ||
-        generatedFiles.identityMarkdown ||
-        generatedFiles.soulMarkdown ||
-        generatedFiles.userMarkdown
-      );
+      const activePresetDef = AGENT_PRESETS.find((p) => p.id === agentPreset);
 
-      const nextDocuments = hasGeneratedFiles
-        ? {
-            ...currentDocuments,
-            agentsMarkdown: generatedFiles.agentsMarkdown,
-            identityMarkdown: generatedFiles.identityMarkdown,
-            soulMarkdown: generatedFiles.soulMarkdown,
-            userMarkdown: generatedFiles.userMarkdown
-          }
-        : shouldUseCeoPersona(agentId, agentName, agentRole)
-          ? {
-              ...currentDocuments,
-              agentsMarkdown: DEFAULT_PROMPT.trim()
-            }
-          : currentDocuments;
+      let nextDocuments: AnyRecord;
+      if (agentPreset === "generate" && (generatedFiles.agentsMarkdown || generatedFiles.identityMarkdown || generatedFiles.soulMarkdown || generatedFiles.userMarkdown)) {
+        nextDocuments = {
+          ...currentDocuments,
+          agentsMarkdown: generatedFiles.agentsMarkdown,
+          identityMarkdown: generatedFiles.identityMarkdown,
+          soulMarkdown: generatedFiles.soulMarkdown,
+          userMarkdown: generatedFiles.userMarkdown
+        };
+      } else if (agentPreset === "custom") {
+        nextDocuments = { ...currentDocuments, agentsMarkdown: customAgentsMarkdown.trim() };
+      } else if (activePresetDef && activePresetDef.agentsMarkdown) {
+        nextDocuments = { ...currentDocuments, agentsMarkdown: activePresetDef.agentsMarkdown.trim() };
+      } else {
+        nextDocuments = currentDocuments;
+      }
 
       const updatedAgentConfig = await coreApi.updateAgentConfig(agentId, {
         selectedModel: selectedRuntimeModel,
@@ -763,7 +847,7 @@ export function OnboardingView({ coreApi, initialConfig, onCompleted }: Onboardi
     if (!canAdvance()) {
       return;
     }
-    if (stepIndex === 2 && generateEnabled && generationPhase === "form") {
+    if (stepIndex === 1 && agentPreset === "generate" && generationPhase === "form") {
       void runAgentGeneration();
       return;
     }
@@ -797,91 +881,16 @@ export function OnboardingView({ coreApi, initialConfig, onCompleted }: Onboardi
         <div key={stepIndex} className="onboarding-stage">
           <div className="onboarding-stage-head">
             <span className="material-symbols-rounded" aria-hidden="true">
-              {stepIndex === 0 ? "domain" : stepIndex === 1 ? "hub" : stepIndex === 2 ? "support_agent" : "terminal"}
+              {stepIndex === 0 ? "hub" : stepIndex === 1 ? "support_agent" : "terminal"}
             </span>
             <div>
-              <p className="onboarding-stage-overline">Step {stepIndex + 1} of 4</p>
+              <p className="onboarding-stage-overline">Step {stepIndex + 1} of {STEP_TITLES.length}</p>
               <h1>{STEP_TITLES[stepIndex]}</h1>
               <p>{statusText}</p>
             </div>
           </div>
 
           {stepIndex === 0 ? (
-            <div className="onboarding-form-block">
-              {projectSkipped ? (
-                <div className="onboarding-inline-note">
-                  Project creation skipped. You can create projects later from the Projects section.
-                  <div style={{ marginTop: "8px" }}>
-                    <button
-                      type="button"
-                      className="onboarding-ghost-button"
-                      onClick={() => setProjectSkipped(false)}
-                    >
-                      Add a project
-                    </button>
-                  </div>
-                </div>
-              ) : (
-                <>
-                  <div className="onboarding-provider-grid">
-                    <button
-                      type="button"
-                      className={`onboarding-provider-card ${projectSourceType === "empty" ? "active" : ""}`}
-                      onClick={() => setProjectSourceType("empty")}
-                    >
-                      <span className="material-symbols-rounded" aria-hidden="true">folder_open</span>
-                      <strong>Empty project</strong>
-                      <span>Start with a blank workspace directory.</span>
-                    </button>
-                    <button
-                      type="button"
-                      className={`onboarding-provider-card ${projectSourceType === "git" ? "active" : ""}`}
-                      onClick={() => setProjectSourceType("git")}
-                    >
-                      <span className="material-symbols-rounded" aria-hidden="true">source</span>
-                      <strong>Clone from GitHub</strong>
-                      <span>Clone a git repository including submodules.</span>
-                    </button>
-                  </div>
-
-                  <label>
-                    Project name
-                    <input
-                      value={projectName}
-                      onChange={(event) => setProjectName(event.target.value)}
-                      placeholder="Acme Sloppy"
-                      autoFocus
-                    />
-                  </label>
-                  <label>
-                    Project description
-                    <input
-                      value={projectDescription}
-                      onChange={(event) => setProjectDescription(event.target.value)}
-                      placeholder="The main hub for Acme operations"
-                    />
-                  </label>
-
-                  {projectSourceType === "git" ? (
-                    <label>
-                      GitHub repo URL
-                      <input
-                        value={projectRepoUrl}
-                        onChange={(event) => setProjectRepoUrl(event.target.value)}
-                        placeholder="https://github.com/org/repo"
-                      />
-                    </label>
-                  ) : null}
-
-                  <div className="onboarding-inline-note">
-                    Project id preview: <strong>{projectId || "acme-core"}</strong>
-                  </div>
-                </>
-              )}
-            </div>
-          ) : null}
-
-          {stepIndex === 1 ? (
             <div className="onboarding-form-block">
               <div className="onboarding-provider-grid">
                 {PROVIDERS.map((provider) => (
@@ -1036,14 +1045,31 @@ export function OnboardingView({ coreApi, initialConfig, onCompleted }: Onboardi
             </div>
           ) : null}
 
-          {stepIndex === 2 ? (
+          {stepIndex === 1 ? (
             <div className="onboarding-form-block">
+              <div className="onboarding-preset-grid">
+                {AGENT_PRESETS.map((preset) => (
+                  <button
+                    key={preset.id}
+                    type="button"
+                    className={`onboarding-preset-card ${preset.id === agentPreset ? "active" : ""}`}
+                    onClick={() => selectPreset(preset.id)}
+                  >
+                    <span className="material-symbols-rounded" aria-hidden="true">
+                      {preset.icon}
+                    </span>
+                    <strong>{preset.title}</strong>
+                    <span>{preset.description}</span>
+                  </button>
+                ))}
+              </div>
+
               <label>
                 Agent name
                 <input
                   value={agentName}
                   onChange={(event) => setAgentName(event.target.value)}
-                  placeholder="CEO"
+                  placeholder="SLOPPY"
                   autoFocus
                 />
               </label>
@@ -1056,43 +1082,38 @@ export function OnboardingView({ coreApi, initialConfig, onCompleted }: Onboardi
                 />
               </label>
               <div className="onboarding-inline-note">
-                Agent id preview: <strong>{agentId || "ceo"}</strong>
+                Agent id preview: <strong>{agentId || "agent"}</strong>
               </div>
-              <div className="agent-generate-section">
-                <label className="agent-generate-toggle cron-form-toggle">
-                  <div className="agent-generate-toggle-copy">
-                    <span className="agent-generate-toggle-label">Generate Agent</span>
-                    <span className="agent-generate-toggle-hint">
-                      Uses an LLM to generate AGENTS.md, Identity.md, Soul.md, User.md files.
-                    </span>
-                  </div>
-                  <span className="agent-tools-switch">
-                    <input
-                      type="checkbox"
-                      checked={generateEnabled}
-                      onChange={(event) => setGenerateEnabled(event.target.checked)}
-                    />
-                    <span className="agent-tools-switch-track" />
-                  </span>
+
+              {agentPreset === "custom" && (
+                <label>
+                  Agent instructions (AGENTS.md)
+                  <textarea
+                    value={customAgentsMarkdown}
+                    onChange={(event) => setCustomAgentsMarkdown(event.target.value)}
+                    placeholder="Write the agent's behavior instructions, responsibilities, operating rules…"
+                    rows={8}
+                  />
                 </label>
-                {generateEnabled && (
-                  <div className="agent-generate-fields">
-                    <label>
-                      Agent responsibility <span className="agent-field-note">(required for generation)</span>
-                      <textarea
-                        value={generateDescription}
-                        onChange={(event) => setGenerateDescription(event.target.value)}
-                        placeholder="Describe what this agent is responsible for, its main goals, and how it should behave…"
-                        rows={4}
-                      />
-                    </label>
-                  </div>
-                )}
-              </div>
+              )}
+
+              {agentPreset === "generate" && (
+                <div className="agent-generate-fields">
+                  <label>
+                    Agent responsibility <span className="agent-field-note">(required for generation)</span>
+                    <textarea
+                      value={generateDescription}
+                      onChange={(event) => setGenerateDescription(event.target.value)}
+                      placeholder="Describe what this agent is responsible for, its main goals, and how it should behave…"
+                      rows={4}
+                    />
+                  </label>
+                </div>
+              )}
             </div>
           ) : null}
 
-          {stepIndex === 3 ? (
+          {stepIndex === 2 ? (
             <div className="onboarding-form-block">
               <label>
                 Launch prompt
@@ -1114,20 +1135,6 @@ export function OnboardingView({ coreApi, initialConfig, onCompleted }: Onboardi
           <button type="button" className="onboarding-ghost-button hover-levitate" onClick={previousStep} disabled={stepIndex === 0 || isSubmitting}>
             Back
           </button>
-          {stepIndex === 0 && !projectSkipped ? (
-            <button
-              type="button"
-              className="onboarding-ghost-button hover-levitate"
-              onClick={() => {
-                setProjectSkipped(true);
-                setStepIndex((value) => Math.min(STEP_TITLES.length - 1, value + 1));
-                setStatusText(`Step 2 of ${STEP_TITLES.length}.`);
-              }}
-              disabled={isSubmitting}
-            >
-              Skip
-            </button>
-          ) : null}
           <button
             type="button"
             className="onboarding-primary-button hover-levitate"
@@ -1136,8 +1143,8 @@ export function OnboardingView({ coreApi, initialConfig, onCompleted }: Onboardi
           >
             {stepIndex === STEP_TITLES.length - 1
               ? (isSubmitting ? "Booting..." : "Finish setup")
-              : stepIndex === 2 && generateEnabled && generationPhase === "form"
-                ? (generationPhase === "generating" ? "Generating…" : "Generate & Continue")
+              : stepIndex === 1 && agentPreset === "generate" && generationPhase === "form"
+                ? "Generate & Continue"
                 : "Next"}
           </button>
         </div>
@@ -1148,17 +1155,11 @@ export function OnboardingView({ coreApi, initialConfig, onCompleted }: Onboardi
           <span>[ uplink // {activeProvider.title.toLowerCase()} ]</span>
           <span>[ session // preboot ]</span>
         </div>
-        <div className="onboarding-project-plaque">
-          <span className="onboarding-project-plaque-label">Project plaque</span>
-          <strong>{projectName.trim() || "Untitled project"}</strong>
-          <small>{projectId || "pending-id"}</small>
-        </div>
         <div className="onboarding-micrograph onboarding-micrograph-top" />
         <div className="onboarding-micrograph onboarding-micrograph-middle" />
         <div className="onboarding-micrograph onboarding-micrograph-bottom" />
         <OnboardingAsciiCanvas
           stepIndex={stepIndex}
-          projectName={projectName}
           agentName={agentName}
           providerTitle={activeProvider.title}
         />
@@ -1170,7 +1171,7 @@ export function OnboardingView({ coreApi, initialConfig, onCompleted }: Onboardi
           onFilesChange={setGeneratedFiles}
           onBack={() => {
             setGenerationPhase("form");
-            setStatusText("Step 3 of 4.");
+            setStatusText("Step 2 of 3.");
           }}
           onDone={() => {
             setGenerationPhase("form");

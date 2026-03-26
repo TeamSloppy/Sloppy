@@ -87,6 +87,15 @@ public actor RuntimeSystem {
     private var modelProvider: (any ModelProvider)?
     private var defaultModel: String?
 
+    /// Persistent LLM sessions keyed by channel ID. Each session accumulates full
+    /// transcript (prompts, tool calls, tool outputs, responses) so the model sees
+    /// complete history without rebuilding context on every turn.
+    private var sessionsByChannel: [String: LanguageModelSession] = [:]
+
+    /// Bootstrap system prompt content per channel, kept to recreate sessions after
+    /// context overflow or model hot-swap.
+    private var bootstrapByChannel: [String: String] = [:]
+
     public init(
         modelProvider: (any ModelProvider)? = nil,
         defaultModel: String? = nil,
@@ -125,8 +134,11 @@ public actor RuntimeSystem {
     }
 
     /// Hot-swaps model provider and default model for subsequent direct responses.
+    /// Invalidates all cached LLM sessions so next request creates fresh ones with
+    /// the new provider.
     public func updateModelProvider(modelProvider: (any ModelProvider)?, defaultModel: String?) {
         self.modelProvider = modelProvider
+        sessionsByChannel.removeAll()
 
         guard let modelProvider else {
             self.defaultModel = nil
@@ -230,6 +242,8 @@ public actor RuntimeSystem {
     }
 
     /// Uses configured model provider for direct responses or falls back to static response.
+    /// Reuses a persistent `LanguageModelSession` per channel so the full transcript
+    /// (tool calls, tool outputs, previous responses) is preserved across turns.
     private func respondInline(
         channelId: String,
         userMessage: String,
@@ -255,19 +269,11 @@ public actor RuntimeSystem {
         }
 
         do {
-            let contextualPrompt = await buildContextualPrompt(
+            let session = try await getOrCreateSession(
                 channelId: channelId,
-                fallbackUserMessage: userMessage
+                activeModel: activeModel,
+                modelProvider: modelProvider
             )
-            let promptChars = contextualPrompt.description.count
-
-            let languageModel = try await modelProvider.createLanguageModel(for: activeModel)
-            let session: LanguageModelSession
-            if let instructions = modelProvider.systemInstructions {
-                session = LanguageModelSession(model: languageModel, tools: modelProvider.tools, instructions: instructions)
-            } else {
-                session = LanguageModelSession(model: languageModel, tools: modelProvider.tools)
-            }
 
             if let invoker = toolInvoker {
                 let observingHandler: @Sendable (ToolInvocationRequest) async -> ToolInvocationResult = { request in
@@ -284,9 +290,7 @@ public actor RuntimeSystem {
             }
 
             let options = modelProvider.generationOptions(for: activeModel, maxTokens: 1024, reasoningEffort: reasoningEffort)
-            var latest = ""
-            var streamChunks = 0
-            let streamStartedAt = Date()
+            let transcriptSize = session.transcript.count
             let streamMode = toolInvoker != nil ? "native_tool_stream" : "respond_stream"
 
             logger.info(
@@ -295,12 +299,17 @@ public actor RuntimeSystem {
                     channelId: channelId,
                     model: activeModel,
                     reasoningEffort: reasoningEffort,
-                    promptChars: promptChars,
-                    mode: streamMode
+                    promptChars: userMessage.count,
+                    mode: streamMode,
+                    transcriptEntries: transcriptSize
                 )
             )
 
-            let responseStream = session.streamResponse(to: contextualPrompt, options: options)
+            var latest = ""
+            var streamChunks = 0
+            let streamStartedAt = Date()
+
+            let responseStream = session.streamResponse(to: userMessage, options: options)
             do {
                 for try await snapshot in responseStream {
                     streamChunks += 1
@@ -314,7 +323,7 @@ public actor RuntimeSystem {
                                     channelId: channelId,
                                     model: activeModel,
                                     reasoningEffort: reasoningEffort,
-                                    promptChars: promptChars,
+                                    promptChars: userMessage.count,
                                     mode: streamMode,
                                     durationMs: elapsedMilliseconds(since: streamStartedAt),
                                     outputChars: latest.count,
@@ -328,6 +337,49 @@ public actor RuntimeSystem {
                         }
                     }
                 }
+            } catch let error as LanguageModelSession.GenerationError {
+                if case .exceededContextWindowSize = error {
+                    logger.warning(
+                        "Context window exceeded, recreating session with summary",
+                        metadata: modelCallMetadata(
+                            channelId: channelId,
+                            model: activeModel,
+                            reasoningEffort: reasoningEffort,
+                            promptChars: userMessage.count,
+                            mode: streamMode,
+                            error: String(describing: error)
+                        )
+                    )
+                    let recovered = await respondAfterContextReset(
+                        channelId: channelId,
+                        userMessage: userMessage,
+                        activeModel: activeModel,
+                        modelProvider: modelProvider,
+                        reasoningEffort: reasoningEffort,
+                        onResponseChunk: onResponseChunk,
+                        toolInvoker: toolInvoker,
+                        observationHandler: observationHandler
+                    )
+                    if let recovered {
+                        await channels.appendSystemMessage(channelId: channelId, content: recovered)
+                    }
+                    return
+                }
+                logger.warning(
+                    "Model stream failed",
+                    metadata: modelCallMetadata(
+                        channelId: channelId,
+                        model: activeModel,
+                        reasoningEffort: reasoningEffort,
+                        promptChars: userMessage.count,
+                        mode: streamMode,
+                        durationMs: elapsedMilliseconds(since: streamStartedAt),
+                        outputChars: latest.count,
+                        streamChunks: streamChunks,
+                        error: String(describing: error)
+                    )
+                )
+                throw error
             } catch {
                 logger.warning(
                     "Model stream failed",
@@ -335,7 +387,7 @@ public actor RuntimeSystem {
                         channelId: channelId,
                         model: activeModel,
                         reasoningEffort: reasoningEffort,
-                        promptChars: promptChars,
+                        promptChars: userMessage.count,
                         mode: streamMode,
                         durationMs: elapsedMilliseconds(since: streamStartedAt),
                         outputChars: latest.count,
@@ -352,7 +404,7 @@ public actor RuntimeSystem {
                     channelId: channelId,
                     model: activeModel,
                     reasoningEffort: reasoningEffort,
-                    promptChars: promptChars,
+                    promptChars: userMessage.count,
                     mode: streamMode,
                     durationMs: elapsedMilliseconds(since: streamStartedAt),
                     outputChars: latest.count,
@@ -375,12 +427,12 @@ public actor RuntimeSystem {
                         channelId: channelId,
                         model: activeModel,
                         reasoningEffort: reasoningEffort,
-                        promptChars: promptChars,
+                        promptChars: userMessage.count,
                         mode: "respond_complete"
                     )
                 )
                 do {
-                    let response = try await session.respond(to: contextualPrompt, options: options)
+                    let response = try await session.respond(to: userMessage, options: options)
                     latest = response.content
                 } catch {
                     logger.warning(
@@ -389,7 +441,7 @@ public actor RuntimeSystem {
                             channelId: channelId,
                             model: activeModel,
                             reasoningEffort: reasoningEffort,
-                            promptChars: promptChars,
+                            promptChars: userMessage.count,
                             mode: "respond_complete",
                             durationMs: elapsedMilliseconds(since: completionStartedAt),
                             error: String(describing: error)
@@ -403,7 +455,7 @@ public actor RuntimeSystem {
                         channelId: channelId,
                         model: activeModel,
                         reasoningEffort: reasoningEffort,
-                        promptChars: promptChars,
+                        promptChars: userMessage.count,
                         mode: "respond_complete",
                         durationMs: elapsedMilliseconds(since: completionStartedAt),
                         outputChars: latest.count
@@ -427,6 +479,116 @@ public actor RuntimeSystem {
         }
     }
 
+    /// Returns cached session for channel, or creates a new one seeded with the bootstrap
+    /// system message if present.
+    private func getOrCreateSession(
+        channelId: String,
+        activeModel: String,
+        modelProvider: any ModelProvider
+    ) async throws -> LanguageModelSession {
+        if let existing = sessionsByChannel[channelId] {
+            return existing
+        }
+
+        let languageModel = try await modelProvider.createLanguageModel(for: activeModel)
+        let session: LanguageModelSession
+        if let instructions = modelProvider.systemInstructions {
+            session = LanguageModelSession(model: languageModel, tools: modelProvider.tools, instructions: instructions)
+        } else {
+            session = LanguageModelSession(model: languageModel, tools: modelProvider.tools)
+        }
+
+        // Seed bootstrap content from channel state (set by ensureSessionContextLoaded)
+        if let bootstrap = bootstrapByChannel[channelId], !bootstrap.isEmpty {
+            _ = try? await session.respond(to: bootstrap)
+        }
+
+        sessionsByChannel[channelId] = session
+        logger.info(
+            "LLM session created",
+            metadata: [
+                "channel_id": .string(channelId),
+                "model": .string(activeModel),
+                "has_bootstrap": .string(bootstrapByChannel[channelId] != nil ? "true" : "false")
+            ]
+        )
+        return session
+    }
+
+    /// Creates a fresh session with only the bootstrap prompt and retries the user message.
+    /// Called when the previous session hit the context window limit.
+    private func respondAfterContextReset(
+        channelId: String,
+        userMessage: String,
+        activeModel: String,
+        modelProvider: any ModelProvider,
+        reasoningEffort: ReasoningEffort?,
+        onResponseChunk: (@Sendable (String) async -> Bool)?,
+        toolInvoker: (@Sendable (ToolInvocationRequest) async -> ToolInvocationResult)?,
+        observationHandler: (@Sendable (RuntimeResponseObservation) async -> Void)?
+    ) async -> String? {
+        sessionsByChannel.removeValue(forKey: channelId)
+
+        let languageModel: any LanguageModel
+        do {
+            languageModel = try await modelProvider.createLanguageModel(for: activeModel)
+        } catch {
+            return "Model provider error: \(error)"
+        }
+
+        let freshSession: LanguageModelSession
+        if let instructions = modelProvider.systemInstructions {
+            freshSession = LanguageModelSession(model: languageModel, tools: modelProvider.tools, instructions: instructions)
+        } else {
+            freshSession = LanguageModelSession(model: languageModel, tools: modelProvider.tools)
+        }
+
+        if let bootstrap = bootstrapByChannel[channelId], !bootstrap.isEmpty {
+            _ = try? await freshSession.respond(to: bootstrap)
+        }
+
+        sessionsByChannel[channelId] = freshSession
+
+        if let invoker = toolInvoker {
+            let observingHandler: @Sendable (ToolInvocationRequest) async -> ToolInvocationResult = { request in
+                if let observationHandler {
+                    await observationHandler(.toolCall(request))
+                }
+                let result = await invoker(request)
+                if let observationHandler {
+                    await observationHandler(.toolResult(result))
+                }
+                return result
+            }
+            freshSession.toolExecutionDelegate = SloppyToolExecutionDelegate(toolCallHandler: observingHandler)
+        }
+
+        let options = modelProvider.generationOptions(for: activeModel, maxTokens: 1024, reasoningEffort: reasoningEffort)
+        var latest = ""
+        let responseStream = freshSession.streamResponse(to: userMessage, options: options)
+        do {
+            for try await snapshot in responseStream {
+                latest = snapshot.content
+                if let onResponseChunk {
+                    let shouldContinue = await onResponseChunk(latest)
+                    if !shouldContinue { break }
+                }
+            }
+        } catch {
+            return "Model provider error: \(error)"
+        }
+
+        if latest.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            let response = try? await freshSession.respond(to: userMessage, options: options)
+            latest = response?.content ?? ""
+            if let onResponseChunk, !latest.isEmpty {
+                _ = await onResponseChunk(latest)
+            }
+        }
+
+        return latest.isEmpty ? nil : latest
+    }
+
     private func elapsedMilliseconds(since start: Date) -> Int {
         let elapsed = Date().timeIntervalSince(start)
         return Int((elapsed * 1000).rounded())
@@ -444,6 +606,7 @@ public actor RuntimeSystem {
         streamChunks: Int? = nil,
         toolId: String? = nil,
         toolResultOK: Bool? = nil,
+        transcriptEntries: Int? = nil,
         error: String? = nil
     ) -> Logger.Metadata {
         var metadata: Logger.Metadata = [
@@ -472,6 +635,9 @@ public actor RuntimeSystem {
         if let toolResultOK {
             metadata["tool_ok"] = .string(toolResultOK ? "true" : "false")
         }
+        if let transcriptEntries {
+            metadata["transcript_entries"] = .stringConvertible(transcriptEntries)
+        }
         if let error {
             metadata["error"] = .string(error)
         }
@@ -479,37 +645,11 @@ public actor RuntimeSystem {
         return metadata
     }
 
-    private func buildContextualPrompt(channelId: String, fallbackUserMessage: String) async -> Prompt {
-        guard let snapshot = await channels.snapshot(channelId: channelId), !snapshot.messages.isEmpty else {
-            return Prompt(fallbackUserMessage)
-        }
-
-        let bulletinDigest = await visor.latestBulletinDigest()
-        let contextMessages = snapshot.messages.suffix(80)
-
-        return Prompt {
-            "[channel_context_v1]"
-            "Use the conversation context below to answer the latest user request."
-            ""
-
-            if let digest = bulletinDigest {
-                "## Memory Context"
-                digest
-                ""
-            }
-
-            for message in contextMessages {
-                if message.userId == "system" {
-                    "[system]"
-                } else if message.userId == "agent" || message.userId == "assistant" {
-                    "[assistant]"
-                } else {
-                    "[user]"
-                }
-                message.content
-                ""
-            }
-        }
+    /// Registers bootstrap system prompt content for a channel. Called by the orchestrator
+    /// after composing the agent's identity/rules/capabilities prompt. The content is used
+    /// to seed new LLM sessions (on first creation and after context overflow).
+    public func setChannelBootstrap(channelId: String, content: String) async {
+        bootstrapByChannel[channelId] = content
     }
 
     /// Routes interactive payload to worker bound to the channel.
@@ -834,7 +974,7 @@ public actor RuntimeSystem {
         await workers.artifactContent(id: id)
     }
 
-    /// Generates visor bulletin. The digest is injected into LLM prompts at call time via buildContextualPrompt.
+    /// Generates visor bulletin for runtime health monitoring.
     public func generateVisorBulletin(taskSummary: String? = nil) async -> MemoryBulletin {
         let channelSnapshots = await channels.snapshots()
         let workerSnapshots = await workers.snapshots()

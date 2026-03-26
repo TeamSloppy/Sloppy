@@ -7,6 +7,7 @@ export const PROJECT_TABS = [
   { id: "tasks", title: "Tasks" },
   { id: "workers", title: "Workers" },
   { id: "visor", title: "Visor" },
+  { id: "memory", title: "Memory" },
   { id: "settings", title: "Settings" }
 ];
 

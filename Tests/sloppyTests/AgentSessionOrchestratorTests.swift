@@ -153,16 +153,16 @@ private func expectedFallbackBootstrapMessage(
     Agent: \(agentID)
     Session: \(sessionID)
 
-    [Agents.md]
+    [AGENTS.md]
     \(documents.agentsMarkdown)
 
-    [User.md]
+    [USER.md]
     \(documents.userMarkdown)
 
-    [Identity.md]
+    [IDENTITY.md]
     \(documents.identityMarkdown)
 
-    [Soul.md]
+    [SOUL.md]
     \(documents.soulMarkdown)
 
     \(capabilities)
@@ -343,14 +343,14 @@ func agentSessionBootstrapIncludesToolCallProtocol() async throws {
         $0.userId == "system" && $0.content.contains("[agent_session_context_bootstrap_v1]")
     })?.content ?? ""
 
-    #expect(bootstrapMessage.contains(#""tool":"<tool-id>""#))
-    #expect(bootstrapMessage.contains("`runtime.exec`"))
-    #expect(bootstrapMessage.contains("`files.write`"))
     #expect(bootstrapMessage.contains("`branches.spawn`"))
     #expect(bootstrapMessage.contains("`workers.spawn`"))
     #expect(bootstrapMessage.contains("`workers.route`"))
     #expect(bootstrapMessage.contains("[Branching rules]"))
     #expect(bootstrapMessage.contains("[Worker rules]"))
+    #expect(bootstrapMessage.contains("[Tools usage rules]"))
+    #expect(bootstrapMessage.contains("native function calls"))
+    #expect(bootstrapMessage.contains("`cron`"))
 }
 
 @Test
@@ -388,6 +388,40 @@ func agentSessionTextContainingFailedDoesNotForceInterruptedStatus() async throw
 
     let finalStatus = response.appendedEvents.last(where: { $0.type == .runStatus })?.runStatus?.stage
     #expect(finalStatus == .done)
+}
+
+@Test
+func agentSessionReusesPersistentSessionAcrossMessages() async throws {
+    let availableModels = [
+        ProviderModelOption(id: "openai:gpt-4.1-mini", title: "openai:gpt-4.1-mini", capabilities: ["tools"])
+    ]
+    let (catalogStore, sessionStore, _) = try makeAgentSessionFixture(
+        agentID: "session-reuse-agent",
+        selectedModel: "openai:gpt-4.1-mini",
+        availableModels: availableModels
+    )
+    let provider = SessionCapturingModelProvider(models: availableModels.map(\.id))
+    let runtime = RuntimeSystem(modelProvider: provider, defaultModel: "openai:gpt-4.1-mini")
+    let orchestrator = AgentSessionOrchestrator(
+        runtime: runtime,
+        sessionStore: sessionStore,
+        agentCatalogStore: catalogStore,
+        availableModels: availableModels
+    )
+
+    let session = try await orchestrator.createSession(agentID: "session-reuse-agent", request: AgentSessionCreateRequest())
+    _ = try await orchestrator.postMessage(
+        agentID: "session-reuse-agent",
+        sessionID: session.id,
+        request: AgentSessionPostMessageRequest(userId: "dashboard", content: "first message")
+    )
+    _ = try await orchestrator.postMessage(
+        agentID: "session-reuse-agent",
+        sessionID: session.id,
+        request: AgentSessionPostMessageRequest(userId: "dashboard", content: "second message")
+    )
+
+    #expect(await provider.requestedModelsSnapshot().count == 1)
 }
 
 @Test

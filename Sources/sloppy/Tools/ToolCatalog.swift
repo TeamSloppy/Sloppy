@@ -298,9 +298,9 @@ enum ToolCatalog {
             "properties": .object([
                 "schedule": .object(["type": .string("string")]),
                 "command": .object(["type": .string("string")]),
-                "channel_id": .object(["type": .string("string")]),
-                "action": .object(["type": .string("string")])
-            ])
+                "channel_id": .object(["type": .string("string")])
+            ]),
+            "required": .array([.string("schedule"), .string("command")])
         ]),
         "project.task_list": .object(["type": .string("object")]),
         "project.task_create": .object([

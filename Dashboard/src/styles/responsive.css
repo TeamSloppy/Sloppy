@@ -9,8 +9,9 @@
   }
 
   .onboarding-panel {
-    min-height: auto;
-    order: 2;
+    height: auto;
+    min-height: 100vh;
+    overflow-y: visible;
     padding: 26px 18px 24px;
   }
 
@@ -19,15 +20,7 @@
   }
 
   .onboarding-visual {
-    min-height: 42vh;
-    order: 1;
-  }
-
-  .onboarding-project-plaque {
-    left: 18px;
-    right: 18px;
-    bottom: 18px;
-    width: auto;
+    display: none;
   }
 
   .onboarding-provider-grid {

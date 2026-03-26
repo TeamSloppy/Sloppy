@@ -189,6 +189,7 @@ enum ErrorCode {
     static let projectDeleteFailed = "project_delete_failed"
     static let projectListFailed = "project_list_failed"
     static let projectReadFailed = "project_read_failed"
+    static let projectMemoryReadFailed = "project_memory_read_failed"
     static let invalidPluginId = "invalid_plugin_id"
     static let invalidPluginPayload = "invalid_plugin_payload"
     static let pluginNotFound = "plugin_not_found"

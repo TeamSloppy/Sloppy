@@ -699,6 +699,44 @@ public struct AgentMemoryGraphResponse: Codable, Sendable, Equatable {
     }
 }
 
+public struct ProjectMemoryListResponse: Codable, Sendable, Equatable {
+    public var projectId: String
+    public var items: [AgentMemoryItem]
+    public var total: Int
+    public var limit: Int
+    public var offset: Int
+
+    public init(projectId: String, items: [AgentMemoryItem], total: Int, limit: Int, offset: Int) {
+        self.projectId = projectId
+        self.items = items
+        self.total = total
+        self.limit = limit
+        self.offset = offset
+    }
+}
+
+public struct ProjectMemoryGraphResponse: Codable, Sendable, Equatable {
+    public var projectId: String
+    public var nodes: [AgentMemoryItem]
+    public var edges: [AgentMemoryEdgeRecord]
+    public var seedIds: [String]
+    public var truncated: Bool
+
+    public init(
+        projectId: String,
+        nodes: [AgentMemoryItem],
+        edges: [AgentMemoryEdgeRecord],
+        seedIds: [String],
+        truncated: Bool
+    ) {
+        self.projectId = projectId
+        self.nodes = nodes
+        self.edges = edges
+        self.seedIds = seedIds
+        self.truncated = truncated
+    }
+}
+
 public struct AgentMemoryUpdateRequest: Codable, Sendable, Equatable {
     public var note: String?
     public var summary: String?

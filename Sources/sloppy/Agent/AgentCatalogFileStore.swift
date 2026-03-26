@@ -239,14 +239,11 @@ final class AgentCatalogFileStore {
             )
 
             let agentDirectory = agentDirectoryURL(for: normalizedAgentID, isSystem: summary.isSystem)
-            try writeTextFile(contents: normalizedDocuments.agentsMarkdown, at: agentDirectory.appendingPathComponent("Agents.md"))
-            try writeTextFile(contents: normalizedDocuments.userMarkdown, at: agentDirectory.appendingPathComponent("User.md"))
-            try writeTextFile(contents: normalizedDocuments.soulMarkdown, at: agentDirectory.appendingPathComponent("Soul.md"))
-            try writeTextFile(contents: normalizedDocuments.identityMarkdown, at: agentDirectory.appendingPathComponent("Identity.md"))
+            try writeTextFile(contents: normalizedDocuments.agentsMarkdown, at: agentDirectory.appendingPathComponent("AGENTS.md"))
+            try writeTextFile(contents: normalizedDocuments.userMarkdown, at: agentDirectory.appendingPathComponent("USER.md"))
+            try writeTextFile(contents: normalizedDocuments.soulMarkdown, at: agentDirectory.appendingPathComponent("SOUL.md"))
+            try writeTextFile(contents: normalizedDocuments.identityMarkdown, at: agentDirectory.appendingPathComponent("IDENTITY.md"))
             try writeTextFile(contents: normalizedDocuments.heartbeatMarkdown, at: agentDirectory.appendingPathComponent("HEARTBEAT.md"))
-
-            let legacyIdentity = normalizedIdentityValue(from: normalizedDocuments.identityMarkdown, fallback: summary.id)
-            try writeTextFile(contents: legacyIdentity + "\n", at: agentDirectory.appendingPathComponent("Identity.id"))
         } catch {
             throw StoreError.storageFailure
         }
@@ -270,18 +267,12 @@ final class AgentCatalogFileStore {
 
         let summary = try getAgent(id: normalizedID)
         let agentDirectory = agentDirectoryURL(for: normalizedID, isSystem: summary.isSystem)
-        let userMarkdown = try readTextFile(at: agentDirectory.appendingPathComponent("User.md"), fallback: "# User\n")
-        let agentsMarkdown = try readTextFile(at: agentDirectory.appendingPathComponent("Agents.md"), fallback: "# Agent\n")
-        let soulMarkdown = try readTextFile(at: agentDirectory.appendingPathComponent("Soul.md"), fallback: "# Soul\n")
+        let userMarkdown = try readTextFile(at: agentDirectory.appendingPathComponent("USER.md"), fallback: "# User\n")
+        let agentsMarkdown = try readTextFile(at: agentDirectory.appendingPathComponent("AGENTS.md"), fallback: "# Agent\n")
+        let soulMarkdown = try readTextFile(at: agentDirectory.appendingPathComponent("SOUL.md"), fallback: "# Soul\n")
         let heartbeatMarkdown = try readHeartbeatFile(agentID: normalizedID, isSystem: summary.isSystem)
 
-        let identityMarkdownPath = agentDirectory.appendingPathComponent("Identity.md")
-        let identityLegacyPath = agentDirectory.appendingPathComponent("Identity.id")
-        let identityMarkdown = try readIdentityMarkdown(
-            markdownURL: identityMarkdownPath,
-            legacyURL: identityLegacyPath,
-            fallback: normalizedID
-        )
+        let identityMarkdown = try readTextFile(at: agentDirectory.appendingPathComponent("IDENTITY.md"), fallback: normalizedID)
 
         return AgentDocumentBundle(
             userMarkdown: userMarkdown,
@@ -367,7 +358,7 @@ final class AgentCatalogFileStore {
             """
         try writeTextFile(
             contents: agentsMarkdown + "\n",
-            at: agentDirectory.appendingPathComponent("Agents.md")
+            at: agentDirectory.appendingPathComponent("AGENTS.md")
         )
 
         let userMarkdown =
@@ -380,7 +371,7 @@ final class AgentCatalogFileStore {
             """
         try writeTextFile(
             contents: userMarkdown + "\n",
-            at: agentDirectory.appendingPathComponent("User.md")
+            at: agentDirectory.appendingPathComponent("USER.md")
         )
 
         let soulMarkdown =
@@ -394,16 +385,12 @@ final class AgentCatalogFileStore {
             """
         try writeTextFile(
             contents: soulMarkdown + "\n",
-            at: agentDirectory.appendingPathComponent("Soul.md")
+            at: agentDirectory.appendingPathComponent("SOUL.md")
         )
 
         try writeTextFile(
             contents: summary.id + "\n",
-            at: agentDirectory.appendingPathComponent("Identity.id")
-        )
-        try writeTextFile(
-            contents: "# Identity\n\(summary.id)\n",
-            at: agentDirectory.appendingPathComponent("Identity.md")
+            at: agentDirectory.appendingPathComponent("IDENTITY.md")
         )
         try writeTextFile(
             contents: "",
