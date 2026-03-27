@@ -38,7 +38,7 @@
   }
   100% {
     opacity: 1;
-    transform: translateY(0) skewX(0deg);
+    transform: none;
   }
 }
 

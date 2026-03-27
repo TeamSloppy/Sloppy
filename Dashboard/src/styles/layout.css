@@ -261,7 +261,7 @@ html.icons-ready .material-symbols-rounded {
   display: flex;
   flex-direction: column;
   background: var(--surface);
-  animation: motion-hard-cut var(--motion-duration-normal) var(--motion-ease-brutalist) both;
+  animation: motion-hard-cut var(--motion-duration-normal) var(--motion-ease-brutalist) backwards;
 }
 
 .update-banner {
