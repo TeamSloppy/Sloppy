@@ -14,3 +14,8 @@ site/
 .env
 .sloppy/
 .sloppy_stable/
+
+# Tuist
+Derived/
+*.xcodeproj
+*.xcworkspace

@@ -49,6 +49,7 @@ struct ToolContext: @unchecked Sendable {
     let logger: Logger
     let projectService: (any ProjectToolService)?
     let configService: (any RuntimeConfigToolService)?
+    let skillsService: (any SkillsToolService)?
 }
 
 // MARK: - ProjectToolService
@@ -68,6 +69,13 @@ protocol ProjectToolService: Sendable {
 protocol RuntimeConfigToolService: Sendable {
     func runtimeConfig() async -> CoreConfig
     func updateRuntimeConfig(_ config: CoreConfig) async throws -> CoreConfig
+}
+
+protocol SkillsToolService: Sendable {
+    func fetchSkillsRegistry(search: String?, sort: String, limit: Int, offset: Int) async throws -> SkillsRegistryResponse
+    func listAgentSkills(agentID: String) async throws -> AgentSkillsResponse
+    func installAgentSkill(agentID: String, request: SkillInstallRequest) async throws -> InstalledSkill
+    func uninstallAgentSkill(agentID: String, skillID: String) async throws
 }
 
 // MARK: - Result helpers

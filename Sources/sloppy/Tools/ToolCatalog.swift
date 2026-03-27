@@ -374,6 +374,30 @@ enum ToolCatalog {
                 "summary": .object(["type": .string("string")])
             ]),
             "required": .array([.string("discussionId")])
+        ]),
+        "skills.search": .object([
+            "type": .string("object"),
+            "properties": .object([
+                "query": .object(["type": .string("string")]),
+                "sort": .object(["type": .string("string")]),
+                "limit": .object(["type": .string("number")])
+            ])
+        ]),
+        "skills.list": .object(["type": .string("object")]),
+        "skills.install": .object([
+            "type": .string("object"),
+            "properties": .object([
+                "owner": .object(["type": .string("string")]),
+                "repo": .object(["type": .string("string")])
+            ]),
+            "required": .array([.string("owner"), .string("repo")])
+        ]),
+        "skills.uninstall": .object([
+            "type": .string("object"),
+            "properties": .object([
+                "skillId": .object(["type": .string("string")])
+            ]),
+            "required": .array([.string("skillId")])
         ])
     ]
 }
