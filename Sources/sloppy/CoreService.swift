@@ -2036,6 +2036,8 @@ public actor CoreService {
                 agent: agentValue
             )
 
+            await sessionOrchestrator.notifySkillsChanged(agentID: normalizedAgentID)
+
             return installedSkill
         } catch let error as AgentSkillsFileStore.StoreError {
             throw mapAgentSkillsError(error)
@@ -2060,6 +2062,8 @@ public actor CoreService {
         } catch {
             throw AgentSkillsError.storageFailure
         }
+
+        await sessionOrchestrator.notifySkillsChanged(agentID: normalizedAgentID)
     }
 
     /// Get agent skills for runtime use

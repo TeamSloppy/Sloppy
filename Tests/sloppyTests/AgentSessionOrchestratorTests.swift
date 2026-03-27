@@ -466,3 +466,108 @@ func agentSessionBootstrapFallsBackWhenPromptComposerFails() async throws {
             == expected.trimmingCharacters(in: .newlines)
     )
 }
+
+@Test
+func agentSessionBootstrapIncludesSkillsRulesPartial() async throws {
+    let availableModels = [
+        ProviderModelOption(id: "openai:gpt-4.1-mini", title: "openai:gpt-4.1-mini", capabilities: ["tools"])
+    ]
+    let (catalogStore, sessionStore, _) = try makeAgentSessionFixture(
+        agentID: "skills-rules-agent",
+        selectedModel: "openai:gpt-4.1-mini",
+        availableModels: availableModels
+    )
+
+    let runtime = RuntimeSystem()
+    let orchestrator = AgentSessionOrchestrator(
+        runtime: runtime,
+        sessionStore: sessionStore,
+        agentCatalogStore: catalogStore,
+        availableModels: availableModels
+    )
+
+    let session = try await orchestrator.createSession(agentID: "skills-rules-agent", request: AgentSessionCreateRequest())
+    let snapshot = await runtime.channelState(channelId: "agent:skills-rules-agent:session:\(session.id)")
+    let bootstrapMessage = snapshot?.messages.first(where: {
+        $0.userId == "system" && $0.content.contains("[agent_session_context_bootstrap_v1]")
+    })?.content ?? ""
+
+    #expect(bootstrapMessage.contains("[Skills rules]"))
+    #expect(bootstrapMessage.contains("files.read"))
+    #expect(bootstrapMessage.contains("SKILL.md"))
+}
+
+@Test
+func notifySkillsChangedAppendsSystemMessageToActiveSessions() async throws {
+    let availableModels = [
+        ProviderModelOption(id: "openai:gpt-4.1-mini", title: "openai:gpt-4.1-mini", capabilities: ["tools"])
+    ]
+    let (catalogStore, sessionStore, agentsRootURL) = try makeAgentSessionFixture(
+        agentID: "notify-skills-agent",
+        selectedModel: "openai:gpt-4.1-mini",
+        availableModels: availableModels
+    )
+
+    let runtime = RuntimeSystem()
+    let orchestrator = AgentSessionOrchestrator(
+        runtime: runtime,
+        sessionStore: sessionStore,
+        agentCatalogStore: catalogStore,
+        agentSkillsStore: AgentSkillsFileStore(agentsRootURL: agentsRootURL),
+        availableModels: availableModels
+    )
+
+    let session = try await orchestrator.createSession(agentID: "notify-skills-agent", request: AgentSessionCreateRequest())
+    let channelID = "agent:notify-skills-agent:session:\(session.id)"
+    let messageCountBefore = await runtime.channelState(channelId: channelID)?.messages.count ?? 0
+
+    // Install the skill via a separate store instance (same filesystem root) to simulate mid-session install
+    let installStore = AgentSkillsFileStore(agentsRootURL: agentsRootURL)
+    _ = try installStore.installSkill(
+        agentID: "notify-skills-agent",
+        owner: "acme",
+        repo: "test-skill",
+        name: "test-skill",
+        description: "A test skill"
+    )
+
+    await orchestrator.notifySkillsChanged(agentID: "notify-skills-agent")
+
+    let messages = await runtime.channelState(channelId: channelID)?.messages ?? []
+    #expect(messages.count > messageCountBefore)
+
+    let skillsUpdateMessage = messages.last(where: {
+        $0.userId == "system" && $0.content.contains("[Skills updated]")
+    })
+    #expect(skillsUpdateMessage != nil)
+    #expect(skillsUpdateMessage?.content.contains("`acme/test-skill`") == true)
+    #expect(skillsUpdateMessage?.content.contains("test-skill") == true)
+}
+
+@Test
+func notifySkillsChangedDoesNothingForNonBootstrappedSessions() async throws {
+    let availableModels = [
+        ProviderModelOption(id: "openai:gpt-4.1-mini", title: "openai:gpt-4.1-mini", capabilities: ["tools"])
+    ]
+    let (catalogStore, sessionStore, agentsRootURL) = try makeAgentSessionFixture(
+        agentID: "notify-no-bootstrap-agent",
+        selectedModel: "openai:gpt-4.1-mini",
+        availableModels: availableModels
+    )
+
+    let runtime = RuntimeSystem()
+    let orchestrator = AgentSessionOrchestrator(
+        runtime: runtime,
+        sessionStore: sessionStore,
+        agentCatalogStore: catalogStore,
+        agentSkillsStore: AgentSkillsFileStore(agentsRootURL: agentsRootURL),
+        availableModels: availableModels
+    )
+
+    // No session created — notifySkillsChanged should be a no-op (no bootstrapped channels)
+    await orchestrator.notifySkillsChanged(agentID: "notify-no-bootstrap-agent")
+
+    let channelID = "agent:notify-no-bootstrap-agent:session:nonexistent-session"
+    let snapshot = await runtime.channelState(channelId: channelID)
+    #expect(snapshot == nil)
+}

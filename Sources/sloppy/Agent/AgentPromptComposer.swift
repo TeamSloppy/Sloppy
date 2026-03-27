@@ -35,6 +35,7 @@ struct AgentPromptComposer {
         let branchingRules = try templateLoader.loadPartial(named: "branching_rules")
         let workerRules = try templateLoader.loadPartial(named: "worker_rules")
         let toolsInstruction = try templateLoader.loadPartial(named: "tools_instruction")
+        let skillsRules = try templateLoader.loadPartial(named: "skills_rules")
         let memoryRules = try templateLoader.loadPartial(named: "memory_rules")
         let skillsEntries = buildSkillsEntries(skills: context.installedSkills)
 
@@ -80,11 +81,13 @@ struct AgentPromptComposer {
             ""
             toolsInstruction
             ""
+            skillsRules
+            ""
             memoryRules
         }
     }
 
-    private func buildSkillsEntries(skills: [InstalledSkill]) -> String {
+    func buildSkillsEntries(skills: [InstalledSkill]) -> String {
         skills
             .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
             .map { skill in
