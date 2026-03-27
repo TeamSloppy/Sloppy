@@ -18,6 +18,7 @@ final class ToolExecutionService: @unchecked Sendable {
     private let registry: ToolRegistry
     var projectService: (any ProjectToolService)?
     var configService: (any RuntimeConfigToolService)?
+    var skillsService: (any SkillsToolService)?
 
     init(
         workspaceRootURL: URL,
@@ -107,7 +108,8 @@ final class ToolExecutionService: @unchecked Sendable {
             mcpRegistry: mcpRegistry,
             logger: logger,
             projectService: projectService,
-            configService: configService
+            configService: configService,
+            skillsService: skillsService
         )
     }
 }

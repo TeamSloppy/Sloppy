@@ -1107,14 +1107,23 @@ function AgentChatEvents({
               .filter((segment) => segment.kind === "thinking");
             const visibleSegments = segments.filter((segment) => segment.kind !== "thinking");
             const messageText = segmentsToPlainText(visibleSegments);
+            const isWaitingForStream = Boolean(timelineItem.isWaitingForStream);
+            const isStreaming = Boolean(timelineItem.isStreaming);
 
             return (
-              <article key={eventKey} className={`agent-chat-message ${role}`} data-testid={`agent-chat-message-${role}-${index}`}>
+              <article key={eventKey} className={`agent-chat-message ${role}${isStreaming ? " streaming" : ""}`} data-testid={`agent-chat-message-${role}-${index}`}>
                 <div className="agent-chat-message-head">
                   <strong>{role}</strong>
                   <span>{formatEventTime(eventItem?.message?.createdAt || eventItem?.createdAt)}</span>
                 </div>
                 <div className="agent-chat-message-body">
+                  {isWaitingForStream ? (
+                    <div className="agent-chat-stream-indicator">
+                      <span className="agent-chat-stream-dot" />
+                      <span className="agent-chat-stream-dot" />
+                      <span className="agent-chat-stream-dot" />
+                    </div>
+                  ) : null}
                   {thinkingSegments.map((segment) => {
                     const thoughtId = `${eventKey}-thinking-${segment.segmentIndex}`;
                     const thoughtText = String(segment.text || "").trim();
@@ -2730,11 +2739,14 @@ export function AgentChatTab({ agentId }) {
     : "";
   const normalizedStreamedAssistantText = String(streamedAssistantText || "").trim();
   const hasDuplicatedPersistedAssistant =
+    !isSending &&
     normalizedStreamedAssistantText.length > 0 &&
     normalizedStreamedAssistantText === String(latestPersistedAssistantText || "").trim();
+  const isRespondingPhase =
+    isSending || latestRunStatus?.stage === "responding";
   const shouldRenderStreamMessage =
-    (isSending || latestRunStatus?.stage === "responding") &&
-    normalizedStreamedAssistantText.length > 0 &&
+    isRespondingPhase &&
+    (normalizedStreamedAssistantText.length > 0 || isSending) &&
     !hasDuplicatedPersistedAssistant;
   const timelineItems = [];
   for (let index = 0; index < events.length; index += 1) {
@@ -2772,9 +2784,12 @@ export function AgentChatTab({ agentId }) {
   }
 
   if (shouldRenderStreamMessage) {
+    const hasStreamText = normalizedStreamedAssistantText.length > 0;
     timelineItems.push({
       id: "local-assistant-stream",
       kind: "message",
+      isStreaming: true,
+      isWaitingForStream: !hasStreamText,
       event: {
         id: "local-assistant-stream",
         createdAt: new Date().toISOString(),
@@ -2782,12 +2797,9 @@ export function AgentChatTab({ agentId }) {
         message: {
           role: "assistant",
           createdAt: new Date().toISOString(),
-          segments: [
-            {
-              kind: "text",
-              text: streamedAssistantText || "Thinking..."
-            }
-          ]
+          segments: hasStreamText
+            ? [{ kind: "text", text: streamedAssistantText }]
+            : []
         }
       }
     });

@@ -102,6 +102,10 @@ struct ToolRegistry: Sendable {
             ProjectEscalateTool(),
             ActorDiscussTool(),
             ActorConcludeDiscussionTool(),
+            SkillsSearchTool(),
+            SkillsListTool(),
+            SkillsInstallTool(),
+            SkillsUninstallTool(),
         ])
     }
 }

@@ -3299,6 +3299,7 @@ public actor CoreService {
     private func configureToolExecutionServices() {
         toolExecution.projectService = self
         toolExecution.configService = self
+        toolExecution.skillsService = self
     }
 
     private func startBuiltInPlugin(
@@ -7404,3 +7405,5 @@ extension CoreService: RuntimeConfigToolService {
         try await updateConfig(config)
     }
 }
+
+extension CoreService: SkillsToolService {}
