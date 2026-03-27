@@ -1017,6 +1017,100 @@ actor AgentSessionOrchestrator {
         }
     }
 
+    func notifySkillsChanged(agentID: String) async {
+        let skills = loadInstalledSkills(agentID: agentID)
+        let skillsSection: String
+        if skills.isEmpty {
+            skillsSection = "[Skills updated]\n(no skills installed)"
+        } else {
+            let entries = promptComposer.buildSkillsEntries(skills: skills)
+            skillsSection = "[Skills updated]\n\(entries)"
+        }
+
+        let sessions: [AgentSessionSummary]
+        do {
+            sessions = try sessionStore.listSessions(agentID: agentID)
+        } catch {
+            logger.warning(
+                "Failed to list sessions for skills change notification",
+                metadata: [
+                    "agent_id": .string(agentID),
+                    "error": .string(String(describing: error))
+                ]
+            )
+            return
+        }
+
+        for session in sessions {
+            let channelID = sessionChannelID(agentID: agentID, sessionID: session.id)
+            guard let snapshot = await runtime.channelState(channelId: channelID),
+                  snapshot.messages.contains(where: {
+                      $0.userId == "system" && $0.content.contains(Self.sessionContextBootstrapMarker)
+                  })
+            else {
+                continue
+            }
+
+            await runtime.appendSystemMessage(channelId: channelID, content: skillsSection)
+
+            if let currentBootstrap = snapshot.messages.first(where: {
+                $0.userId == "system" && $0.content.contains(Self.sessionContextBootstrapMarker)
+            })?.content {
+                let updatedBootstrap = replaceSkillsSection(in: currentBootstrap, with: skills)
+                await runtime.setChannelBootstrap(channelId: channelID, content: updatedBootstrap)
+            }
+
+            logger.info(
+                "Skills change notification sent to session",
+                metadata: [
+                    "agent_id": .string(agentID),
+                    "session_id": .string(session.id),
+                    "skills_count": .stringConvertible(skills.count)
+                ]
+            )
+        }
+    }
+
+    private func replaceSkillsSection(in bootstrap: String, with skills: [InstalledSkill]) -> String {
+        let skillsMarker = "[Skills]"
+        let nextSectionMarkers = ["[Runtime capabilities]", "[Runtime task-reference rules]", "[Branching rules]", "[Worker rules]", "[Tools usage rules]", "[Skills rules]", "[Memory rules]"]
+
+        if skills.isEmpty {
+            if let markerRange = bootstrap.range(of: skillsMarker) {
+                var endRange = markerRange.upperBound
+                for marker in nextSectionMarkers {
+                    if let nextRange = bootstrap.range(of: marker, range: markerRange.upperBound..<bootstrap.endIndex) {
+                        if nextRange.lowerBound < endRange || endRange == markerRange.upperBound {
+                            endRange = nextRange.lowerBound
+                        }
+                    }
+                }
+                var result = bootstrap
+                result.removeSubrange(markerRange.lowerBound..<endRange)
+                return result
+            }
+            return bootstrap
+        }
+
+        let newSkillsBlock = "\(skillsMarker)\n\(promptComposer.buildSkillsEntries(skills: skills))\n"
+
+        if let markerRange = bootstrap.range(of: skillsMarker) {
+            var endRange = markerRange.upperBound
+            for marker in nextSectionMarkers {
+                if let nextRange = bootstrap.range(of: marker, range: markerRange.upperBound..<bootstrap.endIndex) {
+                    if nextRange.lowerBound < endRange || endRange == markerRange.upperBound {
+                        endRange = nextRange.lowerBound
+                    }
+                }
+            }
+            var result = bootstrap
+            result.replaceSubrange(markerRange.lowerBound..<endRange, with: newSkillsBlock + "\n")
+            return result
+        }
+
+        return bootstrap + "\n" + newSkillsBlock
+    }
+
     private func loadInstalledSkills(agentID: String) -> [InstalledSkill] {
         guard let agentSkillsStore else {
             return []

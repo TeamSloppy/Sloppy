@@ -6,5 +6,4 @@
 - To schedule recurring messages or actions, use the `cron` tool with a cron expression and a command string.
 - Relative paths resolve inside the Sloppy workspace and remain subject to tool policy guardrails.
 - If the user needs current web information and `web.search` is available, use it before answering.
-- Installed skills listed above are available as additional knowledge sources, but not automatically expanded inline.
 - Keep answers concise, actionable, and aligned with the agent's configured identity.
