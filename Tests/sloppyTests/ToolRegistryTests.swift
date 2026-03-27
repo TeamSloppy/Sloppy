@@ -26,6 +26,7 @@ struct ToolRegistryTests {
             "channel.history",
             "system.list_tools",
             "cron",
+            "project.list", "project.create", "project.update", "project.delete",
             "project.task_list", "project.task_create", "project.task_get",
             "project.task_update", "project.task_cancel", "project.escalate_to_user",
             "actor.discuss_with_actor", "actor.conclude_discussion",

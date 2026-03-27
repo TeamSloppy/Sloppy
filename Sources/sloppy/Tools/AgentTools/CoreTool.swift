@@ -64,6 +64,11 @@ protocol ProjectToolService: Sendable {
     func getTask(reference: String) async throws -> AgentTaskRecord
     func deliverMessage(channelId: String, content: String) async
     func actorBoard() async throws -> ActorBoardSnapshot
+
+    func listAllProjects() async -> [ProjectRecord]
+    func createProject(_ request: ProjectCreateRequest) async throws -> ProjectRecord
+    func updateProject(projectID: String, request: ProjectUpdateRequest) async throws -> ProjectRecord
+    func deleteProject(projectID: String) async throws
 }
 
 protocol RuntimeConfigToolService: Sendable {

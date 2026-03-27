@@ -302,6 +302,50 @@ enum ToolCatalog {
             ]),
             "required": .array([.string("schedule"), .string("command")])
         ]),
+        "project.list": .object(["type": .string("object")]),
+        "project.create": .object([
+            "type": .string("object"),
+            "properties": .object([
+                "name": .object(["type": .string("string")]),
+                "description": .object(["type": .string("string")]),
+                "actors": .object([
+                    "type": .string("array"),
+                    "items": .object(["type": .string("string")])
+                ]),
+                "teams": .object([
+                    "type": .string("array"),
+                    "items": .object(["type": .string("string")])
+                ]),
+                "repoUrl": .object(["type": .string("string")])
+            ]),
+            "required": .array([.string("name")])
+        ]),
+        "project.update": .object([
+            "type": .string("object"),
+            "properties": .object([
+                "projectId": .object(["type": .string("string")]),
+                "name": .object(["type": .string("string")]),
+                "description": .object(["type": .string("string")]),
+                "icon": .object(["type": .string("string")]),
+                "actors": .object([
+                    "type": .string("array"),
+                    "items": .object(["type": .string("string")])
+                ]),
+                "teams": .object([
+                    "type": .string("array"),
+                    "items": .object(["type": .string("string")])
+                ]),
+                "repoPath": .object(["type": .string("string")])
+            ]),
+            "required": .array([.string("projectId")])
+        ]),
+        "project.delete": .object([
+            "type": .string("object"),
+            "properties": .object([
+                "projectId": .object(["type": .string("string")])
+            ]),
+            "required": .array([.string("projectId")])
+        ]),
         "project.task_list": .object(["type": .string("object")]),
         "project.task_create": .object([
             "type": .string("object"),
