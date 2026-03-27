@@ -1,6 +1,91 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { fetchAgentToolsCatalog, fetchAgentToolsPolicy, updateAgentToolsPolicy } from "../../../api";
 
+// MARK: - Presets
+
+const PRESETS = [
+  {
+    id: "full",
+    label: "Full",
+    description: "All tools enabled. No restrictions.",
+    defaultPolicy: "allow",
+    tools: {}
+  },
+  {
+    id: "safe",
+    label: "Safe",
+    description: "All tools allowed except execution, cron, destructive project/MCP ops, and skills management.",
+    defaultPolicy: "allow",
+    tools: {
+      "runtime.exec": false,
+      "runtime.process": false,
+      "cron": false,
+      "project.delete": false,
+      "mcp.save_server": false,
+      "mcp.remove_server": false,
+      "mcp.install_server": false,
+      "mcp.uninstall_server": false,
+      "mcp.call_tool": false,
+      "skills.install": false,
+      "skills.uninstall": false
+    }
+  },
+  {
+    id: "read_only",
+    label: "Read Only",
+    description: "Observation only — no writes, no exec, no side-effects.",
+    defaultPolicy: "deny",
+    tools: {
+      "files.read": true,
+      "system.list_tools": true,
+      "agents.list": true,
+      "sessions.list": true,
+      "sessions.history": true,
+      "sessions.status": true,
+      "channel.history": true,
+      "memory.get": true,
+      "memory.search": true,
+      "project.list": true,
+      "project.task_list": true,
+      "project.task_get": true,
+      "web.search": true,
+      "web.fetch": true,
+      "mcp.list_servers": true,
+      "mcp.list_tools": true,
+      "mcp.list_resources": true,
+      "mcp.read_resource": true,
+      "mcp.list_prompts": true,
+      "mcp.get_prompt": true,
+      "skills.search": true,
+      "skills.list": true
+    }
+  },
+  {
+    id: "custom",
+    label: "Custom",
+    description: "Manually configured tool policy.",
+    defaultPolicy: null,
+    tools: null
+  }
+];
+
+function detectPreset(draft) {
+  for (const preset of PRESETS) {
+    if (preset.id === "custom") continue;
+    if (preset.defaultPolicy !== draft.defaultPolicy) continue;
+    const presetTools = preset.tools;
+    const draftTools = draft.tools || {};
+    const presetKeys = Object.keys(presetTools);
+    const draftKeys = Object.keys(draftTools);
+    if (presetKeys.length !== draftKeys.length) continue;
+    const matches = presetKeys.every((key) => presetTools[key] === draftTools[key]);
+    if (matches) return preset.id;
+  }
+  return "custom";
+}
+
+// MARK: - Defaults
+
 function defaultDraft() {
   return {
     version: 1,
@@ -84,9 +169,12 @@ const NUMERIC_GUARDRAILS = [
   }
 ] as const;
 
+// MARK: - Component
+
 export function AgentToolsTab({ agentId }) {
   const [catalog, setCatalog] = useState([]);
   const [draft, setDraft] = useState(defaultDraft);
+  const [savedPolicy, setSavedPolicy] = useState(defaultDraft);
   const [statusText, setStatusText] = useState("Loading tools policy...");
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
@@ -107,15 +195,16 @@ export function AgentToolsTab({ agentId }) {
 
       if (!catalogResponse || !policyResponse) {
         setCatalog([]);
-        setDraft(defaultDraft());
+        const empty = defaultDraft();
+        setDraft(empty);
+        setSavedPolicy(empty);
         setStatusText("Failed to load tools policy.");
         setIsLoading(false);
         return;
       }
 
       const policy = policyResponse as any;
-      setCatalog(Array.isArray(catalogResponse) ? catalogResponse : []);
-      setDraft({
+      const loaded = {
         version: Number(policy.version || 1),
         defaultPolicy: String(policy.defaultPolicy || "allow"),
         tools: typeof policy.tools === "object" && policy.tools ? policy.tools : {},
@@ -123,7 +212,10 @@ export function AgentToolsTab({ agentId }) {
           ...defaultDraft().guardrails,
           ...(policy.guardrails || {})
         }
-      });
+      };
+      setCatalog(Array.isArray(catalogResponse) ? catalogResponse : []);
+      setDraft(loaded);
+      setSavedPolicy(loaded);
       setStatusText("Tools policy loaded.");
       setIsLoading(false);
     }
@@ -151,6 +243,22 @@ export function AgentToolsTab({ agentId }) {
     }
     return Array.from(groups.entries()).sort((left, right) => left[0].localeCompare(right[0]));
   }, [catalog]);
+
+  const hasChanges = useMemo(() => {
+    return JSON.stringify(draft) !== JSON.stringify(savedPolicy);
+  }, [draft, savedPolicy]);
+
+  const activePreset = useMemo(() => detectPreset(draft), [draft]);
+
+  function applyPreset(presetId) {
+    const preset = PRESETS.find((p) => p.id === presetId);
+    if (!preset || preset.id === "custom") return;
+    setDraft((previous) => ({
+      ...previous,
+      defaultPolicy: preset.defaultPolicy,
+      tools: { ...preset.tools }
+    }));
+  }
 
   function updateGuardrail(field, value) {
     setDraft((previous) => ({
@@ -191,11 +299,13 @@ export function AgentToolsTab({ agentId }) {
     }));
   }
 
-  async function savePolicy(event) {
-    event.preventDefault();
-    if (isSaving) {
-      return;
-    }
+  function cancelChanges() {
+    setDraft(savedPolicy);
+    setStatusText("Changes cancelled.");
+  }
+
+  async function savePolicy() {
+    if (isSaving) return;
 
     setIsSaving(true);
     const payload = {
@@ -225,9 +335,12 @@ export function AgentToolsTab({ agentId }) {
       return;
     }
 
+    setSavedPolicy(draft);
     setStatusText("Tools policy saved.");
     setIsSaving(false);
   }
+
+  const activePresetMeta = PRESETS.find((p) => p.id === activePreset);
 
   return (
     <section className="agent-config-shell agent-tools-shell">
@@ -242,22 +355,31 @@ export function AgentToolsTab({ agentId }) {
       {isLoading ? (
         <p className="placeholder-text">Loading...</p>
       ) : (
-        <form className="agent-tools-form" onSubmit={savePolicy}>
+        <>
           <section className="agent-tools-panel">
             <div className="agent-tools-panel-head">
-              <h4>Baseline Policy</h4>
-              <p>Default behavior for tools that are not explicitly overridden.</p>
+              <h4>Policy Preset</h4>
+              <p>Quick configuration template. Selecting a preset rewrites the default policy and tool overrides.</p>
             </div>
             <label className="agent-tools-field">
-              <span>Default Policy</span>
+              <span>Preset</span>
               <select
-                value={draft.defaultPolicy}
-                onChange={(event) => setDraft((previous) => ({ ...previous, defaultPolicy: event.target.value }))}
+                value={activePreset}
+                onChange={(event) => {
+                  const id = event.target.value;
+                  if (id !== "custom") {
+                    applyPreset(id);
+                  }
+                }}
               >
-                <option value="allow">allow</option>
-                <option value="deny">deny</option>
+                {PRESETS.map((preset) => (
+                  <option key={preset.id} value={preset.id}>{preset.label}</option>
+                ))}
               </select>
             </label>
+            {activePresetMeta && (
+              <p className="placeholder-text" style={{ marginTop: 6 }}>{activePresetMeta.description}</p>
+            )}
           </section>
 
           <section className="agent-tools-panel">
@@ -371,12 +493,18 @@ export function AgentToolsTab({ agentId }) {
             </div>
           </section>
 
-          <div className="agent-config-actions agent-tools-actions">
-            <button type="submit" disabled={isSaving}>
-              {isSaving ? "Saving..." : "Save Tools Policy"}
-            </button>
+          <div className={`settings-toast ${hasChanges ? "settings-toast--visible" : ""}`}>
+            <span className="settings-toast-label">Unsaved changes</span>
+            <div className="settings-toast-actions">
+              <button type="button" className="danger hover-levitate" onClick={cancelChanges}>
+                Cancel
+              </button>
+              <button type="button" className="hover-levitate" onClick={savePolicy} disabled={isSaving}>
+                {isSaving ? "Saving..." : "Apply"}
+              </button>
+            </div>
           </div>
-        </form>
+        </>
       )}
     </section>
   );
