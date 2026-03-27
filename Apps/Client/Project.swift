@@ -18,14 +18,7 @@ let deploymentTargets: DeploymentTargets = .multiplatform(
 let project = Project(
     name: "SloppyClient",
     organizationName: "Sloppy",
-    settings: .settings(
-        base: [
-            "SWIFT_STRICT_CONCURRENCY": "complete"
-        ],
-        defaultSettings: .recommended
-    ),
     targets: [
-        // MARK: - Core (no UI dependency)
         .target(
             name: "SloppyClientCore",
             destinations: destinations,
@@ -38,7 +31,6 @@ let project = Project(
             ]
         ),
 
-        // MARK: - UI components
         .target(
             name: "SloppyClientUI",
             destinations: destinations,
@@ -51,7 +43,6 @@ let project = Project(
             ]
         ),
 
-        // MARK: - Features
         .target(
             name: "SloppyFeatureOverview",
             destinations: destinations,
@@ -65,6 +56,7 @@ let project = Project(
                 .external(name: "AdaEngine")
             ]
         ),
+
         .target(
             name: "SloppyFeatureProjects",
             destinations: destinations,
@@ -78,6 +70,7 @@ let project = Project(
                 .external(name: "AdaEngine")
             ]
         ),
+
         .target(
             name: "SloppyFeatureAgents",
             destinations: destinations,
@@ -92,7 +85,6 @@ let project = Project(
             ]
         ),
 
-        // MARK: - App
         .target(
             name: "SloppyClient",
             destinations: destinations,
@@ -115,7 +107,6 @@ let project = Project(
             ]
         ),
 
-        // MARK: - Tests
         .target(
             name: "SloppyClientCoreTests",
             destinations: destinations,
@@ -126,15 +117,6 @@ let project = Project(
             dependencies: [
                 .target(name: "SloppyClientCore")
             ]
-        )
-    ],
-    schemes: [
-        .scheme(
-            name: "SloppyClient",
-            shared: true,
-            buildAction: .buildAction(targets: ["SloppyClient"]),
-            testAction: .targets(["SloppyClientCoreTests"]),
-            runAction: .runAction(configuration: .debug, executable: "SloppyClient")
         )
     ]
 )

@@ -7,7 +7,10 @@ import {
   fetchSearchProviderStatus,
   startOpenAIDeviceCode,
   pollOpenAIDeviceCode,
-  updateRuntimeConfig
+  updateRuntimeConfig,
+  fetchGitHubAuthStatus,
+  connectGitHub,
+  disconnectGitHub
 } from "../../api";
 import { NodeHostEditor } from "./components/NodeHostEditor";
 import { PluginEditor } from "./components/PluginEditor";
@@ -643,6 +646,11 @@ export function ConfigView({ sectionId = "providers", onSectionChange = null }) 
     oauthPlanType: "",
     oauthExpiresAt: ""
   });
+  const [gitHubAuthStatus, setGitHubAuthStatus] = useState({ connected: false, username: null, connectedAt: null });
+  const [gitHubToken, setGitHubToken] = useState("");
+  const [gitHubStatusText, setGitHubStatusText] = useState("");
+  const [gitHubConnecting, setGitHubConnecting] = useState(false);
+
   const [searchProviderStatus, setSearchProviderStatus] = useState({
     activeProvider: "perplexity",
     brave: { hasEnvironmentKey: false, hasConfiguredKey: false, hasAnyKey: false },
@@ -756,6 +764,7 @@ export function ConfigView({ sectionId = "providers", onSectionChange = null }) 
     setProviderModelStatus({});
     await loadOpenAIProviderStatus();
     await loadSearchProviderStatus();
+    await loadGitHubAuthStatus();
   }
 
   async function cancelChanges() {
@@ -788,6 +797,7 @@ export function ConfigView({ sectionId = "providers", onSectionChange = null }) 
       setRawConfig(JSON.stringify(normalized, null, 2));
       await loadOpenAIProviderStatus();
       await loadSearchProviderStatus();
+      await loadGitHubAuthStatus();
       setStatusText("Config saved");
       return true;
     } catch {
@@ -821,6 +831,39 @@ export function ConfigView({ sectionId = "providers", onSectionChange = null }) 
       oauthPlanType: String(payload.oauthPlanType || ""),
       oauthExpiresAt: String(payload.oauthExpiresAt || "")
     });
+  }
+
+  async function loadGitHubAuthStatus() {
+    const response = await fetchGitHubAuthStatus();
+    if (!response) return;
+    const payload = response as any;
+    setGitHubAuthStatus({
+      connected: Boolean(payload.connected),
+      username: payload.username || null,
+      connectedAt: payload.connectedAt || null
+    });
+  }
+
+  async function handleGitHubConnect() {
+    const token = gitHubToken.trim();
+    if (!token) return;
+    setGitHubConnecting(true);
+    setGitHubStatusText("Validating token...");
+    const response = await connectGitHub({ token }) as any;
+    setGitHubConnecting(false);
+    if (response?.ok) {
+      setGitHubStatusText(response.message || "Connected.");
+      setGitHubToken("");
+      await loadGitHubAuthStatus();
+    } else {
+      setGitHubStatusText(response?.message || "Failed to connect GitHub.");
+    }
+  }
+
+  async function handleGitHubDisconnect() {
+    await disconnectGitHub();
+    setGitHubStatusText("Disconnected.");
+    await loadGitHubAuthStatus();
   }
 
   async function loadSearchProviderStatus() {
@@ -1216,37 +1259,92 @@ export function ConfigView({ sectionId = "providers", onSectionChange = null }) 
   function renderSettingsContent() {
     if (selectedSettings === "providers") {
       return (
-        <ProviderEditor
-          providerCatalog={PROVIDER_CATALOG}
-          draftConfig={draftConfig}
-          customModelsCount={customModelsCount}
-          openAIProviderStatus={openAIProviderStatus}
-          providerModalMeta={providerModalMeta}
-          providerForm={providerForm}
-          providerModelStatus={providerModelStatus}
-          providerModelOptions={providerModelOptions}
-          providerModelMenuOpen={providerModelMenuOpen}
-          providerModelMenuRect={providerModelMenuRect}
-          providerModelPickerRef={providerModelPickerRef}
-          providerModelMenuRef={providerModelMenuRef}
-          onOpenProviderModal={openProviderModal}
-          onCloseProviderModal={closeProviderModal}
-          onUpdateProviderForm={updateProviderForm}
-          onOpenOAuth={openOpenAIPlatform}
-          onCancelDeviceCode={cancelConfigDeviceCodePolling}
-          onCopyDeviceCode={copyConfigDeviceCode}
-          onOpenDeviceCodeLoginPage={openConfigDeviceCodeLoginPage}
-          deviceCode={configDeviceCode}
-          deviceCodeCopied={configDeviceCodeCopied}
-          isDeviceCodePolling={configDeviceCodePolling}
-          onRemoveProvider={removeProviderFromModal}
-          onSaveProvider={saveProviderFromModal}
-          onSetProviderModelMenuOpen={setProviderModelMenuOpen}
-          onSetProviderModelMenuRect={setProviderModelMenuRect}
-          getProviderEntry={getProviderEntry}
-          providerIsConfigured={providerIsConfigured}
-          filterProviderModels={filterProviderModels}
-        />
+        <>
+          <ProviderEditor
+            providerCatalog={PROVIDER_CATALOG}
+            draftConfig={draftConfig}
+            customModelsCount={customModelsCount}
+            openAIProviderStatus={openAIProviderStatus}
+            providerModalMeta={providerModalMeta}
+            providerForm={providerForm}
+            providerModelStatus={providerModelStatus}
+            providerModelOptions={providerModelOptions}
+            providerModelMenuOpen={providerModelMenuOpen}
+            providerModelMenuRect={providerModelMenuRect}
+            providerModelPickerRef={providerModelPickerRef}
+            providerModelMenuRef={providerModelMenuRef}
+            onOpenProviderModal={openProviderModal}
+            onCloseProviderModal={closeProviderModal}
+            onUpdateProviderForm={updateProviderForm}
+            onOpenOAuth={openOpenAIPlatform}
+            onCancelDeviceCode={cancelConfigDeviceCodePolling}
+            onCopyDeviceCode={copyConfigDeviceCode}
+            onOpenDeviceCodeLoginPage={openConfigDeviceCodeLoginPage}
+            deviceCode={configDeviceCode}
+            deviceCodeCopied={configDeviceCodeCopied}
+            isDeviceCodePolling={configDeviceCodePolling}
+            onRemoveProvider={removeProviderFromModal}
+            onSaveProvider={saveProviderFromModal}
+            onSetProviderModelMenuOpen={setProviderModelMenuOpen}
+            onSetProviderModelMenuRect={setProviderModelMenuRect}
+            getProviderEntry={getProviderEntry}
+            providerIsConfigured={providerIsConfigured}
+            filterProviderModels={filterProviderModels}
+          />
+          <section className="entry-editor-card providers-intro-card" style={{ marginTop: 0 }}>
+            <h3>GitHub Access</h3>
+            <p className="placeholder-text">
+              Connect a GitHub Personal Access Token to clone private repositories and download private skills.
+              The token is stored locally in the workspace.{" "}
+              <a href="https://github.com/settings/tokens/new?scopes=repo&description=Sloppy" target="_blank" rel="noreferrer">
+                Create a token
+              </a>
+              .
+            </p>
+            {gitHubAuthStatus.connected ? (
+              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                <div className="onboarding-provider-badge" style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <span className="material-symbols-rounded" aria-hidden="true" style={{ color: "var(--color-success, #22c55e)" }}>check_circle</span>
+                  <span>
+                    Connected{gitHubAuthStatus.username ? ` as @${gitHubAuthStatus.username}` : ""}
+                  </span>
+                </div>
+                <div>
+                  <button type="button" className="btn btn-secondary btn-sm" onClick={handleGitHubDisconnect}>
+                    Disconnect
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                <label style={{ marginBottom: 0 }}>
+                  Personal Access Token
+                  <input
+                    type="password"
+                    value={gitHubToken}
+                    onChange={(e) => setGitHubToken(e.target.value)}
+                    placeholder="ghp_..."
+                    autoComplete="off"
+                    onKeyDown={(e) => { if (e.key === "Enter") handleGitHubConnect(); }}
+                  />
+                </label>
+                <div>
+                  <button
+                    type="button"
+                    className="btn btn-primary btn-sm"
+                    onClick={handleGitHubConnect}
+                    disabled={gitHubConnecting || !gitHubToken.trim()}
+                  >
+                    {gitHubConnecting ? "Connecting..." : "Connect"}
+                  </button>
+                </div>
+              </div>
+            )}
+            {gitHubStatusText ? (
+              <p className="placeholder-text" style={{ marginTop: 8, marginBottom: 0 }}>{gitHubStatusText}</p>
+            ) : null}
+          </section>
+        </>
       );
     }
     if (selectedSettings === "plugins") {

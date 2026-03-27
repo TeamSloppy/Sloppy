@@ -282,26 +282,29 @@ export function AgentOverviewTab({ agent, navigateToAgent }: any) {
             <section className="dashboard-section mt-4">
                 <div className="dashboard-section-header">
                     <h3>Costs</h3>
+                    <button className="text-button" onClick={() => navigateToAgent(agent.id, 'memories')}>View sessions &rarr;</button>
                 </div>
                 <div className="costs-card">
                     <div className="cost-metric">
-                        <span className="cost-label">Total Input tokens</span>
+                        <span className="cost-label">Total Prompt tokens</span>
                         <span className="cost-value">{tokenUsage?.inputTokens?.toLocaleString() || '0'}</span>
                     </div>
                     <div className="cost-metric">
-                        <span className="cost-label">Total Output tokens</span>
+                        <span className="cost-label">Total Completion tokens</span>
                         <span className="cost-value">{tokenUsage?.outputTokens?.toLocaleString() || '0'}</span>
                     </div>
                     <div className="cost-metric">
-                        <span className="cost-label">Total Cached tokens</span>
-                        <span className="cost-value">{tokenUsage?.cachedTokens?.toLocaleString() || '0'}</span>
+                        <span className="cost-label">Total tokens</span>
+                        <span className="cost-value">
+                            {((tokenUsage?.inputTokens || 0) + (tokenUsage?.outputTokens || 0)).toLocaleString()}
+                        </span>
                     </div>
                     <div className="cost-metric">
-                        <span className="cost-label">Total cost (Last 30 days)</span>
+                        <span className="cost-label">Cost estimate (Last 30 days)</span>
                         <span className="cost-value">
-                            {tokenUsage?.totalCostUSD !== undefined && tokenUsage?.totalCostUSD !== null
+                            {tokenUsage?.totalCostUSD !== undefined && tokenUsage?.totalCostUSD !== null && tokenUsage.totalCostUSD > 0
                                 ? `$${tokenUsage.totalCostUSD.toFixed(3)}`
-                                : '$0.00'}
+                                : '—'}
                         </span>
                     </div>
                 </div>

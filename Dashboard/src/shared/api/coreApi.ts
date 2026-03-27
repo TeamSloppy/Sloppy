@@ -51,6 +51,9 @@ export interface CoreApi {
   startOpenAIDeviceCode: () => Promise<AnyRecord | null>;
   pollOpenAIDeviceCode: (payload: AnyRecord) => Promise<AnyRecord | null>;
   disconnectOpenAIOAuth: () => Promise<boolean>;
+  fetchGitHubAuthStatus: () => Promise<AnyRecord | null>;
+  connectGitHub: (payload: AnyRecord) => Promise<AnyRecord | null>;
+  disconnectGitHub: () => Promise<boolean>;
   probeProvider: (payload: AnyRecord) => Promise<AnyRecord | null>;
   probeACPTarget: (payload: AnyRecord) => Promise<AnyRecord | null>;
   fetchSearchProviderStatus: () => Promise<AnyRecord | null>;
@@ -377,6 +380,36 @@ export function createCoreApi(): CoreApi {
     disconnectOpenAIOAuth: async () => {
       const response = await requestJson<AnyRecord>({
         path: "/v1/providers/openai/oauth/disconnect",
+        method: "POST"
+      });
+      return response.ok;
+    },
+
+    fetchGitHubAuthStatus: async () => {
+      const response = await requestJson<AnyRecord>({
+        path: "/v1/providers/github/status"
+      });
+      if (!response.ok) {
+        return null;
+      }
+      return response.data;
+    },
+
+    connectGitHub: async (payload) => {
+      const response = await requestJson<AnyRecord, AnyRecord>({
+        path: "/v1/providers/github/connect",
+        method: "POST",
+        body: payload
+      });
+      if (!response.ok) {
+        return null;
+      }
+      return response.data;
+    },
+
+    disconnectGitHub: async () => {
+      const response = await requestJson<AnyRecord>({
+        path: "/v1/providers/github/disconnect",
         method: "POST"
       });
       return response.ok;

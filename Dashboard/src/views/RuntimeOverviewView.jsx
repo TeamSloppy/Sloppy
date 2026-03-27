@@ -341,7 +341,7 @@ function CountersSection({ agents, workers }) {
 
 const BOT_ACTIVITY_LIMIT = 12;
 
-function BotActivitySection({ agents, sessions, onNavigateToBots }) {
+function BotActivitySection({ agents, sessions, onNavigateToBots, onNavigateToAgent }) {
   const agentActivity = useMemo(() => {
     return agents.map((agent) => ({
       ...agent,
@@ -384,7 +384,12 @@ function BotActivitySection({ agents, sessions, onNavigateToBots }) {
           const last = agent.activity[agent.activity.length - 1]?.dateStr;
 
           return (
-            <div key={agent.id} className="agent-chart-card chart-card">
+            <button
+              key={agent.id}
+              type="button"
+              className="agent-chart-card chart-card hover-levitate"
+              onClick={() => onNavigateToAgent && onNavigateToAgent(agent.id)}
+            >
               <div className="chart-header">
                 <div className="agent-chart-title">
                   <span className="channel-agent-avatar agent-chart-avatar">
@@ -411,7 +416,7 @@ function BotActivitySection({ agents, sessions, onNavigateToBots }) {
                   <span>{last}</span>
                 </div>
               </div>
-            </div>
+            </button>
           );
         })}
       </div>
@@ -493,7 +498,7 @@ function ClosedTasksSection({ projects }) {
 
 // ─── Main View ────────────────────────────────────────────────────────────────
 
-export function RuntimeOverviewView({ workers, events, onNavigateToProject, onNavigateToChannelSession, onNavigateToBots }) {
+export function RuntimeOverviewView({ workers, events, onNavigateToProject, onNavigateToChannelSession, onNavigateToBots, onNavigateToAgent }) {
   const [agents, setAgents] = useState([]);
   const [projects, setProjects] = useState([]);
   const [sessions, setSessions] = useState([]);
@@ -580,7 +585,7 @@ export function RuntimeOverviewView({ workers, events, onNavigateToProject, onNa
 
       <CountersSection agents={agents} workers={normalizedWorkers} />
 
-      <BotActivitySection agents={agents} sessions={sessions} onNavigateToBots={onNavigateToBots} />
+      <BotActivitySection agents={agents} sessions={sessions} onNavigateToBots={onNavigateToBots} onNavigateToAgent={onNavigateToAgent} />
 
       <ClosedTasksSection projects={projects} />
     </main>

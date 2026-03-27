@@ -178,6 +178,7 @@ public actor CoreService {
     private var store: any PersistenceStore
     private let openAIProviderCatalog: OpenAIProviderCatalogService
     private let openAIOAuthService: OpenAIOAuthService
+    private let githubAuthService: GitHubAuthService
     private let providerProbeService: ProviderProbeService
     private let searchProviderService: SearchProviderService
     private let agentCatalogStore: AgentCatalogFileStore
@@ -240,8 +241,9 @@ public actor CoreService {
         providerProbeService: ProviderProbeService? = nil,
         builtInGatewayPluginFactory: BuiltInGatewayPluginFactory
     ) {
-        self.openAIOAuthService = OpenAIOAuthService(workspaceRootURL: config
-            .resolvedWorkspaceRootURL(currentDirectory: FileManager.default.currentDirectoryPath))
+        let workspaceRootURL = config.resolvedWorkspaceRootURL(currentDirectory: FileManager.default.currentDirectoryPath)
+        self.openAIOAuthService = OpenAIOAuthService(workspaceRootURL: workspaceRootURL)
+        self.githubAuthService = GitHubAuthService(workspaceRootURL: workspaceRootURL)
         self.mcpRegistry = MCPClientRegistry(
             config: config.mcp,
             logger: Logger(label: "sloppy.mcp")
@@ -320,7 +322,8 @@ public actor CoreService {
         self.channelModelStore = ChannelModelStore(workspaceRootURL: self.workspaceRootURL)
         self.agentSkillsStore = AgentSkillsFileStore(agentsRootURL: self.agentsRootURL)
         self.skillsRegistryService = SkillsRegistryService()
-        self.skillsGitHubClient = SkillsGitHubClient()
+        let githubAuth = self.githubAuthService
+        self.skillsGitHubClient = SkillsGitHubClient(tokenProvider: { githubAuth.currentToken() })
         self.updateChecker = UpdateCheckerService()
         self.swarmPlanner = SwarmPlanner { prompt, maxTokens in
             await runtime.complete(prompt: prompt, maxTokens: maxTokens)
@@ -1750,11 +1753,31 @@ public actor CoreService {
         guard let normalizedID = normalizedAgentID(agentID) else {
             throw AgentStorageError.invalidID
         }
+
+        // Collect all channel IDs that belong to this agent:
+        // 1. Agent chat session channels: agent:{agentId}:session:{sessionId}
+        var channelIDs: Set<String> = []
+        if let sessions = try? listAgentSessions(agentID: normalizedID) {
+            for session in sessions {
+                channelIDs.insert("agent:\(normalizedID):session:\(session.id)")
+            }
+        }
+        // 2. External channels linked via the actor board
+        let board = try? getActorBoard()
+        channelIDs.formUnion(boundChannelIDs(agentID: normalizedID, board: board))
+
+        var totalPrompt = 0
+        var totalCompletion = 0
+        for channelID in channelIDs {
+            let usage = await listTokenUsage(channelId: channelID)
+            totalPrompt += usage.totalPromptTokens
+            totalCompletion += usage.totalCompletionTokens
+        }
+
+        // Try to get cost from CodexBar (reads local provider logs).
         let config = try getAgentConfig(agentID: normalizedID)
-        
-        // Approximate provider from the selected model string
-        let provider: UsageProvider
         let model = (config.selectedModel ?? "").lowercased()
+        let provider: UsageProvider
         if model.contains("claude") {
             provider = .claude
         } else if model.contains("gemini") {
@@ -1764,20 +1787,23 @@ public actor CoreService {
         } else {
             provider = .codex
         }
-        
+
+        var totalCostUSD: Double = 0.0
         let fetcher = CostUsageFetcher()
-        do {
-            let snapshot = try await fetcher.loadTokenSnapshot(provider: provider)
-            return AgentTokenUsageResponse(
-                inputTokens: snapshot.last30DaysTokens ?? 0,
-                outputTokens: 0,
-                cachedTokens: 0,
-                totalCostUSD: snapshot.last30DaysCostUSD ?? 0.0
-            )
-        } catch {
-            // If the provider isn't configured in CodexBar, return zeros instead of failing
-            return AgentTokenUsageResponse(inputTokens: 0, outputTokens: 0, cachedTokens: 0, totalCostUSD: 0.0)
+        if let snapshot = try? await fetcher.loadTokenSnapshot(provider: provider) {
+            totalCostUSD = snapshot.last30DaysCostUSD ?? 0.0
         }
+
+        return AgentTokenUsageResponse(
+            inputTokens: totalPrompt,
+            outputTokens: totalCompletion,
+            cachedTokens: 0,
+            totalCostUSD: totalCostUSD
+        )
+    }
+
+    func persistTokenUsageForTest(channelId: String, usage: TokenUsage) async {
+        await store.persistTokenUsage(channelId: channelId, taskId: nil, usage: usage)
     }
 
     func overrideModelProviderForTests(_ modelProvider: (any ModelProvider)?, defaultModel: String?) async {
@@ -2996,6 +3022,23 @@ public actor CoreService {
 
     public func disconnectOpenAIOAuth() throws {
         try openAIOAuthService.disconnect()
+    }
+
+    public func gitHubAuthStatus() -> GitHubAuthStatusResponse {
+        let status = githubAuthService.status()
+        return GitHubAuthStatusResponse(
+            connected: status.connected,
+            username: status.username,
+            connectedAt: status.connectedAt
+        )
+    }
+
+    public func connectGitHub(request: GitHubConnectRequest) async throws -> GitHubConnectResponse {
+        try await githubAuthService.connect(token: request.token)
+    }
+
+    public func disconnectGitHub() throws {
+        try githubAuthService.disconnect()
     }
 
     /// Returns search provider key availability for configured web search providers.
@@ -6356,6 +6399,8 @@ public actor CoreService {
             return
         }
 
+        let cloneUrl = authorizedCloneURL(for: trimmedUrl)
+
         let projectDir = projectDirectoryURL(projectID: projectID)
         let parentDir = projectDir.deletingLastPathComponent()
 
@@ -6370,8 +6415,11 @@ public actor CoreService {
 
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-        process.arguments = ["git", "clone", "--recurse-submodules", trimmedUrl, projectDir.path]
+        process.arguments = ["git", "clone", "--recurse-submodules", cloneUrl, projectDir.path]
         process.currentDirectoryURL = parentDir
+        var env = ProcessInfo.processInfo.environment
+        env["GIT_TERMINAL_PROMPT"] = "0"
+        process.environment = env
 
         let stderr = Pipe()
         process.standardOutput = Pipe()
@@ -6423,6 +6471,18 @@ public actor CoreService {
             )
         }
 
+    }
+
+    private func authorizedCloneURL(for url: String) -> String {
+        guard url.hasPrefix("https://") || url.hasPrefix("http://"),
+              let token = githubAuthService.currentToken(),
+              var components = URLComponents(string: url)
+        else {
+            return url
+        }
+        components.user = "x-access-token"
+        components.password = token
+        return components.string ?? url
     }
 
     private func availableAgentModels() -> [ProviderModelOption] {

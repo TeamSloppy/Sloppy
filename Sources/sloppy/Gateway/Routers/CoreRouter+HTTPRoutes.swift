@@ -10,6 +10,7 @@ extension CoreRouter {
             ProjectsAPIRouter(service: service),
             TasksAPIRouter(service: service),
             ProvidersAPIRouter(service: service),
+            GitHubAPIRouter(service: service),
             ACPAPIRouter(service: service),
             AgentsAPIRouter(service: service),
             ActorsAPIRouter(service: service),

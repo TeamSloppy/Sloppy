@@ -1997,6 +1997,38 @@ public struct OpenAIDeviceCodePollResponse: Codable, Sendable {
     }
 }
 
+public struct GitHubConnectRequest: Codable, Sendable {
+    public var token: String
+
+    public init(token: String) {
+        self.token = token
+    }
+}
+
+public struct GitHubConnectResponse: Codable, Sendable {
+    public var ok: Bool
+    public var message: String
+    public var username: String?
+
+    public init(ok: Bool, message: String, username: String? = nil) {
+        self.ok = ok
+        self.message = message
+        self.username = username
+    }
+}
+
+public struct GitHubAuthStatusResponse: Codable, Sendable {
+    public var connected: Bool
+    public var username: String?
+    public var connectedAt: String?
+
+    public init(connected: Bool, username: String? = nil, connectedAt: String? = nil) {
+        self.connected = connected
+        self.username = username
+        self.connectedAt = connectedAt
+    }
+}
+
 public struct ProviderProbeResponse: Codable, Sendable {
     public var providerId: ProviderProbeID
     public var ok: Bool

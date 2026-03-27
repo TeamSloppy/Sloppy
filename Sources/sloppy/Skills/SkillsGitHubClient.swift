@@ -18,10 +18,15 @@ actor SkillsGitHubClient {
 
     private let urlSession: URLSession
     private let decoder: JSONDecoder
+    private let tokenProvider: @Sendable () -> String?
 
-    init(urlSession: URLSession = URLSession.shared) {
+    init(urlSession: URLSession = URLSession.shared, tokenProvider: (@Sendable () -> String?)? = nil) {
         self.urlSession = urlSession
         self.decoder = JSONDecoder()
+        self.tokenProvider = tokenProvider ?? {
+            let token = ProcessInfo.processInfo.environment["GITHUB_TOKEN"] ?? ""
+            return token.isEmpty ? nil : token
+        }
     }
 
     // MARK: - Public API
@@ -171,8 +176,7 @@ actor SkillsGitHubClient {
         var request = URLRequest(url: url)
         request.setValue("application/vnd.github.v3+json", forHTTPHeaderField: "Accept")
 
-        // Add GitHub token if available (for higher rate limits)
-        if let token = ProcessInfo.processInfo.environment["GITHUB_TOKEN"] {
+        if let token = tokenProvider() {
             request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         }
 
@@ -264,6 +268,9 @@ actor SkillsGitHubClient {
 
         var request = URLRequest(url: url)
         request.setValue("application/vnd.github.v3.raw", forHTTPHeaderField: "Accept")
+        if let token = tokenProvider() {
+            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        }
 
         do {
             let (data, response) = try await urlSession.data(for: request)

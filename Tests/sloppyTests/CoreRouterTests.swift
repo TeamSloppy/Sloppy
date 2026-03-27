@@ -3019,6 +3019,43 @@ func tokenUsageEndpointFiltersByDateRange() async throws {
     #expect(result.items.isEmpty || result.totalTokens >= 0)
 }
 
+@Test
+func agentTokenUsageEndpointAggregatesSessionChannelData() async throws {
+    let config = CoreConfig.test
+    let service = CoreService(config: config)
+    let router = CoreRouter(service: service)
+
+    let agentId = "token-usage-agent-\(UUID().uuidString.prefix(8))"
+    _ = try await service.createAgent(
+        AgentCreateRequest(id: agentId, displayName: "Token Usage Agent", role: "Test")
+    )
+
+    // Create a session — its channel ID will be agent:{agentId}:session:{sessionId}
+    let session = try await service.createAgentSession(
+        agentID: agentId,
+        request: AgentSessionCreateRequest(title: "Usage session")
+    )
+
+    // Persist token usage directly for the session channel
+    let sessionChannelId = "agent:\(agentId):session:\(session.id)"
+    let usage = TokenUsage(prompt: 200, completion: 80)
+    await service.persistTokenUsageForTest(channelId: sessionChannelId, usage: usage)
+
+    // Agent token usage endpoint should return the aggregated session data
+    let response = await router.handle(
+        method: "GET",
+        path: "/v1/agents/\(agentId)/token-usage",
+        body: nil
+    )
+    #expect(response.status == 200)
+
+    let decoder = JSONDecoder()
+    decoder.dateDecodingStrategy = .iso8601
+    let result = try decoder.decode(AgentTokenUsageResponse.self, from: response.body)
+    #expect(result.inputTokens == 200)
+    #expect(result.outputTokens == 80)
+}
+
 private func extractArtifactID(from message: String) -> String? {
     let pattern = #"artifact\s+([A-Za-z0-9-]+)"#
     guard let regex = try? NSRegularExpression(pattern: pattern) else {

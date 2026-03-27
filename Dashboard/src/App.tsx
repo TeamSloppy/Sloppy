@@ -95,6 +95,10 @@ function DashboardShell({ dependencies }: { dependencies: ReturnType<typeof crea
         setSessionRoute(sessionId);
       }}
       onNavigateToBots={() => setSection("agents")}
+      onNavigateToAgent={(agentId: string) => {
+        setSection("agents");
+        onAgentRouteChange(agentId, "overview");
+      }}
     />
   );
 
