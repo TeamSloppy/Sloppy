@@ -7394,6 +7394,10 @@ extension CoreService: ProjectToolService {
     func actorBoard() async throws -> ActorBoardSnapshot {
         try getActorBoard()
     }
+
+    func listAllProjects() async -> [ProjectRecord] {
+        await listProjects()
+    }
 }
 
 extension CoreService: RuntimeConfigToolService {

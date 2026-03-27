@@ -1,3 +1,11 @@
+@font-face {
+  font-family: "Material Symbols Rounded";
+  font-style: normal;
+  font-weight: 300 700;
+  font-display: block;
+  src: url("/fonts/material-symbols-rounded.woff2") format("woff2");
+}
+
 .material-symbols-rounded {
   font-family: "Material Symbols Rounded";
   font-weight: 400;
@@ -15,6 +23,19 @@
     "wght" 400,
     "GRAD" 0,
     "opsz" 24;
+}
+
+html:not(.icons-ready) .material-symbols-rounded {
+  color: transparent;
+  background: var(--line);
+  border-radius: 3px;
+  width: 1em;
+  height: 1em;
+  overflow: hidden;
+}
+
+html.icons-ready .material-symbols-rounded {
+  background: none;
 }
 
 :where(button, input, textarea, select):focus-visible {
