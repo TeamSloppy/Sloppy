@@ -5,77 +5,77 @@ title: Git & Repositories
 
 # Git & Repositories
 
-Sloppy работает с Git в двух направлениях: **клонирование проектных репозиториев** (код, над которым работают агенты) и **синхронизация workspace** (сохранение конфигурации агентов в удалённый репозиторий). Обе возможности поддерживают приватные репозитории через Personal Access Token (PAT) или SSH.
+Sloppy uses Git in two ways: **cloning project repositories** (code that agents work with) and **syncing your workspace** (backing up agent configuration to a remote repository). Both support private repositories via a Personal Access Token (PAT) or SSH.
 
-## Приватные репозитории
+## Private repositories
 
-По умолчанию Sloppy умеет клонировать только публичные репозитории. Чтобы работать с приватными, нужно подключить GitHub-аккаунт через Personal Access Token.
+By default Sloppy can only clone public repositories. To work with private ones, connect your GitHub account using a Personal Access Token.
 
-### Шаг 1. Создать токен на GitHub
+### Step 1. Create a token on GitHub
 
-1. Откройте [github.com/settings/tokens/new](https://github.com/settings/tokens/new?scopes=repo&description=Sloppy)
-2. В поле **Note** введите `Sloppy`
-3. В разделе **Select scopes** отметьте `repo` — это даёт доступ ко всем приватным репозиториям вашего аккаунта
-4. Нажмите **Generate token** и скопируйте токен (он показывается только один раз)
+1. Open [github.com/settings/tokens/new](https://github.com/settings/tokens/new?scopes=repo&description=Sloppy)
+2. In the **Note** field enter `Sloppy`
+3. Under **Select scopes** check `repo` — this grants access to all private repositories in your account
+4. Click **Generate token** and copy it (it is shown only once)
 
-### Шаг 2. Подключить токен в Dashboard
+### Step 2. Connect the token in the Dashboard
 
-1. Откройте Dashboard → **Settings → Providers**
-2. Прокрутите вниз до раздела **GitHub Access**
-3. Вставьте токен в поле **Personal Access Token** и нажмите **Connect**
+1. Open Dashboard → **Settings → Providers**
+2. Scroll down to the **GitHub Access** section
+3. Paste the token into the **Personal Access Token** field and click **Connect**
 
-Sloppy проверит токен и отобразит имя вашего аккаунта. После этого клонирование приватных репозиториев будет работать автоматически.
+Sloppy validates the token and displays your account name. After that, cloning private repositories works automatically.
 
-### Альтернатива: переменная окружения
+### Alternative: environment variable
 
-Если вы запускаете Sloppy через терминал или Docker, токен можно передать через переменную окружения — без сохранения в Dashboard:
+If you run Sloppy from the terminal or Docker, you can pass the token via an environment variable instead of saving it in the Dashboard:
 
 ```bash
-GITHUB_TOKEN=ghp_ваш_токен swift run sloppy
+GITHUB_TOKEN=ghp_your_token swift run sloppy
 ```
 
-Или в Docker Compose:
+Or in Docker Compose:
 
 ```yaml
 environment:
-  - GITHUB_TOKEN=ghp_ваш_токен
+  - GITHUB_TOKEN=ghp_your_token
 ```
 
-**Приоритет:** токен из Dashboard имеет приоритет над `GITHUB_TOKEN`.
+**Priority:** a token set in the Dashboard takes precedence over `GITHUB_TOKEN`.
 
-### SSH-репозитории
+### SSH repositories
 
-Если вы используете URL в формате `git@github.com:org/repo.git`, Sloppy передаёт его в `git clone` как есть — авторизация происходит через SSH-ключи, настроенные в системе. Sloppy не управляет SSH-ключами самостоятельно.
+If you use a URL in the `git@github.com:org/repo.git` format, Sloppy passes it directly to `git clone` — authentication happens through SSH keys configured on the host system. Sloppy does not manage SSH keys on its own.
 
-Убедитесь, что SSH-агент запущен и ключ добавлен:
+Make sure the SSH agent is running and the key is added:
 
 ```bash
 eval "$(ssh-agent -s)"
 ssh-add ~/.ssh/id_ed25519
-ssh -T git@github.com   # проверка: должно вернуть имя аккаунта
+ssh -T git@github.com   # should return your account name
 ```
 
 ---
 
-## Клонирование репозитория в проект
+## Cloning a repository into a project
 
-При создании проекта вы можете указать URL репозитория. Sloppy клонирует его в директорию проекта — агенты получат доступ к коду и смогут работать с ним через инструменты файловой системы.
+When creating a project you can specify a repository URL. Sloppy clones it into the project directory, giving agents access to the code through filesystem tools.
 
-### Через Dashboard
+### Via the Dashboard
 
-1. Откройте Dashboard → **Projects → New Project**
-2. Выберите источник **Clone from GitHub**
-3. Вставьте URL репозитория (HTTPS или SSH)
-4. Нажмите **Create**
+1. Open Dashboard → **Projects → New Project**
+2. Select **Clone from GitHub** as the source
+3. Paste the repository URL (HTTPS or SSH)
+4. Click **Create**
 
-Клонирование происходит в фоне. Репозиторий появится в директории проекта внутри workspace.
+Cloning runs in the background. The repository appears inside the project directory within the workspace.
 
-### Через API
+### Via the API
 
 ```bash
 curl -X POST http://localhost:25101/v1/projects \
   -H "Content-Type: application/json" \
-  -H "Authorization: Bearer ваш-токен" \
+  -H "Authorization: Bearer your-token" \
   -d '{
     "id": "my-project",
     "name": "My Project",
@@ -83,48 +83,48 @@ curl -X POST http://localhost:25101/v1/projects \
   }'
 ```
 
-### Где хранится код
+### Where the code is stored
 
-Склонированный репозиторий находится здесь:
+The cloned repository lives at:
 
 ```
 .sloppy/projects/{project-id}/
 ```
 
-Путь настраивается через `workspace.basePath` и `workspace.name` в `sloppy.json`.
+The path is controlled by `workspace.basePath` and `workspace.name` in `sloppy.json`.
 
 ---
 
-## Синхронизация workspace с Git
+## Workspace Git Sync
 
-Git Sync сохраняет конфигурацию агентов (инструкции, настройки, политики инструментов) в удалённый репозиторий. Это позволяет:
+Git Sync saves your agent configuration (instructions, settings, tool policies) to a remote repository. This lets you:
 
-- восстановить workspace после сброса
-- переносить конфигурацию между серверами
-- хранить историю изменений в агентах
+- Restore the workspace after a reset
+- Transfer configuration between servers
+- Keep a history of changes to your agents
 
 ::: warning
-Git Sync синхронизирует только **конфигурацию** `.sloppy/` (AGENTS.md, config.json, tools.json и т.д.), но **не** данные памяти (SQLite), не сессии, не склонированный код проектов.
+Git Sync only synchronizes **configuration** inside `.sloppy/` (AGENTS.md, config.json, tools.json, etc.), **not** memory data (SQLite), sessions, or cloned project code.
 :::
 
-### Настройка через Dashboard
+### Setup via the Dashboard
 
-1. Откройте **Settings → Git Sync**
-2. Включите **Enable Sync**
-3. Заполните поля:
+1. Open **Settings → Git Sync**
+2. Enable **Enable Sync**
+3. Fill in the fields:
 
-| Поле | Описание |
+| Field | Description |
 | --- | --- |
-| **Repository** | URL репозитория для синхронизации (HTTPS с токеном или SSH) |
-| **Branch** | Ветка, по умолчанию `main` |
-| **Auth Token** | GitHub PAT с правами `repo` (если репозиторий приватный) |
-| **Schedule** | `manual`, `daily` или `weekdays` |
-| **Sync Time** | Время синхронизации в формате `HH:MM` |
-| **Conflict Strategy** | Что делать при конфликте: `remote_wins`, `local_wins` или `manual` |
+| **Repository** | Repository URL for synchronization (HTTPS with token or SSH) |
+| **Branch** | Target branch, defaults to `main` |
+| **Auth Token** | GitHub PAT with `repo` scope (if the repository is private) |
+| **Schedule** | `manual`, `daily`, or `weekdays` |
+| **Sync Time** | Synchronization time in `HH:MM` format |
+| **Conflict Strategy** | What to do on conflict: `remote_wins`, `local_wins`, or `manual` |
 
-4. Нажмите **Save Config**
+4. Click **Save Config**
 
-### Настройка в `sloppy.json`
+### Configuration in `sloppy.json`
 
 ```json
 {
@@ -132,7 +132,7 @@ Git Sync синхронизирует только **конфигурацию** 
     "enabled": true,
     "repository": "https://github.com/org/sloppy-workspace",
     "branch": "main",
-    "authToken": "ghp_ваш_токен",
+    "authToken": "ghp_your_token",
     "schedule": {
       "frequency": "daily",
       "time": "18:00"
@@ -142,40 +142,40 @@ Git Sync синхронизирует только **конфигурацию** 
 }
 ```
 
-| Параметр | Тип | По умолчанию | Описание |
+| Field | Type | Default | Description |
 | --- | --- | --- | --- |
-| `enabled` | bool | `false` | Включить синхронизацию |
-| `repository` | string | `""` | URL репозитория |
-| `branch` | string | `"main"` | Целевая ветка |
-| `authToken` | string | `""` | GitHub PAT для приватного репозитория |
-| `schedule.frequency` | string | `"daily"` | Расписание: `manual`, `daily`, `weekdays` |
-| `schedule.time` | string | `"18:00"` | Время синхронизации (UTC) |
-| `conflictStrategy` | string | `"remote_wins"` | Стратегия при конфликтах |
+| `enabled` | bool | `false` | Enable synchronization |
+| `repository` | string | `""` | Repository URL |
+| `branch` | string | `"main"` | Target branch |
+| `authToken` | string | `""` | GitHub PAT for private repositories |
+| `schedule.frequency` | string | `"daily"` | Schedule: `manual`, `daily`, `weekdays` |
+| `schedule.time` | string | `"18:00"` | Synchronization time (UTC) |
+| `conflictStrategy` | string | `"remote_wins"` | Conflict resolution strategy |
 
-### Стратегии разрешения конфликтов
+### Conflict resolution strategies
 
-| Значение | Поведение |
+| Value | Behavior |
 | --- | --- |
-| `remote_wins` | Удалённая версия перезаписывает локальную |
-| `local_wins` | Локальная версия перезаписывает удалённую |
-| `manual` | Синхронизация останавливается, конфликт нужно разрешить вручную |
+| `remote_wins` | Remote version overwrites local |
+| `local_wins` | Local version overwrites remote |
+| `manual` | Sync pauses; you resolve the conflict manually |
 
 ---
 
-## Частые вопросы
+## FAQ
 
-**Можно ли использовать несколько GitHub-аккаунтов?**
+**Can I use multiple GitHub accounts?**
 
-Sloppy хранит один токен для доступа к приватным репозиториям. Если нужен доступ к репозиториям из разных аккаунтов — используйте SSH с разными ключами (настраивается через `~/.ssh/config`) или создайте токен от организации, в которой есть доступ ко всем нужным репозиториям.
+Sloppy stores one token for private repository access. If you need access to repositories across different accounts, use SSH with separate keys (configured via `~/.ssh/config`) or create a token from an organization that has access to all required repositories.
 
-**Где хранится токен?**
+**Where is the token stored?**
 
-Токен, введённый через Dashboard, сохраняется в файле `.sloppy/auth/github.json` внутри workspace. Файл доступен только на сервере, где запущен Sloppy.
+A token entered through the Dashboard is saved in `.sloppy/auth/github.json` inside the workspace. The file is only accessible on the server where Sloppy is running.
 
-**Что происходит, если токен истёк?**
+**What happens if the token expires?**
 
-Клонирование приватных репозиториев завершится ошибкой. В логах Sloppy появится `project.clone.failed` с кодом 128. Обновите токен через **Settings → Providers → GitHub Access**.
+Cloning private repositories fails. Sloppy logs show a `project.clone.failed` event with exit code 128. Update the token via **Settings → Providers → GitHub Access**.
 
-**Можно ли использовать Git Sync и GitHub Access с разными аккаунтами?**
+**Can I use Git Sync and GitHub Access with different accounts?**
 
-Да. Git Sync использует токен из поля `authToken` в конфиге `gitSync`, а клонирование проектов — токен из **GitHub Access** (или `GITHUB_TOKEN`). Это независимые настройки.
+Yes. Git Sync uses the token from the `authToken` field in the `gitSync` config, while project cloning uses the token from **GitHub Access** (or `GITHUB_TOKEN`). These are independent settings.

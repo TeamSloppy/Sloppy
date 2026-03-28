@@ -337,6 +337,77 @@
   color: #fbcfe8;
 }
 
+/* ── Archive UI ───────────────────────────────────────────── */
+
+.project-archive-toggle-btn {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 14px;
+  border: 1px dashed var(--line);
+  background: transparent;
+  color: var(--muted);
+  font-size: 0.84rem;
+  cursor: pointer;
+  transition: color var(--motion-duration-fast) ease,
+              border-color var(--motion-duration-fast) ease;
+}
+
+.project-archive-toggle-btn:hover {
+  color: var(--text);
+  border-color: var(--line-strong);
+}
+
+.project-archive-banner {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 0.84rem;
+}
+
+.project-archive-back-btn {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+  padding: 4px 10px;
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--text);
+  font-size: 0.82rem;
+  cursor: pointer;
+  transition: border-color var(--motion-duration-fast) ease;
+}
+
+.project-archive-back-btn:hover {
+  border-color: var(--line-strong);
+}
+
+.project-unarchive-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--muted);
+  font-size: 0.78rem;
+  cursor: pointer;
+  transition: color var(--motion-duration-fast) ease,
+              border-color var(--motion-duration-fast) ease;
+}
+
+.project-unarchive-btn:hover {
+  color: var(--text);
+  border-color: var(--line-strong);
+}
+
 .project-workspace {
   display: grid;
   gap: 10px;

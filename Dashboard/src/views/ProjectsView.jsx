@@ -724,6 +724,10 @@ export function ProjectsView({
   const [addChannelDraft, setAddChannelDraft] = useState({ title: "", channelId: "" });
   const [availableChannels, setAvailableChannels] = useState([]);
   const [isTaskDetailFullscreen, setIsTaskDetailFullscreen] = useState(false);
+  const [showArchived, setShowArchived] = useState(false);
+
+  const activeProjects = useMemo(() => projects.filter((p) => !p.isArchived), [projects]);
+  const archivedProjects = useMemo(() => projects.filter((p) => p.isArchived), [projects]);
 
   const selectedProject = useMemo(() => {
     if (routeProjectId) {
@@ -1102,6 +1106,19 @@ export function ProjectsView({
       onRouteProjectChange(null, null);
     }
     setStatusText(`Project ${project.name} deleted.`);
+  }
+
+  async function archiveProject(projectId, archive) {
+    const updated = await updateProjectRequest(projectId, { isArchived: archive });
+    if (!updated) {
+      setStatusText(`Failed to ${archive ? "archive" : "unarchive"} project.`);
+      return;
+    }
+    replaceProjectInState(updated);
+    if (archive && routeProjectId === projectId) {
+      onRouteProjectChange(null, null, null);
+    }
+    setStatusText(archive ? "Project archived." : "Project unarchived.");
   }
 
   function updateTaskDraft(field, value) {
@@ -1494,6 +1511,7 @@ export function ProjectsView({
           return updated;
         }}
         deleteProject={deleteProject}
+        onArchiveProject={archiveProject}
         openAddChannelModal={openAddChannelModal}
         removeProjectChannel={removeProjectChannel}
         availableActors={createModalActors}
@@ -1544,11 +1562,15 @@ export function ProjectsView({
       )}
 
       {selectedProject ? renderProjectDetails(selectedProject) : <ProjectList
-        projects={projects}
+        projects={showArchived ? archivedProjects : activeProjects}
         isLoadingProjects={isLoadingProjects}
         openProject={openProject}
         openCreateProjectModal={openCreateProjectModal}
         workers={workers}
+        showArchived={showArchived}
+        archivedCount={archivedProjects.length}
+        onToggleArchived={() => setShowArchived((v) => !v)}
+        onUnarchiveProject={(projectId) => archiveProject(projectId, false)}
       />}
 
       {statusText && statusText !== "No projects yet." && statusText !== "Loading projects..." && (

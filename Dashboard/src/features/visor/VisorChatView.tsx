@@ -3,7 +3,6 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { oneDark } from "react-syntax-highlighter/dist/esm/styles/prism";
-import { buildApiURL } from "../../shared/api/httpClient";
 import { fetchVisorReady, postVisorChat } from "../../api";
 
 interface Message {
@@ -41,48 +40,6 @@ function saveMessages(messages: Message[]) {
   }
 }
 
-function parseSSEChunks(
-  buffer: string,
-  flush = false
-): { events: Array<{ event: string; data: string }>; remaining: string } {
-  const events: Array<{ event: string; data: string }> = [];
-  const normalized = buffer.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
-  const lines = normalized.split("\n");
-
-  let event = "message";
-  const dataLines: string[] = [];
-  let lineIndex = 0;
-
-  while (lineIndex < lines.length) {
-    const line = lines[lineIndex];
-    lineIndex += 1;
-
-    if (line === "") {
-      if (dataLines.length > 0) {
-        events.push({ event, data: dataLines.join("\n") });
-      }
-      event = "message";
-      dataLines.length = 0;
-      continue;
-    }
-
-    if (line.startsWith("event:")) {
-      event = line.slice(6).trim();
-    } else if (line.startsWith("data:")) {
-      const value = line.length > 5 && line[5] === " " ? line.slice(6) : line.slice(5);
-      dataLines.push(value);
-    }
-  }
-
-  if (flush && dataLines.length > 0) {
-    events.push({ event, data: dataLines.join("\n") });
-    return { events, remaining: "" };
-  }
-
-  const lastNewline = normalized.lastIndexOf("\n");
-  const remaining = lastNewline >= 0 ? buffer.slice(lastNewline + 1) : buffer;
-  return { events, remaining };
-}
 
 export function VisorChatView() {
   const [messages, setMessages] = useState<Message[]>(() => loadStoredMessages());
@@ -91,7 +48,6 @@ export function VisorChatView() {
   const [isReady, setIsReady] = useState<boolean | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
-  const abortRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
     fetchVisorReady().then((data) => {
@@ -134,101 +90,30 @@ export function VisorChatView() {
 
     setMessages((prev) => [
       ...prev,
-      { id: userMessageId, role: "user", text: question }
+      { id: userMessageId, role: "user", text: question },
+      { id: visorMessageId, role: "visor", text: "", streaming: true }
     ]);
     setInputText("");
 
-    // Reset textarea height
     if (inputRef.current) {
       inputRef.current.style.height = "auto";
     }
 
     setIsSending(true);
 
-    const abort = new AbortController();
-    abortRef.current = abort;
-
     try {
-      const url = buildApiURL(`/v1/visor/chat/stream?question=${encodeURIComponent(question)}`);
-      const response = await fetch(url, {
-        signal: abort.signal,
-        headers: { Accept: "text/event-stream" }
-      });
-
-      if (!response.ok || !response.body) {
-        throw new Error("Stream unavailable");
-      }
-
-      setMessages((prev) => [
-        ...prev,
-        { id: visorMessageId, role: "visor", text: "", streaming: true }
-      ]);
-
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
-      let sseBuffer = "";
-      let accumulated = "";
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) {
-          const { events: finalEvents } = parseSSEChunks(sseBuffer, true);
-          for (const { event, data } of finalEvents) {
-            if (event === "delta" && data) {
-              accumulated += data;
-            }
-          }
-          break;
-        }
-        sseBuffer += decoder.decode(value, { stream: true });
-        const { events, remaining } = parseSSEChunks(sseBuffer);
-        sseBuffer = remaining;
-
-        for (const { event, data } of events) {
-          if (event === "delta" && data) {
-            accumulated += data;
-            const next = accumulated;
-            setMessages((prev) =>
-              prev.map((m) => (m.id === visorMessageId ? { ...m, text: next } : m))
-            );
-          }
-        }
-      }
-
-      if (accumulated) {
-        setMessages((prev) =>
-          prev.map((m) => (m.id === visorMessageId ? { ...m, text: accumulated, streaming: false } : m))
-        );
-      } else {
-        setMessages((prev) =>
-          prev.map((m) => (m.id === visorMessageId ? { ...m, streaming: false } : m))
-        );
-      }
-    } catch (err: unknown) {
-      if (err instanceof Error && err.name === "AbortError") {
-        setMessages((prev) =>
-          prev.map((m) => (m.id === visorMessageId ? { ...m, streaming: false } : m))
-        );
-        return;
-      }
-
-      setMessages((prev) => prev.filter((m) => m.id !== visorMessageId));
-
-      try {
-        const data = await postVisorChat(question);
-        const answer = typeof data?.answer === "string" ? data.answer : "No response.";
-        setMessages((prev) => [
-          ...prev,
-          { id: visorMessageId, role: "visor", text: answer }
-        ]);
-      } catch {
-        setMessages((prev) => [
-          ...prev,
-          { id: visorMessageId, role: "visor", text: "Visor is not available." }
-        ]);
-      }
+      const data = await postVisorChat(question);
+      const answer = typeof data?.answer === "string" ? data.answer : "No response.";
+      setMessages((prev) =>
+        prev.map((m) => (m.id === visorMessageId ? { ...m, text: answer, streaming: false } : m))
+      );
+    } catch {
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === visorMessageId ? { ...m, text: "Visor is not available.", streaming: false } : m
+        )
+      );
     } finally {
-      abortRef.current = null;
       setIsSending(false);
       inputRef.current?.focus();
     }
@@ -239,10 +124,6 @@ export function VisorChatView() {
       event.preventDefault();
       handleSend();
     }
-  }
-
-  function handleStop() {
-    abortRef.current?.abort();
   }
 
   function handleClear() {
@@ -349,23 +230,13 @@ export function VisorChatView() {
               rows={1}
             />
             <div className="agent-chat-compose-right">
-              {isSending ? (
-                <button
-                  type="button"
-                  className="agent-chat-icon-button agent-chat-send-button danger"
-                  onClick={handleStop}
-                >
-                  <span className="material-symbols-rounded" aria-hidden="true">stop</span>
-                </button>
-              ) : (
-                <button
-                  type="submit"
-                  className="agent-chat-icon-button agent-chat-send-button"
-                  disabled={!inputText.trim()}
-                >
-                  <span className="material-symbols-rounded" aria-hidden="true">arrow_upward</span>
-                </button>
-              )}
+              <button
+                type="submit"
+                className="agent-chat-icon-button agent-chat-send-button"
+                disabled={isSending || !inputText.trim()}
+              >
+                <span className="material-symbols-rounded" aria-hidden="true">arrow_upward</span>
+              </button>
             </div>
           </div>
         </form>

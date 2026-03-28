@@ -61,6 +61,7 @@ export function ProjectSettingsTab({
     project,
     onUpdateProject,
     deleteProject,
+    onArchiveProject,
     openAddChannelModal,
     removeProjectChannel,
     availableActors = [],
@@ -157,6 +158,35 @@ export function ProjectSettingsTab({
                                 <span>{draft.icon}</span>
                             </div>
                         )}
+                    </div>
+                </section>
+
+                <section className="entry-editor-card">
+                    <h3>Archive</h3>
+                    <div className="settings-danger-block">
+                        <div className="settings-danger-info">
+                            {project.isArchived ? (
+                                <>
+                                    <strong>Unarchive this project</strong>
+                                    <p>Restore this project to the active projects list.</p>
+                                </>
+                            ) : (
+                                <>
+                                    <strong>Archive this project</strong>
+                                    <p>Hide this project from the main list. You can restore it at any time from the Archived view.</p>
+                                </>
+                            )}
+                        </div>
+                        <button
+                            type="button"
+                            className="hover-levitate"
+                            onClick={() => onArchiveProject(project.id, !project.isArchived)}
+                        >
+                            <span className="material-symbols-rounded" style={{ fontSize: "1rem", verticalAlign: "middle", marginRight: 4 }}>
+                                {project.isArchived ? "unarchive" : "archive"}
+                            </span>
+                            {project.isArchived ? "Unarchive Project" : "Archive Project"}
+                        </button>
                     </div>
                 </section>
 

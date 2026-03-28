@@ -284,8 +284,14 @@ public struct ProjectRecord: Codable, Sendable, Equatable {
     public var heartbeat: ProjectHeartbeatSettings
     public var repoPath: String?
     public var reviewSettings: ProjectReviewSettings
+    public var isArchived: Bool
     public var createdAt: Date
     public var updatedAt: Date
+
+    private enum CodingKeys: String, CodingKey {
+        case id, name, description, icon, channels, tasks, actors, teams, models
+        case agentFiles, heartbeat, repoPath, reviewSettings, isArchived, createdAt, updatedAt
+    }
 
     public init(
         id: String,
@@ -301,6 +307,7 @@ public struct ProjectRecord: Codable, Sendable, Equatable {
         heartbeat: ProjectHeartbeatSettings = ProjectHeartbeatSettings(),
         repoPath: String? = nil,
         reviewSettings: ProjectReviewSettings = ProjectReviewSettings(),
+        isArchived: Bool = false,
         createdAt: Date = Date(),
         updatedAt: Date = Date()
     ) {
@@ -317,8 +324,29 @@ public struct ProjectRecord: Codable, Sendable, Equatable {
         self.heartbeat = heartbeat
         self.repoPath = repoPath
         self.reviewSettings = reviewSettings
+        self.isArchived = isArchived
         self.createdAt = createdAt
         self.updatedAt = updatedAt
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        name = try container.decode(String.self, forKey: .name)
+        description = try container.decode(String.self, forKey: .description)
+        icon = try container.decodeIfPresent(String.self, forKey: .icon)
+        channels = try container.decodeIfPresent([ProjectChannel].self, forKey: .channels) ?? []
+        tasks = try container.decodeIfPresent([ProjectTask].self, forKey: .tasks) ?? []
+        actors = try container.decodeIfPresent([String].self, forKey: .actors) ?? []
+        teams = try container.decodeIfPresent([String].self, forKey: .teams) ?? []
+        models = try container.decodeIfPresent([String].self, forKey: .models) ?? []
+        agentFiles = try container.decodeIfPresent([String].self, forKey: .agentFiles) ?? []
+        heartbeat = try container.decodeIfPresent(ProjectHeartbeatSettings.self, forKey: .heartbeat) ?? ProjectHeartbeatSettings()
+        repoPath = try container.decodeIfPresent(String.self, forKey: .repoPath)
+        reviewSettings = try container.decodeIfPresent(ProjectReviewSettings.self, forKey: .reviewSettings) ?? ProjectReviewSettings()
+        isArchived = try container.decodeIfPresent(Bool.self, forKey: .isArchived) ?? false
+        createdAt = try container.decode(Date.self, forKey: .createdAt)
+        updatedAt = try container.decodeIfPresent(Date.self, forKey: .updatedAt) ?? createdAt
     }
 }
 
@@ -382,6 +410,7 @@ public struct ProjectUpdateRequest: Codable, Sendable {
     public var heartbeat: ProjectHeartbeatSettings?
     public var repoPath: String?
     public var reviewSettings: ProjectReviewSettings?
+    public var isArchived: Bool?
 
     public init(
         name: String? = nil,
@@ -393,7 +422,8 @@ public struct ProjectUpdateRequest: Codable, Sendable {
         agentFiles: [String]? = nil,
         heartbeat: ProjectHeartbeatSettings? = nil,
         repoPath: String? = nil,
-        reviewSettings: ProjectReviewSettings? = nil
+        reviewSettings: ProjectReviewSettings? = nil,
+        isArchived: Bool? = nil
     ) {
         self.name = name
         self.description = description
@@ -405,6 +435,7 @@ public struct ProjectUpdateRequest: Codable, Sendable {
         self.heartbeat = heartbeat
         self.repoPath = repoPath
         self.reviewSettings = reviewSettings
+        self.isArchived = isArchived
     }
 }
 

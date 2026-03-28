@@ -11,6 +11,7 @@ docs/.vitepress/dist/
 site/
 /core.sqlite
 /core.sqlite-*
+/memory/
 .env
 .sloppy/
 .sloppy_stable/

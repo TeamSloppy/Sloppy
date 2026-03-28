@@ -21,7 +21,15 @@ targets:
     sources: Sources/SloppyClient
     dependencies:
       - package: SloppyClient
-        product: SloppyClient
+        product: SloppyClientCore
+      - package: SloppyClient
+        product: SloppyClientUI
+      - package: SloppyClient
+        product: SloppyFeatureOverview
+      - package: SloppyClient
+        product: SloppyFeatureProjects
+      - package: SloppyClient
+        product: SloppyFeatureAgents
     info:
       path: SupportingFiles/macOS/Info.plist
       properties:
@@ -42,6 +50,7 @@ targets:
         DEVELOPMENT_TEAM: 8PYCRS3EA3
         CODE_SIGN_STYLE: Automatic
         PROVISIONING_PROFILE_SPECIFIER: ""
+        PRODUCT_BUNDLE_IDENTIFIER: com.teamsloppy.SloppyClient
 
   SloppyClient-iOS:
     type: application
@@ -50,7 +59,15 @@ targets:
     sources: Sources/SloppyClient
     dependencies:
       - package: SloppyClient
-        product: SloppyClient
+        product: SloppyClientCore
+      - package: SloppyClient
+        product: SloppyClientUI
+      - package: SloppyClient
+        product: SloppyFeatureOverview
+      - package: SloppyClient
+        product: SloppyFeatureProjects
+      - package: SloppyClient
+        product: SloppyFeatureAgents
     info:
       path: SupportingFiles/iOS/Info.plist
       properties:
@@ -74,6 +91,7 @@ targets:
       base:
         DEVELOPMENT_TEAM: 8PYCRS3EA3
         CODE_SIGN_STYLE: Automatic
+        PRODUCT_BUNDLE_IDENTIFIER: com.teamsloppy.SloppyClient.ios
         TARGETED_DEVICE_FAMILY: "1"
 
   SloppyClient-iPadOS:
@@ -83,7 +101,15 @@ targets:
     sources: Sources/SloppyClient
     dependencies:
       - package: SloppyClient
-        product: SloppyClient
+        product: SloppyClientCore
+      - package: SloppyClient
+        product: SloppyClientUI
+      - package: SloppyClient
+        product: SloppyFeatureOverview
+      - package: SloppyClient
+        product: SloppyFeatureProjects
+      - package: SloppyClient
+        product: SloppyFeatureAgents
     info:
       path: SupportingFiles/iOS/Info.plist
       properties:
@@ -112,6 +138,7 @@ targets:
       base:
         DEVELOPMENT_TEAM: 8PYCRS3EA3
         CODE_SIGN_STYLE: Automatic
+        PRODUCT_BUNDLE_IDENTIFIER: com.teamsloppy.SloppyClient.ipados
         TARGETED_DEVICE_FAMILY: "2"
 
   SloppyClient-visionOS:
@@ -121,7 +148,15 @@ targets:
     sources: Sources/SloppyClient
     dependencies:
       - package: SloppyClient
-        product: SloppyClient
+        product: SloppyClientCore
+      - package: SloppyClient
+        product: SloppyClientUI
+      - package: SloppyClient
+        product: SloppyFeatureOverview
+      - package: SloppyClient
+        product: SloppyFeatureProjects
+      - package: SloppyClient
+        product: SloppyFeatureAgents
     info:
       path: SupportingFiles/visionOS/Info.plist
       properties:
@@ -139,3 +174,4 @@ targets:
       base:
         DEVELOPMENT_TEAM: 8PYCRS3EA3
         CODE_SIGN_STYLE: Automatic
+        PRODUCT_BUNDLE_IDENTIFIER: com.teamsloppy.SloppyClient.visionos

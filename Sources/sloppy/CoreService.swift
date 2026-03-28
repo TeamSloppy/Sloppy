@@ -1136,6 +1136,9 @@ public actor CoreService {
         if let nextReviewSettings = request.reviewSettings {
             project.reviewSettings = nextReviewSettings
         }
+        if let nextArchived = request.isArchived {
+            project.isArchived = nextArchived
+        }
 
         project.updatedAt = Date()
         await store.saveProject(project)

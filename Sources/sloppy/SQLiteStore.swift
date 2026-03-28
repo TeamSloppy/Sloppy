@@ -519,7 +519,7 @@ public actor SQLiteStore: PersistenceStore {
             SELECT id, name, description, actors_json, teams_json,
                    models_json, agent_files_json, heartbeat_json,
                    created_at, updated_at, repo_path, review_settings_json,
-                   icon
+                   icon, is_archived
             FROM dashboard_projects
             ORDER BY created_at ASC;
             """
@@ -563,6 +563,7 @@ public actor SQLiteStore: PersistenceStore {
             let reviewSettingsJSON = sqlite3_column_text(statement, 11).map { String(cString: $0) }
             let reviewSettings = reviewSettingsJSON.flatMap { try? JSONDecoder().decode(ProjectReviewSettings.self, from: Data($0.utf8)) } ?? ProjectReviewSettings()
             let icon = optionalText(statement: statement, index: 12)
+            let isArchived = sqlite3_column_int(statement, 13) != 0
             let channels = loadProjectChannels(db: db, projectID: id)
             let tasks = loadProjectTasks(db: db, projectID: id)
             result.append(
@@ -580,6 +581,7 @@ public actor SQLiteStore: PersistenceStore {
                     heartbeat: heartbeat,
                     repoPath: repoPath,
                     reviewSettings: reviewSettings,
+                    isArchived: isArchived,
                     createdAt: createdAt,
                     updatedAt: updatedAt
                 )
@@ -600,7 +602,7 @@ public actor SQLiteStore: PersistenceStore {
                 SELECT id, name, description, actors_json, teams_json,
                        models_json, agent_files_json, heartbeat_json,
                        created_at, updated_at, repo_path, review_settings_json,
-                       icon
+                       icon, is_archived
                 FROM dashboard_projects
                 WHERE id = ?
                 LIMIT 1;
@@ -638,6 +640,7 @@ public actor SQLiteStore: PersistenceStore {
                 let reviewSettingsJSON = sqlite3_column_text(statement, 11).map { String(cString: $0) }
                 let reviewSettings = reviewSettingsJSON.flatMap { try? JSONDecoder().decode(ProjectReviewSettings.self, from: Data($0.utf8)) } ?? ProjectReviewSettings()
                 let icon = optionalText(statement: statement, index: 12)
+                let isArchived = sqlite3_column_int(statement, 13) != 0
                 return ProjectRecord(
                     id: projectID,
                     name: String(cString: namePtr),
@@ -652,6 +655,7 @@ public actor SQLiteStore: PersistenceStore {
                     heartbeat: heartbeat,
                     repoPath: repoPath,
                     reviewSettings: reviewSettings,
+                    isArchived: isArchived,
                     createdAt: createdAt,
                     updatedAt: updatedAt
                 )
@@ -685,8 +689,9 @@ public actor SQLiteStore: PersistenceStore {
                 updated_at,
                 repo_path,
                 review_settings_json,
-                icon
-            ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+                icon,
+                is_archived
+            ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
             """
 
         var projectStatement: OpaquePointer?
@@ -715,6 +720,7 @@ public actor SQLiteStore: PersistenceStore {
         bindOptionalText(project.repoPath, at: 11, statement: projectStatement)
         bindText(reviewSettingsJSON, at: 12, statement: projectStatement)
         bindOptionalText(project.icon, at: 13, statement: projectStatement)
+        sqlite3_bind_int(projectStatement, 14, project.isArchived ? 1 : 0)
         guard sqlite3_step(projectStatement) == SQLITE_DONE else {
             return
         }
@@ -2176,6 +2182,11 @@ public actor SQLiteStore: PersistenceStore {
         _ = sqlite3_exec(
             db,
             "ALTER TABLE dashboard_projects ADD COLUMN icon TEXT;",
+            nil, nil, nil
+        )
+        _ = sqlite3_exec(
+            db,
+            "ALTER TABLE dashboard_projects ADD COLUMN is_archived INTEGER NOT NULL DEFAULT 0;",
             nil, nil, nil
         )
     }

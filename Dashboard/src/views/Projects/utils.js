@@ -161,7 +161,8 @@ export function normalizeProject(project, index = 0) {
     agentFiles: Array.isArray(project?.agentFiles) ? project.agentFiles : [],
     heartbeat,
     repoPath: String(project?.repoPath || "").trim() || null,
-    reviewSettings
+    reviewSettings,
+    isArchived: Boolean(project?.isArchived)
   };
 }
 

@@ -802,7 +802,7 @@ func putConfigHotReloadsRuntimeModelProvider() async throws {
         .appendingPathComponent("sloppy-config-\(UUID().uuidString).json")
         .path
 
-    var initialConfig = CoreConfig.default
+    var initialConfig = CoreConfig.test
     initialConfig.models = []
 
     let service = CoreService(config: initialConfig, configPath: tempPath)
