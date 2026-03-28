@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="Assets/sloppy_github_banner.png" alt="Sloppy Banner" />
+</p>
+
 # 🦥 Sloppy
 
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/TeamSloppy/Sloppy)
