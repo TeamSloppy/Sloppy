@@ -36,7 +36,7 @@ export default defineConfig({
       {
         text: "Overview",
         items: [
-          { text: "Home", link: "/" },
+          { text: "What is Sloppy?", link: "/" },
           { text: "Install", link: "/install" },
           { text: "Dashboard Style", link: "/dashboard-style" },
           { text: "API Reference", link: "/api/reference" }
