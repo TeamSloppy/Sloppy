@@ -1,8 +1,10 @@
-<p align="center">
-  <img src="Assets/sloppy_github_banner.png" alt="Sloppy Banner" />
-</p>
+# 🤖 Sloppy - AI Assistant that increase your vibe
 
-# 🦥 Sloppy
+<p align="center">
+  <picture>
+    <img src="Assets/sloppy_github_banner.png" alt="Sloppy Banner" width="500"/>
+  </picture>
+</p>
 
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/TeamSloppy/Sloppy)
 
