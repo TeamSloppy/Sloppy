@@ -5,6 +5,7 @@ options:
   deploymentTarget:
     macOS: "15.0"
     iOS: "17.0"
+    visionOS: "2.0"
   createIntermediateGroups: true
 
 packages:
@@ -12,8 +13,9 @@ packages:
     path: .
 
 targets:
-  SloppyClient:
+  SloppyClient-macOS:
     type: application
+    productName: SloppyClient
     platform: macOS
     deploymentTarget: "15.0"
     sources: Sources/SloppyClient
@@ -35,6 +37,11 @@ targets:
         com.apple.security.app-sandbox: true
         com.apple.security.network.client: true
         aps-environment: development
+    settings:
+      base:
+        DEVELOPMENT_TEAM: 8PYCRS3EA3
+        CODE_SIGN_STYLE: Automatic
+        PROVISIONING_PROFILE_SPECIFIER: ""
 
   SloppyClient-iOS:
     type: application
@@ -63,3 +70,72 @@ targets:
       properties:
         com.apple.security.app-sandbox: false
         aps-environment: development
+    settings:
+      base:
+        DEVELOPMENT_TEAM: 8PYCRS3EA3
+        CODE_SIGN_STYLE: Automatic
+        TARGETED_DEVICE_FAMILY: "1"
+
+  SloppyClient-iPadOS:
+    type: application
+    platform: iOS
+    deploymentTarget: "17.0"
+    sources: Sources/SloppyClient
+    dependencies:
+      - package: SloppyClient
+        product: SloppyClient
+    info:
+      path: SupportingFiles/iOS/Info.plist
+      properties:
+        CFBundleDisplayName: Sloppy
+        CFBundleIdentifier: com.teamsloppy.SloppyClient.ipados
+        CFBundleShortVersionString: "0.1.0"
+        CFBundleVersion: "1"
+        UILaunchScreen: {}
+        UIRequiredDeviceCapabilities:
+          - arm64
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        UISupportedInterfaceOrientations~ipad:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationPortraitUpsideDown
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+    entitlements:
+      path: SupportingFiles/iOS/SloppyClient-iPadOS.entitlements
+      properties:
+        com.apple.security.app-sandbox: false
+        aps-environment: development
+    settings:
+      base:
+        DEVELOPMENT_TEAM: 8PYCRS3EA3
+        CODE_SIGN_STYLE: Automatic
+        TARGETED_DEVICE_FAMILY: "2"
+
+  SloppyClient-visionOS:
+    type: application
+    platform: visionOS
+    deploymentTarget: "2.0"
+    sources: Sources/SloppyClient
+    dependencies:
+      - package: SloppyClient
+        product: SloppyClient
+    info:
+      path: SupportingFiles/visionOS/Info.plist
+      properties:
+        CFBundleDisplayName: Sloppy
+        CFBundleIdentifier: com.teamsloppy.SloppyClient.visionos
+        CFBundleShortVersionString: "0.1.0"
+        CFBundleVersion: "1"
+        UILaunchScreen: {}
+    entitlements:
+      path: SupportingFiles/visionOS/SloppyClient-visionOS.entitlements
+      properties:
+        com.apple.security.app-sandbox: false
+        aps-environment: development
+    settings:
+      base:
+        DEVELOPMENT_TEAM: 8PYCRS3EA3
+        CODE_SIGN_STYLE: Automatic

@@ -13,6 +13,7 @@ import { UpdateBanner } from "./features/updates/UpdateBanner";
 import { useUpdateCheck } from "./features/updates/useUpdateCheck";
 import { AgentsView } from "./views/AgentsView";
 import { ActorsView } from "./views/ActorsView";
+import { VisorChatView } from "./features/visor/VisorChatView";
 import { ConfigView } from "./views/ConfigView";
 import { LogsView } from "./views/LogsView";
 import { NotFoundView } from "./views/NotFoundView";
@@ -135,6 +136,11 @@ function DashboardShell({ dependencies }: { dependencies: ReturnType<typeof crea
       id: "actors",
       label: { icon: "group", title: "Actors" },
       content: <ActorsView />
+    },
+    {
+      id: "visor",
+      label: { icon: "visibility", title: "Visor" },
+      content: <VisorChatView />
     },
     {
       id: "config",

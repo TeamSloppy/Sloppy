@@ -53,7 +53,8 @@ extension OpenAIOAuthModel {
         options: GenerationOptions
     ) async throws -> LanguageModelSession.Response<Content> where Content: Generable {
         let conversion = convertToolsToAPI(session.tools)
-        let requestBody = try buildRequestBody(prompt: prompt, options: options, tools: conversion.definitions)
+        let transcript = session.transcript
+        let requestBody = try buildRequestBody(transcript: transcript, options: options, tools: conversion.definitions)
         let result = try await collectStreamingResponseWithTools(body: requestBody)
 
         var transcriptEntries: [Transcript.Entry] = []
@@ -85,6 +86,8 @@ extension OpenAIOAuthModel {
             }
 
             let followUp = try buildFollowUpRequestBody(
+                transcript: transcript,
+                accumulatedEntries: transcriptEntries,
                 functionCalls: pendingCalls,
                 toolOutputs: toolOutputs,
                 options: options,
@@ -111,11 +114,12 @@ extension OpenAIOAuthModel {
         includeSchemaInPrompt: Bool,
         options: GenerationOptions
     ) -> sending LanguageModelSession.ResponseStream<Content> where Content: Generable {
+        let transcript = session.transcript
         let stream = AsyncThrowingStream<LanguageModelSession.ResponseStream<Content>.Snapshot, Error> { continuation in
             let task = Task {
                 do {
                     let conversion = convertToolsToAPI(session.tools)
-                    let requestBody = try buildRequestBody(prompt: prompt, options: options, tools: conversion.definitions)
+                    let requestBody = try buildRequestBody(transcript: transcript, options: options, tools: conversion.definitions)
                     let result = try await performStreamingRequestWithTools(
                         body: requestBody,
                         continuation: continuation,
@@ -123,6 +127,7 @@ extension OpenAIOAuthModel {
                     )
 
                     var pendingCalls = result.functionCalls
+                    var accumulatedEntries: [Transcript.Entry] = []
 
                     while !pendingCalls.isEmpty, let delegate = session.toolExecutionDelegate {
                         var toolOutputs: [(callId: String, output: String)] = []
@@ -145,10 +150,14 @@ extension OpenAIOAuthModel {
                                 )
                                 await delegate.didExecuteToolCall(toolCall, output: output, in: session)
                                 toolOutputs.append((callId: call.callId, output: outputText))
+                                accumulatedEntries.append(.toolCalls(Transcript.ToolCalls([toolCall])))
+                                accumulatedEntries.append(.toolOutput(output))
                             }
                         }
 
                         let followUp = try buildFollowUpRequestBody(
+                            transcript: transcript,
+                            accumulatedEntries: accumulatedEntries,
                             functionCalls: pendingCalls,
                             toolOutputs: toolOutputs,
                             options: options,
@@ -332,16 +341,82 @@ private extension OpenAIOAuthModel {
     }
 }
 
+// MARK: - Transcript Conversion
+
+extension OpenAIOAuthModel {
+    func transcriptToResponsesInput(_ transcript: Transcript) -> [[String: Any]] {
+        var items: [[String: Any]] = []
+        for entry in transcript {
+            switch entry {
+            case .instructions:
+                break
+            case .prompt(let prompt):
+                let text = prompt.segments.compactMap { segment -> String? in
+                    if case .text(let t) = segment { return t.content }
+                    return nil
+                }.joined(separator: "\n")
+                items.append([
+                    "type": "message",
+                    "role": "user",
+                    "content": [["type": "input_text", "text": text]]
+                ])
+            case .response(let response):
+                let text = response.segments.compactMap { segment -> String? in
+                    if case .text(let t) = segment { return t.content }
+                    return nil
+                }.joined(separator: "\n")
+                if !text.isEmpty {
+                    items.append([
+                        "type": "message",
+                        "role": "assistant",
+                        "content": [["type": "output_text", "text": text]]
+                    ])
+                }
+            case .toolCalls(let toolCalls):
+                for call in toolCalls {
+                    let argumentsJSON: String
+                    if let data = try? JSONEncoder().encode(call.arguments),
+                       let jsonString = String(data: data, encoding: .utf8) {
+                        argumentsJSON = jsonString
+                    } else {
+                        argumentsJSON = "{}"
+                    }
+                    let sanitized = call.toolName.replacingOccurrences(of: ".", with: "_")
+                    items.append([
+                        "type": "function_call",
+                        "call_id": call.id,
+                        "name": sanitized,
+                        "arguments": argumentsJSON
+                    ])
+                }
+            case .toolOutput(let output):
+                let text = output.segments.compactMap { segment -> String? in
+                    if case .text(let t) = segment { return t.content }
+                    return nil
+                }.joined(separator: "\n")
+                items.append([
+                    "type": "function_call_output",
+                    "call_id": output.id,
+                    "output": text
+                ])
+            }
+        }
+        return items
+    }
+}
+
 // MARK: - Request Building
 
 private extension OpenAIOAuthModel {
-    func buildRequestBody(prompt: Prompt, options: GenerationOptions, tools: [[String: Any]]) throws -> Data {
+    func buildRequestBody(
+        transcript: Transcript,
+        options: GenerationOptions,
+        tools: [[String: Any]]
+    ) throws -> Data {
         var body: [String: Any] = [
             "model": modelName,
             "instructions": instructions,
-            "input": [
-                ["role": "user", "content": String(describing: prompt)]
-            ],
+            "input": transcriptToResponsesInput(transcript),
             "stream": true,
             "store": false
         ]
@@ -358,25 +433,63 @@ private extension OpenAIOAuthModel {
     }
 
     func buildFollowUpRequestBody(
+        transcript: Transcript,
+        accumulatedEntries: [Transcript.Entry],
         functionCalls: [FunctionCall],
         toolOutputs: [(callId: String, output: String)],
         options: GenerationOptions,
         tools: [[String: Any]]
     ) throws -> Data {
-        var inputItems: [[String: Any]] = functionCalls.map { call in
+        var inputItems = transcriptToResponsesInput(transcript)
+
+        for entry in accumulatedEntries {
+            switch entry {
+            case .toolCalls(let toolCalls):
+                for call in toolCalls {
+                    let argumentsJSON: String
+                    if let data = try? JSONEncoder().encode(call.arguments),
+                       let jsonString = String(data: data, encoding: .utf8) {
+                        argumentsJSON = jsonString
+                    } else {
+                        argumentsJSON = "{}"
+                    }
+                    let sanitized = call.toolName.replacingOccurrences(of: ".", with: "_")
+                    inputItems.append([
+                        "type": "function_call",
+                        "call_id": call.id,
+                        "name": sanitized,
+                        "arguments": argumentsJSON
+                    ])
+                }
+            case .toolOutput(let output):
+                let text = output.segments.compactMap { segment -> String? in
+                    if case .text(let t) = segment { return t.content }
+                    return nil
+                }.joined(separator: "\n")
+                inputItems.append([
+                    "type": "function_call_output",
+                    "call_id": output.id,
+                    "output": text
+                ])
+            default:
+                break
+            }
+        }
+
+        inputItems += functionCalls.map { call in
             [
                 "type": "function_call",
                 "call_id": call.callId,
                 "name": call.name,
                 "arguments": call.arguments
-            ]
+            ] as [String: Any]
         }
         inputItems += toolOutputs.map { output in
             [
                 "type": "function_call_output",
                 "call_id": output.callId,
                 "output": output.output
-            ]
+            ] as [String: Any]
         }
 
         var body: [String: Any] = [

@@ -16,7 +16,7 @@ struct SessionsStatusTool: CoreTool {
     }
 
     func invoke(arguments: [String: JSONValue], context: ToolContext) async -> ToolInvocationResult {
-        let targetSession = arguments["sessionId"]?.asString ?? context.sessionID
+        let targetSession = resolveSessionID(arguments["sessionId"]?.asString, context: context)
         do {
             let detail = try context.sessionStore.loadSession(agentID: context.agentID, sessionID: targetSession)
             let activeProcesses = await context.processRegistry.activeCount(sessionID: targetSession)

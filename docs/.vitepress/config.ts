@@ -48,6 +48,7 @@ export default defineConfig({
           { text: "Build From Terminal", link: "/guides/build-from-terminal" },
           { text: "Build With Docker", link: "/guides/build-with-docker" },
           { text: "Development Workflow", link: "/guides/development-workflow" },
+          { text: "CLI Reference", link: "/guides/cli" },
           { text: "Model Providers", link: "/guides/models" },
           { text: "MCP Integration", link: "/guides/mcp" },
           { text: "ACP Integration", link: "/guides/acp" },

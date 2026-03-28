@@ -58,6 +58,7 @@ struct ToolContext: @unchecked Sendable {
 /// CoreService conforms to this protocol to provide actor-isolated access.
 protocol ProjectToolService: Sendable {
     func findProjectForChannel(channelId: String, topicId: String?) async -> ProjectRecord?
+    func getProject(id: String) async throws -> ProjectRecord
     func createTask(projectID: String, request: ProjectTaskCreateRequest) async throws -> ProjectRecord
     func updateTask(projectID: String, taskID: String, request: ProjectTaskUpdateRequest) async throws -> ProjectRecord
     func cancelTaskWithReason(projectID: String, taskID: String, reason: String?) async throws -> ProjectRecord
@@ -81,6 +82,20 @@ protocol SkillsToolService: Sendable {
     func listAgentSkills(agentID: String) async throws -> AgentSkillsResponse
     func installAgentSkill(agentID: String, request: SkillInstallRequest) async throws -> InstalledSkill
     func uninstallAgentSkill(agentID: String, skillID: String) async throws
+}
+
+// MARK: - Argument resolution helpers
+
+private let sessionIDPlaceholders: Set<String> = ["current", "self", "this"]
+
+func resolveSessionID(_ raw: String?, context: ToolContext) -> String {
+    guard let raw = raw?.trimmingCharacters(in: .whitespacesAndNewlines),
+          !raw.isEmpty,
+          !sessionIDPlaceholders.contains(raw.lowercased())
+    else {
+        return context.sessionID
+    }
+    return raw
 }
 
 // MARK: - Result helpers

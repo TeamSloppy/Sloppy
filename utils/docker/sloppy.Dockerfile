@@ -49,4 +49,4 @@ COPY --from=builder /artifacts/sloppy /usr/bin/sloppy
 COPY --from=builder /artifacts/Sloppy_sloppy.resources /usr/bin/Sloppy_sloppy.resources
 COPY --from=builder /artifacts/Sloppy_sloppy.bundle /usr/bin/Sloppy_sloppy.bundle
 EXPOSE 25101
-CMD ["/usr/bin/sloppy"]
+CMD ["/usr/bin/sloppy", "run"]

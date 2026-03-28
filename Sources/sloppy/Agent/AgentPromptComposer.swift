@@ -37,13 +37,14 @@ struct AgentPromptComposer {
         let toolsInstruction = try templateLoader.loadPartial(named: "tools_instruction")
         let skillsRules = try templateLoader.loadPartial(named: "skills_rules")
         let memoryRules = try templateLoader.loadPartial(named: "memory_rules")
+        let cliAwareness = try templateLoader.loadPartial(named: "cli_awareness")
         let skillsEntries = buildSkillsEntries(skills: context.installedSkills)
 
         return Prompt {
             bootstrapMarker
             "Session context initialized."
             "Agent: \(context.agentID)"
-            "Session: \(sessionID)"
+            "Current session ID: \(sessionID)"
 
             if !documents.agentsMarkdown.isEmpty {
                 ""
@@ -84,6 +85,8 @@ struct AgentPromptComposer {
             skillsRules
             ""
             memoryRules
+            ""
+            cliAwareness
         }
     }
 

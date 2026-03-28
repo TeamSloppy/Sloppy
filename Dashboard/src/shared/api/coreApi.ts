@@ -163,6 +163,8 @@ export interface CoreApi {
   fetchUpdateStatus: () => Promise<AnyRecord | null>;
   forceUpdateCheck: () => Promise<AnyRecord | null>;
   generateText: (payload: AnyRecord) => Promise<AnyRecord | null>;
+  fetchVisorReady: () => Promise<AnyRecord | null>;
+  postVisorChat: (question: string) => Promise<AnyRecord | null>;
 }
 
 export function createCoreApi(): CoreApi {
@@ -1401,6 +1403,22 @@ export function createCoreApi(): CoreApi {
         path: "/v1/generate",
         method: "POST",
         body: payload
+      });
+      if (!response.ok) return null;
+      return response.data;
+    },
+
+    fetchVisorReady: async () => {
+      const response = await requestJson<AnyRecord>({ path: "/v1/visor/ready" });
+      if (!response.ok) return null;
+      return response.data;
+    },
+
+    postVisorChat: async (question) => {
+      const response = await requestJson<AnyRecord, AnyRecord>({
+        path: "/v1/visor/chat",
+        method: "POST",
+        body: { question }
       });
       if (!response.ok) return null;
       return response.data;

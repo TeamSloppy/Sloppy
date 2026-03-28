@@ -34,7 +34,14 @@ swift package --allow-writing-to-package-directory --allow-network-connections a
 
 This builds the Dashboard, compiles `sloppy` in release mode, and starts it.
 
-For details see [Build From Terminal](/guides/build-from-terminal).
+Verify the installation and check connectivity:
+
+```bash
+sloppy --version
+sloppy status
+```
+
+For details see [Build From Terminal](/guides/build-from-terminal) and the [CLI Reference](/guides/cli).
 
 ## Docker
 

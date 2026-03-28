@@ -13,8 +13,8 @@ struct ProjectCreateTool: CoreTool {
         .objectSchema([
             .init(name: "name", description: "Project name", schema: DynamicGenerationSchema(type: String.self)),
             .init(name: "description", description: "Project description", schema: DynamicGenerationSchema(type: String.self), isOptional: true),
-            .init(name: "actors", description: "List of actor IDs to assign", schema: DynamicGenerationSchema(type: [String].self), isOptional: true),
-            .init(name: "teams", description: "List of team IDs to assign", schema: DynamicGenerationSchema(type: [String].self), isOptional: true),
+            .init(name: "actors", description: "List of actor IDs to assign", schema: DynamicGenerationSchema(arrayOf: DynamicGenerationSchema(type: String.self)), isOptional: true),
+            .init(name: "teams", description: "List of team IDs to assign", schema: DynamicGenerationSchema(arrayOf: DynamicGenerationSchema(type: String.self)), isOptional: true),
             .init(name: "repoUrl", description: "Repository URL", schema: DynamicGenerationSchema(type: String.self), isOptional: true),
         ])
     }

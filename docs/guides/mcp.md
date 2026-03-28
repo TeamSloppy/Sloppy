@@ -203,6 +203,21 @@ Using the `mcp.call_tool` agent tool:
 }
 ```
 
+## Inspecting MCP from the CLI
+
+You can inspect MCP configuration and tool availability from the terminal:
+
+```bash
+# List MCP servers from config
+sloppy mcp server
+
+# List tools available to an agent (includes MCP tools)
+sloppy mcp tool <agentId>
+
+# Call an MCP tool via an agent
+sloppy mcp call <agentId> read_file --args '{"path":"/tmp/workspace/README.md"}'
+```
+
 ## Connection lifecycle
 
 - Connections are created lazily on first use and reused for subsequent requests.

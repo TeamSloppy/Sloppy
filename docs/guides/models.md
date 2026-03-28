@@ -161,6 +161,35 @@ Set this via:
 4. A `CompositeModelProvider` combines all active providers.
 5. When an agent runs, its `selectedModel` is matched against supported models and routed to the correct provider.
 
+## Adding providers via CLI
+
+You can also manage providers directly from the terminal without opening the Dashboard:
+
+```bash
+# List currently configured providers
+sloppy providers list
+
+# Add a new provider
+sloppy providers add \
+  --title "openai-api" \
+  --api-url "https://api.openai.com/v1" \
+  --api-key "$OPENAI_API_KEY" \
+  --model "openai:gpt-4.1"
+
+# Test connectivity
+sloppy providers probe --provider-id openai --api-key "$OPENAI_API_KEY"
+
+# List models from an OpenAI-compatible endpoint
+sloppy providers models \
+  --api-url "https://api.openai.com/v1" \
+  --api-key "$OPENAI_API_KEY"
+
+# Remove a provider
+sloppy providers remove "openai-api"
+```
+
+See the [CLI Reference](/guides/cli#provider-commands) for all provider commands.
+
 ## Adding providers via Dashboard
 
 ### Onboarding

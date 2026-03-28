@@ -8,7 +8,7 @@ struct RuntimeExecTool: CoreTool {
     let title = "Exec command"
     let status = "fully_functional"
     let name = "runtime.exec"
-    let description = "Run one foreground command with timeout and output limits."
+    let description = "Run one foreground command with timeout and output limits. The `sloppy` CLI is available in PATH — use it to manage agents, projects, channels, providers, and more (e.g. `sloppy agent list`, `sloppy project task create`)."
 
     var parameters: GenerationSchema {
         .objectSchema([

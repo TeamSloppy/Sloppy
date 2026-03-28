@@ -3,7 +3,7 @@
         {
             "type": "swift",
             "request": "launch",
-            "args": [],
+            "args": ["run"],
             "cwd": "${workspaceFolder:Sloppy}",
             "name": "Debug Sloppy",
             "target": "sloppy",
@@ -13,7 +13,7 @@
         {
             "type": "swift",
             "request": "launch",
-            "args": [],
+            "args": ["run"],
             "cwd": "${workspaceFolder:Sloppy}",
             "name": "Release Sloppy",
             "target": "sloppy",
@@ -106,7 +106,7 @@
         {
             "type": "swift",
             "request": "launch",
-            "args": [],
+            "args": ["run"],
             "cwd": "${workspaceFolder:Sloppy}",
             "name": "Local: Debug Sloppy + Dashboard",
             "target": "sloppy",
@@ -116,7 +116,7 @@
         {
             "type": "swift",
             "request": "launch",
-            "args": [],
+            "args": ["run"],
             "cwd": "${workspaceFolder:Sloppy}",
             "name": "Debug sloppy",
             "target": "sloppy",
@@ -126,7 +126,7 @@
         {
             "type": "swift",
             "request": "launch",
-            "args": [],
+            "args": ["run"],
             "cwd": "${workspaceFolder:Sloppy}",
             "name": "Release sloppy",
             "target": "sloppy",

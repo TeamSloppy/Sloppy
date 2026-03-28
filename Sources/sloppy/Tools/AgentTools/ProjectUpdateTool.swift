@@ -15,8 +15,8 @@ struct ProjectUpdateTool: CoreTool {
             .init(name: "name", description: "New project name", schema: DynamicGenerationSchema(type: String.self), isOptional: true),
             .init(name: "description", description: "New project description", schema: DynamicGenerationSchema(type: String.self), isOptional: true),
             .init(name: "icon", description: "New project icon", schema: DynamicGenerationSchema(type: String.self), isOptional: true),
-            .init(name: "actors", description: "Updated list of actor IDs", schema: DynamicGenerationSchema(type: [String].self), isOptional: true),
-            .init(name: "teams", description: "Updated list of team IDs", schema: DynamicGenerationSchema(type: [String].self), isOptional: true),
+            .init(name: "actors", description: "Updated list of actor IDs", schema: DynamicGenerationSchema(arrayOf: DynamicGenerationSchema(type: String.self)), isOptional: true),
+            .init(name: "teams", description: "Updated list of team IDs", schema: DynamicGenerationSchema(arrayOf: DynamicGenerationSchema(type: String.self)), isOptional: true),
             .init(name: "repoPath", description: "Repository path", schema: DynamicGenerationSchema(type: String.self), isOptional: true),
         ])
     }

@@ -17,6 +17,7 @@ struct ProjectTaskCreateTool: CoreTool {
             .init(name: "status", description: "Initial task status", schema: DynamicGenerationSchema(type: String.self), isOptional: true),
             .init(name: "actorId", description: "Assigned actor ID", schema: DynamicGenerationSchema(type: String.self), isOptional: true),
             .init(name: "teamId", description: "Assigned team ID", schema: DynamicGenerationSchema(type: String.self), isOptional: true),
+            .init(name: "projectId", description: "Project ID (use instead of channelId when known)", schema: DynamicGenerationSchema(type: String.self), isOptional: true),
             .init(name: "channelId", description: "Channel ID (defaults to current session)", schema: DynamicGenerationSchema(type: String.self), isOptional: true),
             .init(name: "topicId", description: "Optional topic scoping", schema: DynamicGenerationSchema(type: String.self), isOptional: true)
         ])
@@ -33,8 +34,18 @@ struct ProjectTaskCreateTool: CoreTool {
             return toolFailure(tool: name, code: "invalid_arguments", message: "`title` is required.", retryable: false)
         }
 
-        guard let project = await svc.findProjectForChannel(channelId: channelId, topicId: topicId) else {
-            return toolFailure(tool: name, code: "project_not_found", message: "No project found for this channel.", retryable: false)
+        let project: ProjectRecord
+        if let pid = arguments["projectId"]?.asString, !pid.isEmpty {
+            do {
+                project = try await svc.getProject(id: pid)
+            } catch {
+                return toolFailure(tool: name, code: "project_not_found", message: "Project not found.", retryable: false)
+            }
+        } else {
+            guard let found = await svc.findProjectForChannel(channelId: channelId, topicId: topicId) else {
+                return toolFailure(tool: name, code: "project_not_found", message: "No project found for this channel.", retryable: false)
+            }
+            project = found
         }
 
         do {

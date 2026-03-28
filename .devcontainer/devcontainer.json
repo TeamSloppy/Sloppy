@@ -10,7 +10,7 @@
     "--cap-add=SYS_PTRACE",
     "--security-opt", "seccomp=unconfined"
   ],
-  "postCreateCommand": "swift package resolve && cd Dashboard && npm install",
+  "postCreateCommand": "swift package resolve && cd Dashboard && npm install && echo 'export PATH=\"/workspaces/Sloppy/.build/debug:/workspaces/Sloppy/.build/release:$PATH\"' >> /root/.bashrc && ln -sf /workspaces/Sloppy/.build/debug/sloppy /usr/local/bin/sloppy || true",
   "customizations": {
     "vscode": {
       "extensions": [

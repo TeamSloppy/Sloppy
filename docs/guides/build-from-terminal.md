@@ -159,6 +159,20 @@ npm run preview
 4. Run the smallest relevant verification first.
 5. Before opening a PR, run the CI-parity checks listed below.
 
+## CLI commands
+
+Once the server is running you can interact with it from any terminal using the `sloppy` CLI:
+
+```bash
+sloppy --version          # verify the binary is in PATH
+sloppy status             # check server connectivity
+sloppy update             # check for a newer version
+sloppy agent list         # list configured agents
+sloppy config get         # inspect runtime config
+```
+
+See the [CLI Reference](/guides/cli) for the full command set.
+
 ## CI-parity checks
 
 These are the commands the repository expects contributors to keep green:

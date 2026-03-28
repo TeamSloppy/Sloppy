@@ -37,7 +37,7 @@ struct SloppyRunPlugin: CommandPlugin {
         Diagnostics.remark("Launching sloppy from \(executableURL.path)")
         try runProcess(
             executableURL: executableURL,
-            arguments: invocation.sloppyArguments,
+            arguments: ["run"] + invocation.sloppyArguments,
             currentDirectoryURL: context.package.directoryURL,
             environment: ProcessInfo.processInfo.environment
         )
@@ -222,8 +222,6 @@ private struct Invocation {
             switch argument {
             case "--no-dashboard":
                 skipDashboard = true
-            case "--oneshot", "--run-demo-request":
-                sloppyArguments.append(argument)
             case "--config-path":
                 let valueIndex = index + 1
                 guard valueIndex < arguments.count else {
@@ -238,7 +236,7 @@ private struct Invocation {
                     sloppyArguments.append(value)
                 } else {
                     throw PluginError.message(
-                        "Unknown plugin argument '\(argument)'. Supported direct sloppy flags: --oneshot, --run-demo-request, --config-path <path>. Use '--' for any other sloppy arguments."
+                        "Unknown plugin argument '\(argument)'. Supported flags: --no-dashboard, --config-path <path>. Use '--' for any other sloppy run arguments."
                     )
                 }
             }

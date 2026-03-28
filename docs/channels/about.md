@@ -148,6 +148,16 @@ When the final content is empty or the stream is cancelled, the placeholder is d
 
 Each channel can use a model different from the system default. The override persists across restarts.
 
+Via the CLI:
+
+```bash
+sloppy channel model set main --model "openai:gpt-4.1"
+sloppy channel model get main
+sloppy channel model clear main
+```
+
+Via the HTTP API:
+
 ```http
 PUT /v1/channels/{channelId}/model
 Content-Type: application/json
@@ -165,14 +175,24 @@ Users can also switch models via the `/model <model_id>` bot command inside any 
 
 ## Channel state
 
-The current state of a channel (message history, context utilization, active workers) can be inspected via the API:
+The current state of a channel (message history, context utilization, active workers) can be inspected via the CLI:
+
+```bash
+sloppy channel state <channelId>
+sloppy channel events <channelId> --limit 100
+```
+
+Or via the HTTP API:
 
 ```http
 GET /v1/channels/{channelId}/state
+GET /v1/channels/{channelId}/events
 ```
 
-Recent events are available at:
+## Control actions
 
-```http
-GET /v1/channels/{channelId}/events
+Abort or pause a running agent response from the CLI:
+
+```bash
+sloppy channel control <channelId> --action abort
 ```

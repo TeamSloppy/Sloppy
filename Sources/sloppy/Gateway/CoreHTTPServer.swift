@@ -292,6 +292,7 @@ private final class CoreHTTPHandler: ChannelInboundHandler, RemovableChannelHand
         }
 
         lines.append("")
+        lines.append("")
         return Data(lines.joined(separator: "\n").utf8)
     }
 

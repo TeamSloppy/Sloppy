@@ -5,6 +5,7 @@ export const TOP_LEVEL_SECTIONS = [
   "overview",
   "actors",
   "agents",
+  "visor",
   "usafe",
   "nodes",
   "config",

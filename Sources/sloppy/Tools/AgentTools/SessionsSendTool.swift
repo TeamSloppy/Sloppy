@@ -21,7 +21,7 @@ struct SessionsSendTool: CoreTool {
     }
 
     func invoke(arguments: [String: JSONValue], context: ToolContext) async -> ToolInvocationResult {
-        let targetSession = arguments["sessionId"]?.asString ?? context.sessionID
+        let targetSession = resolveSessionID(arguments["sessionId"]?.asString, context: context)
         let content = arguments["content"]?.asString?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let userId = arguments["userId"]?.asString ?? "tool"
         guard !content.isEmpty else {
