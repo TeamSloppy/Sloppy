@@ -14,8 +14,7 @@ let package = Package(
         .library(name: "ChannelPluginTelegram", targets: ["ChannelPluginTelegram"]),
         .library(name: "ChannelPluginDiscord", targets: ["ChannelPluginDiscord"]),
         .executable(name: "sloppy", targets: ["sloppy"]),
-        .executable(name: "Node", targets: ["Node"]),
-        .executable(name: "App", targets: ["App"])
+        .executable(name: "SloppyNode", targets: ["SloppyNode"])
     ],
     dependencies: [
         .package(url: "https://github.com/apple/swift-argument-parser.git", from: "1.5.0"),
@@ -89,7 +88,7 @@ let package = Package(
             ]
         ),
         .executableTarget(
-            name: "Node",
+            name: "SloppyNode",
             dependencies: [
                 "Protocols",
                 "CSQLite3",
@@ -97,14 +96,6 @@ let package = Package(
                 .product(name: "Logging", package: "swift-log")
             ],
             path: "Sources/Node"
-        ),
-        .executableTarget(
-            name: "App",
-            dependencies: [
-                "Protocols",
-                .product(name: "Logging", package: "swift-log")
-            ],
-            path: "Sources/App"
         ),
         .target(
             name: "ChannelPluginTelegram",

@@ -1,0 +1,386 @@
+import React, { useCallback, useEffect, useMemo, useState } from "react";
+import { CoreApi } from "../shared/api/coreApi";
+
+type AnyRecord = Record<string, unknown>;
+
+interface Props {
+  coreApi: CoreApi;
+}
+
+interface Agent {
+  id: string;
+  displayName: string;
+}
+
+interface Session {
+  id: string;
+  title: string;
+}
+
+interface DocumentSizes {
+  agentsMarkdown: number;
+  userMarkdown: number;
+  identityMarkdown: number;
+  soulMarkdown: number;
+}
+
+interface SessionContextData {
+  agentId: string;
+  sessionId: string;
+  channelId: string;
+  bootstrapContent: string | null;
+  bootstrapChars: number;
+  documentSizes: DocumentSizes;
+  skillsCount: number;
+  installedSkillIds: string[];
+  contextUtilization: number | null;
+  channelMessageCount: number | null;
+  activeWorkerIds: string[] | null;
+  selectedModel: string | null;
+  runtimeType: string | null;
+  conversationHistoryChars: number | null;
+  conversationHistoryMessageCount: number | null;
+}
+
+interface ChannelInfo {
+  channelId: string;
+  messageCount: number;
+  contextUtilization: number;
+  bootstrapChars: number;
+  activeWorkerIds: string[];
+}
+
+interface PromptTemplate {
+  name: string;
+  content: string;
+  chars: number;
+}
+
+function kilo(n: number) {
+  if (n >= 1000) return `${(n / 1000).toFixed(1)}k`;
+  return String(n);
+}
+
+function pct(n: number) {
+  return `${(n * 100).toFixed(1)}%`;
+}
+
+function UtilBar({ value }: { value: number }) {
+  const pctNum = Math.min(1, Math.max(0, value)) * 100;
+  const color = pctNum > 80 ? "var(--danger)" : pctNum > 50 ? "var(--warn)" : "var(--success)";
+  return (
+    <div className="debug-util-bar-track">
+      <div className="debug-util-bar-fill" style={{ width: `${pctNum}%`, background: color }} />
+      <span className="debug-util-bar-label">{pct(value)}</span>
+    </div>
+  );
+}
+
+function SectionSizeBar({ label, chars, total }: { label: string; chars: number; total: number }) {
+  const pctNum = total > 0 ? Math.min(100, (chars / total) * 100) : 0;
+  return (
+    <div className="debug-section-row">
+      <span className="debug-section-label">{label}</span>
+      <div className="debug-section-bar-track">
+        <div className="debug-section-bar-fill" style={{ width: `${pctNum}%` }} />
+      </div>
+      <span className="debug-section-chars">{kilo(chars)}c</span>
+    </div>
+  );
+}
+
+function Panel({ title, children, action }: { title: string; children: React.ReactNode; action?: React.ReactNode }) {
+  return (
+    <section className="debug-panel">
+      <header className="debug-panel-header">
+        <h3 className="debug-panel-title">{title}</h3>
+        {action}
+      </header>
+      <div className="debug-panel-body">{children}</div>
+    </section>
+  );
+}
+
+function SessionContextPanel({ coreApi }: { coreApi: CoreApi }) {
+  const [agents, setAgents] = useState<Agent[]>([]);
+  const [sessions, setSessions] = useState<Session[]>([]);
+  const [selectedAgent, setSelectedAgent] = useState("");
+  const [selectedSession, setSelectedSession] = useState("");
+  const [data, setData] = useState<SessionContextData | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [showBootstrap, setShowBootstrap] = useState(false);
+
+  useEffect(() => {
+    coreApi.fetchAgents().then((result) => {
+      if (!Array.isArray(result)) return;
+      setAgents(result.map((a) => ({ id: String(a.id ?? ""), displayName: String(a.displayName ?? a.id ?? "") })));
+    });
+  }, [coreApi]);
+
+  useEffect(() => {
+    if (!selectedAgent) {
+      setSessions([]);
+      setSelectedSession("");
+      setData(null);
+      return;
+    }
+    coreApi.fetchAgentSessions(selectedAgent).then((result) => {
+      if (!Array.isArray(result)) return;
+      setSessions(result.map((s) => ({ id: String(s.id ?? ""), title: String(s.title ?? s.id ?? "") })));
+    });
+  }, [coreApi, selectedAgent]);
+
+  const load = useCallback(async () => {
+    if (!selectedAgent || !selectedSession) return;
+    setLoading(true);
+    const result = await coreApi.fetchDebugSessionContext(selectedAgent, selectedSession);
+    setLoading(false);
+    if (!result) return;
+    setData(result as unknown as SessionContextData);
+  }, [coreApi, selectedAgent, selectedSession]);
+
+  const docTotal = useMemo(() => {
+    if (!data) return 0;
+    return (
+      data.documentSizes.agentsMarkdown +
+      data.documentSizes.userMarkdown +
+      data.documentSizes.identityMarkdown +
+      data.documentSizes.soulMarkdown
+    );
+  }, [data]);
+
+  return (
+    <Panel
+      title="Session Context Inspector"
+      action={
+        <button type="button" className="hover-levitate" onClick={load} disabled={!selectedAgent || !selectedSession || loading}>
+          {loading ? "Loading..." : "Inspect"}
+        </button>
+      }
+    >
+      <div className="debug-selectors">
+        <label className="debug-select-label">
+          <span>Agent</span>
+          <select
+            value={selectedAgent}
+            onChange={(e) => { setSelectedAgent(e.target.value); setSelectedSession(""); setData(null); }}
+          >
+            <option value="">-- select agent --</option>
+            {agents.map((a) => (
+              <option key={a.id} value={a.id}>{a.displayName}</option>
+            ))}
+          </select>
+        </label>
+        <label className="debug-select-label">
+          <span>Session</span>
+          <select
+            value={selectedSession}
+            onChange={(e) => { setSelectedSession(e.target.value); setData(null); }}
+            disabled={!selectedAgent}
+          >
+            <option value="">-- select session --</option>
+            {sessions.map((s) => (
+              <option key={s.id} value={s.id}>{s.title || s.id}</option>
+            ))}
+          </select>
+        </label>
+      </div>
+
+      {data && (
+        <div className="debug-context-result">
+          <div className="debug-meta-grid">
+            <div className="debug-meta-item">
+              <span className="debug-meta-key">Channel ID</span>
+              <code className="debug-meta-val">{data.channelId}</code>
+            </div>
+            <div className="debug-meta-item">
+              <span className="debug-meta-key">Model</span>
+              <code className="debug-meta-val">{data.selectedModel ?? "—"}</code>
+            </div>
+            <div className="debug-meta-item">
+              <span className="debug-meta-key">Runtime</span>
+              <code className="debug-meta-val">{data.runtimeType ?? "—"}</code>
+            </div>
+            <div className="debug-meta-item">
+              <span className="debug-meta-key">Skills</span>
+              <code className="debug-meta-val">{data.skillsCount}</code>
+            </div>
+            <div className="debug-meta-item">
+              <span className="debug-meta-key">Channel messages</span>
+              <code className="debug-meta-val">{data.channelMessageCount ?? "—"}</code>
+            </div>
+            <div className="debug-meta-item">
+              <span className="debug-meta-key">History injected</span>
+              <code className="debug-meta-val">
+                {data.conversationHistoryMessageCount != null
+                  ? `${data.conversationHistoryMessageCount} msgs / ${kilo(data.conversationHistoryChars ?? 0)}c`
+                  : "none"}
+              </code>
+            </div>
+            <div className="debug-meta-item">
+              <span className="debug-meta-key">Active workers</span>
+              <code className="debug-meta-val">{data.activeWorkerIds?.join(", ") || "—"}</code>
+            </div>
+          </div>
+
+          {data.contextUtilization != null && (
+            <div className="debug-util-section">
+              <span className="debug-meta-key">Context utilization</span>
+              <UtilBar value={data.contextUtilization} />
+            </div>
+          )}
+
+          <div className="debug-section-breakdown">
+            <p className="debug-subsection-title">Document sizes (total {kilo(docTotal)}c)</p>
+            <SectionSizeBar label="AGENTS.md" chars={data.documentSizes.agentsMarkdown} total={docTotal} />
+            <SectionSizeBar label="USER.md" chars={data.documentSizes.userMarkdown} total={docTotal} />
+            <SectionSizeBar label="IDENTITY.md" chars={data.documentSizes.identityMarkdown} total={docTotal} />
+            <SectionSizeBar label="SOUL.md" chars={data.documentSizes.soulMarkdown} total={docTotal} />
+          </div>
+
+          {data.installedSkillIds.length > 0 && (
+            <div className="debug-skills-list">
+              <p className="debug-subsection-title">Installed skills</p>
+              {data.installedSkillIds.map((id) => (
+                <code key={id} className="debug-skill-tag">{id}</code>
+              ))}
+            </div>
+          )}
+
+          <div className="debug-bootstrap-toggle">
+            <button
+              type="button"
+              className="hover-levitate"
+              onClick={() => setShowBootstrap((v) => !v)}
+              disabled={!data.bootstrapContent}
+            >
+              {showBootstrap ? "Hide" : "Show"} bootstrap prompt ({kilo(data.bootstrapChars)}c)
+            </button>
+          </div>
+
+          {showBootstrap && data.bootstrapContent && (
+            <pre className="debug-bootstrap-pre">{data.bootstrapContent}</pre>
+          )}
+        </div>
+      )}
+    </Panel>
+  );
+}
+
+function ChannelsPanel({ coreApi }: { coreApi: CoreApi }) {
+  const [channels, setChannels] = useState<ChannelInfo[]>([]);
+  const [loading, setLoading] = useState(false);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    const result = await coreApi.fetchDebugChannels();
+    setLoading(false);
+    if (!result || !Array.isArray((result as AnyRecord).channels)) return;
+    setChannels((result as AnyRecord).channels as ChannelInfo[]);
+  }, [coreApi]);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  return (
+    <Panel
+      title="Active Channels"
+      action={
+        <button type="button" className="hover-levitate" onClick={load} disabled={loading}>
+          {loading ? "Loading..." : "Refresh"}
+        </button>
+      }
+    >
+      {channels.length === 0 ? (
+        <p className="placeholder-text">{loading ? "Loading..." : "No active channels."}</p>
+      ) : (
+        <div className="debug-channels-table">
+          <div className="debug-table-head">
+            <span>Channel</span>
+            <span>Msgs</span>
+            <span>Utilization</span>
+            <span>Bootstrap</span>
+            <span>Workers</span>
+          </div>
+          {channels.map((ch) => (
+            <div key={ch.channelId} className="debug-table-row">
+              <code className="debug-channel-id">{ch.channelId}</code>
+              <span>{ch.messageCount}</span>
+              <UtilBar value={ch.contextUtilization} />
+              <span>{kilo(ch.bootstrapChars)}c</span>
+              <span>{ch.activeWorkerIds.length > 0 ? ch.activeWorkerIds.join(", ") : "—"}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </Panel>
+  );
+}
+
+function PromptTemplatesPanel({ coreApi }: { coreApi: CoreApi }) {
+  const [templates, setTemplates] = useState<PromptTemplate[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+
+  useEffect(() => {
+    setLoading(true);
+    coreApi.fetchDebugPromptTemplates().then((result) => {
+      setLoading(false);
+      if (!result || !Array.isArray((result as AnyRecord).templates)) return;
+      setTemplates((result as AnyRecord).templates as PromptTemplate[]);
+    });
+  }, [coreApi]);
+
+  function toggle(name: string) {
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(name)) {
+        next.delete(name);
+      } else {
+        next.add(name);
+      }
+      return next;
+    });
+  }
+
+  return (
+    <Panel title="Prompt Partials">
+      {loading && <p className="placeholder-text">Loading...</p>}
+      <div className="debug-templates-list">
+        {templates.map((t) => (
+          <div key={t.name} className="debug-template-item">
+            <button
+              type="button"
+              className="debug-template-toggle"
+              onClick={() => toggle(t.name)}
+            >
+              <code>{t.name}</code>
+              <span className="debug-template-meta">{kilo(t.chars)}c</span>
+              <span className="material-symbols-rounded debug-template-chevron" aria-hidden="true">
+                {expanded.has(t.name) ? "expand_less" : "expand_more"}
+              </span>
+            </button>
+            {expanded.has(t.name) && (
+              <pre className="debug-template-content">{t.content}</pre>
+            )}
+          </div>
+        ))}
+      </div>
+    </Panel>
+  );
+}
+
+export function DebugView({ coreApi }: Props) {
+  return (
+    <main className="grid debug-view">
+      <div className="debug-header">
+        <h2>Debug</h2>
+        <p className="placeholder-text">Dev-only. Inspect session context, channel state, and prompt templates.</p>
+      </div>
+      <SessionContextPanel coreApi={coreApi} />
+      <ChannelsPanel coreApi={coreApi} />
+      <PromptTemplatesPanel coreApi={coreApi} />
+    </main>
+  );
+}

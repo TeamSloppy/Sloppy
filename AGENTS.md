@@ -6,7 +6,7 @@ Project type: Swift Package (Swift 6.x) + React/Vite dashboard.
 ## Scope and stack
 - Package manager: SwiftPM (`Package.swift`)
 - Swift platform: macOS 14+
-- Executables: `Core`, `Node`, `App`
+- Executables: `sloppy`, `SloppyNode`
 - Libraries: `Protocols`, `PluginSDK`, `AgentRuntime`
 - Dashboard: `Dashboard/` (`react`, `vite`)
 - Persistence: SQLite (`sqlite3`)
@@ -21,9 +21,8 @@ Run from repo root unless noted.
 ### Build (Swift)
 - `swift build`
 - `swift build -c release`
-- `swift build -c release --product Core`
-- `swift build -c release --product Node`
-- `swift build -c release --product App`
+- `swift build -c release --product sloppy`
+- `swift build -c release --product SloppyNode`
 
 ### Test (Swift)
 - Full suite: `swift test`
@@ -39,14 +38,13 @@ Run from repo root unless noted.
 - Note: `swift test --list-tests` is deprecated; use `swift test list`.
 
 ### Run executables
-- `swift run Core`
-- `swift run Node`
-- `swift run App`
+- `swift run sloppy`
+- `swift run SloppyNode`
 
-Useful `Core` flags:
-- `swift run Core --oneshot`
-- `swift run Core --run-demo-request`
-- `swift run Core --config-path sloppy.json`
+Useful `sloppy` flags:
+- `swift run sloppy --oneshot`
+- `swift run sloppy --run-demo-request`
+- `swift run sloppy --config-path sloppy.json`
 
 ### Dashboard commands (inside `Dashboard/`)
 - `npm install`
@@ -58,15 +56,14 @@ Useful `Core` flags:
 No dedicated lint/format config is committed for SwiftLint, swift-format, ESLint, or Prettier.
 When changing code, preserve local style and validate with:
 - `swift test --parallel`
-- `swift build -c release --product Core`
+- `swift build -c release --product sloppy`
 - `npm run build` (when dashboard files change)
 
 ## CI parity checklist
 CI (`.github/workflows/ci.yml`) runs:
 - `swift test --parallel`
-- `swift build -c release --product Core`
-- `swift build -c release --product Node`
-- `swift build -c release --product App`
+- `swift build -c release --product sloppy`
+- `swift build -c release --product SloppyNode`
 - `npm install` + `npm run build` in `Dashboard/`
 Keep local changes green for the same command set.
 
@@ -125,13 +122,11 @@ Keep local changes green for the same command set.
 - `Sources/AgentRuntime`
   - Runtime actors and orchestration core.
   - Includes channel/worker/branch runtimes, compactor, visor, event bus, memory store, and `RuntimeSystem` facade.
-- `Sources/Core`
+- `Sources/sloppy`
   - Main backend executable and HTTP API server.
   - Includes config loading, router, service layer, NIO transport, and SQLite persistence.
-- `Sources/Node`
+- `Sources/Node` (product: `SloppyNode`)
   - Node daemon executable for process execution.
-- `Sources/App`
-  - App placeholder executable.
 
 ### Tests
 - `Tests/ProtocolsTests`: protocol/model coding and compatibility.

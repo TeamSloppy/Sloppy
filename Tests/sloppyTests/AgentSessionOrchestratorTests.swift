@@ -571,3 +571,126 @@ func notifySkillsChangedDoesNothingForNonBootstrappedSessions() async throws {
     let snapshot = await runtime.channelState(channelId: channelID)
     #expect(snapshot == nil)
 }
+
+@Test
+func agentSessionBootstrapIncludesConversationHistoryAfterRestart() async throws {
+    let agentID = "restart-history-agent"
+    let availableModels = [
+        ProviderModelOption(id: "openai:gpt-4.1-mini", title: "openai:gpt-4.1-mini", capabilities: ["tools"])
+    ]
+    let agentsRootURL = FileManager.default.temporaryDirectory
+        .appendingPathComponent("agent-restart-history-\(UUID().uuidString)", isDirectory: true)
+        .appendingPathComponent("agents", isDirectory: true)
+
+    let catalogStore1 = AgentCatalogFileStore(agentsRootURL: agentsRootURL)
+    let sessionStore1 = AgentSessionFileStore(agentsRootURL: agentsRootURL)
+    _ = try catalogStore1.createAgent(
+        AgentCreateRequest(id: agentID, displayName: "Agent", role: "Test agent"),
+        availableModels: availableModels
+    )
+    _ = try catalogStore1.updateAgentConfig(
+        agentID: agentID,
+        request: AgentConfigUpdateRequest(
+            selectedModel: "openai:gpt-4.1-mini",
+            documents: AgentDocumentBundle(
+                userMarkdown: "# User\nTest\n",
+                agentsMarkdown: "# Agent\nTest\n",
+                soulMarkdown: "",
+                identityMarkdown: ""
+            )
+        ),
+        availableModels: availableModels
+    )
+
+    let provider1 = FixedOutputModelProvider(
+        models: availableModels.map(\.id),
+        output: "Hello! I can help with that."
+    )
+    let runtime1 = RuntimeSystem(modelProvider: provider1, defaultModel: "openai:gpt-4.1-mini")
+    let orchestrator1 = AgentSessionOrchestrator(
+        runtime: runtime1,
+        sessionStore: sessionStore1,
+        agentCatalogStore: catalogStore1,
+        availableModels: availableModels
+    )
+
+    let session = try await orchestrator1.createSession(
+        agentID: agentID,
+        request: AgentSessionCreateRequest(title: "Restart test")
+    )
+    _ = try await orchestrator1.postMessage(
+        agentID: agentID,
+        sessionID: session.id,
+        request: AgentSessionPostMessageRequest(userId: "dashboard", content: "Tell me about Swift concurrency")
+    )
+    _ = try await orchestrator1.postMessage(
+        agentID: agentID,
+        sessionID: session.id,
+        request: AgentSessionPostMessageRequest(userId: "dashboard", content: "How do actors work?")
+    )
+
+    let provider2 = FixedOutputModelProvider(
+        models: availableModels.map(\.id),
+        output: "Continuing the discussion."
+    )
+    let runtime2 = RuntimeSystem(modelProvider: provider2, defaultModel: "openai:gpt-4.1-mini")
+    let sessionStore2 = AgentSessionFileStore(agentsRootURL: agentsRootURL)
+    let catalogStore2 = AgentCatalogFileStore(agentsRootURL: agentsRootURL)
+    let orchestrator2 = AgentSessionOrchestrator(
+        runtime: runtime2,
+        sessionStore: sessionStore2,
+        agentCatalogStore: catalogStore2,
+        availableModels: availableModels
+    )
+
+    _ = try await orchestrator2.postMessage(
+        agentID: agentID,
+        sessionID: session.id,
+        request: AgentSessionPostMessageRequest(userId: "dashboard", content: "Continue please")
+    )
+
+    let channelID = "agent:\(agentID):session:\(session.id)"
+    let snapshot = await runtime2.channelState(channelId: channelID)
+    let bootstrapMessage = snapshot?.messages.first(where: {
+        $0.userId == "system" && $0.content.contains("[agent_session_context_bootstrap_v1]")
+    })?.content ?? ""
+
+    #expect(bootstrapMessage.contains("[Previous conversation history]"))
+    #expect(bootstrapMessage.contains("Tell me about Swift concurrency"))
+    #expect(bootstrapMessage.contains("How do actors work?"))
+    #expect(bootstrapMessage.contains("[End of previous conversation]"))
+}
+
+@Test
+func agentSessionBootstrapOmitsHistoryForFreshSession() async throws {
+    let agentID = "fresh-no-history-agent"
+    let availableModels = [
+        ProviderModelOption(id: "openai:gpt-4.1-mini", title: "openai:gpt-4.1-mini", capabilities: ["tools"])
+    ]
+    let (catalogStore, sessionStore, _) = try makeAgentSessionFixture(
+        agentID: agentID,
+        selectedModel: "openai:gpt-4.1-mini",
+        availableModels: availableModels
+    )
+
+    let runtime = RuntimeSystem()
+    let orchestrator = AgentSessionOrchestrator(
+        runtime: runtime,
+        sessionStore: sessionStore,
+        agentCatalogStore: catalogStore,
+        availableModels: availableModels
+    )
+
+    let session = try await orchestrator.createSession(
+        agentID: agentID,
+        request: AgentSessionCreateRequest()
+    )
+
+    let channelID = "agent:\(agentID):session:\(session.id)"
+    let snapshot = await runtime.channelState(channelId: channelID)
+    let bootstrapMessage = snapshot?.messages.first(where: {
+        $0.userId == "system" && $0.content.contains("[agent_session_context_bootstrap_v1]")
+    })?.content ?? ""
+
+    #expect(!bootstrapMessage.contains("[Previous conversation history]"))
+}

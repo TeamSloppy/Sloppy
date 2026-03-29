@@ -59,11 +59,8 @@ jobs:
       - name: Build sloppy (Release)
         run: swift build -c release --product sloppy
 
-      - name: Build Node (Release)
-        run: swift build -c release --product Node
-
-      - name: Build App (Release)
-        run: swift build -c release --product App
+      - name: Build SloppyNode (Release)
+        run: swift build -c release --product SloppyNode
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2

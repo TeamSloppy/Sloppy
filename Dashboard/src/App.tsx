@@ -16,6 +16,7 @@ import { ActorsView } from "./views/ActorsView";
 import { VisorChatView } from "./features/visor/VisorChatView";
 import { ConfigView } from "./views/ConfigView";
 import { LogsView } from "./views/LogsView";
+import { DebugView } from "./views/DebugView";
 import { NotFoundView } from "./views/NotFoundView";
 import { ProjectsView } from "./views/ProjectsView";
 import { ChannelSessionView } from "./views/ChannelSessionView";
@@ -32,7 +33,7 @@ interface SidebarItem {
 
 type AnyRecord = Record<string, unknown>;
 
-function DashboardShell({ dependencies }: { dependencies: ReturnType<typeof createDependencies> }) {
+function DashboardShell({ dependencies, debugEnabled }: { dependencies: ReturnType<typeof createDependencies>; debugEnabled: boolean }) {
   const runtime = useRuntimeOverview(dependencies.coreApi);
   const { route, setSection, setConfigSection, setProjectRoute, setAgentRoute, setSessionRoute } = useDashboardRoute();
   const [sidebarCompact, setSidebarCompact] = useState(true);
@@ -151,7 +152,14 @@ function DashboardShell({ dependencies }: { dependencies: ReturnType<typeof crea
       id: "logs",
       label: { icon: "description", title: "Logs" },
       content: <LogsView coreApi={dependencies.coreApi} />
-    }
+    },
+    ...(debugEnabled
+      ? [{
+          id: "debug" as const,
+          label: { icon: "bug_report", title: "Debug" },
+          content: <DebugView coreApi={dependencies.coreApi} />
+        }]
+      : [])
   ];
 
   const isNotFound = route.section === "not_found";
@@ -343,7 +351,10 @@ export function App() {
 
   return (
     <NotificationProvider>
-      <DashboardShell dependencies={dependencies} />
+      <DashboardShell
+        dependencies={dependencies}
+        debugEnabled={Boolean((bootState.config as Record<string, unknown> | null)?.debugEnabled)}
+      />
     </NotificationProvider>
   );
 }

@@ -55,8 +55,7 @@ Release builds:
 
 ```bash
 swift build -c release --product sloppy
-swift build -c release --product Node
-swift build -c release --product App
+swift build -c release --product SloppyNode
 ```
 
 ## Preferred local launcher
@@ -101,11 +100,10 @@ swift run sloppy --run-demo-request
 swift run sloppy --config-path sloppy.json
 ```
 
-Run the other executables when needed:
+Run the node daemon when needed:
 
 ```bash
-swift run Node
-swift run App
+swift run SloppyNode
 ```
 
 ## Run the Swift tests
@@ -180,8 +178,7 @@ These are the commands the repository expects contributors to keep green:
 ```bash
 swift test --parallel
 swift build -c release --product sloppy
-swift build -c release --product Node
-swift build -c release --product App
+swift build -c release --product SloppyNode
 cd Dashboard
 npm install
 npm run build

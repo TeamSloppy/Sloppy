@@ -889,7 +889,20 @@ actor AgentSessionOrchestrator {
             )
         }
 
-        let bootstrapContent = bootstrapPrompt.description
+        var bootstrapContent = bootstrapPrompt.description
+
+        if let historyContext = buildConversationHistoryContext(agentID: agentID, sessionID: sessionID) {
+            bootstrapContent += "\n\n" + historyContext
+            logger.info(
+                "Session bootstrap includes conversation history",
+                metadata: [
+                    "agent_id": .string(agentID),
+                    "session_id": .string(sessionID),
+                    "history_chars": .stringConvertible(historyContext.count)
+                ]
+            )
+        }
+
         logger.info(
             "Session bootstrap prompt prepared",
             metadata: [
@@ -1110,6 +1123,68 @@ actor AgentSessionOrchestrator {
         }
 
         return bootstrap + "\n" + newSkillsBlock
+    }
+
+    private func buildConversationHistoryContext(agentID: String, sessionID: String) -> String? {
+        guard let detail = try? sessionStore.loadSession(agentID: agentID, sessionID: sessionID) else {
+            return nil
+        }
+
+        let conversationMessages: [(role: String, text: String)] = detail.events.compactMap { event in
+            guard event.type == .message, let message = event.message else {
+                return nil
+            }
+
+            let text = message.segments
+                .filter { $0.kind == .text }
+                .compactMap(\.text)
+                .joined(separator: "\n")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+
+            guard !text.isEmpty, !text.contains(Self.sessionContextBootstrapMarker) else {
+                return nil
+            }
+
+            switch message.role {
+            case .user:
+                return ("User", text)
+            case .assistant:
+                return ("Assistant", text)
+            case .system:
+                return nil
+            }
+        }
+
+        guard !conversationMessages.isEmpty else {
+            return nil
+        }
+
+        let maxMessages = 50
+        let maxCharacters = 12000
+        var selected: [(role: String, text: String)] = []
+        var totalChars = 0
+
+        for msg in conversationMessages.suffix(maxMessages).reversed() {
+            let entryLen = msg.role.count + 2 + msg.text.count + 1
+            if totalChars + entryLen > maxCharacters && !selected.isEmpty {
+                break
+            }
+            selected.insert(msg, at: 0)
+            totalChars += entryLen
+        }
+
+        guard !selected.isEmpty else {
+            return nil
+        }
+
+        var lines: [String] = ["[Previous conversation history]"]
+        lines.append("The following is the conversation that took place earlier in this session. Use it to maintain context continuity.")
+        for msg in selected {
+            lines.append("\(msg.role): \(msg.text)")
+        }
+        lines.append("[End of previous conversation]")
+
+        return lines.joined(separator: "\n")
     }
 
     private func loadInstalledSkills(agentID: String) -> [InstalledSkill] {

@@ -15,8 +15,7 @@ This guide explains how to work on Sloppy in development and which repository ru
 | `Sources/AgentRuntime` | Runtime actors and orchestration for channels, branches, workers, compactor, and visor |
 | `Sources/Protocols` | Shared wire models and JSON helpers |
 | `Sources/PluginSDK` | Plugin contracts for models, tools, memory, and gateways |
-| `Sources/Node` | Node daemon executable |
-| `Sources/App` | App executable placeholder |
+| `Sources/Node` | Node daemon executable (product: `SloppyNode`) |
 | `Sources/ChannelPluginDiscord` | Discord gateway integration |
 | `Sources/ChannelPluginTelegram` | Telegram gateway integration |
 | `Dashboard/` | React/Vite frontend |
@@ -117,8 +116,7 @@ Before opening a PR, run:
 ```bash
 swift test --parallel
 swift build -c release --product sloppy
-swift build -c release --product Node
-swift build -c release --product App
+swift build -c release --product SloppyNode
 cd Dashboard
 
 ## Built-in channel config

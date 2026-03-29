@@ -1,0 +1,893 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Sloppy Mobile Terminal UI Concept</title>
+    <style>
+      :root {
+        --bg: #000000;
+        --surface: #0a0a0a;
+        --surface-2: #111111;
+        --surface-3: #1a1a1a;
+        --line: #333333;
+        --text: #f0f0f0;
+        --muted: #888888;
+        --accent: #ccff00;
+        --accent-soft: rgba(204, 255, 0, 0.12);
+        --success: #00d1ff;
+        --warn: #ffcc00;
+        --danger: #ff00ff;
+        --panel-shadow: 0 36px 80px rgba(0, 0, 0, 0.55);
+        --mono: "Fira Code", "IBM Plex Mono", "SFMono-Regular", "SF Mono", Menlo, Monaco, Consolas, monospace;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        background:
+          radial-gradient(circle at top left, rgba(204, 255, 0, 0.08), transparent 28%),
+          radial-gradient(circle at bottom right, rgba(0, 209, 255, 0.08), transparent 24%),
+          linear-gradient(180deg, #050505 0%, #000000 100%);
+        color: var(--text);
+        font-family: var(--mono);
+      }
+
+      body::before {
+        content: "";
+        position: fixed;
+        inset: 0;
+        background-image:
+          linear-gradient(rgba(255, 255, 255, 0.03) 1px, transparent 1px),
+          linear-gradient(90deg, rgba(255, 255, 255, 0.03) 1px, transparent 1px);
+        background-size: 32px 32px;
+        mask-image: radial-gradient(circle at center, black 45%, transparent 100%);
+        pointer-events: none;
+        opacity: 0.28;
+      }
+
+      .board {
+        position: relative;
+        max-width: 1480px;
+        margin: 0 auto;
+        padding: 48px 28px 64px;
+      }
+
+      .hero {
+        display: grid;
+        grid-template-columns: minmax(0, 1.2fr) minmax(320px, 0.8fr);
+        gap: 24px;
+        margin-bottom: 30px;
+      }
+
+      .hero-panel,
+      .notes {
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        background:
+          linear-gradient(180deg, rgba(255, 255, 255, 0.03), rgba(255, 255, 255, 0.01)),
+          rgba(10, 10, 10, 0.86);
+        box-shadow: var(--panel-shadow);
+        backdrop-filter: blur(14px);
+      }
+
+      .hero-panel {
+        padding: 28px 28px 24px;
+      }
+
+      .notes {
+        padding: 24px;
+      }
+
+      .pathline,
+      .note-label,
+      .phone-path {
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+        padding: 8px 12px;
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        color: var(--muted);
+        font-size: 12px;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        background: rgba(255, 255, 255, 0.02);
+      }
+
+      .pathline::before,
+      .note-label::before,
+      .phone-path::before {
+        content: "";
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: var(--accent);
+        box-shadow: 0 0 14px rgba(204, 255, 0, 0.65);
+      }
+
+      h1 {
+        margin: 20px 0 12px;
+        font-size: clamp(34px, 6vw, 74px);
+        line-height: 0.92;
+        letter-spacing: -0.05em;
+      }
+
+      .accent {
+        color: var(--accent);
+      }
+
+      .hero-copy {
+        max-width: 860px;
+        margin: 0;
+        color: #d6d6d6;
+        font-size: 15px;
+        line-height: 1.7;
+      }
+
+      .token-row,
+      .tag-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 12px;
+      }
+
+      .token-row {
+        margin-top: 22px;
+      }
+
+      .token,
+      .tag {
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+        padding: 10px 12px;
+        border: 1px solid rgba(255, 255, 255, 0.11);
+        background: rgba(255, 255, 255, 0.02);
+        font-size: 12px;
+        color: var(--muted);
+      }
+
+      .tag {
+        margin-bottom: 14px;
+        font-size: 11px;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+
+      .swatch {
+        width: 12px;
+        height: 12px;
+      }
+
+      .notes h2 {
+        margin: 18px 0 14px;
+        font-size: 18px;
+      }
+
+      .notes p {
+        margin: 0 0 12px;
+        color: #d0d0d0;
+        font-size: 14px;
+        line-height: 1.7;
+      }
+
+      .notes ul {
+        list-style: none;
+        padding: 0;
+        margin: 18px 0 0;
+      }
+
+      .notes li {
+        padding: 10px 0;
+        border-top: 1px solid rgba(255, 255, 255, 0.08);
+        color: #d5d5d5;
+        font-size: 13px;
+        line-height: 1.6;
+      }
+
+      .notes strong {
+        color: var(--text);
+      }
+
+      .screens {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(320px, 1fr));
+        gap: 26px;
+        align-items: start;
+      }
+
+      .screen-card {
+        padding: 18px 18px 24px;
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        background:
+          linear-gradient(180deg, rgba(255, 255, 255, 0.02), rgba(255, 255, 255, 0.01)),
+          rgba(8, 8, 8, 0.9);
+        box-shadow: var(--panel-shadow);
+      }
+
+      .screen-meta {
+        display: flex;
+        justify-content: space-between;
+        gap: 18px;
+        margin-bottom: 18px;
+      }
+
+      .screen-meta h3 {
+        margin: 12px 0 6px;
+        font-size: 22px;
+      }
+
+      .screen-meta p {
+        margin: 0;
+        color: var(--muted);
+        font-size: 13px;
+        line-height: 1.6;
+      }
+
+      .phone {
+        position: relative;
+        width: 100%;
+        max-width: 430px;
+        margin: 0 auto;
+        padding: 18px 14px 16px;
+        border-radius: 40px;
+        border: 1px solid rgba(255, 255, 255, 0.14);
+        background:
+          radial-gradient(circle at top center, rgba(204, 255, 0, 0.06), transparent 18%),
+          linear-gradient(180deg, #040404 0%, #000000 100%);
+        box-shadow:
+          inset 0 1px 0 rgba(255, 255, 255, 0.05),
+          0 22px 40px rgba(0, 0, 0, 0.6);
+        overflow: hidden;
+      }
+
+      .phone::before {
+        content: "";
+        position: absolute;
+        inset: 0;
+        background-image:
+          radial-gradient(circle at 1px 1px, rgba(255, 255, 255, 0.11) 1px, transparent 0);
+        background-size: 18px 18px;
+        opacity: 0.15;
+        pointer-events: none;
+      }
+
+      .notch {
+        width: 34%;
+        height: 28px;
+        margin: 0 auto 10px;
+        border-radius: 0 0 18px 18px;
+        background: #030303;
+        border: 1px solid rgba(255, 255, 255, 0.06);
+        border-top: 0;
+      }
+
+      .statusbar,
+      .phone-header,
+      .composer,
+      .nav {
+        position: relative;
+        z-index: 1;
+      }
+
+      .statusbar {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 14px;
+        padding: 0 4px;
+        color: var(--muted);
+        font-size: 12px;
+      }
+
+      .status-icons {
+        display: inline-flex;
+        gap: 8px;
+      }
+
+      .signal,
+      .wifi,
+      .battery {
+        width: 14px;
+        height: 10px;
+        border: 1px solid currentColor;
+      }
+
+      .wifi {
+        border-radius: 10px 10px 2px 2px;
+        border-bottom: 0;
+      }
+
+      .battery {
+        position: relative;
+        width: 20px;
+      }
+
+      .battery::after {
+        content: "";
+        position: absolute;
+        top: 2px;
+        right: -3px;
+        width: 2px;
+        height: 4px;
+        background: currentColor;
+      }
+
+      .phone-header {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        margin-bottom: 14px;
+      }
+
+      .header-row {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 10px;
+      }
+
+      .title {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+      }
+
+      .title strong {
+        font-size: 18px;
+      }
+
+      .title span {
+        color: var(--muted);
+        font-size: 12px;
+      }
+
+      .runtime-pill,
+      .tiny-pill,
+      .badge,
+      .agent-chip,
+      .mini-tab {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 6px 10px;
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        background: rgba(255, 255, 255, 0.03);
+        color: var(--muted);
+        font-size: 11px;
+        line-height: 1;
+      }
+
+      .runtime-pill.active,
+      .tiny-pill.active,
+      .badge.active,
+      .agent-chip.active,
+      .mini-tab.active {
+        color: var(--accent);
+        border-color: rgba(204, 255, 0, 0.45);
+        background: var(--accent-soft);
+      }
+
+      .searchbar,
+      .composer-field {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 12px 14px;
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        background: rgba(255, 255, 255, 0.03);
+        color: var(--muted);
+        font-size: 13px;
+      }
+
+      .prompt {
+        color: var(--accent);
+      }
+
+      .tabs,
+      .agent-strip {
+        display: flex;
+        gap: 8px;
+        overflow: hidden;
+        flex-wrap: wrap;
+      }
+
+      .tabs {
+        margin-top: 2px;
+      }
+
+      .list {
+        position: relative;
+        z-index: 1;
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+        margin: 16px 0 18px;
+      }
+
+      .chat-row {
+        position: relative;
+        padding: 14px;
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        background: rgba(255, 255, 255, 0.025);
+      }
+
+      .chat-row.active {
+        border-color: rgba(204, 255, 0, 0.4);
+        background: linear-gradient(90deg, rgba(204, 255, 0, 0.08), rgba(255, 255, 255, 0.02));
+      }
+
+      .chat-row.active::before {
+        content: "";
+        position: absolute;
+        top: 10px;
+        bottom: 10px;
+        left: 0;
+        width: 3px;
+        background: var(--accent);
+      }
+
+      .chat-top,
+      .chat-bottom,
+      .message-head {
+        display: flex;
+        justify-content: space-between;
+        gap: 10px;
+        align-items: center;
+      }
+
+      .chat-top strong,
+      .message-head strong {
+        font-size: 14px;
+      }
+
+      .chat-top span,
+      .chat-preview,
+      .chat-bottom,
+      .message-copy,
+      .log-line,
+      .message-time {
+        color: var(--muted);
+        font-size: 11px;
+      }
+
+      .chat-preview {
+        margin: 10px 0 12px;
+        line-height: 1.7;
+      }
+
+      .chat-bottom {
+        gap: 8px;
+      }
+
+      .chat-tags {
+        display: inline-flex;
+        gap: 6px;
+        flex-wrap: wrap;
+      }
+
+      .unread {
+        color: var(--text);
+      }
+
+      .nav {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 8px;
+        padding-top: 12px;
+        border-top: 1px solid rgba(255, 255, 255, 0.08);
+      }
+
+      .nav-item {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        align-items: center;
+        padding: 9px 4px;
+        color: var(--muted);
+        font-size: 10px;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+      }
+
+      .nav-item::before {
+        content: attr(data-icon);
+        color: inherit;
+        font-size: 13px;
+      }
+
+      .nav-item.active {
+        color: var(--accent);
+        background: linear-gradient(180deg, rgba(204, 255, 0, 0.12), transparent);
+      }
+
+      .back-row {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+
+      .back {
+        width: 30px;
+        height: 30px;
+        display: inline-grid;
+        place-items: center;
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        color: var(--text);
+        background: rgba(255, 255, 255, 0.02);
+      }
+
+      .runtime-strip {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 12px;
+        margin: 14px 0 12px;
+        padding: 10px 12px;
+        border: 1px solid rgba(0, 209, 255, 0.2);
+        background: rgba(0, 209, 255, 0.06);
+        color: #bdefff;
+        font-size: 11px;
+      }
+
+      .messages {
+        position: relative;
+        z-index: 1;
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+        margin-bottom: 16px;
+      }
+
+      .message {
+        padding: 12px;
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        background: rgba(255, 255, 255, 0.02);
+      }
+
+      .message.user {
+        border-color: rgba(255, 255, 255, 0.14);
+        background: rgba(255, 255, 255, 0.04);
+      }
+
+      .message.agent {
+        border-color: rgba(204, 255, 0, 0.28);
+        background: linear-gradient(180deg, rgba(204, 255, 0, 0.08), rgba(255, 255, 255, 0.02));
+      }
+
+      .message.system {
+        border-style: dashed;
+        border-color: rgba(0, 209, 255, 0.3);
+        background: rgba(0, 209, 255, 0.04);
+      }
+
+      .message-copy {
+        margin-top: 8px;
+        line-height: 1.8;
+      }
+
+      .log-block {
+        margin-top: 10px;
+        padding: 10px;
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        background: #050505;
+      }
+
+      .log-line {
+        display: flex;
+        justify-content: space-between;
+        gap: 10px;
+        padding: 4px 0;
+      }
+
+      .log-line strong {
+        color: var(--text);
+        font-size: 11px;
+      }
+
+      .system-text {
+        color: #bdefff;
+      }
+
+      .composer {
+        padding-top: 10px;
+        border-top: 1px solid rgba(255, 255, 255, 0.08);
+      }
+
+      .composer-field {
+        justify-content: space-between;
+      }
+
+      .composer-actions {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-top: 10px;
+      }
+
+      .send {
+        margin-left: auto;
+        padding: 10px 14px;
+        border: 1px solid rgba(204, 255, 0, 0.45);
+        background: var(--accent-soft);
+        color: var(--accent);
+        font-size: 11px;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+
+      @media (max-width: 1120px) {
+        .hero,
+        .screens {
+          grid-template-columns: 1fr;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="board">
+      <section class="hero">
+        <div class="hero-panel">
+          <div class="pathline">sloppy://mobile/v0.1</div>
+          <h1>Sloppy <span class="accent">terminal-native</span><br />mobile operator UI</h1>
+          <p class="hero-copy">
+            A mobile direction for Sloppy that treats chat as a live runtime console, not a consumer messenger. The interface
+            borrows from premium CLI tools, keeps the existing dashboard palette, and turns agent orchestration into a compact,
+            touch-friendly operator surface.
+          </p>
+          <div class="token-row">
+            <div class="token"><span class="swatch" style="background:#000000"></span>OLED black</div>
+            <div class="token"><span class="swatch" style="background:#1a1a1a"></span>charcoal layers</div>
+            <div class="token"><span class="swatch" style="background:#ccff00"></span>acid-lime focus</div>
+            <div class="token"><span class="swatch" style="background:#00d1ff"></span>runtime cyan</div>
+            <div class="token"><span class="swatch" style="background:#ffcc00"></span>pending amber</div>
+            <div class="token"><span class="swatch" style="background:#f0f0f0"></span>mono text</div>
+          </div>
+        </div>
+
+        <aside class="notes">
+          <div class="note-label">Design Rules</div>
+          <h2>What this should communicate</h2>
+          <p>Sloppy is a control plane for multi-agent workflows, so the UI should expose runtime state, branching, and activity at a glance.</p>
+          <div class="tag-row">
+            <div class="tag">mono-first</div>
+            <div class="tag">thin chrome</div>
+            <div class="tag">grid noise</div>
+            <div class="tag">diagnostic color</div>
+          </div>
+          <ul>
+            <li><strong>Chat list:</strong> an operator inbox with live sessions, filters, unread counts, and agent presence.</li>
+            <li><strong>Chat view:</strong> a layered feed that mixes user prompts, agent replies, tool events, and runtime logs.</li>
+            <li><strong>Interaction tone:</strong> precise, quiet, high-contrast, more command center than social chat.</li>
+          </ul>
+        </aside>
+      </section>
+
+      <section class="screens">
+        <article class="screen-card">
+          <div class="screen-meta">
+            <div>
+              <div class="phone-path">~/sloppy/chats</div>
+              <h3>Chat List</h3>
+              <p>Active inbox with channel health, session activity, and quick filters.</p>
+            </div>
+            <div class="runtime-pill active">3 agents live</div>
+          </div>
+
+          <div class="phone">
+            <div class="notch"></div>
+            <div class="statusbar">
+              <span>09:41</span>
+              <div class="status-icons">
+                <span class="signal"></span>
+                <span class="wifi"></span>
+                <span class="battery"></span>
+              </div>
+            </div>
+
+            <div class="phone-header">
+              <div class="header-row">
+                <div class="title">
+                  <strong>sloppy/chats</strong>
+                  <span>operator inbox // runtime-visible</span>
+                </div>
+                <div class="tiny-pill active">node online</div>
+              </div>
+              <div class="searchbar"><span class="prompt">&gt;</span><span>find session, channel, agent</span></div>
+              <div class="tabs">
+                <div class="mini-tab active">[all]</div>
+                <div class="mini-tab">running</div>
+                <div class="mini-tab">pinned</div>
+                <div class="mini-tab">alerts</div>
+              </div>
+            </div>
+
+            <div class="list">
+              <div class="chat-row active">
+                <div class="chat-top">
+                  <strong>release/ios</strong>
+                  <span>2m ago</span>
+                </div>
+                <div class="chat-preview">planner spawned 2 workers → reviewer waiting on PR summary</div>
+                <div class="chat-bottom">
+                  <div class="chat-tags">
+                    <div class="badge active">3 agents</div>
+                    <div class="badge">branch-14</div>
+                    <div class="badge">running</div>
+                  </div>
+                  <span class="unread">[04]</span>
+                </div>
+              </div>
+
+              <div class="chat-row">
+                <div class="chat-top">
+                  <strong>docs refresh</strong>
+                  <span>12m ago</span>
+                </div>
+                <div class="chat-preview">visor bulletin posted // compacted after 28 events</div>
+                <div class="chat-bottom">
+                  <div class="chat-tags">
+                    <div class="badge">visor</div>
+                    <div class="badge">summary</div>
+                  </div>
+                  <span>[01]</span>
+                </div>
+              </div>
+
+              <div class="chat-row">
+                <div class="chat-top">
+                  <strong>tg/support</strong>
+                  <span>34m ago</span>
+                </div>
+                <div class="chat-preview">new Telegram binding accepted any chat // awaiting routing review</div>
+                <div class="chat-bottom">
+                  <div class="chat-tags">
+                    <div class="badge active">gateway</div>
+                    <div class="badge">warn</div>
+                  </div>
+                  <span style="color:var(--warn)">[action]</span>
+                </div>
+              </div>
+
+              <div class="chat-row">
+                <div class="chat-top">
+                  <strong>ops/nightly</strong>
+                  <span>1h ago</span>
+                </div>
+                <div class="chat-preview">no incidents // cron jobs green // node CPU stable at 21%</div>
+                <div class="chat-bottom">
+                  <div class="chat-tags">
+                    <div class="badge">cron</div>
+                    <div class="badge">green</div>
+                  </div>
+                  <span>[-]</span>
+                </div>
+              </div>
+            </div>
+
+            <nav class="nav">
+              <div class="nav-item active" data-icon="[]">chats</div>
+              <div class="nav-item" data-icon="@">agents</div>
+              <div class="nav-item" data-icon="#">projects</div>
+              <div class="nav-item" data-icon="*">visor</div>
+            </nav>
+          </div>
+        </article>
+
+        <article class="screen-card">
+          <div class="screen-meta">
+            <div>
+              <div class="phone-path">~/sloppy/chats/release-ios</div>
+              <h3>Chat With Agents</h3>
+              <p>Live conversation feed mixed with agent outputs, worker logs, and fast command input.</p>
+            </div>
+            <div class="runtime-pill active">branch-14</div>
+          </div>
+
+          <div class="phone">
+            <div class="notch"></div>
+            <div class="statusbar">
+              <span>09:41</span>
+              <div class="status-icons">
+                <span class="signal"></span>
+                <span class="wifi"></span>
+                <span class="battery"></span>
+              </div>
+            </div>
+
+            <div class="phone-header">
+              <div class="header-row">
+                <div class="back-row">
+                  <div class="back">&lt;</div>
+                  <div class="title">
+                    <strong>release/ios</strong>
+                    <span>session 89f73f42 // human + 3 agents</span>
+                  </div>
+                </div>
+                <div class="tiny-pill active">live</div>
+              </div>
+
+              <div class="runtime-strip">
+                <span class="system-text">runtime: 3 agents active</span>
+                <span>41 events</span>
+              </div>
+
+              <div class="agent-strip">
+                <div class="agent-chip active">@planner</div>
+                <div class="agent-chip active">@builder</div>
+                <div class="agent-chip">@reviewer</div>
+                <div class="agent-chip">@visor</div>
+              </div>
+            </div>
+
+            <div class="messages">
+              <div class="message user">
+                <div class="message-head">
+                  <strong>user&gt;</strong>
+                  <span class="message-time">09:32</span>
+                </div>
+                <div class="message-copy">Ship the iOS release today. Audit the open PR, fix the failing flow, and tell me what still blocks launch.</div>
+              </div>
+
+              <div class="message system">
+                <div class="message-head">
+                  <strong>runtime</strong>
+                  <span class="message-time">09:33</span>
+                </div>
+                <div class="message-copy system-text">spawned planner, builder, reviewer // tool budget attached // branch-14 created</div>
+              </div>
+
+              <div class="message agent">
+                <div class="message-head">
+                  <strong>planner&gt;</strong>
+                  <span class="message-time">09:34</span>
+                </div>
+                <div class="message-copy">Split work into verification, patching, and launch checklist. Builder owns the failing flow. Reviewer will sweep diff risk after patch lands.</div>
+                <div class="log-block">
+                  <div class="log-line"><strong>[task]</strong><span>builder :: fix flaky channel state refresh</span></div>
+                  <div class="log-line"><strong>[task]</strong><span>reviewer :: inspect PR regression surface</span></div>
+                </div>
+              </div>
+
+              <div class="message agent">
+                <div class="message-head">
+                  <strong>builder&gt;</strong>
+                  <span class="message-time">09:36</span>
+                </div>
+                <div class="message-copy">Root cause isolated: stale session route state after optimistic update. Patch prepared and smoke-verified locally.</div>
+                <div class="log-block">
+                  <div class="log-line"><strong>PATCH</strong><span>route sync now normalizes active session id</span></div>
+                  <div class="log-line"><strong>BUILD</strong><span style="color:var(--accent)">green</span></div>
+                </div>
+              </div>
+
+              <div class="message system">
+                <div class="message-head">
+                  <strong>reviewer</strong>
+                  <span class="message-time">09:38</span>
+                </div>
+                <div class="message-copy system-text">risk remains: Telegram catch-all binding copy should warn about single active chat routing.</div>
+              </div>
+            </div>
+
+            <div class="composer">
+              <div class="composer-field">
+                <span><span class="prompt">&gt;</span> /status @reviewer summarize blockers</span>
+                <span style="color:var(--muted)">return</span>
+              </div>
+              <div class="composer-actions">
+                <div class="tiny-pill">/spawn</div>
+                <div class="tiny-pill">/status</div>
+                <div class="tiny-pill active">@reviewer</div>
+                <button class="send">dispatch</button>
+              </div>
+            </div>
+          </div>
+        </article>
+      </section>
+    </main>
+  </body>
+</html>

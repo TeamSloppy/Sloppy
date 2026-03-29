@@ -3,7 +3,7 @@ import Foundation
 extension CoreRouter {
     static func defaultRoutes(service: CoreService) -> [RouteDefinition] {
         let router = CoreRouterRegistrar()
-        let routers: [APIRouter] = [
+        var routers: [APIRouter] = [
             SystemAPIRouter(service: service),
             ChannelsAPIRouter(service: service),
             SessionsAPIRouter(service: service),
@@ -19,6 +19,10 @@ extension CoreRouter {
             ArtifactsAPIRouter(service: service),
             PluginsAPIRouter(service: service)
         ]
+
+        if !SloppyVersion.isReleaseBuild {
+            routers.append(DebugAPIRouter(service: service))
+        }
 
         for apiRouter in routers {
             apiRouter.configure(on: router)

@@ -10,6 +10,7 @@ export const TOP_LEVEL_SECTIONS = [
   "nodes",
   "config",
   "logs",
+  "debug",
   "not_found"
 ] as const;
 
