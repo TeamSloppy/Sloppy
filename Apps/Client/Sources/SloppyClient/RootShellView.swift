@@ -11,17 +11,31 @@ struct RootShellView: View {
     @State private var activeBanner: NotificationBannerItem?
     @State private var bannerDismissTask: Task<Void, Never>?
     @State private var notificationListenerStarted = false
+    @Environment(\.safeAreaInsets) private var inset
+    @Environment(\.userInterfaceIdiom) private var idiom
 
     var body: some View {
         TabView(selection: $selectedRoute) {
-            Tab(AppRoute.overview.title, value: AppRoute.overview) { routeDestination(.overview) }
-            Tab(AppRoute.projects.title, value: AppRoute.projects) { routeDestination(.projects) }
-            Tab(AppRoute.agents.title, value: AppRoute.agents) { routeDestination(.agents) }
-            Tab(AppRoute.tasks.title, value: AppRoute.tasks) { routeDestination(.tasks) }
-            Tab(AppRoute.review.title, value: AppRoute.review) { routeDestination(.review) }
+            Tab(AppRoute.overview.title, value: AppRoute.overview) {
+                routeDestination(.overview)
+            }
+            Tab(AppRoute.projects.title, value: AppRoute.projects) {
+                routeDestination(.projects)
+            }
+            Tab(AppRoute.agents.title, value: AppRoute.agents) {
+                routeDestination(.agents)
+            }
+            Tab(AppRoute.tasks.title, value: AppRoute.tasks) {
+                routeDestination(.tasks)
+            }
+            Tab(AppRoute.review.title, value: AppRoute.review) {
+                routeDestination(.review)
+            }
         }
-        .background(Theme.bg)
-        .tabViewPosition(.bottom)
+        .background {
+            Theme.bg.ignoresSafeArea()
+        }
+        .tabViewPosition(idiom == .phone ? .bottom : .left)
         .overlay(anchor: .topTrailing) {
             if let banner = activeBanner {
                 NotificationBanner(item: banner)
