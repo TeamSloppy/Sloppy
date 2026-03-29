@@ -13,13 +13,15 @@ struct RootShellView: View {
     @State private var notificationListenerStarted = false
 
     var body: some View {
-        TabContainer(
-            AppRoute.allCases.map { (label: $0.title, value: $0) },
-            selection: $selectedRoute
-        ) { route in
-            routeDestination(route)
+        TabView(selection: $selectedRoute) {
+            Tab(AppRoute.overview.title, value: AppRoute.overview) { routeDestination(.overview) }
+            Tab(AppRoute.projects.title, value: AppRoute.projects) { routeDestination(.projects) }
+            Tab(AppRoute.agents.title, value: AppRoute.agents) { routeDestination(.agents) }
+            Tab(AppRoute.tasks.title, value: AppRoute.tasks) { routeDestination(.tasks) }
+            Tab(AppRoute.review.title, value: AppRoute.review) { routeDestination(.review) }
         }
         .background(Theme.bg)
+        .tabViewPosition(.bottom)
         .overlay(anchor: .topTrailing) {
             if let banner = activeBanner {
                 NotificationBanner(item: banner)

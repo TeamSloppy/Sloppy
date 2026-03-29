@@ -45,11 +45,10 @@ struct AgentDetailView: View {
             .padding(.horizontal, Theme.spacingL)
             .padding(.bottom, Theme.spacingM)
 
-            TabContainer(
-                AgentDetailTab.allCases.map { (label: $0.title, value: $0) },
-                selection: $selectedTab
-            ) { tab in
-                tabContent(tab)
+            TabView(selection: $selectedTab) {
+                Tab(AgentDetailTab.info.title, value: AgentDetailTab.info) { tabContent(.info) }
+                Tab(AgentDetailTab.tasks.title, value: AgentDetailTab.tasks) { tabContent(.tasks) }
+                Tab(AgentDetailTab.chat.title, value: AgentDetailTab.chat) { tabContent(.chat) }
             }
         }
     }
