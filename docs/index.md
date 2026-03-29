@@ -99,15 +99,21 @@ sudo apt-get update && sudo apt-get install -y libsqlite3-dev
 ```bash
 git clone https://github.com/TeamSloppy/Sloppy.git
 cd Sloppy
-swift package resolve
-swift package --allow-writing-to-package-directory --allow-network-connections all sloppy-run
+bash scripts/install.sh
 ```
 
-This builds the dashboard, compiles `sloppy` in release mode, and starts it. Verify the installation:
+This builds the server stack and the Dashboard bundle, then installs `sloppy` into `~/.local/bin`. Verify the installation:
 
 ```bash
 sloppy --version
-sloppy status
+```
+
+Then start the server with `sloppy run`. From another terminal, check it with `sloppy status`.
+
+If you prefer a curl installer flow:
+
+```bash
+curl -fsSL https://sloppy.team/install.sh | bash
 ```
 
 For the full setup guide see [Install](/install). For Docker see [Build With Docker](/guides/build-with-docker).

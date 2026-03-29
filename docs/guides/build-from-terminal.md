@@ -43,6 +43,30 @@ From the repository root:
 swift package resolve
 ```
 
+## Source installer
+
+If you want a one-command setup from a checkout, use:
+
+```bash
+bash scripts/install.sh
+```
+
+Remote bootstrap:
+
+```bash
+curl -fsSL https://sloppy.team/install.sh | bash
+```
+
+Installer modes:
+
+```bash
+bash scripts/install.sh --server-only
+bash scripts/install.sh --bundle --no-prompt
+curl -fsSL https://sloppy.team/install.sh | bash -s -- --server-only
+```
+
+The installer builds `sloppy` and `SloppyNode`, optionally builds the Dashboard, and links the CLI into `~/.local/bin`.
+
 ## Build the Swift targets
 
 Development build:

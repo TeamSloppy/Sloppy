@@ -88,8 +88,16 @@ What makes Sloppy distinct in its current form:
 ```bash
 git clone https://github.com/TeamSloppy/Sloppy.git
 cd Sloppy
-swift package resolve
-swift package --allow-writing-to-package-directory --allow-network-connections all sloppy-run
+bash scripts/install.sh
+```
+
+By default the installer builds the server stack plus the Dashboard bundle. To skip the Dashboard build, run `bash scripts/install.sh --server-only`.
+
+Remote bootstrap variant:
+
+```bash
+curl -fsSL https://sloppy.team/install.sh | bash
+curl -fsSL https://sloppy.team/install.sh | bash -s -- --server-only
 ```
 
 📖 For detailed installation instructions, prerequisites, Docker setup, and environment variables see **[docs.sloppy.team/install](https://docs.sloppy.team/install)**.

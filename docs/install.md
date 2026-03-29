@@ -5,7 +5,7 @@ title: Install
 
 # Install
 
-Two ways to get Sloppy running: directly from the terminal or with Docker Compose.
+Two ways to get Sloppy running: from the source installer or with Docker Compose.
 
 ## Terminal
 
@@ -23,23 +23,58 @@ On Ubuntu/Debian install SQLite headers first:
 sudo apt-get update && sudo apt-get install -y libsqlite3-dev
 ```
 
-### Quick start
+### Source installer
+
+From a local checkout:
 
 ```bash
 git clone https://github.com/TeamSloppy/Sloppy.git
 cd Sloppy
-swift package resolve
-swift package --allow-writing-to-package-directory --allow-network-connections all sloppy-run
+bash scripts/install.sh
 ```
 
-This builds the Dashboard, compiles `sloppy` in release mode, and starts it.
+Or bootstrap from GitHub without cloning first:
+
+```bash
+curl -fsSL https://sloppy.team/install.sh | bash
+```
+
+The installer will:
+
+- build `sloppy` and `SloppyNode` in release mode
+- build the Dashboard bundle by default
+- install `sloppy` and `SloppyNode` symlinks into `~/.local/bin`
+
+Useful modes:
+
+```bash
+bash scripts/install.sh --server-only
+bash scripts/install.sh --bundle --no-prompt
+bash scripts/install.sh --dry-run
+curl -fsSL https://sloppy.team/install.sh | bash -s -- --server-only
+```
+
+If you want the script to clone or update Sloppy for you instead of running from a checkout:
+
+```bash
+bash scripts/install.sh --dir ~/.local/share/sloppy/source
+curl -fsSL https://sloppy.team/install.sh | bash -s -- --dir ~/.local/share/sloppy/source
+```
 
 Verify the installation and check connectivity:
 
 ```bash
 sloppy --version
+```
+
+Then start the server:
+
+```bash
+sloppy run
 sloppy status
 ```
+
+If `sloppy` is not in `PATH`, add `~/.local/bin` to your shell profile.
 
 For details see [Build From Terminal](/guides/build-from-terminal) and the [CLI Reference](/guides/cli).
 
