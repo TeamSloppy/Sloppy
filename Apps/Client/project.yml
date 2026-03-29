@@ -4,7 +4,7 @@ options:
   bundleIdPrefix: team.sloppy
   deploymentTarget:
     macOS: "15.0"
-    iOS: "17.0"
+    iOS: "18.6"
     visionOS: "2.0"
   createIntermediateGroups: true
 
@@ -55,7 +55,7 @@ targets:
   SloppyClient-iOS:
     type: application
     platform: iOS
-    deploymentTarget: "17.0"
+    deploymentTarget: "18.6"
     sources: Sources/SloppyClient
     dependencies:
       - package: SloppyClient
@@ -97,7 +97,7 @@ targets:
   SloppyClient-iPadOS:
     type: application
     platform: iOS
-    deploymentTarget: "17.0"
+    deploymentTarget: "18.6"
     sources: Sources/SloppyClient
     dependencies:
       - package: SloppyClient

@@ -5,7 +5,7 @@ let package = Package(
     name: "SloppyClient",
     platforms: [
         .macOS(.v15),
-        .iOS(.v17)
+        .iOS(.v18)
     ],
     products: [
         .executable(name: "SloppyClient", targets: ["SloppyClient"]),
