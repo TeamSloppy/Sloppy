@@ -42,11 +42,10 @@ struct ProjectDetailView: View {
             .padding(.horizontal, Theme.spacingL)
             .padding(.bottom, Theme.spacingM)
 
-            TabContainer(
-                ProjectDetailTab.allCases.map { (label: $0.title, value: $0) },
-                selection: $selectedTab
-            ) { tab in
-                tabContent(tab)
+            TabView(selection: $selectedTab) {
+                Tab(ProjectDetailTab.info.title, value: ProjectDetailTab.info) { tabContent(.info) }
+                Tab(ProjectDetailTab.tasks.title, value: ProjectDetailTab.tasks) { tabContent(.tasks) }
+                Tab(ProjectDetailTab.channels.title, value: ProjectDetailTab.channels) { tabContent(.channels) }
             }
         }
     }
