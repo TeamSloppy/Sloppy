@@ -7,6 +7,9 @@
 </p>
 
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/TeamSloppy/Sloppy)
+[![License](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/TeamSloppy/Sloppy/blob/main/LICENSE)
+[![](https://img.shields.io/endpoint?url=https%3A%2F%2Fswiftpackageindex.com%2Fapi%2Fpackages%2FTeamSloppy%2FSloppy%2Fbadge%3Ftype%3Dswift-versions)](https://swiftpackageindex.com/TeamSloppy/Sloppy)
+[![](https://img.shields.io/endpoint?url=https%3A%2F%2Fswiftpackageindex.com%2Fapi%2Fpackages%2FTeamSloppy%2FSloppy%2Fbadge%3Ftype%3Dplatforms)](https://swiftpackageindex.com/TeamSloppy/Sloppy)
 
 Sloppy is a multi-agent runtime for building operator-visible AI workflows in Swift 6 on macOS and Linux. It combines a rule-based orchestration core, branch and worker execution, persistent runtime state, model/provider plugins, channel integrations, and a React dashboard for observing what the system is doing.
 

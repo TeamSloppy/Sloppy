@@ -1,5 +1,6 @@
 import AnyLanguageModel
 import Foundation
+import Logging
 import Protocols
 
 struct SessionsHistoryTool: CoreTool {
@@ -22,7 +23,23 @@ struct SessionsHistoryTool: CoreTool {
             let detail = try context.sessionStore.loadSession(agentID: context.agentID, sessionID: targetSession)
             return toolSuccess(tool: name, data: encodeJSONValue(detail))
         } catch {
-            return toolFailure(tool: name, code: "session_history_failed", message: "Failed to load session history.", retryable: true)
+            context.logger.warning(
+                "sessions.history failed",
+                metadata: [
+                    "agent_id": .string(context.agentID),
+                    "session_id": .string(targetSession),
+                    "context_session_id": .string(context.sessionID),
+                    "raw_session_arg": .string(arguments["sessionId"]?.asString ?? "<nil>"),
+                    "error": .string(String(describing: error)),
+                    "error_type": .string(String(reflecting: type(of: error)))
+                ]
+            )
+            return toolFailure(
+                tool: name,
+                code: "session_history_failed",
+                message: "Failed to load session history: \(error)",
+                retryable: true
+            )
         }
     }
 }

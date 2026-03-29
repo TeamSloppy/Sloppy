@@ -1,23 +1,42 @@
 import Foundation
+import Logging
 import Protocols
 
 final class AgentSessionFileStore {
-    enum StoreError: Error {
+    enum StoreError: Error, CustomStringConvertible {
         case invalidAgentID
         case invalidSessionID
         case agentNotFound
         case sessionNotFound
+        case sessionFileNotFound(agentID: String, sessionID: String, agentsRoot: String)
+        case sessionEventsEmpty(agentID: String, sessionID: String, lineCount: Int, filePath: String)
         case invalidPayload
+
+        var description: String {
+            switch self {
+            case .invalidAgentID: return "invalidAgentID"
+            case .invalidSessionID: return "invalidSessionID"
+            case .agentNotFound: return "agentNotFound"
+            case .sessionNotFound: return "sessionNotFound"
+            case .sessionFileNotFound(let a, let s, let root):
+                return "sessionFileNotFound(agent=\(a), session=\(s), agentsRoot=\(root))"
+            case .sessionEventsEmpty(let a, let s, let lc, let fp):
+                return "sessionEventsEmpty(agent=\(a), session=\(s), lines=\(lc), file=\(fp))"
+            case .invalidPayload: return "invalidPayload"
+            }
+        }
     }
 
     private let fileManager: FileManager
     private var agentsRootURL: URL
     private let encoder: JSONEncoder
     private let decoder: JSONDecoder
+    private let logger: Logger
 
     init(agentsRootURL: URL, fileManager: FileManager = .default) {
         self.fileManager = fileManager
         self.agentsRootURL = agentsRootURL
+        self.logger = Logger(label: "sloppy.session.store")
 
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
@@ -198,9 +217,28 @@ final class AgentSessionFileStore {
     }
 
     private func readEvents(agentID: String, sessionID: String) throws -> [AgentSessionEvent] {
-        guard let fileURL = sessionFileURL(agentID: agentID, sessionID: sessionID),
-              fileManager.fileExists(atPath: fileURL.path) else {
-            throw StoreError.sessionNotFound
+        guard let fileURL = sessionFileURL(agentID: agentID, sessionID: sessionID) else {
+            logger.warning(
+                "Session file URL resolution failed",
+                metadata: [
+                    "agent_id": .string(agentID),
+                    "session_id": .string(sessionID),
+                    "agents_root": .string(agentsRootURL.path)
+                ]
+            )
+            throw StoreError.sessionFileNotFound(
+                agentID: agentID,
+                sessionID: sessionID,
+                agentsRoot: agentsRootURL.path
+            )
+        }
+
+        guard fileManager.fileExists(atPath: fileURL.path) else {
+            throw StoreError.sessionFileNotFound(
+                agentID: agentID,
+                sessionID: sessionID,
+                agentsRoot: agentsRootURL.path
+            )
         }
 
         let data = try Data(contentsOf: fileURL)
@@ -225,7 +263,12 @@ final class AgentSessionFileStore {
         }
 
         if events.isEmpty {
-            throw StoreError.sessionNotFound
+            throw StoreError.sessionEventsEmpty(
+                agentID: agentID,
+                sessionID: sessionID,
+                lineCount: lines.count,
+                filePath: fileURL.path
+            )
         }
 
         return events.sorted { $0.createdAt < $1.createdAt }

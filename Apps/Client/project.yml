@@ -1,7 +1,7 @@
 name: SloppyClient
 
 options:
-  bundleIdPrefix: com.teamsloppy
+  bundleIdPrefix: team.sloppy
   deploymentTarget:
     macOS: "15.0"
     iOS: "17.0"
@@ -34,7 +34,7 @@ targets:
       path: SupportingFiles/macOS/Info.plist
       properties:
         CFBundleDisplayName: Sloppy
-        CFBundleIdentifier: com.teamsloppy.SloppyClient
+        CFBundleIdentifier: team.sloppy.client
         CFBundleShortVersionString: "0.1.0"
         CFBundleVersion: "1"
         NSPrincipalClass: NSApplication
@@ -50,7 +50,7 @@ targets:
         DEVELOPMENT_TEAM: 8PYCRS3EA3
         CODE_SIGN_STYLE: Automatic
         PROVISIONING_PROFILE_SPECIFIER: ""
-        PRODUCT_BUNDLE_IDENTIFIER: com.teamsloppy.SloppyClient
+        PRODUCT_BUNDLE_IDENTIFIER: team.sloppy.client
 
   SloppyClient-iOS:
     type: application
@@ -72,7 +72,7 @@ targets:
       path: SupportingFiles/iOS/Info.plist
       properties:
         CFBundleDisplayName: Sloppy
-        CFBundleIdentifier: com.teamsloppy.SloppyClient.ios
+        CFBundleIdentifier: team.sloppy.client
         CFBundleShortVersionString: "0.1.0"
         CFBundleVersion: "1"
         UILaunchScreen: {}
@@ -91,7 +91,7 @@ targets:
       base:
         DEVELOPMENT_TEAM: 8PYCRS3EA3
         CODE_SIGN_STYLE: Automatic
-        PRODUCT_BUNDLE_IDENTIFIER: com.teamsloppy.SloppyClient.ios
+        PRODUCT_BUNDLE_IDENTIFIER: team.sloppy.client
         TARGETED_DEVICE_FAMILY: "1"
 
   SloppyClient-iPadOS:
@@ -114,7 +114,7 @@ targets:
       path: SupportingFiles/iOS/Info.plist
       properties:
         CFBundleDisplayName: Sloppy
-        CFBundleIdentifier: com.teamsloppy.SloppyClient.ipados
+        CFBundleIdentifier: team.sloppy.client
         CFBundleShortVersionString: "0.1.0"
         CFBundleVersion: "1"
         UILaunchScreen: {}
@@ -138,7 +138,7 @@ targets:
       base:
         DEVELOPMENT_TEAM: 8PYCRS3EA3
         CODE_SIGN_STYLE: Automatic
-        PRODUCT_BUNDLE_IDENTIFIER: com.teamsloppy.SloppyClient.ipados
+        PRODUCT_BUNDLE_IDENTIFIER: team.sloppy.client
         TARGETED_DEVICE_FAMILY: "2"
 
   SloppyClient-visionOS:
@@ -161,7 +161,7 @@ targets:
       path: SupportingFiles/visionOS/Info.plist
       properties:
         CFBundleDisplayName: Sloppy
-        CFBundleIdentifier: com.teamsloppy.SloppyClient.visionos
+        CFBundleIdentifier: team.sloppy.client
         CFBundleShortVersionString: "0.1.0"
         CFBundleVersion: "1"
         UILaunchScreen: {}
@@ -174,4 +174,4 @@ targets:
       base:
         DEVELOPMENT_TEAM: 8PYCRS3EA3
         CODE_SIGN_STYLE: Automatic
-        PRODUCT_BUNDLE_IDENTIFIER: com.teamsloppy.SloppyClient.visionos
+        PRODUCT_BUNDLE_IDENTIFIER: team.sloppy.client

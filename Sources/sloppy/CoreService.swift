@@ -6833,7 +6833,7 @@ public actor CoreService {
             return .invalidSessionID
         case .agentNotFound:
             return .agentNotFound
-        case .sessionNotFound:
+        case .sessionNotFound, .sessionFileNotFound, .sessionEventsEmpty:
             return .sessionNotFound
         case .invalidPayload:
             return .invalidPayload
