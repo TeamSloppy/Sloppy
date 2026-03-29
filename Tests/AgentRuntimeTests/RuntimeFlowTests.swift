@@ -1089,8 +1089,8 @@ func openAIOAuthModelIgnoresUnknownSSEEvents() {
     #expect(model.parseSSEReasoningDelta(line) == nil)
 }
 
-private extension JSONValue {
-    var objectValue: [String: JSONValue] {
+private extension Protocols.JSONValue {
+    var objectValue: [String: Protocols.JSONValue] {
         if case .object(let object) = self {
             return object
         }

@@ -155,12 +155,12 @@ actor ACPSessionManager {
         }
     }
 
-    private let logger: Logger
+    private let logger: Logging.Logger
     private var config: CoreConfig.ACP
     private var workspaceRootURL: URL
     private var sessions: [String: ACPManagedSession] = [:]
 
-    init(config: CoreConfig.ACP, workspaceRootURL: URL, logger: Logger = Logger(label: "sloppy.acp")) {
+    init(config: CoreConfig.ACP, workspaceRootURL: URL, logger: Logging.Logger = Logging.Logger(label: "sloppy.acp")) {
         self.config = config
         self.workspaceRootURL = workspaceRootURL
         self.logger = logger
