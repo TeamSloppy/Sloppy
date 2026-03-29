@@ -1094,6 +1094,16 @@ public actor RuntimeSystem {
     public func memoryEntries() async -> [MemoryEntry] {
         await memoryStore.entries()
     }
+
+    /// Returns bootstrap prompt content for the given channel, if available.
+    public func channelBootstrapContent(channelId: String) async -> String? {
+        bootstrapByChannel[channelId]
+    }
+
+    /// Returns snapshots for all channels currently tracked by the runtime.
+    public func activeChannelSnapshots() async -> [ChannelSnapshot] {
+        await channels.snapshots()
+    }
 }
 
 private extension JSONValue {

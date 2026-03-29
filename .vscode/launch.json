@@ -3,7 +3,9 @@
         {
             "type": "swift",
             "request": "launch",
-            "args": ["run"],
+            "args": [
+                "run"
+            ],
             "cwd": "${workspaceFolder:Sloppy}",
             "name": "Debug Sloppy",
             "target": "sloppy",
@@ -13,7 +15,9 @@
         {
             "type": "swift",
             "request": "launch",
-            "args": ["run"],
+            "args": [
+                "run"
+            ],
             "cwd": "${workspaceFolder:Sloppy}",
             "name": "Release Sloppy",
             "target": "sloppy",
@@ -106,7 +110,9 @@
         {
             "type": "swift",
             "request": "launch",
-            "args": ["run"],
+            "args": [
+                "run"
+            ],
             "cwd": "${workspaceFolder:Sloppy}",
             "name": "Local: Debug Sloppy + Dashboard",
             "target": "sloppy",
@@ -116,7 +122,9 @@
         {
             "type": "swift",
             "request": "launch",
-            "args": ["run"],
+            "args": [
+                "run"
+            ],
             "cwd": "${workspaceFolder:Sloppy}",
             "name": "Debug sloppy",
             "target": "sloppy",
@@ -126,12 +134,34 @@
         {
             "type": "swift",
             "request": "launch",
-            "args": ["run"],
+            "args": [
+                "run"
+            ],
             "cwd": "${workspaceFolder:Sloppy}",
             "name": "Release sloppy",
             "target": "sloppy",
             "configuration": "release",
             "preLaunchTask": "swift: Build Release sloppy"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:Sloppy}",
+            "name": "Debug SloppyNode",
+            "target": "SloppyNode",
+            "configuration": "debug",
+            "preLaunchTask": "swift: Build Debug SloppyNode"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:Sloppy}",
+            "name": "Release SloppyNode",
+            "target": "SloppyNode",
+            "configuration": "release",
+            "preLaunchTask": "swift: Build Release SloppyNode"
         }
     ]
 }

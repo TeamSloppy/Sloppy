@@ -1312,7 +1312,7 @@ body.agent-chat-no-page-scroll .page {
 
 .agent-chat-send-button:not(:disabled) {
   border-color: transparent;
-  background: #3a3f4f;
+  background: var(--accent);
   color: #e8ebf5;
 }
 

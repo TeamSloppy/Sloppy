@@ -165,6 +165,9 @@ export interface CoreApi {
   generateText: (payload: AnyRecord) => Promise<AnyRecord | null>;
   fetchVisorReady: () => Promise<AnyRecord | null>;
   postVisorChat: (question: string) => Promise<AnyRecord | null>;
+  fetchDebugSessionContext: (agentId: string, sessionId: string) => Promise<AnyRecord | null>;
+  fetchDebugChannels: () => Promise<AnyRecord | null>;
+  fetchDebugPromptTemplates: () => Promise<AnyRecord | null>;
 }
 
 export function createCoreApi(): CoreApi {
@@ -1419,6 +1422,30 @@ export function createCoreApi(): CoreApi {
         path: "/v1/visor/chat",
         method: "POST",
         body: { question }
+      });
+      if (!response.ok) return null;
+      return response.data;
+    },
+
+    fetchDebugSessionContext: async (agentId, sessionId) => {
+      const response = await requestJson<AnyRecord>({
+        path: `/v1/debug/session-context/${encodeURIComponent(agentId)}/${encodeURIComponent(sessionId)}`
+      });
+      if (!response.ok) return null;
+      return response.data;
+    },
+
+    fetchDebugChannels: async () => {
+      const response = await requestJson<AnyRecord>({
+        path: "/v1/debug/channels"
+      });
+      if (!response.ok) return null;
+      return response.data;
+    },
+
+    fetchDebugPromptTemplates: async () => {
+      const response = await requestJson<AnyRecord>({
+        path: "/v1/debug/prompt-templates"
       });
       if (!response.ok) return null;
       return response.data;

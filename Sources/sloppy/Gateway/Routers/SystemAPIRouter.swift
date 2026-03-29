@@ -1,6 +1,21 @@
 import Foundation
 import Protocols
 
+private struct RuntimeConfigResponse: Encodable {
+    var config: CoreConfig
+    var debugEnabled: Bool
+
+    func encode(to encoder: Encoder) throws {
+        try config.encode(to: encoder)
+        var container = encoder.container(keyedBy: RuntimeConfigResponseKeys.self)
+        try container.encode(debugEnabled, forKey: .debugEnabled)
+    }
+
+    private enum RuntimeConfigResponseKeys: String, CodingKey {
+        case debugEnabled
+    }
+}
+
 private struct UpdateStatusResponse: Encodable {
     var currentVersion: String
     var latestVersion: String?
@@ -71,7 +86,8 @@ struct SystemAPIRouter: APIRouter {
 
         router.get("/v1/config", metadata: RouteMetadata(summary: "Get config", description: "Returns the current sloppy configuration", tags: ["System"])) { _ in
             let config = await service.getConfig()
-            return CoreRouter.encodable(status: HTTPStatus.ok, payload: config)
+            let response = RuntimeConfigResponse(config: config, debugEnabled: !SloppyVersion.isReleaseBuild)
+            return CoreRouter.encodable(status: HTTPStatus.ok, payload: response)
         }
 
         router.get("/v1/logs", metadata: RouteMetadata(summary: "Get logs", description: "Returns the system logs", tags: ["System"])) { _ in
