@@ -51,7 +51,7 @@ struct MCPDynamicTool: Sendable {
 }
 
 actor ManagedMCPStdioTransport: Transport {
-    nonisolated let logger: Logger
+    nonisolated let logger: Logging.Logger
 
     private let command: String
     private let arguments: [String]
@@ -64,7 +64,7 @@ actor ManagedMCPStdioTransport: Transport {
     private let messageStream: AsyncThrowingStream<Data, Error>
     private let messageContinuation: AsyncThrowingStream<Data, Error>.Continuation
 
-    init(command: String, arguments: [String], cwd: String?, logger: Logger) {
+    init(command: String, arguments: [String], cwd: String?, logger: Logging.Logger) {
         self.command = command
         self.arguments = arguments
         self.cwd = cwd
@@ -165,11 +165,11 @@ actor ManagedMCPStdioTransport: Transport {
 
 actor MCPServerConnection {
     private let config: CoreConfig.MCP.Server
-    private let logger: Logger
+    private let logger: Logging.Logger
     private var client: Client?
     private var transport: (any Transport)?
 
-    init(config: CoreConfig.MCP.Server, logger: Logger) {
+    init(config: CoreConfig.MCP.Server, logger: Logging.Logger) {
         self.config = config
         self.logger = logger
     }
@@ -209,7 +209,7 @@ actor MCPServerConnection {
         return try await client.listPrompts(cursor: cursor)
     }
 
-    func getPrompt(name: String, arguments: [String: Value]?) async throws -> (description: String?, messages: [Prompt.Message]) {
+    func getPrompt(name: String, arguments: [String: String]?) async throws -> (description: String?, messages: [Prompt.Message]) {
         let client = try await ensureClient()
         return try await client.getPrompt(name: name, arguments: arguments)
     }
@@ -271,11 +271,11 @@ actor MCPServerConnection {
 
 actor MCPClientRegistry {
     private var config: CoreConfig.MCP
-    private let logger: Logger
+    private let logger: Logging.Logger
     private var connections: [String: MCPServerConnection] = [:]
     private var dynamicToolsByID: [String: MCPDynamicTool] = [:]
 
-    init(config: CoreConfig.MCP, logger: Logger = Logger(label: "sloppy.mcp")) {
+    init(config: CoreConfig.MCP, logger: Logging.Logger = Logging.Logger(label: "sloppy.mcp")) {
         self.config = config
         self.logger = logger
     }
@@ -334,7 +334,16 @@ actor MCPClientRegistry {
 
     func getPrompt(serverID: String, name: String, arguments: [String: JSONValue]) async throws -> (description: String?, messages: [Prompt.Message]) {
         let connection = try connection(for: serverID)
-        let convertedArguments = arguments.mapValues(Self.mcpValue(from:))
+        let convertedArguments = arguments.mapValues { jsonValue -> String in
+            switch jsonValue {
+            case .string(let s): return s
+            case .number(let n): return String(n)
+            case .bool(let b): return String(b)
+            case .array(let arr): return arr.description
+            case .object(let obj): return obj.description
+            case .null: return ""
+            }
+        }
         return try await connection.getPrompt(name: name, arguments: convertedArguments)
     }
 
@@ -412,7 +421,7 @@ actor MCPClientRegistry {
         }
         let connection = MCPServerConnection(
             config: server,
-            logger: Logger(label: "sloppy.mcp.\(serverID)")
+            logger: Logging.Logger(label: "sloppy.mcp.\(serverID)")
         )
         connections[serverID] = connection
         return connection
@@ -525,7 +534,7 @@ actor MCPClientRegistry {
     static func flattenText(from content: [MCP.Tool.Content]) -> String {
         content.compactMap { item -> String? in
             switch item {
-            case .text(let text):
+            case .text(let text, _, _):
                 return text
             case .resource(let resource, _, _):
                 return resource.text
@@ -554,14 +563,34 @@ actor MCPClientRegistry {
     }
 
     static func jsonValue(from resource: Resource) -> JSONValue {
-        .object([
+        var dict: [String: JSONValue] = [
             "name": .string(resource.name),
-            "title": resource.title.map(JSONValue.string) ?? .null,
-            "uri": .string(resource.uri),
-            "description": resource.description.map(JSONValue.string) ?? .null,
-            "mimeType": resource.mimeType.map(JSONValue.string) ?? .null,
-            "metadata": .object((resource.metadata ?? [:]).mapValues(JSONValue.string))
-        ])
+            "uri": .string(resource.uri)
+        ]
+        if let title = resource.title {
+            dict["title"] = .string(title)
+        }
+        if let description = resource.description {
+            dict["description"] = .string(description)
+        }
+        if let mimeType = resource.mimeType {
+            dict["mimeType"] = .string(mimeType)
+        }
+        var annotationsDict: [String: JSONValue] = [:]
+        if let audience = resource.annotations?.audience {
+            annotationsDict["audience"] = .array(audience.map { .string($0.rawValue) })
+        }
+        if let priority = resource.annotations?.priority {
+            annotationsDict["priority"] = .number(priority)
+        }
+        if let lastModified = resource.annotations?.lastModified {
+            annotationsDict["lastModified"] = .string(lastModified)
+        }
+        dict["annotations"] = .object(annotationsDict)
+        if let meta = resource._meta {
+            dict["_meta"] = jsonValue(from: meta)
+        }
+        return .object(dict)
     }
 
     static func jsonValue(from resourceContent: Resource.Content) -> JSONValue {
@@ -620,24 +649,32 @@ actor MCPClientRegistry {
                 "type": .string("resource"),
                 "resource": jsonValue(from: resource)
             ])
+        case .resourceLink(let uri, let name, let title, let description, let mimeType, _):
+            return .object([
+                "type": .string("resource_link"),
+                "uri": .string(uri),
+                "name": .string(name),
+                "title": title.map(JSONValue.string) ?? .null,
+                "description": description.map(JSONValue.string) ?? .null,
+                "mimeType": mimeType.map(JSONValue.string) ?? .null
+            ])
         }
     }
 
     static func jsonValue(from content: MCP.Tool.Content) -> JSONValue {
         switch content {
-        case .text(let text):
+        case .text(let text, _, _):
             return .object([
                 "type": .string("text"),
                 "text": .string(text)
             ])
-        case .image(let data, let mimeType, let metadata):
+        case .image(let data, let mimeType, _, _):
             return .object([
                 "type": .string("image"),
                 "data": .string(data),
-                "mimeType": .string(mimeType),
-                "metadata": metadata.map(jsonValue(from:)) ?? .null
+                "mimeType": .string(mimeType)
             ])
-        case .audio(let data, let mimeType):
+        case .audio(let data, let mimeType, _, _):
             return .object([
                 "type": .string("audio"),
                 "data": .string(data),
