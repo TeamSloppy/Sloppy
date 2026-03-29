@@ -21,6 +21,12 @@ import { NotFoundView } from "./views/NotFoundView";
 import { ProjectsView } from "./views/ProjectsView";
 import { ChannelSessionView } from "./views/ChannelSessionView";
 import { RuntimeOverviewView } from "./views/RuntimeOverviewView";
+import {
+  getStoredApiBaseOverride,
+  normalizeApiBaseInput,
+  resolveApiBase,
+  setStoredApiBaseOverride
+} from "./shared/api/httpClient";
 
 interface SidebarItem {
   id: string;
@@ -262,47 +268,85 @@ export function App() {
     config: null,
     error: ""
   });
+  const [apiBaseInput, setApiBaseInput] = useState(() => getStoredApiBaseOverride() || resolveApiBase());
+  const [apiBaseError, setApiBaseError] = useState("");
+  const [bootAttempt, setBootAttempt] = useState(0);
 
   useEffect(() => {
     let isCancelled = false;
 
-    async function bootstrap() {
-      const config = await dependencies.coreApi.fetchRuntimeConfig();
-      if (isCancelled) {
-        return;
-      }
+    async function runBootstrap() {
+      setBootState((current) => ({
+        ...current,
+        isLoading: true,
+        error: ""
+      }));
 
-      if (!config) {
+      try {
+        const config = await dependencies.coreApi.fetchRuntimeConfig();
+        if (isCancelled) {
+          return;
+        }
+
+        if (!config) {
+          setBootState({
+            isLoading: false,
+            config: null,
+            error: "Failed to load runtime config."
+          });
+          return;
+        }
+
+        setBootState({
+          isLoading: false,
+          config,
+          error: ""
+        });
+      } catch {
+        if (isCancelled) {
+          return;
+        }
         setBootState({
           isLoading: false,
           config: null,
           error: "Failed to load runtime config."
         });
-        return;
       }
-
-      setBootState({
-        isLoading: false,
-        config,
-        error: ""
-      });
     }
 
-    bootstrap().catch(() => {
-      if (isCancelled) {
-        return;
-      }
-      setBootState({
-        isLoading: false,
-        config: null,
-        error: "Failed to load runtime config."
-      });
-    });
+    void runBootstrap();
 
     return () => {
       isCancelled = true;
     };
-  }, [dependencies]);
+  }, [dependencies, bootAttempt]);
+
+  function retryBootstrap() {
+    setApiBaseError("");
+    setBootAttempt((value) => value + 1);
+  }
+
+  function handleApiBaseConnect() {
+    const trimmed = apiBaseInput.trim();
+    if (!trimmed) {
+      setStoredApiBaseOverride("");
+      setApiBaseInput(resolveApiBase());
+      setApiBaseError("");
+      retryBootstrap();
+      return;
+    }
+
+    const normalized = normalizeApiBaseInput(trimmed);
+    if (!normalized) {
+      setApiBaseError("Enter host:port or full http(s) URL.");
+      return;
+    }
+
+    setStoredApiBaseOverride(normalized);
+    setApiBaseInput(normalized);
+    setApiBaseError("");
+    retryBootstrap();
+  }
 
   if (bootState.isLoading) {
     return (
@@ -321,13 +365,54 @@ export function App() {
         <div className="onboarding-loading-card onboarding-loading-card-error">
           <span className="onboarding-loading-kicker">Sloppy init</span>
           <strong>{bootState.error || "Runtime config is unavailable."}</strong>
-          <button
-            type="button"
-            className="onboarding-primary-button"
-            onClick={() => window.location.reload()}
-          >
-            Retry
-          </button>
+          <div className="onboarding-loading-form">
+            <label className="onboarding-loading-label" htmlFor="sloppy-api-base">
+              Core API URL
+            </label>
+            <input
+              id="sloppy-api-base"
+              className="onboarding-loading-input"
+              type="text"
+              inputMode="url"
+              autoCapitalize="off"
+              autoCorrect="off"
+              spellCheck={false}
+              placeholder="192.168.1.50:25101"
+              value={apiBaseInput}
+              onChange={(event) => {
+                setApiBaseInput(event.target.value);
+                if (apiBaseError) {
+                  setApiBaseError("");
+                }
+              }}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  event.preventDefault();
+                  handleApiBaseConnect();
+                }
+              }}
+            />
+            <span className="onboarding-loading-hint">
+              Enter `ip:port` or a full `http://` / `https://` URL for `sloppy-core`.
+            </span>
+            {apiBaseError ? <span className="onboarding-loading-error">{apiBaseError}</span> : null}
+          </div>
+          <div className="onboarding-loading-actions">
+            <button
+              type="button"
+              className="onboarding-ghost-button"
+              onClick={retryBootstrap}
+            >
+              Retry
+            </button>
+            <button
+              type="button"
+              className="onboarding-primary-button"
+              onClick={handleApiBaseConnect}
+            >
+              Connect
+            </button>
+          </div>
         </div>
       </div>
     );

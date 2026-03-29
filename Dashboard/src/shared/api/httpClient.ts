@@ -16,14 +16,71 @@ export interface JsonResponse<TData> {
   data: TData | null;
 }
 
+export const API_BASE_OVERRIDE_STORAGE_KEY = "sloppy_api_base_override";
 const DEFAULT_API_BASE = "http://localhost:25101";
 
-export function resolveApiBase() {
-  const configured = window.__SLOPPY_CONFIG__?.apiBase;
-  if (typeof configured !== "string" || configured.trim().length === 0) {
-    return DEFAULT_API_BASE;
+export function normalizeApiBaseInput(value: string) {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return "";
   }
-  return configured.trim().replace(/\/+$/, "");
+
+  const withProtocol = /^[a-zA-Z][a-zA-Z\d+\-.]*:\/\//.test(trimmed) ? trimmed : `http://${trimmed}`;
+
+  try {
+    const url = new URL(withProtocol);
+    if (!/^https?:$/.test(url.protocol) || !url.hostname || url.username || url.password || url.pathname !== "/" || url.search || url.hash) {
+      return "";
+    }
+    return url.toString().replace(/\/+$/, "");
+  } catch {
+    return "";
+  }
+}
+
+export function getStoredApiBaseOverride() {
+  try {
+    const stored = window.localStorage.getItem(API_BASE_OVERRIDE_STORAGE_KEY);
+    if (typeof stored !== "string") {
+      return "";
+    }
+    return normalizeApiBaseInput(stored);
+  } catch {
+    return "";
+  }
+}
+
+export function setStoredApiBaseOverride(value: string) {
+  try {
+    const normalized = normalizeApiBaseInput(value);
+    if (!normalized) {
+      window.localStorage.removeItem(API_BASE_OVERRIDE_STORAGE_KEY);
+      return "";
+    }
+    window.localStorage.setItem(API_BASE_OVERRIDE_STORAGE_KEY, normalized);
+    return normalized;
+  } catch {
+    return "";
+  }
+}
+
+export function resolveApiBase() {
+  const storedOverride = getStoredApiBaseOverride();
+  if (storedOverride) {
+    return storedOverride;
+  }
+
+  const configured = window.__SLOPPY_CONFIG__?.apiBase;
+  if (typeof configured === "string" && configured.trim().length > 0) {
+    return normalizeApiBaseInput(configured) || configured.trim().replace(/\/+$/, "");
+  }
+
+  const envConfigured = import.meta.env.VITE_API_BASE;
+  if (typeof envConfigured === "string" && envConfigured.trim().length > 0) {
+    return normalizeApiBaseInput(envConfigured) || envConfigured.trim().replace(/\/+$/, "");
+  }
+
+  return DEFAULT_API_BASE;
 }
 
 export function buildApiURL(path: string) {

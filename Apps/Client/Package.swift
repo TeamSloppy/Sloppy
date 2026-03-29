@@ -32,7 +32,8 @@ let package = Package(
             dependencies: [
                 .product(name: "AdaEngine", package: "AdaEngine")
             ],
-            path: "Sources/SloppyClientUI"
+            path: "Sources/SloppyClientUI",
+            resources: [.process("Assets")]
         ),
         .target(
             name: "SloppyFeatureOverview",
