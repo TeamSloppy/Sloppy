@@ -16,19 +16,19 @@ struct RootShellView: View {
 
     var body: some View {
         TabView(selection: $selectedRoute) {
-            Tab(AppRoute.overview.title, value: AppRoute.overview) {
+            Tab(AppRoute.overview.title, image: Icons.home, value: AppRoute.overview) {
                 routeDestination(.overview)
             }
-            Tab(AppRoute.projects.title, value: AppRoute.projects) {
+            Tab(AppRoute.projects.title, image: Icons.star, value: AppRoute.projects) {
                 routeDestination(.projects)
             }
-            Tab(AppRoute.agents.title, value: AppRoute.agents) {
+            Tab(AppRoute.agents.title, image: Icons.star, value: AppRoute.agents) {
                 routeDestination(.agents)
             }
-            Tab(AppRoute.tasks.title, value: AppRoute.tasks) {
+            Tab(AppRoute.tasks.title, image: Icons.star, value: AppRoute.tasks) {
                 routeDestination(.tasks)
             }
-            Tab(AppRoute.review.title, value: AppRoute.review) {
+            Tab(AppRoute.review.title, image: Icons.star, value: AppRoute.review) {
                 routeDestination(.review)
             }
         }
@@ -75,6 +75,7 @@ struct RootShellView: View {
         }
         .padding(24)
         .border(.fromHex(0x2A2A2A), lineWidth: 1)
+        .frame(height: 800)
     }
 
     private func startNotificationListener() {

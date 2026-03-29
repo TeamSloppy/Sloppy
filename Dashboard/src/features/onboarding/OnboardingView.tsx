@@ -294,6 +294,17 @@ function createConfigWithProvider(
   return next;
 }
 
+function createConfigWithoutProvider(config: AnyRecord, onboardingCompleted: boolean) {
+  const next = clone(config);
+  next.workspace = {
+    ...(typeof next.workspace === "object" && next.workspace ? (next.workspace as AnyRecord) : {}),
+    name: ".sloppy",
+    basePath: String((next.workspace as AnyRecord | undefined)?.basePath || "~")
+  };
+  next.onboarding = { completed: onboardingCompleted };
+  return next;
+}
+
 function providerCardIcon(providerId: string) {
   if (providerId === "openai-api") {
     return "auto_awesome";
@@ -824,6 +835,32 @@ export function OnboardingView({ coreApi, initialConfig, onCompleted }: Onboardi
     setIsSubmitting(false);
   }
 
+  async function skipProviderSetup() {
+    if (isSubmitting || stepIndex !== 0) {
+      return;
+    }
+
+    setIsSubmitting(true);
+
+    try {
+      setStatusText("Skipping provider setup. You can configure it later in Settings.");
+      const completedConfig = createConfigWithoutProvider(initialConfig, true);
+      const finalized = await coreApi.updateRuntimeConfig(completedConfig);
+      if (!finalized) {
+        throw new Error("Failed to skip provider setup.");
+      }
+
+      onCompleted(finalized);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Failed to skip provider setup.";
+      setStatusText(message);
+      setIsSubmitting(false);
+      return;
+    }
+
+    setIsSubmitting(false);
+  }
+
   async function runAgentGeneration() {
     setGenerationPhase("generating");
     setStatusText("Generating agent files…");
@@ -998,6 +1035,10 @@ export function OnboardingView({ coreApi, initialConfig, onCompleted }: Onboardi
                 </button>
               </div>
 
+              <div className="onboarding-inline-note">
+                No proxy or VPN yet? Skip provider setup for now and configure it later in Settings.
+              </div>
+
               <div className={`onboarding-provider-status ${probeOk ? "ok" : "warn"}`}>
                 <strong>{probeOk ? "Ready" : "Pending"}</strong>
                 <span>{probeStatus}</span>
@@ -1132,8 +1173,13 @@ export function OnboardingView({ coreApi, initialConfig, onCompleted }: Onboardi
         </div>
 
         <div className="onboarding-footer">
-          <button type="button" className="onboarding-ghost-button hover-levitate" onClick={previousStep} disabled={stepIndex === 0 || isSubmitting}>
-            Back
+          <button
+            type="button"
+            className="onboarding-ghost-button hover-levitate"
+            onClick={stepIndex === 0 ? () => void skipProviderSetup() : previousStep}
+            disabled={isSubmitting}
+          >
+            {stepIndex === 0 ? "Skip for now" : "Back"}
           </button>
           <button
             type="button"
