@@ -17,7 +17,7 @@ public struct SettingsScreen: View {
             VStack(alignment: .leading, spacing: Theme.spacingXL) {
                 headerSection
 
-                ClientSettingsSection()
+                ClientSettingsSection(settings: settings)
 
                 if let config {
                     ServerConfigListView(config: config, onSave: saveConfig)
@@ -28,7 +28,6 @@ public struct SettingsScreen: View {
             .padding(.bottom, Theme.spacingXXL)
         }
         .background(Theme.bg)
-        .environment(settings)
         .onAppear { loadConfig() }
     }
 

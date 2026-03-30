@@ -3,7 +3,7 @@ import SloppyClientCore
 import SloppyClientUI
 
 struct ClientSettingsSection: View {
-    @Environment(ClientSettings.self) private var settings
+    let settings: ClientSettings
 
     @State private var hostDraft: String = ""
     @State private var portDraft: String = ""
