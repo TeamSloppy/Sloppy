@@ -30,6 +30,8 @@ targets:
         product: SloppyFeatureProjects
       - package: SloppyClient
         product: SloppyFeatureAgents
+      - package: SloppyClient
+        product: SloppyFeatureSettings
     info:
       path: SupportingFiles/macOS/Info.plist
       properties:
@@ -68,6 +70,8 @@ targets:
         product: SloppyFeatureProjects
       - package: SloppyClient
         product: SloppyFeatureAgents
+      - package: SloppyClient
+        product: SloppyFeatureSettings
     info:
       path: SupportingFiles/iOS/Info.plist
       properties:
@@ -110,6 +114,8 @@ targets:
         product: SloppyFeatureProjects
       - package: SloppyClient
         product: SloppyFeatureAgents
+      - package: SloppyClient
+        product: SloppyFeatureSettings
     info:
       path: SupportingFiles/iOS/Info.plist
       properties:
@@ -157,6 +163,8 @@ targets:
         product: SloppyFeatureProjects
       - package: SloppyClient
         product: SloppyFeatureAgents
+      - package: SloppyClient
+        product: SloppyFeatureSettings
     info:
       path: SupportingFiles/visionOS/Info.plist
       properties:

@@ -119,6 +119,16 @@ public actor SloppyAPIClient {
         return response.summary
     }
 
+    // MARK: - Config API
+
+    public func fetchConfig() async throws -> SloppyConfig {
+        try await get("/v1/config")
+    }
+
+    public func updateConfig(_ config: SloppyConfig) async throws -> SloppyConfig {
+        try await put("/v1/config", body: config)
+    }
+
     // MARK: - Private helpers
 
     private func get<T: Decodable>(_ path: String) async throws -> T {
@@ -128,6 +138,27 @@ public actor SloppyAPIClient {
         request.setValue("application/json", forHTTPHeaderField: "Accept")
 
         logger.debug("GET \(url.absoluteString)")
+        let (data, response) = try await session.data(for: request)
+
+        guard let http = response as? HTTPURLResponse else {
+            throw APIError.invalidResponse
+        }
+        guard (200..<300).contains(http.statusCode) else {
+            throw APIError.httpError(statusCode: http.statusCode)
+        }
+
+        return try decoder.decode(T.self, from: data)
+    }
+
+    private func put<Body: Encodable, T: Decodable>(_ path: String, body: Body) async throws -> T {
+        let url = baseURL.appendingPathComponent(path)
+        var request = URLRequest(url: url)
+        request.httpMethod = "PUT"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        request.httpBody = try encoder.encode(body)
+
+        logger.debug("PUT \(url.absoluteString)")
         let (data, response) = try await session.data(for: request)
 
         guard let http = response as? HTTPURLResponse else {

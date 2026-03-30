@@ -4,6 +4,7 @@ import SloppyClientUI
 import SloppyFeatureOverview
 import SloppyFeatureProjects
 import SloppyFeatureAgents
+import SloppyFeatureSettings
 
 struct RootShellView: View {
     @State private var selectedRoute: AppRoute = .overview
@@ -30,6 +31,9 @@ struct RootShellView: View {
             }
             Tab(AppRoute.review.title, image: Icons.star, value: AppRoute.review) {
                 routeDestination(.review)
+            }
+            Tab(AppRoute.settings.title, image: Icons.star, value: AppRoute.settings) {
+                routeDestination(.settings)
             }
         }
         .background {
@@ -61,6 +65,8 @@ struct RootShellView: View {
             placeholderView(route)
         case .review:
             placeholderView(route)
+        case .settings:
+            SettingsScreen()
         }
     }
 
