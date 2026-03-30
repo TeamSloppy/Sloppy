@@ -6,6 +6,7 @@ public enum AppRoute: String, CaseIterable, Hashable, Identifiable, Sendable {
     case agents
     case tasks
     case review
+    case settings
 
     public var id: String { rawValue }
 
@@ -16,6 +17,7 @@ public enum AppRoute: String, CaseIterable, Hashable, Identifiable, Sendable {
         case .agents: "Agents"
         case .tasks: "Tasks"
         case .review: "Review"
+        case .settings: "Settings"
         }
     }
 
@@ -26,6 +28,7 @@ public enum AppRoute: String, CaseIterable, Hashable, Identifiable, Sendable {
         case .agents: "person.2"
         case .tasks: "checklist"
         case .review: "eye"
+        case .settings: "gearshape"
         }
     }
 }

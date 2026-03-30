@@ -13,7 +13,8 @@ let package = Package(
         .library(name: "SloppyClientUI", targets: ["SloppyClientUI"]),
         .library(name: "SloppyFeatureOverview", targets: ["SloppyFeatureOverview"]),
         .library(name: "SloppyFeatureProjects", targets: ["SloppyFeatureProjects"]),
-        .library(name: "SloppyFeatureAgents", targets: ["SloppyFeatureAgents"])
+        .library(name: "SloppyFeatureAgents", targets: ["SloppyFeatureAgents"]),
+        .library(name: "SloppyFeatureSettings", targets: ["SloppyFeatureSettings"])
     ],
     dependencies: [
         .package(url: "https://github.com/apple/swift-log.git", from: "1.6.0"),
@@ -62,6 +63,15 @@ let package = Package(
             ],
             path: "Sources/SloppyFeatureAgents"
         ),
+        .target(
+            name: "SloppyFeatureSettings",
+            dependencies: [
+                "SloppyClientCore",
+                "SloppyClientUI",
+                .product(name: "AdaEngine", package: "AdaEngine")
+            ],
+            path: "Sources/SloppyFeatureSettings"
+        ),
         .executableTarget(
             name: "SloppyClient",
             dependencies: [
@@ -70,6 +80,7 @@ let package = Package(
                 "SloppyFeatureOverview",
                 "SloppyFeatureProjects",
                 "SloppyFeatureAgents",
+                "SloppyFeatureSettings",
                 .product(name: "Logging", package: "swift-log"),
                 .product(name: "AdaEngine", package: "AdaEngine")
             ],
