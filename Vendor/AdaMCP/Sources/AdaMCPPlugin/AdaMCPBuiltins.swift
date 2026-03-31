@@ -32,16 +32,15 @@ enum AdaMCPBuiltins {
             ],
             serialization: .custom
         )) { camera in
-            [
-                "isActive": camera.isActive,
-                "renderOrder": camera.renderOrder,
+            .object([
+                "isActive": .bool(camera.isActive),
+                "renderOrder": .int(camera.renderOrder),
                 "viewport": try Value(camera.viewport),
                 "logicalViewport": try Value(camera.logicalViewport),
                 "backgroundColor": try Value(camera.backgroundColor),
-                "clearFlags": Int(camera.clearFlags.rawValue),
-                "renderTarget": Self.renderTargetDescription(camera.renderTarget),
-                "projection": String(describing: camera.projection)
-            ]
+                "clearFlags": .int(Int(camera.clearFlags.rawValue)),
+                "projection": .string(String(describing: camera.projection))
+            ])
         }
 
         registry.register(RenderViewTarget.self, descriptor: MCPTypeDescriptor(
@@ -53,10 +52,10 @@ enum AdaMCPBuiltins {
             ],
             serialization: .custom
         )) { value in
-            [
-                "hasMainTexture": value.mainTexture != nil,
-                "hasOutputTexture": value.outputTexture != nil
-            ]
+            .object([
+                "hasMainTexture": .bool(value.mainTexture != nil),
+                "hasOutputTexture": .bool(value.outputTexture != nil)
+            ])
         }
     }
 
@@ -77,15 +76,15 @@ enum AdaMCPBuiltins {
     private static func renderTargetDescription(_ renderTarget: Camera.RenderTarget) -> Value {
         switch renderTarget {
         case .window(let windowRef):
-            return [
-                "kind": "window",
-                "value": String(describing: windowRef)
-            ]
+            return .object([
+                "kind": .string("window"),
+                "value": .string(String(describing: windowRef))
+            ])
         case .texture(let assetHandle):
-            return [
-                "kind": "texture",
-                "assetPath": assetHandle.assetPath
-            ]
+            return .object([
+                "kind": .string("texture"),
+                "assetPath": .string(assetHandle.assetPath)
+            ])
         }
     }
 }

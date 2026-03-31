@@ -3,13 +3,15 @@ import AdaMCPCore
 import AdaMCPServer
 import Logging
 
+@MainActor
 public struct MCPPlugin: Plugin {
     @MainActor
     final class State: @unchecked Sendable {
         let registry = MCPIntrospectionRegistry()
         let runtimeResource = MCPServerRuntime()
         let logger = Logger(label: "org.adaengine.mcp.plugin")
-        var controller: AdaMCPHTTPServerController?
+        var httpController: AdaMCPHTTPServerController?
+        var stdioController: AdaMCPStdioServerController?
         var renderCaptureService: RenderCaptureService?
     }
 
@@ -25,8 +27,9 @@ public struct MCPPlugin: Plugin {
         AdaMCPBuiltins.registerDefaultTypes(in: state.registry)
         configuration.registerTypes?(state.registry)
 
+        let appWorlds = copy app
         let renderCaptureService = RenderCaptureService(
-            appWorlds: app,
+            appWorlds: appWorlds,
             captureOverride: configuration.captureOverride
         )
         state.renderCaptureService = renderCaptureService
@@ -41,31 +44,56 @@ public struct MCPPlugin: Plugin {
             return
         }
 
+        let appWorlds = copy app
         let runtime = AdaMCPRuntime(
-            appWorlds: app,
+            appWorlds: appWorlds,
             registry: state.registry,
             renderCaptureService: renderCaptureService,
             logger: state.logger
         )
-        let controller = AdaMCPHTTPServerController(configuration: configuration, runtime: runtime)
-        state.controller = controller
+        if configuration.enableHTTP {
+            let controller = AdaMCPHTTPServerController(configuration: configuration, runtime: runtime)
+            state.httpController = controller
 
-        Task { @MainActor in
-            do {
-                let endpointURL = try await controller.start(configuration: configuration)
-                self.state.runtimeResource.update(endpointURL: endpointURL, isRunning: true)
-            } catch {
-                self.state.logger.error("Failed to start MCP HTTP server: \(error.localizedDescription)")
-                self.state.runtimeResource.update(endpointURL: nil, isRunning: false)
+            Task { @MainActor in
+                do {
+                    let endpointURL = try await controller.start(configuration: configuration)
+                    self.state.runtimeResource.updateHTTP(endpointURL: endpointURL, isRunning: true)
+                } catch {
+                    self.state.logger.error("Failed to start MCP HTTP server: \(error.localizedDescription)")
+                    self.state.runtimeResource.updateHTTP(endpointURL: nil, isRunning: false)
+                }
             }
+        } else {
+            state.runtimeResource.updateHTTP(endpointURL: nil, isRunning: false)
+        }
+
+        if configuration.enableStdio {
+            let controller = AdaMCPStdioServerController(runtime: runtime)
+            state.stdioController = controller
+
+            Task { @MainActor in
+                do {
+                    try await controller.start(configuration: configuration)
+                    self.state.runtimeResource.updateStdio(isRunning: true)
+                } catch {
+                    self.state.logger.error("Failed to start MCP stdio server: \(error.localizedDescription)")
+                    self.state.runtimeResource.updateStdio(isRunning: false)
+                }
+            }
+        } else {
+            state.runtimeResource.updateStdio(isRunning: false)
         }
     }
 
     public func destroy(for app: borrowing AppWorlds) {
         Task { @MainActor in
-            await self.state.controller?.stop()
-            self.state.runtimeResource.update(endpointURL: nil, isRunning: false)
-            self.state.controller = nil
+            await self.state.httpController?.stop()
+            await self.state.stdioController?.stop()
+            self.state.runtimeResource.updateHTTP(endpointURL: nil, isRunning: false)
+            self.state.runtimeResource.updateStdio(isRunning: false)
+            self.state.httpController = nil
+            self.state.stdioController = nil
         }
     }
 }

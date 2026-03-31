@@ -5,7 +5,8 @@ let package = Package(
     name: "SloppyClient",
     platforms: [
         .macOS(.v15),
-        .iOS(.v18)
+        .iOS(.v18),
+        .visionOS(.v2)
     ],
     products: [
         .executable(name: "SloppyClient", targets: ["SloppyClient"]),
@@ -18,7 +19,8 @@ let package = Package(
     ],
     dependencies: [
         .package(url: "https://github.com/apple/swift-log.git", from: "1.6.0"),
-        .package(name: "AdaEngine", path: "../../Vendor/AdaEngine")
+        .package(name: "AdaEngine", path: "../../Vendor/AdaEngine"),
+        .package(name: "AdaMCP", path: "../../Vendor/AdaMCP")
     ],
     targets: [
         .target(
@@ -82,7 +84,8 @@ let package = Package(
                 "SloppyFeatureAgents",
                 "SloppyFeatureSettings",
                 .product(name: "Logging", package: "swift-log"),
-                .product(name: "AdaEngine", package: "AdaEngine")
+                .product(name: "AdaEngine", package: "AdaEngine"),
+                .product(name: "AdaMCPPlugin", package: "AdaMCP", condition: .when(platforms: [.macOS, .iOS, .visionOS]))
             ],
             path: "Sources/SloppyClient"
         ),

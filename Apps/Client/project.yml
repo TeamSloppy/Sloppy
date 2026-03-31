@@ -11,6 +11,8 @@ options:
 packages:
   SloppyClient:
     path: .
+  AdaMCP:
+    path: ../../Vendor/AdaMCP
 
 targets:
   SloppyClient-macOS:
@@ -20,6 +22,8 @@ targets:
     deploymentTarget: "15.0"
     sources: Sources/SloppyClient
     dependencies:
+      - package: AdaMCP
+        product: AdaMCPPlugin
       - package: SloppyClient
         product: SloppyClientCore
       - package: SloppyClient
@@ -46,6 +50,7 @@ targets:
       properties:
         com.apple.security.app-sandbox: true
         com.apple.security.network.client: true
+        com.apple.security.network.server: true
         aps-environment: development
     settings:
       base:
@@ -60,6 +65,8 @@ targets:
     deploymentTarget: "18.6"
     sources: Sources/SloppyClient
     dependencies:
+      - package: AdaMCP
+        product: AdaMCPPlugin
       - package: SloppyClient
         product: SloppyClientCore
       - package: SloppyClient
@@ -104,6 +111,8 @@ targets:
     deploymentTarget: "18.6"
     sources: Sources/SloppyClient
     dependencies:
+      - package: AdaMCP
+        product: AdaMCPPlugin
       - package: SloppyClient
         product: SloppyClientCore
       - package: SloppyClient
@@ -153,6 +162,8 @@ targets:
     deploymentTarget: "2.0"
     sources: Sources/SloppyClient
     dependencies:
+      - package: AdaMCP
+        product: AdaMCPPlugin
       - package: SloppyClient
         product: SloppyClientCore
       - package: SloppyClient

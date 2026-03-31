@@ -116,6 +116,14 @@ actor EmbeddedHTTPMCPServer {
         configuration.endpoint
     }
 
+    private static func isInitializeRequest(_ body: Data) -> Bool {
+        guard let json = try? JSONSerialization.jsonObject(with: body) as? [String: Any],
+              let method = json["method"] as? String else {
+            return false
+        }
+        return method == "initialize"
+    }
+
     fileprivate func handleHTTPRequest(_ request: HTTPRequest) async -> HTTPResponse {
         let sessionID = request.header(HTTPHeaderName.sessionID)
 
@@ -132,8 +140,7 @@ actor EmbeddedHTTPMCPServer {
 
         if request.method.uppercased() == "POST",
            let body = request.body,
-           let kind = JSONRPCMessageKind(data: body),
-           kind.isInitializeRequest {
+           Self.isInitializeRequest(body) {
             return await createSessionAndHandle(request)
         }
 
@@ -205,7 +212,7 @@ actor EmbeddedHTTPMCPServer {
     }
 
     private func shutdownEventLoopGroup(_ group: MultiThreadedEventLoopGroup) async throws {
-        try await withCheckedThrowingContinuation { continuation in
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
             group.shutdownGracefully { error in
                 if let error {
                     continuation.resume(throwing: error)
@@ -292,7 +299,8 @@ private final class HTTPHandler: ChannelInboundHandler, @unchecked Sendable {
             body = nil
         }
 
-        return HTTPRequest(method: state.head.method.rawValue, headers: headers, body: body)
+        let path = state.head.uri.split(separator: "?").first.map(String.init) ?? state.head.uri
+        return HTTPRequest(method: state.head.method.rawValue, headers: headers, body: body, path: path)
     }
 
     private func writeResponse(

@@ -4,7 +4,10 @@ import PackageDescription
 let package = Package(
     name: "AdaMCP",
     platforms: [
-        .macOS(.v14)
+        .macOS(.v15),
+        .iOS(.v18),
+        .tvOS(.v18),
+        .visionOS(.v2)
     ],
     products: [
         .library(name: "AdaMCPCore", targets: ["AdaMCPCore"]),
@@ -13,6 +16,7 @@ let package = Package(
     ],
     dependencies: [
         .package(path: "../AdaEngine"),
+        .package(url: "https://github.com/apple/swift-system.git", from: "1.0.0"),
         .package(url: "https://github.com/apple/swift-log.git", from: "1.6.0"),
         .package(url: "https://github.com/apple/swift-nio.git", from: "2.74.0"),
         .package(url: "https://github.com/modelcontextprotocol/swift-sdk.git", from: "0.11.0")
@@ -53,8 +57,10 @@ let package = Package(
                 "AdaMCPServer",
                 "AdaMCPPlugin",
                 .product(name: "AdaEngine", package: "AdaEngine"),
-                .product(name: "MCP", package: "swift-sdk")
-            ]
+                .product(name: "MCP", package: "swift-sdk"),
+                .product(name: "SystemPackage", package: "swift-system")
+            ],
+            path: "Tests/AdaMCPTests"
         )
     ]
 )

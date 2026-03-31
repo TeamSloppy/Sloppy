@@ -1,0 +1,13 @@
+version: 1
+builder:
+  configs:
+  - platform: macos-spm
+    target: AdaMCPCore
+  - platform: macos-spm
+    target: AdaMCPServer
+  - platform: macos-spm
+    target: AdaMCPPlugin
+  - documentation_targets:
+    - AdaMCPCore
+    - AdaMCPServer
+    - AdaMCPPlugin

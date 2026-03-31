@@ -162,11 +162,25 @@ public final class RenderCaptureService: @unchecked Sendable, Resource {
 public final class MCPServerRuntime: @unchecked Sendable, Resource {
     public private(set) var endpointURL: URL?
     public private(set) var isRunning = false
+    public private(set) var httpEndpointURL: URL?
+    public private(set) var httpIsRunning = false
+    public private(set) var stdioIsRunning = false
 
     public init() {}
 
     public func update(endpointURL: URL?, isRunning: Bool) {
+        self.updateHTTP(endpointURL: endpointURL, isRunning: isRunning)
+    }
+
+    public func updateHTTP(endpointURL: URL?, isRunning: Bool) {
         self.endpointURL = endpointURL
-        self.isRunning = isRunning
+        self.httpEndpointURL = endpointURL
+        self.httpIsRunning = isRunning
+        self.isRunning = self.httpIsRunning || self.stdioIsRunning
+    }
+
+    public func updateStdio(isRunning: Bool) {
+        self.stdioIsRunning = isRunning
+        self.isRunning = self.httpIsRunning || self.stdioIsRunning
     }
 }

@@ -1,4 +1,6 @@
 import AdaMCPCore
+import Foundation
+import Logging
 import MCP
 
 public enum AdaMCPServerFactory {
@@ -26,6 +28,10 @@ public enum AdaMCPServerFactory {
 
         await server.withMethodHandler(ListResources.self) { _ in
             .init(resources: await runtime.resources())
+        }
+
+        await server.withMethodHandler(ListResourceTemplates.self) { _ in
+            .init(templates: await runtime.resourceTemplates())
         }
 
         await server.withMethodHandler(ReadResource.self) { params in
@@ -78,5 +84,36 @@ public actor AdaMCPHTTPServerController {
             port: configuration.port,
             endpoint: configuration.endpoint
         )
+    }
+}
+
+public actor AdaMCPStdioServerController {
+    private let runtime: AdaMCPRuntime
+    private let logger = Logger(label: "org.adaengine.mcp.server.stdio")
+    private var server: Server?
+
+    public init(runtime: AdaMCPRuntime) {
+        self.runtime = runtime
+    }
+
+    public func start(configuration: MCPServerConfiguration) async throws {
+        if server != nil {
+            return
+        }
+
+        let server = await AdaMCPServerFactory.makeServer(
+            runtime: runtime,
+            configuration: configuration
+        )
+        try await server.start(transport: StdioTransport(logger: logger))
+        self.server = server
+    }
+
+    public func stop() async {
+        guard let server else {
+            return
+        }
+        await server.stop()
+        self.server = nil
     }
 }
