@@ -24,7 +24,7 @@ struct SloppyClientApp: App {
                 enableHTTP: true,
                 enableStdio: false,
                 host: "127.0.0.1",
-                port: 25102,
+                port: 2510,
                 endpoint: "/mcp",
                 serverName: "sloppy-client",
                 serverVersion: "0.1.0",
