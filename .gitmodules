@@ -1,3 +1,7 @@
 [submodule "Vendor/AdaEngine"]
 	path = Vendor/AdaEngine
 	url = https://github.com/AdaEngine/AdaEngine.git
+
+[submodule "Vendor/AdaMCP"]
+	path = Vendor/AdaMCP
+	url = https://github.com/AdaEngine/AdaMCP.git
