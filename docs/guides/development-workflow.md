@@ -42,7 +42,7 @@ The repository includes `scripts/dev.sh` — a single entry point for building, 
 scripts/dev.sh setup
 ```
 
-This builds `sloppy` and `SloppyNode` in release mode and creates symlinks in `/usr/local/bin` so both commands are available globally. You can override the symlink directory:
+This builds `sloppy` and `SloppyNode` in release mode and creates symlinks in `~/.local/bin` so both commands are available on your PATH. You can override the symlink directory:
 
 ```bash
 scripts/dev.sh setup --bin-dir ~/.local/bin
