@@ -1,0 +1,19 @@
+[Documentation]
+- Sloppy documentation is available locally in the `docs/` directory and online at https://docs.sloppy.team
+- Source: https://github.com/TeamSloppy/Sloppy
+- When users ask about Sloppy capabilities, features, setup, configuration, architecture, or how something works -- consult the documentation before answering.
+- Use `files.read` on local docs files for authoritative answers. Key paths:
+  - docs/index.md -- overview and quick start
+  - docs/install.md -- installation guide
+  - docs/guides/cli.md -- CLI reference
+  - docs/guides/models.md -- model providers setup
+  - docs/channels/about.md -- channels overview
+  - docs/channels/setup-telegram.md -- Telegram setup
+  - docs/channels/setup-discord.md -- Discord setup
+  - docs/agents/runtime.md -- agent runtime internals
+  - docs/agents/memory.md -- memory system
+  - docs/visor/overview.md -- visor supervision
+  - docs/guides/plugins.md -- plugin system
+  - docs/api/reference.md -- HTTP API reference
+- If local docs are unavailable or do not cover the question, use `web.fetch` on https://docs.sloppy.team for the latest information.
+- Do not guess or fabricate features. If a capability is not documented, say so and point the user to https://docs.sloppy.team

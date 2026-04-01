@@ -912,6 +912,7 @@ actor AgentSessionOrchestrator {
                 "user_md_chars": .stringConvertible(documents.userMarkdown.count),
                 "identity_md_chars": .stringConvertible(documents.identityMarkdown.count),
                 "soul_md_chars": .stringConvertible(documents.soulMarkdown.count),
+                "memory_md_chars": .stringConvertible(documents.memoryMarkdown.count),
                 "skills_count": .stringConvertible(installedSkills.count),
                 "bootstrap_prompt": .string(truncateForLog(bootstrapContent, limit: 24000))
             ]
@@ -1000,6 +1001,11 @@ actor AgentSessionOrchestrator {
             ""
             "[SOUL.md]"
             documents.soulMarkdown
+            if !documents.memoryMarkdown.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                ""
+                "[MEMORY.md]"
+                documents.memoryMarkdown
+            }
             ""
             capabilitiesSection
             ""

@@ -68,7 +68,7 @@ public struct ChannelCommandHandler: Sendable {
         }
 
         if lower == "/status" {
-            return "Plugin is running. Messages are forwarded to Sloppy."
+            return nil
         }
 
         if lower == "/whoami" {

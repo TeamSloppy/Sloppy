@@ -453,6 +453,13 @@ func channelCommandHandlerWhoamiReturnsContextInfo() {
 }
 
 @Test
+func channelCommandHandlerStatusForwardsToCore() {
+    let handler = ChannelCommandHandler(platformName: "TestPlatform")
+    let context = MessageContext(channelId: "ch-1", userId: "u-1", platform: "discord", displayName: "Bob")
+    #expect(handler.handle(text: "/status", context: context) == nil)
+}
+
+@Test
 func channelCommandHandlerNewForwardsToCore() {
     let handler = ChannelCommandHandler(platformName: "TestPlatform")
     let context = MessageContext(channelId: "ch-1", userId: "u-1", platform: "discord", displayName: "Bob")

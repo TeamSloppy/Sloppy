@@ -167,3 +167,12 @@ func contextCommandReturnsUsageInfo() async throws {
     let ok = await service.postMessage(channelId: channelId, userId: "tg:1", content: "/context")
     #expect(ok)
 }
+
+@Test
+func statusCommandReturnsChannelInfo() async throws {
+    let service = CoreService(config: .test)
+    let channelId = "status-cmd-\(UUID().uuidString)"
+
+    let ok = await service.postMessage(channelId: channelId, userId: "tg:1", content: "/status")
+    #expect(ok)
+}

@@ -191,7 +191,23 @@ function DashboardShell({ dependencies, debugEnabled }: { dependencies: ReturnTy
         onSelect={onSelectSidebar}
         isMobileOpen={mobileSidebarOpen}
         onRequestClose={() => setMobileSidebarOpen(false)}
-        footer={<NotificationBell isCompact={sidebarCompact} />}
+        footer={
+          <>
+            <a
+              href="https://docs.sloppy.team"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="sidebar-docs-link"
+              title="Documentation"
+            >
+              <span className="material-symbols-rounded sidebar-icon" aria-hidden="true">
+                menu_book
+              </span>
+              {!sidebarCompact && <span className="sidebar-docs-label">[ DOCS ]</span>}
+            </a>
+            <NotificationBell isCompact={sidebarCompact} />
+          </>
+        }
       />
       <button
         type="button"

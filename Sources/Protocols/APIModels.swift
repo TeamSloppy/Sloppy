@@ -796,19 +796,22 @@ public struct AgentDocumentBundle: Codable, Sendable, Equatable {
     public var soulMarkdown: String
     public var identityMarkdown: String
     public var heartbeatMarkdown: String
+    public var memoryMarkdown: String
 
     public init(
         userMarkdown: String,
         agentsMarkdown: String,
         soulMarkdown: String,
         identityMarkdown: String,
-        heartbeatMarkdown: String = ""
+        heartbeatMarkdown: String = "",
+        memoryMarkdown: String = ""
     ) {
         self.userMarkdown = userMarkdown
         self.agentsMarkdown = agentsMarkdown
         self.soulMarkdown = soulMarkdown
         self.identityMarkdown = identityMarkdown
         self.heartbeatMarkdown = heartbeatMarkdown
+        self.memoryMarkdown = memoryMarkdown
     }
 
     enum CodingKeys: String, CodingKey {
@@ -817,6 +820,7 @@ public struct AgentDocumentBundle: Codable, Sendable, Equatable {
         case soulMarkdown
         case identityMarkdown
         case heartbeatMarkdown
+        case memoryMarkdown
     }
 
     public init(from decoder: Decoder) throws {
@@ -826,6 +830,7 @@ public struct AgentDocumentBundle: Codable, Sendable, Equatable {
         soulMarkdown = try container.decode(String.self, forKey: .soulMarkdown)
         identityMarkdown = try container.decode(String.self, forKey: .identityMarkdown)
         heartbeatMarkdown = try container.decodeIfPresent(String.self, forKey: .heartbeatMarkdown) ?? ""
+        memoryMarkdown = try container.decodeIfPresent(String.self, forKey: .memoryMarkdown) ?? ""
     }
 }
 
