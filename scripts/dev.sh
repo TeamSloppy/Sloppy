@@ -2,7 +2,7 @@
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-BIN_DIR="${SLOPPY_BIN_DIR:-/usr/local/bin}"
+BIN_DIR="${SLOPPY_BIN_DIR:-$HOME/.local/bin}"
 PID_FILE="/tmp/sloppy-server.pid"
 LOG_FILE="/tmp/sloppy-server.log"
 AUTOSTART_MARKER="# sloppy-autostart"
