@@ -20,7 +20,8 @@ function emptyAgentConfigDraft(agentId) {
       agentsMarkdown: "",
       soulMarkdown: "",
       identityMarkdown: "",
-      heartbeatMarkdown: ""
+      heartbeatMarkdown: "",
+      memoryMarkdown: ""
     },
     heartbeat: {
       enabled: false,
@@ -55,7 +56,8 @@ function normalizeConfigDraft(agentId, config) {
       agentsMarkdown: String(config.documents?.agentsMarkdown || ""),
       soulMarkdown: String(config.documents?.soulMarkdown || ""),
       identityMarkdown: String(config.documents?.identityMarkdown || ""),
-      heartbeatMarkdown: String(config.documents?.heartbeatMarkdown || "")
+      heartbeatMarkdown: String(config.documents?.heartbeatMarkdown || ""),
+      memoryMarkdown: String(config.documents?.memoryMarkdown || "")
     },
     heartbeat: {
       enabled: Boolean(config.heartbeat?.enabled),
@@ -117,7 +119,8 @@ const AGENT_DOC_FILES = [
   { id: "userMarkdown", name: "USER.md", icon: "person" },
   { id: "agentsMarkdown", name: "AGENTS.md", icon: "smart_toy" },
   { id: "soulMarkdown", name: "SOUL.md", icon: "psychology" },
-  { id: "identityMarkdown", name: "IDENTITY.md", icon: "badge" }
+  { id: "identityMarkdown", name: "IDENTITY.md", icon: "badge" },
+  { id: "memoryMarkdown", name: "MEMORY.md", icon: "neurology", readOnly: true }
 ];
 
 export function AgentConfigTab({ agentId }) {
@@ -293,7 +296,8 @@ export function AgentConfigTab({ agentId }) {
         agentsMarkdown: String(draft.documents.agentsMarkdown || ""),
         soulMarkdown: String(draft.documents.soulMarkdown || ""),
         identityMarkdown: String(draft.documents.identityMarkdown || ""),
-        heartbeatMarkdown: String(draft.documents.heartbeatMarkdown || "")
+        heartbeatMarkdown: String(draft.documents.heartbeatMarkdown || ""),
+        memoryMarkdown: String(draft.documents.memoryMarkdown || "")
       },
       heartbeat: {
         enabled: Boolean(draft.heartbeat.enabled),
@@ -459,10 +463,15 @@ export function AgentConfigTab({ agentId }) {
             <div className="agent-doc-files-editor">
               <label>
                 {activeFile.name}
+                {activeFile.readOnly && (
+                  <span className="agent-doc-files-readonly-badge">auto-generated</span>
+                )}
                 <textarea
                   rows={18}
                   value={draft.documents[activeFile.id]}
                   onChange={(event) => updateDocumentField(activeFile.id, event.target.value)}
+                  readOnly={activeFile.readOnly}
+                  className={activeFile.readOnly ? "readonly-textarea" : ""}
                 />
               </label>
             </div>

@@ -1727,6 +1727,11 @@ public actor CoreService {
         }
     }
 
+    public func getAgentConfigWithMemory(agentID: String) async throws -> AgentConfigDetail {
+        await refreshAgentMemoryFile(agentID: agentID)
+        return try getAgentConfig(agentID: agentID)
+    }
+
     /// Updates agent-specific model and markdown docs.
     public func updateAgentConfig(agentID: String, request: AgentConfigUpdateRequest) async throws -> AgentConfigDetail {
         let availableModels = availableAgentModels()
@@ -2575,6 +2580,7 @@ public actor CoreService {
         }
 
         _ = try getAgent(id: normalizedAgentID)
+        await refreshAgentMemoryFile(agentID: normalizedAgentID)
 
         do {
             let session = try await sessionOrchestrator.createSession(agentID: normalizedAgentID, request: request)
@@ -6760,6 +6766,62 @@ public actor CoreService {
         return trimmed
     }
 
+    func generateAgentMemoryMarkdown(agentID: String) async -> String {
+        let entries = await allAgentMemoryEntries(agentID: agentID)
+        guard !entries.isEmpty else { return "" }
+
+        let isoFormatter = ISO8601DateFormatter()
+        isoFormatter.formatOptions = [.withInternetDateTime]
+
+        var sections: [String: [(note: String, summary: String?, importance: Double, date: String)]] = [:]
+        for entry in entries {
+            let key = entry.kind.rawValue
+            let dateStr = isoFormatter.string(from: entry.createdAt)
+            sections[key, default: []].append((entry.note, entry.summary, entry.importance, dateStr))
+        }
+
+        let kindOrder: [String] = ["identity", "preference", "goal", "decision", "fact", "observation", "todo", "event"]
+        let sortedKeys = sections.keys.sorted { a, b in
+            let ai = kindOrder.firstIndex(of: a) ?? kindOrder.count
+            let bi = kindOrder.firstIndex(of: b) ?? kindOrder.count
+            return ai < bi
+        }
+
+        var lines: [String] = ["# Memory"]
+        for key in sortedKeys {
+            guard let items = sections[key], !items.isEmpty else { continue }
+            lines.append("")
+            lines.append("## \(key.capitalized)")
+            for item in items.prefix(50) {
+                let note = item.note.trimmingCharacters(in: .whitespacesAndNewlines)
+                    .replacingOccurrences(of: "\n", with: " ")
+                var line = "- \(note)"
+                if let summary = item.summary?.trimmingCharacters(in: .whitespacesAndNewlines), !summary.isEmpty {
+                    line += " — \(summary)"
+                }
+                lines.append(line)
+            }
+        }
+        lines.append("")
+        return lines.joined(separator: "\n")
+    }
+
+    func refreshAgentMemoryFile(agentID: String) async {
+        guard let normalizedID = normalizedAgentID(agentID) else { return }
+        let markdown = await generateAgentMemoryMarkdown(agentID: normalizedID)
+        guard let summary = try? agentCatalogStore.getAgent(id: normalizedID) else { return }
+
+        let agentsRootURL = self.agentsRootURL
+        let root = summary.isSystem
+            ? agentsRootURL.appendingPathComponent(".system", isDirectory: true)
+            : agentsRootURL
+        let memoryURL = root
+            .appendingPathComponent(normalizedID, isDirectory: true)
+            .appendingPathComponent("MEMORY.md")
+
+        try? markdown.data(using: .utf8)?.write(to: memoryURL, options: .atomic)
+    }
+
     private func allAgentMemoryEntries(agentID: String) async -> [MemoryEntry] {
         let entries = await memoryStore.entries(filter: .default)
         return entries
@@ -7291,6 +7353,34 @@ extension CoreService {
         await channelModelStore.set(channelId: channelId, model: modelId)
         return "Model set to: \(modelId)"
     }
+
+    private func handleStatusCommand(channelId: String, content: String) async -> String? {
+        let lower = content.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard lower == "/status" else { return nil }
+
+        let board = try? getActorBoard()
+        let agentLabel: String = board?.nodes
+            .first(where: { normalizeWhitespace($0.channelId ?? "") == channelId })
+            .flatMap { normalizeWhitespace($0.linkedAgentId ?? "").isEmpty ? nil : normalizeWhitespace($0.linkedAgentId ?? "") }
+            ?? channelId
+
+        let modelOverride = await channelModelStore.get(channelId: channelId)
+        let available = availableAgentModels()
+        let activeModel = modelOverride.flatMap { id in available.first { $0.id == id } } ?? available.first
+        let modelLabel = activeModel?.title ?? modelOverride ?? "default"
+
+        let snapshot = await runtime.channelState(channelId: channelId)
+        let isRunning = !(snapshot?.activeWorkerIds.isEmpty ?? true)
+        let stateLabel = isRunning ? "Running" : "Idle"
+
+        let sessions = (try? await channelSessionStore.listSessions(
+            status: .open,
+            channelIds: Set([channelId])
+        )) ?? []
+        let sessionLabel = sessions.first?.sessionId ?? "none"
+
+        return "Agent: \(agentLabel)\nSession: \(sessionLabel)\nModel: \(modelLabel)\nState: \(stateLabel)"
+    }
 }
 
 // MARK: - InboundMessageReceiver
@@ -7349,6 +7439,11 @@ extension CoreService: InboundMessageReceiver {
     /// Routes through the runtime, collects the response, persists to channel session,
     /// and delivers it back to the channel plugin.
     public func postMessage(channelId: String, userId: String, content: String) async -> Bool {
+        if let statusReply = await handleStatusCommand(channelId: channelId, content: content) {
+            await deliverToChannelPlugin(channelId: channelId, content: statusReply)
+            return true
+        }
+
         if let modelCommandReply = await handleModelCommand(channelId: channelId, content: content) {
             await deliverToChannelPlugin(channelId: channelId, content: modelCommandReply)
             return true

@@ -10,6 +10,7 @@ RUN --mount=type=cache,id=sloppy-swiftpm,target=/root/.swiftpm \
     swift package resolve
 COPY Sources ./Sources
 COPY Tests ./Tests
+COPY docs ./docs
 RUN --mount=type=cache,id=sloppy-swiftpm,target=/root/.swiftpm \
     --mount=type=cache,id=sloppy-swift-cache,target=/root/.cache \
     --mount=type=cache,id=sloppy-core-build,target=/workspace/.build \
@@ -48,5 +49,6 @@ COPY --from=builder /usr/lib/swift /usr/lib/swift
 COPY --from=builder /artifacts/sloppy /usr/bin/sloppy
 COPY --from=builder /artifacts/Sloppy_sloppy.resources /usr/bin/Sloppy_sloppy.resources
 COPY --from=builder /artifacts/Sloppy_sloppy.bundle /usr/bin/Sloppy_sloppy.bundle
+COPY --from=builder /workspace/docs /root/docs
 EXPOSE 25101
 CMD ["/usr/bin/sloppy", "run"]

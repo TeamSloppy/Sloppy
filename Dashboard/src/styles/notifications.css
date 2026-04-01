@@ -6,6 +6,38 @@
   border-top: 1px solid var(--line);
 }
 
+/* ── Docs Link ── */
+
+.sidebar-docs-link {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px;
+  border: 1px solid var(--line);
+  color: var(--muted);
+  text-decoration: none;
+  font-family: "Fira Code", monospace;
+  font-size: 11px;
+  letter-spacing: 0.05em;
+  transition: color 0.15s, border-color 0.15s;
+  margin-bottom: 6px;
+}
+
+.sidebar-docs-link:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+.sidebar-docs-label {
+  text-transform: uppercase;
+}
+
+.sidebar.compact .sidebar-docs-link {
+  justify-content: center;
+  padding: 6px;
+}
+
 /* ── Notification Bell ── */
 
 .notif-bell-container {

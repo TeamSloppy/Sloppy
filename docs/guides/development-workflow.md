@@ -32,6 +32,46 @@ Pick one of the build guides first:
 
 For day-to-day development, direct terminal builds are the default path because they give a faster feedback loop.
 
+## Dev script
+
+The repository includes `scripts/dev.sh` — a single entry point for building, linking, and running the server during development.
+
+### Build and link
+
+```bash
+scripts/dev.sh setup
+```
+
+This builds `sloppy` and `SloppyNode` in release mode and creates symlinks in `/usr/local/bin` so both commands are available globally. You can override the symlink directory:
+
+```bash
+scripts/dev.sh setup --bin-dir ~/.local/bin
+```
+
+### Server management
+
+| Command | What it does |
+| --- | --- |
+| `scripts/dev.sh start` | Start the sloppy server in the background |
+| `scripts/dev.sh stop` | Stop the background server |
+| `scripts/dev.sh restart` | Stop and start the server |
+| `scripts/dev.sh status` | Check whether the server is running |
+| `scripts/dev.sh logs` | Tail the server log (`/tmp/sloppy-server.log`) |
+
+### Auto-start
+
+To launch the server automatically whenever a new terminal opens:
+
+```bash
+scripts/dev.sh autostart
+```
+
+This adds a small hook to your `.bashrc` (or `.zshrc`) that starts `sloppy run` in the background if it is not already running. To remove the hook:
+
+```bash
+scripts/dev.sh autostart-off
+```
+
 ## sloppy development rules
 
 ### Architecture boundaries

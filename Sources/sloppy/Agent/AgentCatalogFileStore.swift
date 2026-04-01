@@ -203,7 +203,8 @@ final class AgentCatalogFileStore {
             agentsMarkdown: normalizedDocumentText(request.documents.agentsMarkdown),
             soulMarkdown: normalizedDocumentText(request.documents.soulMarkdown),
             identityMarkdown: normalizedDocumentText(request.documents.identityMarkdown),
-            heartbeatMarkdown: normalizedHeartbeatText(request.documents.heartbeatMarkdown)
+            heartbeatMarkdown: normalizedHeartbeatText(request.documents.heartbeatMarkdown),
+            memoryMarkdown: normalizedDocumentText(request.documents.memoryMarkdown)
         )
 
         guard !normalizedDocuments.userMarkdown.isEmpty,
@@ -244,6 +245,7 @@ final class AgentCatalogFileStore {
             try writeTextFile(contents: normalizedDocuments.soulMarkdown, at: agentDirectory.appendingPathComponent("SOUL.md"))
             try writeTextFile(contents: normalizedDocuments.identityMarkdown, at: agentDirectory.appendingPathComponent("IDENTITY.md"))
             try writeTextFile(contents: normalizedDocuments.heartbeatMarkdown, at: agentDirectory.appendingPathComponent("HEARTBEAT.md"))
+            try writeTextFile(contents: normalizedDocuments.memoryMarkdown, at: agentDirectory.appendingPathComponent("MEMORY.md"))
         } catch {
             throw StoreError.storageFailure
         }
@@ -271,6 +273,7 @@ final class AgentCatalogFileStore {
         let agentsMarkdown = try readTextFile(at: agentDirectory.appendingPathComponent("AGENTS.md"), fallback: "# Agent\n")
         let soulMarkdown = try readTextFile(at: agentDirectory.appendingPathComponent("SOUL.md"), fallback: "# Soul\n")
         let heartbeatMarkdown = try readHeartbeatFile(agentID: normalizedID, isSystem: summary.isSystem)
+        let memoryMarkdown = try readTextFile(at: agentDirectory.appendingPathComponent("MEMORY.md"), fallback: "")
 
         let identityMarkdown = try readTextFile(at: agentDirectory.appendingPathComponent("IDENTITY.md"), fallback: normalizedID)
 
@@ -279,7 +282,8 @@ final class AgentCatalogFileStore {
             agentsMarkdown: agentsMarkdown,
             soulMarkdown: soulMarkdown,
             identityMarkdown: identityMarkdown,
-            heartbeatMarkdown: heartbeatMarkdown
+            heartbeatMarkdown: heartbeatMarkdown,
+            memoryMarkdown: memoryMarkdown
         )
     }
 
@@ -395,6 +399,10 @@ final class AgentCatalogFileStore {
         try writeTextFile(
             contents: "",
             at: agentDirectory.appendingPathComponent("HEARTBEAT.md")
+        )
+        try writeTextFile(
+            contents: "",
+            at: agentDirectory.appendingPathComponent("MEMORY.md")
         )
 
         try writeAgentConfigFile(

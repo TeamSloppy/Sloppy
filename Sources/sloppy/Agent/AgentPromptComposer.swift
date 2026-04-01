@@ -38,6 +38,7 @@ struct AgentPromptComposer {
         let skillsRules = try templateLoader.loadPartial(named: "skills_rules")
         let memoryRules = try templateLoader.loadPartial(named: "memory_rules")
         let cliAwareness = try templateLoader.loadPartial(named: "cli_awareness")
+        let documentationAwareness = try templateLoader.loadPartial(named: "documentation_awareness")
         let skillsEntries = buildSkillsEntries(skills: context.installedSkills)
 
         return Prompt {
@@ -66,6 +67,11 @@ struct AgentPromptComposer {
                 "[SOUL.md]"
                 documents.soulMarkdown
             }
+            if !documents.memoryMarkdown.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                ""
+                "[MEMORY.md]"
+                documents.memoryMarkdown
+            }
             if !context.installedSkills.isEmpty {
                 ""
                 "[Skills]"
@@ -87,6 +93,8 @@ struct AgentPromptComposer {
             memoryRules
             ""
             cliAwareness
+            ""
+            documentationAwareness
         }
     }
 

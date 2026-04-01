@@ -161,7 +161,7 @@ struct AgentsAPIRouter: APIRouter {
         router.get("/v1/agents/:agentId/config", metadata: RouteMetadata(summary: "Get agent config", description: "Returns the configuration for a specific agent", tags: ["Agents"])) { request in
             let agentId = request.pathParam("agentId") ?? ""
             do {
-                let detail = try await service.getAgentConfig(agentID: agentId)
+                let detail = try await service.getAgentConfigWithMemory(agentID: agentId)
                 return CoreRouter.encodable(status: HTTPStatus.ok, payload: detail)
             } catch let error as CoreService.AgentConfigError {
                 return CoreRouter.agentConfigErrorResponse(error, fallback: ErrorCode.agentConfigReadFailed)
