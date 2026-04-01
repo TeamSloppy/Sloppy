@@ -225,7 +225,7 @@ struct OpenAIOAuthService: @unchecked Sendable {
         self.workspaceRootURL = workspaceRootURL
         self.fileManager = fileManager
         self.transport = transport ?? { request in
-            let (data, response) = try await URLSession(configuration: .default).data(for: request)
+            let (data, response) = try await URLSession.shared.data(for: request)
             guard let http = response as? HTTPURLResponse else {
                 throw URLError(.badServerResponse)
             }
