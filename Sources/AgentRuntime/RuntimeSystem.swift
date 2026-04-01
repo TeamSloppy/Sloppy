@@ -60,6 +60,7 @@ public enum RuntimeResponseObservation: Sendable {
     case thinking(String)
     case toolCall(ToolInvocationRequest)
     case toolResult(ToolInvocationResult)
+    case usage(TokenUsage)
 }
 
 public struct BranchExecutionResult: Sendable, Equatable {
@@ -272,7 +273,8 @@ public actor RuntimeSystem {
             let session = try await getOrCreateSession(
                 channelId: channelId,
                 activeModel: activeModel,
-                modelProvider: modelProvider
+                modelProvider: modelProvider,
+                includeTools: toolInvoker != nil
             )
 
             if let invoker = toolInvoker {
@@ -417,6 +419,10 @@ public actor RuntimeSystem {
                 if !reasoningText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     await observationHandler(.thinking(reasoningText))
                 }
+
+                if let captured = modelProvider.tokenUsageCapture(for: activeModel)?.consume() {
+                    await observationHandler(.usage(TokenUsage(prompt: captured.prompt, completion: captured.completion)))
+                }
             }
 
             if latest.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -466,6 +472,23 @@ public actor RuntimeSystem {
                 }
             }
 
+            if latest.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                latest = "Model returned an empty response. Please try rephrasing or try again."
+                logger.warning(
+                    "Model returned empty response after stream + completion",
+                    metadata: modelCallMetadata(
+                        channelId: channelId,
+                        model: activeModel,
+                        reasoningEffort: reasoningEffort,
+                        promptChars: userMessage.count,
+                        mode: "respond_empty_fallback"
+                    )
+                )
+                if let onResponseChunk {
+                    _ = await onResponseChunk(latest)
+                }
+            }
+
             await channels.appendSystemMessage(channelId: channelId, content: latest)
         } catch {
             let text = "Model provider error: \(error)"
@@ -484,18 +507,20 @@ public actor RuntimeSystem {
     private func getOrCreateSession(
         channelId: String,
         activeModel: String,
-        modelProvider: any ModelProvider
+        modelProvider: any ModelProvider,
+        includeTools: Bool = true
     ) async throws -> LanguageModelSession {
         if let existing = sessionsByChannel[channelId] {
             return existing
         }
 
         let languageModel = try await modelProvider.createLanguageModel(for: activeModel)
+        let tools: [any Tool] = includeTools ? modelProvider.tools : []
         let session: LanguageModelSession
         if let instructions = modelProvider.systemInstructions {
-            session = LanguageModelSession(model: languageModel, tools: modelProvider.tools, instructions: instructions)
+            session = LanguageModelSession(model: languageModel, tools: tools, instructions: instructions)
         } else {
-            session = LanguageModelSession(model: languageModel, tools: modelProvider.tools)
+            session = LanguageModelSession(model: languageModel, tools: tools)
         }
 
         // Seed bootstrap content from channel state (set by ensureSessionContextLoaded)
@@ -536,11 +561,12 @@ public actor RuntimeSystem {
             return "Model provider error: \(error)"
         }
 
+        let tools: [any Tool] = toolInvoker != nil ? modelProvider.tools : []
         let freshSession: LanguageModelSession
         if let instructions = modelProvider.systemInstructions {
-            freshSession = LanguageModelSession(model: languageModel, tools: modelProvider.tools, instructions: instructions)
+            freshSession = LanguageModelSession(model: languageModel, tools: tools, instructions: instructions)
         } else {
-            freshSession = LanguageModelSession(model: languageModel, tools: modelProvider.tools)
+            freshSession = LanguageModelSession(model: languageModel, tools: tools)
         }
 
         if let bootstrap = bootstrapByChannel[channelId], !bootstrap.isEmpty {

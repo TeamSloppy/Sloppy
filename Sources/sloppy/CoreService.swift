@@ -212,6 +212,7 @@ public actor CoreService {
     private var heartbeatRunner: HeartbeatRunner?
     private var memoryOutboxIndexer: MemoryOutboxIndexer?
     private var recoveryManager: RecoveryManager
+    private var oauthModelCache: [String: ProviderModelOption] = [:]
     private var liveSessionStreamContinuations: [String: [UUID: AsyncStream<AgentSessionStreamUpdate>.Continuation]] = [:]
     private var liveSessionStreamCursor: [String: Int] = [:]
     public let notificationService: NotificationService
@@ -433,6 +434,8 @@ public actor CoreService {
     /// Creates and starts in-process gateway plugins declared in config.
     /// Must be called after `CoreService.init` from an async context (e.g. CoreMain).
     public func bootstrapChannelPlugins() async {
+        await refreshOAuthModelCacheIfNeeded()
+
         if let telegramConfig = currentConfig.channels.telegram {
             let plugin = builtInGatewayPluginFactory.makeTelegram(telegramConfig)
             await startBuiltInPlugin(
@@ -898,7 +901,11 @@ public actor CoreService {
             board: board,
             limitToChannelIDs: filteredChannelIDs
         )
-        _ = try await channelSessionStore.expireInactiveSessions(timeoutByChannel: timeoutByChannel)
+        let globalDefault = globalChannelInactivityTimeoutMinutes()
+        _ = try await channelSessionStore.expireInactiveSessions(
+            timeoutByChannel: timeoutByChannel,
+            globalDefaultTimeoutMinutes: globalDefault
+        )
         return try await channelSessionStore.listSessions(
             status: status,
             channelIds: filteredChannelIDs
@@ -2928,6 +2935,9 @@ public actor CoreService {
         if request.authMethod == .deeplink {
             do {
                 let models = try await openAIOAuthService.fetchModels()
+                if !models.isEmpty {
+                    cacheOAuthModels(models)
+                }
                 return OpenAIProviderModelsResponse(
                     provider: "openai",
                     authMethod: request.authMethod,
@@ -2970,7 +2980,11 @@ public actor CoreService {
     /// Probes provider connectivity and returns remote model options on success.
     public func probeProvider(request: ProviderProbeRequest) async -> ProviderProbeResponse {
         if request.providerId == .openAIOAuth {
-            return await openAIOAuthService.probe()
+            let result = await openAIOAuthService.probe()
+            if result.ok {
+                cacheOAuthModels(result.models)
+            }
+            return result
         }
         return await providerProbeService.probe(config: currentConfig, request: request)
     }
@@ -3282,7 +3296,7 @@ public actor CoreService {
         )
         let defaultModel = modelProvider?.supportedModels.first ?? resolvedModels.first
         await runtime.updateModelProvider(modelProvider: modelProvider, defaultModel: defaultModel)
-        await sessionOrchestrator.updateAvailableModels(Self.availableAgentModels(config: config, hasOAuthCredentials: hasOAuth))
+        await sessionOrchestrator.updateAvailableModels(availableAgentModels())
 
         if previousChannels.telegram != config.channels.telegram {
             var plugin: (any GatewayPlugin)?
@@ -5774,7 +5788,17 @@ public actor CoreService {
             board: board,
             limitToChannelIDs: Set([normalizedChannelID])
         )
-        _ = try await channelSessionStore.expireInactiveSessions(timeoutByChannel: timeoutByChannel)
+        let globalDefault = globalChannelInactivityTimeoutMinutes()
+        _ = try await channelSessionStore.expireInactiveSessions(
+            timeoutByChannel: timeoutByChannel,
+            globalDefaultTimeoutMinutes: globalDefault
+        )
+    }
+
+    private func globalChannelInactivityTimeoutMinutes() -> Int? {
+        let days = currentConfig.channels.channelInactivityDays
+        guard days > 0 else { return nil }
+        return days * 24 * 60
     }
 
     private func channelSessionTimeouts(
@@ -6490,7 +6514,43 @@ public actor CoreService {
 
     private func availableAgentModels() -> [ProviderModelOption] {
         let hasOAuth = openAIOAuthService.currentAccessToken() != nil
-        return Self.availableAgentModels(config: currentConfig, hasOAuthCredentials: hasOAuth)
+        let base = Self.availableAgentModels(config: currentConfig, hasOAuthCredentials: hasOAuth)
+        guard !oauthModelCache.isEmpty else { return base }
+        return base.map { option in
+            guard let cached = oauthModelCache[option.id] ?? oauthModelCache[stripProviderPrefix(option.id)] else {
+                return option
+            }
+            return ProviderModelOption(
+                id: option.id,
+                title: cached.title.isEmpty ? option.title : cached.title,
+                contextWindow: cached.contextWindow ?? option.contextWindow,
+                capabilities: cached.capabilities.isEmpty ? option.capabilities : cached.capabilities
+            )
+        }
+    }
+
+    private func stripProviderPrefix(_ id: String) -> String {
+        guard let idx = id.firstIndex(of: ":") else { return id }
+        return String(id[id.index(after: idx)...])
+    }
+
+    private func cacheOAuthModels(_ models: [ProviderModelOption]) {
+        for model in models {
+            oauthModelCache[model.id] = model
+        }
+    }
+
+    func refreshOAuthModelCacheIfNeeded() async {
+        guard openAIOAuthService.currentAccessToken() != nil else { return }
+        do {
+            let models = try await openAIOAuthService.fetchModels()
+            cacheOAuthModels(models)
+        } catch {
+            logger.debug(
+                "oauth_model_cache.refresh_failed",
+                metadata: ["error": "\(error.localizedDescription)"]
+            )
+        }
     }
 
     private static func availableAgentModels(config: CoreConfig, hasOAuthCredentials: Bool = false) -> [ProviderModelOption] {
@@ -7360,6 +7420,12 @@ extension CoreService: InboundMessageReceiver {
                             data: toolResult.data,
                             error: toolResult.error,
                             durationMs: toolResult.durationMs
+                        )
+                    case .usage(let tokenUsage):
+                        await self.store.persistTokenUsage(
+                            channelId: channelId,
+                            taskId: nil,
+                            usage: tokenUsage
                         )
                     }
                 } catch {

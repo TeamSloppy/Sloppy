@@ -26,7 +26,6 @@ import {
   TASK_STATUS_SET,
   TASK_PRIORITY_SET,
   createId,
-  toSlug,
   emptyTaskDraft,
   normalizeChat,
   normalizeTask,
@@ -40,7 +39,7 @@ import {
   buildSwarmGroups,
   formatRelativeTime,
   extractCreatedItems,
-  normalizeProjectIdentifier,
+  displayNameToProjectId,
   parseListInput,
   buildProjectChannels,
   emptyProjectDraft
@@ -159,22 +158,18 @@ function ProjectCreateModal({ isOpen, draft, onChange, onClose, onCreate, actors
           ) : null}
 
           <label>
-            Project ID
-            <input
-              value={draft.projectId}
-              onChange={(event) => onChange("projectId", event.target.value)}
-              placeholder="project-alpha"
-              autoFocus={draft.sourceType !== "git"}
-            />
-          </label>
-
-          <label>
             Display Name
             <input
               value={draft.displayName}
               onChange={(event) => onChange("displayName", event.target.value)}
               placeholder="Project Alpha"
+              autoFocus={draft.sourceType !== "git"}
             />
+            {draft.displayName.trim() ? (
+              <span className="project-id-preview">
+                ID: {displayNameToProjectId(draft.displayName) || "—"}
+              </span>
+            ) : null}
           </label>
 
           <label>
@@ -1023,8 +1018,7 @@ export function ProjectsView({
 
     const nextIndex = projects.length + 1;
     const projectId =
-      normalizeProjectIdentifier(projectDraft.projectId) ||
-      normalizeProjectIdentifier(toSlug(displayName)) ||
+      displayNameToProjectId(displayName) ||
       `project-${nextIndex}`;
     const actorIds = parseListInput(projectDraft.actors);
     const teamIds = parseListInput(projectDraft.teams);

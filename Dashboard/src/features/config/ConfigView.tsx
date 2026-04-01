@@ -198,7 +198,7 @@ const EMPTY_CONFIG = {
     servers: []
   },
   plugins: [],
-  channels: { telegram: null, discord: null },
+  channels: { telegram: null, discord: null, channelInactivityDays: 2 },
   searchTools: {
     activeProvider: "perplexity",
     providers: {
@@ -493,7 +493,8 @@ function normalizeConfig(config) {
         guildId: String(dc.guildId || ""),
         channelAgentMap: dc.channelAgentMap && typeof dc.channelAgentMap === "object" ? dc.channelAgentMap : {}
       }
-      : null
+      : null,
+    channelInactivityDays: parseInteger(config?.channels?.channelInactivityDays ?? 2, 2)
   };
 
   normalized.searchTools.activeProvider =
@@ -1369,6 +1370,28 @@ export function ConfigView({ sectionId = "providers", onSectionChange = null }) 
             <p className="placeholder-text">
               Connect messaging platforms to route incoming messages to agents.
             </p>
+          </section>
+          <section className="entry-editor-card">
+            <h3>Channel Lifetime</h3>
+            <div className="entry-form-grid">
+              <label style={{ gridColumn: "1 / -1" }}>
+                Close inactive channels after (days)
+                <input
+                  type="number"
+                  min="0"
+                  step="1"
+                  value={draftConfig.channels.channelInactivityDays}
+                  onChange={(event) =>
+                    mutateDraft((draft) => {
+                      draft.channels.channelInactivityDays = parseInteger(event.target.value, 2);
+                    })
+                  }
+                />
+                <span className="entry-form-hint">
+                  Channels with no activity for this many days will be closed automatically. Set to 0 to disable.
+                </span>
+              </label>
+            </div>
           </section>
           <TelegramEditor draftConfig={draftConfig} mutateDraft={mutateDraft} />
           <DiscordEditor draftConfig={draftConfig} mutateDraft={mutateDraft} />

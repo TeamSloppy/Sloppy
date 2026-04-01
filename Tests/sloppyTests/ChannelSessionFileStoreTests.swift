@@ -64,6 +64,108 @@ func channelSessionStoreCreatesClosesAndReopensSessions() async throws {
 }
 
 @Test
+func channelSessionStoreExpiresViaGlobalDefaultTimeout() async throws {
+    let workspaceRootURL = FileManager.default.temporaryDirectory
+        .appendingPathComponent("channel-session-global-\(UUID().uuidString)", isDirectory: true)
+    let store = ChannelSessionFileStore(workspaceRootURL: workspaceRootURL)
+
+    let startedAt = Date(timeIntervalSince1970: 1_700_001_000)
+    _ = try await store.recordUserMessage(
+        channelId: "alpha",
+        userId: "user-1",
+        content: "Hello from alpha",
+        createdAt: startedAt
+    )
+    _ = try await store.recordUserMessage(
+        channelId: "beta",
+        userId: "user-2",
+        content: "Hello from beta",
+        createdAt: startedAt
+    )
+
+    let twoDaysInMinutes = 2 * 24 * 60
+    let justBefore = startedAt.addingTimeInterval(TimeInterval(twoDaysInMinutes * 60 - 1))
+    _ = try await store.expireInactiveSessions(
+        timeoutByChannel: [:],
+        globalDefaultTimeoutMinutes: twoDaysInMinutes,
+        referenceDate: justBefore
+    )
+    let stillOpen = try await store.listSessions(status: .open)
+    #expect(stillOpen.count == 2)
+
+    let afterExpiry = startedAt.addingTimeInterval(TimeInterval(twoDaysInMinutes * 60 + 1))
+    let closed = try await store.expireInactiveSessions(
+        timeoutByChannel: [:],
+        globalDefaultTimeoutMinutes: twoDaysInMinutes,
+        referenceDate: afterExpiry
+    )
+    #expect(closed.count == 2)
+
+    let openAfter = try await store.listSessions(status: .open)
+    #expect(openAfter.isEmpty)
+}
+
+@Test
+func channelSessionStorePerAgentOverridesGlobalDefault() async throws {
+    let workspaceRootURL = FileManager.default.temporaryDirectory
+        .appendingPathComponent("channel-session-override-\(UUID().uuidString)", isDirectory: true)
+    let store = ChannelSessionFileStore(workspaceRootURL: workspaceRootURL)
+
+    let startedAt = Date(timeIntervalSince1970: 1_700_002_000)
+    _ = try await store.recordUserMessage(
+        channelId: "fast-channel",
+        userId: "user-1",
+        content: "Quick close",
+        createdAt: startedAt
+    )
+    _ = try await store.recordUserMessage(
+        channelId: "slow-channel",
+        userId: "user-2",
+        content: "Uses global default",
+        createdAt: startedAt
+    )
+
+    let fiveMinutesLater = startedAt.addingTimeInterval(5 * 60 + 1)
+    let closed = try await store.expireInactiveSessions(
+        timeoutByChannel: ["fast-channel": 5],
+        globalDefaultTimeoutMinutes: 2 * 24 * 60,
+        referenceDate: fiveMinutesLater
+    )
+    #expect(closed.count == 1)
+    #expect(closed.first?.channelId == "fast-channel")
+
+    let remaining = try await store.listSessions(status: .open)
+    #expect(remaining.count == 1)
+    #expect(remaining.first?.channelId == "slow-channel")
+}
+
+@Test
+func channelSessionStoreNoExpirationWhenGlobalDefaultIsZero() async throws {
+    let workspaceRootURL = FileManager.default.temporaryDirectory
+        .appendingPathComponent("channel-session-no-expire-\(UUID().uuidString)", isDirectory: true)
+    let store = ChannelSessionFileStore(workspaceRootURL: workspaceRootURL)
+
+    let startedAt = Date(timeIntervalSince1970: 1_700_003_000)
+    _ = try await store.recordUserMessage(
+        channelId: "persistent",
+        userId: "user-1",
+        content: "Should never auto-close",
+        createdAt: startedAt
+    )
+
+    let farFuture = startedAt.addingTimeInterval(365 * 24 * 3600)
+    let closed = try await store.expireInactiveSessions(
+        timeoutByChannel: [:],
+        globalDefaultTimeoutMinutes: 0,
+        referenceDate: farFuture
+    )
+    #expect(closed.isEmpty)
+
+    let open = try await store.listSessions(status: .open)
+    #expect(open.count == 1)
+}
+
+@Test
 func channelSessionStorePersistsTechnicalEventsWithoutAffectingMessageCounters() async throws {
     let workspaceRootURL = FileManager.default.temporaryDirectory
         .appendingPathComponent("channel-session-technical-\(UUID().uuidString)", isDirectory: true)

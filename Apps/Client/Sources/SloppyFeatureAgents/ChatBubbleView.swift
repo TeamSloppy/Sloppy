@@ -5,25 +5,32 @@ import SloppyClientUI
 struct ChatBubbleView: View {
     let message: ChatMessage
 
+    @Environment(\.theme) private var theme
+
     private var isUser: Bool { message.role == .user }
 
     var body: some View {
-        HStack(spacing: 0) {
+        let c = theme.colors
+        let sp = theme.spacing
+        let bo = theme.borders
+        let ty = theme.typography
+
+        return HStack(spacing: 0) {
             if isUser { Spacer() }
 
-            VStack(alignment: isUser ? .trailing : .leading, spacing: Theme.spacingXS) {
+            VStack(alignment: isUser ? .trailing : .leading, spacing: sp.xs) {
                 Text(message.role == .user ? "YOU" : "AGENT")
-                    .font(.system(size: Theme.fontMicro))
-                    .foregroundColor(Theme.textMuted)
+                    .font(.system(size: ty.micro))
+                    .foregroundColor(c.textMuted)
 
                 Text(message.textContent.isEmpty ? "…" : message.textContent)
-                    .font(.system(size: Theme.fontBody))
-                    .foregroundColor(Theme.textPrimary)
-                    .padding(Theme.spacingM)
-                    .background(isUser ? Theme.accentCyan.opacity(0.1 as Float) : Theme.surface)
+                    .font(.system(size: ty.body))
+                    .foregroundColor(c.textPrimary)
+                    .padding(sp.m)
+                    .background(isUser ? c.accentCyan.opacity(0.1 as Float) : c.surface)
                     .border(
-                        isUser ? Theme.accentCyan : Theme.border,
-                        lineWidth: Theme.borderThin
+                        isUser ? c.accentCyan : c.border,
+                        lineWidth: bo.thin
                     )
             }
 

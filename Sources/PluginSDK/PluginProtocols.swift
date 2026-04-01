@@ -153,6 +153,36 @@ public final class ReasoningContentCapture: @unchecked Sendable {
     }
 }
 
+/// Thread-safe capture for token usage from a single model inference call.
+///
+/// Providers that receive usage data in API responses (e.g. OpenAI `response.completed` event)
+/// write here during streaming. The runtime reads the captured usage once after the stream
+/// completes and persists it.
+public final class TokenUsageCapture: @unchecked Sendable {
+    private let lock = NSLock()
+    private var _promptTokens: Int = 0
+    private var _completionTokens: Int = 0
+
+    public init() {}
+
+    public func store(promptTokens: Int, completionTokens: Int) {
+        lock.withLock {
+            _promptTokens = promptTokens
+            _completionTokens = completionTokens
+        }
+    }
+
+    public func consume() -> (prompt: Int, completion: Int)? {
+        lock.withLock {
+            guard _promptTokens > 0 || _completionTokens > 0 else { return nil }
+            let result = (prompt: _promptTokens, completion: _completionTokens)
+            _promptTokens = 0
+            _completionTokens = 0
+            return result
+        }
+    }
+}
+
 /// Plugin interface for model providers (Large Language Model integrations).
 /// Providers create `LanguageModel` instances that are used via `LanguageModelSession`.
 public protocol ModelProvider: Sendable {
@@ -178,6 +208,9 @@ public protocol ModelProvider: Sendable {
     /// Returns the reasoning capture object for the given model, or `nil` if not supported.
     /// Composite providers should route to the matching sub-provider.
     func reasoningCapture(for modelName: String) -> ReasoningContentCapture?
+
+    /// Returns the token usage capture object for the given model, or `nil` if not supported.
+    func tokenUsageCapture(for modelName: String) -> TokenUsageCapture?
 }
 
 public extension ModelProvider {
@@ -185,6 +218,7 @@ public extension ModelProvider {
     var tools: [any Tool] { [] }
 
     func reasoningCapture(for modelName: String) -> ReasoningContentCapture? { nil }
+    func tokenUsageCapture(for modelName: String) -> TokenUsageCapture? { nil }
 
     func generationOptions(for modelName: String, maxTokens: Int, reasoningEffort: ReasoningEffort?) -> GenerationOptions {
         GenerationOptions(maximumResponseTokens: maxTokens)

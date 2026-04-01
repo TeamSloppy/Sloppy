@@ -5,6 +5,8 @@ import SloppyClientUI
 struct RawConfigSection: View {
     let config: SloppyConfig
 
+    @Environment(\.theme) private var theme
+
     private var rawJSON: String {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
@@ -16,22 +18,26 @@ struct RawConfigSection: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: Theme.spacingM) {
-            SectionHeader("Raw Config", accentColor: Theme.accentCyan)
+        let c = theme.colors
+        let sp = theme.spacing
+        let ty = theme.typography
+
+        return VStack(alignment: .leading, spacing: sp.m) {
+            SectionHeader("Raw Config", accentColor: c.accentCyan)
 
             SettingsSectionCard("JSON") {
                 ScrollView {
                     Text(rawJSON)
-                        .font(.system(size: Theme.fontMicro))
-                        .foregroundColor(Theme.textSecondary)
-                        .padding(Theme.spacingM)
+                        .font(.system(size: ty.micro))
+                        .foregroundColor(c.textSecondary)
+                        .padding(sp.m)
                 }
                 .frame(height: 400)
             }
 
             Text("Read-only view. Use section editors above to modify config.")
-                .font(.system(size: Theme.fontMicro))
-                .foregroundColor(Theme.textMuted)
+                .font(.system(size: ty.micro))
+                .foregroundColor(c.textMuted)
         }
     }
 }

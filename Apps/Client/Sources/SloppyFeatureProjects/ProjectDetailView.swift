@@ -20,27 +20,33 @@ struct ProjectDetailView: View {
     let project: APIProjectRecord
 
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.theme) private var theme
     @State private var selectedTab: ProjectDetailTab = .info
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            HStack(spacing: Theme.spacingM) {
+        let c = theme.colors
+        let sp = theme.spacing
+        let bo = theme.borders
+        let ty = theme.typography
+
+        return VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: sp.m) {
                 BackButton("Projects", action: { dismiss() })
                 Spacer()
             }
-            .padding(.horizontal, Theme.spacingL)
-            .padding(.vertical, Theme.spacingM)
+            .padding(.horizontal, sp.l)
+            .padding(.vertical, sp.m)
 
-            HStack(spacing: Theme.spacingS) {
+            HStack(spacing: sp.s) {
                 Color.clear
-                    .frame(width: Theme.borderThick, height: 28)
-                    .background(Theme.accent)
+                    .frame(width: bo.thick, height: 28)
+                    .background(c.accent)
                 Text(project.name.uppercased())
-                    .font(.system(size: Theme.fontTitle))
-                    .foregroundColor(Theme.textPrimary)
+                    .font(.system(size: ty.title))
+                    .foregroundColor(c.textPrimary)
             }
-            .padding(.horizontal, Theme.spacingL)
-            .padding(.bottom, Theme.spacingM)
+            .padding(.horizontal, sp.l)
+            .padding(.bottom, sp.m)
 
             TabView(selection: $selectedTab) {
                 Tab(ProjectDetailTab.info.title, value: ProjectDetailTab.info) { tabContent(.info) }
@@ -63,7 +69,11 @@ struct ProjectDetailView: View {
     }
 
     private var projectInfoTab: some View {
-        ScrollView {
+        let c = theme.colors
+        let sp = theme.spacing
+        let bo = theme.borders
+
+        return ScrollView {
             VStack(alignment: .leading, spacing: 0) {
                 DetailRow("Name", value: project.name)
                 DetailRow("Description", value: project.description.isEmpty ? "—" : project.description)
@@ -72,70 +82,80 @@ struct ProjectDetailView: View {
                 DetailRow("Actors", value: "\(project.actors?.count ?? 0)")
                 DetailRow("Teams", value: "\(project.teams?.count ?? 0)")
             }
-            .padding(Theme.spacingL)
-            .border(Theme.border, lineWidth: Theme.borderThin)
-            .padding(Theme.spacingL)
+            .padding(sp.l)
+            .border(c.border, lineWidth: bo.thin)
+            .padding(sp.l)
         }
     }
 
     private var projectTasksTab: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: Theme.spacingS) {
+        let c = theme.colors
+        let sp = theme.spacing
+        let bo = theme.borders
+        let ty = theme.typography
+
+        return ScrollView {
+            VStack(alignment: .leading, spacing: sp.s) {
                 let tasks = project.tasks ?? []
                 if tasks.isEmpty {
                     EmptyStateView("No tasks")
                 } else {
                     ForEach(tasks) { task in
-                        HStack(spacing: Theme.spacingM) {
-                            VStack(alignment: .leading, spacing: Theme.spacingXS) {
+                        HStack(spacing: sp.m) {
+                            VStack(alignment: .leading, spacing: sp.xs) {
                                 Text(task.title)
-                                    .font(.system(size: Theme.fontBody))
-                                    .foregroundColor(Theme.textPrimary)
+                                    .font(.system(size: ty.body))
+                                    .foregroundColor(c.textPrimary)
                                 if let priority = task.priority {
                                     Text(priority.uppercased())
-                                        .font(.system(size: Theme.fontMicro))
-                                        .foregroundColor(Theme.textMuted)
+                                        .font(.system(size: ty.micro))
+                                        .foregroundColor(c.textMuted)
                                 }
                             }
                             Spacer()
                             StatusBadge.forTaskStatus(task.status)
                         }
-                        .padding(Theme.spacingM)
-                        .background(Theme.surface)
-                        .border(Theme.border, lineWidth: Theme.borderThin)
+                        .padding(sp.m)
+                        .background(c.surface)
+                        .border(c.border, lineWidth: bo.thin)
                     }
                 }
             }
-            .padding(Theme.spacingL)
+            .padding(sp.l)
         }
     }
 
     private var projectChannelsTab: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: Theme.spacingS) {
+        let c = theme.colors
+        let sp = theme.spacing
+        let bo = theme.borders
+        let ty = theme.typography
+
+        return ScrollView {
+            VStack(alignment: .leading, spacing: sp.s) {
                 let channels = project.channels ?? []
                 if channels.isEmpty {
                     EmptyStateView("No channels")
                 } else {
                     ForEach(channels) { channel in
-                        HStack(spacing: Theme.spacingM) {
-                            VStack(alignment: .leading, spacing: Theme.spacingXS) {
+                        HStack(spacing: sp.m) {
+                            VStack(alignment: .leading, spacing: sp.xs) {
                                 Text(channel.title)
-                                    .font(.system(size: Theme.fontBody))
-                                    .foregroundColor(Theme.textPrimary)
+                                    .font(.system(size: ty.body))
+                                    .foregroundColor(c.textPrimary)
                                 Text(channel.channelId)
-                                    .font(.system(size: Theme.fontMicro))
-                                    .foregroundColor(Theme.textMuted)
+                                    .font(.system(size: ty.micro))
+                                    .foregroundColor(c.textMuted)
                             }
                             Spacer()
                         }
-                        .padding(Theme.spacingM)
-                        .background(Theme.surface)
-                        .border(Theme.border, lineWidth: Theme.borderThin)
+                        .padding(sp.m)
+                        .background(c.surface)
+                        .border(c.border, lineWidth: bo.thin)
                     }
                 }
             }
-            .padding(Theme.spacingL)
+            .padding(sp.l)
         }
     }
 }

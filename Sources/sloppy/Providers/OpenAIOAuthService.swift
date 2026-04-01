@@ -159,6 +159,15 @@ struct OpenAIOAuthService: @unchecked Sendable {
             var displayName: String?
             var description: String?
             var supportedReasoningEfforts: [ReasoningEffort]?
+            var contextWindow: Int?
+
+            enum CodingKeys: String, CodingKey {
+                case id
+                case displayName = "display_name"
+                case description
+                case supportedReasoningEfforts = "supported_reasoning_efforts"
+                case contextWindow = "context_window"
+            }
         }
 
         var data: [Model]
@@ -571,7 +580,7 @@ struct OpenAIOAuthService: @unchecked Sendable {
             return ProviderModelOption(
                 id: item.id,
                 title: item.displayName ?? item.id,
-                contextWindow: nil,
+                contextWindow: Self.formatContextWindow(item.contextWindow),
                 capabilities: capabilities
             )
         }.sorted { $0.id < $1.id }
@@ -622,13 +631,15 @@ struct OpenAIOAuthService: @unchecked Sendable {
             let displayName = (item["display_name"] as? String ?? item["displayName"] as? String ?? item["title"] as? String)
             let description = item["description"] as? String
             let reasoningEfforts = Self.parseReasoningEfforts(from: item)
+            let contextWindow = Self.parseContextWindow(from: item)
 
             models.append(
                 RemoteModelsResponse.Model(
                     id: id,
                     displayName: displayName,
                     description: description,
-                    supportedReasoningEfforts: reasoningEfforts
+                    supportedReasoningEfforts: reasoningEfforts,
+                    contextWindow: contextWindow
                 )
             )
         }
@@ -916,6 +927,31 @@ struct OpenAIOAuthService: @unchecked Sendable {
             return mapped.isEmpty ? nil : mapped
         }
         return nil
+    }
+
+    private static func parseContextWindow(from item: [String: Any]) -> Int? {
+        if let val = item["context_window"] as? Int, val > 0 { return val }
+        if let val = item["contextWindow"] as? Int, val > 0 { return val }
+        if let val = item["max_context_length"] as? Int, val > 0 { return val }
+        if let val = item["context_length"] as? Int, val > 0 { return val }
+        return nil
+    }
+
+    static func formatContextWindow(_ tokens: Int?) -> String? {
+        guard let tokens, tokens > 0 else { return nil }
+        if tokens >= 1_000_000 {
+            let value = Double(tokens) / 1_000_000.0
+            return value.truncatingRemainder(dividingBy: 1.0) == 0
+                ? String(format: "%.0fM", value)
+                : String(format: "%.1fM", value)
+        }
+        if tokens >= 1_000 {
+            let value = Double(tokens) / 1_000.0
+            return value.truncatingRemainder(dividingBy: 1.0) == 0
+                ? String(format: "%.0fK", value)
+                : String(format: "%.1fK", value)
+        }
+        return "\(tokens)"
     }
 
     private static func sanitizedPayloadSnippet(_ data: Data, limit: Int = 400) -> String {

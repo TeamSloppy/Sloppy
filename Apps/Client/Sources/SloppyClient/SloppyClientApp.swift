@@ -3,6 +3,7 @@ import AdaEngine
 import AdaMCPPlugin
 #endif
 import SloppyClientCore
+import SloppyClientUI
 import SloppyFeatureOverview
 import SloppyFeatureProjects
 import SloppyFeatureAgents
@@ -12,6 +13,7 @@ struct SloppyClientApp: App {
     private var baseScene: some AppScene {
         WindowGroup {
             RootShellView()
+                .theme(.sloppyDark)
         }
         .windowMode(.windowed)
         .windowTitle("Sloppy")

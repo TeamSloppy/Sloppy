@@ -4,46 +4,53 @@ public struct StatusBadge: View {
     let label: String
     let color: Color
 
+    @Environment(\.theme) private var theme
+
     public init(_ label: String, color: Color) {
         self.label = label
         self.color = color
     }
 
     public var body: some View {
-        HStack(spacing: Theme.spacingXS) {
+        let sp = theme.spacing
+        let bo = theme.borders
+        let ty = theme.typography
+
+        return HStack(spacing: sp.xs) {
             Color.clear
                 .frame(width: 6, height: 6)
                 .background(color)
 
             Text(label.uppercased())
-                .font(.system(size: Theme.fontMicro))
+                .font(.system(size: ty.micro))
                 .foregroundColor(color)
         }
-        .padding(.horizontal, Theme.spacingS)
-        .padding(.vertical, Theme.spacingXS)
-        .border(color, lineWidth: Theme.borderThin)
+        .padding(.horizontal, sp.s)
+        .padding(.vertical, sp.xs)
+        .border(color, lineWidth: bo.thin)
     }
 
     public static func forTaskStatus(_ status: String) -> StatusBadge {
+        let c = Theme.sloppyDark.colors
         switch status {
         case "in_progress":
-            StatusBadge("Active", color: Theme.statusActive)
+            return StatusBadge("Active", color: c.statusActive)
         case "ready":
-            StatusBadge("Ready", color: Theme.statusReady)
+            return StatusBadge("Ready", color: c.statusReady)
         case "needs_review":
-            StatusBadge("Review", color: Theme.statusWarning)
+            return StatusBadge("Review", color: c.statusWarning)
         case "done":
-            StatusBadge("Done", color: Theme.statusDone)
+            return StatusBadge("Done", color: c.statusDone)
         case "blocked":
-            StatusBadge("Blocked", color: Theme.statusBlocked)
+            return StatusBadge("Blocked", color: c.statusBlocked)
         case "cancelled":
-            StatusBadge("Off", color: Theme.statusNeutral)
+            return StatusBadge("Off", color: c.statusNeutral)
         case "backlog":
-            StatusBadge("Backlog", color: Theme.statusNeutral)
+            return StatusBadge("Backlog", color: c.statusNeutral)
         case "pending_approval":
-            StatusBadge("Pending", color: Theme.statusWarning)
+            return StatusBadge("Pending", color: c.statusWarning)
         default:
-            StatusBadge(status, color: Theme.statusNeutral)
+            return StatusBadge(status, color: c.statusNeutral)
         }
     }
 }

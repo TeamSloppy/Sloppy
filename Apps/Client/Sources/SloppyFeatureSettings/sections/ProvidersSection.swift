@@ -8,6 +8,7 @@ struct ProvidersSection: View {
 
     @State private var draft: [SloppyConfig.ModelConfig]
     @State private var selectedIndex: Int = 0
+    @Environment(\.theme) private var theme
 
     init(config: SloppyConfig, onSave: @escaping (SloppyConfig) -> Void) {
         self.config = config
@@ -27,13 +28,17 @@ struct ProvidersSection: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: Theme.spacingM) {
-            SectionHeader("Providers", accentColor: Theme.accentCyan)
+        let c = theme.colors
+        let sp = theme.spacing
+        let ty = theme.typography
+
+        return VStack(alignment: .leading, spacing: sp.m) {
+            SectionHeader("Providers", accentColor: c.accentCyan)
 
             if draft.isEmpty {
                 Text("No providers configured.")
-                    .font(.system(size: Theme.fontBody))
-                    .foregroundColor(Theme.textMuted)
+                    .font(.system(size: ty.body))
+                    .foregroundColor(c.textMuted)
             } else {
                 providerList
                 if selectedIndex < draft.count {
@@ -41,15 +46,15 @@ struct ProvidersSection: View {
                 }
             }
 
-            HStack(spacing: Theme.spacingS) {
+            HStack(spacing: sp.s) {
                 Button("+ ADD") { addProvider() }
-                    .font(.system(size: Theme.fontCaption))
-                    .foregroundColor(Theme.accent)
+                    .font(.system(size: ty.caption))
+                    .foregroundColor(c.accent)
                 Spacer()
                 if selectedIndex < draft.count && draft.count > 1 {
                     Button("REMOVE") { removeSelected() }
-                        .font(.system(size: Theme.fontCaption))
-                        .foregroundColor(Theme.statusBlocked)
+                        .font(.system(size: ty.caption))
+                        .foregroundColor(c.statusBlocked)
                 }
             }
 
@@ -63,29 +68,34 @@ struct ProvidersSection: View {
     }
 
     private var providerList: some View {
-        VStack(alignment: .leading, spacing: 0) {
+        let c = theme.colors
+        let sp = theme.spacing
+        let bo = theme.borders
+        let ty = theme.typography
+
+        return VStack(alignment: .leading, spacing: 0) {
             ForEach(Array(draft.enumerated()), id: \.offset) { index, model in
                 Button(action: { selectedIndex = index }) {
                     HStack {
                         VStack(alignment: .leading, spacing: 2) {
                             Text(model.title)
-                                .font(.system(size: Theme.fontBody))
-                                .foregroundColor(index == selectedIndex ? Theme.textPrimary : Theme.textSecondary)
+                                .font(.system(size: ty.body))
+                                .foregroundColor(index == selectedIndex ? c.textPrimary : c.textSecondary)
                             Text(model.model)
-                                .font(.system(size: Theme.fontMicro))
-                                .foregroundColor(Theme.textMuted)
+                                .font(.system(size: ty.micro))
+                                .foregroundColor(c.textMuted)
                         }
                         Spacer()
                     }
-                    .padding(.horizontal, Theme.spacingM)
-                    .padding(.vertical, Theme.spacingS)
-                    .background(index == selectedIndex ? Theme.surfaceRaised : Color.clear)
-                    .border(Theme.border, lineWidth: Theme.borderThin)
+                    .padding(.horizontal, sp.m)
+                    .padding(.vertical, sp.s)
+                    .background(index == selectedIndex ? c.surfaceRaised : Color.clear)
+                    .border(c.border, lineWidth: bo.thin)
                 }
             }
         }
-        .background(Theme.surface)
-        .border(Theme.border, lineWidth: Theme.borderThin)
+        .background(c.surface)
+        .border(c.border, lineWidth: bo.thin)
     }
 
     private func providerEditor(index: Int) -> some View {

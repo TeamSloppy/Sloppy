@@ -14,6 +14,7 @@ struct AgentChatView: View {
     @State private var isSending = false
     @State private var socketManager: SessionSocketManager?
     @State private var streamTask: Task<Void, Never>?
+    @Environment(\.theme) private var theme
 
     var body: some View {
         sessionListView
@@ -33,34 +34,40 @@ struct AgentChatView: View {
     }
 
     private var sessionListView: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: Theme.spacingL) {
+        let c = theme.colors
+        let sp = theme.spacing
+        let ty = theme.typography
+
+        return ScrollView {
+            VStack(alignment: .leading, spacing: sp.l) {
                 HStack {
-                    SectionHeader("Chat Sessions", accentColor: Theme.accentCyan)
+                    SectionHeader("Chat Sessions", accentColor: c.accentCyan)
                     Spacer()
                     Button("REFRESH") { loadSessions() }
-                        .foregroundColor(Theme.accentCyan)
+                        .foregroundColor(c.accentCyan)
+                        .font(.system(size: ty.caption))
                     Button("NEW CHAT") { createSession() }
-                        .foregroundColor(Theme.accentCyan)
+                        .foregroundColor(c.accentCyan)
+                        .font(.system(size: ty.caption))
                 }
 
                 if sessions.isEmpty {
                     EmptyStateView(isLoadingSessions ? "Loading..." : "No sessions")
-                        .padding(.vertical, Theme.spacingXL)
+                        .padding(.vertical, sp.xl)
                 } else {
-                    VStack(spacing: Theme.spacingS) {
+                    VStack(spacing: sp.s) {
                         ForEach(sessions) { session in
                             EntityCard(
                                 title: session.title.isEmpty ? "Session" : session.title,
                                 subtitle: "\(session.messageCount) messages",
-                                accentColor: Theme.accentCyan,
+                                accentColor: c.accentCyan,
                                 onTap: { selectSession(session.id) }
                             )
                         }
                     }
                 }
             }
-            .padding(Theme.spacingL)
+            .padding(sp.l)
         }
         .onAppear { loadSessions() }
     }
@@ -184,35 +191,38 @@ struct ChatTranscriptView: View {
     let onSend: (String) -> Void
 
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.theme) private var theme
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            HStack(spacing: Theme.spacingM) {
+        let c = theme.colors
+        let sp = theme.spacing
+
+        return VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: sp.m) {
                 BackButton("Sessions", action: { dismiss() })
                 Spacer()
             }
-            .padding(.horizontal, Theme.spacingL)
-            .padding(.vertical, Theme.spacingM)
+            .padding(.horizontal, sp.l)
+            .padding(.vertical, sp.m)
 
             ScrollView {
-                VStack(alignment: .leading, spacing: Theme.spacingS) {
+                VStack(alignment: .leading, spacing: sp.s) {
                     if messages.isEmpty {
                         EmptyStateView("No messages yet")
-                            .padding(.vertical, Theme.spacingXL)
+                            .padding(.vertical, sp.xl)
                     } else {
                         ForEach(messages) { msg in
                             ChatBubbleView(message: msg)
                         }
                     }
                 }
-                .padding(Theme.spacingM)
+                .padding(sp.m)
             }
 
             ChatComposerView { content in
                 onSend(content)
             }
         }
-        .background(Theme.bg)
+        .background(c.background)
     }
 }
-
