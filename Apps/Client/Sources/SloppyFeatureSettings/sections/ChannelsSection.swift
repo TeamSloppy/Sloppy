@@ -11,6 +11,7 @@ struct ChannelsSection: View {
     @State private var discordEnabled: Bool
     @State private var discordBotToken: String
     @State private var discordGuildId: String
+    @Environment(\.theme) private var theme
 
     init(config: SloppyConfig, onSave: @escaping (SloppyConfig) -> Void) {
         self.config = config
@@ -31,8 +32,11 @@ struct ChannelsSection: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: Theme.spacingM) {
-            SectionHeader("Channels", accentColor: Theme.accentCyan)
+        let c = theme.colors
+        let sp = theme.spacing
+
+        return VStack(alignment: .leading, spacing: sp.m) {
+            SectionHeader("Channels", accentColor: c.accentCyan)
 
             SettingsSectionCard("Telegram") {
                 SettingsToggleRow(label: "Enabled", value: telegramEnabled) {

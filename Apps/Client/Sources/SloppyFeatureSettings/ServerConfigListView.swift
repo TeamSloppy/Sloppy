@@ -36,11 +36,15 @@ struct ServerConfigListView: View {
 
     @State private var selectedSection: ConfigSection? = nil
     @Environment(\.userInterfaceIdiom) private var idiom
+    @Environment(\.theme) private var theme
 
     var body: some View {
-        VStack(alignment: .leading, spacing: Theme.spacingM) {
-            SectionHeader("Sloppy Config", accentColor: Theme.accentCyan)
-                .padding(.horizontal, Theme.spacingM)
+        let c = theme.colors
+        let sp = theme.spacing
+
+        return VStack(alignment: .leading, spacing: sp.m) {
+            SectionHeader("Sloppy Config", accentColor: c.accentCyan)
+                .padding(.horizontal, sp.m)
 
             if idiom == .phone {
                 phoneLayout
@@ -51,7 +55,11 @@ struct ServerConfigListView: View {
     }
 
     private var phoneLayout: some View {
-        NavigationStack {
+        let c = theme.colors
+        let sp = theme.spacing
+        let bo = theme.borders
+
+        return NavigationStack {
             VStack(alignment: .leading, spacing: 0) {
                 ForEach(ConfigSection.allCases, id: \.self) { section in
                     NavigationLink(value: section) {
@@ -59,9 +67,9 @@ struct ServerConfigListView: View {
                     }
                 }
             }
-            .background(Theme.surface)
-            .border(Theme.border, lineWidth: Theme.borderThin)
-            .padding(.horizontal, Theme.spacingM)
+            .background(c.surface)
+            .border(c.border, lineWidth: bo.thin)
+            .padding(.horizontal, sp.m)
             .navigate(for: ConfigSection.self) { section in
                 configDetailView(section)
             }
@@ -69,55 +77,65 @@ struct ServerConfigListView: View {
     }
 
     private var desktopLayout: some View {
-        HStack(alignment: .top, spacing: 0) {
+        let c = theme.colors
+        let sp = theme.spacing
+        let bo = theme.borders
+        let ty = theme.typography
+
+        return HStack(alignment: .top, spacing: 0) {
             VStack(alignment: .leading, spacing: 0) {
                 ForEach(ConfigSection.allCases, id: \.self) { section in
                     Button(action: { selectedSection = section }) {
                         configRow(section)
                     }
-                    .background(selectedSection == section ? Theme.surfaceRaised : Color.clear)
+                    .background(selectedSection == section ? c.surfaceRaised : Color.clear)
                 }
             }
             .frame(width: 200)
-            .background(Theme.surface)
-            .border(Theme.border, lineWidth: Theme.borderThin)
+            .background(c.surface)
+            .border(c.border, lineWidth: bo.thin)
 
-            Color.clear.frame(width: Theme.borderThin).background(Theme.border)
+            Color.clear.frame(width: bo.thin).background(c.border)
 
             if let section = selectedSection {
                 ScrollView {
                     configDetailView(section)
-                        .padding(Theme.spacingM)
+                        .padding(sp.m)
                 }
             } else {
                 VStack {
                     Spacer()
                     Text("SELECT A SECTION")
-                        .font(.system(size: Theme.fontCaption))
-                        .foregroundColor(Theme.textMuted)
+                        .font(.system(size: ty.caption))
+                        .foregroundColor(c.textMuted)
                     Spacer()
                 }
             }
         }
-        .background(Theme.surface)
-        .border(Theme.border, lineWidth: Theme.borderThin)
-        .padding(.horizontal, Theme.spacingM)
+        .background(c.surface)
+        .border(c.border, lineWidth: bo.thin)
+        .padding(.horizontal, sp.m)
     }
 
     private func configRow(_ section: ConfigSection) -> some View {
-        HStack {
+        let c = theme.colors
+        let sp = theme.spacing
+        let bo = theme.borders
+        let ty = theme.typography
+
+        return HStack {
             Text(section.title.uppercased())
-                .font(.system(size: Theme.fontCaption))
-                .foregroundColor(selectedSection == section ? Theme.textPrimary : Theme.textSecondary)
+                .font(.system(size: ty.caption))
+                .foregroundColor(selectedSection == section ? c.textPrimary : c.textSecondary)
             Spacer()
             Text(">")
-                .font(.system(size: Theme.fontCaption))
-                .foregroundColor(Theme.textMuted)
+                .font(.system(size: ty.caption))
+                .foregroundColor(c.textMuted)
         }
-        .padding(.horizontal, Theme.spacingM)
-        .padding(.vertical, Theme.spacingS)
+        .padding(.horizontal, sp.m)
+        .padding(.vertical, sp.s)
         .background(Color.clear)
-        .border(Theme.border, lineWidth: Theme.borderThin)
+        .border(c.border, lineWidth: bo.thin)
     }
 
     @ViewBuilder

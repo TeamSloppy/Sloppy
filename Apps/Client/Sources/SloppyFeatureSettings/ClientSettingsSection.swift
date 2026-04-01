@@ -7,6 +7,7 @@ struct ClientSettingsSection: View {
 
     @State private var hostDraft: String = ""
     @State private var portDraft: String = ""
+    @Environment(\.theme) private var theme
 
     private let accentPresets: [(label: String, hex: String)] = [
         ("Pink", "#FF2D6F"),
@@ -18,9 +19,13 @@ struct ClientSettingsSection: View {
     ]
 
     var body: some View {
-        VStack(alignment: .leading, spacing: Theme.spacingM) {
-            SectionHeader("Client", accentColor: Theme.accent)
-                .padding(.horizontal, Theme.spacingM)
+        let c = theme.colors
+        let sp = theme.spacing
+        let ty = theme.typography
+
+        return VStack(alignment: .leading, spacing: sp.m) {
+            SectionHeader("Client", accentColor: c.accent)
+                .padding(.horizontal, sp.m)
 
             SettingsSectionCard("Connection") {
                 SettingsFieldRow("Host", hint: "Sloppy server hostname or IP", text: Binding(
@@ -33,21 +38,21 @@ struct ClientSettingsSection: View {
                     set: { portDraft = $0 }
                 ))
                 SettingsDivider()
-                HStack(spacing: Theme.spacingM) {
+                HStack(spacing: sp.m) {
                     Spacer()
                     Button("APPLY") { applyConnection() }
-                        .font(.system(size: Theme.fontCaption))
-                        .foregroundColor(Theme.accent)
+                        .font(.system(size: ty.caption))
+                        .foregroundColor(c.accent)
                 }
-                .padding(.horizontal, Theme.spacingM)
-                .padding(.vertical, Theme.spacingS)
+                .padding(.horizontal, sp.m)
+                .padding(.vertical, sp.s)
             }
-            .padding(.horizontal, Theme.spacingM)
+            .padding(.horizontal, sp.m)
 
             SettingsSectionCard("Accent Color") {
                 accentColorPicker
             }
-            .padding(.horizontal, Theme.spacingM)
+            .padding(.horizontal, sp.m)
 
             #if os(macOS)
             desktopSettingsSection
@@ -60,22 +65,27 @@ struct ClientSettingsSection: View {
     }
 
     private var accentColorPicker: some View {
-        VStack(alignment: .leading, spacing: Theme.spacingS) {
-            HStack(spacing: Theme.spacingS) {
+        let c = theme.colors
+        let sp = theme.spacing
+        let bo = theme.borders
+        let ty = theme.typography
+
+        return VStack(alignment: .leading, spacing: sp.s) {
+            HStack(spacing: sp.s) {
                 ForEach(accentPresets, id: \.hex) { preset in
                     Button(preset.label) {
                         settings.accentColorHex = preset.hex
                     }
-                    .font(.system(size: Theme.fontCaption))
-                    .foregroundColor(settings.accentColorHex == preset.hex ? Theme.textPrimary : Theme.textMuted)
-                    .padding(.vertical, Theme.spacingXS)
-                    .padding(.horizontal, Theme.spacingS)
-                    .background(settings.accentColorHex == preset.hex ? Theme.surfaceRaised : Color.clear)
-                    .border(settings.accentColorHex == preset.hex ? Theme.borderBold : Theme.border, lineWidth: Theme.borderThin)
+                    .font(.system(size: ty.caption))
+                    .foregroundColor(settings.accentColorHex == preset.hex ? c.textPrimary : c.textMuted)
+                    .padding(.vertical, sp.xs)
+                    .padding(.horizontal, sp.s)
+                    .background(settings.accentColorHex == preset.hex ? c.surfaceRaised : Color.clear)
+                    .border(settings.accentColorHex == preset.hex ? c.borderBold : c.border, lineWidth: bo.thin)
                 }
             }
-            .padding(.horizontal, Theme.spacingM)
-            .padding(.vertical, Theme.spacingS)
+            .padding(.horizontal, sp.m)
+            .padding(.vertical, sp.s)
 
             SettingsDivider()
             SettingsFieldRow("Custom Hex", hint: "e.g. #FF2D6F", text: Binding(
@@ -94,19 +104,23 @@ struct ClientSettingsSection: View {
 
     #if os(macOS)
     private var desktopSettingsSection: some View {
-        SettingsSectionCard("Desktop") {
+        let c = theme.colors
+        let sp = theme.spacing
+        let ty = theme.typography
+
+        return SettingsSectionCard("Desktop") {
             VStack(alignment: .leading, spacing: 0) {
                 HStack {
                     Text("DESKTOP-SPECIFIC SETTINGS")
-                        .font(.system(size: Theme.fontCaption))
-                        .foregroundColor(Theme.textMuted)
+                        .font(.system(size: ty.caption))
+                        .foregroundColor(c.textMuted)
                     Spacer()
                 }
-                .padding(.horizontal, Theme.spacingM)
-                .padding(.vertical, Theme.spacingS)
+                .padding(.horizontal, sp.m)
+                .padding(.vertical, sp.s)
             }
         }
-        .padding(.horizontal, Theme.spacingM)
+        .padding(.horizontal, sp.m)
     }
     #endif
 }

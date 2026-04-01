@@ -9,6 +9,7 @@ struct SearchToolsSection: View {
     @State private var activeProvider: String
     @State private var braveApiKey: String
     @State private var perplexityApiKey: String
+    @Environment(\.theme) private var theme
 
     init(config: SloppyConfig, onSave: @escaping (SloppyConfig) -> Void) {
         self.config = config
@@ -25,26 +26,31 @@ struct SearchToolsSection: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: Theme.spacingM) {
-            SectionHeader("Search Tools", accentColor: Theme.accentCyan)
+        let c = theme.colors
+        let sp = theme.spacing
+        let bo = theme.borders
+        let ty = theme.typography
+
+        return VStack(alignment: .leading, spacing: sp.m) {
+            SectionHeader("Search Tools", accentColor: c.accentCyan)
 
             SettingsSectionCard("Active Provider") {
-                HStack(spacing: Theme.spacingS) {
+                HStack(spacing: sp.s) {
                     ForEach(["perplexity", "brave"], id: \.self) { provider in
                         Button(provider.capitalized) {
                             activeProvider = provider
                         }
-                        .font(.system(size: Theme.fontCaption))
-                        .foregroundColor(activeProvider == provider ? Theme.textPrimary : Theme.textMuted)
-                        .padding(.vertical, Theme.spacingXS)
-                        .padding(.horizontal, Theme.spacingS)
-                        .background(activeProvider == provider ? Theme.surfaceRaised : Color.clear)
-                        .border(activeProvider == provider ? Theme.borderBold : Theme.border, lineWidth: Theme.borderThin)
+                        .font(.system(size: ty.caption))
+                        .foregroundColor(activeProvider == provider ? c.textPrimary : c.textMuted)
+                        .padding(.vertical, sp.xs)
+                        .padding(.horizontal, sp.s)
+                        .background(activeProvider == provider ? c.surfaceRaised : Color.clear)
+                        .border(activeProvider == provider ? c.borderBold : c.border, lineWidth: bo.thin)
                     }
                     Spacer()
                 }
-                .padding(.horizontal, Theme.spacingM)
-                .padding(.vertical, Theme.spacingS)
+                .padding(.horizontal, sp.m)
+                .padding(.vertical, sp.s)
             }
 
             SettingsSectionCard("Perplexity") {

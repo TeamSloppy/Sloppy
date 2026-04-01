@@ -7,6 +7,7 @@ struct NodeHostSection: View {
     let onSave: (SloppyConfig) -> Void
 
     @State private var nodesText: String
+    @Environment(\.theme) private var theme
 
     init(config: SloppyConfig, onSave: @escaping (SloppyConfig) -> Void) {
         self.config = config
@@ -23,30 +24,35 @@ struct NodeHostSection: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: Theme.spacingM) {
-            SectionHeader("Node Host", accentColor: Theme.accentCyan)
+        let c = theme.colors
+        let sp = theme.spacing
+        let bo = theme.borders
+        let ty = theme.typography
+
+        return VStack(alignment: .leading, spacing: sp.m) {
+            SectionHeader("Node Host", accentColor: c.accentCyan)
 
             SettingsSectionCard("Nodes") {
-                VStack(alignment: .leading, spacing: Theme.spacingXS) {
+                VStack(alignment: .leading, spacing: sp.xs) {
                     Text("NODES")
-                        .font(.system(size: Theme.fontMicro))
-                        .foregroundColor(Theme.textSecondary)
-                        .padding(.horizontal, Theme.spacingM)
-                        .padding(.top, Theme.spacingS)
+                        .font(.system(size: ty.micro))
+                        .foregroundColor(c.textSecondary)
+                        .padding(.horizontal, sp.m)
+                        .padding(.top, sp.s)
 
                     TextField("local", text: $nodesText)
-                        .font(.system(size: Theme.fontBody))
-                        .foregroundColor(Theme.textPrimary)
-                        .padding(Theme.spacingS)
-                        .background(Theme.bg)
-                        .border(Theme.border, lineWidth: Theme.borderThin)
-                        .padding(.horizontal, Theme.spacingM)
+                        .font(.system(size: ty.body))
+                        .foregroundColor(c.textPrimary)
+                        .padding(sp.s)
+                        .background(c.background)
+                        .border(c.border, lineWidth: bo.thin)
+                        .padding(.horizontal, sp.m)
 
                     Text("One node per line. Default: local")
-                        .font(.system(size: Theme.fontMicro))
-                        .foregroundColor(Theme.textMuted)
-                        .padding(.horizontal, Theme.spacingM)
-                        .padding(.bottom, Theme.spacingS)
+                        .font(.system(size: ty.micro))
+                        .foregroundColor(c.textMuted)
+                        .padding(.horizontal, sp.m)
+                        .padding(.bottom, sp.s)
                 }
             }
 

@@ -14,9 +14,13 @@ struct RootShellView: View {
     @State private var notificationListenerStarted = false
     @Environment(\.safeAreaInsets) private var inset
     @Environment(\.userInterfaceIdiom) private var idiom
+    @Environment(\.theme) private var theme
 
     var body: some View {
-        TabView(selection: $selectedRoute) {
+        let c = theme.colors
+        let sp = theme.spacing
+
+        return TabView(selection: $selectedRoute) {
             Tab(AppRoute.overview.title, image: Icons.home, value: AppRoute.overview) {
                 routeDestination(.overview)
             }
@@ -26,25 +30,19 @@ struct RootShellView: View {
             Tab(AppRoute.agents.title, image: Icons.star, value: AppRoute.agents) {
                 routeDestination(.agents)
             }
-            Tab(AppRoute.tasks.title, image: Icons.star, value: AppRoute.tasks) {
-                routeDestination(.tasks)
-            }
-            Tab(AppRoute.review.title, image: Icons.star, value: AppRoute.review) {
-                routeDestination(.review)
-            }
             Tab(AppRoute.settings.title, image: Icons.star, value: AppRoute.settings) {
                 routeDestination(.settings)
             }
         }
         .background {
-            Theme.bg.ignoresSafeArea()
+            c.background.ignoresSafeArea()
         }
         .tabViewPosition(idiom == .phone ? .bottom : .left)
         .overlay(anchor: .topTrailing) {
             if let banner = activeBanner {
                 NotificationBanner(item: banner)
                     .frame(width: Float(320))
-                    .padding(Theme.spacingM)
+                    .padding(sp.m)
             }
         }
         .onAppear {
@@ -71,16 +69,18 @@ struct RootShellView: View {
     }
 
     private func placeholderView(_ route: AppRoute) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
+        let c = theme.colors
+
+        return VStack(alignment: .leading, spacing: 8) {
             Text(route.title.uppercased())
                 .font(.system(size: 28))
-                .foregroundColor(.fromHex(0xF0F0F0))
+                .foregroundColor(c.textPrimary)
             Text("COMING SOON")
                 .font(.system(size: 12))
-                .foregroundColor(.fromHex(0x4A4A4A))
+                .foregroundColor(c.textMuted)
         }
         .padding(24)
-        .border(.fromHex(0x2A2A2A), lineWidth: 1)
+        .border(c.border, lineWidth: 1)
         .frame(height: 800)
     }
 
@@ -96,14 +96,15 @@ struct RootShellView: View {
     }
 
     private func showBanner(for notification: AppNotification) {
+        let c = theme.colors
         let color: Color
         switch notification.type {
         case .agentError, .systemError:
-            color = Theme.statusBlocked
+            color = c.statusBlocked
         case .pendingApproval:
-            color = Theme.statusWarning
+            color = c.statusWarning
         case .confirmation:
-            color = Theme.statusDone
+            color = c.statusDone
         }
 
         bannerDismissTask?.cancel()

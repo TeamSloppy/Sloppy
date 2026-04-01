@@ -1446,6 +1446,13 @@
   gap: 10px;
 }
 
+.project-id-preview {
+  font-size: 0.82rem;
+  color: var(--muted);
+  font-family: var(--mono-font, monospace);
+  letter-spacing: 0.02em;
+}
+
 .project-modal-actions {
   display: flex;
   justify-content: flex-end;

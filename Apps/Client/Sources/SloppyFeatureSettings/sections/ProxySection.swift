@@ -12,6 +12,7 @@ struct ProxySection: View {
     @State private var port: String
     @State private var username: String
     @State private var password: String
+    @Environment(\.theme) private var theme
 
     private let proxyTypes = ["socks5", "http", "https"]
 
@@ -34,8 +35,13 @@ struct ProxySection: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: Theme.spacingM) {
-            SectionHeader("Proxy", accentColor: Theme.accentCyan)
+        let c = theme.colors
+        let sp = theme.spacing
+        let bo = theme.borders
+        let ty = theme.typography
+
+        return VStack(alignment: .leading, spacing: sp.m) {
+            SectionHeader("Proxy", accentColor: c.accentCyan)
 
             SettingsSectionCard("Proxy Settings") {
                 SettingsToggleRow(label: "Enabled", value: enabled) {
@@ -44,25 +50,25 @@ struct ProxySection: View {
 
                 if enabled {
                     SettingsDivider()
-                    VStack(alignment: .leading, spacing: Theme.spacingXS) {
+                    VStack(alignment: .leading, spacing: sp.xs) {
                         Text("TYPE")
-                            .font(.system(size: Theme.fontMicro))
-                            .foregroundColor(Theme.textSecondary)
-                        HStack(spacing: Theme.spacingS) {
+                            .font(.system(size: ty.micro))
+                            .foregroundColor(c.textSecondary)
+                        HStack(spacing: sp.s) {
                             ForEach(proxyTypes, id: \.self) { proxyType in
                                 Button(proxyType) { type = proxyType }
-                                    .font(.system(size: Theme.fontCaption))
-                                    .foregroundColor(type == proxyType ? Theme.textPrimary : Theme.textMuted)
-                                    .padding(.vertical, Theme.spacingXS)
-                                    .padding(.horizontal, Theme.spacingS)
-                                    .background(type == proxyType ? Theme.surfaceRaised : Color.clear)
-                                    .border(type == proxyType ? Theme.borderBold : Theme.border, lineWidth: Theme.borderThin)
+                                    .font(.system(size: ty.caption))
+                                    .foregroundColor(type == proxyType ? c.textPrimary : c.textMuted)
+                                    .padding(.vertical, sp.xs)
+                                    .padding(.horizontal, sp.s)
+                                    .background(type == proxyType ? c.surfaceRaised : Color.clear)
+                                    .border(type == proxyType ? c.borderBold : c.border, lineWidth: bo.thin)
                             }
                             Spacer()
                         }
                     }
-                    .padding(.horizontal, Theme.spacingM)
-                    .padding(.vertical, Theme.spacingS)
+                    .padding(.horizontal, sp.m)
+                    .padding(.vertical, sp.s)
                     SettingsDivider()
                     SettingsFieldRow("Host", text: $host)
                     SettingsDivider()

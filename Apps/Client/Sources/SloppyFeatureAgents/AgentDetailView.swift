@@ -21,29 +21,35 @@ struct AgentDetailView: View {
     let apiClient: SloppyAPIClient
 
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.theme) private var theme
     @State private var selectedTab: AgentDetailTab = .info
     @State private var agentTasks: [APIAgentTaskRecord] = []
     @State private var tasksLoaded = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            HStack(spacing: Theme.spacingM) {
+        let c = theme.colors
+        let sp = theme.spacing
+        let bo = theme.borders
+        let ty = theme.typography
+
+        return VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: sp.m) {
                 BackButton("Agents", action: { dismiss() })
                 Spacer()
             }
-            .padding(.horizontal, Theme.spacingL)
-            .padding(.vertical, Theme.spacingM)
+            .padding(.horizontal, sp.l)
+            .padding(.vertical, sp.m)
 
-            HStack(spacing: Theme.spacingS) {
+            HStack(spacing: sp.s) {
                 Color.clear
-                    .frame(width: Theme.borderThick, height: 28)
-                    .background(Theme.accentCyan)
+                    .frame(width: bo.thick, height: 28)
+                    .background(c.accentCyan)
                 Text(agent.displayName.uppercased())
-                    .font(.system(size: Theme.fontTitle))
-                    .foregroundColor(Theme.textPrimary)
+                    .font(.system(size: ty.title))
+                    .foregroundColor(c.textPrimary)
             }
-            .padding(.horizontal, Theme.spacingL)
-            .padding(.bottom, Theme.spacingM)
+            .padding(.horizontal, sp.l)
+            .padding(.bottom, sp.m)
 
             TabView(selection: $selectedTab) {
                 Tab(AgentDetailTab.info.title, value: AgentDetailTab.info) { tabContent(.info) }
@@ -66,51 +72,60 @@ struct AgentDetailView: View {
     }
 
     private var agentInfoTab: some View {
-        ScrollView {
+        let c = theme.colors
+        let sp = theme.spacing
+        let bo = theme.borders
+
+        return ScrollView {
             VStack(alignment: .leading, spacing: 0) {
                 DetailRow("Name", value: agent.displayName)
                 DetailRow("Role", value: agent.role.isEmpty ? "—" : agent.role)
                 DetailRow("ID", value: agent.id)
                 DetailRow("System", value: agent.isSystem == true ? "YES" : "NO")
             }
-            .padding(Theme.spacingL)
-            .border(Theme.border, lineWidth: Theme.borderThin)
-            .padding(Theme.spacingL)
+            .padding(sp.l)
+            .border(c.border, lineWidth: bo.thin)
+            .padding(sp.l)
         }
     }
 
     private var agentTasksTab: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: Theme.spacingS) {
+        let c = theme.colors
+        let sp = theme.spacing
+        let bo = theme.borders
+        let ty = theme.typography
+
+        return ScrollView {
+            VStack(alignment: .leading, spacing: sp.s) {
                 if !tasksLoaded {
-                    VStack(spacing: Theme.spacingM) {
+                    VStack(spacing: sp.m) {
                         Button("LOAD TASKS") { loadTasks() }
-                            .foregroundColor(Theme.accentCyan)
+                            .foregroundColor(c.accentCyan)
                     }
-                    .padding(.vertical, Theme.spacingXL)
+                    .padding(.vertical, sp.xl)
                 } else if agentTasks.isEmpty {
                     EmptyStateView("No tasks assigned")
                 } else {
                     ForEach(agentTasks) { record in
-                        HStack(spacing: Theme.spacingM) {
-                            VStack(alignment: .leading, spacing: Theme.spacingXS) {
+                        HStack(spacing: sp.m) {
+                            VStack(alignment: .leading, spacing: sp.xs) {
                                 Text(record.task.title)
-                                    .font(.system(size: Theme.fontBody))
-                                    .foregroundColor(Theme.textPrimary)
+                                    .font(.system(size: ty.body))
+                                    .foregroundColor(c.textPrimary)
                                 Text(record.projectName.uppercased())
-                                    .font(.system(size: Theme.fontMicro))
-                                    .foregroundColor(Theme.textMuted)
+                                    .font(.system(size: ty.micro))
+                                    .foregroundColor(c.textMuted)
                             }
                             Spacer()
                             StatusBadge.forTaskStatus(record.task.status)
                         }
-                        .padding(Theme.spacingM)
-                        .background(Theme.surface)
-                        .border(Theme.border, lineWidth: Theme.borderThin)
+                        .padding(sp.m)
+                        .background(c.surface)
+                        .border(c.border, lineWidth: bo.thin)
                     }
                 }
             }
-            .padding(Theme.spacingL)
+            .padding(sp.l)
         }
     }
 

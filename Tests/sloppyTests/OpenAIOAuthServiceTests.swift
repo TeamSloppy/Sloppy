@@ -135,7 +135,8 @@ func openAIOAuthFetchModelsAcceptsModelsArrayPayload() async throws {
                     {
                       "id": "gpt-5.3-codex",
                       "display_name": "GPT-5.3 Codex",
-                      "supported_reasoning_efforts": ["low", "medium", "high"]
+                      "supported_reasoning_efforts": ["low", "medium", "high"],
+                      "context_window": 1048576
                     }
                   ]
                 }
@@ -152,7 +153,23 @@ func openAIOAuthFetchModelsAcceptsModelsArrayPayload() async throws {
     )
 
     let models = try await service.fetchModels()
-    #expect(models.contains(where: { $0.id == "gpt-5.3-codex" }))
+    let codexModel = models.first(where: { $0.id == "gpt-5.3-codex" })
+    #expect(codexModel != nil)
+    #expect(codexModel?.contextWindow == "1.0M")
+    #expect(codexModel?.capabilities.contains("reasoning") == true)
+}
+
+@Test
+func formatContextWindowFormatsTokenCounts() {
+    #expect(OpenAIOAuthService.formatContextWindow(nil) == nil)
+    #expect(OpenAIOAuthService.formatContextWindow(0) == nil)
+    #expect(OpenAIOAuthService.formatContextWindow(512) == "512")
+    #expect(OpenAIOAuthService.formatContextWindow(4096) == "4.1K")
+    #expect(OpenAIOAuthService.formatContextWindow(4000) == "4K")
+    #expect(OpenAIOAuthService.formatContextWindow(128_000) == "128K")
+    #expect(OpenAIOAuthService.formatContextWindow(200_000) == "200K")
+    #expect(OpenAIOAuthService.formatContextWindow(1_000_000) == "1M")
+    #expect(OpenAIOAuthService.formatContextWindow(1_048_576) == "1.0M")
 }
 
 @Test

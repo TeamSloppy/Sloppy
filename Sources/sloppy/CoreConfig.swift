@@ -670,13 +670,29 @@ public struct CoreConfig: Codable, Sendable {
 
         public var discord: Discord?
         public var telegram: Telegram?
+        public var channelInactivityDays: Int
+
+        private enum CodingKeys: String, CodingKey {
+            case discord
+            case telegram
+            case channelInactivityDays
+        }
 
         public init(
             discord: Discord? = nil,
-            telegram: Telegram? = nil
+            telegram: Telegram? = nil,
+            channelInactivityDays: Int = 2
         ) {
             self.discord = discord
             self.telegram = telegram
+            self.channelInactivityDays = channelInactivityDays
+        }
+
+        public init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            discord = try container.decodeIfPresent(Discord.self, forKey: .discord)
+            telegram = try container.decodeIfPresent(Telegram.self, forKey: .telegram)
+            channelInactivityDays = try container.decodeIfPresent(Int.self, forKey: .channelInactivityDays) ?? 2
         }
     }
 

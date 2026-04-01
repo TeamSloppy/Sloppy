@@ -13,6 +13,7 @@ struct VisorSection: View {
     @State private var branchTimeout: String
     @State private var idleThreshold: String
     @State private var mergeEnabled: Bool
+    @Environment(\.theme) private var theme
 
     init(config: SloppyConfig, onSave: @escaping (SloppyConfig) -> Void) {
         self.config = config
@@ -39,8 +40,11 @@ struct VisorSection: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: Theme.spacingM) {
-            SectionHeader("Visor", accentColor: Theme.accentCyan)
+        let c = theme.colors
+        let sp = theme.spacing
+
+        return VStack(alignment: .leading, spacing: sp.m) {
+            SectionHeader("Visor", accentColor: c.accentCyan)
 
             SettingsSectionCard("Scheduler") {
                 SettingsToggleRow(label: "Enabled", value: schedulerEnabled) {

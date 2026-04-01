@@ -17,29 +17,36 @@ public struct NotificationBannerItem: Sendable, Identifiable, Equatable {
 public struct NotificationBanner: View {
     let item: NotificationBannerItem
 
+    @Environment(\.theme) private var theme
+
     public init(item: NotificationBannerItem) {
         self.item = item
     }
 
     public var body: some View {
-        HStack(spacing: 0) {
+        let c = theme.colors
+        let sp = theme.spacing
+        let bo = theme.borders
+        let ty = theme.typography
+
+        return HStack(spacing: 0) {
             Color.clear
-                .frame(width: Theme.borderThick)
+                .frame(width: bo.thick)
                 .background(item.accentColor)
 
-            VStack(alignment: .leading, spacing: Theme.spacingXS) {
+            VStack(alignment: .leading, spacing: sp.xs) {
                 Text(item.title.uppercased())
-                    .font(.system(size: Theme.fontCaption))
+                    .font(.system(size: ty.caption))
                     .foregroundColor(item.accentColor)
                 Text(item.message)
-                    .font(.system(size: Theme.fontBody))
-                    .foregroundColor(Theme.textPrimary)
+                    .font(.system(size: ty.body))
+                    .foregroundColor(c.textPrimary)
             }
-            .padding(Theme.spacingM)
+            .padding(sp.m)
 
             Spacer()
         }
-        .background(Theme.surface)
-        .border(item.accentColor, lineWidth: Theme.borderThin)
+        .background(c.surface)
+        .border(item.accentColor, lineWidth: bo.thin)
     }
 }

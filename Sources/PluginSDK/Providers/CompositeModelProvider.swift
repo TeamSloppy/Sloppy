@@ -49,4 +49,8 @@ public struct CompositeModelProvider: ModelProvider {
     public func reasoningCapture(for modelName: String) -> ReasoningContentCapture? {
         providers.first(where: { $0.supportedModels.contains(modelName) })?.reasoningCapture(for: modelName)
     }
+
+    public func tokenUsageCapture(for modelName: String) -> TokenUsageCapture? {
+        providers.first(where: { $0.supportedModels.contains(modelName) })?.tokenUsageCapture(for: modelName)
+    }
 }

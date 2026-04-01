@@ -549,6 +549,37 @@ export function normalizeProjectIdentifier(value) {
     .replace(/^[-_.]+|[-_.]+$/g, "");
 }
 
+const CYRILLIC_MAP = {
+  "а": "a", "б": "b", "в": "v", "г": "g", "д": "d", "е": "e", "ё": "yo",
+  "ж": "zh", "з": "z", "и": "i", "й": "y", "к": "k", "л": "l", "м": "m",
+  "н": "n", "о": "o", "п": "p", "р": "r", "с": "s", "т": "t", "у": "u",
+  "ф": "f", "х": "kh", "ц": "ts", "ч": "ch", "ш": "sh", "щ": "shch",
+  "ъ": "", "ы": "y", "ь": "", "э": "e", "ю": "yu", "я": "ya"
+};
+
+function transliterate(text) {
+  let result = "";
+  for (const char of text.toLowerCase()) {
+    if (CYRILLIC_MAP[char] !== undefined) {
+      result += CYRILLIC_MAP[char];
+    } else {
+      result += char;
+    }
+  }
+  return result;
+}
+
+export function displayNameToProjectId(name) {
+  const raw = String(name || "").trim();
+  if (!raw) return "";
+  const latin = transliterate(raw);
+  return latin
+    .replace(/\s+/g, "_")
+    .replace(/[^a-z0-9_-]/g, "")
+    .replace(/_{2,}/g, "_")
+    .replace(/^[_-]+|[_-]+$/g, "");
+}
+
 export function parseListInput(value) {
   const unique = new Set();
   const parsed = [];
@@ -603,8 +634,7 @@ export function buildProjectChannels(projectId, actors = [], teams = []) {
 
 export function emptyProjectDraft(index = 1) {
   return {
-    projectId: `project-${index}`,
-    displayName: `Project ${index}`,
+    displayName: "",
     description: "",
     actors: "",
     teams: "",

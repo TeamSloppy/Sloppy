@@ -1089,6 +1089,29 @@ func openAIOAuthModelIgnoresUnknownSSEEvents() {
     #expect(model.parseSSEReasoningDelta(line) == nil)
 }
 
+@Test
+func openAIOAuthModelParsesResponseCompletedWithUsage() {
+    let usageCapture = TokenUsageCapture()
+    let model = OpenAIOAuthModel(bearerToken: "token", model: "gpt-5", tokenUsageCapture: usageCapture)
+    let line = #"data: {"type":"response.completed","response":{"id":"resp_123","usage":{"input_tokens":150,"output_tokens":42}}}"#
+    let result = model.parseSSEResponseCompleted(line)
+    #expect(result != nil)
+    #expect(result?.responseId == "resp_123")
+    #expect(result?.inputTokens == 150)
+    #expect(result?.outputTokens == 42)
+}
+
+@Test
+func tokenUsageCaptureStoresAndConsumes() {
+    let capture = TokenUsageCapture()
+    #expect(capture.consume() == nil)
+    capture.store(promptTokens: 100, completionTokens: 50)
+    let result = capture.consume()
+    #expect(result?.prompt == 100)
+    #expect(result?.completion == 50)
+    #expect(capture.consume() == nil)
+}
+
 private extension Protocols.JSONValue {
     var objectValue: [String: Protocols.JSONValue] {
         if case .object(let object) = self {

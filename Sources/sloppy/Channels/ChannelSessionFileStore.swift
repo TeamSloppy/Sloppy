@@ -111,9 +111,11 @@ actor ChannelSessionFileStore {
     @discardableResult
     func expireInactiveSessions(
         timeoutByChannel: [String: Int],
+        globalDefaultTimeoutMinutes: Int? = nil,
         referenceDate: Date = Date()
     ) throws -> [ChannelSessionSummary] {
-        guard !timeoutByChannel.isEmpty else {
+        let hasGlobalDefault = (globalDefaultTimeoutMinutes ?? 0) > 0
+        guard !timeoutByChannel.isEmpty || hasGlobalDefault else {
             return []
         }
 
@@ -121,7 +123,8 @@ actor ChannelSessionFileStore {
         var closed: [ChannelSessionSummary] = []
 
         for summary in openSessions {
-            guard let timeoutMinutes = timeoutByChannel[summary.channelId], timeoutMinutes > 0 else {
+            let timeoutMinutes = timeoutByChannel[summary.channelId] ?? globalDefaultTimeoutMinutes ?? 0
+            guard timeoutMinutes > 0 else {
                 continue
             }
             let timeoutSeconds = TimeInterval(timeoutMinutes * 60)

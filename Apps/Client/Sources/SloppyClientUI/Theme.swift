@@ -1,60 +1,150 @@
 import AdaEngine
 
-public enum Theme {
+// MARK: - AppColors
 
-    // MARK: - Backgrounds
+public struct AppColors: Sendable {
+    public var background: Color
+    public var surface: Color
+    public var surfaceRaised: Color
 
-    public static let bg = Color.fromHex(0x0A0A0A)
-    public static let surface = Color.fromHex(0x141414)
-    public static let surfaceRaised = Color.fromHex(0x1C1C1C)
+    public var accent: Color
+    public var accentCyan: Color
+    public var accentAcid: Color
 
-    // MARK: - Accents
+    public var textPrimary: Color
+    public var textSecondary: Color
+    public var textMuted: Color
 
-    public static let accent = Color.fromHex(0xFF2D6F)
-    public static let accentCyan = Color.fromHex(0x00F0FF)
-    public static let accentAcid = Color.fromHex(0xCDFF00)
+    public var border: Color
+    public var borderBold: Color
 
-    // MARK: - Text
+    public var statusActive: Color
+    public var statusReady: Color
+    public var statusDone: Color
+    public var statusBlocked: Color
+    public var statusWarning: Color
+    public var statusNeutral: Color
 
-    public static let textPrimary = Color.fromHex(0xF0F0F0)
-    public static let textSecondary = Color.fromHex(0x777777)
-    public static let textMuted = Color.fromHex(0x4A4A4A)
+    public static let dark = AppColors(
+        background:     .fromHex(0x0A0A0A),
+        surface:        .fromHex(0x141414),
+        surfaceRaised:  .fromHex(0x1C1C1C),
+        accent:         .fromHex(0xFF2D6F),
+        accentCyan:     .fromHex(0x00F0FF),
+        accentAcid:     .fromHex(0xCDFF00),
+        textPrimary:    .fromHex(0xF0F0F0),
+        textSecondary:  .fromHex(0x777777),
+        textMuted:      .fromHex(0x4A4A4A),
+        border:         .fromHex(0x2A2A2A),
+        borderBold:     .fromHex(0x444444),
+        statusActive:   .fromHex(0x00F0FF),
+        statusReady:    .fromHex(0xCDFF00),
+        statusDone:     .fromHex(0x4ADE80),
+        statusBlocked:  .fromHex(0xFF3333),
+        statusWarning:  .fromHex(0xFFAA00),
+        statusNeutral:  .fromHex(0x666666)
+    )
+}
 
-    // MARK: - Borders
+public struct AppColorsKey: ThemeKey {
+    public static let defaultValue = AppColors.dark
+}
 
-    public static let border = Color.fromHex(0x2A2A2A)
-    public static let borderBold = Color.fromHex(0x444444)
+// MARK: - AppTypography
 
-    // MARK: - Status
+public struct AppTypography: Sendable {
+    public var hero: Double
+    public var title: Double
+    public var heading: Double
+    public var body: Double
+    public var caption: Double
+    public var micro: Double
 
-    public static let statusActive = Color.fromHex(0x00F0FF)
-    public static let statusReady = Color.fromHex(0xCDFF00)
-    public static let statusDone = Color.fromHex(0x4ADE80)
-    public static let statusBlocked = Color.fromHex(0xFF3333)
-    public static let statusWarning = Color.fromHex(0xFFAA00)
-    public static let statusNeutral = Color.fromHex(0x666666)
+    public static let `default` = AppTypography(
+        hero:    42,
+        title:   28,
+        heading: 20,
+        body:    15,
+        caption: 12,
+        micro:   10
+    )
+}
 
-    // MARK: - Typography sizes
+public struct AppTypographyKey: ThemeKey {
+    public static let defaultValue = AppTypography.default
+}
 
-    public static let fontHero: Double = 42
-    public static let fontTitle: Double = 28
-    public static let fontHeading: Double = 20
-    public static let fontBody: Double = 15
-    public static let fontCaption: Double = 12
-    public static let fontMicro: Double = 10
+// MARK: - AppSpacing
 
-    // MARK: - Spacing
+public struct AppSpacing: Sendable {
+    public var xs: Float
+    public var s: Float
+    public var m: Float
+    public var l: Float
+    public var xl: Float
+    public var xxl: Float
 
-    public static let spacingXS: Float = 4
-    public static let spacingS: Float = 8
-    public static let spacingM: Float = 16
-    public static let spacingL: Float = 24
-    public static let spacingXL: Float = 32
-    public static let spacingXXL: Float = 48
+    public static let `default` = AppSpacing(
+        xs:  4,
+        s:   8,
+        m:   16,
+        l:   24,
+        xl:  32,
+        xxl: 48
+    )
+}
 
-    // MARK: - Borders
+public struct AppSpacingKey: ThemeKey {
+    public static let defaultValue = AppSpacing.default
+}
 
-    public static let borderThin: Float = 1
-    public static let borderMedium: Float = 2
-    public static let borderThick: Float = 3
+// MARK: - AppBorders
+
+public struct AppBorders: Sendable {
+    public var thin: Float
+    public var medium: Float
+    public var thick: Float
+
+    public static let `default` = AppBorders(thin: 1, medium: 2, thick: 3)
+}
+
+public struct AppBordersKey: ThemeKey {
+    public static let defaultValue = AppBorders.default
+}
+
+// MARK: - Theme convenience accessors
+
+public extension Theme {
+    var colors: AppColors {
+        get { self[AppColorsKey.self] }
+        set { self[AppColorsKey.self] = newValue }
+    }
+
+    var typography: AppTypography {
+        get { self[AppTypographyKey.self] }
+        set { self[AppTypographyKey.self] = newValue }
+    }
+
+    var spacing: AppSpacing {
+        get { self[AppSpacingKey.self] }
+        set { self[AppSpacingKey.self] = newValue }
+    }
+
+    var borders: AppBorders {
+        get { self[AppBordersKey.self] }
+        set { self[AppBordersKey.self] = newValue }
+    }
+}
+
+// MARK: - Presets
+
+public extension Theme {
+    static let sloppyDark: Theme = {
+        var t = Theme()
+        t[AppColorsKey.self] = .dark
+        t[AppTypographyKey.self] = .default
+        t[AppSpacingKey.self] = .default
+        t[AppBordersKey.self] = .default
+        return t
+    }()
 }

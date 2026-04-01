@@ -7,14 +7,18 @@ public struct SettingsScreen: View {
     @State private var statusText: String = "Loading config..."
     @State private var settings = ClientSettings()
     @Environment(\.userInterfaceIdiom) private var idiom
+    @Environment(\.theme) private var theme
 
     private let api = SloppyAPIClient()
 
     public init() {}
 
     public var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: Theme.spacingXL) {
+        let c = theme.colors
+        let sp = theme.spacing
+
+        return ScrollView {
+            VStack(alignment: .leading, spacing: sp.xl) {
                 headerSection
 
                 ClientSettingsSection(settings: settings)
@@ -25,39 +29,48 @@ public struct SettingsScreen: View {
                     loadingOrErrorView
                 }
             }
-            .padding(.bottom, Theme.spacingXXL)
+            .padding(.bottom, sp.xxl)
         }
-        .background(Theme.bg)
+        .background(c.background)
         .onAppear { loadConfig() }
     }
 
     private var headerSection: some View {
-        VStack(alignment: .leading, spacing: Theme.spacingS) {
+        let c = theme.colors
+        let sp = theme.spacing
+        let bo = theme.borders
+        let ty = theme.typography
+
+        return VStack(alignment: .leading, spacing: sp.s) {
             Text("SETTINGS")
-                .font(.system(size: Theme.fontHero))
-                .foregroundColor(Theme.textPrimary)
+                .font(.system(size: ty.hero))
+                .foregroundColor(c.textPrimary)
             Color.clear
-                .frame(width: 60, height: Theme.borderThick)
-                .background(Theme.accent)
+                .frame(width: 60, height: bo.thick)
+                .background(c.accent)
             Text(statusText.uppercased())
-                .font(.system(size: Theme.fontCaption))
-                .foregroundColor(Theme.textMuted)
+                .font(.system(size: ty.caption))
+                .foregroundColor(c.textMuted)
         }
-        .padding(Theme.spacingL)
+        .padding(sp.l)
     }
 
     private var loadingOrErrorView: some View {
-        VStack(alignment: .leading, spacing: Theme.spacingM) {
-            SectionHeader("Sloppy Config", accentColor: Theme.accentCyan)
-                .padding(.horizontal, Theme.spacingM)
+        let c = theme.colors
+        let sp = theme.spacing
+        let ty = theme.typography
+
+        return VStack(alignment: .leading, spacing: sp.m) {
+            SectionHeader("Sloppy Config", accentColor: c.accentCyan)
+                .padding(.horizontal, sp.m)
             Text(statusText)
-                .font(.system(size: Theme.fontBody))
-                .foregroundColor(Theme.textMuted)
-                .padding(.horizontal, Theme.spacingM)
+                .font(.system(size: ty.body))
+                .foregroundColor(c.textMuted)
+                .padding(.horizontal, sp.m)
             Button("RETRY") { loadConfig() }
-                .font(.system(size: Theme.fontCaption))
-                .foregroundColor(Theme.accent)
-                .padding(.horizontal, Theme.spacingM)
+                .font(.system(size: ty.caption))
+                .foregroundColor(c.accent)
+                .padding(.horizontal, sp.m)
         }
     }
 

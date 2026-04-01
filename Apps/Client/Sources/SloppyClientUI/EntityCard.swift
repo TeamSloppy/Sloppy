@@ -4,14 +4,16 @@ public struct EntityCard: View {
     let title: String
     let subtitle: String
     let trailing: String?
-    let accentColor: Color
+    let accentColor: Color?
     let onTap: (() -> Void)?
+
+    @Environment(\.theme) private var theme
 
     public init(
         title: String,
         subtitle: String,
         trailing: String? = nil,
-        accentColor: Color = Theme.accent,
+        accentColor: Color? = nil,
         onTap: (() -> Void)? = nil
     ) {
         self.title = title
@@ -32,30 +34,36 @@ public struct EntityCard: View {
     }
 
     private var cardContent: some View {
-        HStack(spacing: 0) {
-            Color.clear
-                .frame(width: Theme.borderThick)
-                .background(accentColor)
+        let c = theme.colors
+        let sp = theme.spacing
+        let bo = theme.borders
+        let ty = theme.typography
+        let accent = accentColor ?? c.accent
 
-            HStack(spacing: Theme.spacingM) {
-                VStack(alignment: .leading, spacing: Theme.spacingXS) {
+        return HStack(spacing: 0) {
+            Color.clear
+                .frame(width: bo.thick)
+                .background(accent)
+
+            HStack(spacing: sp.m) {
+                VStack(alignment: .leading, spacing: sp.xs) {
                     Text(title.uppercased())
-                        .font(.system(size: Theme.fontBody))
-                        .foregroundColor(Theme.textPrimary)
+                        .font(.system(size: ty.body))
+                        .foregroundColor(c.textPrimary)
                     Text(subtitle)
-                        .font(.system(size: Theme.fontCaption))
-                        .foregroundColor(Theme.textSecondary)
+                        .font(.system(size: ty.caption))
+                        .foregroundColor(c.textSecondary)
                 }
                 Spacer()
                 if let trailing {
                     Text(trailing.uppercased())
-                        .font(.system(size: Theme.fontMicro))
-                        .foregroundColor(Theme.textMuted)
+                        .font(.system(size: ty.micro))
+                        .foregroundColor(c.textMuted)
                 }
             }
-            .padding(Theme.spacingM)
+            .padding(sp.m)
         }
-        .background(Theme.surface)
-        .border(Theme.border, lineWidth: Theme.borderThin)
+        .background(c.surface)
+        .border(c.border, lineWidth: bo.thin)
     }
 }

@@ -3,21 +3,28 @@ import AdaEngine
 public struct EmptyStateView: View {
     let text: String
 
+    @Environment(\.theme) private var theme
+
     public init(_ text: String) {
         self.text = text
     }
 
     public var body: some View {
-        VStack(spacing: Theme.spacingS) {
+        let c = theme.colors
+        let sp = theme.spacing
+        let bo = theme.borders
+        let ty = theme.typography
+
+        return VStack(spacing: sp.s) {
             Text("—")
-                .font(.system(size: Theme.fontTitle))
-                .foregroundColor(Theme.textMuted)
+                .font(.system(size: ty.title))
+                .foregroundColor(c.textMuted)
             Text(text.uppercased())
-                .font(.system(size: Theme.fontCaption))
-                .foregroundColor(Theme.textMuted)
+                .font(.system(size: ty.caption))
+                .foregroundColor(c.textMuted)
         }
-        .padding(.vertical, Theme.spacingXL)
-        .padding(.horizontal, Theme.spacingL)
-        .border(Theme.border, lineWidth: Theme.borderThin)
+        .padding(.vertical, sp.xl)
+        .padding(.horizontal, sp.l)
+        .border(c.border, lineWidth: bo.thin)
     }
 }

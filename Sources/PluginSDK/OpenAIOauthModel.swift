@@ -17,6 +17,7 @@ public struct OpenAIOAuthModel: LanguageModel {
     private let accountId: String?
     private let instructions: String
     let reasoningCapture: ReasoningContentCapture?
+    let tokenUsageCapture: TokenUsageCapture?
 
     public var availability: Availability<String> {
         guard !bearerToken.isEmpty else {
@@ -31,7 +32,8 @@ public struct OpenAIOAuthModel: LanguageModel {
         model: String,
         accountId: String? = nil,
         instructions: String = "You are a helpful assistant.",
-        reasoningCapture: ReasoningContentCapture? = nil
+        reasoningCapture: ReasoningContentCapture? = nil,
+        tokenUsageCapture: TokenUsageCapture? = nil
     ) {
         self.baseURL = baseURL
         self.bearerToken = bearerToken
@@ -39,6 +41,7 @@ public struct OpenAIOAuthModel: LanguageModel {
         self.accountId = accountId
         self.instructions = instructions
         self.reasoningCapture = reasoningCapture
+        self.tokenUsageCapture = tokenUsageCapture
     }
 }
 
@@ -193,10 +196,16 @@ private extension OpenAIOAuthModel {
         var arguments: String
     }
 
+    struct UsageInfo {
+        var inputTokens: Int
+        var outputTokens: Int
+    }
+
     struct StreamResult {
         var text: String
         var functionCalls: [FunctionCall]
         var responseId: String?
+        var usage: UsageInfo?
     }
 
     var responsesEndpoint: URL {
@@ -241,6 +250,7 @@ private extension OpenAIOAuthModel {
         var functionCalls: [FunctionCall] = []
         var activeFunctionCall: FunctionCall?
         var responseId: String?
+        var usage: UsageInfo?
 
         for try await line in asyncBytes.lines {
             if let delta = parseSSEOutputDelta(line) {
@@ -256,12 +266,17 @@ private extension OpenAIOAuthModel {
                     functionCalls.append(call)
                     activeFunctionCall = nil
                 }
-            } else if let rid = parseSSEResponseId(line) {
-                responseId = rid
+            } else if let completed = parseSSEResponseCompleted(line) {
+                responseId = completed.responseId
+                usage = UsageInfo(inputTokens: completed.inputTokens, outputTokens: completed.outputTokens)
             }
         }
 
-        return StreamResult(text: accumulated, functionCalls: functionCalls, responseId: responseId)
+        if let usage {
+            tokenUsageCapture?.store(promptTokens: usage.inputTokens, completionTokens: usage.outputTokens)
+        }
+
+        return StreamResult(text: accumulated, functionCalls: functionCalls, responseId: responseId, usage: usage)
     }
 
     func performStreamingRequestWithTools<Content>(
@@ -293,6 +308,7 @@ private extension OpenAIOAuthModel {
         var functionCalls: [FunctionCall] = []
         var activeFunctionCall: FunctionCall?
         var responseId: String?
+        var usage: UsageInfo?
 
         for try await line in asyncBytes.lines {
             if let delta = parseSSEOutputDelta(line) {
@@ -315,12 +331,17 @@ private extension OpenAIOAuthModel {
                     functionCalls.append(call)
                     activeFunctionCall = nil
                 }
-            } else if let rid = parseSSEResponseId(line) {
-                responseId = rid
+            } else if let completed = parseSSEResponseCompleted(line) {
+                responseId = completed.responseId
+                usage = UsageInfo(inputTokens: completed.inputTokens, outputTokens: completed.outputTokens)
             }
         }
 
-        return StreamResult(text: accumulated, functionCalls: functionCalls, responseId: responseId)
+        if let usage {
+            tokenUsageCapture?.store(promptTokens: usage.inputTokens, completionTokens: usage.outputTokens)
+        }
+
+        return StreamResult(text: accumulated, functionCalls: functionCalls, responseId: responseId, usage: usage)
     }
 
     func classifyHTTPError(statusCode: Int, body: String) -> OpenAIError {
@@ -648,7 +669,7 @@ extension OpenAIOAuthModel {
         return true
     }
 
-    func parseSSEResponseId(_ line: String) -> String? {
+    func parseSSEResponseCompleted(_ line: String) -> (responseId: String, inputTokens: Int, outputTokens: Int)? {
         guard line.hasPrefix("data: ") else { return nil }
         let payload = String(line.dropFirst(6))
         guard let data = payload.data(using: .utf8),
@@ -658,7 +679,15 @@ extension OpenAIOAuthModel {
               let resp = obj["response"] as? [String: Any],
               let id = resp["id"] as? String
         else { return nil }
-        return id
+
+        var inputTokens = 0
+        var outputTokens = 0
+        if let usageObj = resp["usage"] as? [String: Any] {
+            inputTokens = usageObj["input_tokens"] as? Int ?? 0
+            outputTokens = usageObj["output_tokens"] as? Int ?? 0
+        }
+
+        return (responseId: id, inputTokens: inputTokens, outputTokens: outputTokens)
     }
 }
 

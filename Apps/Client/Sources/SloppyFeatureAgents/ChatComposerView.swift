@@ -3,16 +3,22 @@ import SloppyClientUI
 
 struct ChatComposerView: View {
     @State private var text: String = ""
+    @Environment(\.theme) private var theme
     let onSend: (String) -> Void
 
     var body: some View {
-        HStack(spacing: Theme.spacingS) {
+        let c = theme.colors
+        let sp = theme.spacing
+        let bo = theme.borders
+        let ty = theme.typography
+
+        return HStack(spacing: sp.s) {
             TextField("Message...", text: $text)
-                .font(.system(size: Theme.fontBody))
-                .foregroundColor(Theme.textPrimary)
-                .padding(Theme.spacingS)
-                .background(Theme.surface)
-                .border(Theme.border, lineWidth: Theme.borderThin)
+                .font(.system(size: ty.body))
+                .foregroundColor(c.textPrimary)
+                .padding(sp.s)
+                .background(c.surface)
+                .border(c.border, lineWidth: bo.thin)
 
             Spacer(minLength: 0)
 
@@ -22,13 +28,13 @@ struct ChatComposerView: View {
                 onSend(trimmed)
                 text = ""
             }
-            .foregroundColor(Theme.accentCyan)
-            .padding(.horizontal, Theme.spacingM)
-            .padding(.vertical, Theme.spacingS)
-            .border(Theme.accentCyan, lineWidth: Theme.borderThin)
+            .foregroundColor(c.accentCyan)
+            .padding(.horizontal, sp.m)
+            .padding(.vertical, sp.s)
+            .border(c.accentCyan, lineWidth: bo.thin)
         }
-        .padding(Theme.spacingM)
-        .background(Theme.bg)
-        .border(Theme.border, lineWidth: Theme.borderThin)
+        .padding(sp.m)
+        .background(c.background)
+        .border(c.border, lineWidth: bo.thin)
     }
 }

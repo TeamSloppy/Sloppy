@@ -143,25 +143,6 @@ let package = Package(
         .target(
             name: "CSQLite3",
             path: "Sources/CSQLite3"
-        ),
-        .plugin(
-            name: "SloppyRunPlugin",
-            capability: .command(
-                intent: .custom(
-                    verb: "sloppy-run",
-                    description: "Builds Dashboard, builds sloppy, and launches sloppy locally"
-                ),
-                permissions: [
-                    .writeToPackageDirectory(
-                        reason: "Build the Dashboard bundle and update npm dependencies when needed."
-                    ),
-                    .allowNetworkConnections(
-                        scope: .all(),
-                        reason: "Install Dashboard npm dependencies when node_modules is missing."
-                    )
-                ]
-            ),
-            path: "Plugins/SloppyRunPlugin"
         )
     ]
 )

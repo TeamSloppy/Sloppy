@@ -133,6 +133,23 @@ Keep local changes green for the same command set.
 - `Tests/AgentRuntimeTests`: routing and runtime flow.
 - `Tests/CoreTests`: API/router/config behaviors.
 
+### Client app (SloppyClient)
+- `Apps/Client/`: Apple client app built with AdaEngine/AdaUI (iOS, iPadOS, macOS, visionOS).
+- Project generated via `project.yml` (XcodeGen).
+- Depends on `SloppyClientCore`, `SloppyClientUI`, feature modules, and `AdaMCPPlugin`.
+
+### Debugging the client with AdaMCP
+The client embeds `AdaMCP` (`Vendor/AdaMCP`) — an MCP server that exposes the live AdaEngine runtime for inspection.
+When debugging UI or runtime issues in the client, use the `XcodeBuildMCP` and `AdaMCP` MCP servers:
+- `XcodeBuildMCP` — build, run, and read Xcode logs/diagnostics.
+- `AdaMCP` — inspect the running app: UI tree (`ui.get_tree`, `ui.find_nodes`, `ui.hit_test`), render capture (screenshots), world/entity/component/resource introspection, and safe UI actions (tap, scroll, focus traversal).
+
+Typical debugging flow:
+1. Build and launch the client via `XcodeBuildMCP`.
+2. Connect to the running app's MCP endpoint (default `127.0.0.1:2510/mcp`).
+3. Use AdaMCP tools to inspect the UI tree, capture screenshots, and locate the problem.
+4. Target nodes by `accessibilityIdentifier` for stable references.
+
 ### Frontend/docs/support
 - `Dashboard/`: React dashboard for Core API.
 - `docs/specs/`: protocol/runtime specs.

@@ -11,6 +11,7 @@ struct GitSyncSection: View {
     @State private var branch: String
     @State private var frequency: String
     @State private var conflictStrategy: String
+    @Environment(\.theme) private var theme
 
     private let frequencies = ["manual", "daily", "weekdays"]
     private let conflictStrategies = ["remote_wins", "local_wins", "manual"]
@@ -33,8 +34,13 @@ struct GitSyncSection: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: Theme.spacingM) {
-            SectionHeader("Git Sync", accentColor: Theme.accentCyan)
+        let c = theme.colors
+        let sp = theme.spacing
+        let bo = theme.borders
+        let ty = theme.typography
+
+        return VStack(alignment: .leading, spacing: sp.m) {
+            SectionHeader("Git Sync", accentColor: c.accentCyan)
 
             SettingsSectionCard("Sync Settings") {
                 SettingsToggleRow(label: "Enabled", value: enabled) {
@@ -47,47 +53,47 @@ struct GitSyncSection: View {
             }
 
             SettingsSectionCard("Schedule") {
-                VStack(alignment: .leading, spacing: Theme.spacingXS) {
+                VStack(alignment: .leading, spacing: sp.xs) {
                     Text("FREQUENCY")
-                        .font(.system(size: Theme.fontMicro))
-                        .foregroundColor(Theme.textSecondary)
-                    HStack(spacing: Theme.spacingS) {
+                        .font(.system(size: ty.micro))
+                        .foregroundColor(c.textSecondary)
+                    HStack(spacing: sp.s) {
                         ForEach(frequencies, id: \.self) { freq in
                             Button(freq.replacingOccurrences(of: "_", with: " ").capitalized) {
                                 frequency = freq
                             }
-                            .font(.system(size: Theme.fontCaption))
-                            .foregroundColor(frequency == freq ? Theme.textPrimary : Theme.textMuted)
-                            .padding(.vertical, Theme.spacingXS)
-                            .padding(.horizontal, Theme.spacingS)
-                            .background(frequency == freq ? Theme.surfaceRaised : Color.clear)
-                            .border(frequency == freq ? Theme.borderBold : Theme.border, lineWidth: Theme.borderThin)
+                            .font(.system(size: ty.caption))
+                            .foregroundColor(frequency == freq ? c.textPrimary : c.textMuted)
+                            .padding(.vertical, sp.xs)
+                            .padding(.horizontal, sp.s)
+                            .background(frequency == freq ? c.surfaceRaised : Color.clear)
+                            .border(frequency == freq ? c.borderBold : c.border, lineWidth: bo.thin)
                         }
                         Spacer()
                     }
                 }
-                .padding(.horizontal, Theme.spacingM)
-                .padding(.vertical, Theme.spacingS)
+                .padding(.horizontal, sp.m)
+                .padding(.vertical, sp.s)
             }
 
             SettingsSectionCard("Conflict Strategy") {
-                VStack(alignment: .leading, spacing: Theme.spacingXS) {
+                VStack(alignment: .leading, spacing: sp.xs) {
                     ForEach(conflictStrategies, id: \.self) { strategy in
                         Button(action: { conflictStrategy = strategy }) {
                             HStack {
                                 Text(strategy.replacingOccurrences(of: "_", with: " ").uppercased())
-                                    .font(.system(size: Theme.fontCaption))
-                                    .foregroundColor(conflictStrategy == strategy ? Theme.textPrimary : Theme.textSecondary)
+                                    .font(.system(size: ty.caption))
+                                    .foregroundColor(conflictStrategy == strategy ? c.textPrimary : c.textSecondary)
                                 Spacer()
                                 if conflictStrategy == strategy {
                                     Text("✓")
-                                        .font(.system(size: Theme.fontCaption))
-                                        .foregroundColor(Theme.statusDone)
+                                        .font(.system(size: ty.caption))
+                                        .foregroundColor(c.statusDone)
                                 }
                             }
-                            .padding(.horizontal, Theme.spacingM)
-                            .padding(.vertical, Theme.spacingS)
-                            .background(conflictStrategy == strategy ? Theme.surfaceRaised : Color.clear)
+                            .padding(.horizontal, sp.m)
+                            .padding(.vertical, sp.s)
+                            .background(conflictStrategy == strategy ? c.surfaceRaised : Color.clear)
                         }
                         if strategy != conflictStrategies.last {
                             SettingsDivider()

@@ -18,77 +18,111 @@ public struct OverviewScreen: View {
     }
 
     private var heroSection: some View {
-        VStack(alignment: .leading, spacing: Theme.spacingS) {
-            Text("SLOPPY")
-                .font(.system(size: Theme.fontHero))
-                .foregroundColor(Theme.textPrimary)
-
-            Color.clear
-                .frame(width: 60, height: Theme.borderThick)
-                .background(Theme.accent)
-
-            Text("SYSTEM OVERVIEW")
-                .font(.system(size: Theme.fontCaption))
-                .foregroundColor(Theme.textMuted)
-        }
-        .padding(Theme.spacingL)
+        _HeroSection()
     }
 
     private var statsGrid: some View {
-        HStack(spacing: 0) {
-            BrutalistStatCard(
-                value: "0",
-                label: "Projects",
-                accentColor: Theme.accent
-            )
-            BrutalistStatCard(
-                value: "0",
-                label: "Agents",
-                accentColor: Theme.accentCyan
-            )
-            BrutalistStatCard(
-                value: "0",
-                label: "Active",
-                accentColor: Theme.accentAcid
-            )
-            BrutalistStatCard(
-                value: "0",
-                label: "Done",
-                accentColor: Theme.statusDone
-            )
-        }
-        .padding(.horizontal, Theme.spacingL)
+        _StatsGrid()
     }
 
     private var projectsSection: some View {
-        VStack(alignment: .leading, spacing: Theme.spacingM) {
-            HStack {
-                SectionHeader("Projects", accentColor: Theme.accent)
-                Button("VIEW ALL") {}
-                    .foregroundColor(Theme.textMuted)
-            }
-            .padding(.horizontal, Theme.spacingL)
-
-            EmptyStateView("No projects found")
-                .padding(.horizontal, Theme.spacingL)
-        }
-        .padding(.top, Theme.spacingXL)
+        _ProjectsSection()
     }
 
     private var agentsSection: some View {
-        VStack(alignment: .leading, spacing: Theme.spacingM) {
+        _AgentsSection()
+    }
+}
+
+private struct _HeroSection: View {
+    @Environment(\.theme) private var theme
+
+    var body: some View {
+        let c = theme.colors
+        let sp = theme.spacing
+        let bo = theme.borders
+        let ty = theme.typography
+
+        return VStack(alignment: .leading, spacing: sp.s) {
+            Text("SLOPPY")
+                .font(.system(size: ty.hero))
+                .foregroundColor(c.textPrimary)
+
+            Color.clear
+                .frame(width: 60, height: bo.thick)
+                .background(c.accent)
+
+            Text("SYSTEM OVERVIEW")
+                .font(.system(size: ty.caption))
+                .foregroundColor(c.textMuted)
+        }
+        .padding(sp.l)
+    }
+}
+
+private struct _StatsGrid: View {
+    @Environment(\.theme) private var theme
+
+    var body: some View {
+        let c = theme.colors
+        let sp = theme.spacing
+
+        return HStack(spacing: 0) {
+            BrutalistStatCard(value: "0", label: "Projects", accentColor: c.accent)
+            BrutalistStatCard(value: "0", label: "Agents", accentColor: c.accentCyan)
+            BrutalistStatCard(value: "0", label: "Active", accentColor: c.accentAcid)
+            BrutalistStatCard(value: "0", label: "Done", accentColor: c.statusDone)
+        }
+        .padding(.horizontal, sp.l)
+    }
+}
+
+private struct _ProjectsSection: View {
+    @Environment(\.theme) private var theme
+
+    var body: some View {
+        let c = theme.colors
+        let sp = theme.spacing
+        let ty = theme.typography
+
+        return VStack(alignment: .leading, spacing: sp.m) {
             HStack {
-                SectionHeader("Agents", accentColor: Theme.accentCyan)
+                SectionHeader("Projects", accentColor: c.accent)
                 Button("VIEW ALL") {}
-                    .foregroundColor(Theme.textMuted)
+                    .foregroundColor(c.textMuted)
+                    .font(.system(size: ty.caption))
             }
-            .padding(.horizontal, Theme.spacingL)
+            .padding(.horizontal, sp.l)
+
+            EmptyStateView("No projects found")
+                .padding(.horizontal, sp.l)
+        }
+        .padding(.top, sp.xl)
+    }
+}
+
+private struct _AgentsSection: View {
+    @Environment(\.theme) private var theme
+
+    var body: some View {
+        let c = theme.colors
+        let sp = theme.spacing
+        let ty = theme.typography
+
+        return VStack(alignment: .leading, spacing: sp.m) {
+            HStack {
+                SectionHeader("Agents", accentColor: c.accentCyan)
+                Button("VIEW ALL") {}
+                    .foregroundColor(c.textMuted)
+                    .font(.system(size: ty.caption))
+            }
+            .padding(.horizontal, sp.l)
 
             EmptyStateView("No agents registered")
-                .padding(.horizontal, Theme.spacingL)
+                .padding(.horizontal, sp.l)
         }
-        .padding(.top, Theme.spacingXL)
-        .padding(.bottom, Theme.spacingXL)
+        .padding(.top, sp.xl)
+        .padding(.bottom, sp.xl)
     }
 }
 
@@ -97,23 +131,30 @@ private struct BrutalistStatCard: View {
     let label: String
     let accentColor: Color
 
+    @Environment(\.theme) private var theme
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
+        let c = theme.colors
+        let sp = theme.spacing
+        let bo = theme.borders
+        let ty = theme.typography
+
+        return VStack(alignment: .leading, spacing: 0) {
             Color.clear
-                .frame(height: Theme.borderThick)
+                .frame(height: bo.thick)
                 .background(accentColor)
 
-            VStack(alignment: .leading, spacing: Theme.spacingXS) {
+            VStack(alignment: .leading, spacing: sp.xs) {
                 Text(value)
                     .font(.system(size: 36))
-                    .foregroundColor(Theme.textPrimary)
+                    .foregroundColor(c.textPrimary)
                 Text(label.uppercased())
-                    .font(.system(size: Theme.fontMicro))
-                    .foregroundColor(Theme.textSecondary)
+                    .font(.system(size: ty.micro))
+                    .foregroundColor(c.textSecondary)
             }
-            .padding(Theme.spacingM)
+            .padding(sp.m)
         }
-        .background(Theme.surface)
-        .border(Theme.border, lineWidth: Theme.borderThin)
+        .background(c.surface)
+        .border(c.border, lineWidth: bo.thin)
     }
 }
