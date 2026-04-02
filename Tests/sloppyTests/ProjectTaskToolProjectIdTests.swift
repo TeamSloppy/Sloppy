@@ -118,6 +118,7 @@ private func makeToolContext(service: CoreService, sessionID: String) -> ToolCon
         logger: Logger(label: "test"),
         projectService: service,
         configService: nil,
-        skillsService: nil
+        skillsService: nil,
+        lspManager: nil
     )
 }

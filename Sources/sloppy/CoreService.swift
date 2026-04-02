@@ -359,7 +359,8 @@ public actor CoreService {
             channelSessionStore: self.channelSessionStore,
             store: self.store,
             searchProviderService: self.searchProviderService,
-            mcpRegistry: self.mcpRegistry
+            mcpRegistry: self.mcpRegistry,
+            lspConfig: config.lsp
         )
         self.logger = Logger(label: "sloppy.core.visor")
         self.builtInGatewayPluginFactory = builtInGatewayPluginFactory
@@ -3277,6 +3278,7 @@ public actor CoreService {
         await toolsAuthorization.updateAgentsRootURL(agentsRootURL)
         await mcpRegistry.updateConfig(config.mcp)
         await acpSessionManager.updateConfig(config.acp, workspaceRootURL: workspaceRootURL)
+        await toolExecution.updateLSPConfig(config.lsp)
         await toolsAuthorization.invalidateCachedPolicies()
         toolExecution.updateWorkspaceRootURL(workspaceRootURL)
         toolExecution.updateStore(refreshedStore)

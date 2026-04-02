@@ -50,6 +50,7 @@ struct ToolContext: @unchecked Sendable {
     let projectService: (any ProjectToolService)?
     let configService: (any RuntimeConfigToolService)?
     let skillsService: (any SkillsToolService)?
+    let lspManager: LSPServerManager?
 }
 
 // MARK: - ProjectToolService

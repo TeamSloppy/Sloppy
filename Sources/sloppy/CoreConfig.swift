@@ -696,6 +696,63 @@ public struct CoreConfig: Codable, Sendable {
         }
     }
 
+    public struct LSP: Codable, Sendable, Equatable {
+        public struct Server: Codable, Sendable, Equatable {
+            public var id: String
+            public var command: String
+            public var arguments: [String]
+            public var cwd: String?
+            public var extensions: [String]
+            public var enabled: Bool
+            public var timeoutMs: Int
+
+            private enum CodingKeys: String, CodingKey {
+                case id
+                case command
+                case arguments
+                case cwd
+                case extensions
+                case enabled
+                case timeoutMs
+            }
+
+            public init(
+                id: String,
+                command: String,
+                arguments: [String] = [],
+                cwd: String? = nil,
+                extensions: [String] = [],
+                enabled: Bool = true,
+                timeoutMs: Int = 15_000
+            ) {
+                self.id = id
+                self.command = command
+                self.arguments = arguments
+                self.cwd = cwd
+                self.extensions = extensions
+                self.enabled = enabled
+                self.timeoutMs = timeoutMs
+            }
+
+            public init(from decoder: Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                id = try container.decode(String.self, forKey: .id)
+                command = try container.decode(String.self, forKey: .command)
+                arguments = try container.decodeIfPresent([String].self, forKey: .arguments) ?? []
+                cwd = try container.decodeIfPresent(String.self, forKey: .cwd)
+                extensions = try container.decodeIfPresent([String].self, forKey: .extensions) ?? []
+                enabled = try container.decodeIfPresent(Bool.self, forKey: .enabled) ?? true
+                timeoutMs = try container.decodeIfPresent(Int.self, forKey: .timeoutMs) ?? 15_000
+            }
+        }
+
+        public var servers: [Server]
+
+        public init(servers: [Server] = []) {
+            self.servers = servers
+        }
+    }
+
     public struct Visor: Codable, Sendable, Equatable {
         public struct Scheduler: Codable, Sendable, Equatable {
             public var enabled: Bool
@@ -846,6 +903,7 @@ public struct CoreConfig: Codable, Sendable {
     public var gitSync: GitSync
     public var mcp: MCP
     public var acp: ACP
+    public var lsp: LSP
     public var searchTools: SearchTools
     public var proxy: Proxy
     public var visor: Visor
@@ -865,6 +923,7 @@ public struct CoreConfig: Codable, Sendable {
         gitSync: GitSync = GitSync(),
         mcp: MCP = MCP(),
         acp: ACP = ACP(),
+        lsp: LSP = LSP(),
         searchTools: SearchTools = SearchTools(),
         proxy: Proxy = Proxy(),
         visor: Visor = Visor(),
@@ -883,6 +942,7 @@ public struct CoreConfig: Codable, Sendable {
         self.gitSync = gitSync
         self.mcp = mcp
         self.acp = acp
+        self.lsp = lsp
         self.searchTools = searchTools
         self.proxy = proxy
         self.visor = visor
@@ -980,6 +1040,7 @@ public struct CoreConfig: Codable, Sendable {
         case gitSync
         case mcp
         case acp
+        case lsp
         case searchTools
         case proxy
         case visor
@@ -1000,6 +1061,7 @@ public struct CoreConfig: Codable, Sendable {
         gitSync = try container.decodeIfPresent(GitSync.self, forKey: .gitSync) ?? .init()
         mcp = try container.decodeIfPresent(MCP.self, forKey: .mcp) ?? .init()
         acp = try container.decodeIfPresent(ACP.self, forKey: .acp) ?? .init()
+        lsp = try container.decodeIfPresent(LSP.self, forKey: .lsp) ?? .init()
         searchTools = try container.decodeIfPresent(SearchTools.self, forKey: .searchTools) ?? .init()
         proxy = try container.decodeIfPresent(Proxy.self, forKey: .proxy) ?? .init()
         visor = try container.decodeIfPresent(Visor.self, forKey: .visor) ?? .init()

@@ -16,6 +16,7 @@ final class ToolExecutionService: @unchecked Sendable {
     private let logger: Logger
     private var workspaceRootURL: URL
     private let registry: ToolRegistry
+    private var lspManager: LSPServerManager
     var projectService: (any ProjectToolService)?
     var configService: (any RuntimeConfigToolService)?
     var skillsService: (any SkillsToolService)?
@@ -31,6 +32,7 @@ final class ToolExecutionService: @unchecked Sendable {
         store: any PersistenceStore,
         searchProviderService: SearchProviderService,
         mcpRegistry: MCPClientRegistry,
+        lspConfig: CoreConfig.LSP = CoreConfig.LSP(),
         logger: Logger = Logger(label: "sloppy.core.tools")
     ) {
         self.workspaceRootURL = workspaceRootURL
@@ -43,12 +45,17 @@ final class ToolExecutionService: @unchecked Sendable {
         self.store = store
         self.searchProviderService = searchProviderService
         self.mcpRegistry = mcpRegistry
+        self.lspManager = LSPServerManager(config: lspConfig, workspaceRootURL: workspaceRootURL)
         self.logger = logger
         self.registry = ToolRegistry.makeDefault()
     }
 
     func updateWorkspaceRootURL(_ url: URL) {
         self.workspaceRootURL = url
+    }
+
+    func updateLSPConfig(_ config: CoreConfig.LSP) async {
+        await lspManager.updateConfig(config, workspaceRootURL: workspaceRootURL)
     }
 
     func updateStore(_ store: any PersistenceStore) {
@@ -61,6 +68,7 @@ final class ToolExecutionService: @unchecked Sendable {
 
     func shutdown() async {
         await processRegistry.shutdown()
+        await lspManager.shutdown()
     }
 
     func activeProcessCount(sessionID: String) async -> Int {
@@ -109,7 +117,8 @@ final class ToolExecutionService: @unchecked Sendable {
             logger: logger,
             projectService: projectService,
             configService: configService,
-            skillsService: skillsService
+            skillsService: skillsService,
+            lspManager: lspManager
         )
     }
 }

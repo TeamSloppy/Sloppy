@@ -442,6 +442,20 @@ enum ToolCatalog {
                 "skillId": .object(["type": .string("string")])
             ]),
             "required": .array([.string("skillId")])
+        ]),
+        "lsp.query": .object([
+            "type": .string("object"),
+            "properties": .object([
+                "operation": .object([
+                    "type": .string("string"),
+                    "enum": .array(LSPOperation.allCases.map { .string($0.rawValue) })
+                ]),
+                "filePath": .object(["type": .string("string")]),
+                "line": .object(["type": .string("number")]),
+                "character": .object(["type": .string("number")]),
+                "query": .object(["type": .string("string")])
+            ]),
+            "required": .array([.string("operation")])
         ])
     ]
 }

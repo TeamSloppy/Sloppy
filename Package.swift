@@ -1,4 +1,4 @@
-// swift-tools-version: 6.0
+// swift-tools-version: 6.2
 import PackageDescription
 
 let package = Package(
@@ -25,7 +25,8 @@ let package = Package(
         .package(url: "https://github.com/mattt/AnyLanguageModel.git", branch: "main"),
         .package(url: "https://github.com/TeamSloppy/CodexBar.git", branch: "main"),
         .package(url: "https://github.com/modelcontextprotocol/swift-sdk.git", from: "0.11.0"),
-        .package(url: "https://github.com/TeamSloppy/swift-acp", branch: "main")
+        .package(url: "https://github.com/TeamSloppy/swift-acp", branch: "main"),
+        .package(url: "https://github.com/swiftlang/swift-tools-protocols.git", branch: "main")
     ],
     targets: [
         .target(
@@ -78,7 +79,9 @@ let package = Package(
                 .product(name: "MCP", package: "swift-sdk"),
                 .product(name: "ACP", package: "swift-acp"),
                 .product(name: "ACPModel", package: "swift-acp"),
-                .product(name: "SystemPackage", package: "swift-system")
+                .product(name: "SystemPackage", package: "swift-system"),
+                .product(name: "LanguageServerProtocol", package: "swift-tools-protocols"),
+                .product(name: "LanguageServerProtocolTransport", package: "swift-tools-protocols")
             ],
             path: "Sources/sloppy",
             resources: [
