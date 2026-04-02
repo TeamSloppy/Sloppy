@@ -79,7 +79,8 @@ struct SessionToolsTests {
             logger: Logger(label: "test"),
             projectService: nil,
             configService: nil,
-            skillsService: nil
+            skillsService: nil,
+            lspManager: nil
         )
     }
 

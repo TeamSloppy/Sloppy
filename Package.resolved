@@ -1,5 +1,5 @@
 {
-  "originHash" : "547ff29f24bde1fc9408eecbcd4109fffb96b0cbf63ac84fa910b428260f257d",
+  "originHash" : "c4f1a89c5e7eeb99e05470a5bed96bb2e28074c2126645ebaefe06a7fb44d5c1",
   "pins" : [
     {
       "identity" : "anylanguagemodel",
@@ -161,6 +161,15 @@
       "state" : {
         "revision" : "7c6ad0fc39d0763e0b699210e4124afd5041c5df",
         "version" : "1.6.4"
+      }
+    },
+    {
+      "identity" : "swift-tools-protocols",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/swiftlang/swift-tools-protocols.git",
+      "state" : {
+        "branch" : "main",
+        "revision" : "1371b3d1cc8be552d1cb26aa0a7805fca2c0dfd5"
       }
     }
   ],

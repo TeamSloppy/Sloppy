@@ -110,6 +110,7 @@ struct ToolRegistry: Sendable {
             SkillsListTool(),
             SkillsInstallTool(),
             SkillsUninstallTool(),
+            LSPTool(),
         ])
     }
 }
