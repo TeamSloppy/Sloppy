@@ -39,7 +39,7 @@ enum NetworkAddressResolver {
             }
 
             let flags = Int32(interface.ifa_flags)
-            guard (flags & IFF_UP) != 0 else {
+            guard (flags & Int32(IFF_UP)) != 0 else {
                 continue
             }
 
@@ -49,7 +49,7 @@ enum NetworkAddressResolver {
             }
 
             let interfaceName = String(cString: interface.ifa_name)
-            if (flags & IFF_LOOPBACK) != 0 {
+            if (flags & Int32(IFF_LOOPBACK)) != 0 {
                 continue
             }
 

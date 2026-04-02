@@ -798,17 +798,6 @@ export function OnboardingView({ coreApi, initialConfig, onCompleted }: Onboardi
         throw new Error("Failed to create onboarding session.");
       }
 
-      setStatusText("Sending launch prompt...");
-      const message = await coreApi.postAgentSessionMessage(agentId, session.id, {
-        userId: "onboarding",
-        content: launchPrompt.trim(),
-        attachments: [],
-        spawnSubSession: false
-      });
-      if (!message) {
-        throw new Error("Failed to send the launch prompt.");
-      }
-
       setStatusText("Finalizing workspace...");
       const completedConfig = createConfigWithProvider(
         savedConfig,
@@ -825,6 +814,13 @@ export function OnboardingView({ coreApi, initialConfig, onCompleted }: Onboardi
 
       window.history.pushState({}, "", `/agents/${encodeURIComponent(agentId)}/chat`);
       onCompleted(finalized);
+
+      void coreApi.postAgentSessionMessage(agentId, session.id, {
+        userId: "onboarding",
+        content: launchPrompt.trim(),
+        attachments: [],
+        spawnSubSession: false
+      });
     } catch (error) {
       const message = error instanceof Error ? error.message : "Failed to finish onboarding.";
       setStatusText(message);
