@@ -9,6 +9,9 @@ import Testing
 
 private struct SSEMalformedResponseError: Error {}
 private struct WebSocketMalformedResponseError: Error {}
+private struct AsyncTestTimeoutError: Error {
+    let operation: String
+}
 
 private final class SSEDataCollector: NSObject, @unchecked Sendable, URLSessionDataDelegate {
     private let lock = NSLock()
@@ -79,11 +82,16 @@ private final class SSEDataCollector: NSObject, @unchecked Sendable, URLSessionD
 }
 
 private func readFirstSSEEvent(url: URL) async throws -> (HTTPURLResponse, String, Data) {
-    var request = URLRequest(url: url)
-    request.timeoutInterval = 10
+    var mutableRequest = URLRequest(url: url)
+    mutableRequest.timeoutInterval = 10
+    let request = mutableRequest
 
     let collector = SSEDataCollector()
-    let (response, data) = try await collector.start(request: request)
+    let (response, data) = try await withAsyncTestTimeout(
+        operation: "SSE session-ready event"
+    ) {
+        try await collector.start(request: request)
+    }
 
     let text = String(data: data, encoding: .utf8) ?? ""
     let lines = text.components(separatedBy: CharacterSet.newlines)
@@ -193,7 +201,11 @@ func webSocketSessionStreamPublishesToolEventsOverHTTPServer() async throws {
     let decoder = JSONDecoder()
     decoder.dateDecodingStrategy = .iso8601
 
-    let readyMessage = try await webSocket.receive()
+    let readyMessage = try await withAsyncTestTimeout(
+        operation: "WebSocket session-ready event"
+    ) {
+        try await webSocket.receive()
+    }
     guard case .string(let readyPayload) = readyMessage else {
         throw WebSocketMalformedResponseError()
     }
@@ -207,8 +219,16 @@ func webSocketSessionStreamPublishesToolEventsOverHTTPServer() async throws {
         request: ToolInvocationRequest(tool: "sessions.list", arguments: [:], reason: "ws regression")
     )
 
-    let firstEventMessage = try await webSocket.receive()
-    let secondEventMessage = try await webSocket.receive()
+    let firstEventMessage = try await withAsyncTestTimeout(
+        operation: "WebSocket tool-call event"
+    ) {
+        try await webSocket.receive()
+    }
+    let secondEventMessage = try await withAsyncTestTimeout(
+        operation: "WebSocket tool-result event"
+    ) {
+        try await webSocket.receive()
+    }
     _ = await invocation
 
     let firstPayload = try #require(messagePayload(firstEventMessage))
@@ -233,5 +253,25 @@ private func messagePayload(_ message: URLSessionWebSocketTask.Message) -> Strin
         return String(data: payload, encoding: .utf8)
     @unknown default:
         return nil
+    }
+}
+
+private func withAsyncTestTimeout<T: Sendable>(
+    seconds: Double = 10,
+    operation: String,
+    _ work: @escaping @Sendable () async throws -> T
+) async throws -> T {
+    try await withThrowingTaskGroup(of: T.self) { group in
+        group.addTask {
+            try await work()
+        }
+        group.addTask {
+            try await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
+            throw AsyncTestTimeoutError(operation: operation)
+        }
+
+        let result = try await group.next()
+        group.cancelAll()
+        return try #require(result)
     }
 }

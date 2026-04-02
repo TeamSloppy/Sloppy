@@ -372,6 +372,171 @@
   box-shadow: none !important;
 }
 
+.agent-pet-card {
+  display: grid;
+  grid-template-columns: minmax(220px, 320px) 1fr;
+  gap: 20px;
+  padding: 20px;
+  border: 1px solid var(--line);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.03), rgba(255, 255, 255, 0.015));
+  animation: motion-hard-cut var(--motion-duration-normal) var(--motion-ease-brutalist) both;
+}
+
+.agent-pet-stage {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  min-height: 280px;
+  border: 1px dashed rgba(255, 255, 255, 0.12);
+  background:
+    linear-gradient(180deg, rgba(82, 229, 255, 0.08), rgba(255, 255, 255, 0.01)),
+    repeating-linear-gradient(
+      0deg,
+      rgba(255, 255, 255, 0.02),
+      rgba(255, 255, 255, 0.02) 2px,
+      transparent 2px,
+      transparent 8px
+    );
+}
+
+.agent-pet-stage-meta {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+
+.agent-pet-id,
+.agent-pet-genome {
+  font-family: "Fira Code", monospace;
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+
+.agent-pet-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.agent-pet-parts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  font-size: 0.78rem;
+  color: var(--muted);
+  text-transform: capitalize;
+}
+
+.agent-pet-stats {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.agent-pet-stat-row {
+  display: grid;
+  grid-template-columns: 92px 1fr 44px;
+  gap: 12px;
+  align-items: center;
+}
+
+.agent-pet-stat-label {
+  font-size: 0.76rem;
+  color: var(--muted);
+  letter-spacing: 0.06em;
+}
+
+.agent-pet-stat-meter {
+  position: relative;
+  height: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.04);
+  overflow: hidden;
+}
+
+.agent-pet-stat-fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  background: linear-gradient(90deg, rgba(82, 229, 255, 0.35), rgba(82, 229, 255, 0.9));
+}
+
+.agent-pet-stat-base {
+  position: absolute;
+  inset: 0 auto 0 0;
+  border-right: 2px solid rgba(255, 226, 102, 0.95);
+  pointer-events: none;
+}
+
+.agent-pet-stat-value {
+  font-family: "Fira Code", monospace;
+  font-size: 0.8rem;
+  color: var(--text);
+  text-align: right;
+}
+
+.agent-pet-note {
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.badge-pet {
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.badge-pet-common {
+  background: rgba(255, 255, 255, 0.08);
+  color: #d4d4d4;
+}
+
+.badge-pet-uncommon {
+  background: rgba(120, 255, 174, 0.14);
+  color: #8dffb3;
+}
+
+.badge-pet-rare {
+  background: rgba(82, 229, 255, 0.15);
+  color: #79ecff;
+}
+
+.badge-pet-legendary {
+  background: rgba(255, 214, 102, 0.16);
+  color: #ffe266;
+}
+
+.agent-pet-sprite {
+  width: min(220px, 100%);
+}
+
+.agent-pet-sprite svg {
+  width: 100%;
+  height: auto;
+  overflow: visible;
+  image-rendering: pixelated;
+  shape-rendering: crispEdges;
+}
+
+.agent-pet-head {
+  transform-origin: 24px 20px;
+}
+
+.agent-pet-head.is-animated {
+  animation: agent-pet-head-sway 2.8s ease-in-out infinite;
+}
+
+@keyframes agent-pet-head-sway {
+  0%, 100% {
+    transform: rotate(-3deg) translateY(0);
+  }
+  50% {
+    transform: rotate(3deg) translateY(-1px);
+  }
+}
 
 @media (max-width: 768px) {
   .dashboard-charts-grid {
@@ -381,5 +546,18 @@
   .costs-card {
     grid-template-columns: repeat(2, 1fr);
   }
+
+  .agent-pet-card {
+    grid-template-columns: 1fr;
+  }
+
+  .agent-pet-stage {
+    min-height: 220px;
+  }
 }
 
+@media (prefers-reduced-motion: reduce) {
+  .agent-pet-head.is-animated {
+    animation: none;
+  }
+}

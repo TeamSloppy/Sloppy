@@ -1024,6 +1024,8 @@ func createListAndGetAgentsEndpoints() async throws {
     let createdAgent = try decoder.decode(AgentSummary.self, from: createResponse.body)
     #expect(createdAgent.id == "agent-dev")
     #expect(createdAgent.displayName == "Dev Agent")
+    #expect(createdAgent.pet != nil)
+    #expect(createdAgent.pet?.currentStats == createdAgent.pet?.baseStats)
 
     let listResponse = await router.handle(method: "GET", path: "/v1/agents", body: nil)
     #expect(listResponse.status == 200)
@@ -1041,7 +1043,7 @@ func createListAndGetAgentsEndpoints() async throws {
         .appendingPathComponent("agent-dev", isDirectory: true)
     #expect(FileManager.default.fileExists(atPath: workspaceAgentsURL.path))
 
-    let scaffoldFiles = ["AGENTS.md", "USER.md", "SOUL.md", "IDENTITY.id", "IDENTITY.md", "config.json", "agent.json"]
+    let scaffoldFiles = ["AGENTS.md", "USER.md", "SOUL.md", "IDENTITY.id", "IDENTITY.md", "config.json", "agent.json", "pet-state.json"]
     for file in scaffoldFiles {
         let fileURL = workspaceAgentsURL.appendingPathComponent(file)
         #expect(FileManager.default.fileExists(atPath: fileURL.path))
@@ -1864,6 +1866,7 @@ func systemAgentStoredInSystemSubdirectory() async throws {
     #expect(systemResponse.status == 201)
     let createdSystem = try decoder.decode(AgentSummary.self, from: systemResponse.body)
     #expect(createdSystem.isSystem == true)
+    #expect(createdSystem.pet == nil)
 
     let agentsRoot = config.resolvedWorkspaceRootURL().appendingPathComponent("agents", isDirectory: true)
     let systemDirectory = agentsRoot.appendingPathComponent(".system/sys-worker", isDirectory: true)
@@ -1871,6 +1874,8 @@ func systemAgentStoredInSystemSubdirectory() async throws {
 
     let userDirectory = agentsRoot.appendingPathComponent("user-agent", isDirectory: true)
     #expect(FileManager.default.fileExists(atPath: userDirectory.path))
+    #expect(FileManager.default.fileExists(atPath: userDirectory.appendingPathComponent("pet-state.json").path))
+    #expect(!FileManager.default.fileExists(atPath: systemDirectory.appendingPathComponent("pet-state.json").path))
 
     let listAllResponse = await router.handle(method: "GET", path: "/v1/agents", body: nil)
     #expect(listAllResponse.status == 200)

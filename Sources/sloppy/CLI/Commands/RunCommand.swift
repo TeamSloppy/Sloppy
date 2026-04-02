@@ -262,17 +262,26 @@ func repoRootDerivedFromExecutable(
     executableURL: URL,
     fileManager: FileManager = .default
 ) -> URL? {
-    var candidate = executableURL.resolvingSymlinksInPath().standardizedFileURL.deletingLastPathComponent()
+    var candidatePath = executableURL
+        .resolvingSymlinksInPath()
+        .standardizedFileURL
+        .deletingLastPathComponent()
+        .path
 
-    while candidate.path != candidate.deletingLastPathComponent().path {
-        let packageURL = candidate.appendingPathComponent("Package.swift")
-        let dashboardURL = candidate.appendingPathComponent("Dashboard", isDirectory: true)
-        if fileManager.fileExists(atPath: packageURL.path),
-           fileManager.fileExists(atPath: dashboardURL.path)
+    while true {
+        let packagePath = (candidatePath as NSString).appendingPathComponent("Package.swift")
+        let dashboardPath = (candidatePath as NSString).appendingPathComponent("Dashboard")
+        if fileManager.fileExists(atPath: packagePath),
+           fileManager.fileExists(atPath: dashboardPath)
         {
-            return candidate
+            return URL(fileURLWithPath: candidatePath, isDirectory: true)
         }
-        candidate.deleteLastPathComponent()
+
+        let parentPath = (candidatePath as NSString).deletingLastPathComponent
+        guard !parentPath.isEmpty, parentPath != candidatePath else {
+            break
+        }
+        candidatePath = parentPath
     }
 
     return nil

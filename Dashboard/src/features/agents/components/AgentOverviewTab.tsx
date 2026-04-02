@@ -1,23 +1,31 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { fetchAgentTasks, fetchAgentSessions, fetchAgentTokenUsage } from "../../../api";
+import { fetchAgent, fetchAgentTasks, fetchAgentSessions, fetchAgentTokenUsage } from "../../../api";
+import { AgentPetCard } from "./AgentPetCard";
 
 export function AgentOverviewTab({ agent, navigateToAgent }: any) {
+    const [agentSnapshot, setAgentSnapshot] = useState<any>(agent);
     const [tasks, setTasks] = useState<any[]>([]);
     const [sessions, setSessions] = useState<any[]>([]);
     const [tokenUsage, setTokenUsage] = useState<any>(null);
     const [isLoading, setIsLoading] = useState(true);
 
     useEffect(() => {
+        setAgentSnapshot(agent);
+    }, [agent]);
+
+    useEffect(() => {
         let cancelled = false;
         async function loadData() {
             setIsLoading(true);
             try {
-                const [tasksRes, sessionsRes, tokenRes] = await Promise.all([
+                const [agentRes, tasksRes, sessionsRes, tokenRes] = await Promise.all([
+                    fetchAgent(agent.id),
                     fetchAgentTasks(agent.id),
                     fetchAgentSessions(agent.id),
                     fetchAgentTokenUsage(agent.id)
                 ]);
                 if (!cancelled) {
+                    if (agentRes) setAgentSnapshot(agentRes);
                     if (Array.isArray(tasksRes)) setTasks(tasksRes);
                     if (Array.isArray(sessionsRes)) setSessions(sessionsRes);
                     if (tokenRes) setTokenUsage(tokenRes);
@@ -123,6 +131,8 @@ export function AgentOverviewTab({ agent, navigateToAgent }: any) {
 
     return (
         <div className="agent-dashboard">
+            <AgentPetCard pet={agentSnapshot?.pet} />
+
             <section className="dashboard-section">
                 <div className="dashboard-section-header">
                     <h3>Latest Run</h3>

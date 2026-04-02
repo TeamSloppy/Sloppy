@@ -17,8 +17,9 @@ private func makeProbeHTTPResponse(url: URL, statusCode: Int = 200) -> HTTPURLRe
 
 @Test
 func providerProbeEndpointReturnsFailureWhenOpenAIKeyIsMissing() async throws {
+    let config = CoreConfig.test
     let service = CoreService(
-        config: .default,
+        config: config,
         providerProbeService: ProviderProbeService(
             environmentLookup: { _ in nil },
             transport: { request in
@@ -47,8 +48,9 @@ func providerProbeEndpointReturnsFailureWhenOpenAIKeyIsMissing() async throws {
 
 @Test
 func providerProbeEndpointReturnsFriendlyFailureWhenOAuthIsNotConnected() async throws {
+    let config = CoreConfig.test
     let service = CoreService(
-        config: .default,
+        config: config,
         builtInGatewayPluginFactory: .live
     )
     let router = CoreRouter(service: service)
@@ -71,8 +73,9 @@ func providerProbeEndpointReturnsFriendlyFailureWhenOAuthIsNotConnected() async 
 
 @Test
 func providerProbeEndpointMapsOllamaModelsFromTagsResponse() async throws {
+    let config = CoreConfig.test
     let service = CoreService(
-        config: .default,
+        config: config,
         providerProbeService: ProviderProbeService(
             transport: { request in
                 let payload =

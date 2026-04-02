@@ -1,6 +1,8 @@
 import Foundation
 #if canImport(FoundationNetworking)
 import FoundationNetworking
+#else
+import Network
 #endif
 
 enum ProxySessionFactory {
@@ -19,56 +21,52 @@ enum ProxySessionFactory {
     #if !canImport(FoundationNetworking)
     private static func makeSessionDarwin(proxy: CoreConfig.Proxy) -> URLSession {
         let config = URLSessionConfiguration.default
-        var proxyDict: [AnyHashable: Any] = [:]
 
-        switch proxy.type {
-        case .socks5:
-            proxyDict[kCFNetworkProxiesSOCKSEnable as String] = 1
-            proxyDict[kCFNetworkProxiesSOCKSProxy as String] = proxy.host
-            proxyDict[kCFNetworkProxiesSOCKSPort as String] = proxy.port
-        case .http:
-            proxyDict["HTTPEnable"] = 1
-            proxyDict["HTTPProxy"] = proxy.host
-            proxyDict["HTTPPort"] = proxy.port
-            proxyDict["HTTPSEnable"] = 1
-            proxyDict["HTTPSProxy"] = proxy.host
-            proxyDict["HTTPSPort"] = proxy.port
-        case .https:
-            proxyDict["HTTPSEnable"] = 1
-            proxyDict["HTTPSProxy"] = proxy.host
-            proxyDict["HTTPSPort"] = proxy.port
+        guard let port = NWEndpoint.Port(rawValue: UInt16(clamping: proxy.port)) else {
+            return URLSession(configuration: config)
         }
 
-        config.connectionProxyDictionary = proxyDict
+        let endpoint = NWEndpoint.hostPort(
+            host: NWEndpoint.Host(proxy.host),
+            port: port
+        )
+
+        var proxyConfig: ProxyConfiguration
+        switch proxy.type {
+        case .socks5:
+            proxyConfig = ProxyConfiguration(socksv5Proxy: endpoint)
+        case .http:
+            proxyConfig = ProxyConfiguration(httpCONNECTProxy: endpoint)
+        case .https:
+            proxyConfig = ProxyConfiguration(httpCONNECTProxy: endpoint, tlsOptions: .init())
+        }
+
+        if !proxy.username.isEmpty {
+            proxyConfig.applyCredential(username: proxy.username, password: proxy.password)
+        }
+
+        config.proxyConfigurations = [proxyConfig]
         return URLSession(configuration: config)
     }
     #endif
 
     #if canImport(FoundationNetworking)
     private static func makeSessionLinux(proxy: CoreConfig.Proxy) -> URLSession {
-        let proxyURL = buildProxyURL(proxy: proxy)
-        if let url = proxyURL {
-            switch proxy.type {
-            case .socks5:
-                setenv("ALL_PROXY", url, 1)
-                setenv("all_proxy", url, 1)
-            case .http:
-                setenv("HTTP_PROXY", url, 1)
-                setenv("http_proxy", url, 1)
-                setenv("HTTPS_PROXY", url, 1)
-                setenv("https_proxy", url, 1)
-            case .https:
-                setenv("HTTPS_PROXY", url, 1)
-                setenv("https_proxy", url, 1)
-            }
-        }
+        let url = buildProxyURL(proxy: proxy)
+        setAllProxyEnv(url)
         return URLSession(configuration: .default)
     }
 
-    private static func buildProxyURL(proxy: CoreConfig.Proxy) -> String? {
+    private static func setAllProxyEnv(_ url: String) {
+        for key in ["HTTP_PROXY", "http_proxy", "HTTPS_PROXY", "https_proxy", "ALL_PROXY", "all_proxy"] {
+            setenv(key, url, 1)
+        }
+    }
+
+    private static func buildProxyURL(proxy: CoreConfig.Proxy) -> String {
         let scheme: String
         switch proxy.type {
-        case .socks5: scheme = "socks5"
+        case .socks5: scheme = "socks5h"
         case .http: scheme = "http"
         case .https: scheme = "https"
         }

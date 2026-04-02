@@ -129,7 +129,7 @@ enum NetworkAddressResolver {
             bindAddress: bindAddress,
             localAPIURL: localAPIURL,
             lanAPIURL: lanAPIURL,
-            dashboardAPIBase: localAPIURL ?? preferredAPIBase,
+            dashboardAPIBase: preferredAPIBase,
             preferredAPIBase: preferredAPIBase,
             preferredDashboardURL: dashboardPort.map { "http://\(preferredHost):\($0)" }
         )

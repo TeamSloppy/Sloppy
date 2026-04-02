@@ -74,11 +74,6 @@ func bootstrapChannelPluginsSeedsDiscordRecord() async throws {
         builtInGatewayPluginFactory: factory
     )
     await service.bootstrapChannelPlugins()
-    defer {
-        Task {
-            await service.shutdownChannelPlugins()
-        }
-    }
 
     let plugins = await service.listChannelPlugins()
     let discordRecord = try #require(plugins.first(where: { $0.id == "discord" }))
@@ -87,6 +82,7 @@ func bootstrapChannelPluginsSeedsDiscordRecord() async throws {
     #expect(discordRecord.deliveryMode == ChannelPluginRecord.DeliveryMode.inProcess)
     #expect(probe.discordPlugins.count == 1)
     #expect(await probe.discordPlugins[0].snapshot().startedCount == 1)
+    await service.shutdownChannelPlugins()
 }
 
 @Test
