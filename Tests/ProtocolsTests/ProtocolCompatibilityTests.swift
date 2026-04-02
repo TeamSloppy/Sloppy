@@ -788,6 +788,34 @@ func projectCreateRequestRepoUrlIsOptional() throws {
 }
 
 @Test
+func projectCreateRequestEncodesRepoPath() throws {
+    let request = ProjectCreateRequest(
+        id: "my-project",
+        name: "My Project",
+        repoPath: "file:///Users/test/project"
+    )
+    let data = try JSONEncoder().encode(request)
+    let roundTripped = try JSONDecoder().decode(ProjectCreateRequest.self, from: data)
+    #expect(roundTripped.repoPath == "file:///Users/test/project")
+    #expect(roundTripped.name == "My Project")
+    #expect(roundTripped.id == "my-project")
+}
+
+@Test
+func projectCreateRequestDecodesRepoPath() throws {
+    let json = """
+    {
+        "name": "My Project",
+        "channels": [],
+        "repoPath": "file:///Users/test/project"
+    }
+    """.data(using: .utf8)!
+    let request = try JSONDecoder().decode(ProjectCreateRequest.self, from: json)
+    #expect(request.name == "My Project")
+    #expect(request.repoPath == "file:///Users/test/project")
+}
+
+@Test
 func tokenUsageDecodesWithUnknownFields() throws {
     // Given: JSON with extra fields
     let json = """

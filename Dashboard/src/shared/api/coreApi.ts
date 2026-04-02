@@ -44,6 +44,7 @@ export interface CoreApi {
   fetchRuntimeConfig: () => Promise<AnyRecord | null>;
   updateRuntimeConfig: (config: AnyRecord) => Promise<AnyRecord | null>;
   fetchSystemLogs: () => Promise<AnyRecord | null>;
+  selectDirectory: () => Promise<AnyRecord | null>;
   fetchOpenAIModels: (payload: AnyRecord) => Promise<AnyRecord | null>;
   fetchOpenAIProviderStatus: () => Promise<AnyRecord | null>;
   startOpenAIOAuth: (payload: AnyRecord) => Promise<AnyRecord | null>;
@@ -312,6 +313,17 @@ export function createCoreApi(): CoreApi {
     fetchSystemLogs: async () => {
       const response = await requestJson<AnyRecord>({
         path: "/v1/logs"
+      });
+      if (!response.ok) {
+        return null;
+      }
+      return response.data;
+    },
+
+    selectDirectory: async () => {
+      const response = await requestJson<AnyRecord>({
+        path: "/v1/system/select-directory",
+        method: "POST"
       });
       if (!response.ok) {
         return null;

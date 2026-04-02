@@ -26,6 +26,10 @@ private struct UpdateStatusResponse: Encodable {
     var isReleaseBuild: Bool
 }
 
+private struct SelectDirectoryResponse: Encodable {
+    var path: String?
+}
+
 private extension UpdateStatusResponse {
     init(_ status: UpdateStatus) {
         self.currentVersion = status.currentVersion
@@ -160,6 +164,11 @@ struct SystemAPIRouter: APIRouter {
             } catch {
                 return CoreRouter.json(status: HTTPStatus.internalServerError, payload: ["error": "generation_failed"])
             }
+        }
+
+        router.post("/v1/system/select-directory", metadata: RouteMetadata(summary: "Select local directory", description: "Opens a native directory picker and returns the selected directory path", tags: ["System"])) { _ in
+            let path = await service.selectDirectory()
+            return CoreRouter.encodable(status: HTTPStatus.ok, payload: SelectDirectoryResponse(path: path))
         }
     }
 }

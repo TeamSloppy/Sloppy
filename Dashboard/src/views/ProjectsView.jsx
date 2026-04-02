@@ -6,6 +6,7 @@ import {
   createProject as createProjectRequest,
   updateProject as updateProjectRequest,
   deleteProject as deleteProjectRequest,
+  selectDirectory as selectDirectoryRequest,
   createProjectChannel as createProjectChannelRequest,
   deleteProjectChannel as deleteProjectChannelRequest,
   createProjectTask as createProjectTaskRequest,
@@ -55,13 +56,22 @@ import { ProjectMemoryTab } from "./Projects/ProjectMemoryTab";
 import { ProjectList } from "./Projects/ProjectList";
 import { TaskReviewView } from "./Projects/TaskReviewView";
 
-function ProjectCreateModal({ isOpen, draft, onChange, onClose, onCreate, actors = [], teams = [] }) {
+function ProjectCreateModal({ isOpen, draft, onChange, onClose, onCreate, onChooseDirectory, actors = [], teams = [] }) {
   const [actorSearch, setActorSearch] = useState("");
   const [actorDropdownOpen, setActorDropdownOpen] = useState(false);
   const actorSearchRef = useRef(null);
   const [teamSearch, setTeamSearch] = useState("");
   const [teamDropdownOpen, setTeamDropdownOpen] = useState(false);
   const teamSearchRef = useRef(null);
+  const [isChoosingDirectory, setIsChoosingDirectory] = useState(false);
+  const [directoryPickerError, setDirectoryPickerError] = useState("");
+
+  useEffect(() => {
+    if (!isOpen) {
+      setIsChoosingDirectory(false);
+      setDirectoryPickerError("");
+    }
+  }, [isOpen]);
 
   const selectedActorIds = parseListInput(draft?.actors ?? "");
   const q = actorSearch.trim().toLowerCase();
@@ -113,6 +123,30 @@ function ProjectCreateModal({ isOpen, draft, onChange, onClose, onCreate, actors
     );
   }
 
+  async function handleChooseDirectory() {
+    if (!onChooseDirectory || isChoosingDirectory) {
+      return;
+    }
+
+    setIsChoosingDirectory(true);
+    setDirectoryPickerError("");
+    try {
+      const selectedPath = await onChooseDirectory();
+      if (selectedPath) {
+        onChange("repoPath", selectedPath);
+      }
+    } catch {
+      setDirectoryPickerError("Failed to open Finder. Paste a local path instead.");
+    } finally {
+      setIsChoosingDirectory(false);
+    }
+  }
+
+  const canCreateProject =
+    draft.sourceType === "open"
+      ? draft.displayName.trim() && draft.repoPath.trim()
+      : draft.displayName.trim();
+
   return (
     <div className="project-modal-overlay" onClick={onClose}>
       <section className="project-modal" onClick={(event) => event.stopPropagation()}>
@@ -127,7 +161,7 @@ function ProjectCreateModal({ isOpen, draft, onChange, onClose, onCreate, actors
           <div className="onboarding-provider-grid">
             <button
               type="button"
-              className={`onboarding-provider-card ${draft.sourceType !== "git" ? "active" : ""}`}
+              className={`onboarding-provider-card ${draft.sourceType === "empty" ? "active" : ""}`}
               onClick={() => onChange("sourceType", "empty")}
             >
               <span className="material-symbols-rounded" aria-hidden="true">folder_open</span>
@@ -143,6 +177,15 @@ function ProjectCreateModal({ isOpen, draft, onChange, onClose, onCreate, actors
               <strong>Clone from GitHub</strong>
               <span>Clone a git repository including submodules.</span>
             </button>
+            <button
+              type="button"
+              className={`onboarding-provider-card ${draft.sourceType === "open" ? "active" : ""}`}
+              onClick={() => onChange("sourceType", "open")}
+            >
+              <span className="material-symbols-rounded" aria-hidden="true">drive_folder_upload</span>
+              <strong>Open Project</strong>
+              <span>Attach an existing local directory and keep working in place.</span>
+            </button>
           </div>
 
           {draft.sourceType === "git" ? (
@@ -157,13 +200,40 @@ function ProjectCreateModal({ isOpen, draft, onChange, onClose, onCreate, actors
             </label>
           ) : null}
 
+          {draft.sourceType === "open" ? (
+            <label>
+              Local project path
+              <div className="project-path-picker-row">
+                <input
+                  value={draft.repoPath}
+                  onChange={(event) => onChange("repoPath", event.target.value)}
+                  placeholder="/Users/name/work/project or file:///Users/name/work/project"
+                  autoFocus
+                />
+                <button
+                  type="button"
+                  onClick={handleChooseDirectory}
+                  disabled={isChoosingDirectory}
+                >
+                  {isChoosingDirectory ? "Opening…" : "Choose in Finder"}
+                </button>
+              </div>
+              <span className="project-path-hint">
+                Any local folder is allowed. Git features become available automatically when this directory is a repository.
+              </span>
+              {directoryPickerError ? (
+                <span className="project-path-error">{directoryPickerError}</span>
+              ) : null}
+            </label>
+          ) : null}
+
           <label>
             Display Name
             <input
               value={draft.displayName}
               onChange={(event) => onChange("displayName", event.target.value)}
               placeholder="Project Alpha"
-              autoFocus={draft.sourceType !== "git"}
+              autoFocus={draft.sourceType === "empty"}
             />
             {draft.displayName.trim() ? (
               <span className="project-id-preview">
@@ -332,7 +402,7 @@ function ProjectCreateModal({ isOpen, draft, onChange, onClose, onCreate, actors
             <button type="button" onClick={onClose}>
               Cancel
             </button>
-            <button type="submit" className="project-primary hover-levitate" disabled={!draft.displayName.trim()}>
+            <button type="submit" className="project-primary hover-levitate" disabled={!canCreateProject}>
               Create Project
             </button>
           </div>
@@ -1008,11 +1078,23 @@ export function ProjectsView({
     }));
   }
 
+  async function chooseProjectDirectory() {
+    const result = await selectDirectoryRequest();
+    if (!result || typeof result.path !== "string" || !result.path.trim()) {
+      return null;
+    }
+    return result.path.trim();
+  }
+
   async function createProject(event) {
     event.preventDefault();
 
     const displayName = String(projectDraft.displayName || "").trim();
     if (!displayName) {
+      return;
+    }
+
+    if (projectDraft.sourceType === "open" && !String(projectDraft.repoPath || "").trim()) {
       return;
     }
 
@@ -1038,6 +1120,9 @@ export function ProjectsView({
       teams,
       ...(projectDraft.sourceType === "git" && String(projectDraft.repoUrl || "").trim()
         ? { repoUrl: String(projectDraft.repoUrl).trim() }
+        : {}),
+      ...(projectDraft.sourceType === "open" && String(projectDraft.repoPath || "").trim()
+        ? { repoPath: String(projectDraft.repoPath).trim() }
         : {})
     });
 
@@ -1577,6 +1662,7 @@ export function ProjectsView({
         onChange={updateProjectDraft}
         onClose={closeCreateProjectModal}
         onCreate={createProject}
+        onChooseDirectory={chooseProjectDirectory}
         actors={createModalActors}
         teams={createModalTeams}
       />

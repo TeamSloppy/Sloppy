@@ -95,14 +95,17 @@ This command:
 - builds `Dashboard` with `npm run build` by default
 - builds `sloppy` in release mode
 - launches `sloppy` in the foreground
+- serves the built dashboard on `http://localhost:25102` by default
 
 Useful variants:
 
 ```bash
-swift package --allow-writing-to-package-directory --allow-network-connections all sloppy-run --no-dashboard
+swift package --allow-writing-to-package-directory --allow-network-connections all sloppy-run --no-gui
 swift package --allow-writing-to-package-directory --allow-network-connections all sloppy-run --config-path sloppy.json
-swift package --allow-writing-to-package-directory --allow-network-connections all sloppy-run --no-dashboard --oneshot
+swift package --allow-writing-to-package-directory --allow-network-connections all sloppy-run --no-gui --oneshot
 ```
+
+`--no-dashboard` remains available as a compatibility alias for `--no-gui`.
 
 The plugin requires SwiftPM permission flags because it writes the Dashboard bundle into the package directory and may run `npm install` when `Dashboard/node_modules` is missing or unusable.
 Direct forwarding without `--` is intentionally supported only for common `sloppy` flags: `--oneshot`, `--run-demo-request`, and `--config-path`.
@@ -152,7 +155,7 @@ List tests:
 swift test list
 ```
 
-## Run the dashboard
+## Run the dashboard manually
 
 From `Dashboard/`:
 
@@ -160,6 +163,8 @@ From `Dashboard/`:
 npm install
 npm run dev
 ```
+
+`sloppy run` already serves the production dashboard bundle on port `25102`. Use the Vite dev server only when iterating on frontend code.
 
 Production build:
 

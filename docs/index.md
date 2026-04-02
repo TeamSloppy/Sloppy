@@ -120,7 +120,7 @@ For the full setup guide see [Install](/install). For Docker see [Build With Doc
 
 ## Dashboard
 
-After the server starts, open the operator dashboard in your browser:
+`sloppy run` serves the operator dashboard automatically. Open it in your browser at:
 
 - Local default: `http://localhost:25102`
 

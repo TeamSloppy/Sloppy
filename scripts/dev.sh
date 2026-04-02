@@ -3,6 +3,7 @@ set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BIN_DIR="${SLOPPY_BIN_DIR:-$HOME/.local/bin}"
+DASHBOARD_DIR="${SLOPPY_DASHBOARD_DIR:-$HOME/.local/share/sloppy/dashboard}"
 PID_FILE="/tmp/sloppy-server.pid"
 LOG_FILE="/tmp/sloppy-server.log"
 AUTOSTART_MARKER="# sloppy-autostart"
@@ -17,7 +18,7 @@ usage() {
 Usage: $(basename "$0") <command>
 
 Commands:
-  setup          Build sloppy + SloppyNode (release) and create PATH symlinks.
+  setup          Build sloppy + SloppyNode + Dashboard (release) and create PATH symlinks.
   start          Start the sloppy server in the background.
   stop           Stop the background sloppy server.
   restart        Restart the sloppy server.
@@ -28,8 +29,37 @@ Commands:
 
 Options:
   --bin-dir <path>  Override symlink directory (default: $BIN_DIR).
+  --dashboard-dir <path>  Override installed Dashboard bundle directory (default: $DASHBOARD_DIR).
   --help, -h        Show this help.
 EOF
+}
+
+require_command() {
+    local command_name="$1"
+    local hint="$2"
+    command -v "$command_name" >/dev/null 2>&1 || die "$hint"
+}
+
+build_dashboard_bundle() {
+    local dashboard_source="$REPO_ROOT/Dashboard"
+    local dashboard_entry="$dashboard_source/node_modules/vite/bin/vite.js"
+
+    require_command node "'node' not found in PATH. Install Node.js before running setup."
+    require_command npm "'npm' not found in PATH. Install npm before running setup."
+
+    log "Installing Dashboard dependencies..."
+    npm install --prefix "$dashboard_source"
+
+    [[ -f "$dashboard_entry" ]] || die "Dashboard build tool is missing at $dashboard_entry after npm install."
+
+    log "Building Dashboard bundle..."
+    node "$dashboard_entry" build --config "$dashboard_source/vite.config.js"
+
+    log "Installing Dashboard bundle in $DASHBOARD_DIR..."
+    mkdir -p "$DASHBOARD_DIR"
+    rm -rf "$DASHBOARD_DIR/dist"
+    cp -R "$dashboard_source/dist" "$DASHBOARD_DIR/dist"
+    cp "$dashboard_source/config.json" "$DASHBOARD_DIR/config.json"
 }
 
 server_is_running() {
@@ -46,6 +76,8 @@ cmd_setup() {
     log "Building SloppyNode (release)..."
     swift build -c release --package-path "$REPO_ROOT" --product SloppyNode
 
+    build_dashboard_bundle
+
     local bin_path
     bin_path="$(swift build --show-bin-path -c release --package-path "$REPO_ROOT")"
 
@@ -57,6 +89,7 @@ cmd_setup() {
     ok "Setup complete."
     ok "  sloppy    -> $BIN_DIR/sloppy"
     ok "  SloppyNode -> $BIN_DIR/SloppyNode"
+    ok "  Dashboard -> $DASHBOARD_DIR"
 
     if [[ ":$PATH:" != *":$BIN_DIR:"* ]]; then
         warn "$BIN_DIR is not in PATH. Add to your shell profile:"
@@ -191,6 +224,9 @@ while [[ $# -gt 0 ]]; do
         --bin-dir)
             [[ $# -ge 2 ]] || die "--bin-dir requires a value"
             BIN_DIR="$2"; shift 2 ;;
+        --dashboard-dir)
+            [[ $# -ge 2 ]] || die "--dashboard-dir requires a value"
+            DASHBOARD_DIR="$2"; shift 2 ;;
         --help|-h)
             usage; exit 0 ;;
         *)

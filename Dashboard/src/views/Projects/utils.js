@@ -639,6 +639,7 @@ export function emptyProjectDraft(index = 1) {
     actors: "",
     teams: "",
     sourceType: "empty",
-    repoUrl: ""
+    repoUrl: "",
+    repoPath: ""
   };
 }

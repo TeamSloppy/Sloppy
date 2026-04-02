@@ -6,6 +6,7 @@ SCRIPT_NAME="$(basename "${BASH_SOURCE[0]:-$0}")"
 REPO_URL="${SLOPPY_REPO_URL:-https://github.com/TeamSloppy/Sloppy.git}"
 INSTALL_DIR="${SLOPPY_INSTALL_DIR:-$HOME/.local/share/sloppy/source}"
 BIN_DIR="${SLOPPY_BIN_DIR:-$HOME/.local/bin}"
+DASHBOARD_DIR="${SLOPPY_DASHBOARD_DIR:-$HOME/.local/share/sloppy/dashboard}"
 MODE="${SLOPPY_INSTALL_MODE:-}"
 INSTALL_DIR_SET=0
 NO_PROMPT="${SLOPPY_NO_PROMPT:-0}"
@@ -48,6 +49,8 @@ Options:
   --server-only       Build only the server stack.
   --dir <path>        Clone or update the Sloppy checkout in <path> when not running inside a checkout.
   --bin-dir <path>    Install command symlinks into <path>. Default: $BIN_DIR
+  --dashboard-dir <path>
+                     Install the built Dashboard bundle into <path>. Default: $DASHBOARD_DIR
   --no-link           Do not create symlinks for sloppy and SloppyNode.
   --no-git-update     Do not pull an existing checkout before building.
   --no-prompt         Disable interactive prompts and use defaults.
@@ -59,6 +62,7 @@ Environment variables:
   SLOPPY_INSTALL_MODE=bundle|server
   SLOPPY_INSTALL_DIR=/path/to/checkout
   SLOPPY_BIN_DIR=/path/to/bin
+  SLOPPY_DASHBOARD_DIR=/path/to/dashboard
   SLOPPY_NO_PROMPT=1
   SLOPPY_DRY_RUN=1
   SLOPPY_VERBOSE=1
@@ -119,6 +123,11 @@ parse_args() {
       --bin-dir)
         [[ $# -ge 2 ]] || die "--bin-dir requires a value"
         BIN_DIR="$2"
+        shift 2
+        ;;
+      --dashboard-dir)
+        [[ $# -ge 2 ]] || die "--dashboard-dir requires a value"
+        DASHBOARD_DIR="$2"
         shift 2
         ;;
       --no-link)
@@ -273,11 +282,27 @@ build_server_stack() {
 build_dashboard() {
   local repo_root="$1"
   local dashboard_dir="$repo_root/Dashboard"
+  local dashboard_entry="$dashboard_dir/node_modules/vite/bin/vite.js"
   log "Installing Dashboard dependencies"
   run_cmd npm install --prefix "$dashboard_dir"
 
+  if [[ "$DRY_RUN" != "1" && ! -f "$dashboard_entry" ]]; then
+    die "Dashboard build tool is missing at $dashboard_entry after npm install."
+  fi
+
   log "Building Dashboard bundle"
-  run_cmd npm run --prefix "$dashboard_dir" build
+  run_cmd node "$dashboard_entry" build --config "$dashboard_dir/vite.config.js"
+}
+
+install_dashboard_bundle() {
+  local repo_root="$1"
+  local dashboard_source="$repo_root/Dashboard"
+
+  log "Installing Dashboard bundle into $DASHBOARD_DIR"
+  run_cmd mkdir -p "$DASHBOARD_DIR"
+  run_cmd rm -rf "$DASHBOARD_DIR/dist"
+  run_cmd cp -R "$dashboard_source/dist" "$DASHBOARD_DIR/dist"
+  run_cmd cp "$dashboard_source/config.json" "$DASHBOARD_DIR/config.json"
 }
 
 link_binaries() {
@@ -309,8 +334,10 @@ print_summary() {
   log "  Checkout: $repo_root"
   if [[ "$MODE" == "bundle" ]]; then
     log "  Mode: full bundle (server + dashboard)"
+    log "  Dashboard bundle: $DASHBOARD_DIR"
   else
     log "  Mode: server only"
+    log "  Dashboard bundle: skipped"
   fi
   if [[ "$NO_LINK" == "1" ]]; then
     log "  CLI links: skipped"
@@ -332,10 +359,11 @@ print_summary() {
   fi
 
   if [[ "$MODE" == "bundle" ]]; then
-    log "  2. Start the Dashboard dev server when needed:"
+    log "  2. Dashboard GUI is installed and ready for \`sloppy run\`."
+    log "     Frontend development server remains available at:"
     log "     cd \"$repo_root/Dashboard\" && npm run dev"
   else
-    log "  2. Dashboard build was skipped. Re-run with --bundle if you want it."
+    log "  2. Dashboard bundle was intentionally skipped. Re-run with --bundle if you want GUI support."
   fi
 
   log "  3. Verify the backend:"
@@ -357,6 +385,7 @@ main() {
   build_server_stack "$repo_root"
   if [[ "$MODE" == "bundle" ]]; then
     build_dashboard "$repo_root"
+    install_dashboard_bundle "$repo_root"
   fi
   link_binaries "$repo_root"
   print_summary "$repo_root"

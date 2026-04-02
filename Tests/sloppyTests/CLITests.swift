@@ -1,6 +1,7 @@
 import Foundation
 import Testing
 @testable import sloppy
+import Protocols
 
 // MARK: - CLIStyle tests
 
@@ -131,4 +132,139 @@ func cliClientErrorHTTPErrorDescription() {
 func cliClientErrorInvalidURLDescription() {
     let err = CLIClientError.invalidURL
     #expect(err.errorDescription != nil)
+}
+
+// MARK: - OpenAI device auth flow
+
+@Test
+func openAIDeviceAuthorizationFlowApprovesAfterPendingPoll() async throws {
+    let clock = MutableTestClock(now: Date(timeIntervalSince1970: 0))
+    let poller = PollResponseSequence(
+        responses: [
+            .init(status: "pending", ok: false, message: "Waiting"),
+            .init(status: "approved", ok: true, message: "Connected", accountId: "acct_123", planType: "plus"),
+        ]
+    )
+    let sleeps = SleepRecorder()
+
+    let response = try await OpenAIDeviceAuthorizationFlow.pollUntilApproved(
+        request: .init(deviceAuthId: "device_123", userCode: "ABCD-1234"),
+        initialInterval: 5,
+        timeoutSeconds: 30,
+        poll: { _ in
+            try poller.next()
+        },
+        sleep: { seconds in
+            sleeps.append(seconds)
+            clock.advance(by: seconds)
+        },
+        now: { clock.now }
+    )
+
+    #expect(response.status == "approved")
+    #expect(response.ok == true)
+    #expect(response.accountId == "acct_123")
+    #expect(sleeps.values == [5])
+}
+
+@Test
+func openAIDeviceAuthorizationFlowBacksOffWhenServerRequestsSlowDown() async throws {
+    let clock = MutableTestClock(now: Date(timeIntervalSince1970: 0))
+    let poller = PollResponseSequence(
+        responses: [
+            .init(status: "slow_down", ok: false, message: "Slow down"),
+            .init(status: "approved", ok: true, message: "Connected"),
+        ]
+    )
+    let sleeps = SleepRecorder()
+
+    let response = try await OpenAIDeviceAuthorizationFlow.pollUntilApproved(
+        request: .init(deviceAuthId: "device_123", userCode: "ABCD-1234"),
+        initialInterval: 5,
+        timeoutSeconds: 30,
+        poll: { _ in
+            try poller.next()
+        },
+        sleep: { seconds in
+            sleeps.append(seconds)
+            clock.advance(by: seconds)
+        },
+        now: { clock.now }
+    )
+
+    #expect(response.status == "approved")
+    #expect(sleeps.values == [10])
+}
+
+@Test
+func openAIDeviceAuthorizationFlowTimesOutAfterExpiration() async throws {
+    let clock = MutableTestClock(now: Date(timeIntervalSince1970: 0))
+    let poller = PollResponseSequence(
+        responses: [
+            .init(status: "pending", ok: false, message: "Waiting"),
+            .init(status: "pending", ok: false, message: "Still waiting"),
+        ]
+    )
+    let sleeps = SleepRecorder()
+
+    do {
+        _ = try await OpenAIDeviceAuthorizationFlow.pollUntilApproved(
+            request: .init(deviceAuthId: "device_123", userCode: "ABCD-1234"),
+            initialInterval: 5,
+            timeoutSeconds: 5,
+            poll: { _ in
+                try poller.next()
+            },
+            sleep: { seconds in
+                sleeps.append(seconds)
+                clock.advance(by: seconds)
+            },
+            now: { clock.now }
+        )
+        Issue.record("Expected device authorization flow to time out.")
+    } catch let error as OpenAIDeviceAuthorizationFlow.FlowError {
+        switch error {
+        case let .timedOut(seconds):
+            #expect(seconds == 5)
+        default:
+            Issue.record("Expected timeout error, got \(error.localizedDescription)")
+        }
+    }
+
+    #expect(sleeps.values == [5])
+}
+
+private final class MutableTestClock: @unchecked Sendable {
+    var now: Date
+
+    init(now: Date) {
+        self.now = now
+    }
+
+    func advance(by seconds: Int) {
+        now = now.addingTimeInterval(TimeInterval(seconds))
+    }
+}
+
+private final class SleepRecorder: @unchecked Sendable {
+    private(set) var values: [Int] = []
+
+    func append(_ value: Int) {
+        values.append(value)
+    }
+}
+
+private final class PollResponseSequence: @unchecked Sendable {
+    private var responses: [OpenAIDeviceCodePollResponse]
+
+    init(responses: [OpenAIDeviceCodePollResponse]) {
+        self.responses = responses
+    }
+
+    func next() throws -> OpenAIDeviceCodePollResponse {
+        guard !responses.isEmpty else {
+            throw CLIClientError.noData
+        }
+        return responses.removeFirst()
+    }
 }

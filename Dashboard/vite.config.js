@@ -1,9 +1,10 @@
 import { defineConfig } from "vite";
 import fs from "node:fs";
 import path from "node:path";
+import { resolveDashboardPaths } from "./vite.paths.js";
 
-const packageJson = JSON.parse(fs.readFileSync("./package.json", "utf-8"));
-const dashboardConfigPath = path.resolve(__dirname, "config.json");
+const { dashboardDir, packageJsonPath, dashboardConfigPath, distDir } = resolveDashboardPaths(import.meta.url);
+const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, "utf-8"));
 
 function dashboardConfigPlugin() {
   return {
@@ -28,13 +29,14 @@ function dashboardConfigPlugin() {
       });
     },
     writeBundle() {
-      fs.mkdirSync(path.resolve(__dirname, "dist"), { recursive: true });
-      fs.copyFileSync(dashboardConfigPath, path.resolve(__dirname, "dist/config.json"));
+      fs.mkdirSync(distDir, { recursive: true });
+      fs.copyFileSync(dashboardConfigPath, path.resolve(distDir, "config.json"));
     }
   };
 }
 
 export default defineConfig({
+  root: dashboardDir,
   plugins: [dashboardConfigPlugin()],
   define: {
     __APP_VERSION__: JSON.stringify(packageJson.version),

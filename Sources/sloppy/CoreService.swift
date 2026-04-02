@@ -3,6 +3,9 @@ import Foundation
 #if canImport(FoundationNetworking)
 import FoundationNetworking
 #endif
+#if canImport(AppKit)
+import AppKit
+#endif
 import AgentRuntime
 import ChannelPluginDiscord
 import ChannelPluginTelegram
@@ -1063,6 +1066,13 @@ public actor CoreService {
         let now = Date()
         let normalizedName = try normalizeProjectName(request.name)
         let normalizedDescription = normalizeProjectDescription(request.description)
+        let trimmedRepoUrl = request.repoUrl?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let hasRepoUrl = !trimmedRepoUrl.isEmpty
+        let normalizedRepoPath = try normalizedExternalProjectPath(request.repoPath)
+
+        if hasRepoUrl, normalizedRepoPath != nil {
+            throw ProjectError.invalidPayload
+        }
         let normalizedID: String
         if let requestedID = request.id, !requestedID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             guard let validID = normalizedProjectID(requestedID) else {
@@ -1084,12 +1094,18 @@ public actor CoreService {
             tasks: [],
             actors: request.actors ?? [],
             teams: request.teams ?? [],
+            repoPath: normalizedRepoPath,
             createdAt: now,
             updatedAt: now
         )
+
+        if let normalizedRepoPath {
+            try prepareExternalProjectWorkspace(projectID: normalizedID, repoPath: normalizedRepoPath)
+        }
+
         await store.saveProject(project)
-        if let repoUrl = request.repoUrl, !repoUrl.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            await cloneProjectRepository(repoUrl: repoUrl, projectID: normalizedID)
+        if hasRepoUrl {
+            await cloneProjectRepository(repoUrl: trimmedRepoUrl, projectID: normalizedID)
         } else {
             ensureProjectWorkspaceDirectory(projectID: normalizedID)
         }
@@ -1103,6 +1119,26 @@ public actor CoreService {
             )
         }
         return project
+    }
+
+    public func selectDirectory() async -> String? {
+#if canImport(AppKit)
+        await MainActor.run {
+            let panel = NSOpenPanel()
+            panel.canChooseFiles = false
+            panel.canChooseDirectories = true
+            panel.allowsMultipleSelection = false
+            panel.canCreateDirectories = false
+            panel.title = "Choose Project Directory"
+            panel.prompt = "Open Project"
+            guard panel.runModal() == .OK else {
+                return nil
+            }
+            return panel.url?.path
+        }
+#else
+        return nil
+#endif
     }
 
     /// Updates dashboard project metadata.
@@ -6421,6 +6457,65 @@ public actor CoreService {
                 ]
             )
         }
+    }
+
+    private func projectSourceLinkURL(projectID: String) -> URL {
+        projectDirectoryURL(projectID: projectID).appendingPathComponent("source", isDirectory: true)
+    }
+
+    private func normalizedExternalProjectPath(_ rawPath: String?) throws -> String? {
+        guard let rawPath else {
+            return nil
+        }
+
+        let trimmed = rawPath.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            return nil
+        }
+
+        let candidateURL: URL
+        if trimmed.hasPrefix("file://") {
+            guard let parsed = URL(string: trimmed),
+                  parsed.isFileURL,
+                  parsed.host == nil || parsed.host == "" || parsed.host == "localhost",
+                  !parsed.path.isEmpty
+            else {
+                throw ProjectError.invalidPayload
+            }
+            candidateURL = parsed
+        } else {
+            guard trimmed.hasPrefix("/") else {
+                throw ProjectError.invalidPayload
+            }
+            candidateURL = URL(fileURLWithPath: trimmed, isDirectory: true)
+        }
+
+        let normalizedURL = candidateURL.standardizedFileURL
+        let normalizedPath = normalizedURL.path
+        guard normalizedPath.hasPrefix("/") else {
+            throw ProjectError.invalidPayload
+        }
+
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: normalizedPath, isDirectory: &isDirectory), isDirectory.boolValue else {
+            throw ProjectError.invalidPayload
+        }
+
+        return normalizedPath
+    }
+
+    private func prepareExternalProjectWorkspace(projectID: String, repoPath: String) throws {
+        ensureProjectWorkspaceDirectory(projectID: projectID)
+
+        let fileManager = FileManager.default
+        let sourceLinkURL = projectSourceLinkURL(projectID: projectID)
+        if fileManager.fileExists(atPath: sourceLinkURL.path) {
+            try fileManager.removeItem(at: sourceLinkURL)
+        }
+        try fileManager.createSymbolicLink(
+            at: sourceLinkURL,
+            withDestinationURL: URL(fileURLWithPath: repoPath, isDirectory: true)
+        )
     }
 
     private func cloneProjectRepository(repoUrl: String, projectID: String) async {

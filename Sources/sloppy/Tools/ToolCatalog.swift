@@ -316,7 +316,8 @@ enum ToolCatalog {
                     "type": .string("array"),
                     "items": .object(["type": .string("string")])
                 ]),
-                "repoUrl": .object(["type": .string("string")])
+                "repoUrl": .object(["type": .string("string")]),
+                "repoPath": .object(["type": .string("string")])
             ]),
             "required": .array([.string("name")])
         ]),

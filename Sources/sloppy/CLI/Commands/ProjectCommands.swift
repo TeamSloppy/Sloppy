@@ -65,6 +65,7 @@ struct ProjectCreateCommand: AsyncParsableCommand {
     @Option(name: .long, help: "Project name") var name: String
     @Option(name: .long, help: "Project description") var description: String?
     @Option(name: .long, help: "Repository URL") var repoUrl: String?
+    @Option(name: .long, help: "Local repository or project path") var repoPath: String?
     @Option(name: .long) var url: String?
     @Option(name: .long) var token: String?
     @Option(name: .long) var format: String = "json"
@@ -75,6 +76,7 @@ struct ProjectCreateCommand: AsyncParsableCommand {
         var payload: [String: Any] = ["name": name]
         if let description { payload["description"] = description }
         if let repoUrl { payload["repoUrl"] = repoUrl }
+        if let repoPath { payload["repoPath"] = repoPath }
         do {
             let body = try JSONSerialization.data(withJSONObject: payload)
             let data = try await client.post("/v1/projects", body: body)
