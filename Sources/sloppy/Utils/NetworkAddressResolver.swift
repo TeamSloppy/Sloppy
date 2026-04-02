@@ -14,6 +14,7 @@ struct ServerDisplayEndpoints: Equatable, Sendable {
     let bindAddress: String
     let localAPIURL: String?
     let lanAPIURL: String?
+    let dashboardAPIBase: String
     let preferredAPIBase: String
     let preferredDashboardURL: String?
 }
@@ -120,11 +121,16 @@ enum NetworkAddressResolver {
             return "127.0.0.1"
         }()
 
+        let localAPIURL = localHost.map { "http://\($0):\(apiPort)" }
+        let lanAPIURL = lanHost.map { "http://\($0):\(apiPort)" }
+        let preferredAPIBase = "http://\(preferredHost):\(apiPort)"
+
         return .init(
             bindAddress: bindAddress,
-            localAPIURL: localHost.map { "http://\($0):\(apiPort)" },
-            lanAPIURL: lanHost.map { "http://\($0):\(apiPort)" },
-            preferredAPIBase: "http://\(preferredHost):\(apiPort)",
+            localAPIURL: localAPIURL,
+            lanAPIURL: lanAPIURL,
+            dashboardAPIBase: localAPIURL ?? preferredAPIBase,
+            preferredAPIBase: preferredAPIBase,
             preferredDashboardURL: dashboardPort.map { "http://\(preferredHost):\($0)" }
         )
     }

@@ -128,7 +128,7 @@ struct RunCommand: AsyncParsableCommand {
                 let launch = startDashboardServerIfAvailable(
                     config: config,
                     logger: logger,
-                    apiBase: endpoints.preferredAPIBase,
+                    apiBase: endpoints.dashboardAPIBase,
                     publicDashboardURL: endpoints.preferredDashboardURL,
                     overridePath: dashboardOverridePath()
                 )
