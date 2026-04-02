@@ -48,6 +48,22 @@ struct RootShellView: View {
         .onAppear {
             startNotificationListener()
         }
+        .overlay {
+            HStack(spacing: 8) {
+                Color.clear
+                    .frame(width: 100, height: 100)
+                    .glassEffect(.clear)
+
+                Color.clear
+                    .frame(width: 100, height: 100)
+                    .glassEffect(.regular)
+
+                Color.clear
+                    .frame(width: 100, height: 100)
+                    .glassEffect(.identity)
+            }
+            .frame(width: 600, height: 400)
+        }
     }
 
     @ViewBuilder

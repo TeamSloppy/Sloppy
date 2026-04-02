@@ -16,7 +16,7 @@ private func makeGitRepo() throws -> URL {
         process.standardOutput = pipe
         process.standardError = pipe
         try process.run()
-        process.waitUntilExit()
+        try waitForProcessExit(process, timeoutSeconds: 10, operation: "git \(args.joined(separator: " "))")
         guard process.terminationStatus == 0 else {
             let out = String(data: pipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
             throw NSError(domain: "git", code: Int(process.terminationStatus), userInfo: [NSLocalizedDescriptionKey: out])
@@ -81,7 +81,8 @@ func gitWorktreeBranchDiff() async throws {
     p2.executableURL = URL(fileURLWithPath: "/usr/bin/git")
     p2.arguments = ["add", "."]
     p2.currentDirectoryURL = URL(fileURLWithPath: result.worktreePath)
-    try p2.run(); p2.waitUntilExit()
+    try p2.run()
+    try waitForProcessExit(p2, timeoutSeconds: 10, operation: "git add .")
 
     let p3 = Process()
     p3.executableURL = URL(fileURLWithPath: "/usr/bin/git")
@@ -89,7 +90,8 @@ func gitWorktreeBranchDiff() async throws {
     p3.currentDirectoryURL = URL(fileURLWithPath: result.worktreePath)
     p3.environment = ["GIT_AUTHOR_EMAIL": "test@sloppy.dev", "GIT_AUTHOR_NAME": "Test",
                       "GIT_COMMITTER_EMAIL": "test@sloppy.dev", "GIT_COMMITTER_NAME": "Test"]
-    try p3.run(); p3.waitUntilExit()
+    try p3.run()
+    try waitForProcessExit(p3, timeoutSeconds: 10, operation: "git commit -m Add feature")
 
     let diff = try await service.branchDiff(repoPath: repoURL.path, branchName: result.branchName, baseBranch: "main")
     #expect(!diff.isEmpty)
@@ -121,5 +123,25 @@ func gitWorktreeErrorOnNonRepo() async throws {
         Issue.record("Expected error for non-repo path")
     } catch is GitWorktreeError {
         // expected
+    }
+}
+
+private func waitForProcessExit(
+    _ process: Process,
+    timeoutSeconds: TimeInterval,
+    operation: String
+) throws {
+    let deadline = Date().addingTimeInterval(timeoutSeconds)
+    while process.isRunning && Date() < deadline {
+        Thread.sleep(forTimeInterval: 0.05)
+    }
+
+    if process.isRunning {
+        process.terminate()
+        throw NSError(
+            domain: "GitWorktreeServiceTests.Timeout",
+            code: 1,
+            userInfo: [NSLocalizedDescriptionKey: "\(operation) timed out after \(timeoutSeconds)s"]
+        )
     }
 }

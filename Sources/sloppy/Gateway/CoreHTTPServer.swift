@@ -241,6 +241,9 @@ private final class CoreHTTPHandler: ChannelInboundHandler, RemovableChannelHand
                 )
             }
 
+            guard !Task.isCancelled else {
+                return
+            }
             await self.finishStreamResponse(
                 eventLoop: eventLoop,
                 loopBoundContext: loopBoundContext,
@@ -301,6 +304,9 @@ private final class CoreHTTPHandler: ChannelInboundHandler, RemovableChannelHand
         loopBoundContext: NIOLoopBound<ChannelHandlerContext>,
         bytes: Data
     ) async {
+        guard !Task.isCancelled else {
+            return
+        }
         await withCheckedContinuation { continuation in
             eventLoop.execute { [weak self, loopBoundContext] in
                 guard let self else {
@@ -327,6 +333,9 @@ private final class CoreHTTPHandler: ChannelInboundHandler, RemovableChannelHand
         loopBoundContext: NIOLoopBound<ChannelHandlerContext>,
         keepAlive: Bool
     ) async {
+        guard !Task.isCancelled else {
+            return
+        }
         await withCheckedContinuation { continuation in
             eventLoop.execute { [weak self, loopBoundContext] in
                 guard let self else {

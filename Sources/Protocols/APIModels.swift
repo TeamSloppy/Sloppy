@@ -562,6 +562,197 @@ public struct AgentRuntimeConfig: Codable, Sendable, Equatable {
     }
 }
 
+public enum AgentPetRarityTier: String, Codable, Sendable, Equatable {
+    case common
+    case uncommon
+    case rare
+    case legendary
+}
+
+public struct AgentPetParts: Codable, Sendable, Equatable {
+    public var headId: String
+    public var bodyId: String
+    public var legsId: String
+
+    public init(headId: String, bodyId: String, legsId: String) {
+        self.headId = headId
+        self.bodyId = bodyId
+        self.legsId = legsId
+    }
+}
+
+public struct AgentPetPartRarities: Codable, Sendable, Equatable {
+    public var head: AgentPetRarityTier
+    public var body: AgentPetRarityTier
+    public var legs: AgentPetRarityTier
+
+    public init(head: AgentPetRarityTier, body: AgentPetRarityTier, legs: AgentPetRarityTier) {
+        self.head = head
+        self.body = body
+        self.legs = legs
+    }
+}
+
+public struct AgentPetStats: Codable, Sendable, Equatable {
+    public var wisdom: Int
+    public var debugging: Int
+    public var patience: Int
+    public var snark: Int
+    public var chaos: Int
+
+    public init(
+        wisdom: Int = 0,
+        debugging: Int = 0,
+        patience: Int = 0,
+        snark: Int = 0,
+        chaos: Int = 0
+    ) {
+        self.wisdom = wisdom
+        self.debugging = debugging
+        self.patience = patience
+        self.snark = snark
+        self.chaos = chaos
+    }
+}
+
+public struct AgentPetProgressCounters: Codable, Sendable, Equatable {
+    public var directMessageCount: Int
+    public var externalMessageCount: Int
+    public var automatedMessageCount: Int
+    public var successfulRunCount: Int
+    public var failedRunCount: Int
+    public var interruptedRunCount: Int
+    public var toolCallCount: Int
+    public var toolFailureCount: Int
+
+    public init(
+        directMessageCount: Int = 0,
+        externalMessageCount: Int = 0,
+        automatedMessageCount: Int = 0,
+        successfulRunCount: Int = 0,
+        failedRunCount: Int = 0,
+        interruptedRunCount: Int = 0,
+        toolCallCount: Int = 0,
+        toolFailureCount: Int = 0
+    ) {
+        self.directMessageCount = directMessageCount
+        self.externalMessageCount = externalMessageCount
+        self.automatedMessageCount = automatedMessageCount
+        self.successfulRunCount = successfulRunCount
+        self.failedRunCount = failedRunCount
+        self.interruptedRunCount = interruptedRunCount
+        self.toolCallCount = toolCallCount
+        self.toolFailureCount = toolFailureCount
+    }
+}
+
+public struct AgentPetProgressWatermark: Codable, Sendable, Equatable {
+    public var sourceKind: String?
+    public var channelId: String?
+    public var sessionId: String?
+    public var eventKind: String?
+    public var processedAt: Date?
+
+    public init(
+        sourceKind: String? = nil,
+        channelId: String? = nil,
+        sessionId: String? = nil,
+        eventKind: String? = nil,
+        processedAt: Date? = nil
+    ) {
+        self.sourceKind = sourceKind
+        self.channelId = channelId
+        self.sessionId = sessionId
+        self.eventKind = eventKind
+        self.processedAt = processedAt
+    }
+}
+
+public struct AgentPetProgressState: Codable, Sendable, Equatable {
+    public var version: Int
+    public var currentStats: AgentPetStats
+    public var counters: AgentPetProgressCounters
+    public var dailyChannelGainBuckets: [String: AgentPetStats]
+    public var dailyGlobalGainBuckets: [String: AgentPetStats]
+    public var processedWatermark: AgentPetProgressWatermark
+    public var createdAt: Date
+    public var updatedAt: Date
+
+    public init(
+        version: Int = 1,
+        currentStats: AgentPetStats,
+        counters: AgentPetProgressCounters = .init(),
+        dailyChannelGainBuckets: [String: AgentPetStats] = [:],
+        dailyGlobalGainBuckets: [String: AgentPetStats] = [:],
+        processedWatermark: AgentPetProgressWatermark = .init(),
+        createdAt: Date = Date(),
+        updatedAt: Date = Date()
+    ) {
+        self.version = version
+        self.currentStats = currentStats
+        self.counters = counters
+        self.dailyChannelGainBuckets = dailyChannelGainBuckets
+        self.dailyGlobalGainBuckets = dailyGlobalGainBuckets
+        self.processedWatermark = processedWatermark
+        self.createdAt = createdAt
+        self.updatedAt = updatedAt
+    }
+}
+
+public struct AgentPetSummary: Codable, Sendable, Equatable {
+    public var petId: String
+    public var genomeHex: String
+    public var parts: AgentPetParts
+    public var partRarities: AgentPetPartRarities
+    public var rarity: AgentPetRarityTier
+    public var baseStats: AgentPetStats
+    public var currentStats: AgentPetStats
+    public var transferable: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case petId
+        case genomeHex
+        case parts
+        case partRarities
+        case rarity
+        case baseStats
+        case currentStats
+        case transferable
+    }
+
+    public init(
+        petId: String,
+        genomeHex: String,
+        parts: AgentPetParts,
+        partRarities: AgentPetPartRarities,
+        rarity: AgentPetRarityTier,
+        baseStats: AgentPetStats,
+        currentStats: AgentPetStats? = nil,
+        transferable: Bool = true
+    ) {
+        self.petId = petId
+        self.genomeHex = genomeHex
+        self.parts = parts
+        self.partRarities = partRarities
+        self.rarity = rarity
+        self.baseStats = baseStats
+        self.currentStats = currentStats ?? baseStats
+        self.transferable = transferable
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        petId = try container.decode(String.self, forKey: .petId)
+        genomeHex = try container.decode(String.self, forKey: .genomeHex)
+        parts = try container.decode(AgentPetParts.self, forKey: .parts)
+        partRarities = try container.decode(AgentPetPartRarities.self, forKey: .partRarities)
+        rarity = try container.decode(AgentPetRarityTier.self, forKey: .rarity)
+        baseStats = try container.decode(AgentPetStats.self, forKey: .baseStats)
+        currentStats = try container.decodeIfPresent(AgentPetStats.self, forKey: .currentStats) ?? baseStats
+        transferable = try container.decodeIfPresent(Bool.self, forKey: .transferable) ?? true
+    }
+}
+
 public struct AgentSummary: Codable, Sendable, Equatable {
     public var id: String
     public var displayName: String
@@ -569,9 +760,10 @@ public struct AgentSummary: Codable, Sendable, Equatable {
     public var createdAt: Date
     public var isSystem: Bool
     public var runtime: AgentRuntimeConfig
+    public var pet: AgentPetSummary?
 
     enum CodingKeys: String, CodingKey {
-        case id, displayName, role, createdAt, isSystem, runtime
+        case id, displayName, role, createdAt, isSystem, runtime, pet
     }
 
     public init(
@@ -580,7 +772,8 @@ public struct AgentSummary: Codable, Sendable, Equatable {
         role: String,
         createdAt: Date = Date(),
         isSystem: Bool = false,
-        runtime: AgentRuntimeConfig = AgentRuntimeConfig()
+        runtime: AgentRuntimeConfig = AgentRuntimeConfig(),
+        pet: AgentPetSummary? = nil
     ) {
         self.id = id
         self.displayName = displayName
@@ -588,6 +781,7 @@ public struct AgentSummary: Codable, Sendable, Equatable {
         self.createdAt = createdAt
         self.isSystem = isSystem
         self.runtime = runtime
+        self.pet = pet
     }
 
     public init(from decoder: Decoder) throws {
@@ -598,6 +792,7 @@ public struct AgentSummary: Codable, Sendable, Equatable {
         createdAt = try container.decode(Date.self, forKey: .createdAt)
         isSystem = try container.decodeIfPresent(Bool.self, forKey: .isSystem) ?? false
         runtime = try container.decodeIfPresent(AgentRuntimeConfig.self, forKey: .runtime) ?? .init()
+        pet = try container.decodeIfPresent(AgentPetSummary.self, forKey: .pet)
     }
 }
 

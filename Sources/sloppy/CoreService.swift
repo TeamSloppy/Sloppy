@@ -425,6 +425,12 @@ public actor CoreService {
                     summary: summary,
                     events: events
                 )
+                await self.applyPetProgressForAgentSessionEvents(
+                    agentID: agentID,
+                    sessionID: sessionID,
+                    summary: summary,
+                    events: events
+                )
             }
         }
     }
@@ -5916,6 +5922,140 @@ public actor CoreService {
         )
     }
 
+    private func linkedAgentID(forChannelID channelID: String, board: ActorBoardSnapshot?) -> String? {
+        guard let board else {
+            return nil
+        }
+
+        let normalizedChannelID = normalizeWhitespace(channelID)
+        for node in board.nodes {
+            guard normalizeWhitespace(node.channelId ?? "") == normalizedChannelID else {
+                continue
+            }
+            let linkedAgentID = normalizeWhitespace(node.linkedAgentId ?? "")
+            if !linkedAgentID.isEmpty {
+                return linkedAgentID
+            }
+        }
+        return nil
+    }
+
+    private func petSourceKindForExternalChannelUser(_ userID: String) -> AgentPetSourceKind {
+        let normalized = userID.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if normalized == "system" || normalized.hasPrefix("system_") {
+            return .cron
+        }
+        return .externalChannel
+    }
+
+    private func applyPetProgressForExternalChannel(
+        channelID: String,
+        event: AgentPetProgressionInput
+    ) async {
+        let board = try? getActorBoard()
+        guard let agentID = linkedAgentID(forChannelID: channelID, board: board) else {
+            return
+        }
+
+        do {
+            _ = try agentCatalogStore.recordPetInteraction(agentID: agentID, input: event)
+        } catch {
+            logger.warning("Failed to update pet progress for external channel \(channelID): \(error)")
+        }
+    }
+
+    private func applyPetProgressForAgentSessionEvents(
+        agentID: String,
+        sessionID: String,
+        summary: AgentSessionSummary,
+        events: [AgentSessionEvent]
+    ) async {
+        let sourceKind: AgentPetSourceKind = summary.kind == .heartbeat ? .heartbeat : .agentSession
+        let channelID = "agent:\(agentID):session:\(sessionID)"
+
+        for event in events {
+            let input: AgentPetProgressionInput?
+            switch event.type {
+            case .message:
+                guard let message = event.message, message.role == .user else {
+                    input = nil
+                    break
+                }
+                let content = message.segments
+                    .filter { $0.kind == .text || $0.kind == .thinking }
+                    .compactMap(\.text)
+                    .joined(separator: "\n")
+                input = AgentPetProgressionInput(
+                    sourceKind: sourceKind,
+                    eventKind: .userMessage,
+                    channelId: channelID,
+                    sessionId: sessionID,
+                    timestamp: event.createdAt,
+                    userId: message.userId,
+                    content: content
+                )
+            case .toolCall:
+                input = AgentPetProgressionInput(
+                    sourceKind: sourceKind,
+                    eventKind: .toolCall,
+                    channelId: channelID,
+                    sessionId: sessionID,
+                    timestamp: event.createdAt,
+                    content: event.toolCall?.tool
+                )
+            case .toolResult:
+                input = AgentPetProgressionInput(
+                    sourceKind: sourceKind,
+                    eventKind: event.toolResult?.ok == true ? .toolSuccess : .toolFailure,
+                    channelId: channelID,
+                    sessionId: sessionID,
+                    timestamp: event.createdAt,
+                    content: event.toolResult?.tool
+                )
+            case .runStatus:
+                guard let status = event.runStatus else {
+                    input = nil
+                    break
+                }
+                let label = status.label.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+                let details = status.details?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() ?? ""
+                let eventKind: AgentPetEventKind?
+                switch status.stage {
+                case .done:
+                    eventKind = .runCompleted
+                case .interrupted:
+                    eventKind = label == "error" || details.hasPrefix("error") ? .runFailed : .runInterrupted
+                default:
+                    eventKind = nil
+                }
+                if let eventKind {
+                    input = AgentPetProgressionInput(
+                        sourceKind: sourceKind,
+                        eventKind: eventKind,
+                        channelId: channelID,
+                        sessionId: sessionID,
+                        timestamp: event.createdAt,
+                        content: status.details
+                    )
+                } else {
+                    input = nil
+                }
+            case .sessionCreated, .subSession, .runControl:
+                input = nil
+            }
+
+            guard let input else {
+                continue
+            }
+
+            do {
+                _ = try agentCatalogStore.recordPetInteraction(agentID: agentID, input: input)
+            } catch {
+                logger.warning("Failed to update pet progress for agent session \(agentID)/\(sessionID): \(error)")
+            }
+        }
+    }
+
     private func normalizeWhitespace(_ value: String) -> String {
         value
             .replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
@@ -7578,6 +7718,17 @@ extension CoreService: InboundMessageReceiver {
                 userId: userId,
                 content: content
             )
+            await applyPetProgressForExternalChannel(
+                channelID: channelId,
+                event: AgentPetProgressionInput(
+                    sourceKind: petSourceKindForExternalChannelUser(userId),
+                    eventKind: .userMessage,
+                    channelId: channelId,
+                    timestamp: Date(),
+                    userId: userId,
+                    content: content
+                )
+            )
         } catch {
             logger.warning("Failed to persist user message to channel session: \(error)")
         }
@@ -7618,6 +7769,17 @@ extension CoreService: InboundMessageReceiver {
                             arguments: .object(toolRequest.arguments),
                             reason: toolRequest.reason
                         )
+                        await self.applyPetProgressForExternalChannel(
+                            channelID: channelId,
+                            event: AgentPetProgressionInput(
+                                sourceKind: self.petSourceKindForExternalChannelUser(userId),
+                                eventKind: .toolCall,
+                                channelId: channelId,
+                                timestamp: Date(),
+                                userId: userId,
+                                content: toolRequest.tool
+                            )
+                        )
                     case .toolResult(let toolResult):
                         try await self.channelSessionStore.recordToolResult(
                             channelId: channelId,
@@ -7626,6 +7788,17 @@ extension CoreService: InboundMessageReceiver {
                             data: toolResult.data,
                             error: toolResult.error,
                             durationMs: toolResult.durationMs
+                        )
+                        await self.applyPetProgressForExternalChannel(
+                            channelID: channelId,
+                            event: AgentPetProgressionInput(
+                                sourceKind: self.petSourceKindForExternalChannelUser(userId),
+                                eventKind: toolResult.ok ? .toolSuccess : .toolFailure,
+                                channelId: channelId,
+                                timestamp: Date(),
+                                userId: userId,
+                                content: toolResult.tool
+                            )
                         )
                     case .usage(let tokenUsage):
                         await self.store.persistTokenUsage(
@@ -7648,9 +7821,32 @@ extension CoreService: InboundMessageReceiver {
                     channelId: channelId,
                     content: reply
                 )
+                await applyPetProgressForExternalChannel(
+                    channelID: channelId,
+                    event: AgentPetProgressionInput(
+                        sourceKind: petSourceKindForExternalChannelUser(userId),
+                        eventKind: .runCompleted,
+                        channelId: channelId,
+                        timestamp: Date(),
+                        userId: userId,
+                        content: reply
+                    )
+                )
             } catch {
                 logger.warning("Failed to persist assistant message to channel session: \(error)")
             }
+        } else {
+            await applyPetProgressForExternalChannel(
+                channelID: channelId,
+                event: AgentPetProgressionInput(
+                    sourceKind: petSourceKindForExternalChannelUser(userId),
+                    eventKind: .runFailed,
+                    channelId: channelId,
+                    timestamp: Date(),
+                    userId: userId,
+                    content: nil
+                )
+            )
         }
         if let outboundStreamID {
             _ = await channelDelivery.endStream(

@@ -22,6 +22,26 @@ final class AgentCatalogFileStore {
         let runtime: AgentRuntimeConfig?
     }
 
+    private struct AgentPetMetadataFile: Codable {
+        let petId: String
+        let genomeHex: String
+        let parts: AgentPetParts
+        let partRarities: AgentPetPartRarities
+        let rarity: AgentPetRarityTier
+        let baseStats: AgentPetStats
+        let transferable: Bool
+    }
+
+    private struct AgentMetadataFile: Codable {
+        let id: String
+        let displayName: String
+        let role: String
+        let createdAt: Date
+        let isSystem: Bool
+        let runtime: AgentRuntimeConfig?
+        let pet: AgentPetMetadataFile?
+    }
+
     private struct AgentHeartbeatStatusFile: Codable {
         let lastRunAt: Date?
         let lastSuccessAt: Date?
@@ -124,17 +144,26 @@ final class AgentCatalogFileStore {
         }
 
         try fileManager.createDirectory(at: directoryURL, withIntermediateDirectories: false)
+        let petRecord = request.isSystem ? nil : AgentPetFactory.makePet()
         let summary = AgentSummary(
             id: normalizedID,
             displayName: displayName,
             role: role,
             createdAt: Date(),
             isSystem: request.isSystem,
-            runtime: request.runtime ?? .init()
+            runtime: request.runtime ?? .init(),
+            pet: petRecord?.summary
         )
 
         do {
             try writeAgentSummary(summary)
+            if let petRecord {
+                try writePetProgressState(
+                    petRecord.state,
+                    agentID: summary.id,
+                    isSystem: summary.isSystem
+                )
+            }
             try writeAgentScaffoldFiles(for: summary, availableModels: availableModels)
             return summary
         } catch {
@@ -198,11 +227,16 @@ final class AgentCatalogFileStore {
             selectedModel = nil
         }
 
+        let normalizedIdentityMarkdown = normalizedIdentityValue(
+            from: request.documents.identityMarkdown,
+            fallback: summary.id
+        ) + "\n"
+
         let normalizedDocuments = AgentDocumentBundle(
             userMarkdown: normalizedDocumentText(request.documents.userMarkdown),
             agentsMarkdown: normalizedDocumentText(request.documents.agentsMarkdown),
             soulMarkdown: normalizedDocumentText(request.documents.soulMarkdown),
-            identityMarkdown: normalizedDocumentText(request.documents.identityMarkdown),
+            identityMarkdown: normalizedIdentityMarkdown,
             heartbeatMarkdown: normalizedHeartbeatText(request.documents.heartbeatMarkdown),
             memoryMarkdown: normalizedDocumentText(request.documents.memoryMarkdown)
         )
@@ -244,6 +278,7 @@ final class AgentCatalogFileStore {
             try writeTextFile(contents: normalizedDocuments.userMarkdown, at: agentDirectory.appendingPathComponent("USER.md"))
             try writeTextFile(contents: normalizedDocuments.soulMarkdown, at: agentDirectory.appendingPathComponent("SOUL.md"))
             try writeTextFile(contents: normalizedDocuments.identityMarkdown, at: agentDirectory.appendingPathComponent("IDENTITY.md"))
+            try writeTextFile(contents: normalizedDocuments.identityMarkdown, at: agentDirectory.appendingPathComponent("IDENTITY.id"))
             try writeTextFile(contents: normalizedDocuments.heartbeatMarkdown, at: agentDirectory.appendingPathComponent("HEARTBEAT.md"))
             try writeTextFile(contents: normalizedDocuments.memoryMarkdown, at: agentDirectory.appendingPathComponent("MEMORY.md"))
         } catch {
@@ -262,6 +297,35 @@ final class AgentCatalogFileStore {
         )
     }
 
+    func recordPetInteraction(agentID: String, input: AgentPetProgressionInput) throws -> AgentPetSummary? {
+        guard let normalizedAgentID = normalizedAgentID(agentID) else {
+            throw StoreError.invalidID
+        }
+
+        let summary = try getAgent(id: normalizedAgentID)
+        guard !summary.isSystem, let pet = summary.pet else {
+            return nil
+        }
+
+        var state = try readPetProgressState(agentID: normalizedAgentID, isSystem: summary.isSystem, baseStats: pet.baseStats)
+        AgentPetProgressionEngine.apply(
+            state: &state,
+            input: input,
+            baseStats: pet.baseStats
+        )
+        try writePetProgressState(state, agentID: normalizedAgentID, isSystem: summary.isSystem)
+        return AgentPetSummary(
+            petId: pet.petId,
+            genomeHex: pet.genomeHex,
+            parts: pet.parts,
+            partRarities: pet.partRarities,
+            rarity: pet.rarity,
+            baseStats: pet.baseStats,
+            currentStats: state.currentStats,
+            transferable: pet.transferable
+        )
+    }
+
     func readAgentDocuments(agentID: String) throws -> AgentDocumentBundle {
         guard let normalizedID = self.normalizedAgentID(agentID) else {
             throw StoreError.invalidID
@@ -275,7 +339,11 @@ final class AgentCatalogFileStore {
         let heartbeatMarkdown = try readHeartbeatFile(agentID: normalizedID, isSystem: summary.isSystem)
         let memoryMarkdown = try readTextFile(at: agentDirectory.appendingPathComponent("MEMORY.md"), fallback: "")
 
-        let identityMarkdown = try readTextFile(at: agentDirectory.appendingPathComponent("IDENTITY.md"), fallback: normalizedID)
+        let identityMarkdown = try readIdentityMarkdown(
+            markdownURL: agentDirectory.appendingPathComponent("IDENTITY.md"),
+            legacyURL: agentDirectory.appendingPathComponent("IDENTITY.id"),
+            fallback: normalizedID
+        )
 
         return AgentDocumentBundle(
             userMarkdown: userMarkdown,
@@ -321,6 +389,10 @@ final class AgentCatalogFileStore {
         agentDirectoryURL(for: id, isSystem: isSystem).appendingPathComponent("agent.json")
     }
 
+    private func petStateURL(for id: String, isSystem: Bool) -> URL {
+        agentDirectoryURL(for: id, isSystem: isSystem).appendingPathComponent("pet-state.json")
+    }
+
     private func readAgentSummary(id: String, isSystem: Bool) throws -> AgentSummary {
         let metadataURL = agentMetadataURL(for: id, isSystem: isSystem)
         guard fileManager.fileExists(atPath: metadataURL.path) else {
@@ -330,14 +402,35 @@ final class AgentCatalogFileStore {
         let data = try Data(contentsOf: metadataURL)
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
-        return try decoder.decode(AgentSummary.self, from: data)
+        let decoded = try decoder.decode(AgentSummary.self, from: data)
+        return try hydratePetSummary(decoded, isSystem: isSystem)
     }
 
     private func writeAgentSummary(_ summary: AgentSummary) throws {
+        let petMetadata = summary.pet.map {
+            AgentPetMetadataFile(
+                petId: $0.petId,
+                genomeHex: $0.genomeHex,
+                parts: $0.parts,
+                partRarities: $0.partRarities,
+                rarity: $0.rarity,
+                baseStats: $0.baseStats,
+                transferable: $0.transferable
+            )
+        }
+        let payloadModel = AgentMetadataFile(
+            id: summary.id,
+            displayName: summary.displayName,
+            role: summary.role,
+            createdAt: summary.createdAt,
+            isSystem: summary.isSystem,
+            runtime: summary.runtime,
+            pet: petMetadata
+        )
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         encoder.dateEncodingStrategy = .iso8601
-        let payload = try encoder.encode(summary) + Data("\n".utf8)
+        let payload = try encoder.encode(payloadModel) + Data("\n".utf8)
         try payload.write(to: agentMetadataURL(for: summary.id, isSystem: summary.isSystem), options: .atomic)
     }
 
@@ -395,6 +488,10 @@ final class AgentCatalogFileStore {
         try writeTextFile(
             contents: summary.id + "\n",
             at: agentDirectory.appendingPathComponent("IDENTITY.md")
+        )
+        try writeTextFile(
+            contents: summary.id + "\n",
+            at: agentDirectory.appendingPathComponent("IDENTITY.id")
         )
         try writeTextFile(
             contents: "",
@@ -593,6 +690,82 @@ final class AgentCatalogFileStore {
         encoder.dateEncodingStrategy = .iso8601
         let data = try encoder.encode(payload) + Data("\n".utf8)
         try data.write(to: heartbeatStatusURL(for: agentID, isSystem: isSystem), options: .atomic)
+    }
+
+    private func hydratePetSummary(_ summary: AgentSummary, isSystem: Bool) throws -> AgentSummary {
+        guard !isSystem else {
+            return AgentSummary(
+                id: summary.id,
+                displayName: summary.displayName,
+                role: summary.role,
+                createdAt: summary.createdAt,
+                isSystem: summary.isSystem,
+                runtime: summary.runtime,
+                pet: nil
+            )
+        }
+
+        var nextSummary = summary
+        if nextSummary.pet == nil {
+            let generated = AgentPetFactory.makePet(createdAt: nextSummary.createdAt)
+            nextSummary.pet = generated.summary
+            try writePetProgressState(generated.state, agentID: nextSummary.id, isSystem: false)
+            try writeAgentSummary(nextSummary)
+            return nextSummary
+        }
+
+        guard let pet = nextSummary.pet else {
+            return nextSummary
+        }
+
+        let state = try readPetProgressState(agentID: nextSummary.id, isSystem: false, baseStats: pet.baseStats)
+        if pet.currentStats != state.currentStats {
+            nextSummary.pet = AgentPetSummary(
+                petId: pet.petId,
+                genomeHex: pet.genomeHex,
+                parts: pet.parts,
+                partRarities: pet.partRarities,
+                rarity: pet.rarity,
+                baseStats: pet.baseStats,
+                currentStats: state.currentStats,
+                transferable: pet.transferable
+            )
+        }
+        return nextSummary
+    }
+
+    private func readPetProgressState(
+        agentID: String,
+        isSystem: Bool,
+        baseStats: AgentPetStats
+    ) throws -> AgentPetProgressState {
+        let url = petStateURL(for: agentID, isSystem: isSystem)
+        if !fileManager.fileExists(atPath: url.path) {
+            let fallback = AgentPetProgressState(currentStats: baseStats)
+            try writePetProgressState(fallback, agentID: agentID, isSystem: isSystem)
+            return fallback
+        }
+
+        let data = try Data(contentsOf: url)
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        var decoded = try decoder.decode(AgentPetProgressState.self, from: data)
+        decoded.currentStats = AgentPetStats(
+            wisdom: max(baseStats.wisdom, decoded.currentStats.wisdom),
+            debugging: max(baseStats.debugging, decoded.currentStats.debugging),
+            patience: max(baseStats.patience, decoded.currentStats.patience),
+            snark: max(baseStats.snark, decoded.currentStats.snark),
+            chaos: max(baseStats.chaos, decoded.currentStats.chaos)
+        ).clamped()
+        return decoded
+    }
+
+    private func writePetProgressState(_ state: AgentPetProgressState, agentID: String, isSystem: Bool) throws {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        encoder.dateEncodingStrategy = .iso8601
+        let data = try encoder.encode(state) + Data("\n".utf8)
+        try data.write(to: petStateURL(for: agentID, isSystem: isSystem), options: .atomic)
     }
 
     private func normalizedDocumentText(_ raw: String) -> String {

@@ -1,0 +1,119 @@
+import Foundation
+import Testing
+@testable import Protocols
+@testable import sloppy
+
+@Test
+func userAgentGetsPetAndSystemAgentDoesNot() throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+    let store = AgentCatalogFileStore(agentsRootURL: root)
+    let models = [ProviderModelOption(id: "gpt-4.1-mini", title: "GPT-4.1 mini")]
+
+    let user = try store.createAgent(
+        AgentCreateRequest(id: "pet-user", displayName: "Pet User", role: "Builder"),
+        availableModels: models
+    )
+    let system = try store.createAgent(
+        AgentCreateRequest(id: "pet-system", displayName: "Pet System", role: "Daemon", isSystem: true),
+        availableModels: models
+    )
+
+    #expect(user.pet != nil)
+    #expect(user.pet?.currentStats == user.pet?.baseStats)
+    #expect(system.pet == nil)
+
+    let userPetState = root.appendingPathComponent("pet-user", isDirectory: true).appendingPathComponent("pet-state.json")
+    let systemPetState = root.appendingPathComponent(".system/pet-system", isDirectory: true).appendingPathComponent("pet-state.json")
+    #expect(FileManager.default.fileExists(atPath: userPetState.path))
+    #expect(!FileManager.default.fileExists(atPath: systemPetState.path))
+}
+
+@Test
+func legacyAgentGetsBackfilledPetOnRead() throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+    let store = AgentCatalogFileStore(agentsRootURL: root)
+    let agentDirectory = root.appendingPathComponent("legacy-agent", isDirectory: true)
+    try FileManager.default.createDirectory(at: agentDirectory, withIntermediateDirectories: true)
+
+    let legacy = AgentSummary(
+        id: "legacy-agent",
+        displayName: "Legacy Agent",
+        role: "Support",
+        createdAt: Date(timeIntervalSince1970: 1_700_000_000),
+        isSystem: false,
+        runtime: .init()
+    )
+
+    let encoder = JSONEncoder()
+    encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+    encoder.dateEncodingStrategy = .iso8601
+    try (encoder.encode(legacy) + Data("\n".utf8)).write(
+        to: agentDirectory.appendingPathComponent("agent.json"),
+        options: .atomic
+    )
+
+    let hydrated = try store.getAgent(id: "legacy-agent")
+    #expect(hydrated.pet != nil)
+    #expect(hydrated.pet?.currentStats == hydrated.pet?.baseStats)
+    #expect(FileManager.default.fileExists(atPath: agentDirectory.appendingPathComponent("pet-state.json").path))
+}
+
+@Test
+func petProgressCombinesSourcesAndCapsRepeatedShortMessages() throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+    let store = AgentCatalogFileStore(agentsRootURL: root)
+    let agent = try store.createAgent(
+        AgentCreateRequest(id: "progress-agent", displayName: "Progress Agent", role: "Debugger"),
+        availableModels: [ProviderModelOption(id: "gpt-4.1-mini", title: "GPT-4.1 mini")]
+    )
+    let baseStats = try #require(agent.pet?.baseStats)
+
+    _ = try store.recordPetInteraction(
+        agentID: "progress-agent",
+        input: AgentPetProgressionInput(
+            sourceKind: .agentSession,
+            eventKind: .userMessage,
+            channelId: "agent:progress-agent:session:s1",
+            sessionId: "s1",
+            content: "Please debug this Swift build failure and explain the stack trace."
+        )
+    )
+    _ = try store.recordPetInteraction(
+        agentID: "progress-agent",
+        input: AgentPetProgressionInput(
+            sourceKind: .externalChannel,
+            eventKind: .toolFailure,
+            channelId: "discord-debug"
+        )
+    )
+    _ = try store.recordPetInteraction(
+        agentID: "progress-agent",
+        input: AgentPetProgressionInput(
+            sourceKind: .externalChannel,
+            eventKind: .runCompleted,
+            channelId: "discord-debug",
+            content: "Issue resolved."
+        )
+    )
+
+    for _ in 0..<40 {
+        _ = try store.recordPetInteraction(
+            agentID: "progress-agent",
+            input: AgentPetProgressionInput(
+                sourceKind: .externalChannel,
+                eventKind: .userMessage,
+                channelId: "discord-debug",
+                content: "panic!!!"
+            )
+        )
+    }
+
+    let updated = try store.getAgent(id: "progress-agent")
+    let currentStats = try #require(updated.pet?.currentStats)
+
+    #expect(currentStats.wisdom >= baseStats.wisdom)
+    #expect(currentStats.debugging > baseStats.debugging)
+    #expect(currentStats.chaos > baseStats.chaos)
+    #expect(currentStats.snark - baseStats.snark <= 10)
+    #expect(currentStats.chaos - baseStats.chaos <= 12)
+}

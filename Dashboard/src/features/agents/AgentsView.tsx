@@ -57,6 +57,7 @@ function agentInitials(name) {
 function normalizeAgent(item, index = 0) {
   const id = String(item?.id || `agent-${index + 1}`).trim();
   return {
+    ...item,
     id,
     displayName: String(item?.displayName || id).trim() || id,
     role: String(item?.role || "").trim(),
