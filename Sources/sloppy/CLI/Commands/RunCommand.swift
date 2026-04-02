@@ -15,8 +15,16 @@ struct RunCommand: AsyncParsableCommand {
         abstract: "Start the Sloppy server."
     )
 
+    static let dashboardPort = 25102
+
     @Option(name: [.short, .long], help: "Path to JSON config file")
     var configPath: String?
+
+    @Flag(name: .customLong("gui"), inversion: .prefixedNo, help: "Start the bundled dashboard UI alongside the Core API")
+    var gui: Bool?
+
+    @Flag(name: .customLong("dashboard"), inversion: .prefixedNo, help: "Alias for --gui / --no-gui")
+    var dashboard: Bool?
 
     @Flag(name: .long, inversion: .prefixedNo, help: "Overrides config and controls the immediate visor bulletin after boot")
     var bootstrapBulletin: Bool?
@@ -103,8 +111,32 @@ struct RunCommand: AsyncParsableCommand {
             await service.bootstrapChannelPlugins()
 
             try server.start()
-            printServerStartupBanner(config: config)
             logger.info("sloppy HTTP server listening on \(config.listen.host):\(config.listen.port)")
+
+            let guiEnabled = shouldStartDashboard(guiOverride: gui, dashboardOverride: dashboard)
+            let lanIPv4 = NetworkAddressResolver.resolvePrimaryLANIPv4()
+            let endpoints = NetworkAddressResolver.makeDisplayEndpoints(
+                bindHost: config.listen.host,
+                apiPort: config.listen.port,
+                dashboardPort: guiEnabled ? Self.dashboardPort : nil,
+                lanIPv4: lanIPv4
+            )
+
+            var dashboardServer: DashboardHTTPServer?
+            var dashboardURL: String?
+            if guiEnabled {
+                let launch = startDashboardServerIfAvailable(
+                    config: config,
+                    logger: logger,
+                    apiBase: endpoints.preferredAPIBase,
+                    publicDashboardURL: endpoints.preferredDashboardURL,
+                    overridePath: dashboardOverridePath()
+                )
+                dashboardServer = launch?.server
+                dashboardURL = launch?.publicURL
+            }
+
+            printServerStartupBanner(config: config, endpoints: endpoints, dashboardURL: dashboardURL)
 
             if shouldBootstrapVisorBulletin(cliOverride: bootstrapBulletin, config: config) {
                 let bulletin = await service.triggerVisorBulletin()
@@ -113,6 +145,7 @@ struct RunCommand: AsyncParsableCommand {
 
             logger.info("sloppy foreground server mode is active")
             defer {
+                try? dashboardServer?.shutdown()
                 try? server.shutdown()
                 Task { await service.shutdownChannelPlugins() }
             }
@@ -129,6 +162,16 @@ struct RunCommand: AsyncParsableCommand {
 }
 
 // MARK: - Server helpers (previously file-level private in SloppyApp.swift)
+
+func shouldStartDashboard(guiOverride: Bool?, dashboardOverride: Bool?) -> Bool {
+    if let guiOverride {
+        return guiOverride
+    }
+    if let dashboardOverride {
+        return dashboardOverride
+    }
+    return true
+}
 
 func shouldBootstrapVisorBulletin(cliOverride: Bool?, config: CoreConfig) -> Bool {
     cliOverride ?? config.visor.bootstrapBulletin
@@ -151,12 +194,173 @@ func applyServerEnvironmentOverrides(config: inout CoreConfig, envConfig: Config
     config.sqlitePath = envConfig.string(forKey: "core.sqlite.path", default: config.sqlitePath)
 }
 
+func dashboardOverridePath(environment: [String: String] = ProcessInfo.processInfo.environment) -> String? {
+    normalizedServerConfigPath(
+        environment["CORE_DASHBOARD_PATH"]
+            ?? environment["SLOPPY_DASHBOARD_PATH"]
+            ?? environment["core.dashboard.path"]
+    )
+}
+
 func serverRepoRootURL(filePath: String = #filePath) -> URL {
     URL(fileURLWithPath: filePath)
         .deletingLastPathComponent()
         .deletingLastPathComponent()
         .deletingLastPathComponent()
         .deletingLastPathComponent()
+}
+
+struct DashboardSearchAttempt: Equatable, Sendable {
+    let source: String
+    let checkedPath: String
+}
+
+struct DashboardBundleLocation: Equatable, Sendable {
+    let source: String
+    let supportRootURL: URL
+    let distRootURL: URL
+    let templateConfigURL: URL?
+}
+
+struct DashboardBundleResolution: Equatable, Sendable {
+    let location: DashboardBundleLocation?
+    let attempts: [DashboardSearchAttempt]
+}
+
+func defaultInstalledDashboardRootURL(homeDirectoryURL: URL = FileManager.default.homeDirectoryForCurrentUser) -> URL {
+    homeDirectoryURL
+        .appendingPathComponent(".local", isDirectory: true)
+        .appendingPathComponent("share", isDirectory: true)
+        .appendingPathComponent("sloppy", isDirectory: true)
+        .appendingPathComponent("dashboard", isDirectory: true)
+}
+
+func currentExecutableURL() -> URL? {
+#if os(Linux)
+    var buffer = [CChar](repeating: 0, count: 4096)
+    let length = readlink("/proc/self/exe", &buffer, buffer.count - 1)
+    guard length > 0 else {
+        return nil
+    }
+    buffer[Int(length)] = 0
+    return URL(fileURLWithPath: String(cString: buffer)).standardizedFileURL
+#else
+    var size: UInt32 = 0
+    _ = _NSGetExecutablePath(nil, &size)
+    guard size > 0 else {
+        return nil
+    }
+    var buffer = [CChar](repeating: 0, count: Int(size))
+    guard _NSGetExecutablePath(&buffer, &size) == 0 else {
+        return nil
+    }
+    return URL(fileURLWithPath: String(cString: buffer)).resolvingSymlinksInPath().standardizedFileURL
+#endif
+}
+
+func repoRootDerivedFromExecutable(
+    executableURL: URL,
+    fileManager: FileManager = .default
+) -> URL? {
+    var candidate = executableURL.resolvingSymlinksInPath().standardizedFileURL.deletingLastPathComponent()
+
+    while candidate.path != candidate.deletingLastPathComponent().path {
+        let packageURL = candidate.appendingPathComponent("Package.swift")
+        let dashboardURL = candidate.appendingPathComponent("Dashboard", isDirectory: true)
+        if fileManager.fileExists(atPath: packageURL.path),
+           fileManager.fileExists(atPath: dashboardURL.path)
+        {
+            return candidate
+        }
+        candidate.deleteLastPathComponent()
+    }
+
+    return nil
+}
+
+func resolveDashboardBundle(
+    overridePath: String?,
+    executableURL: URL?,
+    sourceRepoRootURL: URL = serverRepoRootURL(),
+    homeDirectoryURL: URL = FileManager.default.homeDirectoryForCurrentUser,
+    fileManager: FileManager = .default
+) -> DashboardBundleResolution {
+    var attempts: [DashboardSearchAttempt] = []
+    var seenRoots = Set<String>()
+
+    func resolvedLocation(source: String, candidateRootURL: URL) -> DashboardBundleLocation? {
+        let standardized = candidateRootURL.standardizedFileURL
+        var variants: [(supportRootURL: URL, distRootURL: URL)] = []
+
+        if standardized.lastPathComponent == "dist" {
+            variants.append((
+                supportRootURL: standardized.deletingLastPathComponent(),
+                distRootURL: standardized
+            ))
+        }
+        variants.append((
+            supportRootURL: standardized,
+            distRootURL: standardized.appendingPathComponent("dist", isDirectory: true)
+        ))
+
+        var seenVariants = Set<String>()
+        for variant in variants {
+            guard seenVariants.insert(variant.distRootURL.path).inserted else {
+                continue
+            }
+
+            attempts.append(.init(source: source, checkedPath: variant.distRootURL.path))
+
+            let indexURL = variant.distRootURL.appendingPathComponent("index.html")
+            let assetsURL = variant.distRootURL.appendingPathComponent("assets", isDirectory: true)
+            var isAssetsDirectory: ObjCBool = false
+            guard fileManager.fileExists(atPath: indexURL.path),
+                  fileManager.fileExists(atPath: assetsURL.path, isDirectory: &isAssetsDirectory),
+                  isAssetsDirectory.boolValue
+            else {
+                continue
+            }
+
+            let configURL = variant.supportRootURL.appendingPathComponent("config.json")
+            let templateConfigURL = fileManager.fileExists(atPath: configURL.path) ? configURL : nil
+            return DashboardBundleLocation(
+                source: source,
+                supportRootURL: variant.supportRootURL,
+                distRootURL: variant.distRootURL,
+                templateConfigURL: templateConfigURL
+            )
+        }
+
+        return nil
+    }
+
+    let candidates: [(String, URL?)] = [
+        ("override", overridePath.map { URL(fileURLWithPath: $0, isDirectory: true) }),
+        ("installed bundle", defaultInstalledDashboardRootURL(homeDirectoryURL: homeDirectoryURL)),
+        ("executable checkout", executableURL.flatMap { repoRootDerivedFromExecutable(executableURL: $0, fileManager: fileManager) }?.appendingPathComponent("Dashboard", isDirectory: true)),
+        ("source fallback", sourceRepoRootURL.appendingPathComponent("Dashboard", isDirectory: true))
+    ]
+
+    for (source, candidateURL) in candidates {
+        guard let candidateURL else {
+            continue
+        }
+
+        let key = "\(source)|\(candidateURL.standardizedFileURL.path)"
+        guard seenRoots.insert(key).inserted else {
+            continue
+        }
+
+        if let location = resolvedLocation(source: source, candidateRootURL: candidateURL) {
+            return DashboardBundleResolution(location: location, attempts: attempts)
+        }
+    }
+
+    return DashboardBundleResolution(location: nil, attempts: attempts)
+}
+
+func dashboardBundleSearchSummary(_ attempts: [DashboardSearchAttempt]) -> String {
+    attempts.map { "\($0.source): \($0.checkedPath)" }.joined(separator: "; ")
 }
 
 func normalizedServerConfigPath(_ raw: String?) -> String? {
@@ -246,7 +450,61 @@ func emitServerBootstrapWarning(_ message: String) {
     }
 }
 
-func printServerStartupBanner(config: CoreConfig) {
+private struct DashboardLaunch {
+    let server: DashboardHTTPServer
+    let publicURL: String
+}
+
+private func startDashboardServerIfAvailable(
+    config: CoreConfig,
+    logger: Logger,
+    apiBase: String,
+    publicDashboardURL: String?,
+    overridePath: String?
+) -> DashboardLaunch? {
+    let resolution = resolveDashboardBundle(
+        overridePath: overridePath,
+        executableURL: currentExecutableURL()
+    )
+
+    guard let location = resolution.location else {
+        logger.warning(
+            "Dashboard UI is unavailable. Checked \(dashboardBundleSearchSummary(resolution.attempts)). Build/install it with `scripts/install.sh --bundle` or `scripts/dev.sh setup`, set CORE_DASHBOARD_PATH to a dashboard bundle, or rerun `sloppy run --no-gui`."
+        )
+        return nil
+    }
+
+    logger.info("Using dashboard bundle from \(location.source) at \(location.distRootURL.path)")
+    let resolver = DashboardContentResolver(
+        rootURL: location.distRootURL,
+        templateConfigURL: location.templateConfigURL,
+        apiBase: apiBase
+    )
+    let server = DashboardHTTPServer(
+        host: config.listen.host,
+        port: RunCommand.dashboardPort,
+        responder: resolver,
+        logger: logger
+    )
+
+    do {
+        try server.start()
+        logger.info("sloppy dashboard listening on \(config.listen.host):\(RunCommand.dashboardPort)")
+        return publicDashboardURL.map { DashboardLaunch(server: server, publicURL: $0) }
+    } catch {
+        logger.warning(
+            "Dashboard UI failed to start on \(config.listen.host):\(RunCommand.dashboardPort): \(String(describing: error)). Build it with `cd Dashboard && npm run build` if needed, or rerun `sloppy run --no-gui`."
+        )
+        try? server.shutdown()
+        return nil
+    }
+}
+
+func printServerStartupBanner(
+    config: CoreConfig,
+    endpoints: ServerDisplayEndpoints,
+    dashboardURL: String?
+) {
     let isColor: Bool = {
         if let term = ProcessInfo.processInfo.environment["TERM"], !term.isEmpty, term != "dumb" {
             return true
@@ -261,18 +519,26 @@ func printServerStartupBanner(config: CoreConfig) {
     let bold  = isColor ? "\u{1B}[1m"  : ""
     let reset = isColor ? "\u{1B}[0m"  : ""
 
-    let host = config.listen.host
-    let port = config.listen.port
     let authStatus = config.auth.token.isEmpty ? "none" : "ready"
 
-    let rows: [(String, String)] = [
-        ("Server", "\(port)"),
-        ("API", "http://\(host):\(port)"),
-        ("Health", "http://\(host):\(port)/health"),
+    var rows: [(String, String)] = [
+        ("Bind", endpoints.bindAddress),
+    ]
+    if let localAPIURL = endpoints.localAPIURL {
+        rows.append(("Local API", localAPIURL))
+    }
+    if let lanAPIURL = endpoints.lanAPIURL {
+        rows.append(("LAN API", lanAPIURL))
+    }
+    if let dashboardURL {
+        rows.append(("Dashboard", dashboardURL))
+    }
+    rows.append(contentsOf: [
+        ("Health", "\(endpoints.preferredAPIBase)/health"),
         ("Auth", authStatus),
         ("Memory", config.memory.backend),
         ("Workspace", config.workspace.name),
-    ]
+    ])
 
     var info = ""
     for (label, value) in rows {

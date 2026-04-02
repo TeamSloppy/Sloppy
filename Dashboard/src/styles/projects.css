@@ -1453,6 +1453,23 @@
   letter-spacing: 0.02em;
 }
 
+.project-path-picker-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+}
+
+.project-path-hint {
+  font-size: 0.82rem;
+  color: var(--muted);
+}
+
+.project-path-error {
+  font-size: 0.82rem;
+  color: #ff8f8f;
+}
+
 .project-modal-actions {
   display: flex;
   justify-content: flex-end;

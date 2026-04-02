@@ -16,6 +16,7 @@ struct ProjectCreateTool: CoreTool {
             .init(name: "actors", description: "List of actor IDs to assign", schema: DynamicGenerationSchema(arrayOf: DynamicGenerationSchema(type: String.self)), isOptional: true),
             .init(name: "teams", description: "List of team IDs to assign", schema: DynamicGenerationSchema(arrayOf: DynamicGenerationSchema(type: String.self)), isOptional: true),
             .init(name: "repoUrl", description: "Repository URL", schema: DynamicGenerationSchema(type: String.self), isOptional: true),
+            .init(name: "repoPath", description: "Local repository or project path", schema: DynamicGenerationSchema(type: String.self), isOptional: true),
         ])
     }
 
@@ -39,7 +40,8 @@ struct ProjectCreateTool: CoreTool {
                     description: arguments["description"]?.asString,
                     actors: actors,
                     teams: teams,
-                    repoUrl: arguments["repoUrl"]?.asString
+                    repoUrl: arguments["repoUrl"]?.asString,
+                    repoPath: arguments["repoPath"]?.asString
                 )
             )
             return toolSuccess(tool: name, data: .object([

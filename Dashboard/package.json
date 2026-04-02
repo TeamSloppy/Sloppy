@@ -4,10 +4,10 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "vite",
-    "build": "vite build",
+    "dev": "node ./node_modules/vite/bin/vite.js",
+    "build": "node ./node_modules/vite/bin/vite.js build",
     "typecheck": "tsc --noEmit",
-    "preview": "vite preview",
+    "preview": "node ./node_modules/vite/bin/vite.js preview",
     "seed:happy-path": "node ./scripts/seedHappyPath.mjs",
     "e2e:happy-path": "node ./scripts/happyPath.mjs"
   },
