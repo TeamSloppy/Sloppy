@@ -1123,18 +1123,32 @@ public actor CoreService {
 
     public func selectDirectory() async -> String? {
 #if canImport(AppKit)
-        await MainActor.run {
-            let panel = NSOpenPanel()
-            panel.canChooseFiles = false
-            panel.canChooseDirectories = true
-            panel.allowsMultipleSelection = false
-            panel.canCreateDirectories = false
-            panel.title = "Choose Project Directory"
-            panel.prompt = "Open Project"
-            guard panel.runModal() == .OK else {
-                return nil
+        await withCheckedContinuation { continuation in
+            Task { @MainActor in
+                NSApplication.shared.activate(ignoringOtherApps: true)
+
+                let panel = NSOpenPanel()
+                panel.canChooseFiles = false
+                panel.canChooseDirectories = true
+                panel.allowsMultipleSelection = false
+                panel.canCreateDirectories = false
+                panel.title = "Choose Project Directory"
+                panel.prompt = "Open Project"
+
+                func finish(_ response: NSApplication.ModalResponse) {
+                    guard response == .OK else {
+                        continuation.resume(returning: nil)
+                        return
+                    }
+                    continuation.resume(returning: panel.url?.path)
+                }
+
+                if let window = NSApplication.shared.keyWindow ?? NSApplication.shared.mainWindow {
+                    panel.beginSheetModal(for: window, completionHandler: finish)
+                } else {
+                    finish(panel.runModal())
+                }
             }
-            return panel.url?.path
         }
 #else
         return nil

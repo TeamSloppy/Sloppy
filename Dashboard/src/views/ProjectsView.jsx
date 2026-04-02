@@ -56,6 +56,31 @@ import { ProjectMemoryTab } from "./Projects/ProjectMemoryTab";
 import { ProjectList } from "./Projects/ProjectList";
 import { TaskReviewView } from "./Projects/TaskReviewView";
 
+function stripLastPathSegment(value) {
+  return String(value || "").replace(/[\\/][^\\/]+$/, "");
+}
+
+function extractDirectoryPathFromSelection(fileList) {
+  const files = Array.from(fileList || []);
+  const candidate = files.find((file) => typeof file?.path === "string" && file.path.trim());
+  if (!candidate) {
+    return "";
+  }
+
+  const absolutePath = String(candidate.path || "").trim();
+  const relativePath = String(candidate.webkitRelativePath || "").trim();
+  if (!relativePath) {
+    return stripLastPathSegment(absolutePath);
+  }
+
+  const relativeSegments = relativePath.split(/[\\/]+/).filter(Boolean);
+  let directoryPath = absolutePath;
+  for (let index = 0; index < relativeSegments.length; index += 1) {
+    directoryPath = stripLastPathSegment(directoryPath);
+  }
+  return directoryPath;
+}
+
 function ProjectCreateModal({ isOpen, draft, onChange, onClose, onCreate, onChooseDirectory, actors = [], teams = [] }) {
   const [actorSearch, setActorSearch] = useState("");
   const [actorDropdownOpen, setActorDropdownOpen] = useState(false);
@@ -63,6 +88,8 @@ function ProjectCreateModal({ isOpen, draft, onChange, onClose, onCreate, onChoo
   const [teamSearch, setTeamSearch] = useState("");
   const [teamDropdownOpen, setTeamDropdownOpen] = useState(false);
   const teamSearchRef = useRef(null);
+  const directoryInputRef = useRef(null);
+  const directoryPickerFocusCleanupRef = useRef(() => {});
   const [isChoosingDirectory, setIsChoosingDirectory] = useState(false);
   const [directoryPickerError, setDirectoryPickerError] = useState("");
 
@@ -70,7 +97,16 @@ function ProjectCreateModal({ isOpen, draft, onChange, onClose, onCreate, onChoo
     if (!isOpen) {
       setIsChoosingDirectory(false);
       setDirectoryPickerError("");
+      directoryPickerFocusCleanupRef.current();
+      directoryPickerFocusCleanupRef.current = () => {};
+      if (directoryInputRef.current) {
+        directoryInputRef.current.value = "";
+      }
     }
+    return () => {
+      directoryPickerFocusCleanupRef.current();
+      directoryPickerFocusCleanupRef.current = () => {};
+    };
   }, [isOpen]);
 
   const selectedActorIds = parseListInput(draft?.actors ?? "");
@@ -123,13 +159,67 @@ function ProjectCreateModal({ isOpen, draft, onChange, onClose, onCreate, onChoo
     );
   }
 
+  function clearDirectoryPickerFocusCleanup() {
+    directoryPickerFocusCleanupRef.current();
+    directoryPickerFocusCleanupRef.current = () => {};
+  }
+
+  function armDirectoryPickerReset() {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    clearDirectoryPickerFocusCleanup();
+    const handleFocus = () => {
+      window.setTimeout(() => {
+        setIsChoosingDirectory(false);
+      }, 0);
+      clearDirectoryPickerFocusCleanup();
+    };
+
+    window.addEventListener("focus", handleFocus, { once: true });
+    directoryPickerFocusCleanupRef.current = () => {
+      window.removeEventListener("focus", handleFocus);
+    };
+  }
+
+  function handleDirectorySelection(event) {
+    clearDirectoryPickerFocusCleanup();
+    setIsChoosingDirectory(false);
+    setDirectoryPickerError("");
+
+    const selectedPath = extractDirectoryPathFromSelection(event.target.files);
+    event.target.value = "";
+
+    if (selectedPath) {
+      onChange("repoPath", selectedPath);
+      return;
+    }
+
+    if (event.target.files?.length > 0) {
+      setDirectoryPickerError("Couldn't read the selected folder path. Paste it manually instead.");
+    }
+  }
+
   async function handleChooseDirectory() {
-    if (!onChooseDirectory || isChoosingDirectory) {
+    if (isChoosingDirectory) {
+      return;
+    }
+
+    setDirectoryPickerError("");
+    const directoryInput = directoryInputRef.current;
+    if (directoryInput && typeof directoryInput.click === "function") {
+      setIsChoosingDirectory(true);
+      armDirectoryPickerReset();
+      directoryInput.click();
+      return;
+    }
+
+    if (!onChooseDirectory) {
       return;
     }
 
     setIsChoosingDirectory(true);
-    setDirectoryPickerError("");
     try {
       const selectedPath = await onChooseDirectory();
       if (selectedPath) {
@@ -158,6 +248,16 @@ function ProjectCreateModal({ isOpen, draft, onChange, onClose, onCreate, onChoo
         </div>
 
         <form className="project-task-form" onSubmit={onCreate}>
+          <input
+            ref={directoryInputRef}
+            type="file"
+            multiple
+            className="agent-chat-file-input"
+            webkitdirectory=""
+            directory=""
+            onChange={handleDirectorySelection}
+          />
+
           <div className="onboarding-provider-grid">
             <button
               type="button"

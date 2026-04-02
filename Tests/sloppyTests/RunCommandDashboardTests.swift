@@ -54,8 +54,25 @@ func wildcardBindFallsBackToLoopbackWhenLANIsUnavailable() {
     #expect(endpoints.bindAddress == "0.0.0.0:25101")
     #expect(endpoints.localAPIURL == "http://127.0.0.1:25101")
     #expect(endpoints.lanAPIURL == nil)
+    #expect(endpoints.dashboardAPIBase == "http://127.0.0.1:25101")
     #expect(endpoints.preferredAPIBase == "http://127.0.0.1:25101")
     #expect(endpoints.preferredDashboardURL == "http://127.0.0.1:25102")
+}
+
+@Test
+func wildcardBindUsesLocalAPIForDashboardEvenWhenLANAddressExists() {
+    let endpoints = NetworkAddressResolver.makeDisplayEndpoints(
+        bindHost: "0.0.0.0",
+        apiPort: 25101,
+        dashboardPort: 25102,
+        lanIPv4: "192.168.1.42"
+    )
+
+    #expect(endpoints.localAPIURL == "http://127.0.0.1:25101")
+    #expect(endpoints.lanAPIURL == "http://192.168.1.42:25101")
+    #expect(endpoints.dashboardAPIBase == "http://127.0.0.1:25101")
+    #expect(endpoints.preferredAPIBase == "http://192.168.1.42:25101")
+    #expect(endpoints.preferredDashboardURL == "http://192.168.1.42:25102")
 }
 
 @Test
@@ -69,6 +86,7 @@ func explicitBindHostIsPreservedForUserFacingEndpoints() {
 
     #expect(endpoints.localAPIURL == nil)
     #expect(endpoints.lanAPIURL == "http://192.168.1.50:25101")
+    #expect(endpoints.dashboardAPIBase == "http://192.168.1.50:25101")
     #expect(endpoints.preferredAPIBase == "http://192.168.1.50:25101")
     #expect(endpoints.preferredDashboardURL == "http://192.168.1.50:25102")
 }
