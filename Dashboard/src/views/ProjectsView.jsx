@@ -6,7 +6,6 @@ import {
   createProject as createProjectRequest,
   updateProject as updateProjectRequest,
   deleteProject as deleteProjectRequest,
-  selectDirectory as selectDirectoryRequest,
   createProjectChannel as createProjectChannelRequest,
   deleteProjectChannel as deleteProjectChannelRequest,
   createProjectTask as createProjectTaskRequest,
@@ -56,59 +55,13 @@ import { ProjectMemoryTab } from "./Projects/ProjectMemoryTab";
 import { ProjectList } from "./Projects/ProjectList";
 import { TaskReviewView } from "./Projects/TaskReviewView";
 
-function stripLastPathSegment(value) {
-  return String(value || "").replace(/[\\/][^\\/]+$/, "");
-}
-
-function extractDirectoryPathFromSelection(fileList) {
-  const files = Array.from(fileList || []);
-  const candidate = files.find((file) => typeof file?.path === "string" && file.path.trim());
-  if (!candidate) {
-    return "";
-  }
-
-  const absolutePath = String(candidate.path || "").trim();
-  const relativePath = String(candidate.webkitRelativePath || "").trim();
-  if (!relativePath) {
-    return stripLastPathSegment(absolutePath);
-  }
-
-  const relativeSegments = relativePath.split(/[\\/]+/).filter(Boolean);
-  let directoryPath = absolutePath;
-  for (let index = 0; index < relativeSegments.length; index += 1) {
-    directoryPath = stripLastPathSegment(directoryPath);
-  }
-  return directoryPath;
-}
-
-function ProjectCreateModal({ isOpen, draft, onChange, onClose, onCreate, onChooseDirectory, actors = [], teams = [] }) {
+function ProjectCreateModal({ isOpen, draft, onChange, onClose, onCreate, actors = [], teams = [] }) {
   const [actorSearch, setActorSearch] = useState("");
   const [actorDropdownOpen, setActorDropdownOpen] = useState(false);
   const actorSearchRef = useRef(null);
   const [teamSearch, setTeamSearch] = useState("");
   const [teamDropdownOpen, setTeamDropdownOpen] = useState(false);
   const teamSearchRef = useRef(null);
-  const directoryInputRef = useRef(null);
-  const directoryPickerFocusCleanupRef = useRef(() => {});
-  const [isChoosingDirectory, setIsChoosingDirectory] = useState(false);
-  const [directoryPickerError, setDirectoryPickerError] = useState("");
-
-  useEffect(() => {
-    if (!isOpen) {
-      setIsChoosingDirectory(false);
-      setDirectoryPickerError("");
-      directoryPickerFocusCleanupRef.current();
-      directoryPickerFocusCleanupRef.current = () => {};
-      if (directoryInputRef.current) {
-        directoryInputRef.current.value = "";
-      }
-    }
-    return () => {
-      directoryPickerFocusCleanupRef.current();
-      directoryPickerFocusCleanupRef.current = () => {};
-    };
-  }, [isOpen]);
-
   const selectedActorIds = parseListInput(draft?.actors ?? "");
   const q = actorSearch.trim().toLowerCase();
   const filtered = actors.filter(
@@ -159,79 +112,6 @@ function ProjectCreateModal({ isOpen, draft, onChange, onClose, onCreate, onChoo
     );
   }
 
-  function clearDirectoryPickerFocusCleanup() {
-    directoryPickerFocusCleanupRef.current();
-    directoryPickerFocusCleanupRef.current = () => {};
-  }
-
-  function armDirectoryPickerReset() {
-    if (typeof window === "undefined") {
-      return;
-    }
-
-    clearDirectoryPickerFocusCleanup();
-    const handleFocus = () => {
-      window.setTimeout(() => {
-        setIsChoosingDirectory(false);
-      }, 0);
-      clearDirectoryPickerFocusCleanup();
-    };
-
-    window.addEventListener("focus", handleFocus, { once: true });
-    directoryPickerFocusCleanupRef.current = () => {
-      window.removeEventListener("focus", handleFocus);
-    };
-  }
-
-  function handleDirectorySelection(event) {
-    clearDirectoryPickerFocusCleanup();
-    setIsChoosingDirectory(false);
-    setDirectoryPickerError("");
-
-    const selectedPath = extractDirectoryPathFromSelection(event.target.files);
-    event.target.value = "";
-
-    if (selectedPath) {
-      onChange("repoPath", selectedPath);
-      return;
-    }
-
-    if (event.target.files?.length > 0) {
-      setDirectoryPickerError("Couldn't read the selected folder path. Paste it manually instead.");
-    }
-  }
-
-  async function handleChooseDirectory() {
-    if (isChoosingDirectory) {
-      return;
-    }
-
-    setDirectoryPickerError("");
-    const directoryInput = directoryInputRef.current;
-    if (directoryInput && typeof directoryInput.click === "function") {
-      setIsChoosingDirectory(true);
-      armDirectoryPickerReset();
-      directoryInput.click();
-      return;
-    }
-
-    if (!onChooseDirectory) {
-      return;
-    }
-
-    setIsChoosingDirectory(true);
-    try {
-      const selectedPath = await onChooseDirectory();
-      if (selectedPath) {
-        onChange("repoPath", selectedPath);
-      }
-    } catch {
-      setDirectoryPickerError("Failed to open Finder. Paste a local path instead.");
-    } finally {
-      setIsChoosingDirectory(false);
-    }
-  }
-
   const canCreateProject =
     draft.sourceType === "open"
       ? draft.displayName.trim() && draft.repoPath.trim()
@@ -248,16 +128,6 @@ function ProjectCreateModal({ isOpen, draft, onChange, onClose, onCreate, onChoo
         </div>
 
         <form className="project-task-form" onSubmit={onCreate}>
-          <input
-            ref={directoryInputRef}
-            type="file"
-            multiple
-            className="agent-chat-file-input"
-            webkitdirectory=""
-            directory=""
-            onChange={handleDirectorySelection}
-          />
-
           <div className="onboarding-provider-grid">
             <button
               type="button"
@@ -303,27 +173,15 @@ function ProjectCreateModal({ isOpen, draft, onChange, onClose, onCreate, onChoo
           {draft.sourceType === "open" ? (
             <label>
               Local project path
-              <div className="project-path-picker-row">
-                <input
-                  value={draft.repoPath}
-                  onChange={(event) => onChange("repoPath", event.target.value)}
-                  placeholder="/Users/name/work/project or file:///Users/name/work/project"
-                  autoFocus
-                />
-                <button
-                  type="button"
-                  onClick={handleChooseDirectory}
-                  disabled={isChoosingDirectory}
-                >
-                  {isChoosingDirectory ? "Opening…" : "Choose in Finder"}
-                </button>
-              </div>
+              <input
+                value={draft.repoPath}
+                onChange={(event) => onChange("repoPath", event.target.value)}
+                placeholder="/Users/name/work/project or file:///Users/name/work/project"
+                autoFocus
+              />
               <span className="project-path-hint">
                 Any local folder is allowed. Git features become available automatically when this directory is a repository.
               </span>
-              {directoryPickerError ? (
-                <span className="project-path-error">{directoryPickerError}</span>
-              ) : null}
             </label>
           ) : null}
 
@@ -1178,14 +1036,6 @@ export function ProjectsView({
     }));
   }
 
-  async function chooseProjectDirectory() {
-    const result = await selectDirectoryRequest();
-    if (!result || typeof result.path !== "string" || !result.path.trim()) {
-      return null;
-    }
-    return result.path.trim();
-  }
-
   async function createProject(event) {
     event.preventDefault();
 
@@ -1762,7 +1612,6 @@ export function ProjectsView({
         onChange={updateProjectDraft}
         onClose={closeCreateProjectModal}
         onCreate={createProject}
-        onChooseDirectory={chooseProjectDirectory}
         actors={createModalActors}
         teams={createModalTeams}
       />
