@@ -70,7 +70,8 @@ export default defineConfig({
           { text: "Memory", link: "/agents/memory" },
           { text: "Context Compactor", link: "/agents/context-compactor" },
           { text: "Runtime", link: "/agents/runtime" },
-          { text: "Workspace", link: "/agents/workspace" }
+          { text: "Workspace", link: "/agents/workspace" },
+          { text: "Sloppies", link: "/agents/sloppies" }
         ]
       },
       {
