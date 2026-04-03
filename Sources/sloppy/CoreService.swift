@@ -1774,6 +1774,14 @@ public actor CoreService {
         }
     }
 
+    public func deleteAgent(agentID: String) async throws {
+        do {
+            try agentCatalogStore.deleteAgent(id: agentID)
+        } catch {
+            throw mapAgentStorageError(error)
+        }
+    }
+
     /// Returns agent-specific config including selected model and editable markdown docs.
     public func getAgentConfig(agentID: String) throws -> AgentConfigDetail {
         let availableModels = availableAgentModels()

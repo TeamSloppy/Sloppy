@@ -515,7 +515,14 @@ export function AgentsView({ routeAgentId = null, routeTab = "overview", onRoute
 
     return (
       <section className="entry-editor-card agent-content-card">
-        <AgentConfigTab agentId={agent.id} />
+        <AgentConfigTab
+          agentId={agent.id}
+          agentDisplayName={agent.displayName || agent.id}
+          onDeleteAgent={() => {
+            setAgents((previous) => previous.filter((a) => a.id !== agent.id));
+            navigateToAgentList();
+          }}
+        />
       </section>
     );
   }

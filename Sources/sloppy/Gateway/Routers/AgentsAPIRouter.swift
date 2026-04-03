@@ -33,6 +33,22 @@ struct AgentsAPIRouter: APIRouter {
             }
         }
 
+        router.delete("/v1/agents/:agentId", metadata: RouteMetadata(summary: "Delete agent", description: "Permanently deletes a non-system agent and all its data", tags: ["Agents"])) { request in
+            let agentId = request.pathParam("agentId") ?? ""
+            do {
+                try await service.deleteAgent(agentID: agentId)
+                return CoreRouter.json(status: HTTPStatus.ok, payload: ["ok": "true"])
+            } catch CoreService.AgentStorageError.invalidID {
+                return CoreRouter.json(status: HTTPStatus.badRequest, payload: ["error": ErrorCode.invalidAgentId])
+            } catch CoreService.AgentStorageError.invalidPayload {
+                return CoreRouter.json(status: HTTPStatus.forbidden, payload: ["error": "system_agents_cannot_be_deleted"])
+            } catch CoreService.AgentStorageError.notFound {
+                return CoreRouter.json(status: HTTPStatus.notFound, payload: ["error": ErrorCode.agentNotFound])
+            } catch {
+                return CoreRouter.json(status: HTTPStatus.internalServerError, payload: ["error": ErrorCode.agentNotFound])
+            }
+        }
+
         router.get("/v1/agents/:agentId/tasks", metadata: RouteMetadata(summary: "List agent tasks", description: "Returns a list of tasks assigned to a specific agent", tags: ["Agents"])) { request in
             let agentId = request.pathParam("agentId") ?? ""
             do {
