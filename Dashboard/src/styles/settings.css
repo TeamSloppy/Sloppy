@@ -93,6 +93,21 @@
   background: var(--surface-3);
 }
 
+.settings-nav-item--danger {
+  color: var(--danger, #ef4444);
+}
+
+.settings-nav-item--danger:hover {
+  color: var(--danger, #ef4444);
+  background: rgba(239, 68, 68, 0.06);
+}
+
+.settings-nav-item--danger.active {
+  color: var(--danger, #ef4444);
+  border-color: rgba(239, 68, 68, 0.3);
+  background: rgba(239, 68, 68, 0.06);
+}
+
 .settings-mode-switch {
   border: 1px solid var(--line);
   border-radius: 0;

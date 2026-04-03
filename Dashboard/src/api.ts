@@ -49,6 +49,7 @@ export const fetchProjectMemoryGraph = coreApi.fetchProjectMemoryGraph;
 export const updateAgentMemory = coreApi.updateAgentMemory;
 export const deleteAgentMemory = coreApi.deleteAgentMemory;
 export const createAgent = coreApi.createAgent;
+export const deleteAgent = coreApi.deleteAgent;
 export const fetchActorsBoard = coreApi.fetchActorsBoard;
 export const updateActorsBoard = coreApi.updateActorsBoard;
 export const resolveActorRoute = coreApi.resolveActorRoute;

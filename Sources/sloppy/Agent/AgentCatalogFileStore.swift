@@ -297,6 +297,21 @@ final class AgentCatalogFileStore {
         )
     }
 
+    func deleteAgent(id: String) throws {
+        guard let normalizedID = normalizedAgentID(id) else {
+            throw StoreError.invalidID
+        }
+        let summary = try getAgent(id: normalizedID)
+        guard !summary.isSystem else {
+            throw StoreError.invalidPayload
+        }
+        let dirURL = agentDirectoryURL(for: normalizedID, isSystem: false)
+        guard fileManager.fileExists(atPath: dirURL.path) else {
+            throw StoreError.notFound
+        }
+        try fileManager.removeItem(at: dirURL)
+    }
+
     func recordPetInteraction(agentID: String, input: AgentPetProgressionInput) throws -> AgentPetSummary? {
         guard let normalizedAgentID = normalizedAgentID(agentID) else {
             throw StoreError.invalidID

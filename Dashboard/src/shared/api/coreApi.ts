@@ -79,6 +79,7 @@ export interface CoreApi {
   updateAgentMemory: (agentId: string, memoryId: string, payload: AnyRecord) => Promise<AnyRecord | null>;
   deleteAgentMemory: (agentId: string, memoryId: string) => Promise<boolean>;
   createAgent: (payload: AnyRecord) => Promise<AnyRecord | null>;
+  deleteAgent: (agentId: string) => Promise<boolean>;
   fetchActorsBoard: () => Promise<AnyRecord | null>;
   updateActorsBoard: (payload: AnyRecord) => Promise<AnyRecord | null>;
   resolveActorRoute: (payload: AnyRecord) => Promise<AnyRecord | null>;
@@ -734,6 +735,14 @@ export function createCoreApi(): CoreApi {
         return null;
       }
       return response.data;
+    },
+
+    deleteAgent: async (agentId) => {
+      const response = await requestJson<AnyRecord>({
+        path: `/v1/agents/${encodeURIComponent(agentId)}`,
+        method: "DELETE"
+      });
+      return response.ok;
     },
 
     fetchActorsBoard: async () => {

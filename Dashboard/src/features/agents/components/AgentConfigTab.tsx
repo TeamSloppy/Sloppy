@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { fetchActorsBoard, fetchAgentConfig, fetchRuntimeConfig, updateAgentConfig } from "../../../api";
+import { fetchActorsBoard, fetchAgentConfig, fetchRuntimeConfig, updateAgentConfig, deleteAgent } from "../../../api";
 import { ChannelModelSelector } from "./ChannelModelSelector";
 
 const AGENT_CONFIG_SECTIONS = [
@@ -7,7 +7,8 @@ const AGENT_CONFIG_SECTIONS = [
   { id: "models", title: "Models", icon: "hub" },
   { id: "files", title: "Agent Files", icon: "description" },
   { id: "channel", title: "Channel", icon: "forum" },
-  { id: "heartbeat", title: "Heartbeat", icon: "monitor_heart" }
+  { id: "heartbeat", title: "Heartbeat", icon: "monitor_heart" },
+  { id: "danger", title: "Danger Zone", icon: "warning", danger: true }
 ];
 
 function emptyAgentConfigDraft(agentId) {
@@ -123,7 +124,7 @@ const AGENT_DOC_FILES = [
   { id: "memoryMarkdown", name: "MEMORY.md", icon: "neurology", readOnly: true }
 ];
 
-export function AgentConfigTab({ agentId }) {
+export function AgentConfigTab({ agentId, agentDisplayName = "", onDeleteAgent = null }) {
   const [draft, setDraft] = useState(() => emptyAgentConfigDraft(agentId));
   const [savedDraft, setSavedDraft] = useState(() => emptyAgentConfigDraft(agentId));
   const [isLoading, setIsLoading] = useState(true);
@@ -133,6 +134,9 @@ export function AgentConfigTab({ agentId }) {
   const [selectedSection, setSelectedSection] = useState("runtime");
   const [acpTargets, setAcpTargets] = useState([]);
   const [selectedDocFile, setSelectedDocFile] = useState("userMarkdown");
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+  const [deleteConfirmText, setDeleteConfirmText] = useState("");
+  const [isDeleting, setIsDeleting] = useState(false);
 
   useEffect(() => {
     let isCancelled = false;
@@ -327,6 +331,85 @@ export function AgentConfigTab({ agentId }) {
 
   const isACP = draft.runtime?.type === "acp";
 
+  async function handleDeleteAgent() {
+    if (isDeleting) return;
+    setIsDeleting(true);
+    const ok = await deleteAgent(agentId);
+    if (ok) {
+      onDeleteAgent?.();
+    } else {
+      setStatusText("Failed to delete agent.");
+      setIsDeleting(false);
+      setDeleteConfirmOpen(false);
+      setDeleteConfirmText("");
+    }
+  }
+
+  function renderDangerSection() {
+    const confirmName = agentDisplayName || agentId;
+    return (
+      <section className="entry-editor-card settings-danger-zone">
+        <h3 style={{ color: "var(--danger, #ef4444)" }}>Danger Zone</h3>
+        <div className="settings-danger-block">
+          <div className="settings-danger-info">
+            <strong>Delete this agent</strong>
+            <p>
+              Once you delete an agent, there is no going back. All sessions, memories, and configuration will be permanently removed.
+            </p>
+          </div>
+          {!deleteConfirmOpen ? (
+            <button
+              type="button"
+              className="danger hover-levitate"
+              onClick={() => {
+                setDeleteConfirmOpen(true);
+                setDeleteConfirmText("");
+              }}
+            >
+              Delete Agent
+            </button>
+          ) : (
+            <div className="settings-danger-confirm">
+              <p className="settings-danger-warning">
+                <span className="material-symbols-rounded" style={{ fontSize: "1rem", verticalAlign: "middle" }}>warning</span>
+                {" "}This action is irreversible. All agent data will be permanently deleted.
+              </p>
+              <label>
+                Type <strong>{confirmName}</strong> to confirm
+                <input
+                  type="text"
+                  value={deleteConfirmText}
+                  onChange={(e) => setDeleteConfirmText(e.target.value)}
+                  placeholder={confirmName}
+                  autoFocus
+                />
+              </label>
+              <div className="settings-danger-confirm-actions">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setDeleteConfirmOpen(false);
+                    setDeleteConfirmText("");
+                  }}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  className="danger hover-levitate"
+                  disabled={deleteConfirmText.trim() !== confirmName || isDeleting}
+                  onClick={handleDeleteAgent}
+                >
+                  {isDeleting ? "Deleting..." : "I understand, delete this agent"}
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      </section>
+    );
+  }
+
   function renderSectionContent() {
     if (selectedSection === "runtime") {
       return (
@@ -514,6 +597,10 @@ export function AgentConfigTab({ agentId }) {
       );
     }
 
+    if (selectedSection === "danger") {
+      return renderDangerSection();
+    }
+
     if (selectedSection === "heartbeat") {
       return (
         <section className="entry-editor-card">
@@ -593,7 +680,7 @@ export function AgentConfigTab({ agentId }) {
             <button
               key={item.id}
               type="button"
-              className={`settings-nav-item ${selectedSection === item.id ? "active" : ""}`}
+              className={`settings-nav-item ${selectedSection === item.id ? "active" : ""}${(item as any).danger ? " settings-nav-item--danger" : ""}`}
               onClick={() => setSelectedSection(item.id)}
             >
               <span className="material-symbols-rounded settings-nav-icon">{item.icon}</span>
