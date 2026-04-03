@@ -528,6 +528,7 @@
 
 .agent-pet-sprite svg {
   width: 100%;
+  padding: 16px;
   height: auto;
   overflow: visible;
   image-rendering: pixelated;

@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { fetchActorsBoard, fetchAgents, fetchProjects, fetchAgentSessions, fetchChannelSessions, fetchChannelSession } from "../api";
 import { Breadcrumbs } from "../components/Breadcrumbs/Breadcrumbs";
+import { AgentPetIcon } from "../features/agents/components/AgentPetSprite";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -393,7 +394,9 @@ function BotActivitySection({ agents, sessions, onNavigateToBots, onNavigateToAg
               <div className="chart-header">
                 <div className="agent-chart-title">
                   <span className="channel-agent-avatar agent-chart-avatar">
-                    {agentInitials(agent.displayName || agent.id)}
+                    {agent.pet?.parts
+                      ? <AgentPetIcon parts={agent.pet.parts} />
+                      : agentInitials(agent.displayName || agent.id)}
                   </span>
                   <h4>{agent.displayName || agent.id}</h4>
                 </div>

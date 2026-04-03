@@ -112,3 +112,18 @@ export function AgentPetSprite({ parts, className = "", animated = true }: { par
     </div>
   );
 }
+
+export function AgentPetIcon({ parts, className = "" }: { parts?: any; className?: string }) {
+  const pixelSize = 4;
+  const head = resolvePart(HEADS, parts?.headId, "head-bubble");
+  const face = resolvePart(FACES, parts?.faceId, "face-default");
+
+  return (
+    <div className={`agent-pet-icon ${className}`.trim()} aria-hidden="true">
+      <svg viewBox="8 0 32 32" role="presentation">
+        <g>{renderPixels(head, pixelSize)}</g>
+        <g>{renderPixels(face, pixelSize)}</g>
+      </svg>
+    </div>
+  );
+}

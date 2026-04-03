@@ -18,7 +18,7 @@ usage() {
 Usage: $(basename "$0") <command>
 
 Commands:
-  setup          Build sloppy + SloppyNode + Dashboard (release) and create PATH symlinks.
+  setup          Build sloppy + SloppyNode + Dashboard (debug) and create PATH symlinks.
   start          Start the sloppy server in the background.
   stop           Stop the background sloppy server.
   restart        Restart the sloppy server.
@@ -70,16 +70,16 @@ cmd_setup() {
     log "Resolving Swift packages..."
     swift package resolve --package-path "$REPO_ROOT"
 
-    log "Building sloppy (release)..."
-    swift build -c release --package-path "$REPO_ROOT" --product sloppy
+    log "Building sloppy (debug)..."
+    swift build -c debug --package-path "$REPO_ROOT" --product sloppy
 
-    log "Building SloppyNode (release)..."
-    swift build -c release --package-path "$REPO_ROOT" --product SloppyNode
+    log "Building SloppyNode (debug)..."
+    swift build -c debug --package-path "$REPO_ROOT" --product SloppyNode
 
     build_dashboard_bundle
 
     local bin_path
-    bin_path="$(swift build --show-bin-path -c release --package-path "$REPO_ROOT")"
+    bin_path="$(swift build --show-bin-path -c debug --package-path "$REPO_ROOT")"
 
     log "Creating symlinks in $BIN_DIR..."
     mkdir -p "$BIN_DIR"

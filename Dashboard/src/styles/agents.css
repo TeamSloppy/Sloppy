@@ -204,7 +204,7 @@
 
 .agent-list-container {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(6, minmax(0, 1fr));
   gap: 10px;
   align-content: start;
 }
@@ -212,13 +212,15 @@
 .agent-list-item-card {
   border: 1px solid var(--line);
   border-radius: 0;
-  padding: 14px;
-  display: grid;
-  grid-template-columns: 40px minmax(0, 1fr);
-  align-items: start;
-  gap: 8px 12px;
+  padding: 20px 14px 16px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  aspect-ratio: 1 / 1;
   background: var(--surface-2);
-  text-align: left;
+  text-align: center;
   transition: transform var(--motion-duration-fast) var(--motion-ease-brutalist),
               box-shadow var(--motion-duration-fast) var(--motion-ease-brutalist),
               border-color var(--motion-duration-fast) ease;
@@ -264,42 +266,64 @@
   color: #959db1;
 }
 
+.agent-list-avatar-wrap {
+  width: 72px;
+  height: 72px;
+  flex-shrink: 0;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  background: var(--surface-3);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.3rem;
+  font-weight: 700;
+  color: var(--accent);
+}
+
 .agent-list-main {
   min-width: 0;
-  display: grid;
-  gap: 6px;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
 }
 
 .agent-list-head {
   display: flex;
   align-items: center;
-  justify-content: flex-start;
-  gap: 10px;
+  justify-content: center;
+  width: 100%;
 }
 
 .agent-list-head h4 {
   margin: 0;
-  font-size: 1rem;
+  font-size: 0.95rem;
+  font-weight: 700;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  max-width: 100%;
 }
 
 .agent-list-main p {
   margin: 0;
   color: var(--muted);
-  font-size: 1.03rem;
+  font-size: 0.8rem;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  max-width: 100%;
 }
 
 .agent-list-id {
-  font-size: 0.94rem;
-  color: #c5cbda;
+  font-size: 0.72rem;
+  color: var(--muted);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  max-width: 100%;
 }
 
 .agents-create-layout {
