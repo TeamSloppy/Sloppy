@@ -131,7 +131,70 @@ export function AgentOverviewTab({ agent, navigateToAgent }: any) {
 
     return (
         <div className="agent-dashboard">
-            <AgentPetCard pet={agentSnapshot?.pet} />
+            <div className="agent-top-grid">
+                <AgentPetCard pet={agentSnapshot?.pet} />
+
+                <div className="agent-top-right">
+                    <section className="dashboard-section">
+                        <div className="dashboard-section-header">
+                            <h3>Costs</h3>
+                            <button className="text-button" onClick={() => navigateToAgent(agent.id, 'memories')}>View sessions &rarr;</button>
+                        </div>
+                        <div className="costs-card">
+                            <div className="cost-metric">
+                                <span className="cost-label">Total Prompt tokens</span>
+                                <span className="cost-value">{tokenUsage?.inputTokens?.toLocaleString() || '0'}</span>
+                            </div>
+                            <div className="cost-metric">
+                                <span className="cost-label">Total Completion tokens</span>
+                                <span className="cost-value">{tokenUsage?.outputTokens?.toLocaleString() || '0'}</span>
+                            </div>
+                            <div className="cost-metric">
+                                <span className="cost-label">Total tokens</span>
+                                <span className="cost-value">
+                                    {((tokenUsage?.inputTokens || 0) + (tokenUsage?.outputTokens || 0)).toLocaleString()}
+                                </span>
+                            </div>
+                            <div className="cost-metric">
+                                <span className="cost-label">Cost estimate (Last 30 days)</span>
+                                <span className="cost-value">
+                                    {tokenUsage?.totalCostUSD !== undefined && tokenUsage?.totalCostUSD !== null && tokenUsage.totalCostUSD > 0
+                                        ? `$${tokenUsage.totalCostUSD.toFixed(3)}`
+                                        : '—'}
+                                </span>
+                            </div>
+                        </div>
+                    </section>
+
+                    <section className="dashboard-section">
+                        <div className="dashboard-section-header">
+                            <h3>Recent Issues</h3>
+                            <button className="text-button" onClick={() => navigateToAgent(agent.id, 'tasks')}>See All &rarr;</button>
+                        </div>
+                        <div className="recent-issues-list">
+                            {isLoading ? (
+                                <div className="recent-issue-item text-muted">Loading tasks...</div>
+                            ) : recentTasks.length === 0 ? (
+                                <div className="recent-issue-item text-muted">No recent tasks.</div>
+                            ) : (
+                                recentTasks.map((taskItem, i) => {
+                                    const task = taskItem.task || {};
+                                    const id = task.id || `COR-${i + 1}`;
+                                    const title = task.title || "Task";
+                                    const status = String(task.status || "todo").toLowerCase();
+                                    return (
+                                        <div key={id} className="recent-issue-item">
+                                            <span className="issue-id">{id}</span>
+                                            <span className="issue-title">{title}</span>
+                                            <span className={`badge badge-outline`}>{status}</span>
+                                        </div>
+                                    );
+                                })
+                            )}
+                        </div>
+                    </section>
+                </div>
+            </div>
 
             <section className="dashboard-section">
                 <div className="dashboard-section-header">
@@ -257,65 +320,6 @@ export function AgentOverviewTab({ agent, navigateToAgent }: any) {
                             <span>{statusActivity[Math.floor(statusActivity.length / 2)]?.dateStr}</span>
                             <span>{statusActivity[statusActivity.length - 1]?.dateStr}</span>
                         </div>
-                    </div>
-                </div>
-            </section>
-
-            <section className="dashboard-section mt-4">
-                <div className="dashboard-section-header">
-                    <h3>Recent Issues</h3>
-                    <button className="text-button" onClick={() => navigateToAgent(agent.id, 'tasks')}>See All &rarr;</button>
-                </div>
-                <div className="recent-issues-list">
-                    {isLoading ? (
-                        <div className="recent-issue-item text-muted">Loading tasks...</div>
-                    ) : recentTasks.length === 0 ? (
-                        <div className="recent-issue-item text-muted">No recent tasks.</div>
-                    ) : (
-                        recentTasks.map((taskItem, i) => {
-                            const task = taskItem.task || {};
-                            const id = task.id || `COR-${i + 1}`;
-                            const title = task.title || "Task";
-                            const status = String(task.status || "todo").toLowerCase();
-                            return (
-                                <div key={id} className="recent-issue-item">
-                                    <span className="issue-id">{id}</span>
-                                    <span className="issue-title">{title}</span>
-                                    <span className={`badge badge-outline`}>{status}</span>
-                                </div>
-                            );
-                        })
-                    )}
-                </div>
-            </section>
-
-            <section className="dashboard-section mt-4">
-                <div className="dashboard-section-header">
-                    <h3>Costs</h3>
-                    <button className="text-button" onClick={() => navigateToAgent(agent.id, 'memories')}>View sessions &rarr;</button>
-                </div>
-                <div className="costs-card">
-                    <div className="cost-metric">
-                        <span className="cost-label">Total Prompt tokens</span>
-                        <span className="cost-value">{tokenUsage?.inputTokens?.toLocaleString() || '0'}</span>
-                    </div>
-                    <div className="cost-metric">
-                        <span className="cost-label">Total Completion tokens</span>
-                        <span className="cost-value">{tokenUsage?.outputTokens?.toLocaleString() || '0'}</span>
-                    </div>
-                    <div className="cost-metric">
-                        <span className="cost-label">Total tokens</span>
-                        <span className="cost-value">
-                            {((tokenUsage?.inputTokens || 0) + (tokenUsage?.outputTokens || 0)).toLocaleString()}
-                        </span>
-                    </div>
-                    <div className="cost-metric">
-                        <span className="cost-label">Cost estimate (Last 30 days)</span>
-                        <span className="cost-value">
-                            {tokenUsage?.totalCostUSD !== undefined && tokenUsage?.totalCostUSD !== null && tokenUsage.totalCostUSD > 0
-                                ? `$${tokenUsage.totalCostUSD.toFixed(3)}`
-                                : '—'}
-                        </span>
                     </div>
                 </div>
             </section>

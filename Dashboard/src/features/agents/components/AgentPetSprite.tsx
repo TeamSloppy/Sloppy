@@ -41,6 +41,28 @@ const LEGS: Record<string, SpritePart> = {
   "legs-singularity": { fill: "#ffd86b", pixels: [[2, 16, 3, 1], [7, 16, 3, 1], [3, 17, 2, 2], [7, 17, 2, 2], [4, 19, 4, 1]] }
 };
 
+const FACES: Record<string, SpritePart> = {
+  "face-default": { fill: "transparent", pixels: [] },
+  "face-mono":    { fill: "#ffffff", pixels: [[5, 4, 2, 1]] },
+  "face-scan":    { fill: "#52e5ff", pixels: [[3, 4, 6, 1]] },
+  "face-grin":    { fill: "#9dff9d", pixels: [[4, 6, 1, 1], [5, 7, 2, 1], [7, 6, 1, 1]] },
+  "face-frown":   { fill: "#ff9c9c", pixels: [[5, 6, 2, 1], [4, 7, 1, 1], [7, 7, 1, 1]] },
+  "face-x":       { fill: "#ff6b6b", pixels: [[4, 3, 1, 1], [6, 3, 1, 1], [5, 4, 1, 1], [4, 5, 1, 1], [6, 5, 1, 1], [8, 3, 1, 1], [9, 4, 1, 1], [8, 5, 1, 1]] },
+  "face-star":    { fill: "#ffe266", pixels: [[5, 3, 2, 1], [4, 4, 4, 1], [5, 5, 2, 1]] },
+  "face-halo":    { fill: "#ffd86b", pixels: [[4, 0, 1, 1], [5, 0, 2, 1], [7, 0, 1, 1]] }
+};
+
+const ACCESSORIES: Record<string, SpritePart> = {
+  "acc-none":   { fill: "transparent", pixels: [] },
+  "acc-scarf":  { fill: "#ff7eb3", pixels: [[3, 8, 6, 1]] },
+  "acc-badge":  { fill: "#ffe266", pixels: [[5, 11, 2, 2]] },
+  "acc-cape":   { fill: "#9b8dff", pixels: [[1, 9, 1, 5], [10, 9, 1, 5]] },
+  "acc-chain":  { fill: "#d4d4d4", pixels: [[4, 9, 4, 1], [6, 10, 1, 1]] },
+  "acc-stripe": { fill: "#52e5ff", pixels: [[2, 10, 8, 1], [3, 12, 6, 1]] },
+  "acc-wings":  { fill: "#f3a6ff", pixels: [[0, 10, 2, 2], [10, 10, 2, 2]] },
+  "acc-bolt":   { fill: "#ffe266", pixels: [[6, 9, 2, 1], [5, 10, 2, 1], [6, 11, 2, 1], [5, 12, 2, 1]] }
+};
+
 function renderPixels(part: SpritePart, pixelSize: number) {
   return part.pixels.map(([x, y, w = 1, h = 1], index) => (
     <rect
@@ -68,6 +90,8 @@ export function AgentPetSprite({ parts, className = "", animated = true }: { par
   const head = resolvePart(HEADS, parts?.headId, "head-bubble");
   const body = resolvePart(BODIES, parts?.bodyId, "body-core");
   const legs = resolvePart(LEGS, parts?.legsId, "legs-stub");
+  const face = resolvePart(FACES, parts?.faceId, "face-default");
+  const accessory = resolvePart(ACCESSORIES, parts?.accessoryId, "acc-none");
 
   return (
     <div className={`agent-pet-sprite ${className}`.trim()} aria-hidden="true">
@@ -77,8 +101,12 @@ export function AgentPetSprite({ parts, className = "", animated = true }: { par
         </g>
         <g className="agent-pet-legs">{renderPixels(legs, pixelSize)}</g>
         <g className="agent-pet-body">{renderPixels(body, pixelSize)}</g>
+        <g className="agent-pet-accessory">{renderPixels(accessory, pixelSize)}</g>
         <g className={animated ? "agent-pet-head is-animated" : "agent-pet-head"}>
           {renderPixels(head, pixelSize)}
+        </g>
+        <g className={animated ? "agent-pet-face is-animated" : "agent-pet-face"}>
+          {renderPixels(face, pixelSize)}
         </g>
       </svg>
     </div>
