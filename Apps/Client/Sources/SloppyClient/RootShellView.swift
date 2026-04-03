@@ -49,20 +49,33 @@ struct RootShellView: View {
             startNotificationListener()
         }
         .overlay {
-            HStack(spacing: 8) {
-                Color.clear
-                    .frame(width: 100, height: 100)
-                    .glassEffect(.clear)
+            VStack {
+                HStack(spacing: 8) {
+                    Text("Hello there")
+                        .foregroundColor(.white)
+                        .frame(width: 200, height: 200)
+                        .glassEffect(.clear)
 
-                Color.clear
-                    .frame(width: 100, height: 100)
-                    .glassEffect(.regular)
+                    Text("AdaUI")
+                        .foregroundColor(.white)
+                        .frame(width: 200, height: 200)
+                        .glassEffect(.regular, in: .rect(cornerRadius: 12))
+                }
 
-                Color.clear
-                    .frame(width: 100, height: 100)
-                    .glassEffect(.identity)
+                HStack {
+                    Color.clear
+                        .frame(width: 200, height: 200)
+                        .glassEffect(.regular.tint(.red), in: .rect(cornerRadius: 12))
+
+                    Text("Hello there")
+                        .foregroundColor(.white)
+                        .frame(width: 200, height: 200)
+                        .glassEffect(.clear.tint(.red))
+                }
+
+                Spacer()
             }
-            .frame(width: 600, height: 400)
+            .frame(width: 500, height: 400)
         }
     }
 

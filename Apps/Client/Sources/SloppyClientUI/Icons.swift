@@ -4,6 +4,7 @@ import Foundation
 public enum Icons {
     public static let home = loadIcon("ic_home")
     public static let star = loadIcon("ic_star")
+    public static let gamedev = loadIcon("swift_in_gamedev")
 
     private static func loadIcon(_ name: String) -> Image {
         guard let url = Bundle.module.url(forResource: name, withExtension: "png") else {
