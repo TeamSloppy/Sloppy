@@ -107,6 +107,28 @@ enum AgentPetFactory {
         .init(id: "legs-singularity", rarity: .legendary, weight: 2)
     ]
 
+    private static let faces: [AgentPetPartCatalogEntry] = [
+        .init(id: "face-default", rarity: .common, weight: 30),
+        .init(id: "face-mono", rarity: .common, weight: 20),
+        .init(id: "face-scan", rarity: .common, weight: 18),
+        .init(id: "face-grin", rarity: .uncommon, weight: 14),
+        .init(id: "face-frown", rarity: .uncommon, weight: 10),
+        .init(id: "face-x", rarity: .rare, weight: 6),
+        .init(id: "face-star", rarity: .rare, weight: 4),
+        .init(id: "face-halo", rarity: .legendary, weight: 2)
+    ]
+
+    private static let accessories: [AgentPetPartCatalogEntry] = [
+        .init(id: "acc-none", rarity: .common, weight: 30),
+        .init(id: "acc-scarf", rarity: .common, weight: 22),
+        .init(id: "acc-badge", rarity: .common, weight: 18),
+        .init(id: "acc-cape", rarity: .uncommon, weight: 14),
+        .init(id: "acc-chain", rarity: .uncommon, weight: 10),
+        .init(id: "acc-stripe", rarity: .rare, weight: 6),
+        .init(id: "acc-wings", rarity: .rare, weight: 4),
+        .init(id: "acc-bolt", rarity: .legendary, weight: 2)
+    ]
+
     static func makePet(createdAt: Date = Date()) -> AgentPetGeneratedRecord {
         let genome = UInt64.random(in: UInt64.min ... UInt64.max)
         return makePet(genome: genome, createdAt: createdAt)
@@ -117,16 +139,20 @@ enum AgentPetFactory {
         let head = weightedPick(from: heads, using: &rng)
         let body = weightedPick(from: bodies, using: &rng)
         let legs = weightedPick(from: legs, using: &rng)
-        let baseStats = makeBaseStats(head: head, body: body, legs: legs, rng: &rng)
+        let face = weightedPick(from: faces, using: &rng)
+        let accessory = weightedPick(from: accessories, using: &rng)
+        let baseStats = makeBaseStats(head: head, body: body, legs: legs, face: face, accessory: accessory, rng: &rng)
         let partRarities = AgentPetPartRarities(
             head: head.rarity,
             body: body.rarity,
-            legs: legs.rarity
+            legs: legs.rarity,
+            face: face.rarity,
+            accessory: accessory.rarity
         )
         let summary = AgentPetSummary(
             petId: "pet_" + String(UUID().uuidString.lowercased().prefix(12)),
             genomeHex: String(format: "%016llx", genome),
-            parts: AgentPetParts(headId: head.id, bodyId: body.id, legsId: legs.id),
+            parts: AgentPetParts(headId: head.id, bodyId: body.id, legsId: legs.id, faceId: face.id, accessoryId: accessory.id),
             partRarities: partRarities,
             rarity: overallRarity(from: partRarities),
             baseStats: baseStats,
@@ -157,9 +183,11 @@ enum AgentPetFactory {
         head: AgentPetPartCatalogEntry,
         body: AgentPetPartCatalogEntry,
         legs: AgentPetPartCatalogEntry,
+        face: AgentPetPartCatalogEntry,
+        accessory: AgentPetPartCatalogEntry,
         rng: inout SplitMix64
     ) -> AgentPetStats {
-        let rarityBoost = rarityScore(head.rarity) + rarityScore(body.rarity) + rarityScore(legs.rarity)
+        let rarityBoost = rarityScore(head.rarity) + rarityScore(body.rarity) + rarityScore(legs.rarity) + rarityScore(face.rarity) + rarityScore(accessory.rarity)
         var stats = AgentPetStats(
             wisdom: 18 + Int(rng.next() % 19),
             debugging: 18 + Int(rng.next() % 19),
@@ -182,6 +210,24 @@ enum AgentPetFactory {
         }
         if legs.id.contains("hover") || legs.id.contains("singularity") {
             stats.chaos += 5
+        }
+        if face.id.contains("grin") || face.id.contains("halo") {
+            stats.patience += 4
+        }
+        if face.id.contains("x") || face.id.contains("frown") {
+            stats.snark += 3
+        }
+        if face.id.contains("scan") || face.id.contains("star") {
+            stats.wisdom += 3
+        }
+        if accessory.id.contains("bolt") || accessory.id.contains("wings") {
+            stats.chaos += 4
+        }
+        if accessory.id.contains("cape") || accessory.id.contains("chain") {
+            stats.snark += 3
+        }
+        if accessory.id.contains("stripe") || accessory.id.contains("badge") {
+            stats.debugging += 3
         }
 
         stats.wisdom += rarityBoost
@@ -206,7 +252,7 @@ enum AgentPetFactory {
     }
 
     private static func overallRarity(from rarities: AgentPetPartRarities) -> AgentPetRarityTier {
-        let values = [rarities.head, rarities.body, rarities.legs]
+        let values = [rarities.head, rarities.body, rarities.legs, rarities.face, rarities.accessory]
         let rareCount = values.filter { $0 == .rare }.count
         let legendaryCount = values.filter { $0 == .legendary }.count
         let uncommonCount = values.filter { $0 == .uncommon }.count
@@ -214,10 +260,10 @@ enum AgentPetFactory {
         if legendaryCount > 0 || rareCount >= 2 {
             return .legendary
         }
-        if rareCount == 1 || uncommonCount >= 2 {
+        if rareCount == 1 || uncommonCount >= 3 {
             return .rare
         }
-        if uncommonCount == 1 {
+        if uncommonCount >= 1 {
             return .uncommon
         }
         return .common

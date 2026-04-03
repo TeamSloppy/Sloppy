@@ -573,11 +573,24 @@ public struct AgentPetParts: Codable, Sendable, Equatable {
     public var headId: String
     public var bodyId: String
     public var legsId: String
+    public var faceId: String
+    public var accessoryId: String
 
-    public init(headId: String, bodyId: String, legsId: String) {
+    public init(headId: String, bodyId: String, legsId: String, faceId: String = "face-default", accessoryId: String = "acc-none") {
         self.headId = headId
         self.bodyId = bodyId
         self.legsId = legsId
+        self.faceId = faceId
+        self.accessoryId = accessoryId
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        headId = try container.decode(String.self, forKey: .headId)
+        bodyId = try container.decode(String.self, forKey: .bodyId)
+        legsId = try container.decode(String.self, forKey: .legsId)
+        faceId = try container.decodeIfPresent(String.self, forKey: .faceId) ?? "face-default"
+        accessoryId = try container.decodeIfPresent(String.self, forKey: .accessoryId) ?? "acc-none"
     }
 }
 
@@ -585,11 +598,24 @@ public struct AgentPetPartRarities: Codable, Sendable, Equatable {
     public var head: AgentPetRarityTier
     public var body: AgentPetRarityTier
     public var legs: AgentPetRarityTier
+    public var face: AgentPetRarityTier
+    public var accessory: AgentPetRarityTier
 
-    public init(head: AgentPetRarityTier, body: AgentPetRarityTier, legs: AgentPetRarityTier) {
+    public init(head: AgentPetRarityTier, body: AgentPetRarityTier, legs: AgentPetRarityTier, face: AgentPetRarityTier = .common, accessory: AgentPetRarityTier = .common) {
         self.head = head
         self.body = body
         self.legs = legs
+        self.face = face
+        self.accessory = accessory
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        head = try container.decode(AgentPetRarityTier.self, forKey: .head)
+        body = try container.decode(AgentPetRarityTier.self, forKey: .body)
+        legs = try container.decode(AgentPetRarityTier.self, forKey: .legs)
+        face = try container.decodeIfPresent(AgentPetRarityTier.self, forKey: .face) ?? .common
+        accessory = try container.decodeIfPresent(AgentPetRarityTier.self, forKey: .accessory) ?? .common
     }
 }
 

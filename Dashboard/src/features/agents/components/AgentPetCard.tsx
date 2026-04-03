@@ -11,7 +11,7 @@ const STAT_ITEMS = [
 
 function formatPart(id: string | undefined) {
   if (!id) return "unknown";
-  return id.replace(/^(head|body|legs)-/, "").replace(/-/g, " ");
+  return id.replace(/^(head|body|legs|face|acc)-/, "").replace(/-/g, " ");
 }
 
 export function AgentPetCard({ pet }: { pet?: any }) {
@@ -25,7 +25,7 @@ export function AgentPetCard({ pet }: { pet?: any }) {
   return (
     <section className="dashboard-section agent-pet-section">
       <div className="dashboard-section-header">
-        <h3>Tamagotchi</h3>
+        <h3>Sloppie</h3>
         <span className={`badge badge-pet badge-pet-${String(pet.rarity || "common").toLowerCase()}`}>{pet.rarity || "common"}</span>
       </div>
 
@@ -43,6 +43,12 @@ export function AgentPetCard({ pet }: { pet?: any }) {
             <span>Head: {formatPart(pet.parts?.headId)}</span>
             <span>Body: {formatPart(pet.parts?.bodyId)}</span>
             <span>Legs: {formatPart(pet.parts?.legsId)}</span>
+            {pet.parts?.faceId && pet.parts.faceId !== "face-default" && (
+              <span>Face: {formatPart(pet.parts.faceId)}</span>
+            )}
+            {pet.parts?.accessoryId && pet.parts.accessoryId !== "acc-none" && (
+              <span>Acc: {formatPart(pet.parts.accessoryId)}</span>
+            )}
           </div>
 
           <div className="agent-pet-stats">
