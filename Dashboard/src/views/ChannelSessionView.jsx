@@ -5,6 +5,7 @@ import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { oneDark } from "react-syntax-highlighter/dist/esm/styles/prism";
 import { fetchActorsBoard, fetchAgents, fetchChannelEvents, fetchChannelModel, fetchChannelSession, fetchProjects, fetchTokenUsage, postChannelControl } from "../api";
 import { Breadcrumbs } from "../components/Breadcrumbs/Breadcrumbs";
+import { AgentPetIcon } from "../features/agents/components/AgentPetSprite";
 
 function formatRelativeTime(value) {
   const date = new Date(value);
@@ -541,6 +542,10 @@ export function ChannelSessionView({ sessionId, onNavigateBack }) {
       ])
     );
 
+    const agentById = new Map(
+      (Array.isArray(agents) ? agents : []).map((agent) => [String(agent?.id || ""), agent])
+    );
+
     const nodes = Array.isArray(actorBoard?.nodes) ? actorBoard.nodes : [];
     const linkedAgents = nodes
       .filter((node) => String(node?.channelId || "").trim() === channelId && String(node?.linkedAgentId || "").trim())
@@ -553,11 +558,16 @@ export function ChannelSessionView({ sessionId, onNavigateBack }) {
       })
       .filter((value, index, array) => array.findIndex((item) => item.id === value.id) === index);
 
+    const primaryAgentParts = linkedAgents.length > 0
+      ? agentById.get(linkedAgents[0].id)?.pet?.parts ?? null
+      : null;
+
     return {
       channelId,
       channelTitle: projectMeta?.channelTitle || channelId || "Channel",
       projectName: projectMeta?.projectName || "",
-      linkedAgents
+      linkedAgents,
+      primaryAgentParts
     };
   }, [actorBoard, agents, projects, summary?.channelId]);
 
@@ -639,7 +649,9 @@ export function ChannelSessionView({ sessionId, onNavigateBack }) {
       <section className="channel-session-hero">
         <div className="channel-session-titlebar">
           <div className="channel-session-avatar">
-            {agentInitials(channelMeta.linkedAgents[0]?.name || channelMeta.channelTitle)}
+            {channelMeta.primaryAgentParts
+              ? <AgentPetIcon parts={channelMeta.primaryAgentParts} />
+              : agentInitials(channelMeta.linkedAgents[0]?.name || channelMeta.channelTitle)}
           </div>
           <div className="channel-session-copy">
             <h1>{channelMeta.channelTitle || "Channel Session"}</h1>

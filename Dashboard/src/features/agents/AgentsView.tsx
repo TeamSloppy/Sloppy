@@ -21,6 +21,7 @@ import { AgentMemoriesTab } from "./components/AgentMemoriesTab";
 import { Breadcrumbs } from "../../components/Breadcrumbs/Breadcrumbs";
 import { AgentCreateForm, emptyAgentFormValues } from "./components/AgentCreateForm";
 import { AgentGeneratePreview, type GeneratedAgentFiles } from "./components/AgentGeneratePreview";
+import { AgentPetIcon } from "./components/AgentPetSprite";
 
 const AGENT_TABS = [
   { id: "overview", title: "Overview" },
@@ -192,15 +193,17 @@ function AgentsIndexSection({
               data-testid={`agent-list-item-${agent.id}`}
               onClick={() => onSelectAgent(agent.id)}
             >
-              <span className="channel-agent-avatar agent-chart-avatar" aria-hidden="true" style={{ width: '40px', height: '40px', fontSize: '16px' }}>
-                {agentInitials(agent.displayName || agent.id)}
-              </span>
+              <div className="agent-list-avatar-wrap" aria-hidden="true">
+                {agent.pet?.parts
+                  ? <AgentPetIcon parts={agent.pet.parts} />
+                  : agentInitials(agent.displayName || agent.id)}
+              </div>
               <div className="agent-list-main">
                 <div className="agent-list-head">
                   <h4>{agent.displayName}</h4>
                 </div>
                 <p>{agent.role || "General-purpose assistant"}</p>
-                <span className="agent-list-id">ID: {agent.id}</span>
+                <span className="agent-list-id">{agent.id}</span>
               </div>
             </button>
           ))}
