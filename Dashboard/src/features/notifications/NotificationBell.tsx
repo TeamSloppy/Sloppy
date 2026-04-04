@@ -22,20 +22,36 @@ function NotificationItem({
   notification,
   onDismiss,
   onRead,
-  onApprovalClick
+  onApprovalClick,
+  onNavigateToAgent
 }: {
   notification: Notification;
   onDismiss: (id: string) => void;
   onRead: (id: string) => void;
   onApprovalClick?: (approvalId: string) => void;
+  onNavigateToAgent?: (agentId: string, sessionId?: string) => void;
 }) {
   const meta = TYPE_META[notification.type];
+
+  const hasAgentLink = notification.type === "agent_error" && notification.metadata?.agentId;
 
   function handleClick() {
     onRead(notification.id);
     if (notification.type === "pending_approval" && notification.metadata?.approvalId) {
       onApprovalClick?.(notification.metadata.approvalId);
     }
+  }
+
+  function handleNavigate(e: React.MouseEvent) {
+    e.stopPropagation();
+    onRead(notification.id);
+    const agentId = notification.metadata?.agentId;
+    if (!agentId || !onNavigateToAgent) return;
+    const channelId = notification.metadata?.channelId || "";
+    const sessionMarker = ":session:";
+    const sessionIdx = channelId.indexOf(sessionMarker);
+    const sessionId = sessionIdx >= 0 ? channelId.slice(sessionIdx + sessionMarker.length) : undefined;
+    onNavigateToAgent(agentId, sessionId);
   }
 
   return (
@@ -55,6 +71,12 @@ function NotificationItem({
         </div>
         <div className="notif-item-title">{notification.title}</div>
         {notification.message && <div className="notif-item-message">{notification.message}</div>}
+        {hasAgentLink && onNavigateToAgent && (
+          <button type="button" className="notif-item-navigate" onClick={handleNavigate}>
+            <span className="material-symbols-rounded">open_in_new</span>
+            View session
+          </button>
+        )}
       </div>
       <button
         type="button"
@@ -71,7 +93,13 @@ function NotificationItem({
   );
 }
 
-export function NotificationBell({ isCompact = false }: { isCompact?: boolean }) {
+export function NotificationBell({
+  isCompact = false,
+  onNavigateToAgent
+}: {
+  isCompact?: boolean;
+  onNavigateToAgent?: (agentId: string, sessionId?: string) => void;
+}) {
   const { notifications, unreadCount, markRead, markAllRead, dismiss, clearAll } = useNotifications();
   const [open, setOpen] = useState(false);
   const [approvalId, setApprovalId] = useState<string | null>(null);
@@ -139,6 +167,7 @@ export function NotificationBell({ isCompact = false }: { isCompact?: boolean })
                   onDismiss={dismiss}
                   onRead={markRead}
                   onApprovalClick={(id) => { setOpen(false); setApprovalId(id); }}
+                  onNavigateToAgent={onNavigateToAgent ? (agentId, sessionId) => { setOpen(false); onNavigateToAgent(agentId, sessionId); } : undefined}
                 />
               ))
             )}

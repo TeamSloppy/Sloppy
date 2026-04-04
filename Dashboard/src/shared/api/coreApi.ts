@@ -160,6 +160,9 @@ export interface CoreApi {
   addTaskComment: (projectId: string, taskId: string, payload: AnyRecord) => Promise<AnyRecord | null>;
   deleteTaskComment: (projectId: string, taskId: string, commentId: string) => Promise<boolean>;
   fetchTaskActivities: (projectId: string, taskId: string) => Promise<AnyRecord[] | null>;
+  fetchTaskClarifications: (projectId: string, taskId: string) => Promise<AnyRecord[] | null>;
+  createTaskClarification: (projectId: string, taskId: string, payload: AnyRecord) => Promise<AnyRecord | null>;
+  answerTaskClarification: (projectId: string, taskId: string, clarificationId: string, payload: AnyRecord) => Promise<AnyRecord | null>;
   fetchProjectFiles: (projectId: string, path?: string) => Promise<AnyRecord[] | null>;
   fetchProjectFileContent: (projectId: string, path: string) => Promise<AnyRecord | null>;
   fetchUpdateStatus: () => Promise<AnyRecord | null>;
@@ -1389,6 +1392,34 @@ export function createCoreApi(): CoreApi {
       });
       if (!response.ok || !Array.isArray(response.data)) return null;
       return response.data;
+    },
+
+    fetchTaskClarifications: async (projectId, taskId) => {
+      const response = await requestJson<AnyRecord[]>({
+        path: `/v1/projects/${encodeURIComponent(projectId)}/tasks/${encodeURIComponent(taskId)}/clarifications`
+      });
+      if (!response.ok || !Array.isArray(response.data)) return null;
+      return response.data;
+    },
+
+    createTaskClarification: async (projectId, taskId, payload) => {
+      const response = await requestJson<AnyRecord, AnyRecord>({
+        path: `/v1/projects/${encodeURIComponent(projectId)}/tasks/${encodeURIComponent(taskId)}/clarifications`,
+        method: "POST",
+        body: payload
+      });
+      if (!response.ok) return null;
+      return response.data ?? null;
+    },
+
+    answerTaskClarification: async (projectId, taskId, clarificationId, payload) => {
+      const response = await requestJson<AnyRecord, AnyRecord>({
+        path: `/v1/projects/${encodeURIComponent(projectId)}/tasks/${encodeURIComponent(taskId)}/clarifications/${encodeURIComponent(clarificationId)}/answer`,
+        method: "POST",
+        body: payload
+      });
+      if (!response.ok) return null;
+      return response.data ?? null;
     },
 
     fetchProjectFiles: async (projectId, path = "") => {

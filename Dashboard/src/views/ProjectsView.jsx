@@ -23,6 +23,8 @@ import {
   TASK_PRIORITY_LABELS,
   TASK_STATUS_COLORS,
   TASK_PRIORITY_ICONS,
+  TASK_KINDS,
+  LOOP_MODES,
   PROJECT_TAB_SET,
   TASK_STATUS_SET,
   TASK_PRIORITY_SET,
@@ -409,7 +411,7 @@ function TaskCreateDropdown({ label, icon, color, isOpen, onToggle, children }) 
   );
 }
 
-function ProjectTaskCreateModal({ isOpen, draft, onChange, onClose, onCreate, actors = [], teams = [] }) {
+function ProjectTaskCreateModal({ isOpen, draft, onChange, onClose, onCreate, actors = [], teams = [], creating = false }) {
   const [openDropdown, setOpenDropdown] = useState(null);
 
   if (!isOpen) {
@@ -556,14 +558,80 @@ function ProjectTaskCreateModal({ isOpen, draft, onChange, onClose, onCreate, ac
                   </li>
                 ))}
               </TaskCreateDropdown>
+
+              <TaskCreateDropdown
+                label={TASK_KINDS.find((k) => k.id === draft.kind)?.title || "Kind"}
+                icon="category"
+                isOpen={openDropdown === "kind"}
+                onToggle={toggle("kind")}
+              >
+                <li
+                  className={`tcm-dropdown-item ${!draft.kind ? "selected" : ""}`}
+                  onMouseDown={(e) => {
+                    e.preventDefault();
+                    onChange("kind", "");
+                    setOpenDropdown(null);
+                  }}
+                >
+                  <span>None</span>
+                  {!draft.kind && <span className="tcm-dropdown-check">✓</span>}
+                </li>
+                {TASK_KINDS.map((kind) => (
+                  <li
+                    key={kind.id}
+                    className={`tcm-dropdown-item ${draft.kind === kind.id ? "selected" : ""}`}
+                    onMouseDown={(e) => {
+                      e.preventDefault();
+                      onChange("kind", kind.id);
+                      setOpenDropdown(null);
+                    }}
+                  >
+                    <span>{kind.title}</span>
+                    {draft.kind === kind.id && <span className="tcm-dropdown-check">✓</span>}
+                  </li>
+                ))}
+              </TaskCreateDropdown>
+
+              <TaskCreateDropdown
+                label={LOOP_MODES.find((m) => m.id === draft.loopModeOverride)?.title || "Loop mode"}
+                icon="sync"
+                isOpen={openDropdown === "loopMode"}
+                onToggle={toggle("loopMode")}
+              >
+                <li
+                  className={`tcm-dropdown-item ${!draft.loopModeOverride ? "selected" : ""}`}
+                  onMouseDown={(e) => {
+                    e.preventDefault();
+                    onChange("loopModeOverride", "");
+                    setOpenDropdown(null);
+                  }}
+                >
+                  <span>Project default</span>
+                  {!draft.loopModeOverride && <span className="tcm-dropdown-check">✓</span>}
+                </li>
+                {LOOP_MODES.map((mode) => (
+                  <li
+                    key={mode.id}
+                    className={`tcm-dropdown-item ${draft.loopModeOverride === mode.id ? "selected" : ""}`}
+                    onMouseDown={(e) => {
+                      e.preventDefault();
+                      onChange("loopModeOverride", mode.id);
+                      setOpenDropdown(null);
+                    }}
+                  >
+                    <span>{mode.title}</span>
+                    {draft.loopModeOverride === mode.id && <span className="tcm-dropdown-check">✓</span>}
+                  </li>
+                ))}
+              </TaskCreateDropdown>
             </div>
 
             <div className="tcm-actions">
-              <button type="button" className="tcm-discard-btn" onClick={onClose}>
+              <button type="button" className="tcm-discard-btn" onClick={onClose} disabled={creating}>
                 Discard
               </button>
-              <button type="submit" className="tcm-create-btn hover-levitate" disabled={!draft.title.trim()}>
-                Create Task
+              <button type="submit" className="tcm-create-btn hover-levitate" disabled={!draft.title.trim() || creating}>
+                {creating ? "Creating…" : "Create Task"}
               </button>
             </div>
           </div>
@@ -746,6 +814,7 @@ export function ProjectsView({
   const [projectNameDraft, setProjectNameDraft] = useState("");
   const [createModalActors, setCreateModalActors] = useState([]);
   const [createModalTeams, setCreateModalTeams] = useState([]);
+  const [creatingTask, setCreatingTask] = useState(false);
   const [isAddChannelModalOpen, setIsAddChannelModalOpen] = useState(false);
   const [addChannelDraft, setAddChannelDraft] = useState({ title: "", channelId: "" });
   const [availableChannels, setAvailableChannels] = useState([]);
@@ -1025,6 +1094,7 @@ export function ProjectsView({
   async function watchAgentTaskSession(project, task, channelId) {
     const parsed = parseAgentWorkerChannelId(channelId);
     if (!parsed?.agentId) {
+      setStatusText("Cannot resolve agent session from this worker.");
       return;
     }
     let sessionId = parsed.sessionId;
@@ -1044,6 +1114,8 @@ export function ProjectsView({
     }
     if (typeof onNavigateToAgentChatSession === "function") {
       onNavigateToAgentChatSession(parsed.agentId, sessionId);
+    } else {
+      setStatusText("Navigation to agent session is not available.");
     }
   }
 
@@ -1203,6 +1275,8 @@ export function ProjectsView({
       description: task.description || "",
       priority: task.priority,
       status: task.status,
+      kind: task.kind || "",
+      loopModeOverride: task.loopModeOverride || "",
       actorId: resolvedActorId,
       teamId: task.teamId || ""
     });
@@ -1249,6 +1323,8 @@ export function ProjectsView({
       description: String(editDraft.description || "").trim(),
       priority: editDraft.priority,
       status: editDraft.status,
+      kind: String(editDraft.kind || "").trim() || null,
+      loopModeOverride: String(editDraft.loopModeOverride || "").trim() || null,
       actorId: String(editDraft.actorId || "").trim() || null,
       teamId: String(editDraft.teamId || "").trim() || null,
       changedBy: "user"
@@ -1300,14 +1376,20 @@ export function ProjectsView({
       return;
     }
 
+    setCreatingTask(true);
+
     const updated = await createProjectTaskRequest(selectedProject.id, {
       title,
       description: String(taskDraft.description || "").trim(),
       priority: taskDraft.priority,
       status: taskDraft.status,
+      kind: String(taskDraft.kind || "").trim() || null,
+      loopModeOverride: String(taskDraft.loopModeOverride || "").trim() || null,
       actorId: String(taskDraft.actorId || "").trim() || null,
       teamId: String(taskDraft.teamId || "").trim() || null
     });
+
+    setCreatingTask(false);
 
     if (!updated) {
       setStatusText("Failed to create task in Sloppy.");
@@ -1654,6 +1736,7 @@ export function ProjectsView({
         onCreate={createTask}
         actors={createModalActors}
         teams={createModalTeams}
+        creating={creatingTask}
       />
 
       <AddChannelModal

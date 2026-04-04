@@ -17,6 +17,8 @@ struct ProjectTaskUpdateTool: CoreTool {
             .init(name: "description", description: "New description", schema: DynamicGenerationSchema(type: String.self), isOptional: true),
             .init(name: "priority", description: "New priority", schema: DynamicGenerationSchema(type: String.self), isOptional: true),
             .init(name: "status", description: "New status", schema: DynamicGenerationSchema(type: String.self), isOptional: true),
+            .init(name: "kind", description: "Task kind: planning, execution, bugfix", schema: DynamicGenerationSchema(type: String.self), isOptional: true),
+            .init(name: "loopModeOverride", description: "Override loop mode: human or agent", schema: DynamicGenerationSchema(type: String.self), isOptional: true),
             .init(name: "actorId", description: "New assigned actor ID", schema: DynamicGenerationSchema(type: String.self), isOptional: true),
             .init(name: "teamId", description: "New assigned team ID", schema: DynamicGenerationSchema(type: String.self), isOptional: true),
             .init(name: "projectId", description: "Project ID (e.g. 'sloppy'), NOT a task ID like 'SLOPPY-4'. Use instead of channelId when known.", schema: DynamicGenerationSchema(type: String.self), isOptional: true),
@@ -52,6 +54,8 @@ struct ProjectTaskUpdateTool: CoreTool {
 
         do {
             let task = try findTask(reference: normalizedReference, in: project)
+            let kind = arguments["kind"]?.asString.flatMap { ProjectTaskKind(rawValue: $0) }
+            let loopMode = arguments["loopModeOverride"]?.asString.flatMap { ProjectLoopMode(rawValue: $0) }
             let updatedProject = try await svc.updateTask(
                 projectID: project.id,
                 taskID: task.id,
@@ -60,6 +64,8 @@ struct ProjectTaskUpdateTool: CoreTool {
                     description: arguments["description"]?.asString,
                     priority: arguments["priority"]?.asString,
                     status: arguments["status"]?.asString,
+                    kind: kind,
+                    loopModeOverride: loopMode,
                     actorId: arguments["actorId"]?.asString,
                     teamId: arguments["teamId"]?.asString
                 )

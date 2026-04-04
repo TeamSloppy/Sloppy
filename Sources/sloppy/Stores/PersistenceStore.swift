@@ -184,4 +184,16 @@ public protocol PersistenceStore: Sendable {
 
     /// Deletes one channel access user record.
     func deleteChannelAccessUser(id: String) async
+
+    /// Lists clarification requests for a task.
+    func listClarifications(projectId: String, taskId: String) async -> [TaskClarificationRecord]
+
+    /// Returns one clarification request by identifier.
+    func clarification(id: String) async -> TaskClarificationRecord?
+
+    /// Creates or replaces one clarification request record.
+    func saveClarification(_ record: TaskClarificationRecord) async
+
+    /// Deletes one clarification request record.
+    func deleteClarification(id: String) async
 }

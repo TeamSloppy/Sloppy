@@ -1095,13 +1095,13 @@ public actor RuntimeSystem {
     }
 
     /// Cancels all active workers on a channel and emits abort event.
-    public func abortChannel(channelId: String) async -> Int {
+    public func abortChannel(channelId: String, reason: String? = nil) async -> Int {
         guard let snapshot = await channels.snapshot(channelId: channelId) else {
             return 0
         }
         var cancelled = 0
         for workerId in snapshot.activeWorkerIds {
-            let ok = await workers.cancel(workerId: workerId)
+            let ok = await workers.cancel(workerId: workerId, reason: reason)
             if ok {
                 await channels.detachWorker(channelId: channelId, workerId: workerId)
                 cancelled += 1

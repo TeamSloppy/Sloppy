@@ -71,6 +71,19 @@ private struct SplitMix64 {
         z = (z ^ (z >> 27)) &* 0x94D049BB133111EB
         return z ^ (z >> 31)
     }
+
+    mutating func nextDouble() -> Double {
+        return Double(next()) / Double(UInt64.max)
+    }
+
+    mutating func nextInt(in range: ClosedRange<Int>) -> Int {
+        guard range.upperBound >= range.lowerBound else {
+            return range.lowerBound
+        }
+        let span = UInt64(range.upperBound - range.lowerBound + 1)
+        let value = next() % span
+        return range.lowerBound + Int(value)
+    }
 }
 
 enum AgentPetFactory {
@@ -285,6 +298,10 @@ enum AgentPetProgressionEngine {
         snark: 24,
         chaos: 28
     )
+    private static let growthMultiplier = 0.6
+    private static let decayProbability = 0.25
+    private static let decayMagnitudeRange: ClosedRange<Int> = 1...2
+    private static let maxDecayAxes = 2
 
     static func apply(
         state: inout AgentPetProgressState,
@@ -294,17 +311,20 @@ enum AgentPetProgressionEngine {
         pruneOldBuckets(state: &state, referenceDate: input.timestamp)
 
         let rawDelta = delta(for: input, counters: state.counters)
+        let adjustedDelta = applyVariance(to: rawDelta, seed: varianceSeed(for: input))
+        let positiveDelta = adjustedDelta.positiveComponents()
+        let negativeDelta = adjustedDelta.negativeComponents()
         let dayKey = dayBucket(for: input.timestamp)
         let channelBucketKey = dayKey + "|" + input.channelId
         let existingChannelGain = state.dailyChannelGainBuckets[channelBucketKey] ?? .init()
         let existingGlobalGain = state.dailyGlobalGainBuckets[dayKey] ?? .init()
         let cappedDelta = cap(
-            delta: rawDelta,
+            delta: positiveDelta,
             channelGain: existingChannelGain,
             globalGain: existingGlobalGain
         )
 
-        guard !cappedDelta.isZero else {
+        guard !cappedDelta.isZero || !negativeDelta.isZero else {
             state.processedWatermark = AgentPetProgressWatermark(
                 sourceKind: input.sourceKind.rawValue,
                 channelId: input.channelId,
@@ -319,6 +339,9 @@ enum AgentPetProgressionEngine {
         state.currentStats = (state.currentStats + cappedDelta).clamped()
         state.dailyChannelGainBuckets[channelBucketKey] = existingChannelGain + cappedDelta
         state.dailyGlobalGainBuckets[dayKey] = existingGlobalGain + cappedDelta
+        if !negativeDelta.isZero {
+            state.currentStats = (state.currentStats + negativeDelta).clamped()
+        }
         state.processedWatermark = AgentPetProgressWatermark(
             sourceKind: input.sourceKind.rawValue,
             channelId: input.channelId,
@@ -385,6 +408,63 @@ enum AgentPetProgressionEngine {
 
         let weighted = delta.scaled(by: weight(for: input.sourceKind))
         return weighted.clamped()
+    }
+
+    private static func applyVariance(to delta: AgentPetStats, seed: UInt64) -> AgentPetStats {
+        var rng = SplitMix64(seed: seed)
+        let dampened = delta.scaledDown(by: growthMultiplier)
+        guard rng.nextDouble() < decayProbability else {
+            return dampened
+        }
+        return dampened + randomDecayDelta(using: &rng)
+    }
+
+    private static func randomDecayDelta(using rng: inout SplitMix64) -> AgentPetStats {
+        var penalties = AgentPetStats()
+        let axes = AgentPetStatAxis.allCases
+        guard !axes.isEmpty else {
+            return penalties
+        }
+        let selectionCount = min(axes.count, max(1, rng.nextInt(in: 1...maxDecayAxes)))
+        var usedIndexes: Set<Int> = []
+        while usedIndexes.count < selectionCount {
+            let index = rng.nextInt(in: 0...(axes.count - 1))
+            if usedIndexes.insert(index).inserted {
+                let amount = -rng.nextInt(in: decayMagnitudeRange)
+                switch axes[index] {
+                case .wisdom:
+                    penalties.wisdom += amount
+                case .debugging:
+                    penalties.debugging += amount
+                case .patience:
+                    penalties.patience += amount
+                case .snark:
+                    penalties.snark += amount
+                case .chaos:
+                    penalties.chaos += amount
+                }
+            }
+        }
+        return penalties
+    }
+
+    private static func varianceSeed(for input: AgentPetProgressionInput) -> UInt64 {
+        var hasher = Hasher()
+        hasher.combine(input.channelId)
+        hasher.combine(input.sessionId)
+        hasher.combine(input.timestamp.timeIntervalSince1970)
+        hasher.combine(input.userId)
+        hasher.combine(input.eventKind.rawValue)
+        hasher.combine(input.sourceKind.rawValue)
+        return UInt64(bitPattern: Int64(hasher.finalize()))
+    }
+
+    private enum AgentPetStatAxis: CaseIterable {
+        case wisdom
+        case debugging
+        case patience
+        case snark
+        case chaos
     }
 
     private static func cap(
@@ -559,6 +639,48 @@ extension AgentPetStats {
             patience: lhs.patience + rhs.patience,
             snark: lhs.snark + rhs.snark,
             chaos: lhs.chaos + rhs.chaos
+        )
+    }
+
+    func scaledDown(by factor: Double) -> AgentPetStats {
+        guard factor > 0 else {
+            return .init()
+        }
+
+        func scale(_ value: Int) -> Int {
+            guard value > 0 else {
+                return 0
+            }
+            let scaled = Int((Double(value) * factor).rounded(.down))
+            return max(scaled, 0)
+        }
+
+        return AgentPetStats(
+            wisdom: scale(wisdom),
+            debugging: scale(debugging),
+            patience: scale(patience),
+            snark: scale(snark),
+            chaos: scale(chaos)
+        )
+    }
+
+    func positiveComponents() -> AgentPetStats {
+        AgentPetStats(
+            wisdom: max(wisdom, 0),
+            debugging: max(debugging, 0),
+            patience: max(patience, 0),
+            snark: max(snark, 0),
+            chaos: max(chaos, 0)
+        )
+    }
+
+    func negativeComponents() -> AgentPetStats {
+        AgentPetStats(
+            wisdom: wisdom < 0 ? wisdom : 0,
+            debugging: debugging < 0 ? debugging : 0,
+            patience: patience < 0 ? patience : 0,
+            snark: snark < 0 ? snark : 0,
+            chaos: chaos < 0 ? chaos : 0
         )
     }
 }

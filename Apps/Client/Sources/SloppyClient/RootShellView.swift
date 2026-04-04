@@ -30,6 +30,7 @@ struct RootShellView: View {
             c.background.ignoresSafeArea()
 
             switch appState {
+
             case .splash:
                 SplashScreen(settings: settings) { result in
                     switch result {
@@ -65,6 +66,22 @@ struct RootShellView: View {
                 NotificationBanner(item: banner)
                     .frame(width: Float(320))
                     .padding(theme.spacing.m)
+            }
+        }
+        .onAppear {
+            startDeepLinkListener()
+        }
+    }
+
+    private func startDeepLinkListener() {
+        Task { @MainActor in
+            let notifications = NotificationCenter.default.notifications(named: .adaEngineOpenURL)
+            for await notification in notifications {
+                guard let url = notification.object as? URL,
+                      let deepLink = DeepLink.parse(url),
+                      let serverURL = deepLink.serverURL else { continue }
+                settings.useServer(deepLink.savedServer)
+                startConnected(url: serverURL)
             }
         }
     }

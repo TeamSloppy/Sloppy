@@ -3,6 +3,7 @@ import React, { useState, useMemo, useEffect, useRef } from "react";
 const SETTINGS_TABS = [
     { id: "general", title: "General", icon: "settings" },
     { id: "actors", title: "Actors", icon: "group" },
+    { id: "loop", title: "Task Loop Mode", icon: "sync" },
     { id: "review", title: "Git Worktree & Review", icon: "rate_review" }
 ];
 
@@ -35,6 +36,21 @@ const PROJECT_ICONS = [
     "storage", "monitoring", "security", "memory", "web"
 ];
 
+const LOOP_MODE_OPTIONS = [
+    {
+        id: "human",
+        label: "Human in the Loop",
+        icon: "person",
+        description: "When an agent needs input, the question is routed to the dashboard or source channel for a human to answer."
+    },
+    {
+        id: "agent",
+        label: "Agent in the Loop",
+        icon: "smart_toy",
+        description: "When an agent needs input, the question is routed to the project manager actor or the assigned team for autonomous resolution."
+    }
+];
+
 function cloneDraft(project) {
     return {
         name: project?.name ?? "",
@@ -52,6 +68,7 @@ function cloneDraft(project) {
             enabled: Boolean(project?.reviewSettings?.enabled),
             approvalMode: project?.reviewSettings?.approvalMode ?? "human"
         },
+        taskLoopMode: project?.taskLoopMode ?? "human",
         actors: Array.isArray(project?.actors) ? [...project.actors] : [],
         teams: Array.isArray(project?.teams) ? [...project.teams] : []
     };
@@ -105,6 +122,7 @@ export function ProjectSettingsTab({
             heartbeat: draft.heartbeat,
             repoPath: draft.repoPath.trim() || null,
             reviewSettings: draft.reviewSettings,
+            taskLoopMode: draft.taskLoopMode,
             actors: draft.actors,
             teams: draft.teams
         });
@@ -652,6 +670,37 @@ export function ProjectSettingsTab({
         );
     }
 
+    function renderLoop() {
+        return (
+            <section className="entry-editor-card">
+                <h3>Task Loop Mode</h3>
+                <p style={{ margin: "0 0 16px", fontSize: "0.85rem", color: "var(--muted)" }}>
+                    Choose how clarification questions from agents are handled. Individual tasks can override this default.
+                </p>
+                <div className="review-approval-options">
+                    {LOOP_MODE_OPTIONS.map((mode) => {
+                        const active = draft.taskLoopMode === mode.id;
+                        return (
+                            <button
+                                key={mode.id}
+                                type="button"
+                                className={`review-approval-option ${active ? "active" : ""}`}
+                                onClick={() => mutateDraft((d) => { d.taskLoopMode = mode.id; })}
+                            >
+                                <span className="material-symbols-rounded review-approval-icon">{mode.icon}</span>
+                                <strong className="review-approval-name">{mode.label}</strong>
+                                <span className="review-approval-desc">{mode.description}</span>
+                                {active && (
+                                    <span className="material-symbols-rounded review-approval-check">check_circle</span>
+                                )}
+                            </button>
+                        );
+                    })}
+                </div>
+            </section>
+        );
+    }
+
     function renderReview() {
         const isEnabled = draft.reviewSettings.enabled;
         const repoPath = draft.repoPath.trim();
@@ -755,6 +804,8 @@ export function ProjectSettingsTab({
                 return renderChannels();
             case "heartbeat":
                 return renderHeartbeat();
+            case "loop":
+                return renderLoop();
             case "review":
                 return renderReview();
             default:

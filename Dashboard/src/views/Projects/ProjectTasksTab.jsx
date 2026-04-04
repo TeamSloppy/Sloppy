@@ -6,6 +6,8 @@ import {
     TASK_PRIORITY_LABELS,
     TASK_STATUS_COLORS,
     TASK_PRIORITY_ICONS,
+    TASK_KINDS,
+    LOOP_MODES,
     buildTaskCounts,
     buildSwarmGroups,
     formatRelativeTime,
@@ -16,6 +18,8 @@ import {
     addTaskComment,
     deleteTaskComment,
     fetchTaskActivities,
+    fetchTaskClarifications,
+    answerTaskClarification,
     fetchTaskDiff,
     fetchReviewComments,
     addReviewComment,
@@ -669,6 +673,125 @@ function ReviewTab({ project, task, createModalActors }) {
     );
 }
 
+function ClarificationsTab({ project, task }) {
+    const [clarifications, setClarifications] = useState([]);
+    const [loading, setLoading] = useState(true);
+    const [answerDrafts, setAnswerDrafts] = useState({});
+    const [submitting, setSubmitting] = useState(null);
+
+    const loadClarifications = useCallback(async () => {
+        const result = await fetchTaskClarifications(project.id, task.id);
+        if (result) setClarifications(result);
+        setLoading(false);
+    }, [project.id, task.id]);
+
+    useEffect(() => {
+        setLoading(true);
+        loadClarifications();
+    }, [loadClarifications]);
+
+    async function handleAnswer(clarificationId) {
+        const draft = answerDrafts[clarificationId];
+        if (!draft) return;
+        setSubmitting(clarificationId);
+        const selectedOption = draft.selectedOptions?.[0] || null;
+        await answerTaskClarification(project.id, task.id, clarificationId, {
+            selectedOptionIds: selectedOption ? [selectedOption] : [],
+            note: draft.notes || ""
+        });
+        setAnswerDrafts((prev) => {
+            const next = { ...prev };
+            delete next[clarificationId];
+            return next;
+        });
+        await loadClarifications();
+        setSubmitting(null);
+    }
+
+    function updateDraft(id, field, value) {
+        setAnswerDrafts((prev) => ({
+            ...prev,
+            [id]: { ...(prev[id] || {}), [field]: value }
+        }));
+    }
+
+    if (loading) return <p className="placeholder-text">Loading clarifications…</p>;
+    if (clarifications.length === 0) return <p className="placeholder-text">No clarification requests.</p>;
+
+    return (
+        <div className="td-clarifications-list">
+            {clarifications.map((c) => {
+                const isPending = c.status === "pending";
+                const draft = answerDrafts[c.id] || {};
+                return (
+                    <div key={c.id} className={`td-clarification-item td-clarification-item--${c.status}`}>
+                        <div className="td-clarification-header">
+                            <span className="material-symbols-rounded">help_outline</span>
+                            <span className={`td-clarification-status td-clarification-status--${c.status}`}>
+                                {c.status}
+                            </span>
+                            <span className="td-clarification-target">{c.targetType}</span>
+                            <span className="td-comment-time">{formatRelativeTime(c.createdAt)}</span>
+                        </div>
+                        <p className="td-clarification-question">{c.questionText}</p>
+
+                        {Array.isArray(c.options) && c.options.length > 0 && (
+                            <div className="td-clarification-options">
+                                {c.options.map((opt) => {
+                                    const isSelected = isPending
+                                        ? draft.selectedOptions?.includes(opt.id)
+                                        : c.selectedOptionIds?.includes(opt.id);
+                                    return (
+                                        <button
+                                            key={opt.id}
+                                            type="button"
+                                            className={`td-clarification-option ${isSelected ? "selected" : ""}`}
+                                            disabled={!isPending}
+                                            onClick={() => {
+                                                if (!isPending) return;
+                                                updateDraft(c.id, "selectedOptions", [opt.id]);
+                                            }}
+                                        >
+                                            {opt.label}
+                                        </button>
+                                    );
+                                })}
+                            </div>
+                        )}
+
+                        {isPending && c.allowNote && (
+                            <textarea
+                                className="td-clarification-notes"
+                                placeholder="Additional notes…"
+                                value={draft.notes || ""}
+                                onChange={(e) => updateDraft(c.id, "notes", e.target.value)}
+                                rows={2}
+                            />
+                        )}
+
+                        {!isPending && c.note && (
+                            <p className="td-clarification-answer-notes">
+                                <strong>Response:</strong> {c.note}
+                            </p>
+                        )}
+
+                        {isPending && (
+                            <button
+                                type="button"
+                                className="td-clarification-submit"
+                                disabled={submitting === c.id}
+                                onClick={() => handleAnswer(c.id)}
+                            >
+                                {submitting === c.id ? "Submitting…" : "Submit Answer"}
+                            </button>
+                        )}
+                    </div>
+                );
+            })}
+        </div>
+    );
+}
+
 function TaskDetailView({
     project,
     task,
@@ -698,7 +821,9 @@ function TaskDetailView({
         editDraft.priority !== task.priority ||
         editDraft.status !== task.status ||
         editDraft.actorId !== resolvedActorId ||
-        editDraft.teamId !== (task.teamId || "");
+        editDraft.teamId !== (task.teamId || "") ||
+        editDraft.kind !== (task.kind || "") ||
+        editDraft.loopModeOverride !== (task.loopModeOverride || "");
 
     const currentStatus = TASK_STATUSES.find((s) => s.id === editDraft.status) || TASK_STATUSES[0];
     const currentPriorityLabel = TASK_PRIORITY_LABELS[editDraft.priority] || "Medium";
@@ -822,6 +947,14 @@ function TaskDetailView({
                             <span className="material-symbols-rounded td-tab-icon">rate_review</span>
                             Review
                         </button>
+                        <button
+                            type="button"
+                            className={`td-tab ${activeTab === "clarifications" ? "active" : ""}`}
+                            onClick={() => setActiveTab("clarifications")}
+                        >
+                            <span className="material-symbols-rounded td-tab-icon">help_outline</span>
+                            Clarifications
+                        </button>
                     </div>
 
                     <div className="td-tab-content">
@@ -864,6 +997,12 @@ function TaskDetailView({
                                 project={project}
                                 task={task}
                                 createModalActors={createModalActors}
+                            />
+                        )}
+                        {activeTab === "clarifications" && (
+                            <ClarificationsTab
+                                project={project}
+                                task={task}
                             />
                         )}
                     </div>
@@ -972,6 +1111,70 @@ function TaskDetailView({
                                     <span>{team.name}</span>
                                     <span className="tcm-dropdown-item-id">{team.id}</span>
                                     {editDraft.teamId === team.id && <span className="tcm-dropdown-check">✓</span>}
+                                </li>
+                            ))}
+                        </DetailDropdown>
+                    </div>
+
+                    <div className="td-prop-row">
+                        <span className="td-prop-label">Kind</span>
+                        <DetailDropdown
+                            label={TASK_KINDS.find((k) => k.id === editDraft.kind)?.title || "None"}
+                            icon="category"
+                        >
+                            <li
+                                className={`tcm-dropdown-item ${!editDraft.kind ? "selected" : ""}`}
+                                onMouseDown={(e) => {
+                                    e.preventDefault();
+                                    updateEditDraft("kind", "");
+                                }}
+                            >
+                                <span>None</span>
+                                {!editDraft.kind && <span className="tcm-dropdown-check">✓</span>}
+                            </li>
+                            {TASK_KINDS.map((kind) => (
+                                <li
+                                    key={kind.id}
+                                    className={`tcm-dropdown-item ${editDraft.kind === kind.id ? "selected" : ""}`}
+                                    onMouseDown={(e) => {
+                                        e.preventDefault();
+                                        updateEditDraft("kind", kind.id);
+                                    }}
+                                >
+                                    <span>{kind.title}</span>
+                                    {editDraft.kind === kind.id && <span className="tcm-dropdown-check">✓</span>}
+                                </li>
+                            ))}
+                        </DetailDropdown>
+                    </div>
+
+                    <div className="td-prop-row">
+                        <span className="td-prop-label">Loop mode</span>
+                        <DetailDropdown
+                            label={LOOP_MODES.find((m) => m.id === editDraft.loopModeOverride)?.title || "Project default"}
+                            icon="sync"
+                        >
+                            <li
+                                className={`tcm-dropdown-item ${!editDraft.loopModeOverride ? "selected" : ""}`}
+                                onMouseDown={(e) => {
+                                    e.preventDefault();
+                                    updateEditDraft("loopModeOverride", "");
+                                }}
+                            >
+                                <span>Project default</span>
+                                {!editDraft.loopModeOverride && <span className="tcm-dropdown-check">✓</span>}
+                            </li>
+                            {LOOP_MODES.map((mode) => (
+                                <li
+                                    key={mode.id}
+                                    className={`tcm-dropdown-item ${editDraft.loopModeOverride === mode.id ? "selected" : ""}`}
+                                    onMouseDown={(e) => {
+                                        e.preventDefault();
+                                        updateEditDraft("loopModeOverride", mode.id);
+                                    }}
+                                >
+                                    <span>{mode.title}</span>
+                                    {editDraft.loopModeOverride === mode.id && <span className="tcm-dropdown-check">✓</span>}
                                 </li>
                             ))}
                         </DetailDropdown>
@@ -1269,6 +1472,12 @@ export function ProjectTasksTab({
                                                                 </span>
                                                                 {TASK_PRIORITY_LABELS[task.priority] || "Medium"}
                                                             </span>
+                                                            {task.kind && (
+                                                                <span className="project-task-kind-badge">
+                                                                    <span className="material-symbols-rounded" aria-hidden="true">category</span>
+                                                                    {TASK_KINDS.find((k) => k.id === task.kind)?.title || task.kind}
+                                                                </span>
+                                                            )}
                                                             {task.swarmTaskId ? (
                                                                 <span className="project-task-claim-badge">
                                                                     <span className="material-symbols-rounded" aria-hidden="true">
