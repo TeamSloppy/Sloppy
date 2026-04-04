@@ -218,6 +218,7 @@ public actor CoreService {
     private var oauthModelCache: [String: ProviderModelOption] = [:]
     private var liveSessionStreamContinuations: [String: [UUID: AsyncStream<AgentSessionStreamUpdate>.Continuation]] = [:]
     private var liveSessionStreamCursor: [String: Int] = [:]
+    private var sessionExtraRoots: [String: [String]] = [:]
     public let notificationService: NotificationService
     public let pendingApprovalService: PendingApprovalService
 
@@ -339,7 +340,8 @@ public actor CoreService {
         let initialAvailableAgentModels = Self.availableAgentModels(config: config, hasOAuthCredentials: hasOAuth)
         self.acpSessionManager = ACPSessionManager(
             config: config.acp,
-            workspaceRootURL: self.workspaceRootURL
+            workspaceRootURL: self.workspaceRootURL,
+            agentsRootURL: self.agentsRootURL
         )
         self.sessionOrchestrator = AgentSessionOrchestrator(
             runtime: self.runtime,
@@ -388,7 +390,18 @@ public actor CoreService {
             }
             await self.configureToolExecutionServices()
             await self.runtime.updateWorkerExecutor(
-                ToolExecutionWorkerExecutorAdapter(toolExecutionService: self.toolExecution)
+                ToolExecutionWorkerExecutorAdapter(
+                    toolExecutionService: self.toolExecution,
+                    agentRunner: { [weak self] agentID, taskID, objective, workingDirectory in
+                        guard let self else { return nil }
+                        return await self.runAgentTask(
+                            agentID: agentID,
+                            taskID: taskID,
+                            objective: objective,
+                            workingDirectory: workingDirectory
+                        )
+                    }
+                )
             )
             await self.sessionOrchestrator.updateToolInvoker { [weak self] agentID, sessionID, request in
                 guard let self else {
@@ -1296,7 +1309,9 @@ public actor CoreService {
         }
 
         let now = Date()
-        let normalizedStatus = try normalizeTaskStatus(request.status)
+        let rawStatus = request.status?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() ?? ""
+        let resolvedStatus = ProjectTaskStatus(rawValue: rawStatus) != nil ? rawStatus : ProjectTaskStatus.backlog.rawValue
+        let normalizedStatus = try normalizeTaskStatus(resolvedStatus)
         let task = ProjectTask(
             id: nextProjectTaskID(for: project),
             title: try normalizeTaskTitle(request.title),
@@ -1383,7 +1398,17 @@ public actor CoreService {
             changedBy: changedBy
         )
 
+        let actorChanged = request.actorId != nil && oldTask.actorId != task.actorId
+        let teamChanged = request.teamId != nil && oldTask.teamId != task.teamId
+        let assigneeChangedWhileReady = (actorChanged || teamChanged)
+            && task.status == ProjectTaskStatus.ready.rawValue
+
         if previousStatus != ProjectTaskStatus.ready.rawValue, task.status == ProjectTaskStatus.ready.rawValue {
+            await handleTaskBecameReady(projectID: normalizedProject, taskID: task.id)
+            if let updated = await store.project(id: normalizedProject) {
+                return updated
+            }
+        } else if assigneeChangedWhileReady {
             await handleTaskBecameReady(projectID: normalizedProject, taskID: task.id)
             if let updated = await store.project(id: normalizedProject) {
                 return updated
@@ -1471,14 +1496,24 @@ public actor CoreService {
         }
         _ = try getAgent(id: normalizedID)
 
+        let board = try? getActorBoard()
+        let linkedActorIDs = Set(
+            (board?.nodes ?? [])
+                .filter { ($0.linkedAgentId ?? "").caseInsensitiveCompare(normalizedID) == .orderedSame }
+                .map { $0.id.lowercased() }
+        )
+
         let projects = await store.listProjects()
         var records: [AgentTaskRecord] = []
         for project in projects {
             for task in project.tasks {
-                guard let claimedAgentID = task.claimedAgentId else {
-                    continue
-                }
-                if claimedAgentID.caseInsensitiveCompare(normalizedID) == .orderedSame {
+                let claimedByAgent = task.claimedAgentId.map {
+                    $0.caseInsensitiveCompare(normalizedID) == .orderedSame
+                } ?? false
+                let assignedViaActor = task.actorId.map {
+                    linkedActorIDs.contains($0.lowercased())
+                } ?? false
+                if claimedByAgent || assignedViaActor {
                     records.append(
                         AgentTaskRecord(
                             projectId: project.id,
@@ -3263,11 +3298,16 @@ public actor CoreService {
 
         let result: ToolInvocationResult
         if authorization.allowed {
+            var effectivePolicy = authorization.policy
+            if let extraRoots = sessionExtraRoots[normalizedSessionID], !extraRoots.isEmpty {
+                effectivePolicy.guardrails.allowedExecRoots += extraRoots
+                effectivePolicy.guardrails.allowedWriteRoots += extraRoots
+            }
             result = await toolExecution.invoke(
                 agentID: normalizedAgentID,
                 sessionID: normalizedSessionID,
                 request: request,
-                policy: authorization.policy
+                policy: effectivePolicy
             )
         } else {
             result = .init(
@@ -3341,7 +3381,11 @@ public actor CoreService {
         await sessionOrchestrator.updateAgentsRootURL(agentsRootURL)
         await toolsAuthorization.updateAgentsRootURL(agentsRootURL)
         await mcpRegistry.updateConfig(config.mcp)
-        await acpSessionManager.updateConfig(config.acp, workspaceRootURL: workspaceRootURL)
+        await acpSessionManager.updateConfig(
+            config.acp,
+            workspaceRootURL: workspaceRootURL,
+            agentsRootURL: agentsRootURL
+        )
         await toolExecution.updateLSPConfig(config.lsp)
         await toolsAuthorization.invalidateCachedPolicies()
         toolExecution.updateWorkspaceRootURL(workspaceRootURL)
@@ -3747,6 +3791,8 @@ public actor CoreService {
     }
 
     private func handleTaskBecameReady(projectID: String, taskID: String) async {
+        await waitForStartup()
+
         guard var project = await store.project(id: projectID),
               let taskIndex = project.tasks.firstIndex(where: { $0.id == taskID })
         else {
@@ -3834,6 +3880,7 @@ public actor CoreService {
                 channelId: delegation.channelID,
                 title: task.title,
                 objective: workerObjective,
+                agentID: delegation.agentID,
                 tools: ["shell", "file", "exec", "browser"],
                 mode: .fireAndForget,
                 workingDirectory: worktreePath
@@ -4587,15 +4634,16 @@ public actor CoreService {
             guard !normalized.isEmpty else {
                 return
             }
-            if seen.insert(normalized).inserted {
-                actorIDs.append(normalized)
+            let resolved = resolveActorNodeID(normalized, board: board) ?? normalized
+            if seen.insert(resolved).inserted {
+                actorIDs.append(resolved)
             }
         }
 
         add(task.actorId)
 
-        if let teamID = task.teamId,
-           let team = board?.teams.first(where: { $0.id == teamID }) {
+        let resolvedTeam = task.teamId.flatMap { resolveTeam($0, board: board) }
+        if let team = resolvedTeam {
             add(task.claimedActorId)
             for memberActorID in team.memberActorIds {
                 add(memberActorID)
@@ -4604,6 +4652,31 @@ public actor CoreService {
 
         add(task.claimedActorId)
         return actorIDs
+    }
+
+    private func resolveActorNodeID(_ raw: String, board: ActorBoardSnapshot?) -> String? {
+        guard let nodes = board?.nodes, !nodes.isEmpty else {
+            return nil
+        }
+        let lower = raw.lowercased()
+        return nodes.first { node in
+            node.id == raw ||
+            node.id.lowercased() == lower ||
+            (node.linkedAgentId ?? "").lowercased() == lower ||
+            node.displayName.lowercased() == lower
+        }?.id
+    }
+
+    private func resolveTeam(_ raw: String, board: ActorBoardSnapshot?) -> ActorTeam? {
+        guard let teams = board?.teams, !teams.isEmpty else {
+            return nil
+        }
+        let lower = raw.lowercased()
+        return teams.first { team in
+            team.id == raw ||
+            team.id.lowercased() == lower ||
+            team.name.lowercased() == lower
+        }
     }
 
     private func routableActorIDs(
@@ -6399,6 +6472,65 @@ public actor CoreService {
         return targetPath
     }
 
+    private func runAgentTask(
+        agentID: String,
+        taskID: String,
+        objective: String,
+        workingDirectory: String?
+    ) async -> String? {
+        let sessionTitle = "task-\(taskID)"
+        let existingSession: AgentSessionSummary? = try? listAgentSessions(agentID: agentID)
+            .first(where: { $0.title == sessionTitle })
+
+        let session: AgentSessionSummary
+        do {
+            if let existing = existingSession {
+                session = existing
+            } else {
+                session = try await createAgentSession(
+                    agentID: agentID,
+                    request: AgentSessionCreateRequest(title: sessionTitle)
+                )
+            }
+        } catch {
+            logger.warning(
+                "task.worker.session_create_failed",
+                metadata: ["agent_id": .string(agentID), "task_id": .string(taskID), "error": .string(error.localizedDescription)]
+            )
+            return nil
+        }
+
+        if let workingDirectory {
+            var roots = [workingDirectory]
+            let repoRoot = URL(fileURLWithPath: workingDirectory)
+                .deletingLastPathComponent()
+                .deletingLastPathComponent()
+                .path
+            if !repoRoot.isEmpty {
+                roots.append(repoRoot)
+            }
+            sessionExtraRoots[session.id] = roots
+        }
+        defer { sessionExtraRoots.removeValue(forKey: session.id) }
+
+        let response: AgentSessionMessageResponse
+        do {
+            response = try await postAgentSessionMessage(
+                agentID: agentID,
+                sessionID: session.id,
+                request: AgentSessionPostMessageRequest(userId: "system_task_worker", content: objective)
+            )
+        } catch {
+            logger.warning(
+                "task.worker.session_post_failed",
+                metadata: ["agent_id": .string(agentID), "task_id": .string(taskID), "error": .string(error.localizedDescription)]
+            )
+            return nil
+        }
+
+        return latestAssistantText(from: response.appendedEvents)
+    }
+
     private func buildWorkerObjective(task: ProjectTask, projectID: String, worktreePath: String? = nil) -> String {
         var bodyLines: [String] = [
             "Task title: \(task.title)"
@@ -6415,7 +6547,12 @@ public actor CoreService {
             "- Keep completion output concise and reference produced artifact paths."
         ]
         if let worktreePath {
+            let repoRoot = URL(fileURLWithPath: worktreePath)
+                .deletingLastPathComponent()
+                .deletingLastPathComponent()
+                .path
             policyLines.append("- All code changes MUST be made inside the git worktree at: \(worktreePath)")
+            policyLines.append("- The worktree path (\(worktreePath)) and repository root (\(repoRoot)) are allowed as working directories and for all file operations (read/write/exec).")
             policyLines.append("- Commit changes to the worktree branch before completing the task.")
         }
         let objective = [

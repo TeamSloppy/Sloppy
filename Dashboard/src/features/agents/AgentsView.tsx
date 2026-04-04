@@ -22,10 +22,13 @@ import { Breadcrumbs } from "../../components/Breadcrumbs/Breadcrumbs";
 import { AgentCreateForm, emptyAgentFormValues } from "./components/AgentCreateForm";
 import { AgentGeneratePreview, type GeneratedAgentFiles } from "./components/AgentGeneratePreview";
 import { AgentPetIcon } from "./components/AgentPetSprite";
+import { AgentWorkersTab } from "./components/AgentWorkersTab";
+import { useAgentChatBackground } from "./model/useAgentChatBackground";
 
 const AGENT_TABS = [
   { id: "overview", title: "Overview" },
   { id: "chat", title: "Chat" },
+  { id: "workers", title: "Workers" },
   { id: "memories", title: "Memories" },
   { id: "tasks", title: "Tasks" },
   { id: "skills", title: "Skills" },
@@ -217,7 +220,13 @@ function AgentsIndexSection({
   );
 }
 
-export function AgentsView({ routeAgentId = null, routeTab = "overview", onRouteChange = null, onNavigateToChannelSession = null }) {
+export function AgentsView({
+  routeAgentId = null,
+  routeTab = "overview",
+  routeAgentInitialChatSessionId = null,
+  onRouteChange = null,
+  onNavigateToChannelSession = null
+}) {
   const [agents, setAgents] = useState([]);
   const [isLoadingAgents, setIsLoadingAgents] = useState(true);
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
@@ -244,6 +253,8 @@ export function AgentsView({ routeAgentId = null, routeTab = "overview", onRoute
     }
     return "overview";
   }, [activeAgent, routeTab]);
+
+  useAgentChatBackground(routeAgentId ?? "", !!routeAgentId && activeTab !== "chat");
 
   useEffect(() => {
     refreshAgents().catch(() => {
@@ -324,13 +335,19 @@ export function AgentsView({ routeAgentId = null, routeTab = "overview", onRoute
 
   function navigateToAgent(agentId, tab = "overview") {
     if (typeof onRouteChange === "function") {
-      onRouteChange(agentId, tab);
+      onRouteChange(agentId, tab, null);
+    }
+  }
+
+  function handleOpenWorkerSession(agentId: string, sessionId: string) {
+    if (typeof onRouteChange === "function") {
+      onRouteChange(agentId, "chat", sessionId);
     }
   }
 
   function navigateToAgentList() {
     if (typeof onRouteChange === "function") {
-      onRouteChange(null, null);
+      onRouteChange(null, null, null);
     }
   }
 
@@ -477,7 +494,13 @@ export function AgentsView({ routeAgentId = null, routeTab = "overview", onRoute
     }
 
     if (tab === "chat") {
-      return <AgentChatTab agentId={agent.id} />;
+      return (
+        <AgentChatTab agentId={agent.id} initialSessionId={routeAgentInitialChatSessionId} />
+      );
+    }
+
+    if (tab === "workers") {
+      return <AgentWorkersTab agentId={agent.id} onOpenWorkerSession={handleOpenWorkerSession} />;
     }
 
     if (tab === "memories") {

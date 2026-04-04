@@ -32,7 +32,7 @@ public struct AppColors: Sendable {
         accent:         .fromHex(0xFF2D6F),
         accentCyan:     .fromHex(0x00F0FF),
         accentAcid:     .fromHex(0xCDFF00),
-        textPrimary:    .fromHex(0xF0F0F0),
+        textPrimary:    .black,//.fromHex(0xF0F0F0),
         textSecondary:  .fromHex(0x777777),
         textMuted:      .fromHex(0x4A4A4A),
         border:         .fromHex(0x2A2A2A),

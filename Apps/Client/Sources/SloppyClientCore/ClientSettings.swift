@@ -8,6 +8,9 @@ public final class ClientSettings {
         static let serverHost = "client_server_host"
         static let serverPort = "client_server_port"
         static let accentColorHex = "client_accent_color_hex"
+        static let lastAgentId = "client_last_agent_id"
+        static let lastSessionId = "client_last_session_id"
+        static let savedServers = "client_saved_servers"
     }
 
     public var serverHost: String {
@@ -22,8 +25,28 @@ public final class ClientSettings {
         didSet { UserDefaults.standard.set(accentColorHex, forKey: Keys.accentColorHex) }
     }
 
+    public var lastAgentId: String? {
+        didSet { UserDefaults.standard.set(lastAgentId, forKey: Keys.lastAgentId) }
+    }
+
+    public var lastSessionId: String? {
+        didSet { UserDefaults.standard.set(lastSessionId, forKey: Keys.lastSessionId) }
+    }
+
+    public var savedServers: [SavedServer] {
+        didSet {
+            if let data = try? JSONEncoder().encode(savedServers) {
+                UserDefaults.standard.set(data, forKey: Keys.savedServers)
+            }
+        }
+    }
+
     public var baseURL: URL {
         URL(string: "http://\(serverHost):\(serverPort)") ?? URL(string: "http://localhost:25101")!
+    }
+
+    public var activeServer: SavedServer? {
+        savedServers.first { $0.host == serverHost && $0.port == serverPort }
     }
 
     public init() {
@@ -31,6 +54,23 @@ public final class ClientSettings {
         serverHost = defaults.string(forKey: Keys.serverHost) ?? "localhost"
         serverPort = defaults.integer(forKey: Keys.serverPort).nonZero ?? 25101
         accentColorHex = defaults.string(forKey: Keys.accentColorHex) ?? "#FF2D6F"
+        lastAgentId = defaults.string(forKey: Keys.lastAgentId)
+        lastSessionId = defaults.string(forKey: Keys.lastSessionId)
+
+        if let data = defaults.data(forKey: Keys.savedServers),
+           let servers = try? JSONDecoder().decode([SavedServer].self, from: data) {
+            savedServers = servers
+        } else {
+            savedServers = []
+        }
+    }
+
+    public func useServer(_ server: SavedServer) {
+        serverHost = server.host
+        serverPort = server.port
+        if !savedServers.contains(where: { $0.id == server.id }) {
+            savedServers.append(server)
+        }
     }
 }
 

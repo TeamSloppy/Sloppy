@@ -75,6 +75,9 @@ export function ProjectSettingsTab({
     const [actorSearch, setActorSearch] = useState("");
     const [actorDropdownOpen, setActorDropdownOpen] = useState(false);
     const actorSearchRef = useRef(null);
+    const [teamSearch, setTeamSearch] = useState("");
+    const [teamDropdownOpen, setTeamDropdownOpen] = useState(false);
+    const teamSearchRef = useRef(null);
 
     useEffect(() => {
         setDraft(cloneDraft(project));
@@ -257,12 +260,19 @@ export function ProjectSettingsTab({
         const projectActors = draft.actors;
         const projectTeams = draft.teams;
 
-        const q = actorSearch.trim().toLowerCase();
+        const actorQ = actorSearch.trim().toLowerCase();
         const filteredActors = availableActors.filter(
             (node) =>
-                node.displayName.toLowerCase().includes(q) || node.id.toLowerCase().includes(q)
+                node.displayName.toLowerCase().includes(actorQ) || node.id.toLowerCase().includes(actorQ)
         );
-        const listToShow = q && filteredActors.length > 0 ? filteredActors : availableActors;
+        const actorsToShow = actorQ && filteredActors.length > 0 ? filteredActors : availableActors;
+
+        const teamQ = teamSearch.trim().toLowerCase();
+        const filteredTeams = availableTeams.filter(
+            (team) =>
+                team.name.toLowerCase().includes(teamQ) || team.id.toLowerCase().includes(teamQ)
+        );
+        const teamsToShow = teamQ && filteredTeams.length > 0 ? filteredTeams : availableTeams;
 
         function addActor(node) {
             mutateDraft((d) => {
@@ -277,6 +287,15 @@ export function ProjectSettingsTab({
             mutateDraft((d) => {
                 d.actors = d.actors.filter((a) => a !== actorName);
             });
+        }
+
+        function addTeam(team) {
+            mutateDraft((d) => {
+                if (!d.teams.includes(team.name)) {
+                    d.teams.push(team.name);
+                }
+            });
+            setTeamSearch("");
         }
 
         function removeTeam(teamName) {
@@ -309,10 +328,10 @@ export function ProjectSettingsTab({
                         />
                         {actorDropdownOpen && (
                             <ul className="actor-team-dropdown">
-                                {listToShow.length === 0 ? (
+                                {actorsToShow.length === 0 ? (
                                     <li className="actor-team-dropdown-empty">No actors available</li>
                                 ) : (
-                                    listToShow.map((node) => {
+                                    actorsToShow.map((node) => {
                                         const isSelected = projectActors.includes(node.displayName);
                                         return (
                                             <li
@@ -362,32 +381,87 @@ export function ProjectSettingsTab({
                     </div>
                 )}
 
-                {projectTeams.length > 0 && (
-                    <>
-                        <h3 style={{ marginTop: 24 }}>Teams</h3>
-                        <div className="project-created-list" style={{ marginTop: 8 }}>
-                            {projectTeams.map((teamName) => (
-                                <article key={teamName} className="project-created-item" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                                        <span className="material-symbols-rounded" style={{ fontSize: "1.1rem", color: "var(--accent)" }}>groups</span>
-                                        <strong>{teamName}</strong>
-                                    </div>
-                                    <button
-                                        type="button"
-                                        className="agent-channel-remove"
-                                        style={{ color: "var(--warn)", border: "none", background: "transparent", cursor: "pointer", padding: "4px" }}
-                                        onClick={() => removeTeam(teamName)}
-                                    >
-                                        <span className="material-symbols-rounded">close</span>
-                                    </button>
-                                </article>
-                            ))}
-                        </div>
-                    </>
+                {projectActors.length === 0 && (
+                    <p className="placeholder-text" style={{ marginTop: 12 }}>No actors assigned to this project.</p>
                 )}
 
-                {projectActors.length === 0 && projectTeams.length === 0 && (
-                    <p className="placeholder-text" style={{ marginTop: 12 }}>No actors or teams assigned to this project.</p>
+                <h3 style={{ marginTop: 24 }}>Teams</h3>
+                <p style={{ margin: "0 0 12px", fontSize: "0.85rem", color: "var(--muted)" }}>
+                    Assign entire teams to this project. All members of the team will be able to work within this project scope.
+                </p>
+
+                <div className="actor-team-members-picker">
+                    <div className="actor-team-search-wrap">
+                        <input
+                            ref={teamSearchRef}
+                            className="actor-team-search"
+                            value={teamSearch}
+                            onChange={(e) => {
+                                setTeamSearch(e.target.value);
+                                setTeamDropdownOpen(true);
+                            }}
+                            onFocus={() => setTeamDropdownOpen(true)}
+                            onBlur={() => setTimeout(() => setTeamDropdownOpen(false), 150)}
+                            placeholder="Search teams…"
+                            autoComplete="off"
+                        />
+                        {teamDropdownOpen && (
+                            <ul className="actor-team-dropdown">
+                                {teamsToShow.length === 0 ? (
+                                    <li className="actor-team-dropdown-empty">No teams available</li>
+                                ) : (
+                                    teamsToShow.map((team) => {
+                                        const isSelected = projectTeams.includes(team.name);
+                                        return (
+                                            <li
+                                                key={team.id}
+                                                className={`actor-team-dropdown-item ${isSelected ? "selected" : ""}`}
+                                                onMouseDown={(e) => {
+                                                    e.preventDefault();
+                                                    if (isSelected) {
+                                                        removeTeam(team.name);
+                                                    } else {
+                                                        addTeam(team);
+                                                    }
+                                                }}
+                                            >
+                                                <span className="actor-team-dropdown-name">{team.name}</span>
+                                                <span className="actor-team-dropdown-id">{team.id}</span>
+                                                {isSelected && (
+                                                    <span className="actor-team-dropdown-check">✓</span>
+                                                )}
+                                            </li>
+                                        );
+                                    })
+                                )}
+                            </ul>
+                        )}
+                    </div>
+                </div>
+
+                {projectTeams.length > 0 && (
+                    <div className="project-created-list" style={{ marginTop: 16 }}>
+                        {projectTeams.map((teamName) => (
+                            <article key={teamName} className="project-created-item" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                                    <span className="material-symbols-rounded" style={{ fontSize: "1.1rem", color: "var(--accent)" }}>groups</span>
+                                    <strong>{teamName}</strong>
+                                </div>
+                                <button
+                                    type="button"
+                                    className="agent-channel-remove"
+                                    style={{ color: "var(--warn)", border: "none", background: "transparent", cursor: "pointer", padding: "4px" }}
+                                    onClick={() => removeTeam(teamName)}
+                                >
+                                    <span className="material-symbols-rounded">close</span>
+                                </button>
+                            </article>
+                        ))}
+                    </div>
+                )}
+
+                {projectTeams.length === 0 && (
+                    <p className="placeholder-text" style={{ marginTop: 12 }}>No teams assigned to this project.</p>
                 )}
             </section>
         );

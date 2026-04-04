@@ -14,7 +14,7 @@ struct ProjectTaskCancelTool: CoreTool {
             .init(name: "taskId", description: "Task ID to cancel", schema: DynamicGenerationSchema(type: String.self), isOptional: true),
             .init(name: "reference", description: "Task reference (alternative to taskId)", schema: DynamicGenerationSchema(type: String.self), isOptional: true),
             .init(name: "reason", description: "Cancellation reason", schema: DynamicGenerationSchema(type: String.self), isOptional: true),
-            .init(name: "projectId", description: "Project ID (use instead of channelId when known)", schema: DynamicGenerationSchema(type: String.self), isOptional: true),
+            .init(name: "projectId", description: "Project ID (e.g. 'sloppy'), NOT a task ID like 'SLOPPY-4'. Use instead of channelId when known.", schema: DynamicGenerationSchema(type: String.self), isOptional: true),
             .init(name: "channelId", description: "Channel ID (defaults to current session)", schema: DynamicGenerationSchema(type: String.self), isOptional: true),
             .init(name: "topicId", description: "Optional topic scoping", schema: DynamicGenerationSchema(type: String.self), isOptional: true)
         ])

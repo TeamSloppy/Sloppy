@@ -2,22 +2,31 @@ import AgentRuntime
 import Foundation
 import Protocols
 
-/// Bridge executor that allows sloppy to plug worker execution into ToolExecutionService.
-/// Current implementation preserves existing behavior via DefaultWorkerExecutor fallback.
+/// Bridge executor that plugs worker execution into the agent session orchestrator.
+/// When the worker spec carries an agentID, execution is delegated to the agent runner closure
+/// which creates a dedicated session, posts the task objective, and returns the assistant response.
+/// Workers without an agentID fall back to DefaultWorkerExecutor.
 final class ToolExecutionWorkerExecutorAdapter: @unchecked Sendable, WorkerExecutor {
-    private let toolExecutionService: ToolExecutionService
+    typealias AgentRunner = @Sendable (_ agentID: String, _ taskID: String, _ objective: String, _ workingDirectory: String?) async -> String?
+
     private let fallback: any WorkerExecutor
+    private let agentRunner: AgentRunner?
 
     init(
         toolExecutionService: ToolExecutionService,
-        fallback: any WorkerExecutor = DefaultWorkerExecutor()
+        fallback: any WorkerExecutor = DefaultWorkerExecutor(),
+        agentRunner: AgentRunner? = nil
     ) {
-        self.toolExecutionService = toolExecutionService
+        _ = toolExecutionService
         self.fallback = fallback
+        self.agentRunner = agentRunner
     }
 
     func execute(workerId: String, spec: WorkerTaskSpec) async throws -> WorkerExecutionResult {
-        _ = toolExecutionService
+        if let agentID = spec.agentID, let runner = agentRunner {
+            let result = await runner(agentID, spec.taskId, spec.objective, spec.workingDirectory)
+            return .completed(summary: result ?? spec.objective)
+        }
         return try await fallback.execute(workerId: workerId, spec: spec)
     }
 

@@ -16,7 +16,7 @@ interface DashboardRouteController {
   setSection: (section: string) => void;
   setConfigSection: (sectionId: string | null) => void;
   setProjectRoute: (projectId: string | null, projectTab?: string | null, projectTaskReference?: string | null) => void;
-  setAgentRoute: (agentId: string | null, agentTab?: string | null) => void;
+  setAgentRoute: (agentId: string | null, agentTab?: string | null, initialChatSessionId?: string | null) => void;
   setSessionRoute: (sessionId: string | null) => void;
 }
 
@@ -35,6 +35,7 @@ export function useDashboardRoute(): DashboardRouteController {
   }, [
     route.agentId,
     route.agentTab,
+    route.agentInitialChatSessionId,
     route.configSection,
     route.projectId,
     route.projectTab,
@@ -48,7 +49,8 @@ export function useDashboardRoute(): DashboardRouteController {
     const nextSection = normalizeTopLevelSection(String(section || "").trim());
     setRoute((current) => ({
       ...current,
-      section: nextSection
+      section: nextSection,
+      agentInitialChatSessionId: nextSection === "agents" ? current.agentInitialChatSessionId : null
     }));
   }, []);
 
@@ -74,25 +76,31 @@ export function useDashboardRoute(): DashboardRouteController {
         section: "projects",
         projectId: normalizedProjectID,
         projectTab: normalizedProjectTab,
-        projectTaskReference: normalizedTaskReference
+        projectTaskReference: normalizedTaskReference,
+        agentInitialChatSessionId: null
       }));
     },
     []
   );
 
-  const setAgentRoute = useCallback((agentId: string | null, agentTab: string | null = DEFAULT_AGENT_TAB) => {
-    const normalizedAgentID = typeof agentId === "string" && agentId.trim().length > 0 ? agentId : null;
-    const normalizedAgentTab = normalizedAgentID
-      ? normalizeAgentTab(String(agentTab || DEFAULT_AGENT_TAB).toLowerCase())
-      : null;
+  const setAgentRoute = useCallback(
+    (agentId: string | null, agentTab: string | null = DEFAULT_AGENT_TAB, initialChatSessionId: string | null = null) => {
+      const normalizedAgentID = typeof agentId === "string" && agentId.trim().length > 0 ? agentId : null;
+      const normalizedAgentTab = normalizedAgentID
+        ? normalizeAgentTab(String(agentTab || DEFAULT_AGENT_TAB).toLowerCase())
+        : null;
 
-    setRoute((current) => ({
-      ...current,
-      section: "agents",
-      agentId: normalizedAgentID,
-      agentTab: normalizedAgentTab
-    }));
-  }, []);
+      setRoute((current) => ({
+        ...current,
+        section: "agents",
+        agentId: normalizedAgentID,
+        agentTab: normalizedAgentTab,
+        agentInitialChatSessionId:
+          normalizedAgentID && normalizedAgentTab === "chat" ? initialChatSessionId : null
+      }));
+    },
+    []
+  );
 
   const setSessionRoute = useCallback((sessionId: string | null) => {
     const normalizedSessionID = typeof sessionId === "string" && sessionId.trim().length > 0 ? sessionId : null;
@@ -101,7 +109,8 @@ export function useDashboardRoute(): DashboardRouteController {
       ...current,
       section: "sessions",
       sessionAgentId: null,
-      sessionId: normalizedSessionID
+      sessionId: normalizedSessionID,
+      agentInitialChatSessionId: null
     }));
   }, []);
 

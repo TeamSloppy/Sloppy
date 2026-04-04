@@ -12,9 +12,9 @@ struct RuntimeExecTool: CoreTool {
 
     var parameters: GenerationSchema {
         .objectSchema([
-            .init(name: "command", description: "Command to execute", schema: DynamicGenerationSchema(type: String.self)),
-            .init(name: "arguments", description: "Command arguments", schema: DynamicGenerationSchema(arrayOf: DynamicGenerationSchema(type: String.self)), isOptional: true),
-            .init(name: "cwd", description: "Working directory", schema: DynamicGenerationSchema(type: String.self), isOptional: true),
+            .init(name: "command", description: "Executable name or path (e.g. 'bash', '/bin/ls', 'git'). Do NOT repeat the command name in arguments.", schema: DynamicGenerationSchema(type: String.self)),
+            .init(name: "arguments", description: "Array of arguments passed to the command (argv). For shell one-liners use command='bash' arguments=['-lc', 'your command here']. Do NOT include the command name itself.", schema: DynamicGenerationSchema(arrayOf: DynamicGenerationSchema(type: String.self)), isOptional: true),
+            .init(name: "cwd", description: "Working directory (absolute path or relative to workspace root). Defaults to workspace root if omitted.", schema: DynamicGenerationSchema(type: String.self), isOptional: true),
             .init(name: "timeoutMs", description: "Timeout in milliseconds", schema: DynamicGenerationSchema(type: Int.self), isOptional: true)
         ])
     }

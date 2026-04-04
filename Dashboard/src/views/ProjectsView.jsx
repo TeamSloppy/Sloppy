@@ -10,7 +10,8 @@ import {
   deleteProjectChannel as deleteProjectChannelRequest,
   createProjectTask as createProjectTaskRequest,
   updateProjectTask as updateProjectTaskRequest,
-  deleteProjectTask as deleteProjectTaskRequest
+  deleteProjectTask as deleteProjectTaskRequest,
+  fetchAgentSessions
 } from "../api";
 import { Breadcrumbs } from "../components/Breadcrumbs/Breadcrumbs";
 
@@ -42,7 +43,8 @@ import {
   displayNameToProjectId,
   parseListInput,
   buildProjectChannels,
-  emptyProjectDraft
+  emptyProjectDraft,
+  parseAgentWorkerChannelId
 } from "./Projects/utils";
 import { ProjectOverviewTab } from "./Projects/ProjectOverviewTab";
 import { ProjectTasksTab } from "./Projects/ProjectTasksTab";
@@ -728,7 +730,8 @@ export function ProjectsView({
   routeProjectTab = "overview",
   routeProjectTaskReference = null,
   onRouteProjectChange = () => { },
-  onNavigateToChannelSession = (_sessionId) => { }
+  onNavigateToChannelSession = (_sessionId) => { },
+  onNavigateToAgentChatSession = null
 }) {
   const [projects, setProjects] = useState([]);
   const [isLoadingProjects, setIsLoadingProjects] = useState(true);
@@ -1017,6 +1020,31 @@ export function ProjectsView({
   function closeReview() {
     if (!selectedProject) return;
     onRouteProjectChange(selectedProject.id, "tasks", null);
+  }
+
+  async function watchAgentTaskSession(project, task, channelId) {
+    const parsed = parseAgentWorkerChannelId(channelId);
+    if (!parsed?.agentId) {
+      return;
+    }
+    let sessionId = parsed.sessionId;
+    if (!sessionId) {
+      try {
+        const sessions = await fetchAgentSessions(parsed.agentId);
+        const title = `task-comment:${project.id}:${task.id}`;
+        const match = Array.isArray(sessions) ? sessions.find((s) => String(s.title || "") === title) : null;
+        sessionId = match?.id ? String(match.id) : null;
+      } catch {
+        sessionId = null;
+      }
+    }
+    if (!sessionId) {
+      setStatusText("No agent task session found for this task yet.");
+      return;
+    }
+    if (typeof onNavigateToAgentChatSession === "function") {
+      onNavigateToAgentChatSession(parsed.agentId, sessionId);
+    }
   }
 
   function openCreateProjectModal() {
@@ -1512,6 +1540,8 @@ export function ProjectsView({
           createModalActors={createModalActors}
           createModalTeams={createModalTeams}
           onOpenReview={openReview}
+          workers={workers}
+          onWatchAgentTaskSession={watchAgentTaskSession}
         />
       );
     }

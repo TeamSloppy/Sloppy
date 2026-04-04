@@ -225,6 +225,7 @@ public struct WorkerTaskSpec: Codable, Sendable, Equatable {
     public var channelId: String
     public var title: String
     public var objective: String
+    public var agentID: String?
     public var tools: [String]
     public var mode: WorkerMode
     public var workingDirectory: String?
@@ -234,6 +235,7 @@ public struct WorkerTaskSpec: Codable, Sendable, Equatable {
         channelId: String,
         title: String,
         objective: String,
+        agentID: String? = nil,
         tools: [String],
         mode: WorkerMode,
         workingDirectory: String? = nil
@@ -242,6 +244,7 @@ public struct WorkerTaskSpec: Codable, Sendable, Equatable {
         self.channelId = channelId
         self.title = title
         self.objective = objective
+        self.agentID = agentID
         self.tools = tools
         self.mode = mode
         self.workingDirectory = workingDirectory

@@ -212,6 +212,30 @@ export function resolveTaskByReference(projectId, tasks, taskReference) {
   return null;
 }
 
+const AGENT_CHANNEL_PREFIX = "agent:";
+const AGENT_SESSION_MARKER = ":session:";
+
+export function parseAgentWorkerChannelId(channelId) {
+  const raw = String(channelId || "").trim();
+  if (!raw.startsWith(AGENT_CHANNEL_PREFIX)) {
+    return null;
+  }
+  const sessionIdx = raw.indexOf(AGENT_SESSION_MARKER);
+  if (sessionIdx >= 0) {
+    const agentId = raw.slice(AGENT_CHANNEL_PREFIX.length, sessionIdx);
+    const sessionId = raw.slice(sessionIdx + AGENT_SESSION_MARKER.length);
+    if (agentId && sessionId) {
+      return { agentId, sessionId };
+    }
+    return null;
+  }
+  const agentId = raw.slice(AGENT_CHANNEL_PREFIX.length);
+  if (agentId) {
+    return { agentId, sessionId: null };
+  }
+  return null;
+}
+
 export function workersForProject(project, workers) {
   if (!project) {
     return [];

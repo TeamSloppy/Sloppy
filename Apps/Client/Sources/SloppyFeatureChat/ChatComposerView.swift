@@ -1,19 +1,25 @@
 import AdaEngine
 import SloppyClientUI
 
-struct ChatComposerView: View {
+public struct ChatComposerView: View {
     @State private var text: String = ""
     @Environment(\.theme) private var theme
-    let onSend: (String) -> Void
+    public let agentName: String
+    public let onSend: (String) -> Void
 
-    var body: some View {
+    public init(agentName: String = "Agent", onSend: @escaping (String) -> Void) {
+        self.agentName = agentName
+        self.onSend = onSend
+    }
+
+    public var body: some View {
         let c = theme.colors
         let sp = theme.spacing
         let bo = theme.borders
         let ty = theme.typography
 
         return HStack(spacing: sp.s) {
-            TextField("Message...", text: $text)
+            TextField("Chat with \(agentName)...", text: $text)
                 .font(.system(size: ty.body))
                 .foregroundColor(c.textPrimary)
                 .padding(sp.s)

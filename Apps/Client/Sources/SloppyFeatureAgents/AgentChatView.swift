@@ -1,6 +1,7 @@
 import AdaEngine
 import SloppyClientCore
 import SloppyClientUI
+import SloppyFeatureChat
 
 struct AgentChatView: View {
     let agent: APIAgentRecord
@@ -219,7 +220,7 @@ struct ChatTranscriptView: View {
                 .padding(sp.m)
             }
 
-            ChatComposerView { content in
+            ChatComposerView(agentName: agentId) { content in
                 onSend(content)
             }
         }

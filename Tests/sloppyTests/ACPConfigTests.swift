@@ -49,7 +49,8 @@ func acpConfigDecodesTargetsFromJSON() throws {
                 "cwd": "/tmp/workspace",
                 "environment": { "ANTHROPIC_API_KEY": "sk-test" },
                 "timeoutMs": 60000,
-                "enabled": true
+                "enabled": true,
+                "permissionMode": "allow_once"
               }
             ]
           }
@@ -70,6 +71,7 @@ func acpConfigDecodesTargetsFromJSON() throws {
     #expect(target.environment["ANTHROPIC_API_KEY"] == "sk-test")
     #expect(target.timeoutMs == 60000)
     #expect(target.enabled == true)
+    #expect(target.permissionMode == .allowOnce)
 }
 
 @Test
@@ -92,6 +94,9 @@ func acpTargetDecodesWithMinimalFields() throws {
     #expect(decoded.environment.isEmpty)
     #expect(decoded.timeoutMs == 30_000)
     #expect(decoded.enabled == true)
+    #expect(decoded.permissionMode == .allowOnce)
+    #expect(decoded.strictHostKeyChecking == true)
+    #expect(decoded.headers.isEmpty)
 }
 
 @Test
@@ -108,7 +113,8 @@ func acpConfigRoundTrips() throws {
                 cwd: "/tmp/test",
                 environment: ["KEY": "VALUE"],
                 timeoutMs: 45_000,
-                enabled: true
+                enabled: true,
+                permissionMode: .allowOnce
             )
         ]
     )
@@ -119,4 +125,52 @@ func acpConfigRoundTrips() throws {
     let decoded = try JSONDecoder().decode(CoreConfig.ACP.self, from: data)
 
     #expect(decoded == original)
+}
+
+@Test
+func acpConfigDecodesSSHAndWebSocketTargets() throws {
+    let json =
+        """
+        {
+          "enabled": true,
+          "targets": [
+            {
+              "id": "ssh-agent",
+              "title": "SSH Agent",
+              "transport": "ssh",
+              "host": "example.com",
+              "user": "deploy",
+              "port": 2222,
+              "identityFile": "~/.ssh/id_ed25519",
+              "strictHostKeyChecking": false,
+              "remoteCommand": "/usr/local/bin/agent",
+              "cwd": "/srv/app",
+              "timeoutMs": 5000,
+              "enabled": true,
+              "permissionMode": "deny"
+            },
+            {
+              "id": "ws-agent",
+              "title": "WS Agent",
+              "transport": "websocket",
+              "url": "wss://agent.example/ws",
+              "headers": { "Authorization": "Bearer token" },
+              "cwd": "/workspace",
+              "timeoutMs": 4000,
+              "enabled": true
+            }
+          ]
+        }
+        """
+
+    let decoded = try JSONDecoder().decode(CoreConfig.ACP.self, from: Data(json.utf8))
+    #expect(decoded.targets.count == 2)
+    #expect(decoded.targets[0].transport == .ssh)
+    #expect(decoded.targets[0].host == "example.com")
+    #expect(decoded.targets[0].remoteCommand == "/usr/local/bin/agent")
+    #expect(decoded.targets[0].permissionMode == .deny)
+    #expect(decoded.targets[1].transport == .websocket)
+    #expect(decoded.targets[1].url == "wss://agent.example/ws")
+    #expect(decoded.targets[1].headers["Authorization"] == "Bearer token")
+    #expect(decoded.targets[1].permissionMode == .allowOnce)
 }

@@ -14,7 +14,7 @@ site/
 /memory/
 .env
 .sloppy/
-.sloppy_stable/
+.sloppy-worktrees/
 
 # Tuist
 Derived/
