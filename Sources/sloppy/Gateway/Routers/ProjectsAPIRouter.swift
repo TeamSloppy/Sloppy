@@ -299,6 +299,63 @@ struct ProjectsAPIRouter: APIRouter {
             return CoreRouter.json(status: HTTPStatus.notFound, payload: ["error": "Comment not found"])
         }
 
+        // MARK: - Task Clarifications
+
+        router.get("/v1/projects/:projectId/tasks/:taskId/clarifications", metadata: RouteMetadata(summary: "List task clarifications", description: "Returns all clarification requests for a task", tags: ["Projects"])) { request in
+            let projectId = request.pathParam("projectId") ?? ""
+            let taskId = request.pathParam("taskId") ?? ""
+            do {
+                let records = try await service.listTaskClarifications(projectID: projectId, taskID: taskId)
+                return CoreRouter.encodable(status: HTTPStatus.ok, payload: records)
+            } catch let error as CoreService.ProjectError {
+                return CoreRouter.projectErrorResponse(error, fallback: ErrorCode.projectReadFailed)
+            } catch {
+                return CoreRouter.json(status: HTTPStatus.internalServerError, payload: ["error": ErrorCode.projectReadFailed])
+            }
+        }
+
+        router.post("/v1/projects/:projectId/tasks/:taskId/clarifications", metadata: RouteMetadata(summary: "Create clarification request", description: "Creates a new clarification request for a task and moves it to waiting_input", tags: ["Projects"])) { request in
+            let projectId = request.pathParam("projectId") ?? ""
+            let taskId = request.pathParam("taskId") ?? ""
+            guard let body = request.body,
+                  let payload = CoreRouter.decode(body, as: TaskClarificationCreateRequest.self)
+            else {
+                return CoreRouter.json(status: HTTPStatus.badRequest, payload: ["error": ErrorCode.invalidBody])
+            }
+            do {
+                let record = try await service.createTaskClarification(projectID: projectId, taskID: taskId, request: payload)
+                return CoreRouter.encodable(status: HTTPStatus.created, payload: record)
+            } catch let error as CoreService.ProjectError {
+                return CoreRouter.projectErrorResponse(error, fallback: ErrorCode.projectUpdateFailed)
+            } catch {
+                return CoreRouter.json(status: HTTPStatus.internalServerError, payload: ["error": ErrorCode.projectUpdateFailed])
+            }
+        }
+
+        router.post("/v1/projects/:projectId/tasks/:taskId/clarifications/:clarificationId/answer", metadata: RouteMetadata(summary: "Answer clarification", description: "Submits an answer to a pending clarification request", tags: ["Projects"])) { request in
+            let projectId = request.pathParam("projectId") ?? ""
+            let taskId = request.pathParam("taskId") ?? ""
+            let clarificationId = request.pathParam("clarificationId") ?? ""
+            guard let body = request.body,
+                  let payload = CoreRouter.decode(body, as: TaskClarificationAnswerRequest.self)
+            else {
+                return CoreRouter.json(status: HTTPStatus.badRequest, payload: ["error": ErrorCode.invalidBody])
+            }
+            do {
+                let record = try await service.answerTaskClarification(
+                    projectID: projectId,
+                    taskID: taskId,
+                    clarificationID: clarificationId,
+                    request: payload
+                )
+                return CoreRouter.encodable(status: HTTPStatus.ok, payload: record)
+            } catch let error as CoreService.ProjectError {
+                return CoreRouter.projectErrorResponse(error, fallback: ErrorCode.projectUpdateFailed)
+            } catch {
+                return CoreRouter.json(status: HTTPStatus.internalServerError, payload: ["error": ErrorCode.projectUpdateFailed])
+            }
+        }
+
         router.get("/v1/projects/:projectId/tasks/:taskId/activities", metadata: RouteMetadata(summary: "List task activities", description: "Returns the activity history for a task", tags: ["Projects"])) { request in
             let projectId = request.pathParam("projectId") ?? ""
             let taskId = request.pathParam("taskId") ?? ""

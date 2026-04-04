@@ -45,6 +45,10 @@ targets:
         CFBundleVersion: "1"
         NSPrincipalClass: NSApplication
         NSHighResolutionCapable: true
+        CFBundleURLTypes:
+          - CFBundleURLName: team.sloppy.client
+            CFBundleURLSchemes:
+              - sloppy
     entitlements:
       path: SupportingFiles/macOS/SloppyClient.entitlements
       properties:
@@ -93,6 +97,10 @@ targets:
           - UIInterfaceOrientationPortrait
           - UIInterfaceOrientationLandscapeLeft
           - UIInterfaceOrientationLandscapeRight
+        CFBundleURLTypes:
+          - CFBundleURLName: team.sloppy.client
+            CFBundleURLSchemes:
+              - sloppy
     entitlements:
       path: SupportingFiles/iOS/SloppyClient-iOS.entitlements
       properties:
@@ -144,6 +152,10 @@ targets:
           - UIInterfaceOrientationPortraitUpsideDown
           - UIInterfaceOrientationLandscapeLeft
           - UIInterfaceOrientationLandscapeRight
+        CFBundleURLTypes:
+          - CFBundleURLName: team.sloppy.client
+            CFBundleURLSchemes:
+              - sloppy
     entitlements:
       path: SupportingFiles/iOS/SloppyClient-iPadOS.entitlements
       properties:
@@ -184,6 +196,10 @@ targets:
         CFBundleShortVersionString: "0.1.0"
         CFBundleVersion: "1"
         UILaunchScreen: {}
+        CFBundleURLTypes:
+          - CFBundleURLName: team.sloppy.client
+            CFBundleURLSchemes:
+              - sloppy
     entitlements:
       path: SupportingFiles/visionOS/SloppyClient-visionOS.entitlements
       properties:

@@ -591,7 +591,7 @@ public actor CoreService {
 
         let trimmedContent = request.content.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmedContent.lowercased() == "/abort" {
-            let cancelled = await runtime.abortChannel(channelId: channelId)
+            let cancelled = await runtime.abortChannel(channelId: channelId, reason: "Aborted by user")
             let reason = cancelled > 0
                 ? "Aborted \(cancelled) active worker(s)."
                 : "No active workers to abort."
@@ -619,7 +619,7 @@ public actor CoreService {
         await waitForStartup()
         switch action {
         case .interrupt:
-            let cancelled = await runtime.abortChannel(channelId: channelId)
+            let cancelled = await runtime.abortChannel(channelId: channelId, reason: "Interrupted by user")
             return ChannelControlResponse(
                 channelId: channelId,
                 action: action,
@@ -1213,6 +1213,9 @@ public actor CoreService {
         if let nextReviewSettings = request.reviewSettings {
             project.reviewSettings = nextReviewSettings
         }
+        if let nextLoopMode = request.taskLoopMode {
+            project.taskLoopMode = nextLoopMode
+        }
         if let nextArchived = request.isArchived {
             project.isArchived = nextArchived
         }
@@ -1318,6 +1321,10 @@ public actor CoreService {
             description: normalizeTaskDescription(request.description),
             priority: try normalizeTaskPriority(request.priority),
             status: normalizedStatus,
+            kind: request.kind,
+            loopModeOverride: request.loopModeOverride,
+            originType: request.originType,
+            originChannelId: request.originChannelId,
             actorId: try normalizeOptionalTaskActorID(request.actorId),
             teamId: try normalizeOptionalTaskTeamID(request.teamId),
             createdAt: now,
@@ -1376,6 +1383,12 @@ public actor CoreService {
             task.teamId = try normalizeOptionalTaskTeamID(request.teamId)
             task.claimedActorId = nil
             task.claimedAgentId = nil
+        }
+        if let kind = request.kind {
+            task.kind = kind
+        }
+        if request.loopModeOverride != nil {
+            task.loopModeOverride = request.loopModeOverride
         }
         if let status = request.status {
             task.status = try normalizeTaskStatus(status)
@@ -1460,6 +1473,133 @@ public actor CoreService {
         }
 
         throw ProjectError.notFound
+    }
+
+    // MARK: - Task Clarifications
+
+    public func listTaskClarifications(projectID: String, taskID: String) async throws -> [TaskClarificationRecord] {
+        guard let normalizedProject = normalizedProjectID(projectID) else {
+            throw ProjectError.invalidProjectID
+        }
+        guard let normalizedTask = normalizedEntityID(taskID) else {
+            throw ProjectError.invalidTaskID
+        }
+        guard let project = await store.project(id: normalizedProject) else {
+            throw ProjectError.notFound
+        }
+        let normalizedTaskLowercased = normalizedTask.lowercased()
+        guard project.tasks.contains(where: { $0.id.lowercased() == normalizedTaskLowercased }) else {
+            throw ProjectError.notFound
+        }
+        return await store.listClarifications(projectId: normalizedProject, taskId: normalizedTask)
+    }
+
+    public func createTaskClarification(
+        projectID: String,
+        taskID: String,
+        request: TaskClarificationCreateRequest
+    ) async throws -> TaskClarificationRecord {
+        guard let normalizedProject = normalizedProjectID(projectID) else {
+            throw ProjectError.invalidProjectID
+        }
+        guard let normalizedTask = normalizedEntityID(taskID) else {
+            throw ProjectError.invalidTaskID
+        }
+        guard var project = await store.project(id: normalizedProject) else {
+            throw ProjectError.notFound
+        }
+        let normalizedTaskLowercased = normalizedTask.lowercased()
+        guard let taskIndex = project.tasks.firstIndex(where: { $0.id.lowercased() == normalizedTaskLowercased }) else {
+            throw ProjectError.notFound
+        }
+
+        let task = project.tasks[taskIndex]
+        let effectiveLoopMode = task.loopModeOverride ?? project.taskLoopMode
+        let targetType: ClarificationTargetType
+        switch effectiveLoopMode {
+        case .human:
+            if task.originType == .channel, let _ = task.originChannelId {
+                targetType = .channel
+            } else {
+                targetType = .human
+            }
+        case .agent:
+            targetType = .actor
+        }
+
+        let now = Date()
+        let record = TaskClarificationRecord(
+            id: UUID().uuidString,
+            projectId: normalizedProject,
+            taskId: project.tasks[taskIndex].id,
+            status: .pending,
+            targetType: targetType,
+            targetActorId: nil,
+            targetChannelId: (targetType == .channel) ? task.originChannelId : nil,
+            questionText: request.questionText.trimmingCharacters(in: .whitespacesAndNewlines),
+            options: request.options,
+            allowNote: request.allowNote ?? true,
+            createdByAgentId: request.createdByAgentId,
+            createdAt: now
+        )
+        await store.saveClarification(record)
+
+        project.tasks[taskIndex].status = ProjectTaskStatus.waitingInput.rawValue
+        project.tasks[taskIndex].updatedAt = now
+        project.updatedAt = now
+        await store.saveProject(project)
+
+        return record
+    }
+
+    public func answerTaskClarification(
+        projectID: String,
+        taskID: String,
+        clarificationID: String,
+        request: TaskClarificationAnswerRequest
+    ) async throws -> TaskClarificationRecord {
+        guard let normalizedProject = normalizedProjectID(projectID) else {
+            throw ProjectError.invalidProjectID
+        }
+        guard let normalizedTask = normalizedEntityID(taskID) else {
+            throw ProjectError.invalidTaskID
+        }
+        guard var record = await store.clarification(id: clarificationID) else {
+            throw ProjectError.notFound
+        }
+        guard record.projectId == normalizedProject else {
+            throw ProjectError.notFound
+        }
+        let normalizedTaskLowercased = normalizedTask.lowercased()
+        guard record.taskId.lowercased() == normalizedTaskLowercased else {
+            throw ProjectError.notFound
+        }
+        guard record.status == .pending else {
+            throw ProjectError.invalidPayload
+        }
+
+        let now = Date()
+        record.status = .answered
+        record.selectedOptionIds = request.selectedOptionIds
+        record.note = request.note
+        record.answeredAt = now
+        await store.saveClarification(record)
+
+        guard var project = await store.project(id: normalizedProject) else {
+            return record
+        }
+        if let taskIndex = project.tasks.firstIndex(where: { $0.id.lowercased() == normalizedTaskLowercased }) {
+            let hasPending = await store.listClarifications(projectId: normalizedProject, taskId: project.tasks[taskIndex].id)
+                .contains(where: { $0.status == .pending })
+            if !hasPending {
+                project.tasks[taskIndex].status = ProjectTaskStatus.ready.rawValue
+                project.tasks[taskIndex].updatedAt = now
+                project.updatedAt = now
+                await store.saveProject(project)
+            }
+        }
+
+        return record
     }
 
     /// Returns currently active runtime config snapshot.
@@ -4913,7 +5053,8 @@ public actor CoreService {
                 "elapsed_seconds": .stringConvertible(Int(elapsed))
             ]
         )
-        let cancelled = await runtime.abortChannel(channelId: event.channelId)
+        let reason = "Worker timed out after \(Int(elapsed))s"
+        let cancelled = await runtime.abortChannel(channelId: event.channelId, reason: reason)
         if cancelled > 0 {
             logger.info("visor.worker.timeout.aborted", metadata: ["channel_id": .string(event.channelId), "cancelled": .stringConvertible(cancelled)])
         }
@@ -8007,13 +8148,20 @@ extension CoreService: InboundMessageReceiver {
     private func emitNotificationIfNeeded(from event: EventEnvelope) async {
         switch event.messageType {
         case .workerFailed:
-            let reason = extractPayloadString(event.payload, key: "reason") ?? "Unknown error"
+            let reason = extractPayloadString(event.payload, key: "error") ?? "Unknown error"
             let workerId = event.workerId ?? "unknown"
-            await notificationService.pushAgentError(
+            var metadata: [String: String] = [:]
+            if let taskId = event.taskId { metadata["taskId"] = taskId }
+            metadata["channelId"] = event.channelId
+            if let workerId = event.workerId { metadata["workerId"] = workerId }
+            let agentId = parseAgentIdFromChannelId(event.channelId)
+            if let agentId { metadata["agentId"] = agentId }
+            await notificationService.push(DashboardNotification(
+                type: .agentError,
                 title: "Worker failed",
                 message: reason,
-                taskId: event.taskId
-            )
+                metadata: metadata
+            ))
             logger.warning("Notification emitted: worker \(workerId) failed — \(reason)")
 
         case .branchConclusion:
@@ -8037,6 +8185,18 @@ extension CoreService: InboundMessageReceiver {
             return value
         }
         return nil
+    }
+
+    private func parseAgentIdFromChannelId(_ channelId: String) -> String? {
+        let prefix = "agent:"
+        let sessionMarker = ":session:"
+        guard channelId.hasPrefix(prefix) else { return nil }
+        let rest = String(channelId.dropFirst(prefix.count))
+        if let range = rest.range(of: sessionMarker) {
+            let agentId = String(rest[rest.startIndex..<range.lowerBound])
+            return agentId.isEmpty ? nil : agentId
+        }
+        return rest.isEmpty ? nil : rest
     }
 }
 

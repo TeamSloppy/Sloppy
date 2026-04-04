@@ -222,7 +222,12 @@ function DashboardShell({ dependencies, debugEnabled }: { dependencies: ReturnTy
               </span>
               {!sidebarCompact && <span className="sidebar-docs-label">[ DOCS ]</span>}
             </a>
-            <NotificationBell isCompact={sidebarCompact} />
+            <NotificationBell
+              isCompact={sidebarCompact}
+              onNavigateToAgent={(agentId: string, sessionId?: string) => {
+                onAgentRouteChange(agentId, "chat", sessionId ?? null);
+              }}
+            />
           </>
         }
       />

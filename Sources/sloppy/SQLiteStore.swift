@@ -519,7 +519,7 @@ public actor SQLiteStore: PersistenceStore {
             SELECT id, name, description, actors_json, teams_json,
                    models_json, agent_files_json, heartbeat_json,
                    created_at, updated_at, repo_path, review_settings_json,
-                   icon, is_archived
+                   icon, is_archived, task_loop_mode
             FROM dashboard_projects
             ORDER BY created_at ASC;
             """
@@ -564,6 +564,8 @@ public actor SQLiteStore: PersistenceStore {
             let reviewSettings = reviewSettingsJSON.flatMap { try? JSONDecoder().decode(ProjectReviewSettings.self, from: Data($0.utf8)) } ?? ProjectReviewSettings()
             let icon = optionalText(statement: statement, index: 12)
             let isArchived = sqlite3_column_int(statement, 13) != 0
+            let taskLoopModeRaw = optionalText(statement: statement, index: 14)
+            let taskLoopMode = taskLoopModeRaw.flatMap { ProjectLoopMode(rawValue: $0) } ?? .human
             let channels = loadProjectChannels(db: db, projectID: id)
             let tasks = loadProjectTasks(db: db, projectID: id)
             result.append(
@@ -581,6 +583,7 @@ public actor SQLiteStore: PersistenceStore {
                     heartbeat: heartbeat,
                     repoPath: repoPath,
                     reviewSettings: reviewSettings,
+                    taskLoopMode: taskLoopMode,
                     isArchived: isArchived,
                     createdAt: createdAt,
                     updatedAt: updatedAt
@@ -602,7 +605,7 @@ public actor SQLiteStore: PersistenceStore {
                 SELECT id, name, description, actors_json, teams_json,
                        models_json, agent_files_json, heartbeat_json,
                        created_at, updated_at, repo_path, review_settings_json,
-                       icon, is_archived
+                       icon, is_archived, task_loop_mode
                 FROM dashboard_projects
                 WHERE id = ?
                 LIMIT 1;
@@ -641,6 +644,8 @@ public actor SQLiteStore: PersistenceStore {
                 let reviewSettings = reviewSettingsJSON.flatMap { try? JSONDecoder().decode(ProjectReviewSettings.self, from: Data($0.utf8)) } ?? ProjectReviewSettings()
                 let icon = optionalText(statement: statement, index: 12)
                 let isArchived = sqlite3_column_int(statement, 13) != 0
+                let taskLoopModeRaw = optionalText(statement: statement, index: 14)
+                let taskLoopMode = taskLoopModeRaw.flatMap { ProjectLoopMode(rawValue: $0) } ?? .human
                 return ProjectRecord(
                     id: projectID,
                     name: String(cString: namePtr),
@@ -655,6 +660,7 @@ public actor SQLiteStore: PersistenceStore {
                     heartbeat: heartbeat,
                     repoPath: repoPath,
                     reviewSettings: reviewSettings,
+                    taskLoopMode: taskLoopMode,
                     isArchived: isArchived,
                     createdAt: createdAt,
                     updatedAt: updatedAt
@@ -690,8 +696,9 @@ public actor SQLiteStore: PersistenceStore {
                 repo_path,
                 review_settings_json,
                 icon,
-                is_archived
-            ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+                is_archived,
+                task_loop_mode
+            ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
             """
 
         var projectStatement: OpaquePointer?
@@ -721,6 +728,7 @@ public actor SQLiteStore: PersistenceStore {
         bindText(reviewSettingsJSON, at: 12, statement: projectStatement)
         bindOptionalText(project.icon, at: 13, statement: projectStatement)
         sqlite3_bind_int(projectStatement, 14, project.isArchived ? 1 : 0)
+        bindText(project.taskLoopMode.rawValue, at: 15, statement: projectStatement)
         guard sqlite3_step(projectStatement) == SQLITE_DONE else {
             return
         }
@@ -773,8 +781,12 @@ public actor SQLiteStore: PersistenceStore {
                 swarm_actor_path_json,
                 created_at,
                 updated_at,
-                worktree_branch
-            ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+                worktree_branch,
+                kind,
+                loop_mode_override,
+                origin_type,
+                origin_channel_id
+            ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
             """
 
         for task in project.tasks {
@@ -808,6 +820,10 @@ public actor SQLiteStore: PersistenceStore {
             bindText(isoFormatter.string(from: task.createdAt), at: 17, statement: taskStatement)
             bindText(isoFormatter.string(from: task.updatedAt), at: 18, statement: taskStatement)
             bindOptionalText(task.worktreeBranch, at: 19, statement: taskStatement)
+            bindOptionalText(task.kind?.rawValue, at: 20, statement: taskStatement)
+            bindOptionalText(task.loopModeOverride?.rawValue, at: 21, statement: taskStatement)
+            bindOptionalText(task.originType?.rawValue, at: 22, statement: taskStatement)
+            bindOptionalText(task.originChannelId, at: 23, statement: taskStatement)
             _ = sqlite3_step(taskStatement)
         }
 #endif
@@ -1207,7 +1223,11 @@ public actor SQLiteStore: PersistenceStore {
                 swarm_actor_path_json,
                 created_at,
                 updated_at,
-                worktree_branch
+                worktree_branch,
+                kind,
+                loop_mode_override,
+                origin_type,
+                origin_channel_id
             FROM dashboard_project_tasks
             WHERE project_id = ?
             ORDER BY created_at ASC;
@@ -1237,6 +1257,9 @@ public actor SQLiteStore: PersistenceStore {
             let updatedAt = isoFormatter.date(from: String(cString: updatedAtPtr)) ?? createdAt
             let dependencyIds = decodeOptionalStringArray(optionalText(statement: statement, index: 12))
             let actorPath = decodeOptionalStringArray(optionalText(statement: statement, index: 14))
+            let kindRaw = optionalText(statement: statement, index: 18)
+            let loopOverrideRaw = optionalText(statement: statement, index: 19)
+            let originTypeRaw = optionalText(statement: statement, index: 20)
             result.append(
                 ProjectTask(
                     id: String(cString: idPtr),
@@ -1244,6 +1267,10 @@ public actor SQLiteStore: PersistenceStore {
                     description: String(cString: descriptionPtr),
                     priority: String(cString: priorityPtr),
                     status: String(cString: statusPtr),
+                    kind: kindRaw.flatMap { ProjectTaskKind(rawValue: $0) },
+                    loopModeOverride: loopOverrideRaw.flatMap { ProjectLoopMode(rawValue: $0) },
+                    originType: originTypeRaw.flatMap { TaskOriginType(rawValue: $0) },
+                    originChannelId: optionalText(statement: statement, index: 21),
                     actorId: optionalText(statement: statement, index: 5),
                     teamId: optionalText(statement: statement, index: 6),
                     claimedActorId: optionalText(statement: statement, index: 7),
@@ -2002,6 +2029,159 @@ public actor SQLiteStore: PersistenceStore {
 #endif
     }
 
+    // MARK: - Task Clarifications
+
+    public func listClarifications(projectId: String, taskId: String) async -> [TaskClarificationRecord] {
+#if canImport(CSQLite3)
+        guard let db else { return [] }
+        let sql =
+            """
+            SELECT id, project_id, task_id, status, target_type, target_actor_id, target_channel_id,
+                   question_text, options_json, allow_note, created_by_agent_id,
+                   selected_option_ids_json, note, created_at, answered_at
+            FROM task_clarifications
+            WHERE project_id = ? AND task_id = ?
+            ORDER BY created_at DESC;
+            """
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK else { return [] }
+        defer { sqlite3_finalize(statement) }
+        bindText(projectId, at: 1, statement: statement)
+        bindText(taskId, at: 2, statement: statement)
+        var result: [TaskClarificationRecord] = []
+        while sqlite3_step(statement) == SQLITE_ROW {
+            if let record = decodeClarificationRow(statement: statement) {
+                result.append(record)
+            }
+        }
+        return result
+#else
+        return []
+#endif
+    }
+
+    public func clarification(id: String) async -> TaskClarificationRecord? {
+#if canImport(CSQLite3)
+        guard let db else { return nil }
+        let sql =
+            """
+            SELECT id, project_id, task_id, status, target_type, target_actor_id, target_channel_id,
+                   question_text, options_json, allow_note, created_by_agent_id,
+                   selected_option_ids_json, note, created_at, answered_at
+            FROM task_clarifications
+            WHERE id = ?
+            LIMIT 1;
+            """
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK else { return nil }
+        defer { sqlite3_finalize(statement) }
+        bindText(id, at: 1, statement: statement)
+        if sqlite3_step(statement) == SQLITE_ROW {
+            return decodeClarificationRow(statement: statement)
+        }
+        return nil
+#else
+        return nil
+#endif
+    }
+
+    public func saveClarification(_ record: TaskClarificationRecord) async {
+#if canImport(CSQLite3)
+        guard let db else { return }
+        let sql =
+            """
+            INSERT OR REPLACE INTO task_clarifications(
+                id, project_id, task_id, status, target_type, target_actor_id, target_channel_id,
+                question_text, options_json, allow_note, created_by_agent_id,
+                selected_option_ids_json, note, created_at, answered_at
+            ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+            """
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK else { return }
+        defer { sqlite3_finalize(statement) }
+
+        let optionsJSON = (try? String(data: JSONEncoder().encode(record.options), encoding: .utf8)) ?? "[]"
+        let selectedJSON = (try? String(data: JSONEncoder().encode(record.selectedOptionIds), encoding: .utf8)) ?? "[]"
+
+        bindText(record.id, at: 1, statement: statement)
+        bindText(record.projectId, at: 2, statement: statement)
+        bindText(record.taskId, at: 3, statement: statement)
+        bindText(record.status.rawValue, at: 4, statement: statement)
+        bindText(record.targetType.rawValue, at: 5, statement: statement)
+        bindOptionalText(record.targetActorId, at: 6, statement: statement)
+        bindOptionalText(record.targetChannelId, at: 7, statement: statement)
+        bindText(record.questionText, at: 8, statement: statement)
+        bindText(optionsJSON, at: 9, statement: statement)
+        sqlite3_bind_int(statement, 10, record.allowNote ? 1 : 0)
+        bindOptionalText(record.createdByAgentId, at: 11, statement: statement)
+        bindText(selectedJSON, at: 12, statement: statement)
+        bindOptionalText(record.note, at: 13, statement: statement)
+        bindText(isoFormatter.string(from: record.createdAt), at: 14, statement: statement)
+        if let answeredAt = record.answeredAt {
+            bindText(isoFormatter.string(from: answeredAt), at: 15, statement: statement)
+        } else {
+            sqlite3_bind_null(statement, 15)
+        }
+        _ = sqlite3_step(statement)
+#endif
+    }
+
+    public func deleteClarification(id: String) async {
+#if canImport(CSQLite3)
+        guard let db else { return }
+        let sql = "DELETE FROM task_clarifications WHERE id = ?;"
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK else { return }
+        defer { sqlite3_finalize(statement) }
+        bindText(id, at: 1, statement: statement)
+        _ = sqlite3_step(statement)
+#endif
+    }
+
+#if canImport(CSQLite3)
+    private func decodeClarificationRow(statement: OpaquePointer?) -> TaskClarificationRecord? {
+        guard
+            let idPtr = sqlite3_column_text(statement, 0),
+            let projectIdPtr = sqlite3_column_text(statement, 1),
+            let taskIdPtr = sqlite3_column_text(statement, 2),
+            let statusPtr = sqlite3_column_text(statement, 3),
+            let targetTypePtr = sqlite3_column_text(statement, 4),
+            let questionPtr = sqlite3_column_text(statement, 7),
+            let optionsPtr = sqlite3_column_text(statement, 8),
+            let createdAtPtr = sqlite3_column_text(statement, 13)
+        else {
+            return nil
+        }
+
+        let allowNote = sqlite3_column_int(statement, 9) != 0
+        let selectedJSON = sqlite3_column_text(statement, 11).map { String(cString: $0) } ?? "[]"
+        let selectedOptionIds = (try? JSONDecoder().decode([String].self, from: Data(selectedJSON.utf8))) ?? []
+        let optionsJSON = String(cString: optionsPtr)
+        let options = (try? JSONDecoder().decode([ClarificationOption].self, from: Data(optionsJSON.utf8))) ?? []
+        let createdAt = isoFormatter.date(from: String(cString: createdAtPtr)) ?? Date()
+        let answeredAtRaw = optionalText(statement: statement, index: 14)
+        let answeredAt = answeredAtRaw.flatMap { isoFormatter.date(from: $0) }
+
+        return TaskClarificationRecord(
+            id: String(cString: idPtr),
+            projectId: String(cString: projectIdPtr),
+            taskId: String(cString: taskIdPtr),
+            status: ClarificationStatus(rawValue: String(cString: statusPtr)) ?? .pending,
+            targetType: ClarificationTargetType(rawValue: String(cString: targetTypePtr)) ?? .human,
+            targetActorId: optionalText(statement: statement, index: 5),
+            targetChannelId: optionalText(statement: statement, index: 6),
+            questionText: String(cString: questionPtr),
+            options: options,
+            allowNote: allowNote,
+            createdByAgentId: optionalText(statement: statement, index: 10),
+            selectedOptionIds: selectedOptionIds,
+            note: optionalText(statement: statement, index: 12),
+            createdAt: createdAt,
+            answeredAt: answeredAt
+        )
+    }
+#endif
+
     // MARK: - ChannelAccessUser
 
     public func listChannelAccessUsers(platform: String?) async -> [ChannelAccessUser] {
@@ -2137,6 +2317,50 @@ public actor SQLiteStore: PersistenceStore {
         )
     }
 
+    private static func applyClarificationMigrations(db: OpaquePointer?) {
+        guard let db else { return }
+        _ = sqlite3_exec(
+            db,
+            """
+            CREATE TABLE IF NOT EXISTS task_clarifications (
+                id TEXT PRIMARY KEY,
+                project_id TEXT NOT NULL,
+                task_id TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'pending',
+                target_type TEXT NOT NULL DEFAULT 'human',
+                target_actor_id TEXT,
+                target_channel_id TEXT,
+                question_text TEXT NOT NULL,
+                options_json TEXT NOT NULL DEFAULT '[]',
+                allow_note INTEGER NOT NULL DEFAULT 1,
+                created_by_agent_id TEXT,
+                selected_option_ids_json TEXT NOT NULL DEFAULT '[]',
+                note TEXT,
+                created_at TEXT NOT NULL,
+                answered_at TEXT
+            );
+            CREATE INDEX IF NOT EXISTS idx_task_clarifications_task ON task_clarifications(project_id, task_id);
+            """,
+            nil, nil, nil
+        )
+
+        let taskColumnMigrations = [
+            "ALTER TABLE dashboard_project_tasks ADD COLUMN kind TEXT;",
+            "ALTER TABLE dashboard_project_tasks ADD COLUMN loop_mode_override TEXT;",
+            "ALTER TABLE dashboard_project_tasks ADD COLUMN origin_type TEXT;",
+            "ALTER TABLE dashboard_project_tasks ADD COLUMN origin_channel_id TEXT;"
+        ]
+        for statement in taskColumnMigrations {
+            _ = sqlite3_exec(db, statement, nil, nil, nil)
+        }
+
+        _ = sqlite3_exec(
+            db,
+            "ALTER TABLE dashboard_projects ADD COLUMN task_loop_mode TEXT NOT NULL DEFAULT 'human';",
+            nil, nil, nil
+        )
+    }
+
     private static func applyDashboardProjectsMigrations(db: OpaquePointer?) {
         guard let db else { return }
         _ = sqlite3_exec(
@@ -2228,6 +2452,7 @@ public actor SQLiteStore: PersistenceStore {
         applyChannelPluginMigrations(db: db)
         applyCronTaskMigrations(db: db)
         applyDashboardProjectsMigrations(db: db)
+        applyClarificationMigrations(db: db)
         return (db, nil)
     }
 #endif

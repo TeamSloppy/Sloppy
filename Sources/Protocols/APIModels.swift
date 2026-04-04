@@ -173,11 +173,28 @@ public struct ProjectChannel: Codable, Sendable, Equatable {
     }
 }
 
+public enum ProjectLoopMode: String, Codable, Sendable, Equatable {
+    case human
+    case agent
+}
+
+public enum ProjectTaskKind: String, Codable, Sendable, Equatable {
+    case planning
+    case execution
+    case bugfix
+}
+
+public enum TaskOriginType: String, Codable, Sendable, Equatable {
+    case dashboard
+    case channel
+}
+
 public enum ProjectTaskStatus: String, Codable, Sendable, Equatable, CaseIterable {
     case pendingApproval = "pending_approval"
     case backlog
     case ready
     case inProgress = "in_progress"
+    case waitingInput = "waiting_input"
     case done
     case blocked
     case needsReview = "needs_review"
@@ -187,7 +204,7 @@ public enum ProjectTaskStatus: String, Codable, Sendable, Equatable, CaseIterabl
         switch self {
         case .done, .blocked, .cancelled:
             return true
-        case .pendingApproval, .backlog, .ready, .inProgress, .needsReview:
+        case .pendingApproval, .backlog, .ready, .inProgress, .waitingInput, .needsReview:
             return false
         }
     }
@@ -199,6 +216,10 @@ public struct ProjectTask: Codable, Sendable, Equatable {
     public var description: String
     public var priority: String
     public var status: String
+    public var kind: ProjectTaskKind?
+    public var loopModeOverride: ProjectLoopMode?
+    public var originType: TaskOriginType?
+    public var originChannelId: String?
     public var actorId: String?
     public var teamId: String?
     public var claimedActorId: String?
@@ -219,6 +240,10 @@ public struct ProjectTask: Codable, Sendable, Equatable {
         description: String,
         priority: String,
         status: String,
+        kind: ProjectTaskKind? = nil,
+        loopModeOverride: ProjectLoopMode? = nil,
+        originType: TaskOriginType? = nil,
+        originChannelId: String? = nil,
         actorId: String? = nil,
         teamId: String? = nil,
         claimedActorId: String? = nil,
@@ -238,6 +263,10 @@ public struct ProjectTask: Codable, Sendable, Equatable {
         self.description = description
         self.priority = priority
         self.status = status
+        self.kind = kind
+        self.loopModeOverride = loopModeOverride
+        self.originType = originType
+        self.originChannelId = originChannelId
         self.actorId = actorId
         self.teamId = teamId
         self.claimedActorId = claimedActorId
@@ -284,13 +313,14 @@ public struct ProjectRecord: Codable, Sendable, Equatable {
     public var heartbeat: ProjectHeartbeatSettings
     public var repoPath: String?
     public var reviewSettings: ProjectReviewSettings
+    public var taskLoopMode: ProjectLoopMode
     public var isArchived: Bool
     public var createdAt: Date
     public var updatedAt: Date
 
     private enum CodingKeys: String, CodingKey {
         case id, name, description, icon, channels, tasks, actors, teams, models
-        case agentFiles, heartbeat, repoPath, reviewSettings, isArchived, createdAt, updatedAt
+        case agentFiles, heartbeat, repoPath, reviewSettings, taskLoopMode, isArchived, createdAt, updatedAt
     }
 
     public init(
@@ -307,6 +337,7 @@ public struct ProjectRecord: Codable, Sendable, Equatable {
         heartbeat: ProjectHeartbeatSettings = ProjectHeartbeatSettings(),
         repoPath: String? = nil,
         reviewSettings: ProjectReviewSettings = ProjectReviewSettings(),
+        taskLoopMode: ProjectLoopMode = .human,
         isArchived: Bool = false,
         createdAt: Date = Date(),
         updatedAt: Date = Date()
@@ -324,6 +355,7 @@ public struct ProjectRecord: Codable, Sendable, Equatable {
         self.heartbeat = heartbeat
         self.repoPath = repoPath
         self.reviewSettings = reviewSettings
+        self.taskLoopMode = taskLoopMode
         self.isArchived = isArchived
         self.createdAt = createdAt
         self.updatedAt = updatedAt
@@ -344,6 +376,7 @@ public struct ProjectRecord: Codable, Sendable, Equatable {
         heartbeat = try container.decodeIfPresent(ProjectHeartbeatSettings.self, forKey: .heartbeat) ?? ProjectHeartbeatSettings()
         repoPath = try container.decodeIfPresent(String.self, forKey: .repoPath)
         reviewSettings = try container.decodeIfPresent(ProjectReviewSettings.self, forKey: .reviewSettings) ?? ProjectReviewSettings()
+        taskLoopMode = try container.decodeIfPresent(ProjectLoopMode.self, forKey: .taskLoopMode) ?? .human
         isArchived = try container.decodeIfPresent(Bool.self, forKey: .isArchived) ?? false
         createdAt = try container.decode(Date.self, forKey: .createdAt)
         updatedAt = try container.decodeIfPresent(Date.self, forKey: .updatedAt) ?? createdAt
@@ -415,6 +448,7 @@ public struct ProjectUpdateRequest: Codable, Sendable {
     public var heartbeat: ProjectHeartbeatSettings?
     public var repoPath: String?
     public var reviewSettings: ProjectReviewSettings?
+    public var taskLoopMode: ProjectLoopMode?
     public var isArchived: Bool?
 
     public init(
@@ -428,6 +462,7 @@ public struct ProjectUpdateRequest: Codable, Sendable {
         heartbeat: ProjectHeartbeatSettings? = nil,
         repoPath: String? = nil,
         reviewSettings: ProjectReviewSettings? = nil,
+        taskLoopMode: ProjectLoopMode? = nil,
         isArchived: Bool? = nil
     ) {
         self.name = name
@@ -440,6 +475,7 @@ public struct ProjectUpdateRequest: Codable, Sendable {
         self.heartbeat = heartbeat
         self.repoPath = repoPath
         self.reviewSettings = reviewSettings
+        self.taskLoopMode = taskLoopMode
         self.isArchived = isArchived
     }
 }
@@ -459,6 +495,10 @@ public struct ProjectTaskCreateRequest: Codable, Sendable {
     public var description: String?
     public var priority: String
     public var status: String?
+    public var kind: ProjectTaskKind?
+    public var loopModeOverride: ProjectLoopMode?
+    public var originType: TaskOriginType?
+    public var originChannelId: String?
     public var actorId: String?
     public var teamId: String?
 
@@ -467,6 +507,10 @@ public struct ProjectTaskCreateRequest: Codable, Sendable {
         description: String? = nil,
         priority: String,
         status: String? = nil,
+        kind: ProjectTaskKind? = nil,
+        loopModeOverride: ProjectLoopMode? = nil,
+        originType: TaskOriginType? = nil,
+        originChannelId: String? = nil,
         actorId: String? = nil,
         teamId: String? = nil
     ) {
@@ -474,6 +518,10 @@ public struct ProjectTaskCreateRequest: Codable, Sendable {
         self.description = description
         self.priority = priority
         self.status = status
+        self.kind = kind
+        self.loopModeOverride = loopModeOverride
+        self.originType = originType
+        self.originChannelId = originChannelId
         self.actorId = actorId
         self.teamId = teamId
     }
@@ -484,6 +532,8 @@ public struct ProjectTaskUpdateRequest: Codable, Sendable {
     public var description: String?
     public var priority: String?
     public var status: String?
+    public var kind: ProjectTaskKind?
+    public var loopModeOverride: ProjectLoopMode?
     public var actorId: String?
     public var teamId: String?
     public var changedBy: String?
@@ -493,6 +543,8 @@ public struct ProjectTaskUpdateRequest: Codable, Sendable {
         description: String? = nil,
         priority: String? = nil,
         status: String? = nil,
+        kind: ProjectTaskKind? = nil,
+        loopModeOverride: ProjectLoopMode? = nil,
         actorId: String? = nil,
         teamId: String? = nil,
         changedBy: String? = nil
@@ -501,6 +553,8 @@ public struct ProjectTaskUpdateRequest: Codable, Sendable {
         self.description = description
         self.priority = priority
         self.status = status
+        self.kind = kind
+        self.loopModeOverride = loopModeOverride
         self.actorId = actorId
         self.teamId = teamId
         self.changedBy = changedBy
@@ -2993,6 +3047,111 @@ public struct TaskActivity: Codable, Sendable, Identifiable {
         self.newValue = newValue
         self.actorId = actorId
         self.createdAt = createdAt
+    }
+}
+
+// MARK: - Task Clarification
+
+public enum ClarificationStatus: String, Codable, Sendable, Equatable {
+    case pending
+    case answered
+    case cancelled
+}
+
+public enum ClarificationTargetType: String, Codable, Sendable, Equatable {
+    case human
+    case actor
+    case channel
+}
+
+public struct ClarificationOption: Codable, Sendable, Equatable {
+    public var id: String
+    public var label: String
+
+    public init(id: String, label: String) {
+        self.id = id
+        self.label = label
+    }
+}
+
+public struct TaskClarificationRecord: Codable, Sendable, Equatable, Identifiable {
+    public var id: String
+    public var projectId: String
+    public var taskId: String
+    public var status: ClarificationStatus
+    public var targetType: ClarificationTargetType
+    public var targetActorId: String?
+    public var targetChannelId: String?
+    public var questionText: String
+    public var options: [ClarificationOption]
+    public var allowNote: Bool
+    public var createdByAgentId: String?
+    public var selectedOptionIds: [String]
+    public var note: String?
+    public var createdAt: Date
+    public var answeredAt: Date?
+
+    public init(
+        id: String,
+        projectId: String,
+        taskId: String,
+        status: ClarificationStatus = .pending,
+        targetType: ClarificationTargetType,
+        targetActorId: String? = nil,
+        targetChannelId: String? = nil,
+        questionText: String,
+        options: [ClarificationOption] = [],
+        allowNote: Bool = true,
+        createdByAgentId: String? = nil,
+        selectedOptionIds: [String] = [],
+        note: String? = nil,
+        createdAt: Date = Date(),
+        answeredAt: Date? = nil
+    ) {
+        self.id = id
+        self.projectId = projectId
+        self.taskId = taskId
+        self.status = status
+        self.targetType = targetType
+        self.targetActorId = targetActorId
+        self.targetChannelId = targetChannelId
+        self.questionText = questionText
+        self.options = options
+        self.allowNote = allowNote
+        self.createdByAgentId = createdByAgentId
+        self.selectedOptionIds = selectedOptionIds
+        self.note = note
+        self.createdAt = createdAt
+        self.answeredAt = answeredAt
+    }
+}
+
+public struct TaskClarificationCreateRequest: Codable, Sendable {
+    public var questionText: String
+    public var options: [ClarificationOption]
+    public var allowNote: Bool?
+    public var createdByAgentId: String?
+
+    public init(
+        questionText: String,
+        options: [ClarificationOption] = [],
+        allowNote: Bool? = nil,
+        createdByAgentId: String? = nil
+    ) {
+        self.questionText = questionText
+        self.options = options
+        self.allowNote = allowNote
+        self.createdByAgentId = createdByAgentId
+    }
+}
+
+public struct TaskClarificationAnswerRequest: Codable, Sendable {
+    public var selectedOptionIds: [String]
+    public var note: String?
+
+    public init(selectedOptionIds: [String] = [], note: String? = nil) {
+        self.selectedOptionIds = selectedOptionIds
+        self.note = note
     }
 }
 

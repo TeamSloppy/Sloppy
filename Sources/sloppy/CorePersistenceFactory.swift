@@ -211,6 +211,26 @@ public actor InMemoryPersistenceStore: PersistenceStore {
         channelPlugins[id] = nil
     }
 
+    private var clarifications: [String: TaskClarificationRecord] = [:]
+
+    public func listClarifications(projectId: String, taskId: String) async -> [TaskClarificationRecord] {
+        clarifications.values
+            .filter { $0.projectId == projectId && $0.taskId == taskId }
+            .sorted { $0.createdAt > $1.createdAt }
+    }
+
+    public func clarification(id: String) async -> TaskClarificationRecord? {
+        clarifications[id]
+    }
+
+    public func saveClarification(_ record: TaskClarificationRecord) async {
+        clarifications[record.id] = record
+    }
+
+    public func deleteClarification(id: String) async {
+        clarifications[id] = nil
+    }
+
     private var accessUsers: [String: ChannelAccessUser] = [:]
 
     public func listChannelAccessUsers(platform: String?) async -> [ChannelAccessUser] {
@@ -526,5 +546,25 @@ enum CorePersistenceFactory {
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL
         );
+
+        CREATE TABLE IF NOT EXISTS task_clarifications (
+            id TEXT PRIMARY KEY,
+            project_id TEXT NOT NULL,
+            task_id TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'pending',
+            target_type TEXT NOT NULL DEFAULT 'human',
+            target_actor_id TEXT,
+            target_channel_id TEXT,
+            question_text TEXT NOT NULL,
+            options_json TEXT NOT NULL DEFAULT '[]',
+            allow_note INTEGER NOT NULL DEFAULT 1,
+            created_by_agent_id TEXT,
+            selected_option_ids_json TEXT NOT NULL DEFAULT '[]',
+            note TEXT,
+            created_at TEXT NOT NULL,
+            answered_at TEXT
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_task_clarifications_task ON task_clarifications(project_id, task_id);
         """
 }

@@ -15,6 +15,8 @@ struct ProjectTaskCreateTool: CoreTool {
             .init(name: "description", description: "Task description", schema: DynamicGenerationSchema(type: String.self), isOptional: true),
             .init(name: "priority", description: "Task priority: low, medium, high", schema: DynamicGenerationSchema(type: String.self), isOptional: true),
             .init(name: "status", description: "Initial task status", schema: DynamicGenerationSchema(type: String.self), isOptional: true),
+            .init(name: "kind", description: "Task kind: planning, execution, bugfix", schema: DynamicGenerationSchema(type: String.self), isOptional: true),
+            .init(name: "loopModeOverride", description: "Override loop mode: human or agent", schema: DynamicGenerationSchema(type: String.self), isOptional: true),
             .init(name: "actorId", description: "Assigned actor ID", schema: DynamicGenerationSchema(type: String.self), isOptional: true),
             .init(name: "teamId", description: "Assigned team ID", schema: DynamicGenerationSchema(type: String.self), isOptional: true),
             .init(name: "projectId", description: "Project ID (e.g. 'sloppy'), NOT a task ID like 'SLOPPY-4'. Use instead of channelId when known.", schema: DynamicGenerationSchema(type: String.self), isOptional: true),
@@ -49,6 +51,8 @@ struct ProjectTaskCreateTool: CoreTool {
         }
 
         do {
+            let kind = arguments["kind"]?.asString.flatMap { ProjectTaskKind(rawValue: $0) }
+            let loopMode = arguments["loopModeOverride"]?.asString.flatMap { ProjectLoopMode(rawValue: $0) }
             let updated = try await svc.createTask(
                 projectID: project.id,
                 request: ProjectTaskCreateRequest(
@@ -56,6 +60,8 @@ struct ProjectTaskCreateTool: CoreTool {
                     description: arguments["description"]?.asString,
                     priority: arguments["priority"]?.asString ?? "medium",
                     status: arguments["status"]?.asString ?? ProjectTaskStatus.pendingApproval.rawValue,
+                    kind: kind,
+                    loopModeOverride: loopMode,
                     actorId: arguments["actorId"]?.asString,
                     teamId: arguments["teamId"]?.asString
                 )

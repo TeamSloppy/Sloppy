@@ -15,9 +15,21 @@ export const TASK_STATUSES = [
   { id: "backlog", title: "Backlog" },
   { id: "ready", title: "Ready to work" },
   { id: "in_progress", title: "In progress" },
+  { id: "waiting_input", title: "Waiting Input" },
   { id: "blocked", title: "Blocked" },
   { id: "needs_review", title: "Needs Review" },
   { id: "done", title: "Done" }
+];
+
+export const TASK_KINDS = [
+  { id: "planning", title: "Planning" },
+  { id: "execution", title: "Execution" },
+  { id: "bugfix", title: "Bugfix" }
+];
+
+export const LOOP_MODES = [
+  { id: "human", title: "Human in the loop" },
+  { id: "agent", title: "Agent in the loop" }
 ];
 
 export const TASK_PRIORITIES = ["low", "medium", "high"];
@@ -37,6 +49,7 @@ export const TASK_STATUS_COLORS = {
   backlog: "#94a3b8",
   ready: "#3b82f6",
   in_progress: "#f59e0b",
+  waiting_input: "#e879f9",
   blocked: "#ef4444",
   needs_review: "#a78bfa",
   done: "#22c55e"
@@ -70,6 +83,8 @@ export function emptyTaskDraft(initialStatus = "backlog") {
     description: "",
     priority: "medium",
     status: TASK_STATUS_SET.has(initialStatus) ? initialStatus : "backlog",
+    kind: "",
+    loopModeOverride: "",
     actorId: "",
     teamId: ""
   };
@@ -94,6 +109,8 @@ export function normalizeTask(task, index = 0) {
     description: String(task?.description || "").trim(),
     status: TASK_STATUS_SET.has(status) ? status : "backlog",
     priority: TASK_PRIORITY_SET.has(priority) ? priority : "medium",
+    kind: String(task?.kind || "").trim(),
+    loopModeOverride: String(task?.loopModeOverride || "").trim(),
     actorId: String(task?.actorId || "").trim(),
     teamId: String(task?.teamId || "").trim(),
     claimedActorId: String(task?.claimedActorId || "").trim(),
@@ -162,6 +179,7 @@ export function normalizeProject(project, index = 0) {
     heartbeat,
     repoPath: String(project?.repoPath || "").trim() || null,
     reviewSettings,
+    taskLoopMode: String(project?.taskLoopMode || "human").trim(),
     isArchived: Boolean(project?.isArchived)
   };
 }

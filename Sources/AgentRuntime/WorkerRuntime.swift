@@ -268,7 +268,7 @@ public actor WorkerRuntime {
 
     /// Cancels active worker execution.
     @discardableResult
-    public func cancel(workerId: String) async -> Bool {
+    public func cancel(workerId: String, reason: String? = nil) async -> Bool {
         guard let state = workers[workerId] else {
             return false
         }
@@ -278,7 +278,7 @@ public actor WorkerRuntime {
 
         let executor = self.executor
         await executor.cancel(workerId: workerId, spec: state.spec)
-        await fail(workerId: workerId, error: "Worker cancelled")
+        await fail(workerId: workerId, error: reason ?? "Worker cancelled")
         return true
     }
 
