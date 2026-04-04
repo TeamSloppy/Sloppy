@@ -7,6 +7,8 @@ import SloppyClientUI
 import SloppyFeatureOverview
 import SloppyFeatureProjects
 import SloppyFeatureAgents
+import SloppyFeatureChat
+import SloppyFeatureSettings
 
 @main
 struct SloppyClientApp: App {

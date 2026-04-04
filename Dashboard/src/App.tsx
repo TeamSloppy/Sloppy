@@ -77,8 +77,12 @@ function DashboardShell({ dependencies, debugEnabled }: { dependencies: ReturnTy
     setMobileSidebarOpen(false);
   }
 
-  function onAgentRouteChange(agentId: string | null, agentTab: string | null = DEFAULT_AGENT_TAB) {
-    setAgentRoute(agentId, agentTab);
+  function onAgentRouteChange(
+    agentId: string | null,
+    agentTab: string | null = DEFAULT_AGENT_TAB,
+    initialChatSessionId: string | null = null
+  ) {
+    setAgentRoute(agentId, agentTab, initialChatSessionId);
   }
 
   function onProjectRouteChange(
@@ -131,13 +135,26 @@ function DashboardShell({ dependencies, debugEnabled }: { dependencies: ReturnTy
           onNavigateToChannelSession={(sessionId: string) => {
             setSessionRoute(sessionId);
           }}
+          onNavigateToAgentChatSession={(agentId: string, sessionId: string) => {
+            onAgentRouteChange(agentId, "chat", sessionId);
+          }}
         />
       )
     },
     {
       id: "agents",
       label: { icon: "support_agent", title: "Agents" },
-      content: <AgentsView routeAgentId={route.agentId} routeTab={route.agentTab} onRouteChange={onAgentRouteChange} onNavigateToChannelSession={(sessionId: string) => { setSessionRoute(sessionId); }} />
+      content: (
+        <AgentsView
+          routeAgentId={route.agentId}
+          routeTab={route.agentTab}
+          routeAgentInitialChatSessionId={route.agentInitialChatSessionId}
+          onRouteChange={onAgentRouteChange}
+          onNavigateToChannelSession={(sessionId: string) => {
+            setSessionRoute(sessionId);
+          }}
+        />
+      )
     },
     {
       id: "actors",

@@ -12,9 +12,9 @@ struct RuntimeProcessTool: CoreTool {
     var parameters: GenerationSchema {
         .objectSchema([
             .init(name: "action", description: "Action: start, status, stop, list", schema: DynamicGenerationSchema(type: String.self)),
-            .init(name: "command", description: "Command to start (required for start)", schema: DynamicGenerationSchema(type: String.self), isOptional: true),
-            .init(name: "arguments", description: "Command arguments", schema: DynamicGenerationSchema(arrayOf: DynamicGenerationSchema(type: String.self)), isOptional: true),
-            .init(name: "cwd", description: "Working directory", schema: DynamicGenerationSchema(type: String.self), isOptional: true),
+            .init(name: "command", description: "Executable name or path to start (e.g. 'bash', '/bin/ls', 'git'). Required for start. Do NOT repeat the command name in arguments.", schema: DynamicGenerationSchema(type: String.self), isOptional: true),
+            .init(name: "arguments", description: "Array of arguments passed to the command (argv). For shell one-liners use command='bash' arguments=['-lc', 'your command here']. Do NOT include the command name itself.", schema: DynamicGenerationSchema(arrayOf: DynamicGenerationSchema(type: String.self)), isOptional: true),
+            .init(name: "cwd", description: "Working directory (absolute path or relative to workspace root). Defaults to workspace root if omitted.", schema: DynamicGenerationSchema(type: String.self), isOptional: true),
             .init(name: "processId", description: "Process ID (required for status/stop)", schema: DynamicGenerationSchema(type: String.self), isOptional: true)
         ])
     }

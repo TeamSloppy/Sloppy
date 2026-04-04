@@ -2,14 +2,16 @@ import AdaEngine
 import SloppyClientCore
 import SloppyClientUI
 
-struct ChatBubbleView: View {
-    let message: ChatMessage
+public struct ChatBubbleView: View {
+    public let message: ChatMessage
+
+    public init(message: ChatMessage) { self.message = message }
 
     @Environment(\.theme) private var theme
 
     private var isUser: Bool { message.role == .user }
 
-    var body: some View {
+    public var body: some View {
         let c = theme.colors
         let sp = theme.spacing
         let bo = theme.borders

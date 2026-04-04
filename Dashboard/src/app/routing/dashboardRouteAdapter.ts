@@ -14,7 +14,7 @@ export const TOP_LEVEL_SECTIONS = [
   "not_found"
 ] as const;
 
-export const AGENT_TABS = ["overview", "chat", "memories", "tasks", "skills", "tools", "channels", "cron", "config"] as const;
+export const AGENT_TABS = ["overview", "chat", "workers", "memories", "tasks", "skills", "tools", "channels", "cron", "config"] as const;
 export const PROJECT_TABS = ["overview", "channels", "files", "tasks", "workers", "visor", "memory", "settings", "review"] as const;
 
 const TOP_LEVEL_SECTION_SET = new Set<string>(TOP_LEVEL_SECTIONS);
@@ -37,6 +37,7 @@ export interface DashboardRoute {
   projectTaskReference: string | null;
   agentId: string | null;
   agentTab: AgentTab | null;
+  agentInitialChatSessionId: string | null;
   sessionAgentId: string | null;
   sessionId: string | null;
 }
@@ -90,6 +91,7 @@ export function parseRouteFromPath(pathname: string): DashboardRoute {
       projectTaskReference: decodePathSegment(sectionArgRaw) || null,
       agentId: null,
       agentTab: null,
+      agentInitialChatSessionId: null,
       sessionAgentId: null,
       sessionId: null
     };
@@ -114,6 +116,7 @@ export function parseRouteFromPath(pathname: string): DashboardRoute {
       projectTaskReference: sectionArg2 || null,
       agentId: null,
       agentTab: null,
+      agentInitialChatSessionId: null,
       sessionAgentId: null,
       sessionId: null
     };
@@ -139,6 +142,7 @@ export function parseRouteFromPath(pathname: string): DashboardRoute {
     projectTaskReference,
     agentId,
     agentTab,
+    agentInitialChatSessionId: null,
     sessionAgentId,
     sessionId
   };

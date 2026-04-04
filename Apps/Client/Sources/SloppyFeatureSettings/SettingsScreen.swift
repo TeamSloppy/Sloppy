@@ -5,13 +5,18 @@ import SloppyClientUI
 public struct SettingsScreen: View {
     @State private var config: SloppyConfig? = nil
     @State private var statusText: String = "Loading config..."
-    @State private var settings = ClientSettings()
+    private let settings: ClientSettings
+    private let onDismiss: (() -> Void)?
     @Environment(\.userInterfaceIdiom) private var idiom
     @Environment(\.theme) private var theme
 
-    private let api = SloppyAPIClient()
+    private let api: SloppyAPIClient
 
-    public init() {}
+    public init(settings: ClientSettings? = nil, onDismiss: (() -> Void)? = nil) {
+        self.settings = settings ?? ClientSettings()
+        self.onDismiss = onDismiss
+        self.api = SloppyAPIClient(baseURL: (settings ?? ClientSettings()).baseURL)
+    }
 
     public var body: some View {
         let c = theme.colors
@@ -41,16 +46,24 @@ public struct SettingsScreen: View {
         let bo = theme.borders
         let ty = theme.typography
 
-        return VStack(alignment: .leading, spacing: sp.s) {
-            Text("SETTINGS")
-                .font(.system(size: ty.hero))
-                .foregroundColor(c.textPrimary)
-            Color.clear
-                .frame(width: 60, height: bo.thick)
-                .background(c.accent)
-            Text(statusText.uppercased())
-                .font(.system(size: ty.caption))
-                .foregroundColor(c.textMuted)
+        return HStack(alignment: .top, spacing: sp.m) {
+            VStack(alignment: .leading, spacing: sp.s) {
+                Text("SETTINGS")
+                    .font(.system(size: ty.hero))
+                    .foregroundColor(c.textPrimary)
+                Color.clear
+                    .frame(width: 60, height: bo.thick)
+                    .background(c.accent)
+                Text(statusText.uppercased())
+                    .font(.system(size: ty.caption))
+                    .foregroundColor(c.textMuted)
+            }
+            Spacer()
+            if onDismiss != nil {
+                Button("DONE") { onDismiss?() }
+                    .font(.system(size: ty.caption))
+                    .foregroundColor(c.accentCyan)
+            }
         }
         .padding(sp.l)
     }

@@ -27,6 +27,7 @@ import { ProxyEditor } from "./components/ProxyEditor";
 import { ACPEditor } from "./components/ACPEditor";
 import { UIEditor } from "./components/UIEditor";
 import { VisorEditor } from "./components/VisorEditor";
+import { ClientConnectView } from "./components/ClientConnectView";
 import { UpdatesView } from "../updates/UpdatesView";
 import { useUpdateCheck } from "../updates/useUpdateCheck";
 
@@ -48,6 +49,7 @@ const SETTINGS_ITEMS = [
   { id: "acp", title: "ACP", icon: "smart_toy" },
   { id: "proxy", title: "Proxy", icon: "vpn_key" },
   { id: "git-sync", title: "Git Sync", icon: "sync" },
+  { id: "connect-client", title: "Connect Client", icon: "qr_code" },
   { id: "config", title: "Config", icon: "edit_document" },
   { id: "updates", title: "Updates", icon: "system_update" },
   // { id: "logging", title: "Logging", icon: "description" }
@@ -1548,6 +1550,10 @@ export function ConfigView({ sectionId = "providers", onSectionChange = null }) 
           onForceCheck={forceUpdateCheck}
         />
       );
+    }
+
+    if (selectedSettings === "connect-client") {
+      return <ClientConnectView listenPort={draftConfig.listen.port} />;
     }
 
     if (selectedSettings === "config") {

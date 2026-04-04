@@ -14,6 +14,7 @@ import {
   subscribeAgentSessionStream,
   fetchAgentTokenUsage
 } from "../../../api";
+import { navigateToTaskScreen } from "../../../app/routing/navigateToTaskScreen";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
@@ -1806,7 +1807,9 @@ function AgentChatComposer({
   );
 }
 
-export function AgentChatTab({ agentId }) {
+const IS_DEV_BUILD = import.meta.env.DEV;
+
+export function AgentChatTab({ agentId, initialSessionId = null }) {
   const [sessions, setSessions] = useState([]);
   const [activeSessionId, setActiveSessionId] = useState(null);
   const [activeSession, setActiveSession] = useState(null);
@@ -1826,8 +1829,10 @@ export function AgentChatTab({ agentId }) {
   const [expandedRecordIds, setExpandedRecordIds] = useState({});
   const [knownTaskRecords, setKnownTaskRecords] = useState([]);
   const [taskPreview, setTaskPreview] = useState(null);
+  const [isShareMenuOpen, setIsShareMenuOpen] = useState(false);
   const fileInputRef = useRef(null);
   const composeInputRef = useRef(null);
+  const shareMenuRef = useRef(null);
   const runStateRef = useRef({ sessionId: null, abortController: null });
   const streamCleanupRef = useRef(() => { });
   const activeSessionIdRef = useRef(null);
@@ -1855,6 +1860,17 @@ export function AgentChatTab({ agentId }) {
       document.body.classList.remove("agent-chat-no-page-scroll");
     };
   }, []);
+
+  useEffect(() => {
+    if (!isShareMenuOpen) return;
+    function handleClickOutside(event) {
+      if (shareMenuRef.current && !shareMenuRef.current.contains(event.target)) {
+        setIsShareMenuOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [isShareMenuOpen]);
 
   useEffect(() => {
     activeSessionIdRef.current = activeSessionId;
@@ -1914,18 +1930,7 @@ export function AgentChatTab({ agentId }) {
   }
 
   function openTaskReference(taskReference) {
-    const normalizedReference = normalizeTaskReference(taskReference);
-    if (!normalizedReference) {
-      return;
-    }
-
-    const pathname = `/tasks/${encodeURIComponent(normalizedReference)}`;
-    const nextPath = `${pathname}${window.location.search}${window.location.hash}`;
-    if (window.location.pathname === pathname) {
-      return;
-    }
-    window.history.pushState({}, "", nextPath);
-    window.dispatchEvent(new PopStateEvent("popstate"));
+    navigateToTaskScreen(taskReference);
   }
 
   function handleTaskTagHoverStart(taskReference, anchorElement) {
@@ -2038,7 +2043,8 @@ export function AgentChatTab({ agentId }) {
         setAvailableModels(Array.isArray(configResponse.availableModels) ? configResponse.availableModels : []);
       }
 
-      const nextSessions = Array.isArray(sessionsResponse) ? sortSessionsByUpdate(sessionsResponse.filter(isUserCreatedSession)) : [];
+      const allSessions = Array.isArray(sessionsResponse) ? sortSessionsByUpdate(sessionsResponse) : [];
+      const nextSessions = allSessions.filter(isUserCreatedSession);
       setSessions(nextSessions);
       setIsLoadingSessions(false);
 
@@ -2047,15 +2053,22 @@ export function AgentChatTab({ agentId }) {
         return;
       }
 
-      if (nextSessions.length === 0) {
+      if (allSessions.length === 0) {
         setStatusText("No sessions yet. Create one.");
         return;
       }
 
-      setStatusText(`Loaded ${nextSessions.length} sessions`);
-      const nextSessionID = nextSessions[0].id;
-      setActiveSessionId(nextSessionID);
-      await openSession(nextSessionID, isCancelled);
+      setStatusText(`Loaded ${allSessions.length} sessions`);
+      const preferredId =
+        initialSessionId && allSessions.some((s) => s.id === initialSessionId)
+          ? initialSessionId
+          : (nextSessions[0] || allSessions[0])?.id;
+      if (!preferredId) {
+        setStatusText("No sessions yet. Create one.");
+        return;
+      }
+      setActiveSessionId(preferredId);
+      await openSession(preferredId, isCancelled);
     }
 
     bootstrap().catch(() => {
@@ -2077,7 +2090,7 @@ export function AgentChatTab({ agentId }) {
       runStateRef.current.sessionId = null;
       runStateRef.current.abortController = null;
     };
-  }, [agentId]);
+  }, [agentId, initialSessionId]);
 
   async function openSession(sessionId, isCancelled = false) {
     if (!sessionId) {
@@ -2709,6 +2722,67 @@ export function AgentChatTab({ agentId }) {
     }
   }
 
+  function getSessionFilePath() {
+    if (!agentId || !activeSessionId) return null;
+    return `.sloppy/agents/${agentId}/sessions/${activeSessionId}.jsonl`;
+  }
+
+  async function handleCopySessionPath() {
+    const path = getSessionFilePath();
+    if (!path) {
+      setStatusText("No active session.");
+      return;
+    }
+
+    try {
+      if (navigator?.clipboard?.writeText) {
+        await navigator.clipboard.writeText(path);
+      } else {
+        const fallbackInput = document.createElement("textarea");
+        fallbackInput.value = path;
+        fallbackInput.setAttribute("readonly", "");
+        fallbackInput.style.position = "absolute";
+        fallbackInput.style.left = "-9999px";
+        document.body.appendChild(fallbackInput);
+        fallbackInput.select();
+        document.execCommand("copy");
+        document.body.removeChild(fallbackInput);
+      }
+      setStatusText("Session path copied to clipboard.");
+    } catch {
+      setStatusText("Failed to copy session path.");
+    }
+    setIsShareMenuOpen(false);
+  }
+
+  function handleDownloadSession() {
+    if (!activeSession || !activeSessionId) {
+      setStatusText("No active session to download.");
+      return;
+    }
+
+    try {
+      const sessionData = {
+        summary: activeSession.summary || null,
+        events: Array.isArray(activeSession.events) ? activeSession.events : []
+      };
+      const jsonContent = JSON.stringify(sessionData, null, 2);
+      const blob = new Blob([jsonContent], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `${activeSessionId}.json`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+      setStatusText("Session downloaded.");
+    } catch {
+      setStatusText("Failed to download session.");
+    }
+    setIsShareMenuOpen(false);
+  }
+
   function handleReplyToMessage(target) {
     if (!target?.id || !target?.text) {
       return;
@@ -2887,6 +2961,36 @@ export function AgentChatTab({ agentId }) {
             ) : null}
           </div>
           <div className="agent-chat-actions">
+            {IS_DEV_BUILD && activeSessionId ? (
+              <div className="agent-chat-share-menu-container" ref={shareMenuRef}>
+                <button
+                  type="button"
+                  className="agent-chat-icon-button"
+                  onClick={() => setIsShareMenuOpen((prev) => !prev)}
+                  title="Share session"
+                >
+                  <span className="material-symbols-rounded" aria-hidden="true">
+                    share
+                  </span>
+                </button>
+                {isShareMenuOpen ? (
+                  <div className="agent-chat-share-dropdown">
+                    <button type="button" onClick={handleCopySessionPath}>
+                      <span className="material-symbols-rounded" aria-hidden="true">
+                        content_copy
+                      </span>
+                      Copy file path
+                    </button>
+                    <button type="button" onClick={handleDownloadSession}>
+                      <span className="material-symbols-rounded" aria-hidden="true">
+                        download
+                      </span>
+                      Download session
+                    </button>
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
             <button
               type="button"
               className="agent-chat-icon-button danger"

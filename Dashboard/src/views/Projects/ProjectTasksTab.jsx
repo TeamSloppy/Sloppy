@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import {
+    ACTIVE_WORKER_STATUSES,
     TASK_STATUSES,
     TASK_PRIORITIES,
     TASK_PRIORITY_LABELS,
@@ -21,9 +22,107 @@ import {
     updateReviewComment,
     deleteReviewComment,
     createAgentSession,
-    postAgentSessionMessage
+    postAgentSessionMessage,
+    fetchAgents
 } from "../../api";
+import { AgentPetIcon } from "../../features/agents/components/AgentPetSprite";
 import { ReviewDiffPanel } from "./ReviewDiffPanel";
+
+function assigneeInitials(name) {
+    const parts = String(name || "?")
+        .trim()
+        .split(/[\s_-]+/)
+        .filter(Boolean);
+    if (parts.length === 0) return "??";
+    if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+    return (parts[0][0] + parts[1][0]).toUpperCase();
+}
+
+function TaskCardSloppieSlot({ parts, label }) {
+    if (parts) {
+        return (
+            <span className="agent-kanban-sloppie">
+                <AgentPetIcon parts={parts} />
+            </span>
+        );
+    }
+    if (label) {
+        return (
+            <span className="agent-kanban-sloppie-fallback" aria-hidden="true">
+                {assigneeInitials(label)}
+            </span>
+        );
+    }
+    return null;
+}
+
+function resolveClaimedAgentSloppie(task, agentDirectory) {
+    const agentId = String(task.claimedAgentId || "").trim();
+    if (!agentId) return null;
+    const entry = agentDirectory[agentId];
+    return {
+        parts: entry?.pet?.parts,
+        label: entry?.displayName || agentId
+    };
+}
+
+function resolveActorLinkedSloppie(actorId, createModalActors, agentDirectory) {
+    const id = String(actorId || "").trim();
+    if (!id) return null;
+    const actor = createModalActors.find((a) => a.id === id);
+    const linked = String(actor?.linkedAgentId || "").trim();
+    if (!linked) return null;
+    const entry = agentDirectory[linked];
+    return {
+        parts: entry?.pet?.parts,
+        label: actor?.displayName || id
+    };
+}
+
+function ProjectKanbanClaimedAgentBadge({ task, agentDirectory }) {
+    const ca = resolveClaimedAgentSloppie(task, agentDirectory);
+    return (
+        <span className="project-task-claim-badge project-task-claim-badge--with-sloppie">
+            <TaskCardSloppieSlot parts={ca?.parts} label={ca?.label} />
+            <span>Agent: {ca?.label || task.claimedAgentId}</span>
+        </span>
+    );
+}
+
+function ProjectKanbanClaimedActorBadge({ task, createModalActors, agentDirectory }) {
+    const ar = resolveActorLinkedSloppie(task.claimedActorId, createModalActors, agentDirectory);
+    const actorLabel =
+        createModalActors.find((a) => a.id === task.claimedActorId)?.displayName || task.claimedActorId;
+    return (
+        <span className={`project-task-claim-badge ${ar ? "project-task-claim-badge--with-sloppie" : ""}`}>
+            {ar ? (
+                <TaskCardSloppieSlot parts={ar.parts} label={ar.label} />
+            ) : (
+                <span className="material-symbols-rounded" aria-hidden="true">
+                    person
+                </span>
+            )}
+            <span>Actor: {actorLabel}</span>
+        </span>
+    );
+}
+
+function ProjectKanbanAssignedActorBadge({ task, createModalActors, agentDirectory }) {
+    const ar = resolveActorLinkedSloppie(task.actorId, createModalActors, agentDirectory);
+    const actorLabel = createModalActors.find((a) => a.id === task.actorId)?.displayName || task.actorId;
+    return (
+        <span className={`project-task-assignee-badge ${ar ? "project-task-assignee-badge--with-sloppie" : ""}`}>
+            {ar ? (
+                <TaskCardSloppieSlot parts={ar.parts} label={ar.label} />
+            ) : (
+                <span className="material-symbols-rounded" aria-hidden="true">
+                    assignment_ind
+                </span>
+            )}
+            <span>Assigned actor: {actorLabel}</span>
+        </span>
+    );
+}
 
 function DetailDropdown({ label, icon, color, children }) {
     const [open, setOpen] = useState(false);
@@ -581,10 +680,16 @@ function TaskDetailView({
     deleteTaskFromModal,
     createModalActors,
     createModalTeams,
-    onOpenReview
+    onOpenReview,
+    workers = [],
+    onWatchAgentTaskSession
 }) {
     const [activeTab, setActiveTab] = useState("comments");
     const [sidebarOpen, setSidebarOpen] = useState(true);
+
+    const activeWorker = workers.find(
+        (w) => String(w.taskId || "") === String(task.id || "") && ACTIVE_WORKER_STATUSES.has(String(w.status || "").toLowerCase())
+    );
 
     const resolvedActorId = task.claimedActorId || task.actorId || "";
     const isDirty =
@@ -624,6 +729,16 @@ function TaskDetailView({
                         <span className="td-breadcrumb-current">{task.title || "Untitled"}</span>
                     </div>
                     <div className="td-header-actions">
+                        {activeWorker && onWatchAgentTaskSession && (
+                            <button
+                                type="button"
+                                className="task-review-open-btn"
+                                onClick={() => onWatchAgentTaskSession(project, task, activeWorker.channelId)}
+                            >
+                                <span className="material-symbols-rounded" aria-hidden="true">visibility</span>
+                                Watch session
+                            </button>
+                        )}
                         {task.status === "needs_review" && task.worktreeBranch && onOpenReview && (
                             <button
                                 type="button"
@@ -920,8 +1035,33 @@ export function ProjectTasksTab({
     moveTask,
     createModalActors,
     createModalTeams,
-    onOpenReview
+    onOpenReview,
+    workers = [],
+    onWatchAgentTaskSession
 }) {
+    const [agentDirectory, setAgentDirectory] = useState({});
+
+    useEffect(() => {
+        let cancelled = false;
+        (async () => {
+            const agents = await fetchAgents();
+            if (cancelled || !Array.isArray(agents)) return;
+            const next = {};
+            for (const a of agents) {
+                const id = String(a?.id || "").trim();
+                if (!id) continue;
+                next[id] = {
+                    displayName: String(a?.displayName || id).trim() || id,
+                    pet: a?.pet
+                };
+            }
+            setAgentDirectory(next);
+        })();
+        return () => {
+            cancelled = true;
+        };
+    }, []);
+
     const taskCounts = buildTaskCounts(project.tasks);
     const swarmGroups = buildSwarmGroups(project.tasks);
     const selectedTaskId = selectedTask ? String(selectedTask.id || "").trim() : "";
@@ -940,6 +1080,8 @@ export function ProjectTasksTab({
                 createModalActors={createModalActors}
                 createModalTeams={createModalTeams}
                 onOpenReview={onOpenReview}
+                workers={workers}
+                onWatchAgentTaskSession={onWatchAgentTaskSession}
             />
         );
     }
@@ -1168,28 +1310,21 @@ export function ProjectTasksTab({
                                                                 </span>
                                                             ) : null}
                                                             {task.claimedAgentId ? (
-                                                                <span className="project-task-claim-badge">
-                                                                    <span className="material-symbols-rounded" aria-hidden="true">
-                                                                        smart_toy
-                                                                    </span>
-                                                                    Agent: {task.claimedAgentId}
-                                                                </span>
+                                                                <ProjectKanbanClaimedAgentBadge task={task} agentDirectory={agentDirectory} />
                                                             ) : null}
                                                             {!task.claimedAgentId && task.claimedActorId ? (
-                                                                <span className="project-task-claim-badge">
-                                                                    <span className="material-symbols-rounded" aria-hidden="true">
-                                                                        person
-                                                                    </span>
-                                                                    Actor: {task.claimedActorId}
-                                                                </span>
+                                                                <ProjectKanbanClaimedActorBadge
+                                                                    task={task}
+                                                                    createModalActors={createModalActors}
+                                                                    agentDirectory={agentDirectory}
+                                                                />
                                                             ) : null}
                                                             {!task.claimedAgentId && !task.claimedActorId && task.actorId ? (
-                                                                <span className="project-task-assignee-badge">
-                                                                    <span className="material-symbols-rounded" aria-hidden="true">
-                                                                        assignment_ind
-                                                                    </span>
-                                                                    Assigned actor: {task.actorId}
-                                                                </span>
+                                                                <ProjectKanbanAssignedActorBadge
+                                                                    task={task}
+                                                                    createModalActors={createModalActors}
+                                                                    agentDirectory={agentDirectory}
+                                                                />
                                                             ) : null}
                                                             {!task.claimedAgentId && !task.claimedActorId && !task.actorId && task.teamId ? (
                                                                 <span className="project-task-assignee-badge">

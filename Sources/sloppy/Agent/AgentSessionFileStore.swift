@@ -198,6 +198,16 @@ final class AgentSessionFileStore {
         return attachments
     }
 
+    func resolveAttachmentFileURL(agentID: String, attachment: AgentAttachment) throws -> URL? {
+        let normalizedAgentID = try normalizedAgentID(agentID)
+        guard let relativePath = attachment.relativePath?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !relativePath.isEmpty,
+              let agentDirectory = resolvedAgentDirectoryURL(agentID: normalizedAgentID) else {
+            return nil
+        }
+        return agentDirectory.appendingPathComponent(relativePath, isDirectory: false)
+    }
+
     private func append(events: [AgentSessionEvent], to fileURL: URL, createIfMissing: Bool) throws {
         if createIfMissing && !fileManager.fileExists(atPath: fileURL.path) {
             fileManager.createFile(atPath: fileURL.path, contents: Data(), attributes: nil)

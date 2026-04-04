@@ -118,7 +118,8 @@ func acpProbeTargetEncodesCorrectly() throws {
         cwd: "/tmp",
         environment: ["KEY": "val"],
         timeoutMs: 15_000,
-        enabled: true
+        enabled: true,
+        permissionMode: "allow_once"
     )
 
     let request = ACPTargetProbeRequest(target: target)
@@ -126,6 +127,33 @@ func acpProbeTargetEncodesCorrectly() throws {
     let decoded = try JSONDecoder().decode(ACPTargetProbeRequest.self, from: data)
 
     #expect(decoded.target == target)
+}
+
+@Test
+func acpProbeTargetSupportsRemoteFields() throws {
+    let target = ACPProbeTarget(
+        id: "remote-acp",
+        title: "Remote ACP",
+        transport: "ssh",
+        host: "example.com",
+        user: "dev",
+        port: 22,
+        identityFile: "~/.ssh/id_ed25519",
+        strictHostKeyChecking: true,
+        remoteCommand: "agent",
+        cwd: "/srv/repo",
+        timeoutMs: 20_000,
+        enabled: true,
+        permissionMode: "deny"
+    )
+
+    let data = try JSONEncoder().encode(target)
+    let decoded = try JSONDecoder().decode(ACPProbeTarget.self, from: data)
+
+    #expect(decoded.transport == "ssh")
+    #expect(decoded.host == "example.com")
+    #expect(decoded.remoteCommand == "agent")
+    #expect(decoded.permissionMode == "deny")
 }
 
 @Test

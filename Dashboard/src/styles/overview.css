@@ -354,6 +354,24 @@
   gap: 4px;
 }
 
+.worker-dot-queued {
+  background: var(--warn, #f5a623);
+  animation: pulse-dot 2s ease-in-out infinite;
+}
+
+.worker-dot-waiting {
+  background: #a78bfa;
+  animation: pulse-dot 2.5s ease-in-out infinite;
+}
+
+.worker-dot-done {
+  background: var(--muted);
+}
+
+.worker-dot-failed {
+  background: var(--danger, #e57272);
+}
+
 .channel-worker-count {
   font-size: 0.72rem;
   color: var(--muted);

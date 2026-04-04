@@ -284,13 +284,22 @@ actor AgentSessionOrchestrator {
                 throw OrchestratorError.storageFailure
             }
             do {
-                let blocks = makeACPContentBlocks(content: content, attachments: attachments)
+                let blocks = makeACPContentBlocks(
+                    agentID: agentID,
+                    sessionID: sessionID,
+                    content: content,
+                    attachments: attachments
+                )
+                let primerContent = await runtime.channelBootstrapContent(
+                    channelId: self.sessionChannelID(agentID: agentID, sessionID: sessionID)
+                )
                 let result = try await acpSessionManager.postMessage(
                     agentID: agentID,
                     sloppySessionID: sessionID,
                     runtime: agentConfig.runtime,
                     content: blocks,
                     localSessionHadPriorMessages: localSessionHadPriorMessages,
+                    primerContent: primerContent,
                     onChunk: { [weak self] partialText in
                         guard let self else { return }
                         await self.handleSessionResponseChunk(
@@ -729,15 +738,38 @@ actor AgentSessionOrchestrator {
         }
     }
 
-    private func makeACPContentBlocks(content: String, attachments: [AgentAttachment]) -> [ContentBlock] {
+    private func makeACPContentBlocks(
+        agentID: String,
+        sessionID _: String,
+        content: String,
+        attachments: [AgentAttachment]
+    ) -> [ContentBlock] {
         var blocks: [ContentBlock] = []
         if !content.isEmpty {
             blocks.append(.text(TextContent(text: content)))
         }
 
         for attachment in attachments {
-            let description = "Attachment: \(attachment.name) (\(attachment.mimeType), \(attachment.sizeBytes) bytes)"
-            blocks.append(.text(TextContent(text: description)))
+            if let fileURL = try? sessionStore.resolveAttachmentFileURL(agentID: agentID, attachment: attachment) {
+                let description =
+                    """
+                    Attachment available via ACP file callbacks.
+                    Name: \(attachment.name)
+                    Path: \(fileURL.path)
+                    MIME: \(attachment.mimeType)
+                    Size: \(attachment.sizeBytes) bytes
+                    Use this absolute path when reading the file through ACP filesystem callbacks.
+                    """
+                blocks.append(.text(TextContent(text: description)))
+            } else {
+                let fallback =
+                    """
+                    Attachment metadata only: \(attachment.name)
+                    MIME: \(attachment.mimeType)
+                    Size: \(attachment.sizeBytes) bytes
+                    """
+                blocks.append(.text(TextContent(text: fallback)))
+            }
         }
 
         if blocks.isEmpty {

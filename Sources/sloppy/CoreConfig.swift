@@ -352,6 +352,13 @@ public struct CoreConfig: Codable, Sendable {
         public struct Target: Codable, Sendable, Equatable {
             public enum Transport: String, Codable, Sendable, Equatable {
                 case stdio
+                case ssh
+                case websocket
+            }
+
+            public enum PermissionMode: String, Codable, Sendable, Equatable {
+                case allowOnce = "allow_once"
+                case deny
             }
 
             public var id: String
@@ -359,10 +366,19 @@ public struct CoreConfig: Codable, Sendable {
             public var transport: Transport
             public var command: String
             public var arguments: [String]
+            public var host: String?
+            public var user: String?
+            public var port: Int?
+            public var identityFile: String?
+            public var strictHostKeyChecking: Bool
+            public var remoteCommand: String?
+            public var url: String?
+            public var headers: [String: String]
             public var cwd: String?
             public var environment: [String: String]
             public var timeoutMs: Int
             public var enabled: Bool
+            public var permissionMode: PermissionMode
 
             private enum CodingKeys: String, CodingKey {
                 case id
@@ -370,32 +386,59 @@ public struct CoreConfig: Codable, Sendable {
                 case transport
                 case command
                 case arguments
+                case host
+                case user
+                case port
+                case identityFile
+                case strictHostKeyChecking
+                case remoteCommand
+                case url
+                case headers
                 case cwd
                 case environment
                 case timeoutMs
                 case enabled
+                case permissionMode
             }
 
             public init(
                 id: String,
                 title: String,
                 transport: Transport = .stdio,
-                command: String,
+                command: String = "",
                 arguments: [String] = [],
+                host: String? = nil,
+                user: String? = nil,
+                port: Int? = nil,
+                identityFile: String? = nil,
+                strictHostKeyChecking: Bool = true,
+                remoteCommand: String? = nil,
+                url: String? = nil,
+                headers: [String: String] = [:],
                 cwd: String? = nil,
                 environment: [String: String] = [:],
                 timeoutMs: Int = 30_000,
-                enabled: Bool = true
+                enabled: Bool = true,
+                permissionMode: PermissionMode = .allowOnce
             ) {
                 self.id = id
                 self.title = title
                 self.transport = transport
                 self.command = command
                 self.arguments = arguments
+                self.host = host
+                self.user = user
+                self.port = port
+                self.identityFile = identityFile
+                self.strictHostKeyChecking = strictHostKeyChecking
+                self.remoteCommand = remoteCommand
+                self.url = url
+                self.headers = headers
                 self.cwd = cwd
                 self.environment = environment
                 self.timeoutMs = timeoutMs
                 self.enabled = enabled
+                self.permissionMode = permissionMode
             }
 
             public init(from decoder: Decoder) throws {
@@ -405,10 +448,19 @@ public struct CoreConfig: Codable, Sendable {
                 transport = try container.decodeIfPresent(Transport.self, forKey: .transport) ?? .stdio
                 command = try container.decodeIfPresent(String.self, forKey: .command) ?? ""
                 arguments = try container.decodeIfPresent([String].self, forKey: .arguments) ?? []
+                host = try container.decodeIfPresent(String.self, forKey: .host)
+                user = try container.decodeIfPresent(String.self, forKey: .user)
+                port = try container.decodeIfPresent(Int.self, forKey: .port)
+                identityFile = try container.decodeIfPresent(String.self, forKey: .identityFile)
+                strictHostKeyChecking = try container.decodeIfPresent(Bool.self, forKey: .strictHostKeyChecking) ?? true
+                remoteCommand = try container.decodeIfPresent(String.self, forKey: .remoteCommand)
+                url = try container.decodeIfPresent(String.self, forKey: .url)
+                headers = try container.decodeIfPresent([String: String].self, forKey: .headers) ?? [:]
                 cwd = try container.decodeIfPresent(String.self, forKey: .cwd)
                 environment = try container.decodeIfPresent([String: String].self, forKey: .environment) ?? [:]
                 timeoutMs = try container.decodeIfPresent(Int.self, forKey: .timeoutMs) ?? 30_000
                 enabled = try container.decodeIfPresent(Bool.self, forKey: .enabled) ?? true
+                permissionMode = try container.decodeIfPresent(PermissionMode.self, forKey: .permissionMode) ?? .allowOnce
             }
         }
 

@@ -5,8 +5,9 @@ import { workersForProject, activeWorkersForProject, buildTaskCounts, formatRela
 
 const MAX_VISIBLE_AGENTS = 4;
 
-function useAgentPetParts() {
+function useBoard() {
   const [petPartsByName, setPetPartsByName] = useState({});
+  const [teamMembersByName, setTeamMembersByName] = useState({});
 
   useEffect(() => {
     let cancelled = false;
@@ -19,35 +20,54 @@ function useAgentPetParts() {
 
       const agents = Array.isArray(agentsRes) ? agentsRes : [];
       const nodes = Array.isArray(boardRes?.nodes) ? boardRes.nodes : [];
+      const teams = Array.isArray(boardRes?.teams) ? boardRes.teams : [];
 
       const agentById = new Map(agents.map((a) => [String(a.id || ""), a]));
-      const map = {};
+      const nodeById = new Map(nodes.map((n) => [String(n?.id || ""), n]));
+
+      const petMap = {};
       for (const node of nodes) {
         const name = String(node?.displayName || "").trim();
         const agentId = String(node?.linkedAgentId || "").trim();
         if (name && agentId) {
           const agent = agentById.get(agentId);
           if (agent?.pet?.parts) {
-            map[name] = agent.pet.parts;
+            petMap[name] = agent.pet.parts;
           }
         }
       }
-      setPetPartsByName(map);
+
+      const teamMap = {};
+      for (const team of teams) {
+        const teamName = String(team?.name || "").trim();
+        if (!teamName) continue;
+        const memberIds = Array.isArray(team.memberActorIds) ? team.memberActorIds : [];
+        teamMap[teamName] = memberIds
+          .map((id) => nodeById.get(String(id)))
+          .filter(Boolean)
+          .map((n) => String(n?.displayName || "").trim())
+          .filter(Boolean);
+      }
+
+      setPetPartsByName(petMap);
+      setTeamMembersByName(teamMap);
     }
     load();
     return () => { cancelled = true; };
   }, []);
 
-  return petPartsByName;
+  return { petPartsByName, teamMembersByName };
 }
 
-function AgentStack({ actorNames, petPartsByName }) {
+function AgentStack({ actorNames, teams = [], petPartsByName, teamMembersByName = {} }) {
   const resolved = useMemo(() => {
-    return actorNames.map((name) => ({
+    const teamActors = teams.flatMap((teamName) => teamMembersByName[teamName] ?? []);
+    const allNames = Array.from(new Set([...actorNames, ...teamActors]));
+    return allNames.map((name) => ({
       name,
       parts: petPartsByName[name] ?? null
     }));
-  }, [actorNames, petPartsByName]);
+  }, [actorNames, teams, petPartsByName, teamMembersByName]);
 
   if (resolved.length === 0) {
     return null;
@@ -81,7 +101,7 @@ export function ProjectList({
   onToggleArchived,
   onUnarchiveProject
 }) {
-  const petPartsByName = useAgentPetParts();
+  const { petPartsByName, teamMembersByName } = useBoard();
 
   if (isLoadingProjects) {
     return (
@@ -136,6 +156,7 @@ export function ProjectList({
         const activeWorkers = activeWorkersForProject(project, workers);
         const taskCounts = buildTaskCounts(project.tasks);
         const actors = Array.isArray(project.actors) ? project.actors : [];
+        const teams = Array.isArray(project.teams) ? project.teams : [];
 
         return (
           <article
@@ -190,7 +211,7 @@ export function ProjectList({
                   <span className="project-grid-badge project-grid-badge--active">{activeWorkers.length} running</span>
                 )}
               </div>
-              <AgentStack actorNames={actors} petPartsByName={petPartsByName} />
+              <AgentStack actorNames={actors} teams={teams} petPartsByName={petPartsByName} teamMembersByName={teamMembersByName} />
             </div>
           </article>
         );

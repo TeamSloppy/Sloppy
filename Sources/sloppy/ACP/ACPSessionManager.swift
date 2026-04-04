@@ -55,7 +55,11 @@ private struct ACPTrackedToolCall: Sendable {
         let data: JSONValue? = contentText.isEmpty ? nil : .object(["summary": .string(contentText)])
         let error = success
             ? nil
-            : ToolErrorPayload(code: "acp_tool_failed", message: contentText.isEmpty ? "ACP tool call failed." : contentText, retryable: false)
+            : ToolErrorPayload(
+                code: "acp_tool_failed",
+                message: contentText.isEmpty ? "ACP tool call failed." : contentText,
+                retryable: false
+            )
         return AgentSessionEvent(
             agentId: agentID,
             sessionId: sessionID,
@@ -82,23 +86,39 @@ private struct ACPTrackedToolCall: Sendable {
     }
 }
 
+private enum ACPRunVisibility: Sendable {
+    case visible
+    case hiddenPrimer
+}
+
 private struct ACPCurrentRun: Sendable {
     let agentID: String
     let sloppySessionID: String
+    let visibility: ACPRunVisibility
     let onChunk: @Sendable (String) async -> Void
     let onEvent: @Sendable (AgentSessionEvent) async -> Void
     var assistantText: String = ""
     var toolCalls: [String: ACPTrackedToolCall] = [:]
 }
 
-private struct ACPManagedSession {
-    let client: Client
+private struct ACPManagedSession: Sendable {
+    let client: any ACPTransportClient
     let target: CoreConfig.ACP.Target
+    let transportFingerprint: String
     let effectiveCwd: String
     let upstreamSessionId: SessionId
+    let agentName: String?
+    let agentVersion: String?
+    let supportsLoadSession: Bool
     let delegate: ACPClientDelegateAdapter
     let notificationTask: Task<Void, Never>
+    var needsPrimer: Bool
     var currentRun: ACPCurrentRun?
+}
+
+private struct ACPPreparedSession: Sendable {
+    let managed: ACPManagedSession
+    let didResetContext: Bool
 }
 
 private enum ACPJSONValueEncoder {
@@ -156,25 +176,37 @@ actor ACPSessionManager {
     }
 
     private let logger: Logging.Logger
+    private let clientFactory: ACPClientFactory
+    private let stateStore: ACPSessionStateStore
     private var config: CoreConfig.ACP
     private var workspaceRootURL: URL
     private var sessions: [String: ACPManagedSession] = [:]
 
-    init(config: CoreConfig.ACP, workspaceRootURL: URL, logger: Logging.Logger = Logging.Logger(label: "sloppy.acp")) {
+    init(
+        config: CoreConfig.ACP,
+        workspaceRootURL: URL,
+        agentsRootURL: URL,
+        logger: Logging.Logger = Logging.Logger(label: "sloppy.acp"),
+        clientFactory: ACPClientFactory = .live
+    ) {
         self.config = config
         self.workspaceRootURL = workspaceRootURL
+        self.stateStore = ACPSessionStateStore(agentsRootURL: agentsRootURL)
         self.logger = logger
+        self.clientFactory = clientFactory
     }
 
-    func updateConfig(_ config: CoreConfig.ACP, workspaceRootURL: URL) async {
+    func updateConfig(_ config: CoreConfig.ACP, workspaceRootURL: URL, agentsRootURL: URL) async {
         let previousTargets = Dictionary(uniqueKeysWithValues: self.config.targets.map { ($0.id, $0) })
         self.config = config
         self.workspaceRootURL = workspaceRootURL
+        self.stateStore.updateAgentsRootURL(agentsRootURL)
 
         for (key, session) in sessions {
             let nextTarget = config.targets.first { $0.id == session.target.id }
             if nextTarget == nil || nextTarget != previousTargets[session.target.id] || nextTarget?.enabled != true {
                 await terminateSession(forKey: key)
+                sessions.removeValue(forKey: key)
             }
         }
     }
@@ -207,6 +239,7 @@ actor ACPSessionManager {
         runtime: AgentRuntimeConfig,
         content: [ContentBlock],
         localSessionHadPriorMessages: Bool,
+        primerContent: String?,
         onChunk: @escaping @Sendable (String) async -> Void,
         onEvent: @escaping @Sendable (AgentSessionEvent) async -> Void
     ) async throws -> ACPMessageRunResult {
@@ -214,17 +247,32 @@ actor ACPSessionManager {
         let target = try resolveTarget(for: runtime)
         let effectiveCwd = resolveCwd(runtime: runtime, target: target)
 
-        let hadState = sessions[sessionKey] != nil
-        let needsReset = try await resetSessionIfNeeded(sessionKey: sessionKey, target: target, effectiveCwd: effectiveCwd)
-        let didResetContext = (!hadState && localSessionHadPriorMessages) || needsReset
+        let prepared = try await prepareSession(
+            agentID: agentID,
+            sloppySessionID: sloppySessionID,
+            sessionKey: sessionKey,
+            target: target,
+            effectiveCwd: effectiveCwd,
+            localSessionHadPriorMessages: localSessionHadPriorMessages
+        )
+        sessions[sessionKey] = prepared.managed
 
-        if sessions[sessionKey] == nil {
-            let managed = try await createManagedSession(
-                sessionKey: sessionKey,
-                target: target,
-                effectiveCwd: effectiveCwd
-            )
-            sessions[sessionKey] = managed
+        if prepared.managed.needsPrimer,
+           let primerContent,
+           !primerContent.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            do {
+                try await sendPrimerTurn(
+                    agentID: agentID,
+                    sloppySessionID: sloppySessionID,
+                    sessionKey: sessionKey,
+                    primerContent: primerContent
+                )
+            } catch {
+                await terminateSession(forKey: sessionKey)
+                sessions.removeValue(forKey: sessionKey)
+                try? stateStore.delete(agentID: agentID, sessionID: sloppySessionID)
+                throw error
+            }
         }
 
         guard var managed = sessions[sessionKey] else {
@@ -234,6 +282,7 @@ actor ACPSessionManager {
         managed.currentRun = ACPCurrentRun(
             agentID: agentID,
             sloppySessionID: sloppySessionID,
+            visibility: .visible,
             onChunk: onChunk,
             onEvent: onEvent
         )
@@ -241,7 +290,7 @@ actor ACPSessionManager {
 
         defer {
             Task {
-                await self.clearCurrentRun(for: sessionKey)
+                self.clearCurrentRun(for: sessionKey)
             }
         }
 
@@ -259,7 +308,7 @@ actor ACPSessionManager {
         return ACPMessageRunResult(
             assistantText: assistantText,
             stopReason: response.stopReason,
-            didResetContext: didResetContext
+            didResetContext: prepared.didResetContext
         )
     }
 
@@ -288,6 +337,72 @@ actor ACPSessionManager {
         let sessionKey = Self.sessionKey(agentID: agentID, sloppySessionID: sloppySessionID)
         await terminateSession(forKey: sessionKey)
         sessions.removeValue(forKey: sessionKey)
+        try? stateStore.delete(agentID: agentID, sessionID: sloppySessionID)
+    }
+
+    private func prepareSession(
+        agentID: String,
+        sloppySessionID: String,
+        sessionKey: String,
+        target: CoreConfig.ACP.Target,
+        effectiveCwd: String,
+        localSessionHadPriorMessages: Bool
+    ) async throws -> ACPPreparedSession {
+        let transportFingerprint = try transportFingerprint(for: target)
+        var didResetContext = false
+
+        if let existing = sessions[sessionKey] {
+            if existing.target != target || existing.effectiveCwd != effectiveCwd || existing.transportFingerprint != transportFingerprint {
+                await terminateSession(forKey: sessionKey)
+                sessions.removeValue(forKey: sessionKey)
+                didResetContext = true
+            } else {
+                return ACPPreparedSession(managed: existing, didResetContext: false)
+            }
+        }
+
+        if let sidecar = try stateStore.load(agentID: agentID, sessionID: sloppySessionID) {
+            if sidecar.targetId == target.id,
+               sidecar.transportFingerprint == transportFingerprint,
+               sidecar.effectiveCwd == effectiveCwd,
+               sidecar.supportsLoadSession {
+                do {
+                    let restored = try await restoreManagedSession(
+                        sessionKey: sessionKey,
+                        target: target,
+                        transportFingerprint: transportFingerprint,
+                        effectiveCwd: effectiveCwd,
+                        upstreamSessionId: SessionId(sidecar.upstreamSessionId)
+                    )
+                    try persistState(agentID: agentID, sloppySessionID: sloppySessionID, managed: restored)
+                    return ACPPreparedSession(managed: restored, didResetContext: didResetContext)
+                } catch {
+                    logger.warning(
+                        "ACP session restore failed; creating a new upstream session",
+                        metadata: [
+                            "agent_id": .string(agentID),
+                            "session_id": .string(sloppySessionID),
+                            "target_id": .string(target.id),
+                            "error": .string(error.localizedDescription)
+                        ]
+                    )
+                    didResetContext = true
+                }
+            } else {
+                didResetContext = true
+            }
+        } else if localSessionHadPriorMessages {
+            didResetContext = true
+        }
+
+        let created = try await createManagedSession(
+            sessionKey: sessionKey,
+            target: target,
+            transportFingerprint: transportFingerprint,
+            effectiveCwd: effectiveCwd
+        )
+        try persistState(agentID: agentID, sloppySessionID: sloppySessionID, managed: created)
+        return ACPPreparedSession(managed: created, didResetContext: didResetContext)
     }
 
     private func clearCurrentRun(for sessionKey: String) {
@@ -298,6 +413,53 @@ actor ACPSessionManager {
         sessions[sessionKey] = managed
     }
 
+    private func sendPrimerTurn(
+        agentID: String,
+        sloppySessionID: String,
+        sessionKey: String,
+        primerContent: String
+    ) async throws {
+        guard var managed = sessions[sessionKey] else {
+            throw ACPError.protocolError("ACP session was not created.")
+        }
+
+        managed.currentRun = ACPCurrentRun(
+            agentID: agentID,
+            sloppySessionID: sloppySessionID,
+            visibility: .hiddenPrimer,
+            onChunk: { _ in },
+            onEvent: { _ in }
+        )
+        sessions[sessionKey] = managed
+
+        defer {
+            Task {
+                self.clearCurrentRun(for: sessionKey)
+            }
+        }
+
+        do {
+            _ = try await managed.client.sendPrompt(
+                sessionId: managed.upstreamSessionId,
+                content: [.text(TextContent(text: primerContent))]
+            )
+        } catch {
+            throw ACPError.launchFailed(error.localizedDescription)
+        }
+
+        managed = sessions[sessionKey] ?? managed
+        managed.needsPrimer = false
+        managed.currentRun = nil
+        sessions[sessionKey] = managed
+        logger.info(
+            "ACP primer turn sent",
+            metadata: [
+                "agent_id": .string(agentID),
+                "session_id": .string(sloppySessionID)
+            ]
+        )
+    }
+
     private func handleNotification(sessionKey: String, notification: JSONRPCNotification) async {
         guard notification.method == "session/update",
               let payload = decode(notification: notification, as: SessionUpdateNotification.self),
@@ -305,6 +467,13 @@ actor ACPSessionManager {
               payload.sessionId == managed.upstreamSessionId,
               var currentRun = managed.currentRun
         else {
+            return
+        }
+
+        if currentRun.visibility == .hiddenPrimer {
+            logHiddenPrimerUpdate(payload.update)
+            managed.currentRun = currentRun
+            sessions[sessionKey] = managed
             return
         }
 
@@ -354,16 +523,22 @@ actor ACPSessionManager {
                 rawOutput: toolCall.rawOutput
             )
             currentRun.toolCalls[tracked.id] = tracked
-            await currentRun.onEvent(tracked.asToolCallEvent(agentID: currentRun.agentID, sessionID: currentRun.sloppySessionID))
+            await currentRun.onEvent(
+                tracked.asToolCallEvent(agentID: currentRun.agentID, sessionID: currentRun.sloppySessionID)
+            )
             if toolCall.status == .completed || toolCall.status == .failed {
-                await currentRun.onEvent(tracked.asToolResultEvent(agentID: currentRun.agentID, sessionID: currentRun.sloppySessionID))
+                await currentRun.onEvent(
+                    tracked.asToolResultEvent(agentID: currentRun.agentID, sessionID: currentRun.sloppySessionID)
+                )
             }
         case .toolCallUpdate(let details):
             guard var tracked = currentRun.toolCalls[details.toolCallId] else { break }
             tracked.apply(update: details)
             currentRun.toolCalls[details.toolCallId] = tracked
             if tracked.status == .completed || tracked.status == .failed {
-                await currentRun.onEvent(tracked.asToolResultEvent(agentID: currentRun.agentID, sessionID: currentRun.sloppySessionID))
+                await currentRun.onEvent(
+                    tracked.asToolResultEvent(agentID: currentRun.agentID, sessionID: currentRun.sloppySessionID)
+                )
             }
         case .sessionInfoUpdate(let info):
             if let title = info.title {
@@ -388,18 +563,63 @@ actor ACPSessionManager {
         sessions[sessionKey] = managed
     }
 
+    private func handlePermissionDecision(sessionKey: String, summary: String) async {
+        guard let managed = sessions[sessionKey], let currentRun = managed.currentRun else {
+            logger.info("ACP permission decision: \(summary)")
+            return
+        }
+
+        if currentRun.visibility == .hiddenPrimer {
+            logger.info("ACP hidden primer permission decision: \(summary)")
+            return
+        }
+
+        await currentRun.onEvent(
+            AgentSessionEvent(
+                agentId: currentRun.agentID,
+                sessionId: currentRun.sloppySessionID,
+                type: .runStatus,
+                runStatus: AgentRunStatusEvent(
+                    stage: .thinking,
+                    label: "Permission",
+                    details: summary
+                )
+            )
+        )
+    }
+
+    private func logHiddenPrimerUpdate(_ update: SessionUpdate) {
+        switch update {
+        case .agentMessageChunk(let block), .agentThoughtChunk(let block):
+            let text = flatten(content: block)
+            if !text.isEmpty {
+                logger.debug("Dropped ACP primer text update: \(text)")
+            }
+        case .plan(let plan):
+            let text = plan.entries.map(\.content).joined(separator: " | ")
+            if !text.isEmpty {
+                logger.debug("Dropped ACP primer plan update: \(text)")
+            }
+        case .toolCall(let toolCall):
+            logger.debug("Dropped ACP primer tool call update: \(toolCall.toolCallId)")
+        case .toolCallUpdate(let details):
+            logger.debug("Dropped ACP primer tool call update: \(details.toolCallId)")
+        default:
+            break
+        }
+    }
+
     private func probeTarget(_ target: CoreConfig.ACP.Target) async throws -> ACPTargetProbeResponse {
-        let client: Client
         do {
-            let created = try await makeClientAndInitialize(target: target, effectiveCwd: resolveCwd(runtime: .init(type: .acp, acp: .init(targetId: target.id, cwd: target.cwd)), target: target))
-            client = created.client
-            let capabilities = created.initializeResponse.agentCapabilities
+            let initialized = try await makeClientAndInitialize(target: target, effectiveCwd: resolveCwd(runtime: .init(type: .acp, acp: .init(targetId: target.id, cwd: target.cwd)), target: target), sessionKey: "probe::\(target.id)")
+            let client = initialized.client
+            let capabilities = initialized.initializeResponse.agentCapabilities
             let response = ACPTargetProbeResponse(
                 ok: true,
                 targetId: target.id,
                 targetTitle: target.title,
-                agentName: created.initializeResponse.agentInfo?.name,
-                agentVersion: created.initializeResponse.agentInfo?.version,
+                agentName: initialized.initializeResponse.agentInfo?.name,
+                agentVersion: initialized.initializeResponse.agentInfo?.version,
                 supportsSessionList: capabilities.sessionCapabilities?.list != nil,
                 supportsLoadSession: capabilities.loadSession == true,
                 supportsPromptImage: capabilities.promptCapabilities?.image == true,
@@ -417,52 +637,114 @@ actor ACPSessionManager {
     private func createManagedSession(
         sessionKey: String,
         target: CoreConfig.ACP.Target,
+        transportFingerprint: String,
         effectiveCwd: String
     ) async throws -> ACPManagedSession {
-        let initialized = try await makeClientAndInitialize(target: target, effectiveCwd: effectiveCwd)
+        let initialized = try await makeClientAndInitialize(
+            target: target,
+            effectiveCwd: effectiveCwd,
+            sessionKey: sessionKey
+        )
         let client = initialized.client
-        let newSession: NewSessionResponse
-        do {
-            newSession = try await client.newSession(workingDirectory: effectiveCwd, timeout: timeoutSeconds(target))
-        } catch {
-            await client.terminate()
-            throw ACPError.launchFailed(error.localizedDescription)
-        }
-
-        let notifications = await client.notifications
+        let notifications = await client.notificationsStream()
         let notificationTask = Task { [weak self] in
             for await notification in notifications {
                 await self?.handleNotification(sessionKey: sessionKey, notification: notification)
             }
         }
 
-        return ACPManagedSession(
-            client: client,
+        do {
+            let newSession = try await client.newSession(
+                workingDirectory: effectiveCwd,
+                timeout: timeoutSeconds(target)
+            )
+            return ACPManagedSession(
+                client: client,
+                target: target,
+                transportFingerprint: transportFingerprint,
+                effectiveCwd: effectiveCwd,
+                upstreamSessionId: newSession.sessionId,
+                agentName: initialized.initializeResponse.agentInfo?.name,
+                agentVersion: initialized.initializeResponse.agentInfo?.version,
+                supportsLoadSession: initialized.initializeResponse.agentCapabilities.loadSession == true,
+                delegate: initialized.delegate,
+                notificationTask: notificationTask,
+                needsPrimer: true,
+                currentRun: nil
+            )
+        } catch {
+            notificationTask.cancel()
+            await client.terminate()
+            throw ACPError.launchFailed(error.localizedDescription)
+        }
+    }
+
+    private func restoreManagedSession(
+        sessionKey: String,
+        target: CoreConfig.ACP.Target,
+        transportFingerprint: String,
+        effectiveCwd: String,
+        upstreamSessionId: SessionId
+    ) async throws -> ACPManagedSession {
+        let initialized = try await makeClientAndInitialize(
             target: target,
             effectiveCwd: effectiveCwd,
-            upstreamSessionId: newSession.sessionId,
-            delegate: initialized.delegate,
-            notificationTask: notificationTask,
-            currentRun: nil
+            sessionKey: sessionKey
         )
+        let client = initialized.client
+        let notifications = await client.notificationsStream()
+        let notificationTask = Task { [weak self] in
+            for await notification in notifications {
+                await self?.handleNotification(sessionKey: sessionKey, notification: notification)
+            }
+        }
+
+        do {
+            let loaded = try await client.loadSession(sessionId: upstreamSessionId, cwd: effectiveCwd)
+            return ACPManagedSession(
+                client: client,
+                target: target,
+                transportFingerprint: transportFingerprint,
+                effectiveCwd: effectiveCwd,
+                upstreamSessionId: loaded.sessionId,
+                agentName: initialized.initializeResponse.agentInfo?.name,
+                agentVersion: initialized.initializeResponse.agentInfo?.version,
+                supportsLoadSession: initialized.initializeResponse.agentCapabilities.loadSession == true,
+                delegate: initialized.delegate,
+                notificationTask: notificationTask,
+                needsPrimer: false,
+                currentRun: nil
+            )
+        } catch {
+            notificationTask.cancel()
+            await client.terminate()
+            throw ACPError.launchFailed(error.localizedDescription)
+        }
     }
 
     private func makeClientAndInitialize(
         target: CoreConfig.ACP.Target,
-        effectiveCwd: String
-    ) async throws -> (client: Client, delegate: ACPClientDelegateAdapter, initializeResponse: InitializeResponse) {
-        let client = Client()
-        let delegate = ACPClientDelegateAdapter()
+        effectiveCwd: String,
+        sessionKey: String
+    ) async throws -> (client: any ACPTransportClient, delegate: ACPClientDelegateAdapter, initializeResponse: InitializeResponse) {
+        let client: any ACPTransportClient
+        do {
+            client = try clientFactory.build(target)
+        } catch {
+            throw ACPError.launchFailed(error.localizedDescription)
+        }
+
+        let delegate = ACPClientDelegateAdapter(
+            permissionMode: target.permissionMode,
+            permissionEventSink: { [weak self] summary in
+                await self?.handlePermissionDecision(sessionKey: sessionKey, summary: summary)
+            }
+        )
         await client.setDelegate(delegate)
 
         do {
-            try await client.launch(
-                agentPath: target.command,
-                arguments: target.arguments,
+            let response = try await client.connect(
                 workingDirectory: effectiveCwd,
-                environment: target.environment
-            )
-            let response = try await client.initialize(
                 capabilities: ClientCapabilities(
                     fs: FileSystemCapabilities(readTextFile: true, writeTextFile: true),
                     terminal: true
@@ -477,28 +759,28 @@ actor ACPSessionManager {
         }
     }
 
-    private func resetSessionIfNeeded(
-        sessionKey: String,
-        target: CoreConfig.ACP.Target,
-        effectiveCwd: String
-    ) async throws -> Bool {
-        guard let managed = sessions[sessionKey] else {
-            return false
-        }
-        guard managed.target == target, managed.effectiveCwd == effectiveCwd else {
-            await terminateSession(forKey: sessionKey)
-            sessions.removeValue(forKey: sessionKey)
-            return true
-        }
-        return false
-    }
-
     private func terminateSession(forKey sessionKey: String) async {
         guard let managed = sessions[sessionKey] else {
             return
         }
         managed.notificationTask.cancel()
         await managed.client.terminate()
+    }
+
+    private func persistState(agentID: String, sloppySessionID: String, managed: ACPManagedSession) throws {
+        try stateStore.save(
+            ACPPersistedSessionState(
+                targetId: managed.target.id,
+                transportFingerprint: managed.transportFingerprint,
+                effectiveCwd: managed.effectiveCwd,
+                upstreamSessionId: managed.upstreamSessionId.value,
+                agentName: managed.agentName,
+                agentVersion: managed.agentVersion,
+                supportsLoadSession: managed.supportsLoadSession
+            ),
+            agentID: agentID,
+            sessionID: sloppySessionID
+        )
     }
 
     private func resolveTarget(for runtime: AgentRuntimeConfig) throws -> CoreConfig.ACP.Target {
@@ -518,9 +800,25 @@ actor ACPSessionManager {
         guard target.enabled else {
             throw ACPError.targetDisabled(targetId)
         }
-        guard !target.command.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            throw ACPError.invalidTarget("ACP target '\(targetId)' does not have a command.")
+
+        switch target.transport {
+        case .stdio:
+            guard !target.command.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                throw ACPError.invalidTarget("ACP target '\(targetId)' does not have a command.")
+            }
+        case .ssh:
+            guard !(target.host ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                throw ACPError.invalidTarget("ACP SSH target '\(targetId)' does not have a host.")
+            }
+            guard !(target.remoteCommand ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                throw ACPError.invalidTarget("ACP SSH target '\(targetId)' does not have a remoteCommand.")
+            }
+        case .websocket:
+            guard !(target.url ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                throw ACPError.invalidTarget("ACP WebSocket target '\(targetId)' does not have a url.")
+            }
         }
+
         return target
     }
 
@@ -538,30 +836,81 @@ actor ACPSessionManager {
     private func normalizeTarget(_ probe: ACPProbeTarget) throws -> CoreConfig.ACP.Target {
         let id = probe.id.trimmingCharacters(in: .whitespacesAndNewlines)
         let title = probe.title.trimmingCharacters(in: .whitespacesAndNewlines)
-        let command = probe.command.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !id.isEmpty else {
             throw ACPError.invalidTarget("ACP target id is required.")
         }
         guard !title.isEmpty else {
             throw ACPError.invalidTarget("ACP target title is required.")
         }
-        guard probe.transport.lowercased() == "stdio" else {
-            throw ACPError.invalidTarget("Only stdio ACP targets are supported.")
+
+        let permissionMode = normalizePermissionMode(probe.permissionMode)
+        let transport = probe.transport.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        switch transport {
+        case "stdio":
+            let command = (probe.command ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !command.isEmpty else {
+                throw ACPError.invalidTarget("ACP target command is required.")
+            }
+            return CoreConfig.ACP.Target(
+                id: id,
+                title: title,
+                transport: .stdio,
+                command: command,
+                arguments: probe.arguments,
+                cwd: probe.cwd,
+                environment: probe.environment,
+                timeoutMs: probe.timeoutMs,
+                enabled: probe.enabled,
+                permissionMode: permissionMode
+            )
+        case "ssh":
+            let host = probe.host?.trimmingCharacters(in: .whitespacesAndNewlines)
+            let remoteCommand = probe.remoteCommand?.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard let host, !host.isEmpty else {
+                throw ACPError.invalidTarget("ACP SSH target host is required.")
+            }
+            guard let remoteCommand, !remoteCommand.isEmpty else {
+                throw ACPError.invalidTarget("ACP SSH target remoteCommand is required.")
+            }
+            return CoreConfig.ACP.Target(
+                id: id,
+                title: title,
+                transport: .ssh,
+                host: host,
+                user: probe.user?.trimmingCharacters(in: .whitespacesAndNewlines),
+                port: probe.port,
+                identityFile: probe.identityFile?.trimmingCharacters(in: .whitespacesAndNewlines),
+                strictHostKeyChecking: probe.strictHostKeyChecking,
+                remoteCommand: remoteCommand,
+                cwd: probe.cwd,
+                timeoutMs: probe.timeoutMs,
+                enabled: probe.enabled,
+                permissionMode: permissionMode
+            )
+        case "websocket":
+            let url = probe.url?.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard let url, !url.isEmpty else {
+                throw ACPError.invalidTarget("ACP WebSocket target url is required.")
+            }
+            return CoreConfig.ACP.Target(
+                id: id,
+                title: title,
+                transport: .websocket,
+                url: url,
+                headers: probe.headers,
+                cwd: probe.cwd,
+                timeoutMs: probe.timeoutMs,
+                enabled: probe.enabled,
+                permissionMode: permissionMode
+            )
+        default:
+            throw ACPError.invalidTarget("Unsupported ACP transport '\(probe.transport)'.")
         }
-        guard !command.isEmpty else {
-            throw ACPError.invalidTarget("ACP target command is required.")
-        }
-        return CoreConfig.ACP.Target(
-            id: id,
-            title: title,
-            transport: .stdio,
-            command: command,
-            arguments: probe.arguments,
-            cwd: probe.cwd,
-            environment: probe.environment,
-            timeoutMs: probe.timeoutMs,
-            enabled: probe.enabled
-        )
+    }
+
+    private func normalizePermissionMode(_ raw: String) -> CoreConfig.ACP.Target.PermissionMode {
+        let value = raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return CoreConfig.ACP.Target.PermissionMode(rawValue: value) ?? .allowOnce
     }
 
     private func normalizePath(_ rawPath: String) -> String {
@@ -583,12 +932,10 @@ actor ACPSessionManager {
         guard let params = notification.params else {
             return nil
         }
-        let encoder = JSONEncoder()
-        let decoder = JSONDecoder()
-        guard let data = try? encoder.encode(params) else {
+        guard let data = try? JSONEncoder().encode(params) else {
             return nil
         }
-        return try? decoder.decode(type, from: data)
+        return try? JSONDecoder().decode(type, from: data)
     }
 
     private func timeoutSeconds(_ target: CoreConfig.ACP.Target) -> TimeInterval {
@@ -608,6 +955,47 @@ actor ACPSessionManager {
         }
     }
 
+    private func transportFingerprint(for target: CoreConfig.ACP.Target) throws -> String {
+        struct FingerprintPayload: Encodable {
+            let transport: String
+            let command: String
+            let arguments: [String]
+            let host: String?
+            let user: String?
+            let port: Int?
+            let identityFile: String?
+            let strictHostKeyChecking: Bool
+            let remoteCommand: String?
+            let url: String?
+            let headers: [String: String]
+            let environment: [String: String]
+            let timeoutMs: Int
+            let permissionMode: String
+        }
+
+        let payload = FingerprintPayload(
+            transport: target.transport.rawValue,
+            command: target.command,
+            arguments: target.arguments,
+            host: target.host,
+            user: target.user,
+            port: target.port,
+            identityFile: target.identityFile,
+            strictHostKeyChecking: target.strictHostKeyChecking,
+            remoteCommand: target.remoteCommand,
+            url: target.url,
+            headers: target.headers,
+            environment: target.environment,
+            timeoutMs: target.timeoutMs,
+            permissionMode: target.permissionMode.rawValue
+        )
+
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        let data = try encoder.encode(payload)
+        return String(decoding: data, as: UTF8.self)
+    }
+
     static func sessionKey(agentID: String, sloppySessionID: String) -> String {
         "\(agentID)::\(sloppySessionID)"
     }
@@ -616,6 +1004,16 @@ actor ACPSessionManager {
 private actor ACPClientDelegateAdapter: ClientDelegate {
     private let fileSystemDelegate = FileSystemDelegate()
     private let terminalDelegate = TerminalDelegate()
+    private let permissionMode: CoreConfig.ACP.Target.PermissionMode
+    private let permissionEventSink: @Sendable (String) async -> Void
+
+    init(
+        permissionMode: CoreConfig.ACP.Target.PermissionMode,
+        permissionEventSink: @escaping @Sendable (String) async -> Void
+    ) {
+        self.permissionMode = permissionMode
+        self.permissionEventSink = permissionEventSink
+    }
 
     func handleFileReadRequest(_ path: String, sessionId: String, line: Int?, limit: Int?) async throws -> ReadTextFileResponse {
         try await fileSystemDelegate.handleFileReadRequest(path, sessionId: sessionId, line: line, limit: limit)
@@ -653,11 +1051,30 @@ private actor ACPClientDelegateAdapter: ClientDelegate {
     }
 
     func handlePermissionRequest(request: RequestPermissionRequest) async throws -> RequestPermissionResponse {
-        if let optionId = request.options?.first(where: { $0.optionId == PermissionDecision.allowOnce.rawValue })?.optionId
-            ?? request.options?.first(where: { $0.optionId == PermissionDecision.allowAlways.rawValue })?.optionId
-            ?? request.options?.first?.optionId {
-            return RequestPermissionResponse(outcome: PermissionOutcome(optionId: optionId))
+        let requested = Self.permissionRequestSummary(request)
+
+        switch permissionMode {
+        case .allowOnce:
+            if let optionId = request.options?.first(where: { $0.optionId == PermissionDecision.allowOnce.rawValue })?.optionId {
+                await permissionEventSink("\(requested) -> allow_once")
+                return RequestPermissionResponse(outcome: PermissionOutcome(optionId: optionId))
+            }
+            await permissionEventSink("\(requested) -> denied (allow_once unavailable)")
+            return RequestPermissionResponse(outcome: PermissionOutcome(cancelled: true))
+        case .deny:
+            await permissionEventSink("\(requested) -> denied")
+            return RequestPermissionResponse(outcome: PermissionOutcome(cancelled: true))
         }
-        return RequestPermissionResponse(outcome: PermissionOutcome(cancelled: true))
+    }
+
+    private static func permissionRequestSummary(_ request: RequestPermissionRequest) -> String {
+        let message = request.message?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if !message.isEmpty {
+            return message
+        }
+        if let toolCallId = request.toolCall?.toolCallId {
+            return "Permission requested for tool call \(toolCallId)"
+        }
+        return "Permission requested"
     }
 }

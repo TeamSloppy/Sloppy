@@ -458,7 +458,7 @@ public struct ProjectTaskCreateRequest: Codable, Sendable {
     public var title: String
     public var description: String?
     public var priority: String
-    public var status: String
+    public var status: String?
     public var actorId: String?
     public var teamId: String?
 
@@ -466,7 +466,7 @@ public struct ProjectTaskCreateRequest: Codable, Sendable {
         title: String,
         description: String? = nil,
         priority: String,
-        status: String,
+        status: String? = nil,
         actorId: String? = nil,
         teamId: String? = nil
     ) {
@@ -1213,33 +1213,60 @@ public struct ACPProbeTarget: Codable, Sendable, Equatable {
     public var id: String
     public var title: String
     public var transport: String
-    public var command: String
+    public var command: String?
     public var arguments: [String]
+    public var host: String?
+    public var user: String?
+    public var port: Int?
+    public var identityFile: String?
+    public var strictHostKeyChecking: Bool
+    public var remoteCommand: String?
+    public var url: String?
+    public var headers: [String: String]
     public var cwd: String?
     public var environment: [String: String]
     public var timeoutMs: Int
     public var enabled: Bool
+    public var permissionMode: String
 
     public init(
         id: String,
         title: String,
         transport: String = "stdio",
-        command: String,
+        command: String? = nil,
         arguments: [String] = [],
+        host: String? = nil,
+        user: String? = nil,
+        port: Int? = nil,
+        identityFile: String? = nil,
+        strictHostKeyChecking: Bool = true,
+        remoteCommand: String? = nil,
+        url: String? = nil,
+        headers: [String: String] = [:],
         cwd: String? = nil,
         environment: [String: String] = [:],
         timeoutMs: Int = 30_000,
-        enabled: Bool = true
+        enabled: Bool = true,
+        permissionMode: String = "allow_once"
     ) {
         self.id = id
         self.title = title
         self.transport = transport
         self.command = command
         self.arguments = arguments
+        self.host = host
+        self.user = user
+        self.port = port
+        self.identityFile = identityFile
+        self.strictHostKeyChecking = strictHostKeyChecking
+        self.remoteCommand = remoteCommand
+        self.url = url
+        self.headers = headers
         self.cwd = cwd
         self.environment = environment
         self.timeoutMs = timeoutMs
         self.enabled = enabled
+        self.permissionMode = permissionMode
     }
 }
 

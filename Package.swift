@@ -79,6 +79,7 @@ let package = Package(
                 .product(name: "MCP", package: "swift-sdk"),
                 .product(name: "ACP", package: "swift-acp"),
                 .product(name: "ACPModel", package: "swift-acp"),
+                .product(name: "ACPHTTP", package: "swift-acp"),
                 .product(name: "SystemPackage", package: "swift-system"),
                 .product(name: "LanguageServerProtocol", package: "swift-tools-protocols"),
                 .product(name: "LanguageServerProtocolTransport", package: "swift-tools-protocols")

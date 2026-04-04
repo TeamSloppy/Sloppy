@@ -11,7 +11,7 @@ struct ProjectTaskListTool: CoreTool {
 
     var parameters: GenerationSchema {
         .objectSchema([
-            .init(name: "projectId", description: "Project ID (use instead of channelId when known)", schema: DynamicGenerationSchema(type: String.self), isOptional: true),
+            .init(name: "projectId", description: "Project ID (e.g. 'sloppy'), NOT a task ID like 'SLOPPY-4'. Use instead of channelId when known.", schema: DynamicGenerationSchema(type: String.self), isOptional: true),
             .init(name: "channelId", description: "Channel ID (defaults to current session)", schema: DynamicGenerationSchema(type: String.self), isOptional: true),
             .init(name: "status", description: "Filter by task status", schema: DynamicGenerationSchema(type: String.self), isOptional: true),
             .init(name: "topicId", description: "Optional topic scoping", schema: DynamicGenerationSchema(type: String.self), isOptional: true)

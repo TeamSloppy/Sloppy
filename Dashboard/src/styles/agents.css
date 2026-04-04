@@ -523,6 +523,265 @@
   margin: 0 0 6px;
 }
 
+.agent-tasks-tab-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+  flex-wrap: wrap;
+}
+
+.agent-tasks-tab-header h3 {
+  margin: 0;
+}
+
+.agent-tasks-tab-meta {
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.agent-tasks-board {
+  display: flex;
+  gap: 18px;
+  overflow-x: auto;
+  padding-bottom: 10px;
+  align-items: flex-start;
+  scroll-snap-type: x proximity;
+}
+
+.agent-tasks-column {
+  flex: 0 0 min(280px, 86vw);
+  scroll-snap-align: start;
+  min-width: 248px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.agent-tasks-column-head {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--surface);
+  padding: 4px 0 2px;
+  margin: 0;
+  border-bottom: 1px solid var(--line);
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--muted);
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.agent-tasks-column-count {
+  font-weight: 600;
+  color: var(--text);
+  opacity: 0.75;
+}
+
+.agent-kanban-card {
+  border: 1px solid var(--line);
+  border-radius: 0;
+  background: rgba(255, 255, 255, 0.03);
+  padding: 12px 14px 14px;
+  text-align: left;
+  color: inherit;
+  cursor: pointer;
+  transition:
+    border-color 0.15s ease,
+    background 0.15s ease;
+  animation: motion-hard-cut var(--motion-duration-normal) var(--motion-ease-brutalist) both;
+}
+
+.agent-kanban-card:hover {
+  border-color: rgba(110, 231, 168, 0.55);
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.agent-kanban-card:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.agent-kanban-card--static {
+  cursor: default;
+  opacity: 0.9;
+}
+
+.agent-kanban-card--static:hover {
+  border-color: var(--line);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.agent-kanban-card-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.agent-kanban-task-id {
+  font-size: 0.7rem;
+  font-weight: 700;
+  padding: 3px 9px;
+  border: 1px solid rgba(110, 231, 168, 0.85);
+  color: var(--text);
+  line-height: 1.2;
+  letter-spacing: 0.02em;
+}
+
+.agent-kanban-open {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin: 0;
+  padding: 2px 4px;
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: color 0.15s ease;
+}
+
+.agent-kanban-open:hover {
+  color: rgba(110, 231, 168, 0.95);
+}
+
+.agent-kanban-open .material-symbols-rounded {
+  font-size: 0.95rem;
+}
+
+.agent-kanban-title {
+  margin: 0 0 6px;
+  font-size: 0.88rem;
+  font-weight: 700;
+  color: var(--text);
+  line-height: 1.35;
+  letter-spacing: -0.02em;
+}
+
+.agent-kanban-project {
+  margin: 0 0 8px;
+  font-size: 0.68rem;
+  color: var(--muted);
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.agent-kanban-project .material-symbols-rounded {
+  font-size: 0.85rem;
+  opacity: 0.8;
+}
+
+.agent-kanban-desc {
+  margin: 0 0 12px;
+  font-size: 0.76rem;
+  color: var(--muted);
+  line-height: 1.5;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  overflow: hidden;
+}
+
+.agent-kanban-footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  padding-top: 4px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.agent-kanban-priority {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  padding: 3px 8px;
+  border: 1px solid rgba(229, 168, 77, 0.75);
+  color: rgba(250, 204, 120, 0.95);
+}
+
+.agent-kanban-priority .material-symbols-rounded {
+  font-size: 0.95rem;
+}
+
+.agent-kanban-assignee {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 2px 8px 2px 2px;
+  border: 1px solid rgba(110, 231, 168, 0.65);
+  color: var(--text);
+}
+
+.agent-kanban-sloppie {
+  width: 24px;
+  height: 24px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.25);
+  border-right: 1px solid rgba(110, 231, 168, 0.35);
+  overflow: hidden;
+}
+
+.agent-kanban-sloppie .agent-pet-icon {
+  width: 22px;
+  height: 22px;
+}
+
+.agent-kanban-sloppie-fallback {
+  width: 24px;
+  height: 24px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.25);
+  border-right: 1px solid rgba(110, 231, 168, 0.35);
+  font-size: 0.55rem;
+  font-weight: 800;
+  color: rgba(110, 231, 168, 0.95);
+  letter-spacing: 0.02em;
+}
+
+.agent-kanban-time {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+  font-size: 0.68rem;
+  color: var(--muted);
+}
+
+.agent-kanban-time .material-symbols-rounded {
+  font-size: 0.9rem;
+  opacity: 0.85;
+}
+
 body.agent-chat-no-page-scroll {
   overflow: hidden;
 }
@@ -665,6 +924,49 @@ body.agent-chat-no-page-scroll .page {
   display: flex;
   align-items: center;
   gap: 6px;
+}
+
+.agent-chat-share-menu-container {
+  position: relative;
+}
+
+.agent-chat-share-dropdown {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  z-index: 100;
+  min-width: 180px;
+  margin-top: 4px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  box-shadow: var(--shadow-brutalist);
+  display: flex;
+  flex-direction: column;
+  padding: 4px 0;
+}
+
+.agent-chat-share-dropdown button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 12px;
+  background: transparent;
+  border: none;
+  color: var(--text);
+  font-size: 0.85rem;
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.15s ease;
+}
+
+.agent-chat-share-dropdown button:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.agent-chat-share-dropdown button .material-symbols-rounded {
+  font-size: 1rem;
+  color: var(--muted);
 }
 
 .agent-chat-workspace {
