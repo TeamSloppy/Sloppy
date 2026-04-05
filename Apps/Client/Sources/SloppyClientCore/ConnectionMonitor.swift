@@ -47,7 +47,7 @@ public final class ConnectionMonitor {
     }
 
     private func checkHealth() async -> Bool {
-        let url = baseURL.appendingPathComponent("/v1/health")
+        let url = baseURL.appendingPathComponent("/health")
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
         request.timeoutInterval = 5

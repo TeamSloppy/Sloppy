@@ -39,24 +39,25 @@ struct AgentChatView: View {
         let sp = theme.spacing
         let ty = theme.typography
 
-        return ScrollView {
-            VStack(alignment: .leading, spacing: sp.l) {
-                HStack {
-                    SectionHeader("Chat Sessions", accentColor: c.accentCyan)
-                    Spacer()
-                    Button("REFRESH") { loadSessions() }
-                        .foregroundColor(c.accentCyan)
-                        .font(.system(size: ty.caption))
-                    Button("NEW CHAT") { createSession() }
-                        .foregroundColor(c.accentCyan)
-                        .font(.system(size: ty.caption))
-                }
+        return VStack(alignment: .leading, spacing: sp.m) {
+            HStack {
+                SectionHeader("Chat Sessions", accentColor: c.accentCyan)
+                Spacer()
+                Button("REFRESH") { loadSessions() }
+                    .foregroundColor(c.accentCyan)
+                    .font(.system(size: ty.caption))
+                Button("NEW CHAT") { createSession() }
+                    .foregroundColor(c.accentCyan)
+                    .font(.system(size: ty.caption))
+            }
+            .padding(.horizontal, sp.l)
 
-                if sessions.isEmpty {
-                    EmptyStateView(isLoadingSessions ? "Loading..." : "No sessions")
-                        .padding(.vertical, sp.xl)
-                } else {
-                    VStack(spacing: sp.s) {
+            if sessions.isEmpty {
+                EmptyStateView(isLoadingSessions ? "Loading..." : "No sessions")
+                    .padding(.vertical, sp.xl)
+            } else {
+                ScrollView(.horizontal) {
+                    HStack(spacing: sp.s) {
                         ForEach(sessions) { session in
                             EntityCard(
                                 title: session.title.isEmpty ? "Session" : session.title,
@@ -64,12 +65,15 @@ struct AgentChatView: View {
                                 accentColor: c.accentCyan,
                                 onTap: { selectSession(session.id) }
                             )
+                            .frame(width: 200) // Give cards a fixed width so they scroll nicely
                         }
                     }
+                    .padding(.horizontal, sp.l)
                 }
             }
-            .padding(sp.l)
         }
+        .padding(.top, sp.l)
+        .padding(.bottom, sp.m)
         .onAppear { loadSessions() }
     }
 

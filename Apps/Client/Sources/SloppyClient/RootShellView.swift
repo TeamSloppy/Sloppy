@@ -71,6 +71,9 @@ struct RootShellView: View {
         .onAppear {
             startDeepLinkListener()
         }
+        .background {
+            theme.colors.background.ignoresSafeArea()
+        }
     }
 
     private func startDeepLinkListener() {
