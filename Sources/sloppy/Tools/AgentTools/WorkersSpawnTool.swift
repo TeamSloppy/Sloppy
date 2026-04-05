@@ -52,6 +52,7 @@ struct WorkersSpawnTool: CoreTool {
             channelId: channelID,
             title: effectiveTitle,
             objective: objective,
+            agentID: context.agentID,
             tools: tools,
             mode: mode
         )
