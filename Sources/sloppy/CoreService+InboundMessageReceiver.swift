@@ -1,0 +1,676 @@
+import Foundation
+import AgentRuntime
+import Protocols
+import PluginSDK
+import Logging
+
+// MARK: - InboundMessageReceiver Helpers
+
+extension CoreService {
+    func handleTaskApprovalCommand(channelId: String, reference: TaskApprovalReference) async -> ChannelRouteDecision {
+        guard let project = await projectForChannel(channelId: channelId) else {
+            await runtime.appendSystemMessage(
+                channelId: channelId,
+                content: "project_not_found_for_channel"
+            )
+            return ChannelRouteDecision(
+                action: .respond,
+                reason: "project_not_found_for_channel",
+                confidence: 1.0,
+                tokenBudget: 0
+            )
+        }
+
+        guard let task = resolveTask(reference: reference, in: project) else {
+            await runtime.appendSystemMessage(
+                channelId: channelId,
+                content: "task_not_found"
+            )
+            return ChannelRouteDecision(
+                action: .respond,
+                reason: "task_not_found",
+                confidence: 1.0,
+                tokenBudget: 0
+            )
+        }
+
+        do {
+            _ = try await updateProjectTask(
+                projectID: project.id,
+                taskID: task.id,
+                request: ProjectTaskUpdateRequest(status: ProjectTaskStatus.ready.rawValue)
+            )
+            await runtime.appendSystemMessage(
+                channelId: channelId,
+                content: "Task \(task.id) approved and queued for execution."
+            )
+            logger.info(
+                "visor.task.approved",
+                metadata: [
+                    "project_id": .string(project.id),
+                    "task_id": .string(task.id),
+                    "channel_id": .string(channelId),
+                    "source": .string("nl_command")
+                ]
+            )
+            return ChannelRouteDecision(
+                action: .respond,
+                reason: "task_approved_command",
+                confidence: 1.0,
+                tokenBudget: 0
+            )
+        } catch {
+            await runtime.appendSystemMessage(
+                channelId: channelId,
+                content: "task_not_found"
+            )
+            return ChannelRouteDecision(
+                action: .respond,
+                reason: "task_not_found",
+                confidence: 1.0,
+                tokenBudget: 0
+            )
+        }
+    }
+
+    func handleVisorTaskPlan(
+        channelId: String,
+        request: ChannelMessageRequest
+    ) async -> ChannelRouteDecision? {
+        let project = await projectForChannel(channelId: channelId, topicId: request.topicId)
+        let channelState = await runtime.channelState(channelId: channelId)
+        let board = try? getActorBoard()
+        let context = VisorTaskPlanningContext(
+            channelId: channelId,
+            content: request.content,
+            recentMessages: channelState?.messages.suffix(20).map { $0 } ?? [],
+            tasks: project?.tasks ?? [],
+            actorIDs: Set(board?.nodes.map(\.id) ?? []),
+            teamIDs: Set(board?.teams.map(\.id) ?? [])
+        )
+        let intents = VisorTaskPlanner.plan(context: context)
+        guard !intents.isEmpty else {
+            return nil
+        }
+
+        guard let project else {
+            await runtime.appendSystemMessage(
+                channelId: channelId,
+                content: "project_not_found_for_channel"
+            )
+            return ChannelRouteDecision(
+                action: .respond,
+                reason: "project_not_found_for_channel",
+                confidence: 1.0,
+                tokenBudget: 0
+            )
+        }
+
+        do {
+            let summary = try await applyVisorTaskIntents(
+                intents,
+                project: project,
+                channelId: channelId
+            )
+            guard !summary.isEmpty else {
+                return nil
+            }
+
+            await runtime.appendSystemMessage(channelId: channelId, content: summary)
+            return ChannelRouteDecision(
+                action: .respond,
+                reason: "visor_task_plan_applied",
+                confidence: 1.0,
+                tokenBudget: 0
+            )
+        } catch ProjectError.notFound {
+            await runtime.appendSystemMessage(channelId: channelId, content: "task_not_found")
+            return ChannelRouteDecision(
+                action: .respond,
+                reason: "task_not_found",
+                confidence: 1.0,
+                tokenBudget: 0
+            )
+        } catch {
+            await runtime.appendSystemMessage(channelId: channelId, content: "invalid_task_request")
+            return ChannelRouteDecision(
+                action: .respond,
+                reason: "invalid_task_request",
+                confidence: 1.0,
+                tokenBudget: 0
+            )
+        }
+    }
+
+    func applyVisorTaskIntents(
+        _ intents: [VisorTaskIntent],
+        project: ProjectRecord,
+        channelId: String
+    ) async throws -> String {
+        var project = project
+        var createdTaskIDs: [String] = []
+        var updatedTaskIDs: [String] = []
+        var cancelledTaskIDs: [String] = []
+        var skippedDuplicates: [String] = []
+
+        for intent in intents {
+            switch intent {
+            case .create(let createIntent):
+                let titleKey = normalizedTaskTitleKey(createIntent.title)
+                let hasDuplicate = project.tasks.contains(where: { task in
+                    activeProjectTaskStatuses.contains(task.status) && normalizedTaskTitleKey(task.title) == titleKey
+                })
+                if hasDuplicate {
+                    skippedDuplicates.append(createIntent.title)
+                    continue
+                }
+
+                project = try await createProjectTask(
+                    projectID: project.id,
+                    request: ProjectTaskCreateRequest(
+                        title: createIntent.title,
+                        description: createIntent.description,
+                        priority: createIntent.priority ?? "medium",
+                        status: ProjectTaskStatus.pendingApproval.rawValue,
+                        actorId: createIntent.actorId,
+                        teamId: createIntent.teamId
+                    )
+                )
+                if let created = project.tasks.last {
+                    createdTaskIDs.append(created.id)
+                }
+
+            case .update(let updateIntent):
+                let task = try resolveTask(reference: updateIntent.reference, in: project)
+                project = try await updateProjectTask(
+                    projectID: project.id,
+                    taskID: task.id,
+                    request: ProjectTaskUpdateRequest(
+                        title: updateIntent.title,
+                        description: updateIntent.description,
+                        priority: updateIntent.priority,
+                        status: updateIntent.status?.rawValue,
+                        actorId: updateIntent.actorId,
+                        teamId: updateIntent.teamId
+                    )
+                )
+                updatedTaskIDs.append(task.id)
+
+            case .cancel(let cancelIntent):
+                let task = try resolveTask(reference: cancelIntent.reference, in: project)
+                project = try await cancelProjectTask(
+                    projectID: project.id,
+                    taskID: task.id,
+                    reason: cancelIntent.reason
+                )
+                cancelledTaskIDs.append(task.id)
+
+            case .split(let splitIntent):
+                let parent = try resolveTask(reference: splitIntent.reference, in: project)
+                for item in splitIntent.items {
+                    let title = summarizedTaskTitle(from: item)
+                    let titleKey = normalizedTaskTitleKey(title)
+                    let hasDuplicate = project.tasks.contains(where: { task in
+                        activeProjectTaskStatuses.contains(task.status) && normalizedTaskTitleKey(task.title) == titleKey
+                    })
+                    if hasDuplicate {
+                        skippedDuplicates.append(title)
+                        continue
+                    }
+
+                    let description = normalizeTaskDescription(
+                        """
+                        Split from task \(parent.id): \(parent.title)
+
+                        \(item)
+                        """
+                    )
+                    project = try await createProjectTask(
+                        projectID: project.id,
+                        request: ProjectTaskCreateRequest(
+                            title: title,
+                            description: description,
+                            priority: parent.priority,
+                            status: ProjectTaskStatus.pendingApproval.rawValue,
+                            actorId: parent.actorId,
+                            teamId: parent.teamId
+                        )
+                    )
+                    if let created = project.tasks.last {
+                        createdTaskIDs.append(created.id)
+                    }
+                }
+            }
+        }
+
+        var parts: [String] = []
+        if !createdTaskIDs.isEmpty {
+            parts.append("Created tasks: \(createdTaskIDs.joined(separator: ", "))")
+        }
+        if !updatedTaskIDs.isEmpty {
+            parts.append("Updated tasks: \(updatedTaskIDs.joined(separator: ", "))")
+        }
+        if !cancelledTaskIDs.isEmpty {
+            parts.append("Cancelled tasks: \(cancelledTaskIDs.joined(separator: ", "))")
+        }
+        if !skippedDuplicates.isEmpty {
+            parts.append("Skipped duplicates: \(skippedDuplicates.joined(separator: ", "))")
+        }
+        if parts.isEmpty {
+            parts.append("No task changes applied.")
+        }
+
+        logger.info(
+            "visor.task.plan_applied",
+            metadata: [
+                "project_id": .string(project.id),
+                "channel_id": .string(channelId),
+                "created": .stringConvertible(createdTaskIDs.count),
+                "updated": .stringConvertible(updatedTaskIDs.count),
+                "cancelled": .stringConvertible(cancelledTaskIDs.count),
+                "duplicates": .stringConvertible(skippedDuplicates.count)
+            ]
+        )
+
+        _ = await triggerVisorBulletin()
+        return parts.joined(separator: " ")
+    }
+
+    func petSourceKindForExternalChannelUser(_ userID: String) -> AgentPetSourceKind {
+        let normalized = userID.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if normalized == "system" || normalized.hasPrefix("system_") {
+            return .cron
+        }
+        return .externalChannel
+    }
+
+    func applyPetProgressForExternalChannel(
+        channelID: String,
+        event: AgentPetProgressionInput
+    ) async {
+        let board = try? getActorBoard()
+        guard let agentID = linkedAgentID(forChannelID: channelID, board: board) else {
+            return
+        }
+
+        do {
+            _ = try agentCatalogStore.recordPetInteraction(agentID: agentID, input: event)
+        } catch {
+            logger.warning("Failed to update pet progress for external channel \(channelID): \(error)")
+        }
+    }
+
+    func applyPetProgressForAgentSessionEvents(
+        agentID: String,
+        sessionID: String,
+        summary: AgentSessionSummary,
+        events: [AgentSessionEvent]
+    ) async {
+        let sourceKind: AgentPetSourceKind = summary.kind == .heartbeat ? .heartbeat : .agentSession
+        let channelID = "agent:\(agentID):session:\(sessionID)"
+
+        for event in events {
+            let input: AgentPetProgressionInput?
+            switch event.type {
+            case .message:
+                guard let message = event.message, message.role == .user else {
+                    input = nil
+                    break
+                }
+                let content = message.segments
+                    .filter { $0.kind == .text || $0.kind == .thinking }
+                    .compactMap(\.text)
+                    .joined(separator: "\n")
+                input = AgentPetProgressionInput(
+                    sourceKind: sourceKind,
+                    eventKind: .userMessage,
+                    channelId: channelID,
+                    sessionId: sessionID,
+                    timestamp: event.createdAt,
+                    userId: message.userId,
+                    content: content
+                )
+            case .toolCall:
+                input = AgentPetProgressionInput(
+                    sourceKind: sourceKind,
+                    eventKind: .toolCall,
+                    channelId: channelID,
+                    sessionId: sessionID,
+                    timestamp: event.createdAt,
+                    content: event.toolCall?.tool
+                )
+            case .toolResult:
+                input = AgentPetProgressionInput(
+                    sourceKind: sourceKind,
+                    eventKind: event.toolResult?.ok == true ? .toolSuccess : .toolFailure,
+                    channelId: channelID,
+                    sessionId: sessionID,
+                    timestamp: event.createdAt,
+                    content: event.toolResult?.tool
+                )
+            case .runStatus:
+                guard let status = event.runStatus else {
+                    input = nil
+                    break
+                }
+                let label = status.label.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+                let details = status.details?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() ?? ""
+                let eventKind: AgentPetEventKind?
+                switch status.stage {
+                case .done:
+                    eventKind = .runCompleted
+                case .interrupted:
+                    eventKind = label == "error" || details.hasPrefix("error") ? .runFailed : .runInterrupted
+                default:
+                    eventKind = nil
+                }
+                if let eventKind {
+                    input = AgentPetProgressionInput(
+                        sourceKind: sourceKind,
+                        eventKind: eventKind,
+                        channelId: channelID,
+                        sessionId: sessionID,
+                        timestamp: event.createdAt,
+                        content: status.details
+                    )
+                } else {
+                    input = nil
+                }
+            case .sessionCreated, .subSession, .runControl:
+                input = nil
+            }
+
+            guard let input else {
+                continue
+            }
+
+            do {
+                _ = try agentCatalogStore.recordPetInteraction(agentID: agentID, input: input)
+            } catch {
+                logger.warning("Failed to update pet progress for agent session \(agentID)/\(sessionID): \(error)")
+            }
+        }
+    }
+
+}
+
+// MARK: - InboundMessageReceiver
+
+private actor ResponseCollector {
+    private var value = ""
+    func set(_ text: String) { value = text }
+    func get() -> String { value }
+}
+
+extension CoreService: InboundMessageReceiver {
+    /// Checks whether a platform user is allowed to interact.
+    /// Priority: config allowlist (fast path) -> DB blocked -> DB approved -> pending approval flow.
+    public func checkAccess(
+        platform: String,
+        platformUserId: String,
+        displayName: String,
+        chatId: String
+    ) async -> ChannelAccessResult {
+        // Check DB for existing blocked entry
+        if let existing = await store.channelAccessUser(platform: platform, platformUserId: platformUserId) {
+            if existing.status == "blocked" {
+                return .blocked
+            }
+            if existing.status == "approved" {
+                return .allowed
+            }
+        }
+
+        // Already pending — return existing code
+        if let pending = await pendingApprovalService.findByUser(platform: platform, platformUserId: platformUserId) {
+            let msg = "Your access request is pending.\n\nVerification code: \(pending.code)\n\nShare this code with an admin to get approved."
+            return .pendingApproval(code: pending.code, message: msg)
+        }
+
+        // New user — create pending entry and notify Dashboard
+        let entry = await pendingApprovalService.addPending(
+            platform: platform,
+            platformUserId: platformUserId,
+            displayName: displayName,
+            chatId: chatId
+        )
+        await notificationService.pushPendingApproval(
+            title: "Access Request",
+            message: "\(displayName) (@\(platformUserId)) wants access via \(platform)",
+            approvalId: entry.id,
+            platform: platform,
+            userId: platformUserId,
+            channelId: entry.channelId
+        )
+        let msg = "Access requested.\n\nVerification code: \(entry.code)\n\nShare this code with an admin to get approved."
+        return .pendingApproval(code: entry.code, message: msg)
+    }
+
+    /// Called by in-process channel plugins when a message arrives from an external platform.
+    /// Routes through the runtime, collects the response, persists to channel session,
+    /// and delivers it back to the channel plugin.
+    public func postMessage(channelId: String, userId: String, content: String) async -> Bool {
+        if let statusReply = await handleStatusCommand(channelId: channelId, content: content) {
+            await deliverToChannelPlugin(channelId: channelId, content: statusReply)
+            return true
+        }
+
+        if let modelCommandReply = await handleModelCommand(channelId: channelId, content: content) {
+            await deliverToChannelPlugin(channelId: channelId, content: modelCommandReply)
+            return true
+        }
+
+        if let contextReply = await handleContextCommand(channelId: channelId, content: content) {
+            await deliverToChannelPlugin(channelId: channelId, content: contextReply)
+            return true
+        }
+
+        do {
+            try await prepareChannelSession(channelId: channelId)
+        } catch {
+            logger.warning("Failed to prepare channel session for \(channelId): \(error)")
+        }
+
+        // Persist user message to channel session
+        do {
+            try await channelSessionStore.recordUserMessage(
+                channelId: channelId,
+                userId: userId,
+                content: content
+            )
+            await applyPetProgressForExternalChannel(
+                channelID: channelId,
+                event: AgentPetProgressionInput(
+                    sourceKind: petSourceKindForExternalChannelUser(userId),
+                    eventKind: .userMessage,
+                    channelId: channelId,
+                    timestamp: Date(),
+                    userId: userId,
+                    content: content
+                )
+            )
+        } catch {
+            logger.warning("Failed to persist user message to channel session: \(error)")
+        }
+
+        let modelOverride = await channelModelStore.get(channelId: channelId)
+        let request = ChannelMessageRequest(userId: userId, content: content, model: modelOverride)
+        let collector = ResponseCollector()
+        let outboundStreamID = await channelDelivery.beginStream(channelId: channelId, userId: "assistant")
+
+        let onChunk: @Sendable (String) async -> Bool = { chunk in
+            await collector.set(chunk)
+            if let outboundStreamID {
+                _ = await self.channelDelivery.updateStream(id: outboundStreamID, content: chunk)
+            }
+            return true
+        }
+
+        _ = await runtime.postMessage(
+            channelId: channelId,
+            request: request,
+            onResponseChunk: onChunk,
+            observationHandler: { [weak self] observation in
+                guard let self else {
+                    return
+                }
+
+                do {
+                    switch observation {
+                    case .thinking(let text):
+                        try await self.channelSessionStore.recordThinking(
+                            channelId: channelId,
+                            content: text
+                        )
+                    case .toolCall(let toolRequest):
+                        try await self.channelSessionStore.recordToolCall(
+                            channelId: channelId,
+                            tool: toolRequest.tool,
+                            arguments: .object(toolRequest.arguments),
+                            reason: toolRequest.reason
+                        )
+                        await self.applyPetProgressForExternalChannel(
+                            channelID: channelId,
+                            event: AgentPetProgressionInput(
+                                sourceKind: self.petSourceKindForExternalChannelUser(userId),
+                                eventKind: .toolCall,
+                                channelId: channelId,
+                                timestamp: Date(),
+                                userId: userId,
+                                content: toolRequest.tool
+                            )
+                        )
+                    case .toolResult(let toolResult):
+                        try await self.channelSessionStore.recordToolResult(
+                            channelId: channelId,
+                            tool: toolResult.tool,
+                            ok: toolResult.ok,
+                            data: toolResult.data,
+                            error: toolResult.error,
+                            durationMs: toolResult.durationMs
+                        )
+                        await self.applyPetProgressForExternalChannel(
+                            channelID: channelId,
+                            event: AgentPetProgressionInput(
+                                sourceKind: self.petSourceKindForExternalChannelUser(userId),
+                                eventKind: toolResult.ok ? .toolSuccess : .toolFailure,
+                                channelId: channelId,
+                                timestamp: Date(),
+                                userId: userId,
+                                content: toolResult.tool
+                            )
+                        )
+                    case .usage(let tokenUsage):
+                        await self.store.persistTokenUsage(
+                            channelId: channelId,
+                            taskId: nil,
+                            usage: tokenUsage
+                        )
+                    }
+                } catch {
+                    self.logger.warning("Failed to persist channel technical event: \(error)")
+                }
+            }
+        )
+
+        let reply = await collector.get().trimmingCharacters(in: .whitespacesAndNewlines)
+        if !reply.isEmpty {
+            // Persist assistant response to channel session
+            do {
+                try await channelSessionStore.recordAssistantMessage(
+                    channelId: channelId,
+                    content: reply
+                )
+                await applyPetProgressForExternalChannel(
+                    channelID: channelId,
+                    event: AgentPetProgressionInput(
+                        sourceKind: petSourceKindForExternalChannelUser(userId),
+                        eventKind: .runCompleted,
+                        channelId: channelId,
+                        timestamp: Date(),
+                        userId: userId,
+                        content: reply
+                    )
+                )
+            } catch {
+                logger.warning("Failed to persist assistant message to channel session: \(error)")
+            }
+        } else {
+            await applyPetProgressForExternalChannel(
+                channelID: channelId,
+                event: AgentPetProgressionInput(
+                    sourceKind: petSourceKindForExternalChannelUser(userId),
+                    eventKind: .runFailed,
+                    channelId: channelId,
+                    timestamp: Date(),
+                    userId: userId,
+                    content: nil
+                )
+            )
+        }
+        if let outboundStreamID {
+            _ = await channelDelivery.endStream(
+                id: outboundStreamID,
+                finalContent: reply.isEmpty ? nil : reply
+            )
+        } else if !reply.isEmpty {
+            await channelDelivery.deliver(channelId: channelId, userId: "assistant", content: reply)
+        }
+        return true
+    }
+
+    func emitNotificationIfNeeded(from event: EventEnvelope) async {
+        switch event.messageType {
+        case .workerFailed:
+            let reason = extractPayloadString(event.payload, key: "error") ?? "Unknown error"
+            let workerId = event.workerId ?? "unknown"
+            var metadata: [String: String] = [:]
+            if let taskId = event.taskId { metadata["taskId"] = taskId }
+            metadata["channelId"] = event.channelId
+            if let workerId = event.workerId { metadata["workerId"] = workerId }
+            let agentId = parseAgentIdFromChannelId(event.channelId)
+            if let agentId { metadata["agentId"] = agentId }
+            await notificationService.push(DashboardNotification(
+                type: .agentError,
+                title: "Worker failed",
+                message: reason,
+                metadata: metadata
+            ))
+            logger.warning("Notification emitted: worker \(workerId) failed — \(reason)")
+
+        case .branchConclusion:
+            let outcome = extractPayloadString(event.payload, key: "outcome")
+            if outcome == "needs_confirmation" || outcome == "escalated" {
+                let summary = extractPayloadString(event.payload, key: "summary") ?? "Action requires your approval"
+                await notificationService.pushConfirmation(
+                    title: "Approval required",
+                    message: summary,
+                    taskId: event.taskId
+                )
+            }
+
+        default:
+            break
+        }
+    }
+
+    func extractPayloadString(_ payload: JSONValue, key: String) -> String? {
+        if case .object(let dict) = payload, case .string(let value) = dict[key] {
+            return value
+        }
+        return nil
+    }
+
+    func parseAgentIdFromChannelId(_ channelId: String) -> String? {
+        let prefix = "agent:"
+        let sessionMarker = ":session:"
+        guard channelId.hasPrefix(prefix) else { return nil }
+        let rest = String(channelId.dropFirst(prefix.count))
+        if let range = rest.range(of: sessionMarker) {
+            let agentId = String(rest[rest.startIndex..<range.lowerBound])
+            return agentId.isEmpty ? nil : agentId
+        }
+        return rest.isEmpty ? nil : rest
+    }
+}
+
