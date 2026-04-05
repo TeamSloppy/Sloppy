@@ -2,6 +2,11 @@ import AgentRuntime
 import Foundation
 import Protocols
 
+struct AgentRunnerModelError: Error, LocalizedError {
+    let detail: String
+    var errorDescription: String? { detail }
+}
+
 /// Bridge executor that plugs worker execution into the agent session orchestrator.
 /// When the worker spec carries an agentID, execution is delegated to the agent runner closure
 /// which creates a dedicated session, posts the task objective, and returns the assistant response.
@@ -25,9 +30,17 @@ final class ToolExecutionWorkerExecutorAdapter: @unchecked Sendable, WorkerExecu
     func execute(workerId: String, spec: WorkerTaskSpec) async throws -> WorkerExecutionResult {
         if let agentID = spec.agentID, let runner = agentRunner {
             let result = await runner(agentID, spec.taskId, spec.objective, spec.workingDirectory)
+            if let result, Self.isModelProviderError(result) {
+                throw AgentRunnerModelError(detail: result)
+            }
             return .completed(summary: result ?? spec.objective)
         }
         return try await fallback.execute(workerId: workerId, spec: spec)
+    }
+
+    static func isModelProviderError(_ text: String) -> Bool {
+        let lower = text.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return lower.hasPrefix("model provider error:")
     }
 
     func route(workerId: String, spec: WorkerTaskSpec, message: String) async throws -> WorkerRouteExecutionResult {

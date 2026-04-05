@@ -530,6 +530,11 @@ public actor CoreService {
             .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
+    func isModelProviderError(_ text: String) -> Bool {
+        let lower = text.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return lower.hasPrefix("model provider error:")
+    }
+
     func captureGroup(_ source: String, pattern: String) -> String? {
         guard let regex = try? NSRegularExpression(pattern: pattern) else {
             return nil

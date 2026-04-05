@@ -370,7 +370,70 @@ public actor RuntimeSystem {
                     )
                     return
                 }
-                throw StreamIdleTimeoutError()
+                logger.warning(
+                    "All stream retries exhausted, trying non-streaming completion",
+                    metadata: modelCallMetadata(
+                        channelId: channelId,
+                        model: activeModel,
+                        reasoningEffort: reasoningEffort,
+                        promptChars: userMessage.count,
+                        mode: "non_streaming_fallback"
+                    )
+                )
+                sessionsByChannel.removeValue(forKey: channelId)
+                do {
+                    let freshSession = try await getOrCreateSession(
+                        channelId: channelId,
+                        activeModel: activeModel,
+                        modelProvider: modelProvider,
+                        includeTools: toolInvoker != nil
+                    )
+                    if let invoker = toolInvoker {
+                        let observingHandler: @Sendable (ToolInvocationRequest) async -> ToolInvocationResult = { request in
+                            if let observationHandler {
+                                await observationHandler(.toolCall(request))
+                            }
+                            let result = await invoker(request)
+                            if let observationHandler {
+                                await observationHandler(.toolResult(result))
+                            }
+                            return result
+                        }
+                        freshSession.toolExecutionDelegate = SloppyToolExecutionDelegate(toolCallHandler: observingHandler)
+                    }
+                    let fallbackResponse = try await freshSession.respond(to: userMessage, options: options)
+                    let fallbackContent = fallbackResponse.content
+                    logger.info(
+                        "Non-streaming fallback succeeded",
+                        metadata: modelCallMetadata(
+                            channelId: channelId,
+                            model: activeModel,
+                            reasoningEffort: reasoningEffort,
+                            promptChars: userMessage.count,
+                            mode: "non_streaming_fallback",
+                            durationMs: elapsedMilliseconds(since: streamStartedAt),
+                            outputChars: fallbackContent.count
+                        )
+                    )
+                    if let onResponseChunk {
+                        _ = await onResponseChunk(fallbackContent)
+                    }
+                    await channels.appendSystemMessage(channelId: channelId, content: fallbackContent)
+                    return
+                } catch {
+                    logger.warning(
+                        "Non-streaming fallback also failed",
+                        metadata: modelCallMetadata(
+                            channelId: channelId,
+                            model: activeModel,
+                            reasoningEffort: reasoningEffort,
+                            promptChars: userMessage.count,
+                            mode: "non_streaming_fallback",
+                            error: String(describing: error)
+                        )
+                    )
+                    throw StreamIdleTimeoutError()
+                }
             } catch let error as LanguageModelSession.GenerationError {
                 let latest = await tracker.latestContent
                 let streamChunks = await tracker.chunks
