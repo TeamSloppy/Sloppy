@@ -399,6 +399,7 @@ func prepareServerWorkspace(config: inout CoreConfig) throws -> URL {
 
     do {
         try createServerWorkspaceDirectories(at: workspaceRoot)
+        try verifyWorkspaceWritable(at: workspaceRoot)
         config.sqlitePath = resolveServerSQLitePath(sqlitePath: config.sqlitePath, workspaceRoot: workspaceRoot)
         return workspaceRoot
     } catch {
@@ -433,6 +434,12 @@ func createServerWorkspaceDirectories(at workspaceRoot: URL) throws {
     for directory in directories {
         try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
     }
+}
+
+func verifyWorkspaceWritable(at workspaceRoot: URL) throws {
+    let probeURL = workspaceRoot.appendingPathComponent(".write_probe")
+    try Data([0]).write(to: probeURL)
+    try? FileManager.default.removeItem(at: probeURL)
 }
 
 func resolveServerSQLitePath(sqlitePath: String, workspaceRoot: URL) -> String {
