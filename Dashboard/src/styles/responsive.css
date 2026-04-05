@@ -162,7 +162,8 @@
   .agent-tools-textarea-grid,
   .project-details-grid,
   .providers-list,
-  .provider-modal-form {
+  .provider-modal-form,
+  .updates-status-grid {
     grid-template-columns: 1fr;
   }
 
@@ -173,16 +174,21 @@
   .settings-side {
     border-right: none;
     border-bottom: 1px solid var(--line);
-    max-height: 100px;
+    height: auto;
+    min-width: 0;
+    max-width: 100vw;
   }
 
   .settings-nav {
     display: flex;
     flex-direction: row;
+    flex-wrap: nowrap;
     overflow-x: auto;
     gap: 8px;
     padding-bottom: 4px;
     -webkit-overflow-scrolling: touch;
+    min-width: 0;
+    width: 100%;
   }
 
   .settings-nav::-webkit-scrollbar {
@@ -201,6 +207,7 @@
     width: auto;
     white-space: nowrap;
     justify-content: center;
+    flex-shrink: 0;
   }
 
   .project-workspace-head,
@@ -273,6 +280,29 @@
 
   .agent-chat-main {
     height: 100%;
+    grid-template-columns: 1fr;
+  }
+
+  .agent-chat-sidebar {
+    display: none;
+  }
+
+  .agent-chat-sidebar.mobile-open {
+    display: flex;
+    position: absolute;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    width: 280px;
+    max-width: 80%;
+    z-index: 100;
+    border-right: 1px solid var(--line);
+    box-shadow: var(--shadow-brutalist);
+    background: var(--surface);
+  }
+
+  .agent-chat-mobile-menu-btn {
+    display: flex;
   }
 
   .agent-chat-main-head {
@@ -317,7 +347,43 @@
     margin-left: auto;
   }
 
-  .agent-modal-overlay {
-    padding: 10px;
+  .agent-tabs {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    padding-bottom: 4px;
+    width: 100%;
+  }
+
+  .agent-tabs::-webkit-scrollbar {
+    height: 4px;
+  }
+
+  .agent-tabs::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .agent-tabs::-webkit-scrollbar-thumb {
+    background: var(--line);
+  }
+
+  .agent-tab {
+    flex-shrink: 0;
+  }
+
+  .updates-shell,
+  .updates-command-block {
+    min-width: 0;
+  }
+
+  .updates-oneclick-row {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+  }
+
+  .updates-command-label {
+    flex-wrap: wrap;
+    gap: 8px;
   }
 }

@@ -1835,6 +1835,7 @@ export function AgentChatTab({ agentId, initialSessionId = null }) {
   const [knownTaskRecords, setKnownTaskRecords] = useState([]);
   const [taskPreview, setTaskPreview] = useState(null);
   const [isShareMenuOpen, setIsShareMenuOpen] = useState(false);
+  const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
   const [tasksDirectoryOpen, setTasksDirectoryOpen] = useState(false);
   const fileInputRef = useRef(null);
   const composeInputRef = useRef(null);
@@ -2924,7 +2925,7 @@ export function AgentChatTab({ agentId, initialSessionId = null }) {
         addFiles(event.dataTransfer?.files);
       }}
     >
-      <div className="agent-chat-sidebar">
+      <div className={`agent-chat-sidebar ${isMobileSidebarOpen ? "mobile-open" : ""}`}>
         <div className="agent-chat-sidebar-header">
           <h3>Sessions</h3>
           <button
@@ -3008,6 +3009,16 @@ export function AgentChatTab({ agentId, initialSessionId = null }) {
       <div className="agent-chat-main-area">
         <div className="agent-chat-main-head">
           <div className="agent-chat-head-title">
+            <button
+              type="button"
+              className="agent-chat-icon-button agent-chat-mobile-menu-btn"
+              onClick={() => setIsMobileSidebarOpen((prev) => !prev)}
+              aria-label="Toggle sessions menu"
+            >
+              <span className="material-symbols-rounded" aria-hidden="true">
+                menu
+              </span>
+            </button>
             {activeSession ? getSessionDisplayLabel(activeSession) : "Select a session"}
             {selectedModel ? (
               <span className="agent-chat-head-model">

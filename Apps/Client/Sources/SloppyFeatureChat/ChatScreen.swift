@@ -46,6 +46,7 @@ public struct ChatScreen: View {
                 connectionBar
                 contentArea
                 composerBar
+                    .glassEffect(.regular, in: CapsuleShape())
             }
 
             if showAgentPicker {
@@ -101,7 +102,7 @@ public struct ChatScreen: View {
                 HStack(spacing: sp.s) {
                     Text(selectedAgent?.displayName ?? "Select Agent")
                         .font(.system(size: ty.body))
-                        .foregroundColor(c.textPrimary)
+                        .foregroundColor(c.accent)
                     Text("▾")
                         .font(.system(size: ty.caption))
                         .foregroundColor(c.textMuted)

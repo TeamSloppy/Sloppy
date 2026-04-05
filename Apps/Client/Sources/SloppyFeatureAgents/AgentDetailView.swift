@@ -56,6 +56,7 @@ struct AgentDetailView: View {
                 Tab(AgentDetailTab.tasks.title, value: AgentDetailTab.tasks) { tabContent(.tasks) }
                 Tab(AgentDetailTab.chat.title, value: AgentDetailTab.chat) { tabContent(.chat) }
             }
+            .tabViewStyle(ScrollableTabViewStyle(accentColor: c.accentCyan))
         }
     }
 
