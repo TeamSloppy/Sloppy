@@ -252,7 +252,8 @@ public actor RuntimeSystem {
         reasoningEffort: ReasoningEffort?,
         onResponseChunk: (@Sendable (String) async -> Bool)?,
         toolInvoker: (@Sendable (ToolInvocationRequest) async -> ToolInvocationResult)?,
-        observationHandler: (@Sendable (RuntimeResponseObservation) async -> Void)?
+        observationHandler: (@Sendable (RuntimeResponseObservation) async -> Void)?,
+        streamRetries: Int = 2
     ) async {
         let normalizedModel = model?.trimmingCharacters(in: .whitespacesAndNewlines)
         let activeModel = (normalizedModel?.isEmpty == false ? normalizedModel : nil) ?? defaultModel
@@ -307,39 +308,72 @@ public actor RuntimeSystem {
                 )
             )
 
-            var latest = ""
-            var streamChunks = 0
             let streamStartedAt = Date()
+            let streamIdleTimeoutSeconds: Int = 120
+            let tracker = StreamActivityTracker()
 
             let responseStream = session.streamResponse(to: userMessage, options: options)
             do {
-                for try await snapshot in responseStream {
-                    streamChunks += 1
-                    latest = snapshot.content
-                    if let onResponseChunk {
-                        let shouldContinue = await onResponseChunk(latest)
-                        if !shouldContinue {
-                            logger.info(
-                                "Model stream cancelled by response consumer",
-                                metadata: modelCallMetadata(
-                                    channelId: channelId,
-                                    model: activeModel,
-                                    reasoningEffort: reasoningEffort,
-                                    promptChars: userMessage.count,
-                                    mode: streamMode,
-                                    durationMs: elapsedMilliseconds(since: streamStartedAt),
-                                    outputChars: latest.count,
-                                    streamChunks: streamChunks
-                                )
-                            )
-                            if !latest.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                                await channels.appendSystemMessage(channelId: channelId, content: latest)
+                try await withThrowingTaskGroup(of: Void.self) { group in
+                    group.addTask {
+                        while !Task.isCancelled {
+                            try await Task.sleep(for: .seconds(10))
+                            if await tracker.isIdle(thresholdSeconds: streamIdleTimeoutSeconds) {
+                                throw StreamIdleTimeoutError()
                             }
-                            return
                         }
                     }
+                    group.addTask { @Sendable [tracker] in
+                        for try await snapshot in responseStream {
+                            await tracker.touch()
+                            await tracker.update(content: snapshot.content)
+                            if let onResponseChunk {
+                                let shouldContinue = await onResponseChunk(snapshot.content)
+                                if !shouldContinue {
+                                    await tracker.markCancelledByConsumer()
+                                    return
+                                }
+                            }
+                        }
+                    }
+                    try await group.next()
+                    group.cancelAll()
                 }
+            } catch is StreamIdleTimeoutError {
+                let chunks = await tracker.chunks
+                let content = await tracker.latestContent
+                logger.warning(
+                    "Model stream timed out (idle), retrying",
+                    metadata: modelCallMetadata(
+                        channelId: channelId,
+                        model: activeModel,
+                        reasoningEffort: reasoningEffort,
+                        promptChars: userMessage.count,
+                        mode: streamMode,
+                        durationMs: elapsedMilliseconds(since: streamStartedAt),
+                        outputChars: content.count,
+                        streamChunks: chunks,
+                        error: "No data received for \(streamIdleTimeoutSeconds)s"
+                    )
+                )
+                if streamRetries > 0 {
+                    sessionsByChannel.removeValue(forKey: channelId)
+                    await respondInline(
+                        channelId: channelId,
+                        userMessage: userMessage,
+                        model: model,
+                        reasoningEffort: reasoningEffort,
+                        onResponseChunk: onResponseChunk,
+                        toolInvoker: toolInvoker,
+                        observationHandler: observationHandler,
+                        streamRetries: streamRetries - 1
+                    )
+                    return
+                }
+                throw StreamIdleTimeoutError()
             } catch let error as LanguageModelSession.GenerationError {
+                let latest = await tracker.latestContent
+                let streamChunks = await tracker.chunks
                 if case .exceededContextWindowSize = error {
                     logger.warning(
                         "Context window exceeded, recreating session with summary",
@@ -383,6 +417,8 @@ public actor RuntimeSystem {
                 )
                 throw error
             } catch {
+                let latest = await tracker.latestContent
+                let streamChunks = await tracker.chunks
                 logger.warning(
                     "Model stream failed",
                     metadata: modelCallMetadata(
@@ -400,6 +436,31 @@ public actor RuntimeSystem {
                 throw error
             }
 
+            let cancelledByConsumer = await tracker.wasCancelledByConsumer
+            if cancelledByConsumer {
+                let latest = await tracker.latestContent
+                let streamChunks = await tracker.chunks
+                logger.info(
+                    "Model stream cancelled by response consumer",
+                    metadata: modelCallMetadata(
+                        channelId: channelId,
+                        model: activeModel,
+                        reasoningEffort: reasoningEffort,
+                        promptChars: userMessage.count,
+                        mode: streamMode,
+                        durationMs: elapsedMilliseconds(since: streamStartedAt),
+                        outputChars: latest.count,
+                        streamChunks: streamChunks
+                    )
+                )
+                if !latest.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    await channels.appendSystemMessage(channelId: channelId, content: latest)
+                }
+                return
+            }
+
+            var latest = await tracker.latestContent
+            let streamChunks = await tracker.chunks
             logger.info(
                 "Model stream finished",
                 metadata: modelCallMetadata(
@@ -1145,5 +1206,33 @@ private extension JSONValue {
             return value
         }
         return nil
+    }
+}
+
+struct StreamIdleTimeoutError: Error, LocalizedError {
+    var errorDescription: String? { "Model stream idle timeout" }
+}
+
+actor StreamActivityTracker {
+    private var lastActivityAt: Date = Date()
+    private(set) var latestContent: String = ""
+    private(set) var chunks: Int = 0
+    private(set) var wasCancelledByConsumer: Bool = false
+
+    func touch() {
+        lastActivityAt = Date()
+        chunks += 1
+    }
+
+    func update(content: String) {
+        latestContent = content
+    }
+
+    func markCancelledByConsumer() {
+        wasCancelledByConsumer = true
+    }
+
+    func isIdle(thresholdSeconds: Int) -> Bool {
+        Date().timeIntervalSince(lastActivityAt) >= Double(thresholdSeconds)
     }
 }

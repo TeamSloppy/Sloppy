@@ -285,6 +285,7 @@ public actor WorkerRuntime {
     /// Completes worker immediately with summary artifact.
     public func completeNow(workerId: String, summary: String) async -> ArtifactRef? {
         guard var state = workers[workerId] else { return nil }
+        guard state.status != .failed, state.status != .completed else { return nil }
 
         state.status = .completed
         state.latestReport = summary
@@ -312,6 +313,7 @@ public actor WorkerRuntime {
     /// Marks worker as failed and emits failure event.
     public func fail(workerId: String, error: String) async {
         guard var state = workers[workerId] else { return }
+        guard state.status != .failed, state.status != .completed else { return }
         state.status = .failed
         state.latestReport = error
         workers[workerId] = state

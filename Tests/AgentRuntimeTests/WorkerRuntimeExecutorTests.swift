@@ -99,6 +99,48 @@ func workerRuntimeMarksWorkerFailedWhenRouteExecutorThrows() async {
     #expect(snapshot?.latestReport?.contains("injected route failure") == true)
 }
 
+@Test
+func workerRuntimeCompleteNowIgnoredWhenAlreadyFailed() async {
+    let runtime = WorkerRuntime(eventBus: EventBus())
+    let spec = WorkerTaskSpec(
+        taskId: "task-guard-fail",
+        channelId: "general",
+        title: "Guard",
+        objective: "guard test",
+        tools: [],
+        mode: .fireAndForget
+    )
+    let workerId = await runtime.spawn(spec: spec, autoStart: false)
+    await runtime.fail(workerId: workerId, error: "timed out")
+    let ref = await runtime.completeNow(workerId: workerId, summary: "late result")
+    let snapshot = await runtime.snapshot(workerId: workerId)
+    #expect(ref == nil)
+    #expect(snapshot?.status == .failed)
+    #expect(snapshot?.latestReport == "timed out")
+}
+
+@Test
+func workerRuntimeFailIgnoredWhenAlreadyCompleted() async {
+    let runtime = WorkerRuntime(
+        eventBus: EventBus(),
+        executor: CompletingWorkerExecutor(summary: "done")
+    )
+    let spec = WorkerTaskSpec(
+        taskId: "task-guard-complete",
+        channelId: "general",
+        title: "Guard",
+        objective: "guard test",
+        tools: [],
+        mode: .fireAndForget
+    )
+    let workerId = await runtime.spawn(spec: spec, autoStart: false)
+    await runtime.execute(workerId: workerId)
+    await runtime.fail(workerId: workerId, error: "late failure")
+    let snapshot = await runtime.snapshot(workerId: workerId)
+    #expect(snapshot?.status == .completed)
+    #expect(snapshot?.latestReport == "done")
+}
+
 private struct CompletingWorkerExecutor: WorkerExecutor {
     let summary: String
 

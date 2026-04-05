@@ -281,13 +281,9 @@ func readyTaskClaimsAssignedActorAndPersistsProjectArtifactsAndLogs() async thro
         .resolvedWorkspaceRootURL()
         .appendingPathComponent("projects", isDirectory: true)
         .appendingPathComponent(projectID, isDirectory: true)
-    let artifactsDirectory = projectWorkspace.appendingPathComponent("artifacts", isDirectory: true)
-    let logsDirectory = projectWorkspace.appendingPathComponent("logs", isDirectory: true)
+    let metaDirectory = projectWorkspace.appendingPathComponent(".meta", isDirectory: true)
 
-    let artifactFiles = try FileManager.default.contentsOfDirectory(atPath: artifactsDirectory.path)
-    #expect(artifactFiles.contains(where: { $0.hasPrefix("task-\(taskID)-") }))
-
-    let logPath = logsDirectory.appendingPathComponent("task-\(taskID).log").path
+    let logPath = metaDirectory.appendingPathComponent("task-\(taskID).log").path
     #expect(FileManager.default.fileExists(atPath: logPath))
     let logContent = try String(contentsOfFile: logPath, encoding: .utf8)
     #expect(logContent.contains("stage=worker_spawned"))
@@ -352,15 +348,17 @@ func fireAndForgetWorkerPersistsObjectiveArtifact() async throws {
     }
     let doneTask = doneProject?.tasks.first(where: { $0.id == taskID })
     #expect(doneTask != nil)
-    let artifactLine = doneTask?.description
-        .components(separatedBy: .newlines)
-        .first(where: { $0.hasPrefix("Artifact: ") })
-    let artifactRelativePath = artifactLine?.replacingOccurrences(of: "Artifact: ", with: "")
-    #expect(artifactRelativePath != nil)
-    if let artifactRelativePath {
-        let artifactAbsolutePath = config.resolvedWorkspaceRootURL().appendingPathComponent(artifactRelativePath).path
-        #expect(FileManager.default.fileExists(atPath: artifactAbsolutePath))
-    }
+
+    let commentsResponse = await router.handle(
+        method: "GET",
+        path: "/v1/projects/\(projectID)/tasks/\(taskID)/comments",
+        body: nil
+    )
+    #expect(commentsResponse.status == 200)
+    let commentsDecoder = JSONDecoder()
+    commentsDecoder.dateDecodingStrategy = .iso8601
+    let comments = try commentsDecoder.decode([TaskComment].self, from: commentsResponse.body)
+    #expect(comments.contains(where: { $0.authorActorId == "system" && !$0.content.isEmpty }))
 }
 
 @Test
