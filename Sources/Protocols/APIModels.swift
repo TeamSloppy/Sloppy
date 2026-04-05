@@ -231,6 +231,7 @@ public struct ProjectTask: Codable, Sendable, Equatable {
     public var swarmDepth: Int?
     public var swarmActorPath: [String]?
     public var worktreeBranch: String?
+    public var isArchived: Bool
     public var createdAt: Date
     public var updatedAt: Date
 
@@ -255,6 +256,7 @@ public struct ProjectTask: Codable, Sendable, Equatable {
         swarmDepth: Int? = nil,
         swarmActorPath: [String]? = nil,
         worktreeBranch: String? = nil,
+        isArchived: Bool = false,
         createdAt: Date = Date(),
         updatedAt: Date = Date()
     ) {
@@ -278,6 +280,7 @@ public struct ProjectTask: Codable, Sendable, Equatable {
         self.swarmDepth = swarmDepth
         self.swarmActorPath = swarmActorPath
         self.worktreeBranch = worktreeBranch
+        self.isArchived = isArchived
         self.createdAt = createdAt
         self.updatedAt = updatedAt
     }

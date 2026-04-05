@@ -1,0 +1,78 @@
+---
+description: Guide for working in CoreService.swift — the main service actor (8500+ lines)
+globs: Sources/sloppy/CoreService.swift
+alwaysApply: false
+---
+
+# CoreService Guide
+
+`Sources/sloppy/CoreService.swift` is an `actor` (~8551 lines, 337 functions). It is the central business logic layer between the HTTP routers and the runtime/persistence layer.
+
+## Architecture position
+
+```
+Transport (CoreHTTPServer)
+  → Router (CoreRouter / XxxAPIRouter)
+    → CoreService  ← you are here
+      → SQLiteStore (PersistenceStore)
+      → RuntimeSystem (AgentRuntime)
+```
+
+## Domain sections (MARK map)
+
+| Section | Approx. line |
+|---|---|
+| Gateway Plugin Lifecycle | ~455 |
+| Cron Tasks | ~943 |
+| Task Clarifications | ~1518 |
+| Skills | ~2255 |
+| Channel Plugins | ~2470 |
+| Review Flow | ~5344 |
+| Task Comments | ~5574 |
+| Task Activity | ~5643 |
+| Channel Access Approvals | ~7827 |
+| Channel Model | ~7903 |
+| InboundMessageReceiver | ~8059 |
+| ProjectToolService conformance | ~8339 |
+| Debug API | ~8387 |
+
+Use `swift test --filter` or editor search to jump directly to the relevant MARK section.
+
+## Adding a new method
+
+1. Find the correct domain section by MARK header.
+2. CoreService is an `actor` — all methods are implicitly `@isolated`. Call site must `await`.
+3. Access persistence via `store` (`any PersistenceStore`), runtime via `runtime` (`RuntimeSystem`).
+4. Throw typed domain errors, not generic ones:
+
+```swift
+enum XxxError: Error {
+    case notFound
+    case invalidState(String)
+}
+
+func getXxx(id: String) async throws -> XxxRecord {
+    guard let record = await store.fetchXxx(id: id) else {
+        throw XxxError.notFound
+    }
+    return record
+}
+```
+
+5. Do not add `public` unless the method is part of a protocol conformance declared in another module.
+
+## Protocols CoreService conforms to
+
+- `ProjectToolService` — project/task operations used by agent tools (see ~line 8339)
+- `RuntimeConfigToolService` — runtime config read/write
+- `SkillsToolService` — skills registry operations
+- `InboundMessageReceiver` — channel message delivery (~line 8059)
+
+When adding operations that tools need, add to the relevant protocol in `Sources/sloppy/Tools/AgentTools/CoreTool.swift`.
+
+## Do not read the whole file
+
+The file is too large to read in full. Use:
+- `rg "func methodName"` to jump to a function
+- `rg "// MARK:" Sources/sloppy/CoreService.swift` to see domain sections
+- Read only the relevant section (50–150 lines around the target)

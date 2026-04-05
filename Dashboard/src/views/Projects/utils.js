@@ -126,6 +126,7 @@ export function normalizeTask(task, index = 0) {
     swarmActorPath: Array.isArray(task?.swarmActorPath)
       ? task.swarmActorPath.map((id) => String(id).trim()).filter(Boolean)
       : [],
+    isArchived: Boolean(task?.isArchived),
     createdAt: String(task?.createdAt || new Date().toISOString()),
     updatedAt: String(task?.updatedAt || task?.createdAt || new Date().toISOString())
   };

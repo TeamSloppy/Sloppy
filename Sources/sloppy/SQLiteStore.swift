@@ -785,8 +785,9 @@ public actor SQLiteStore: PersistenceStore {
                 kind,
                 loop_mode_override,
                 origin_type,
-                origin_channel_id
-            ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+                origin_channel_id,
+                is_archived
+            ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
             """
 
         for task in project.tasks {
@@ -824,6 +825,7 @@ public actor SQLiteStore: PersistenceStore {
             bindOptionalText(task.loopModeOverride?.rawValue, at: 21, statement: taskStatement)
             bindOptionalText(task.originType?.rawValue, at: 22, statement: taskStatement)
             bindOptionalText(task.originChannelId, at: 23, statement: taskStatement)
+            sqlite3_bind_int(taskStatement, 24, task.isArchived ? 1 : 0)
             _ = sqlite3_step(taskStatement)
         }
 #endif
@@ -1227,7 +1229,8 @@ public actor SQLiteStore: PersistenceStore {
                 kind,
                 loop_mode_override,
                 origin_type,
-                origin_channel_id
+                origin_channel_id,
+                is_archived
             FROM dashboard_project_tasks
             WHERE project_id = ?
             ORDER BY created_at ASC;
@@ -1282,6 +1285,7 @@ public actor SQLiteStore: PersistenceStore {
                     swarmDepth: optionalInt(statement: statement, index: 13),
                     swarmActorPath: actorPath,
                     worktreeBranch: optionalText(statement: statement, index: 17),
+                    isArchived: sqlite3_column_int(statement, 22) != 0,
                     createdAt: createdAt,
                     updatedAt: updatedAt
                 )
@@ -1731,7 +1735,8 @@ public actor SQLiteStore: PersistenceStore {
             "ALTER TABLE dashboard_project_tasks ADD COLUMN swarm_parent_task_id TEXT;",
             "ALTER TABLE dashboard_project_tasks ADD COLUMN swarm_dependency_ids_json TEXT NOT NULL DEFAULT '[]';",
             "ALTER TABLE dashboard_project_tasks ADD COLUMN swarm_depth INTEGER;",
-            "ALTER TABLE dashboard_project_tasks ADD COLUMN swarm_actor_path_json TEXT NOT NULL DEFAULT '[]';"
+            "ALTER TABLE dashboard_project_tasks ADD COLUMN swarm_actor_path_json TEXT NOT NULL DEFAULT '[]';",
+            "ALTER TABLE dashboard_project_tasks ADD COLUMN is_archived INTEGER NOT NULL DEFAULT 0;"
         ]
 
         for statement in statements {

@@ -582,6 +582,110 @@
   border-color: var(--line-strong);
 }
 
+/* ── Task Archive UI ─────────────────────────────────────── */
+
+.project-kanban-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.project-task-archive-toggle-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 12px;
+  border: 1px solid var(--line);
+  border-radius: 0;
+  background: transparent;
+  color: var(--muted);
+  font-size: 0.82rem;
+  cursor: pointer;
+  transition: color var(--motion-duration-fast) ease,
+              border-color var(--motion-duration-fast) ease;
+}
+
+.project-task-archive-toggle-btn .material-symbols-rounded {
+  font-size: 15px;
+}
+
+.project-task-archive-toggle-btn:hover,
+.project-task-archive-toggle-btn.active {
+  color: var(--text);
+  border-color: var(--line-strong);
+}
+
+.project-task-archive-section {
+  border: 1px solid var(--line);
+  border-radius: 0;
+  margin-top: 14px;
+  background: var(--surface-2);
+}
+
+.project-task-archive-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 0.84rem;
+}
+
+.project-task-archive-header h4 {
+  margin: 0;
+  font-size: 0.84rem;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.project-task-archive-header .project-archive-back-btn {
+  margin-left: auto;
+}
+
+.project-task-archive-header .material-symbols-rounded {
+  font-size: 16px;
+}
+
+.project-task-archive-list {
+  display: flex;
+  flex-direction: column;
+}
+
+.project-task-archive-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--line);
+  cursor: pointer;
+  transition: background var(--motion-duration-fast) ease;
+}
+
+.project-task-archive-item:last-child {
+  border-bottom: none;
+}
+
+.project-task-archive-item:hover {
+  background: var(--surface-3);
+}
+
+.project-task-archive-item-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.84rem;
+  color: var(--text);
+}
+
+.project-task-archive-item-status {
+  font-size: 0.78rem;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
 .project-workspace {
   display: grid;
   gap: 10px;

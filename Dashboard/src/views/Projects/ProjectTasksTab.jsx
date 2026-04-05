@@ -27,7 +27,8 @@ import {
     deleteReviewComment,
     createAgentSession,
     postAgentSessionMessage,
-    fetchAgents
+    fetchAgents,
+    fetchArchivedTasks
 } from "../../api";
 import { AgentPetIcon } from "../../features/agents/components/AgentPetSprite";
 import { ReviewDiffPanel } from "./ReviewDiffPanel";
@@ -1243,6 +1244,9 @@ export function ProjectTasksTab({
     onWatchAgentTaskSession
 }) {
     const [agentDirectory, setAgentDirectory] = useState({});
+    const [showArchive, setShowArchive] = useState(false);
+    const [archivedTasks, setArchivedTasks] = useState([]);
+    const [archiveLoading, setArchiveLoading] = useState(false);
 
     useEffect(() => {
         let cancelled = false;
@@ -1265,8 +1269,26 @@ export function ProjectTasksTab({
         };
     }, []);
 
-    const taskCounts = buildTaskCounts(project.tasks);
-    const swarmGroups = buildSwarmGroups(project.tasks);
+    const loadArchivedTasks = useCallback(async () => {
+        setArchiveLoading(true);
+        const result = await fetchArchivedTasks(project.id);
+        if (Array.isArray(result)) setArchivedTasks(result);
+        setArchiveLoading(false);
+    }, [project.id]);
+
+    const handleToggleArchive = useCallback(() => {
+        const next = !showArchive;
+        setShowArchive(next);
+        if (next) loadArchivedTasks();
+    }, [showArchive, loadArchivedTasks]);
+
+    const activeTasks = useMemo(
+        () => project.tasks.filter((t) => !t.isArchived),
+        [project.tasks]
+    );
+
+    const taskCounts = buildTaskCounts(activeTasks);
+    const swarmGroups = buildSwarmGroups(activeTasks);
     const selectedTaskId = selectedTask ? String(selectedTask.id || "").trim() : "";
 
     if (selectedTask) {
@@ -1339,9 +1361,19 @@ export function ProjectTasksTab({
                             {taskCounts.in_progress} in progress
                         </span>
                     </div>
-                    <button type="button" className="project-primary hover-levitate" onClick={() => openCreateTaskModal("backlog")}>
-                        Create Task
-                    </button>
+                    <div className="project-kanban-head-actions">
+                        <button
+                            type="button"
+                            className={`project-task-archive-toggle-btn${showArchive ? " active" : ""}`}
+                            onClick={handleToggleArchive}
+                        >
+                            <span className="material-symbols-rounded" aria-hidden="true">archive</span>
+                            Archive
+                        </button>
+                        <button type="button" className="project-primary hover-levitate" onClick={() => openCreateTaskModal("backlog")}>
+                            Create Task
+                        </button>
+                    </div>
                 </div>
 
                 {swarmGroups.length > 0 ? (
@@ -1375,7 +1407,7 @@ export function ProjectTasksTab({
 
                 <div className="project-kanban-board">
                     {TASK_STATUSES.map((column) => {
-                        const tasks = sortTasksByDate(project.tasks.filter((task) => task.status === column.id)).sort((left, right) => {
+                        const tasks = sortTasksByDate(activeTasks.filter((task) => task.status === column.id)).sort((left, right) => {
                             if (left.swarmId && right.swarmId && left.swarmId !== right.swarmId) {
                                 return left.swarmId.localeCompare(right.swarmId);
                             }
@@ -1560,6 +1592,56 @@ export function ProjectTasksTab({
                         );
                     })}
                 </div>
+
+                {showArchive && (
+                    <section className="project-task-archive-section">
+                        <div className="project-task-archive-header">
+                            <span className="material-symbols-rounded" aria-hidden="true">archive</span>
+                            <h4>Archived tasks</h4>
+                            <button
+                                type="button"
+                                className="project-archive-back-btn"
+                                onClick={handleToggleArchive}
+                            >
+                                <span className="material-symbols-rounded" style={{ fontSize: "1rem" }}>close</span>
+                            </button>
+                        </div>
+                        {archiveLoading ? (
+                            <p className="placeholder-text">Loading archived tasks...</p>
+                        ) : archivedTasks.length === 0 ? (
+                            <p className="placeholder-text">No archived tasks.</p>
+                        ) : (
+                            <div className="project-task-archive-list">
+                                {archivedTasks.map((task) => (
+                                    <article
+                                        key={task.id}
+                                        className="project-task-archive-item"
+                                        role="button"
+                                        tabIndex={0}
+                                        onClick={() => openTaskDetails(task)}
+                                        onKeyDown={(event) => {
+                                            if (event.key === "Enter" || event.key === " ") {
+                                                event.preventDefault();
+                                                openTaskDetails(task);
+                                            }
+                                        }}
+                                    >
+                                        <span className="project-task-id">#{task.id}</span>
+                                        <span className="project-task-archive-item-title">{task.title}</span>
+                                        <span className="tcm-status-dot" style={{ background: TASK_STATUS_COLORS[task.status] || "#94a3b8" }} />
+                                        <span className="project-task-archive-item-status">
+                                            {TASK_STATUSES.find((s) => s.id === task.status)?.title || task.status}
+                                        </span>
+                                        <span className="project-task-age">
+                                            <span className="material-symbols-rounded" aria-hidden="true">schedule</span>
+                                            {formatRelativeTime(task.updatedAt)}
+                                        </span>
+                                    </article>
+                                ))}
+                            </div>
+                        )}
+                    </section>
+                )}
             </section>
         </section>
     );

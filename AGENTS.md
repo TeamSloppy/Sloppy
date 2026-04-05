@@ -157,13 +157,52 @@ Typical debugging flow:
 - `Demos/`: quickstart/sample payloads.
 - `utils/docker/`: Dockerfiles and compose assets.
 
+## Common recipes
+
+### Add a new API endpoint
+
+1. **Model** — add `XxxRequest` / `XxxRecord` structs to `Sources/Protocols/APIModels.swift` under the relevant `// MARK:` section.
+2. **Service method** — add the method to `Sources/sloppy/CoreService.swift` in the correct domain section. Use a typed error enum.
+3. **Router** — add the route to the appropriate `XxxAPIRouter` in `Sources/sloppy/Gateway/Routers/`. If creating a new router, add it to `CoreRouter+HTTPRoutes.swift`.
+4. **Test** — add a test in `Tests/sloppyTests/` using Swift Testing macros (`@Test`, `#expect`).
+5. **Verify** — `swift test --filter sloppyTests.XxxTests` then `swift build -c release --product sloppy`.
+
+### Add a new agent tool
+
+1. **File** — create `Sources/sloppy/Tools/AgentTools/XxxTool.swift` conforming to `CoreTool`.
+2. **Implement** — define `name`, `domain`, `title`, `status`, `description`, `parameters`, and `invoke(arguments:context:)`.
+3. **Register** — add `XxxTool()` to the array in `ToolRegistry.makeDefault()` in `Sources/sloppy/Tools/ToolRegistry.swift`.
+4. **Test** — add a test in `Tests/sloppyTests/` using `ToolContext` with injected fakes.
+5. **Verify** — `swift test --filter sloppyTests.XxxTests` then `swift build -c release --product sloppy`.
+
+### Add a new SQLite table or column
+
+1. **Schema** — add `CREATE TABLE IF NOT EXISTS xxx (...)` or `ALTER TABLE xxx ADD COLUMN yyy TEXT` to the schema string in `Sources/sloppy/CorePersistenceFactory.swift`.
+2. **CRUD methods** — add the read/write methods to `Sources/sloppy/SQLiteStore.swift` inside the `#if canImport(CSQLite3)` guard with a matching in-memory fallback.
+3. **Protocol** — add the method signature to the `PersistenceStore` protocol in `Sources/sloppy/Stores/PersistenceStore.swift`.
+4. **Verify** — `swift test --filter sloppyTests` then `swift build -c release --product sloppy`.
+
+### Add a Dashboard view
+
+1. **Component** — create `Dashboard/src/views/XxxView.jsx` (function component, named export).
+2. **Route** — add the route in `Dashboard/src/App.tsx`.
+3. **API** — add the fetch function to `Dashboard/src/shared/api/coreApi.ts`.
+4. **CSS** — add `Dashboard/src/styles/xxx.css` and import it in the component.
+5. **Verify** — `cd Dashboard && npm run build`.
+
 ## Cursor/Copilot rules status
-Checked these locations:
-- `.cursorrules`
-- `.cursor/rules/`
-- `.github/copilot-instructions.md`
-Current state: no Cursor/Copilot rule files are present.
-If added later, treat them as higher-priority repository policy and update this file.
+
+Contextual rules for specific file areas live in `.cursor/rules/`:
+- `router-pattern.mdc` — HTTP router structure and patterns
+- `tool-pattern.mdc` — agent tool implementation
+- `api-models.mdc` — APIModels.swift conventions
+- `core-service.mdc` — CoreService domain map and patterns
+- `sqlite-store.mdc` — SQLite C API patterns and migrations
+- `tests.mdc` — Swift Testing framework usage
+- `dashboard.mdc` — React/Vite dashboard conventions
+- `agent-runtime.mdc` — AgentRuntime actor architecture
+
+These rules are activated automatically when working with matching files and take precedence over the general guidance above.
 
 ## Agent execution expectations
 - Make small, targeted edits aligned with existing module boundaries.
