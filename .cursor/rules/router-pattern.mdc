@@ -1,0 +1,91 @@
+---
+description: Patterns and conventions for HTTP API routers in the Gateway layer
+globs: Sources/sloppy/Gateway/Routers/*.swift
+alwaysApply: false
+---
+
+# API Router Pattern
+
+## Structure
+
+Every router is a `struct` conforming to `APIRouter`, holding a reference to `CoreService`:
+
+```swift
+import Foundation
+import Protocols
+
+struct XxxAPIRouter: APIRouter {
+    private let service: CoreService
+
+    init(service: CoreService) {
+        self.service = service
+    }
+
+    func configure(on router: CoreRouterRegistrar) {
+        // register routes here
+    }
+}
+```
+
+## Route registration
+
+Use `router.get/post/put/patch/delete` with `RouteMetadata`. All routes require metadata:
+
+```swift
+router.get("/v1/xxx/:id", metadata: RouteMetadata(
+    summary: "Get xxx",
+    description: "Returns a specific xxx by id",
+    tags: ["Xxx"]
+)) { request in
+    let id = request.pathParam("id") ?? ""
+    // ...
+}
+```
+
+## Reading request data
+
+- Path params: `request.pathParam("name")`
+- Query params: `request.queryParam("name")`
+- Request body: `request.body` (returns `Data?`)
+- Decoding body: `CoreRouter.decode(body, as: XxxRequest.self)`
+
+```swift
+guard let body = request.body,
+      let payload = CoreRouter.decode(body, as: XxxRequest.self)
+else {
+    return CoreRouter.json(status: HTTPStatus.badRequest, payload: ["error": ErrorCode.invalidBody])
+}
+```
+
+## Building responses
+
+- Encodable payload: `CoreRouter.encodable(status: .ok, payload: someEncodable)`
+- Raw JSON dict: `CoreRouter.json(status: .ok, payload: ["key": "value"])`
+- Domain errors: `CoreRouter.projectErrorResponse(error, fallback: ErrorCode.xxx)`
+
+## Error handling
+
+Catch typed domain errors from `CoreService` before generic fallback:
+
+```swift
+do {
+    let result = try await service.doSomething(id: id)
+    return CoreRouter.encodable(status: .ok, payload: result)
+} catch let error as CoreService.XxxError {
+    return CoreRouter.projectErrorResponse(error, fallback: ErrorCode.xxxFailed)
+} catch {
+    return CoreRouter.json(status: .internalServerError, payload: ["error": ErrorCode.xxxFailed])
+}
+```
+
+## Registration
+
+After creating a new router, add it to `CoreRouter+HTTPRoutes.swift`:
+
+```swift
+// in Sources/sloppy/Gateway/Routers/CoreRouter+HTTPRoutes.swift
+var routers: [APIRouter] = [
+    // ...existing routers...
+    XxxAPIRouter(service: service),
+]
+```

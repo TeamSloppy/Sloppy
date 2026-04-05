@@ -39,6 +39,7 @@ export const deleteProjectChannel = coreApi.deleteProjectChannel;
 export const createProjectTask = coreApi.createProjectTask;
 export const updateProjectTask = coreApi.updateProjectTask;
 export const deleteProjectTask = coreApi.deleteProjectTask;
+export const fetchArchivedTasks = coreApi.fetchArchivedTasks;
 export const fetchAgents = coreApi.fetchAgents;
 export const fetchAgent = coreApi.fetchAgent;
 export const fetchAgentTasks = coreApi.fetchAgentTasks;

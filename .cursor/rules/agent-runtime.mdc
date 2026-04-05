@@ -1,0 +1,72 @@
+---
+description: Guide for working with AgentRuntime — the actor-based orchestration core
+globs: Sources/AgentRuntime/*.swift
+alwaysApply: false
+---
+
+# AgentRuntime Guide
+
+`Sources/AgentRuntime/` is the orchestration core. All types are `actor`-based for concurrency safety.
+
+## Component overview
+
+| File | Role |
+|---|---|
+| `RuntimeSystem.swift` | Facade — entry point for CoreService to start/stop sessions and workers |
+| `WorkerRuntime.swift` | Executes a single agent worker loop |
+| `ChannelRuntime.swift` | Manages a channel session lifecycle |
+| `BranchRuntime.swift` | Manages a branched sub-session |
+| `EventBus.swift` | Pub/sub event routing between runtime components |
+| `Visor.swift` | Observes and records runtime state snapshots |
+| `Compactor.swift` | Compresses long conversation history |
+| `MemoryStore.swift` | In-memory session state |
+
+## RuntimeSystem — primary interface
+
+`CoreService` accesses the runtime exclusively through `RuntimeSystem`:
+
+```swift
+// Start a session
+await runtime.startSession(agentID: agentID, sessionID: sessionID, config: config)
+
+// Stop a session
+await runtime.stopSession(sessionID: sessionID)
+
+// Send a message into a channel
+await runtime.deliverMessage(channelID: channelID, message: message)
+```
+
+Do not reach into individual `WorkerRuntime` or `ChannelRuntime` actors directly from outside `AgentRuntime`.
+
+## EventBus
+
+Inter-component communication uses `EventBus`. Publish typed events; subscribe with a handler closure:
+
+```swift
+// publish
+await eventBus.publish(SomeEvent(sessionID: sessionID, payload: data))
+
+// subscribe (within an actor)
+await eventBus.subscribe(to: SomeEvent.self) { event in
+    // handle
+}
+```
+
+## Visor
+
+`Visor` periodically snapshots worker state. It is read-only from outside — `CoreService` calls `await runtime.visorSnapshot()` to get the current state. Do not write to Visor directly.
+
+## Concurrency rules
+
+- All `AgentRuntime` actors use `async`/`await`. No locks, no `DispatchQueue`.
+- Data passed between actors must be `Sendable`. Use value types (`struct`) for all cross-actor payloads.
+- Never capture `actor`-isolated mutable state in a detached `Task` without re-isolating.
+
+## Testing AgentRuntime
+
+Tests in `Tests/AgentRuntimeTests/` instantiate `RuntimeSystem` directly with injected fakes. See `RuntimeFlowTests.swift` for the setup pattern.
+
+Run:
+```bash
+swift test --filter AgentRuntimeTests
+```

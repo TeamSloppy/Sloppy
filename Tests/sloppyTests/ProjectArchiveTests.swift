@@ -146,3 +146,85 @@ func unarchiveProjectViaRouter() async throws {
     let restored = try decoder.decode(ProjectRecord.self, from: unarchiveResp.body)
     #expect(restored.isArchived == false)
 }
+
+@Test
+func taskDefaultsToNotArchived() throws {
+    let task = ProjectTask(id: "T-1", title: "Test", description: "", priority: "medium", status: "backlog")
+    #expect(task.isArchived == false)
+}
+
+@Test
+func taskEncodesIsArchived() throws {
+    let task = ProjectTask(id: "T-1", title: "Test", description: "", priority: "medium", status: "done", isArchived: true)
+    let data = try JSONEncoder().encode(task)
+    let json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+    #expect(json?["isArchived"] as? Bool == true)
+}
+
+@Test
+func archiveOldTasksMarksCompletedTasksAsArchived() async throws {
+    let config = CoreConfig.test
+    let service = CoreService(config: config, persistenceBuilder: InMemoryCorePersistenceBuilder())
+
+    let projectId = "task-archive-test"
+    let createBody = try JSONEncoder().encode(
+        ProjectCreateRequest(id: projectId, name: "Task Archive", description: "", channels: [])
+    )
+    let router = CoreRouter(service: service)
+    let createResp = await router.handle(method: "POST", path: "/v1/projects", body: createBody)
+    #expect(createResp.status == 201)
+
+    let threeDaysAgo = Date().addingTimeInterval(-3 * 24 * 60 * 60)
+    let oneHourAgo = Date().addingTimeInterval(-3600)
+
+    let taskBody = try JSONEncoder().encode(
+        ProjectTaskCreateRequest(title: "Old done task", priority: "medium", status: "done")
+    )
+    let taskResp = await router.handle(method: "POST", path: "/v1/projects/\(projectId)/tasks", body: taskBody)
+    #expect(taskResp.status == 200)
+
+    let decoder = JSONDecoder()
+    decoder.dateDecodingStrategy = .iso8601
+    var project = try decoder.decode(ProjectRecord.self, from: taskResp.body)
+    #expect(project.tasks.count == 1)
+
+    project.tasks[0].updatedAt = threeDaysAgo
+    project.tasks[0].status = "done"
+
+    let taskBody2 = try JSONEncoder().encode(
+        ProjectTaskCreateRequest(title: "Recent done task", priority: "medium", status: "done")
+    )
+    let taskResp2 = await router.handle(method: "POST", path: "/v1/projects/\(projectId)/tasks", body: taskBody2)
+    project = try decoder.decode(ProjectRecord.self, from: taskResp2.body)
+
+    project.tasks[0].updatedAt = threeDaysAgo
+    project.tasks[1].updatedAt = oneHourAgo
+
+    let updated = try await service.archiveOldTasks(projectID: projectId)
+
+    let archived = updated.tasks.filter(\.isArchived)
+    let active = updated.tasks.filter { !$0.isArchived }
+    #expect(active.count >= 1)
+}
+
+@Test
+func listArchivedTasksEndpoint() async throws {
+    let config = CoreConfig.test
+    let service = CoreService(config: config, persistenceBuilder: InMemoryCorePersistenceBuilder())
+    let router = CoreRouter(service: service)
+
+    let projectId = "archived-endpoint-test"
+    let createBody = try JSONEncoder().encode(
+        ProjectCreateRequest(id: projectId, name: "Endpoint Test", description: "", channels: [])
+    )
+    let createResp = await router.handle(method: "POST", path: "/v1/projects", body: createBody)
+    #expect(createResp.status == 201)
+
+    let resp = await router.handle(method: "GET", path: "/v1/projects/\(projectId)/tasks/archived", body: nil)
+    #expect(resp.status == 200)
+
+    let decoder = JSONDecoder()
+    decoder.dateDecodingStrategy = .iso8601
+    let tasks = try decoder.decode([ProjectTask].self, from: resp.body)
+    #expect(tasks.isEmpty)
+}

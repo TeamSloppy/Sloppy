@@ -1,0 +1,92 @@
+---
+description: Conventions for writing and running Swift tests in this project
+globs: Tests/**/*.swift
+alwaysApply: false
+---
+
+# Swift Testing Conventions
+
+## Framework
+
+This project uses **Swift Testing** — not XCTest. Always import:
+
+```swift
+import Testing
+@testable import sloppy       // or the module under test
+@testable import Protocols
+```
+
+## Test declaration
+
+```swift
+// Simple test function (no suite)
+@Test
+func projectRecordDefaultsToNotArchived() throws {
+    let record = ProjectRecord(id: "x", name: "X", description: "", channels: [], tasks: [])
+    #expect(record.isArchived == false)
+}
+
+// Grouped in a suite
+@Suite
+struct XxxTests {
+    @Test
+    func createsSuccessfully() async throws {
+        // arrange
+        let service = makeCoreService()
+        // act
+        let result = try await service.createXxx(request: .init(name: "test"))
+        // assert
+        #expect(result.name == "test")
+    }
+}
+```
+
+## Assertion macros
+
+```swift
+#expect(value == expected)
+#expect(throws: XxxError.notFound) { try doSomething() }
+#expect(collection.count == 3)
+```
+
+For async throwing code:
+```swift
+await #expect(throws: CoreService.ProjectError.notFound) {
+    try await service.getProject(id: "missing")
+}
+```
+
+## Test file location
+
+| Module under test | Test target |
+|---|---|
+| `Sources/sloppy/**` | `Tests/sloppyTests/` |
+| `Sources/AgentRuntime/**` | `Tests/AgentRuntimeTests/` |
+| `Sources/Protocols/**` | `Tests/ProtocolsTests/` |
+
+Name test files after the component they test: `XxxTests.swift`.
+
+## Running tests
+
+```bash
+# Run only a specific test suite
+swift test --filter sloppyTests.XxxTests
+
+# Run a single test by exact name
+swift test --filter sloppyTests.XxxTests.createsSuccessfully
+
+# Run a whole test group (e.g. all CoreTests)
+swift test --filter CoreTests
+```
+
+Never run `swift test` without `--filter` unless verifying the full suite — prefer targeted runs.
+
+## Test setup helpers
+
+A shared helper for creating a `CoreService` with in-memory stores lives in `Tests/sloppyTests/CoreConfig+Testing.swift`. Prefer reusing it over duplicating setup logic.
+
+## Test isolation
+
+- Each test must be independent — no shared mutable state between tests.
+- Use fresh service instances per test case.
+- Avoid `sleep` / `Task.sleep` in tests; prefer deterministic async flows.

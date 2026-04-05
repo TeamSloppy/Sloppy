@@ -1452,6 +1452,46 @@ public actor CoreService {
         return project
     }
 
+    private static let taskArchiveThreshold: TimeInterval = 2 * 24 * 60 * 60
+
+    private static let archivableStatuses: Set<String> = [
+        ProjectTaskStatus.done.rawValue,
+        ProjectTaskStatus.cancelled.rawValue
+    ]
+
+    @discardableResult
+    public func archiveOldTasks(projectID: String) async throws -> ProjectRecord {
+        guard let normalizedID = normalizedProjectID(projectID) else {
+            throw ProjectError.invalidProjectID
+        }
+        guard var project = await store.project(id: normalizedID) else {
+            throw ProjectError.notFound
+        }
+
+        let cutoff = Date().addingTimeInterval(-Self.taskArchiveThreshold)
+        var changed = false
+        for index in project.tasks.indices {
+            let task = project.tasks[index]
+            if !task.isArchived,
+               Self.archivableStatuses.contains(task.status),
+               task.updatedAt < cutoff {
+                project.tasks[index].isArchived = true
+                changed = true
+            }
+        }
+
+        if changed {
+            project.updatedAt = Date()
+            await store.saveProject(project)
+        }
+        return project
+    }
+
+    public func listArchivedTasks(projectID: String) async throws -> [ProjectTask] {
+        let project = try await archiveOldTasks(projectID: projectID)
+        return project.tasks.filter(\.isArchived)
+    }
+
     /// Returns one task by readable id (for example, `MOBILE-1`).
     public func getProjectTask(taskReference: String) async throws -> AgentTaskRecord {
         guard let normalizedReference = normalizeTaskReference(taskReference) else {
@@ -4750,6 +4790,10 @@ public actor CoreService {
             }
         }
 
+        if let firstExecutor = resolveFirstExecutor(project: project, task: task, nodesByID: nodesByID, board: board) {
+            return firstExecutor
+        }
+
         if let fallbackChannelID = resolveExecutionChannelID(project: project, task: task) {
             let fallbackChannelActor = nodesByID.values
                 .filter { normalizeWhitespace($0.channelId ?? "") == fallbackChannelID }
@@ -4761,6 +4805,51 @@ public actor CoreService {
                 channelID: fallbackChannelID
             )
         }
+        return nil
+    }
+
+    private func resolveFirstExecutor(
+        project: ProjectRecord,
+        task: ProjectTask,
+        nodesByID: [String: ActorNode],
+        board: ActorBoardSnapshot?
+    ) -> TaskDelegation? {
+        guard !nodesByID.isEmpty else { return nil }
+
+        func tryNode(_ node: ActorNode) -> TaskDelegation? {
+            guard node.kind == .agent, node.linkedAgentId != nil else { return nil }
+            let channelID = normalizeWhitespace(node.channelId ?? "")
+            let resolvedChannelID = !channelID.isEmpty
+                ? channelID
+                : resolveExecutionChannelID(project: project, task: task)
+            guard let channel = resolvedChannelID else { return nil }
+            return TaskDelegation(actorID: node.id, agentID: node.linkedAgentId, channelID: channel)
+        }
+
+        for actorID in project.actors {
+            if let node = nodesByID[actorID], let delegation = tryNode(node) {
+                return delegation
+            }
+        }
+
+        for teamID in project.teams {
+            guard let team = resolveTeam(teamID, board: board) else { continue }
+            for memberID in team.memberActorIds {
+                if let node = nodesByID[memberID], let delegation = tryNode(node) {
+                    return delegation
+                }
+            }
+        }
+
+        let agentNodes = nodesByID.values
+            .filter { $0.kind == .agent && $0.linkedAgentId != nil }
+            .sorted(by: { $0.createdAt < $1.createdAt })
+        for node in agentNodes {
+            if let delegation = tryNode(node) {
+                return delegation
+            }
+        }
+
         return nil
     }
 

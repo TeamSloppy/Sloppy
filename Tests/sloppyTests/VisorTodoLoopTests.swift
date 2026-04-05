@@ -572,6 +572,64 @@ func swarmPlannerFailureBlocksRootTask() async throws {
 }
 
 @Test
+func readyTaskWithoutAssigneeAutoSelectsFirstAgent() async throws {
+    let config = CoreConfig.test
+    let service = CoreService(config: config)
+    let router = CoreRouter(service: service)
+    let projectID = "visor-autoassign-\(UUID().uuidString)"
+    let agentID = "executor-\(UUID().uuidString)"
+    let actorID = "agent:\(agentID)"
+
+    try await createAgent(router: router, id: agentID)
+    try await updateActorBoard(
+        router: router,
+        nodes: [
+            ActorNode(
+                id: "human:dispatcher",
+                displayName: "Dispatcher",
+                kind: .human,
+                channelId: "general"
+            ),
+            ActorNode(
+                id: actorID,
+                displayName: "Executor",
+                kind: .agent,
+                linkedAgentId: agentID,
+                channelId: actorID
+            )
+        ],
+        links: [],
+        teams: []
+    )
+
+    try await createProject(router: router, projectID: projectID, channelId: "general")
+
+    let taskID = try await createTask(
+        router: router,
+        projectID: projectID,
+        title: "Task without assignee",
+        status: "backlog"
+    )
+
+    let updateBody = try JSONEncoder().encode(ProjectTaskUpdateRequest(status: "ready"))
+    let updateResponse = await router.handle(
+        method: "PATCH",
+        path: "/v1/projects/\(projectID)/tasks/\(taskID)",
+        body: updateBody
+    )
+    #expect(updateResponse.status == 200)
+
+    let doneProject = try await waitForProject(router: router, projectID: projectID, timeoutSeconds: 5) { project in
+        let task = project.tasks.first(where: { $0.id == taskID })
+        return task?.status == "in_progress" || task?.status == "done"
+    }
+    let doneTask = doneProject?.tasks.first(where: { $0.id == taskID })
+    #expect(doneTask?.claimedActorId == actorID)
+    #expect(doneTask?.claimedAgentId == agentID)
+    #expect(doneTask?.actorId == actorID)
+}
+
+@Test
 func visorSkipsWhenProjectNotFoundForChannel() async throws {
     let router = try makeRouter()
 

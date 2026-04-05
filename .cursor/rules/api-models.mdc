@@ -1,0 +1,75 @@
+---
+description: Conventions for API request/response models in Sources/Protocols/APIModels.swift
+globs: Sources/Protocols/APIModels.swift
+alwaysApply: false
+---
+
+# API Models Conventions
+
+All wire models live in `Sources/Protocols/APIModels.swift`. This file is ~3200 lines; always add models in the appropriate domain section under the nearest `// MARK:` comment.
+
+## Model declaration pattern
+
+```swift
+// MARK: - Xxx
+
+public struct XxxCreateRequest: Codable, Sendable {
+    public var name: String
+    public var description: String?
+
+    public init(name: String, description: String? = nil) {
+        self.name = name
+        self.description = description
+    }
+}
+
+public struct XxxRecord: Codable, Sendable {
+    public var id: String
+    public var name: String
+    public var createdAt: Date
+
+    public init(id: String, name: String, createdAt: Date = Date()) {
+        self.id = id
+        self.name = name
+        self.createdAt = createdAt
+    }
+}
+```
+
+## CodingKeys — when and how
+
+Use `CodingKeys` only when the JSON field name must differ from the Swift property name:
+
+```swift
+public struct XxxRecord: Codable, Sendable {
+    public var channelId: String
+
+    enum CodingKeys: String, CodingKey {
+        case channelId = "channel_id"
+    }
+}
+```
+
+For camelCase properties that map to camelCase JSON, no `CodingKeys` needed (default behavior).
+
+## Dynamic / untyped data
+
+For fields that carry arbitrary JSON, use `JSONValue` (defined in `Sources/Protocols/JSONValue.swift`):
+
+```swift
+public struct ToolInvocationResult: Codable, Sendable {
+    public var data: JSONValue?
+}
+```
+
+## Visibility
+
+All models must be `public` — this module is imported by other targets (`sloppy`, tests, `AgentRuntime`).
+
+## Date encoding
+
+All `Date` fields encode/decode as ISO 8601 strings. Encoders are configured at call sites; models themselves only need `var createdAt: Date`.
+
+## Sendable
+
+All models crossing actor or module boundaries must be `Sendable`. For `struct` with only `Sendable` stored properties, this is automatic. If a property is not `Sendable`, mark the conformance `@unchecked Sendable` and document why.

@@ -87,6 +87,18 @@ struct ProjectsAPIRouter: APIRouter {
             }
         }
 
+        router.get("/v1/projects/:projectId/tasks/archived", metadata: RouteMetadata(summary: "List archived tasks", description: "Returns tasks that have been archived (done/cancelled for more than 2 days)", tags: ["Projects"])) { request in
+            let projectId = request.pathParam("projectId") ?? ""
+            do {
+                let tasks = try await service.listArchivedTasks(projectID: projectId)
+                return CoreRouter.encodable(status: HTTPStatus.ok, payload: tasks)
+            } catch let error as CoreService.ProjectError {
+                return CoreRouter.projectErrorResponse(error, fallback: ErrorCode.projectReadFailed)
+            } catch {
+                return CoreRouter.json(status: HTTPStatus.internalServerError, payload: ["error": ErrorCode.projectReadFailed])
+            }
+        }
+
         router.post("/v1/projects/:projectId/tasks", metadata: RouteMetadata(summary: "Create project task", description: "Adds a new task to a project", tags: ["Projects"])) { request in
             let projectId = request.pathParam("projectId") ?? ""
             guard let body = request.body,

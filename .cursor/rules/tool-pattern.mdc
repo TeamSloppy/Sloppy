@@ -1,0 +1,107 @@
+---
+description: Patterns and conventions for agent tools (CoreTool implementations)
+globs: Sources/sloppy/Tools/**/*.swift
+alwaysApply: false
+---
+
+# Agent Tool Pattern
+
+## Structure
+
+Every tool is a `struct` conforming to `CoreTool`. Place new tools in `Sources/sloppy/Tools/AgentTools/`:
+
+```swift
+import AnyLanguageModel
+import Foundation
+import Protocols
+
+struct XxxTool: CoreTool {
+    let domain = "xxx"           // logical grouping, e.g. "files", "sessions", "projects"
+    let title = "Do xxx"         // human-readable name
+    let status = "fully_functional"  // or "experimental", "deprecated"
+    let name = "xxx.action"      // tool ID used by agents, dot-separated
+    let description = "Brief description of what this tool does."
+
+    var parameters: GenerationSchema {
+        .objectSchema([
+            .init(name: "param1", description: "...", schema: DynamicGenerationSchema(type: String.self)),
+            .init(name: "optParam", description: "...", schema: DynamicGenerationSchema(type: Int.self), isOptional: true),
+        ])
+    }
+
+    func invoke(arguments: [String: JSONValue], context: ToolContext) async -> ToolInvocationResult {
+        guard let value = arguments["param1"]?.asString, !value.isEmpty else {
+            return toolFailure(tool: name, code: "invalid_arguments", message: "`param1` is required.", retryable: false)
+        }
+        // ... do work ...
+        return toolSuccess(tool: name, data: .object(["result": .string("ok")]))
+    }
+}
+```
+
+## ToolContext — available dependencies
+
+```swift
+context.agentID              // String — calling agent ID
+context.sessionID            // String — current session ID
+context.store                // any PersistenceStore — SQLite-backed store
+context.runtime              // RuntimeSystem — agent runtime facade
+context.projectService       // (any ProjectToolService)? — project operations
+context.skillsService        // (any SkillsToolService)? — skills registry
+context.workspaceRootURL     // URL — agent workspace root
+context.processRegistry      // SessionProcessRegistry
+context.mcpRegistry          // MCPClientRegistry
+context.logger               // Logger
+```
+
+## Result helpers
+
+```swift
+// Success
+toolSuccess(tool: name, data: .object(["key": .string("value")]))
+toolSuccess(tool: name, data: .array([.string("a"), .string("b")]))
+
+// Failure
+toolFailure(tool: name, code: "not_found", message: "Item not found.", retryable: false)
+toolFailure(tool: name, code: "store_error", message: "Persistence failed.", retryable: true)
+```
+
+## JSONValue argument extraction
+
+```swift
+arguments["key"]?.asString     // String?
+arguments["key"]?.asInt        // Int?
+arguments["key"]?.asBool       // Bool?
+arguments["key"]?.asDouble     // Double?
+arguments["key"]?.asArray      // [JSONValue]?
+arguments["key"]?.asObject     // [String: JSONValue]?
+```
+
+## Session ID resolution
+
+When a tool accepts a session ID that agents may pass as "current" or "self", use:
+
+```swift
+let sessionID = resolveSessionID(arguments["sessionId"]?.asString, context: context)
+```
+
+## Registration
+
+Add the new tool to `ToolRegistry.makeDefault()` in `Sources/sloppy/Tools/ToolRegistry.swift`:
+
+```swift
+static func makeDefault() -> ToolRegistry {
+    ToolRegistry(tools: [
+        // ...existing tools...
+        XxxTool(),
+    ])
+}
+```
+
+## Tool aliases
+
+If a tool should respond to multiple IDs (e.g. for backward compat), override `toolAliases`:
+
+```swift
+var toolAliases: [String] { ["old.tool.name"] }
+```

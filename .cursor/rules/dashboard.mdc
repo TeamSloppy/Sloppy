@@ -1,0 +1,69 @@
+---
+description: Conventions for the React/Vite Dashboard in Dashboard/src/
+globs: Dashboard/src/**
+alwaysApply: false
+---
+
+# Dashboard Conventions
+
+The Dashboard is a React + Vite SPA in `Dashboard/`. Build command: `npm run build` (run inside `Dashboard/`).
+
+## API layer
+
+Two API modules:
+- `Dashboard/src/shared/api/coreApi.ts` — shared low-level fetch helpers and typed methods.
+- `Dashboard/src/api.ts` — higher-level API calls used directly by views.
+
+Always add new API calls to `coreApi.ts` as typed async functions. Handle non-OK responses explicitly:
+
+```ts
+export async function fetchXxx(id: string): Promise<XxxRecord> {
+  const res = await fetch(`/v1/xxx/${id}`);
+  if (!res.ok) throw new Error(`Failed to fetch xxx: ${res.status}`);
+  return res.json();
+}
+```
+
+## Component style
+
+- Function components only, no class components.
+- Named exports for all components and utilities.
+- Local state with `useState`; derived values with `useMemo`.
+
+```tsx
+export function XxxCard({ item }: { item: XxxRecord }) {
+  const label = useMemo(() => item.name.toUpperCase(), [item.name]);
+  return <div className="xxx-card">{label}</div>;
+}
+```
+
+## CSS
+
+Each view or feature gets its own CSS file: `Dashboard/src/styles/xxx.css`. Import at the top of the component file. Use BEM-like class naming: `.xxx-card`, `.xxx-card__title`, `.xxx-card--active`.
+
+Global styles: `Dashboard/src/styles/`.
+
+## Dropdown / select elements
+
+**Never use native `<select>` elements.** Always use the custom `.actor-team-search` dropdown pattern. See `ActorsView.jsx` and `Dashboard/src/styles/actors.css` for the reference implementation. This applies to all dropdowns across the dashboard.
+
+## File structure
+
+```
+Dashboard/src/
+  views/          # top-level page views (one file per route)
+  components/     # reusable UI components
+  shared/api/     # API layer
+  styles/         # CSS files
+  app/            # router/app shell
+```
+
+## Verification
+
+After dashboard changes, always verify the build succeeds:
+
+```bash
+cd Dashboard && npm run build
+```
+
+TypeScript errors and broken imports will surface here.
