@@ -1,0 +1,148 @@
+import Foundation
+import AgentRuntime
+import Protocols
+import Logging
+
+// MARK: - Runtime
+
+extension CoreService {
+    func waitForStartup() async {
+        await recoveryManager.recoverIfNeeded()
+        await startEventPersistence()
+        await memoryOutboxIndexer?.start()
+    }
+
+    /// Subscribes to runtime event stream and persists events in background.
+    func startEventPersistence() async {
+        guard eventTask == nil else {
+            return
+        }
+
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            eventTask = Task {
+                let stream = await runtime.eventBus.subscribe()
+                continuation.resume()
+                for await event in stream {
+                    let enrichedEvent = await eventByInjectingSwarmMetadata(event)
+                    await store.persist(event: enrichedEvent)
+                    await handleVisorEvent(enrichedEvent)
+                    await extractAndPersistTokenUsage(from: enrichedEvent)
+                    await emitNotificationIfNeeded(from: enrichedEvent)
+                }
+            }
+        }
+    }
+
+    func eventByInjectingSwarmMetadata(_ event: EventEnvelope) async -> EventEnvelope {
+        guard let taskID = event.taskId else {
+            return event
+        }
+
+        let projects = await store.listProjects()
+        var resolvedTask: ProjectTask?
+        for project in projects {
+            if let task = project.tasks.first(where: { $0.id == taskID }) {
+                resolvedTask = task
+                break
+            }
+        }
+        guard let task = resolvedTask, let swarmId = task.swarmId else {
+            return event
+        }
+
+        var envelope = event
+        var swarmPayload: [String: JSONValue] = [
+            "swarmId": .string(swarmId)
+        ]
+        if let swarmTaskId = task.swarmTaskId {
+            swarmPayload["swarmTaskId"] = .string(swarmTaskId)
+        }
+        if let swarmParentTaskId = task.swarmParentTaskId {
+            swarmPayload["swarmParentTaskId"] = .string(swarmParentTaskId)
+        }
+        if let dependencyIds = task.swarmDependencyIds, !dependencyIds.isEmpty {
+            swarmPayload["swarmDependencyIds"] = .array(dependencyIds.map { .string($0) })
+        }
+        if let actorPath = task.swarmActorPath, !actorPath.isEmpty {
+            swarmPayload["swarmActorPath"] = .array(actorPath.map { .string($0) })
+        }
+
+        envelope.extensions["swarm"] = .object(swarmPayload)
+        return envelope
+    }
+
+    /// Extracts token usage from branch.conclusion and worker.completed events.
+    func extractAndPersistTokenUsage(from event: EventEnvelope) async {
+        let tokenUsage: TokenUsage?
+
+        switch event.messageType {
+        case .branchConclusion:
+            tokenUsage = extractTokenUsageFromBranchConclusion(event)
+        case .workerCompleted:
+            tokenUsage = extractTokenUsageFromWorkerCompleted(event)
+        default:
+            tokenUsage = nil
+        }
+
+        if let usage = tokenUsage {
+            await store.persistTokenUsage(
+                channelId: event.channelId,
+                taskId: event.taskId,
+                usage: usage
+            )
+        }
+    }
+
+    func extractTokenUsageFromBranchConclusion(_ event: EventEnvelope) -> TokenUsage? {
+        guard case .object(let obj) = event.payload else { return nil }
+
+        // Preferred payload shape: branch conclusion itself is in event.payload.
+        if let usage = tokenUsage(fromObjectField: obj["tokenUsage"]) {
+            return usage
+        }
+
+        // Backward-compatible fallback for nested payloads: { "conclusion": { "tokenUsage": ... } }.
+        if case .object(let conclusionObj)? = obj["conclusion"] {
+            return tokenUsage(fromObjectField: conclusionObj["tokenUsage"])
+        }
+
+        return nil
+    }
+
+    func extractTokenUsageFromWorkerCompleted(_ event: EventEnvelope) -> TokenUsage? {
+        guard case .object(let obj) = event.payload else { return nil }
+        guard case .object(let resultObj)? = obj["result"] else { return nil }
+        return tokenUsage(fromObjectField: resultObj["tokenUsage"])
+    }
+
+    func tokenUsage(fromObjectField field: JSONValue?) -> TokenUsage? {
+        guard case .object(let tokenUsageObj)? = field else {
+            return nil
+        }
+
+        let prompt: Double?
+        if case .number(let val) = tokenUsageObj["prompt"] {
+            prompt = val
+        } else if case .string(let str) = tokenUsageObj["prompt"] {
+            prompt = Double(str)
+        } else {
+            prompt = nil
+        }
+
+        let completion: Double?
+        if case .number(let val) = tokenUsageObj["completion"] {
+            completion = val
+        } else if case .string(let str) = tokenUsageObj["completion"] {
+            completion = Double(str)
+        } else {
+            completion = nil
+        }
+
+        guard let p = prompt, let c = completion else {
+            return nil
+        }
+
+        return TokenUsage(prompt: Int(p), completion: Int(c))
+    }
+}
+
