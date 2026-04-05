@@ -18,6 +18,11 @@ site/
 artifacts/
 logs/
 
+# Cursor
+.cursor/*
+!.cursor/rules/
+!.cursor/skills/
+
 # Tuist
 Derived/
 *.xcodeproj

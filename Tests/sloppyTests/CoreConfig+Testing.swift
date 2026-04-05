@@ -12,6 +12,7 @@ extension CoreConfig {
         config.sqlitePath = FileManager.default.temporaryDirectory
             .appendingPathComponent("core-test-\(id).sqlite")
             .path
+        config.models = []
         return config
     }
 }

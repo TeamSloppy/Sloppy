@@ -1052,6 +1052,48 @@ extension CoreService {
                 actorID: task.claimedActorId,
                 agentID: task.claimedAgentId
             )
+            let isModelError = failureNote.map { isModelProviderError($0) } ?? false
+            let maxModelRetries = 3
+            let modelRetryCount = isModelError
+                ? task.description.components(separatedBy: "Model provider error").count - 1
+                : 0
+
+            if event.messageType == .workerFailed, isModelError, modelRetryCount < maxModelRetries {
+                let prevRetryStatus = task.status
+                task.status = ProjectTaskStatus.ready.rawValue
+                task.updatedAt = Date()
+                if let failureNote {
+                    let timestamp = ISO8601DateFormatter().string(from: event.ts)
+                    let note = "Worker failed at \(timestamp): \(failureNote)"
+                    if task.description.isEmpty {
+                        task.description = note
+                    } else {
+                        task.description += "\n\n\(note)"
+                    }
+                }
+                project.tasks[taskIndex] = task
+                project.updatedAt = Date()
+                await store.saveProject(project)
+                await recordSystemStatusChange(projectID: project.id, taskID: task.id, from: prevRetryStatus, to: task.status, source: "system")
+                appendTaskLifecycleLog(
+                    projectID: project.id,
+                    taskID: task.id,
+                    stage: "retry_same_actor",
+                    channelID: event.channelId,
+                    workerID: event.workerId,
+                    message: "Model error; retrying with same actor (\(modelRetryCount + 1)/\(maxModelRetries)).",
+                    actorID: task.claimedActorId,
+                    agentID: task.claimedAgentId
+                )
+                let actor = task.claimedAgentId ?? task.claimedActorId ?? "worker"
+                await runtime.appendSystemMessage(
+                    channelId: event.channelId,
+                    content: "Model error on task \(task.id); retrying with \(actor) (\(modelRetryCount + 1)/\(maxModelRetries))."
+                )
+                await handleTaskBecameReady(projectID: project.id, taskID: task.id)
+                return
+            }
+
             if event.messageType == .workerFailed,
                let retryDelegate = await nextTeamRetryDelegate(project: project, task: task) {
                 let prevRetryStatus = task.status

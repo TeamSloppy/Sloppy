@@ -283,25 +283,45 @@ enum AgentPetFactory {
     }
 }
 
+struct AgentPetProgressionTuning {
+    var perChannelDailyCap: AgentPetStats
+    var globalDailyCap: AgentPetStats
+    var growthMultiplier: Double
+    var sourceWeights: [AgentPetSourceKind: Double]
+    var decayProbability: Double
+    var decayMagnitudeRange: ClosedRange<Int>
+    var maxDecayAxes: Int
+
+    static let `default` = AgentPetProgressionTuning(
+        perChannelDailyCap: AgentPetStats(
+            wisdom: 8,
+            debugging: 10,
+            patience: 7,
+            snark: 6,
+            chaos: 7
+        ),
+        globalDailyCap: AgentPetStats(
+            wisdom: 18,
+            debugging: 22,
+            patience: 16,
+            snark: 14,
+            chaos: 16
+        ),
+        growthMultiplier: 0.35,
+        sourceWeights: [
+            .agentSession: 0.8,
+            .externalChannel: 0.8,
+            .heartbeat: 0.25,
+            .cron: 0.25
+        ],
+        decayProbability: 0.35,
+        decayMagnitudeRange: 1...3,
+        maxDecayAxes: 3
+    )
+}
+
 enum AgentPetProgressionEngine {
-    private static let perChannelDailyCap = AgentPetStats(
-        wisdom: 14,
-        debugging: 16,
-        patience: 12,
-        snark: 10,
-        chaos: 12
-    )
-    private static let globalDailyCap = AgentPetStats(
-        wisdom: 32,
-        debugging: 36,
-        patience: 28,
-        snark: 24,
-        chaos: 28
-    )
-    private static let growthMultiplier = 0.6
-    private static let decayProbability = 0.25
-    private static let decayMagnitudeRange: ClosedRange<Int> = 1...2
-    private static let maxDecayAxes = 2
+    private static let tuning = AgentPetProgressionTuning.default
 
     static func apply(
         state: inout AgentPetProgressState,
@@ -360,6 +380,8 @@ enum AgentPetProgressionEngine {
         let length = normalizedText.count
         let lower = normalizedText.lowercased()
 
+        // scaling logic remains unchanged to preserve per-event weight;
+        // only downstream tuning adjusts effective growth.
         switch input.eventKind {
         case .userMessage:
             if length >= 120 {
@@ -412,8 +434,8 @@ enum AgentPetProgressionEngine {
 
     private static func applyVariance(to delta: AgentPetStats, seed: UInt64) -> AgentPetStats {
         var rng = SplitMix64(seed: seed)
-        let dampened = delta.scaledDown(by: growthMultiplier)
-        guard rng.nextDouble() < decayProbability else {
+        let dampened = delta.scaledDown(by: tuning.growthMultiplier)
+        guard rng.nextDouble() < tuning.decayProbability else {
             return dampened
         }
         return dampened + randomDecayDelta(using: &rng)
@@ -425,12 +447,12 @@ enum AgentPetProgressionEngine {
         guard !axes.isEmpty else {
             return penalties
         }
-        let selectionCount = min(axes.count, max(1, rng.nextInt(in: 1...maxDecayAxes)))
+        let selectionCount = min(axes.count, max(1, rng.nextInt(in: 1...tuning.maxDecayAxes)))
         var usedIndexes: Set<Int> = []
         while usedIndexes.count < selectionCount {
             let index = rng.nextInt(in: 0...(axes.count - 1))
             if usedIndexes.insert(index).inserted {
-                let amount = -rng.nextInt(in: decayMagnitudeRange)
+                let amount = -rng.nextInt(in: tuning.decayMagnitudeRange)
                 switch axes[index] {
                 case .wisdom:
                     penalties.wisdom += amount
@@ -473,11 +495,11 @@ enum AgentPetProgressionEngine {
         globalGain: AgentPetStats
     ) -> AgentPetStats {
         AgentPetStats(
-            wisdom: maxCapped(delta.wisdom, channelGain.wisdom, perChannelDailyCap.wisdom, globalGain.wisdom, globalDailyCap.wisdom),
-            debugging: maxCapped(delta.debugging, channelGain.debugging, perChannelDailyCap.debugging, globalGain.debugging, globalDailyCap.debugging),
-            patience: maxCapped(delta.patience, channelGain.patience, perChannelDailyCap.patience, globalGain.patience, globalDailyCap.patience),
-            snark: maxCapped(delta.snark, channelGain.snark, perChannelDailyCap.snark, globalGain.snark, globalDailyCap.snark),
-            chaos: maxCapped(delta.chaos, channelGain.chaos, perChannelDailyCap.chaos, globalGain.chaos, globalDailyCap.chaos)
+            wisdom: maxCapped(delta.wisdom, channelGain.wisdom, tuning.perChannelDailyCap.wisdom, globalGain.wisdom, tuning.globalDailyCap.wisdom),
+            debugging: maxCapped(delta.debugging, channelGain.debugging, tuning.perChannelDailyCap.debugging, globalGain.debugging, tuning.globalDailyCap.debugging),
+            patience: maxCapped(delta.patience, channelGain.patience, tuning.perChannelDailyCap.patience, globalGain.patience, tuning.globalDailyCap.patience),
+            snark: maxCapped(delta.snark, channelGain.snark, tuning.perChannelDailyCap.snark, globalGain.snark, tuning.globalDailyCap.snark),
+            chaos: maxCapped(delta.chaos, channelGain.chaos, tuning.perChannelDailyCap.chaos, globalGain.chaos, tuning.globalDailyCap.chaos)
         )
     }
 
@@ -523,12 +545,7 @@ enum AgentPetProgressionEngine {
     }
 
     private static func weight(for sourceKind: AgentPetSourceKind) -> Double {
-        switch sourceKind {
-        case .agentSession, .externalChannel:
-            return 1.0
-        case .heartbeat, .cron:
-            return 0.35
-        }
+        max(tuning.sourceWeights[sourceKind] ?? 1.0, 0)
     }
 
     private static func pruneOldBuckets(state: inout AgentPetProgressState, referenceDate: Date) {
