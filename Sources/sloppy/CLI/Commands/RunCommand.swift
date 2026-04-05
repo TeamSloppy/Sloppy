@@ -424,7 +424,6 @@ func createServerWorkspaceDirectories(at workspaceRoot: URL) throws {
         workspaceRoot.appendingPathComponent("agents", isDirectory: true),
         workspaceRoot.appendingPathComponent("actors", isDirectory: true),
         workspaceRoot.appendingPathComponent("sessions", isDirectory: true),
-        workspaceRoot.appendingPathComponent("artifacts", isDirectory: true),
         workspaceRoot.appendingPathComponent("memory", isDirectory: true),
         workspaceRoot.appendingPathComponent("logs", isDirectory: true),
         workspaceRoot.appendingPathComponent("plugins", isDirectory: true),

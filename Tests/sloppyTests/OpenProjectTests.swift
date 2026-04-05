@@ -35,13 +35,10 @@ func createProjectWithRepoPathCreatesWorkspaceLinkAndKeepsArtifactsLocal() async
         .appendingPathComponent("projects", isDirectory: true)
         .appendingPathComponent(projectID, isDirectory: true)
     let sourceLink = projectRoot.appendingPathComponent("source", isDirectory: true)
-    let artifactsDirectory = projectRoot.appendingPathComponent("artifacts", isDirectory: true)
-    let logsDirectory = projectRoot.appendingPathComponent("logs", isDirectory: true)
+    let metaDirectory = projectRoot.appendingPathComponent(".meta", isDirectory: true)
 
     var isDirectory: ObjCBool = false
-    #expect(FileManager.default.fileExists(atPath: artifactsDirectory.path, isDirectory: &isDirectory))
-    #expect(isDirectory.boolValue)
-    #expect(FileManager.default.fileExists(atPath: logsDirectory.path, isDirectory: &isDirectory))
+    #expect(FileManager.default.fileExists(atPath: metaDirectory.path, isDirectory: &isDirectory))
     #expect(isDirectory.boolValue)
 
     let destination = try FileManager.default.destinationOfSymbolicLink(atPath: sourceLink.path)
@@ -50,6 +47,7 @@ func createProjectWithRepoPathCreatesWorkspaceLinkAndKeepsArtifactsLocal() async
 
     #expect(!FileManager.default.fileExists(atPath: externalDirectory.appendingPathComponent("artifacts").path))
     #expect(!FileManager.default.fileExists(atPath: externalDirectory.appendingPathComponent("logs").path))
+    #expect(!FileManager.default.fileExists(atPath: externalDirectory.appendingPathComponent(".meta").path))
 }
 
 @Test

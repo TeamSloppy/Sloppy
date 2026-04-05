@@ -4007,9 +4007,15 @@ public actor CoreService {
         if let repoPath = project.repoPath,
            project.reviewSettings.enabled,
            task.worktreeBranch == nil {
-            if let result = try? await gitWorktreeService.createWorktree(repoPath: repoPath, taskId: task.id) {
+            do {
+                let result = try await createOrReclaimWorktree(repoPath: repoPath, taskId: task.id)
                 task.worktreeBranch = result.branchName
                 worktreePath = result.worktreePath
+            } catch {
+            }
+        } else if task.worktreeBranch != nil {
+            if let repoPath = project.repoPath {
+                worktreePath = gitWorktreeService.worktreePath(repoPath: repoPath, taskId: task.id)
             }
         }
 
@@ -4027,11 +4033,13 @@ public actor CoreService {
             )
         )
 
+        let prevStatusForLog = task.status
         task.status = ProjectTaskStatus.inProgress.rawValue
         task.updatedAt = Date()
         project.tasks[taskIndex] = task
         project.updatedAt = Date()
         await store.saveProject(project)
+        await recordSystemStatusChange(projectID: project.id, taskID: task.id, from: prevStatusForLog, to: task.status, source: "system")
         appendTaskLifecycleLog(
             projectID: project.id,
             taskID: task.id,
@@ -4518,6 +4526,12 @@ public actor CoreService {
 
         project.updatedAt = Date()
         await store.saveProject(project)
+        if let failedTaskID, let fIdx = project.tasks.firstIndex(where: { $0.id == failedTaskID }) {
+            await recordSystemStatusChange(projectID: projectID, taskID: failedTaskID, from: project.tasks[fIdx].status, to: ProjectTaskStatus.blocked.rawValue, source: "system")
+        }
+        for blockedID in blockedDownstreamTaskIDs {
+            await recordSystemStatusChange(projectID: projectID, taskID: blockedID, from: "ready", to: ProjectTaskStatus.blocked.rawValue, source: "system")
+        }
 
         let failedTask = failedTaskID.flatMap { id in
             project.tasks.first(where: { $0.id == id })
@@ -4919,7 +4933,8 @@ public actor CoreService {
             if let routeAllowedActorIDs, !routeAllowedActorIDs.contains(nextActorID) {
                 continue
             }
-            guard let node = nodesByID[nextActorID] else {
+            guard let node = nodesByID[nextActorID],
+                  node.linkedAgentId != nil else {
                 continue
             }
             return TeamRetryDelegate(actorID: nextActorID, agentID: node.linkedAgentId)
@@ -4952,7 +4967,8 @@ public actor CoreService {
 
         let nodesByID = Dictionary(uniqueKeysWithValues: (board?.nodes ?? []).map { ($0.id, $0) })
         let nextActorID = team.memberActorIds[nextIndex]
-        guard let node = nodesByID[nextActorID] else {
+        guard let node = nodesByID[nextActorID],
+              node.linkedAgentId != nil else {
             return nil
         }
         return TeamRetryDelegate(actorID: nextActorID, agentID: node.linkedAgentId)
@@ -5088,6 +5104,7 @@ public actor CoreService {
             )
             if event.messageType == .workerFailed,
                let retryDelegate = await nextTeamRetryDelegate(project: project, task: task) {
+                let prevRetryStatus = task.status
                 task.status = ProjectTaskStatus.ready.rawValue
                 task.claimedActorId = retryDelegate.actorID
                 task.claimedAgentId = retryDelegate.agentID
@@ -5106,6 +5123,7 @@ public actor CoreService {
                 project.tasks[taskIndex] = task
                 project.updatedAt = Date()
                 await store.saveProject(project)
+                await recordSystemStatusChange(projectID: project.id, taskID: task.id, from: prevRetryStatus, to: task.status, source: "system")
                 appendTaskLifecycleLog(
                     projectID: project.id,
                     taskID: task.id,
@@ -5126,7 +5144,7 @@ public actor CoreService {
                 return
             }
 
-            var resolvedStatus = nextStatus
+            let resolvedStatus = nextStatus
             var completionArtifactPath: String?
             if event.messageType == .workerCompleted {
                 if let claimedActorID = task.claimedActorId {
@@ -5137,24 +5155,6 @@ public actor CoreService {
                     taskID: task.id,
                     event: event
                 )
-                if completionArtifactPath == nil {
-                    resolvedStatus = ProjectTaskStatus.backlog.rawValue
-                    let missingArtifactNote = "Worker completed but no artifact was persisted; task moved back to backlog for manual review."
-                    if task.description.isEmpty {
-                        task.description = missingArtifactNote
-                    } else {
-                        task.description += "\n\n\(missingArtifactNote)"
-                    }
-                } else if let completionArtifactPath {
-                    let completionLine = "Artifact: \(completionArtifactPath)"
-                    if !task.description.contains(completionLine) {
-                        if task.description.isEmpty {
-                            task.description = completionLine
-                        } else {
-                            task.description += "\n\n\(completionLine)"
-                        }
-                    }
-                }
 
                 if resolvedStatus == ProjectTaskStatus.done.rawValue,
                    let handoffDelegate = await nextTeamHandoffDelegate(project: project, task: task) {
@@ -5180,13 +5180,13 @@ public actor CoreService {
 
                     let handoffActor = task.claimedAgentId ?? task.claimedActorId ?? "worker"
                     let handoffNote = "Handoff from \(handoffActor)"
-                        + (completionArtifactPath.map { ". Artifact: \($0)" } ?? "")
                     if task.description.isEmpty {
                         task.description = handoffNote
                     } else {
                         task.description += "\n\n\(handoffNote)"
                     }
 
+                    let prevHandoffStatus = task.status
                     task.status = ProjectTaskStatus.ready.rawValue
                     task.claimedActorId = handoffDelegate.actorID
                     task.claimedAgentId = handoffDelegate.agentID
@@ -5195,6 +5195,7 @@ public actor CoreService {
                     project.tasks[taskIndex] = task
                     project.updatedAt = Date()
                     await store.saveProject(project)
+                    await recordSystemStatusChange(projectID: project.id, taskID: task.id, from: prevHandoffStatus, to: task.status, source: "system")
                     appendTaskLifecycleLog(
                         projectID: project.id,
                         taskID: task.id,
@@ -5216,6 +5217,7 @@ public actor CoreService {
                 }
             }
 
+            let prevSyncStatus = task.status
             task.status = resolvedStatus
             task.updatedAt = Date()
             if let failureNote {
@@ -5230,6 +5232,7 @@ public actor CoreService {
             project.tasks[taskIndex] = task
             project.updatedAt = Date()
             await store.saveProject(project)
+            await recordSystemStatusChange(projectID: project.id, taskID: task.id, from: prevSyncStatus, to: resolvedStatus, source: task.claimedAgentId ?? "system")
             appendTaskLifecycleLog(
                 projectID: project.id,
                 taskID: task.id,
@@ -5298,6 +5301,7 @@ public actor CoreService {
     ) async {
         var project = project
         var task = task
+        let prevReviewStatus = task.status
 
         let approvalMode = project.reviewSettings.approvalMode
         let reviewerChannelID = handoffDelegate.agentID.map { "agent:\($0)" }
@@ -5312,6 +5316,7 @@ public actor CoreService {
             project.tasks[taskIndex] = task
             project.updatedAt = Date()
             await store.saveProject(project)
+            await recordSystemStatusChange(projectID: project.id, taskID: task.id, from: prevReviewStatus, to: task.status, source: "system")
             appendTaskLifecycleLog(
                 projectID: project.id,
                 taskID: task.id,
@@ -5332,6 +5337,7 @@ public actor CoreService {
             project.tasks[taskIndex] = task
             project.updatedAt = Date()
             await store.saveProject(project)
+            await recordSystemStatusChange(projectID: project.id, taskID: task.id, from: prevReviewStatus, to: task.status, source: "system")
             appendTaskLifecycleLog(
                 projectID: project.id,
                 taskID: task.id,
@@ -5363,6 +5369,7 @@ public actor CoreService {
             project.tasks[taskIndex] = task
             project.updatedAt = Date()
             await store.saveProject(project)
+            await recordSystemStatusChange(projectID: project.id, taskID: task.id, from: prevReviewStatus, to: task.status, source: handoffDelegate.agentID ?? "system")
             appendTaskLifecycleLog(
                 projectID: project.id,
                 taskID: task.id,
@@ -5388,7 +5395,6 @@ public actor CoreService {
     }
 
     private func buildReviewObjective(task: ProjectTask, projectID: String, diff: String) -> String {
-        let artifactDirectory = projectArtifactsDirectoryURL(projectID: projectID).path
         return normalizeTaskDescription([
             "Review task: \(task.title)",
             "",
@@ -5400,9 +5406,8 @@ public actor CoreService {
             "",
             "Review instructions:",
             "- Evaluate whether the changes correctly and completely implement the task.",
-            "- If the changes are acceptable, call the approve tool or create a completion artifact indicating approval.",
-            "- If the changes need work, create a completion artifact indicating rejection with reasons.",
-            "- Store all review artifacts under: \(artifactDirectory)"
+            "- If the changes are acceptable, call the approve tool.",
+            "- If the changes need work, call the reject tool with specific reasons."
         ].joined(separator: "\n"))
     }
 
@@ -5414,6 +5419,7 @@ public actor CoreService {
             throw ProjectError.notFound
         }
         var task = project.tasks[taskIndex]
+        let prevApproveStatus = task.status
 
         if let repoPath = project.repoPath, let branchName = task.worktreeBranch {
             let targetBranch = (try? await gitWorktreeService.defaultBranch(repoPath: repoPath)) ?? "main"
@@ -5428,6 +5434,7 @@ public actor CoreService {
         project.tasks[taskIndex] = task
         project.updatedAt = Date()
         await store.saveProject(project)
+        await recordSystemStatusChange(projectID: projectID, taskID: taskID, from: prevApproveStatus, to: task.status, source: "user")
         appendTaskLifecycleLog(
             projectID: projectID,
             taskID: taskID,
@@ -5499,7 +5506,7 @@ public actor CoreService {
     }
 
     private func reviewCommentsFileURL(projectID: String, taskID: String) -> URL {
-        projectArtifactsDirectoryURL(projectID: projectID)
+        projectMetaDirectoryURL(projectID: projectID)
             .appendingPathComponent("review-comments-\(taskID).json")
     }
 
@@ -5568,7 +5575,7 @@ public actor CoreService {
     }
 
     private func taskCommentsFileURL(projectID: String, taskID: String) -> URL {
-        projectArtifactsDirectoryURL(projectID: projectID)
+        projectMetaDirectoryURL(projectID: projectID)
             .appendingPathComponent("task-comments-\(taskID).json")
     }
 
@@ -5613,7 +5620,7 @@ public actor CoreService {
     }
 
     private func taskActivitiesFileURL(projectID: String, taskID: String) -> URL {
-        projectArtifactsDirectoryURL(projectID: projectID)
+        projectMetaDirectoryURL(projectID: projectID)
             .appendingPathComponent("task-activities-\(taskID).json")
     }
 
@@ -5624,6 +5631,20 @@ public actor CoreService {
         guard let data = try? encoder.encode(activities) else { return }
         let url = taskActivitiesFileURL(projectID: projectID, taskID: taskID)
         try? data.write(to: url, options: .atomic)
+    }
+
+    private func recordSystemStatusChange(
+        projectID: String,
+        taskID: String,
+        from oldStatus: String,
+        to newStatus: String,
+        source: String
+    ) async {
+        guard oldStatus != newStatus else { return }
+        await recordTaskActivity(
+            projectID: projectID, taskID: taskID,
+            field: .status, oldValue: oldStatus, newValue: newStatus, actorId: source
+        )
     }
 
     private func recordTaskFieldChanges(
@@ -5776,6 +5797,7 @@ public actor CoreService {
             throw ProjectError.notFound
         }
         var task = project.tasks[taskIndex]
+        let prevRejectStatus = task.status
 
         if let reason, !reason.isEmpty {
             let rejectionNote = "Review rejected: \(reason)"
@@ -5811,6 +5833,7 @@ public actor CoreService {
         project.tasks[taskIndex] = task
         project.updatedAt = Date()
         await store.saveProject(project)
+        await recordSystemStatusChange(projectID: projectID, taskID: taskID, from: prevRejectStatus, to: task.status, source: "user")
         appendTaskLifecycleLog(
             projectID: projectID,
             taskID: taskID,
@@ -6591,16 +6614,12 @@ public actor CoreService {
             .appendingPathComponent(projectID, isDirectory: true)
     }
 
-    private func projectArtifactsDirectoryURL(projectID: String) -> URL {
-        projectDirectoryURL(projectID: projectID).appendingPathComponent("artifacts", isDirectory: true)
-    }
-
-    private func projectLogsDirectoryURL(projectID: String) -> URL {
-        projectDirectoryURL(projectID: projectID).appendingPathComponent("logs", isDirectory: true)
+    private func projectMetaDirectoryURL(projectID: String) -> URL {
+        projectDirectoryURL(projectID: projectID).appendingPathComponent(".meta", isDirectory: true)
     }
 
     private func projectTaskLogFileURL(projectID: String, taskID: String) -> URL {
-        projectLogsDirectoryURL(projectID: projectID).appendingPathComponent("task-\(taskID).log")
+        projectMetaDirectoryURL(projectID: projectID).appendingPathComponent("task-\(taskID).log")
     }
 
     private func relativePathFromWorkspace(_ url: URL) -> String {
@@ -6672,6 +6691,15 @@ public actor CoreService {
         return latestAssistantText(from: response.appendedEvents)
     }
 
+    private func createOrReclaimWorktree(repoPath: String, taskId: String) async throws -> GitWorktreeResult {
+        do {
+            return try await gitWorktreeService.createWorktree(repoPath: repoPath, taskId: taskId)
+        } catch GitWorktreeError.worktreeAlreadyExists(let existingPath) {
+            try? await gitWorktreeService.removeWorktree(repoPath: repoPath, worktreePath: existingPath)
+            return try await gitWorktreeService.createWorktree(repoPath: repoPath, taskId: taskId)
+        }
+    }
+
     private func buildWorkerObjective(task: ProjectTask, projectID: String, worktreePath: String? = nil) -> String {
         var bodyLines: [String] = [
             "Task title: \(task.title)"
@@ -6681,11 +6709,8 @@ public actor CoreService {
             bodyLines.append("Task details:")
             bodyLines.append(task.description)
         }
-        let artifactDirectory = projectArtifactsDirectoryURL(projectID: projectID).path
         var policyLines: [String] = [
-            "Execution policy:",
-            "- Store all created files and artifacts under: \(artifactDirectory)",
-            "- Keep completion output concise and reference produced artifact paths."
+            "Execution policy:"
         ]
         if let worktreePath {
             let repoRoot = URL(fileURLWithPath: worktreePath)
@@ -6703,6 +6728,7 @@ public actor CoreService {
         ].joined(separator: "\n")
         return normalizeTaskDescription(objective)
     }
+
 
     private func appendTaskLifecycleLog(
         projectID: String,
@@ -6813,59 +6839,28 @@ public actor CoreService {
             return nil
         }
 
-        if let referencedPath = extractCreatedFilePath(from: artifactContent) {
-            let referencedURL = URL(fileURLWithPath: referencedPath)
-            if FileManager.default.fileExists(atPath: referencedURL.path) {
-                let relativePath = relativePathFromWorkspace(referencedURL)
-                appendTaskLifecycleLog(
-                    projectID: projectID,
-                    taskID: taskID,
-                    stage: "artifact_referenced",
-                    channelID: event.channelId,
-                    workerID: event.workerId,
-                    message: "Worker reported created file \(referencedPath).",
-                    artifactPath: relativePath
-                )
-                return relativePath
-            }
+        let referencedPath: String? = extractCreatedFilePath(from: artifactContent).flatMap { path in
+            let url = URL(fileURLWithPath: path)
+            guard FileManager.default.fileExists(atPath: url.path) else { return nil }
+            return relativePathFromWorkspace(url)
         }
 
-        ensureProjectWorkspaceDirectory(projectID: projectID)
-        let artifactURL = projectArtifactsDirectoryURL(projectID: projectID)
-            .appendingPathComponent("task-\(taskID)-\(artifactID).txt")
-        do {
-            try artifactContent.write(to: artifactURL, atomically: true, encoding: .utf8)
-            let relativePath = relativePathFromWorkspace(artifactURL)
-            appendTaskLifecycleLog(
-                projectID: projectID,
-                taskID: taskID,
-                stage: "artifact_persisted",
-                channelID: event.channelId,
-                workerID: event.workerId,
-                message: "Persisted worker artifact \(artifactID).",
-                artifactPath: relativePath
-            )
-            return relativePath
-        } catch {
-            logger.warning(
-                "visor.task.artifact_write_failed",
-                metadata: [
-                    "project_id": .string(projectID),
-                    "task_id": .string(taskID),
-                    "artifact_id": .string(artifactID),
-                    "path": .string(artifactURL.path)
-                ]
-            )
-            appendTaskLifecycleLog(
-                projectID: projectID,
-                taskID: taskID,
-                stage: "artifact_write_failed",
-                channelID: event.channelId,
-                workerID: event.workerId,
-                message: "Failed to persist artifact \(artifactID)."
-            )
-            return nil
-        }
+        _ = await addTaskComment(
+            projectID: projectID,
+            taskID: taskID,
+            request: TaskCommentCreateRequest(content: artifactContent, authorActorId: "system")
+        )
+
+        appendTaskLifecycleLog(
+            projectID: projectID,
+            taskID: taskID,
+            stage: "artifact_persisted",
+            channelID: event.channelId,
+            workerID: event.workerId,
+            message: "Worker artifact stored as task comment.",
+            artifactPath: referencedPath
+        )
+        return referencedPath ?? artifactID
     }
 
     private func extractCreatedFilePath(from content: String) -> String? {
@@ -6881,8 +6876,7 @@ public actor CoreService {
     private func ensureProjectWorkspaceDirectory(projectID: String) {
         let directories = [
             projectDirectoryURL(projectID: projectID),
-            projectArtifactsDirectoryURL(projectID: projectID),
-            projectLogsDirectoryURL(projectID: projectID)
+            projectMetaDirectoryURL(projectID: projectID)
         ]
         do {
             for directory in directories {
@@ -8411,4 +8405,5 @@ extension CoreService {
         }
         return DebugPromptTemplatesResponse(templates: templates)
     }
+
 }

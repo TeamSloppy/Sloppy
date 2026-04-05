@@ -67,12 +67,11 @@ func updateTaskStatusRecordsActivity() async throws {
     let decoder = JSONDecoder()
     decoder.dateDecodingStrategy = .iso8601
     let activities = try decoder.decode([TaskActivity].self, from: resp.body)
-    #expect(activities.count == 1)
-    #expect(activities[0].field == .status)
-    #expect(activities[0].oldValue == "backlog")
-    #expect(activities[0].newValue == "ready")
-    #expect(activities[0].actorId == "actor-alice")
-    #expect(activities[0].taskId == taskID)
+    let patchActivity = activities.first { $0.actorId == "actor-alice" && $0.field == .status }
+    #expect(patchActivity != nil)
+    #expect(patchActivity?.oldValue == "backlog")
+    #expect(patchActivity?.newValue == "ready")
+    #expect(patchActivity?.taskId == taskID)
 }
 
 @Test
@@ -219,6 +218,6 @@ func changedByDefaultsToUser() async throws {
         body: nil
     )
     let activities = try decoder.decode([TaskActivity].self, from: resp.body)
-    #expect(activities.count == 1)
-    #expect(activities[0].actorId == "user")
+    let patchActivity = activities.first { $0.actorId == "user" && $0.field == .status }
+    #expect(patchActivity != nil)
 }

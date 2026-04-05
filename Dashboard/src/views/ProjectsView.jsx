@@ -1101,8 +1101,11 @@ export function ProjectsView({
     if (!sessionId) {
       try {
         const sessions = await fetchAgentSessions(parsed.agentId);
-        const title = `task-comment:${project.id}:${task.id}`;
-        const match = Array.isArray(sessions) ? sessions.find((s) => String(s.title || "") === title) : null;
+        const workerTitle = `task-${task.id}`;
+        const commentTitle = `task-comment:${project.id}:${task.id}`;
+        const match = Array.isArray(sessions)
+          ? sessions.find((s) => { const t = String(s.title || ""); return t === workerTitle || t === commentTitle; })
+          : null;
         sessionId = match?.id ? String(match.id) : null;
       } catch {
         sessionId = null;
