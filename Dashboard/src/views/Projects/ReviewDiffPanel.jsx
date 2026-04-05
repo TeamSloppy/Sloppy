@@ -73,7 +73,7 @@ function FileTreeItem({ file, isSelected, onSelect, commentCount }) {
   );
 }
 
-export function ReviewDiffPanel({ rawDiff, comments, onAddComment, onResolveComment, onDeleteComment }) {
+export function ReviewDiffPanel({ rawDiff, hasChanges, branchName, comments, onAddComment, onResolveComment, onDeleteComment }) {
   const [viewMode, setViewMode] = useState("unified");
   const [selectedFile, setSelectedFile] = useState(null);
   const [openWidgets, setOpenWidgets] = useState({});
@@ -164,10 +164,13 @@ export function ReviewDiffPanel({ rawDiff, comments, onAddComment, onResolveComm
   }
 
   if (!rawDiff || files.length === 0) {
+    const emptyMessage = branchName && !hasChanges
+      ? `Branch ${branchName} exists but no changes were committed.`
+      : "No diff available. The task may not have a git worktree branch.";
     return (
       <div className="review-diff-empty">
         <span className="material-symbols-rounded" aria-hidden="true">compare_arrows</span>
-        <p>No diff available. The task may not have a git worktree branch.</p>
+        <p>{emptyMessage}</p>
       </div>
     );
   }

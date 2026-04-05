@@ -104,6 +104,7 @@ export function TaskReviewView({ project, task, onClose, onProjectRefresh }) {
   const rawDiff = diffData?.diff || "";
   const branchName = diffData?.branchName || task?.worktreeBranch || "";
   const baseBranch = diffData?.baseBranch || "main";
+  const hasChanges = diffData?.hasChanges ?? (rawDiff.length > 0);
   const unresolvedCount = comments.filter((c) => !c.resolved).length;
 
   return (
@@ -171,6 +172,8 @@ export function TaskReviewView({ project, task, onClose, onProjectRefresh }) {
           ) : (
             <ReviewDiffPanel
               rawDiff={rawDiff}
+              hasChanges={hasChanges}
+              branchName={branchName}
               comments={comments}
               onAddComment={handleAddComment}
               onResolveComment={handleResolveComment}

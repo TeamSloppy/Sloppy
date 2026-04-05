@@ -27,11 +27,11 @@ struct ConnectionSetupView: View {
                 // Header
                 VStack(alignment: .leading, spacing: sp.s) {
                     Text("✦")
-                        .font(.system(size: Double(32)))
+                        .font(.system(size: 32))
                         .foregroundColor(c.accent)
                     Text("Connect to Sloppy")
                         .font(.system(size: ty.title))
-                        .foregroundColor(c.textPrimary)
+                        .foregroundColor(c.accent)
                     Text("No server found automatically. Set up your connection below.")
                         .font(.system(size: ty.caption))
                         .foregroundColor(c.textMuted)
@@ -47,8 +47,8 @@ struct ConnectionSetupView: View {
                         .foregroundColor(c.statusWarning)
                 }
                 .padding(sp.m)
-                .background(c.statusWarning.opacity(0.08 as Float))
-                .border(c.statusWarning.opacity(0.3 as Float), lineWidth: bo.thin)
+                .background(c.statusWarning.opacity(0.08))
+                .border(c.statusWarning.opacity(0.3), lineWidth: bo.thin)
 
                 // Scan section
                 VStack(alignment: .leading, spacing: sp.m) {
@@ -89,7 +89,7 @@ struct ConnectionSetupView: View {
                             }
                             .padding(sp.m)
                             .background(c.surface)
-                            .border(c.accentCyan.opacity(0.3 as Float), lineWidth: bo.thin)
+                            .border(c.accentCyan.opacity(0.3), lineWidth: bo.thin)
                         }
                     }
                 }
@@ -124,7 +124,7 @@ struct ConnectionSetupView: View {
                         .padding(.horizontal, sp.l)
                         .padding(.vertical, sp.s)
                         .background(c.accentCyan)
-                        .disabled(isConnecting || hostDraft.isEmpty)
+//                        .disabled(isConnecting || hostDraft.isEmpty)
                     }
                 }
 
@@ -220,7 +220,7 @@ struct ConnectionSetupView: View {
     }
 
     private func checkHealth(url: URL) async -> Bool {
-        let endpoint = url.appendingPathComponent("/v1/health")
+        let endpoint = url.appendingPathComponent("/health")
         var request = URLRequest(url: endpoint)
         request.timeoutInterval = 5
         do {
