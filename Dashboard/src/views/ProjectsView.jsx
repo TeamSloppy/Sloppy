@@ -961,6 +961,8 @@ export function ProjectsView({
       description: selectedTask.description || "",
       priority: selectedTask.priority,
       status: selectedTask.status,
+      kind: selectedTask.kind || "",
+      loopModeOverride: selectedTask.loopModeOverride || "",
       actorId: resolvedActorId,
       teamId: selectedTask.teamId || ""
     });
@@ -971,6 +973,8 @@ export function ProjectsView({
     selectedTask?.description,
     selectedTask?.priority,
     selectedTask?.status,
+    selectedTask?.kind,
+    selectedTask?.loopModeOverride,
     selectedTask?.actorId,
     selectedTask?.teamId,
     selectedTask?.claimedActorId

@@ -2514,7 +2514,7 @@ public struct ProjectReviewSettings: Codable, Sendable, Equatable {
     public var enabled: Bool
     public var approvalMode: ReviewApprovalMode
 
-    public init(enabled: Bool = false, approvalMode: ReviewApprovalMode = .human) {
+    public init(enabled: Bool = true, approvalMode: ReviewApprovalMode = .human) {
         self.enabled = enabled
         self.approvalMode = approvalMode
     }
