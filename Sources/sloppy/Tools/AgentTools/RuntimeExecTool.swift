@@ -29,7 +29,7 @@ struct RuntimeExecTool: CoreTool {
         }
 
         let args = arguments["arguments"]?.asArray?.compactMap(\.asString) ?? []
-        let timeoutMs = max(100, arguments["timeoutMs"]?.asInt ?? context.policy.guardrails.execTimeoutMs)
+        let timeoutMs = max(5000, arguments["timeoutMs"]?.asInt ?? context.policy.guardrails.execTimeoutMs)
         let cwdValue = arguments["cwd"]?.asString
 
         let cwdURL: URL?

@@ -110,7 +110,7 @@ func projectUpdateRequestPersistsReviewSettings() async throws {
 }
 
 @Test
-func projectDefaultReviewSettingsAreDisabled() async throws {
+func projectDefaultReviewSettingsAreEnabled() async throws {
     let config = CoreConfig.test
     let service = CoreService(config: config, persistenceBuilder: InMemoryCorePersistenceBuilder())
     let router = CoreRouter(service: service)
@@ -129,7 +129,7 @@ func projectDefaultReviewSettingsAreDisabled() async throws {
     let createResp = await router.handle(method: "POST", path: "/v1/projects", body: createBody)
     #expect(createResp.status == 201)
     let created = try decoder.decode(ProjectRecord.self, from: createResp.body)
-    #expect(created.reviewSettings.enabled == false)
+    #expect(created.reviewSettings.enabled == true)
     #expect(created.repoPath == nil)
 }
 

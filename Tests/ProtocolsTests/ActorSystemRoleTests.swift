@@ -74,7 +74,7 @@ func reviewApprovalModeSerialization() throws {
 @Test
 func projectReviewSettingsDefaultValues() {
     let settings = ProjectReviewSettings()
-    #expect(settings.enabled == false)
+    #expect(settings.enabled == true)
     #expect(settings.approvalMode == .human)
 }
 

@@ -4019,7 +4019,19 @@ public actor CoreService {
             }
         }
 
-        let workerObjective = buildWorkerObjective(task: task, projectID: project.id, worktreePath: worktreePath)
+        let effectiveWorkingDirectory = worktreePath ?? project.repoPath
+        let workerMode: WorkerMode = task.kind == .planning ? .interactive : .fireAndForget
+        let workerObjective = buildWorkerObjective(task: task, project: project, worktreePath: worktreePath)
+        // #region agent log
+        do {
+            let entry = "{\"sessionId\":\"2ffce0\",\"location\":\"CoreService.swift:handleTaskBecameReady\",\"message\":\"worker_spawning\",\"data\":{\"taskId\":\"\(task.id)\",\"kind\":\"\(task.kind?.rawValue ?? "nil")\",\"workerMode\":\"\(workerMode.rawValue)\",\"worktreePath\":\"\(worktreePath ?? "nil")\",\"effectiveWorkDir\":\"\(effectiveWorkingDirectory ?? "nil")\",\"repoPath\":\"\(project.repoPath ?? "nil")\"},\"timestamp\":\(Int(Date().timeIntervalSince1970 * 1000))}\n"
+            if let h = FileHandle(forWritingAtPath: "/Users/vprusakov/Developer/SloppyTeam/Sloppy/.cursor/debug-2ffce0.log") {
+                h.seekToEndOfFile(); h.write(entry.data(using: .utf8)!); h.closeFile()
+            } else {
+                FileManager.default.createFile(atPath: "/Users/vprusakov/Developer/SloppyTeam/Sloppy/.cursor/debug-2ffce0.log", contents: entry.data(using: .utf8))
+            }
+        }
+        // #endregion
         let workerId = await runtime.createWorker(
             spec: WorkerTaskSpec(
                 taskId: task.id,
@@ -4028,8 +4040,8 @@ public actor CoreService {
                 objective: workerObjective,
                 agentID: delegation.agentID,
                 tools: ["shell", "file", "exec", "browser"],
-                mode: .fireAndForget,
-                workingDirectory: worktreePath
+                mode: workerMode,
+                workingDirectory: effectiveWorkingDirectory
             )
         )
 
@@ -6642,16 +6654,28 @@ public actor CoreService {
         let existingSession: AgentSessionSummary? = try? listAgentSessions(agentID: agentID)
             .first(where: { $0.title == sessionTitle })
 
+        if let stale = existingSession {
+            try? await deleteAgentSession(agentID: agentID, sessionID: stale.id)
+        }
+
+        // #region agent log
+        do {
+            let reused = existingSession != nil
+            let entry = "{\"sessionId\":\"2ffce0\",\"location\":\"CoreService.swift:runAgentTask\",\"message\":\"session_resolution\",\"data\":{\"taskId\":\"\(taskID)\",\"agentId\":\"\(agentID)\",\"hadExisting\":\(reused)},\"timestamp\":\(Int(Date().timeIntervalSince1970 * 1000))}\n"
+            if let h = FileHandle(forWritingAtPath: "/Users/vprusakov/Developer/SloppyTeam/Sloppy/.cursor/debug-2ffce0.log") {
+                h.seekToEndOfFile(); h.write(entry.data(using: .utf8)!); h.closeFile()
+            } else {
+                FileManager.default.createFile(atPath: "/Users/vprusakov/Developer/SloppyTeam/Sloppy/.cursor/debug-2ffce0.log", contents: entry.data(using: .utf8))
+            }
+        }
+        // #endregion
+
         let session: AgentSessionSummary
         do {
-            if let existing = existingSession {
-                session = existing
-            } else {
-                session = try await createAgentSession(
-                    agentID: agentID,
-                    request: AgentSessionCreateRequest(title: sessionTitle)
-                )
-            }
+            session = try await createAgentSession(
+                agentID: agentID,
+                request: AgentSessionCreateRequest(title: sessionTitle)
+            )
         } catch {
             logger.warning(
                 "task.worker.session_create_failed",
@@ -6700,33 +6724,111 @@ public actor CoreService {
         }
     }
 
-    private func buildWorkerObjective(task: ProjectTask, projectID: String, worktreePath: String? = nil) -> String {
-        var bodyLines: [String] = [
-            "Task title: \(task.title)"
+    private func buildWorkerObjective(task: ProjectTask, project: ProjectRecord, worktreePath: String? = nil) -> String {
+        var sections: [String] = []
+
+        // --- Task ---
+        var taskLines: [String] = [
+            "[Task]",
+            "ID: \(task.id)",
+            "Title: \(task.title)",
+            "Priority: \(task.priority)",
+            "Kind: \(task.kind?.rawValue ?? "execution")"
         ]
         if !task.description.isEmpty {
-            bodyLines.append("")
-            bodyLines.append("Task details:")
-            bodyLines.append(task.description)
+            taskLines.append("")
+            taskLines.append(task.description)
         }
-        var policyLines: [String] = [
-            "Execution policy:"
+        sections.append(taskLines.joined(separator: "\n"))
+
+        // --- Project context ---
+        var projectLines: [String] = [
+            "[Project]",
+            "ID: \(project.id)",
+            "Name: \(project.name)"
         ]
+        if let repoPath = project.repoPath, !repoPath.isEmpty {
+            projectLines.append("Repository: \(repoPath)")
+        }
+        if !project.description.isEmpty {
+            projectLines.append("Description: \(project.description)")
+        }
+        sections.append(projectLines.joined(separator: "\n"))
+
+        // --- Workspace ---
+        var workspaceLines: [String] = ["[Workspace]"]
         if let worktreePath {
             let repoRoot = URL(fileURLWithPath: worktreePath)
                 .deletingLastPathComponent()
                 .deletingLastPathComponent()
                 .path
-            policyLines.append("- All code changes MUST be made inside the git worktree at: \(worktreePath)")
-            policyLines.append("- The worktree path (\(worktreePath)) and repository root (\(repoRoot)) are allowed as working directories and for all file operations (read/write/exec).")
-            policyLines.append("- Commit changes to the worktree branch before completing the task.")
+            workspaceLines.append("Working directory: \(worktreePath)")
+            workspaceLines.append("Repository root: \(repoRoot)")
+            workspaceLines.append("All code changes MUST be made inside this worktree.")
+            workspaceLines.append("Commit changes to the worktree branch before completing the task.")
+        } else if let repoPath = project.repoPath, !repoPath.isEmpty {
+            workspaceLines.append("Working directory: \(repoPath)")
         }
-        let objective = [
-            bodyLines.joined(separator: "\n"),
-            "",
-            policyLines.joined(separator: "\n")
-        ].joined(separator: "\n")
-        return normalizeTaskDescription(objective)
+        sections.append(workspaceLines.joined(separator: "\n"))
+
+        // --- Task lifecycle ---
+        sections.append("""
+        [Task lifecycle]
+        Tasks move through these statuses:
+        backlog → ready → in_progress → done
+        At any point a task can transition to: waiting_input, blocked, needs_review, cancelled.
+        - Your task is now in_progress. When you finish, the system marks it done automatically.
+        - To update the task status or metadata, use tool `project.task_update`.
+        - To create sub-tasks, use tool `project.task_create` with the same project ID.
+        """)
+
+        // --- Clarification flow ---
+        sections.append("""
+        [Clarification flow]
+        When you need information from the user before proceeding:
+        1. Call tool `project.task_clarification_create` with taskId="\(task.id)" and your question.
+           You may include structured options (id + label) and/or allow freeform notes.
+        2. After calling the tool, STOP and wait. Do NOT continue working on the task.
+           The system will set the task to waiting_input and notify the user.
+        3. When the user answers, the system resumes your session with their response.
+           You will receive the answer as a follow-up message. Then continue working.
+        Ask all related questions in a single clarification call when possible.
+        """)
+
+        // --- Mode-specific instructions ---
+        if task.kind == .planning {
+            sections.append("""
+            [Planning mode]
+            You are in PLANNING mode. Your goal is to produce a plan, not code.
+            1. Read and analyze the task requirements and the project codebase.
+            2. If anything is unclear, use the clarification flow above to ask the user.
+            3. Produce a structured implementation plan: break the work into concrete sub-tasks.
+            4. Create each sub-task via `project.task_create` with kind=execution and status=backlog.
+            5. When the plan is complete, summarize what you created and finish.
+            Do NOT write implementation code in planning mode.
+            """)
+        } else if task.kind == .execution || task.kind == nil {
+            sections.append("""
+            [Execution mode]
+            You are in EXECUTION mode. Your goal is to implement the requested changes.
+            1. Analyze the task description and explore the relevant parts of the codebase.
+            2. If the requirements are ambiguous, use the clarification flow above to ask the user.
+            3. Implement the changes: write code, create files, run commands as needed.
+            4. Verify your work compiles/passes and meets the task requirements.
+            5. If the task is large, break it into logical commits with clear messages.
+            Produce working, tested code. Prefer minimal, focused changes over broad rewrites.
+            """)
+        } else if task.kind == .bugfix {
+            sections.append("""
+            [Bugfix mode]
+            Focus on identifying and fixing the reported issue.
+            1. Reproduce or locate the bug in the codebase.
+            2. If the bug description is ambiguous, use the clarification flow to ask the user.
+            3. Implement the minimal fix and verify it does not introduce regressions.
+            """)
+        }
+
+        return normalizeTaskDescription(sections.joined(separator: "\n\n"))
     }
 
 

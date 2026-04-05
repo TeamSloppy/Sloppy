@@ -470,6 +470,11 @@ function isUserCreatedSession(session) {
   return !title.startsWith("task-comment:");
 }
 
+function isTaskSession(session) {
+  const title = String(session?.title || "").trim();
+  return title.startsWith("task-");
+}
+
 function sortSessionsByUpdate(list) {
   return [...list].sort((left, right) => {
     const leftDate = new Date(left?.updatedAt || 0).getTime();
@@ -1830,6 +1835,7 @@ export function AgentChatTab({ agentId, initialSessionId = null }) {
   const [knownTaskRecords, setKnownTaskRecords] = useState([]);
   const [taskPreview, setTaskPreview] = useState(null);
   const [isShareMenuOpen, setIsShareMenuOpen] = useState(false);
+  const [tasksDirectoryOpen, setTasksDirectoryOpen] = useState(false);
   const fileInputRef = useRef(null);
   const composeInputRef = useRef(null);
   const shareMenuRef = useRef(null);
@@ -1847,6 +1853,16 @@ export function AgentChatTab({ agentId, initialSessionId = null }) {
     const capabilities = Array.isArray(activeModelOption?.capabilities) ? activeModelOption.capabilities : [];
     return capabilities.some((capability) => String(capability || "").toLowerCase() === "reasoning");
   }, [activeModelOption]);
+
+  const taskSessions = useMemo(() => sessions.filter(isTaskSession), [sessions]);
+  const regularSessions = useMemo(() => sessions.filter((s) => !isTaskSession(s)), [sessions]);
+
+  useEffect(() => {
+    const active = sessions.find((s) => s.id === activeSessionId);
+    if (active && isTaskSession(active)) {
+      setTasksDirectoryOpen(true);
+    }
+  }, [activeSessionId, sessions]);
 
   useEffect(() => {
     document.body.classList.add("agent-chat-no-page-scroll");
@@ -2930,7 +2946,46 @@ export function AgentChatTab({ agentId, initialSessionId = null }) {
               {isLoadingSessions ? "Loading sessions..." : "No sessions"}
             </p>
           ) : null}
-          {sessions.map((session) => (
+          {taskSessions.length > 0 ? (
+            <div className="agent-chat-session-directory">
+              <button
+                type="button"
+                className={`agent-chat-session-directory-toggle ${tasksDirectoryOpen ? "open" : ""}`}
+                onClick={() => setTasksDirectoryOpen((prev) => !prev)}
+              >
+                <span className="material-symbols-rounded agent-chat-session-directory-icon" aria-hidden="true">
+                  {tasksDirectoryOpen ? "folder_open" : "folder"}
+                </span>
+                <span className="agent-chat-session-directory-label">Tasks</span>
+                <span className="agent-chat-session-directory-count">{taskSessions.length}</span>
+                <span className={`material-symbols-rounded agent-chat-session-directory-chevron ${tasksDirectoryOpen ? "open" : ""}`} aria-hidden="true">
+                  expand_more
+                </span>
+              </button>
+              {tasksDirectoryOpen ? (
+                <div className="agent-chat-session-directory-children">
+                  {taskSessions.map((session) => (
+                    <button
+                      key={session.id}
+                      type="button"
+                      className={`agent-chat-session-item ${session.id === activeSessionId ? "active" : ""}`}
+                      data-testid={`agent-chat-session-${session.id}`}
+                      onClick={() => openSession(session.id)}
+                      disabled={isLoadingSessions || isSending}
+                    >
+                      <div className="agent-chat-session-title">
+                        {getSessionDisplayLabel(session)}
+                      </div>
+                      <div className="agent-chat-session-meta">
+                        {session.updatedAt ? new Date(session.updatedAt).toLocaleDateString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }) : "No date"}
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+          {regularSessions.map((session) => (
             <button
               key={session.id}
               type="button"

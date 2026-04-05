@@ -105,17 +105,22 @@ extension EmbeddingService {
 
         let cfg = config.memory.embedding
 
+        let openAIConfigs = config.models.filter {
+            CoreModelProviderFactory.resolvedIdentifier(for: $0)?.hasPrefix("openai:") == true
+        }
+        let preferredOpenAI = openAIConfigs.first {
+            !$0.apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        } ?? openAIConfigs.first
+
         let endpoint: URL
         if let raw = cfg.endpoint,
            !raw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
            let url = URL(string: raw) {
             endpoint = url
-        } else if let openAIConfig = config.models.first(where: {
-            let id = CoreModelProviderFactory.resolvedIdentifier(for: $0)
-            return id?.hasPrefix("openai:") == true
-        }), !openAIConfig.apiUrl.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-           let base = URL(string: openAIConfig.apiUrl) {
-            endpoint = base.appendingPathComponent("v1/embeddings")
+        } else if let openAIConfig = preferredOpenAI,
+                  !openAIConfig.apiUrl.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                  let base = URL(string: openAIConfig.apiUrl) {
+            endpoint = base.appendingPathComponent("embeddings")
         } else {
             endpoint = URL(string: "https://api.openai.com/v1/embeddings")!
         }
@@ -128,6 +133,9 @@ extension EmbeddingService {
         } else if let value = ProcessInfo.processInfo.environment["OPENAI_API_KEY"],
                   !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             apiKey = value
+        } else if let configKey = preferredOpenAI?.apiKey,
+                  !configKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            apiKey = configKey
         } else {
             apiKey = nil
         }
