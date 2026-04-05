@@ -20,14 +20,9 @@ public struct ChatGreetingView: View {
                 .font(.system(size: ty.hero))
                 .foregroundColor(c.accent)
 
-            VStack(alignment: .leading, spacing: sp.xs) {
-                Text("How can I")
-                    .font(.system(size: ty.hero))
-                    .foregroundColor(c.textPrimary)
-                Text("help you?")
-                    .font(.system(size: ty.hero))
-                    .foregroundColor(c.textPrimary)
-            }
+            Text("How can I\nhelp you?")
+                .font(.system(size: ty.hero))
+                .foregroundColor(c.accent)
 
             Text("Chatting with \(agentName). Type a message below to start a new session.")
                 .font(.system(size: ty.caption))

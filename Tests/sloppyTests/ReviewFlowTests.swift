@@ -271,6 +271,65 @@ func taskDiffEndpointReturnsEmptyForTaskWithoutWorktree() async throws {
     let diffResp = try decoder.decode(TaskDiffResponse.self, from: resp.body)
     #expect(diffResp.diff == "")
     #expect(diffResp.branchName == "")
+    #expect(diffResp.hasChanges == false)
+}
+
+@Test
+func taskDiffHasChangesIsFalseWhenNoWorktreeBranch() async throws {
+    let config = CoreConfig.test
+    let service = CoreService(config: config, persistenceBuilder: InMemoryCorePersistenceBuilder())
+    let router = CoreRouter(service: service)
+
+    let (projectID, taskID) = try await makeProjectWithTask(
+        service: service,
+        router: router,
+        taskStatus: "needs_review"
+    )
+
+    let result = try await service.getTaskDiff(projectID: projectID, taskID: taskID)
+    #expect(result.diff == "")
+    #expect(result.branchName == "")
+    #expect(result.hasChanges == false)
+}
+
+@Test
+func worktreeCreationFailureDoesNotCrashTaskLifecycle() async throws {
+    let config = CoreConfig.test
+    let service = CoreService(config: config, persistenceBuilder: InMemoryCorePersistenceBuilder())
+    let router = CoreRouter(service: service)
+    let decoder = JSONDecoder()
+    decoder.dateDecodingStrategy = .iso8601
+
+    let projectID = "worktree-fail-\(UUID().uuidString)"
+    let createBody = try JSONEncoder().encode(
+        ProjectCreateRequest(id: projectID, name: "Worktree Fail Test", description: "", channels: [])
+    )
+    let createResp = await router.handle(method: "POST", path: "/v1/projects", body: createBody)
+    #expect(createResp.status == 201)
+
+    let updateBody = try JSONEncoder().encode(
+        ProjectUpdateRequest(
+            repoPath: "/nonexistent/path/that/is/not/a/git/repo",
+            reviewSettings: ProjectReviewSettings(enabled: true, approvalMode: .human)
+        )
+    )
+    _ = await router.handle(method: "PATCH", path: "/v1/projects/\(projectID)", body: updateBody)
+
+    let taskBody = try JSONEncoder().encode(
+        ProjectTaskCreateRequest(title: "Do something", description: "", priority: "medium", status: "ready")
+    )
+    let taskResp = await router.handle(method: "POST", path: "/v1/projects/\(projectID)/tasks", body: taskBody)
+    #expect(taskResp.status == 200)
+    let projectWithTask = try decoder.decode(ProjectRecord.self, from: taskResp.body)
+    let taskID = try #require(projectWithTask.tasks.first?.id)
+
+    await service.handleTaskBecameReady(projectID: projectID, taskID: taskID)
+
+    let getResp = await router.handle(method: "GET", path: "/v1/projects/\(projectID)", body: nil)
+    #expect(getResp.status == 200)
+    let project = try decoder.decode(ProjectRecord.self, from: getResp.body)
+    let task = try #require(project.tasks.first(where: { $0.id == taskID }))
+    #expect(task.worktreeBranch == nil)
 }
 
 @Test

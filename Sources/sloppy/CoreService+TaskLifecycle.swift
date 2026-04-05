@@ -99,6 +99,22 @@ extension CoreService {
                 task.worktreeBranch = result.branchName
                 worktreePath = result.worktreePath
             } catch {
+                logger.warning(
+                    "visor.task.worktree_failed",
+                    metadata: [
+                        "project_id": .string(projectID),
+                        "task_id": .string(taskID),
+                        "error": .string(error.localizedDescription)
+                    ]
+                )
+                appendTaskLifecycleLog(
+                    projectID: projectID,
+                    taskID: taskID,
+                    stage: "worktree_failed",
+                    channelID: resolveExecutionChannelID(project: project, task: task),
+                    workerID: nil,
+                    message: "Worktree creation failed: \(error.localizedDescription). Proceeding without worktree."
+                )
             }
         } else if task.worktreeBranch != nil {
             if let repoPath = project.repoPath {
@@ -109,16 +125,6 @@ extension CoreService {
         let effectiveWorkingDirectory = worktreePath ?? project.repoPath
         let workerMode: WorkerMode = task.kind == .planning ? .interactive : .fireAndForget
         let workerObjective = buildWorkerObjective(task: task, project: project, worktreePath: worktreePath)
-        // #region agent log
-        do {
-            let entry = "{\"sessionId\":\"2ffce0\",\"location\":\"CoreService.swift:handleTaskBecameReady\",\"message\":\"worker_spawning\",\"data\":{\"taskId\":\"\(task.id)\",\"kind\":\"\(task.kind?.rawValue ?? "nil")\",\"workerMode\":\"\(workerMode.rawValue)\",\"worktreePath\":\"\(worktreePath ?? "nil")\",\"effectiveWorkDir\":\"\(effectiveWorkingDirectory ?? "nil")\",\"repoPath\":\"\(project.repoPath ?? "nil")\"},\"timestamp\":\(Int(Date().timeIntervalSince1970 * 1000))}\n"
-            if let h = FileHandle(forWritingAtPath: "/Users/vprusakov/Developer/SloppyTeam/Sloppy/.cursor/debug-2ffce0.log") {
-                h.seekToEndOfFile(); h.write(entry.data(using: .utf8)!); h.closeFile()
-            } else {
-                FileManager.default.createFile(atPath: "/Users/vprusakov/Developer/SloppyTeam/Sloppy/.cursor/debug-2ffce0.log", contents: entry.data(using: .utf8))
-            }
-        }
-        // #endregion
         let workerId = await runtime.createWorker(
             spec: WorkerTaskSpec(
                 taskId: task.id,
@@ -354,12 +360,12 @@ extension CoreService {
         }
 
         guard let repoPath = project.repoPath, let branchName = task.worktreeBranch else {
-            return TaskDiffResponse(diff: "", branchName: "", baseBranch: "")
+            return TaskDiffResponse(diff: "", branchName: "", baseBranch: "", hasChanges: false)
         }
 
         let baseBranch = (try? await gitWorktreeService.defaultBranch(repoPath: repoPath)) ?? "main"
         let diff = (try? await gitWorktreeService.branchDiff(repoPath: repoPath, branchName: branchName, baseBranch: baseBranch)) ?? ""
-        return TaskDiffResponse(diff: diff, branchName: branchName, baseBranch: baseBranch)
+        return TaskDiffResponse(diff: diff, branchName: branchName, baseBranch: baseBranch, hasChanges: !diff.isEmpty)
     }
 
     public func listReviewComments(projectID: String, taskID: String) async -> [ReviewComment] {
@@ -571,18 +577,6 @@ extension CoreService {
         if let stale = existingSession {
             try? await deleteAgentSession(agentID: agentID, sessionID: stale.id)
         }
-
-        // #region agent log
-        do {
-            let reused = existingSession != nil
-            let entry = "{\"sessionId\":\"2ffce0\",\"location\":\"CoreService.swift:runAgentTask\",\"message\":\"session_resolution\",\"data\":{\"taskId\":\"\(taskID)\",\"agentId\":\"\(agentID)\",\"hadExisting\":\(reused)},\"timestamp\":\(Int(Date().timeIntervalSince1970 * 1000))}\n"
-            if let h = FileHandle(forWritingAtPath: "/Users/vprusakov/Developer/SloppyTeam/Sloppy/.cursor/debug-2ffce0.log") {
-                h.seekToEndOfFile(); h.write(entry.data(using: .utf8)!); h.closeFile()
-            } else {
-                FileManager.default.createFile(atPath: "/Users/vprusakov/Developer/SloppyTeam/Sloppy/.cursor/debug-2ffce0.log", contents: entry.data(using: .utf8))
-            }
-        }
-        // #endregion
 
         let session: AgentSessionSummary
         do {

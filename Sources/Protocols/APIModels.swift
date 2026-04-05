@@ -2907,11 +2907,13 @@ public struct TaskDiffResponse: Codable, Sendable {
     public var diff: String
     public var branchName: String
     public var baseBranch: String
+    public var hasChanges: Bool
 
-    public init(diff: String, branchName: String, baseBranch: String) {
+    public init(diff: String, branchName: String, baseBranch: String, hasChanges: Bool) {
         self.diff = diff
         self.branchName = branchName
         self.baseBranch = baseBranch
+        self.hasChanges = hasChanges
     }
 }
 
