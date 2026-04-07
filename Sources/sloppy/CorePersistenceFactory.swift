@@ -566,5 +566,18 @@ enum CorePersistenceFactory {
         );
 
         CREATE INDEX IF NOT EXISTS idx_task_clarifications_task ON task_clarifications(project_id, task_id);
+
+        CREATE TABLE IF NOT EXISTS channel_access_users (
+            id TEXT PRIMARY KEY,
+            platform TEXT NOT NULL,
+            platform_user_id TEXT NOT NULL,
+            display_name TEXT NOT NULL,
+            status TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            UNIQUE(platform, platform_user_id)
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_channel_access_users_platform ON channel_access_users(platform, status);
         """
 }
