@@ -1,5 +1,5 @@
 {
-  "originHash" : "c4f1a89c5e7eeb99e05470a5bed96bb2e28074c2126645ebaefe06a7fb44d5c1",
+  "originHash" : "055b18267cac376a4646f0517d3000ef5b190fa4e7b2cd27bcda0ad28e32565f",
   "pins" : [
     {
       "identity" : "anylanguagemodel",
@@ -61,7 +61,7 @@
       "location" : "https://github.com/TeamSloppy/swift-acp",
       "state" : {
         "branch" : "main",
-        "revision" : "ab193aca4e5a468a39a06e175d990ce23e26dccd"
+        "revision" : "eabd73924db025719c962b0ab89bdc1343454413"
       }
     },
     {
@@ -114,8 +114,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/apple/swift-log.git",
       "state" : {
-        "revision" : "bbd81b6725ae874c69e9b8c8804d462356b55523",
-        "version" : "1.10.1"
+        "revision" : "8c0f217f01000dd30f60d6e536569ad4e74291f9",
+        "version" : "1.11.0"
       }
     },
     {
@@ -141,8 +141,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/swift-server/swift-service-lifecycle",
       "state" : {
-        "revision" : "89888196dd79c61c50bca9a103d8114f32e1e598",
-        "version" : "2.10.1"
+        "revision" : "9829955b385e5bb88128b73f1b8389e9b9c3191a",
+        "version" : "2.11.0"
       }
     },
     {
@@ -169,7 +169,7 @@
       "location" : "https://github.com/swiftlang/swift-tools-protocols.git",
       "state" : {
         "branch" : "main",
-        "revision" : "1371b3d1cc8be552d1cb26aa0a7805fca2c0dfd5"
+        "revision" : "963a4d30886b093443f406abf154e07cd90aac0f"
       }
     }
   ],
