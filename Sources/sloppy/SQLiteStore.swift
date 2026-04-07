@@ -24,6 +24,7 @@ public actor SQLiteStore: PersistenceStore {
     private var fallbackProjects: [String: ProjectRecord] = [:]
     private var fallbackPlugins: [String: ChannelPluginRecord] = [:]
     private var fallbackCronTasks: [String: AgentCronTask] = [:]
+    private var fallbackAccessUsers: [String: ChannelAccessUser] = [:]
 
     /// Creates a persistence store and applies schema when SQLite is available.
     public init(path: String, schemaSQL: String, fallbackProjectsPath: String? = nil) {
@@ -2191,7 +2192,11 @@ public actor SQLiteStore: PersistenceStore {
 
     public func listChannelAccessUsers(platform: String?) async -> [ChannelAccessUser] {
 #if canImport(CSQLite3)
-        guard let db else { return [] }
+        guard let db else {
+            let all = fallbackAccessUsers.values.sorted { $0.createdAt < $1.createdAt }
+            guard let platform else { return all }
+            return all.filter { $0.platform == platform }
+        }
         let sql: String
         if let platform {
             sql = "SELECT id, platform, platform_user_id, display_name, status, created_at, updated_at FROM channel_access_users WHERE platform = ? ORDER BY created_at DESC;"
@@ -2233,7 +2238,9 @@ public actor SQLiteStore: PersistenceStore {
 
     public func channelAccessUser(platform: String, platformUserId: String) async -> ChannelAccessUser? {
 #if canImport(CSQLite3)
-        guard let db else { return nil }
+        guard let db else {
+            return fallbackAccessUsers.values.first { $0.platform == platform && $0.platformUserId == platformUserId }
+        }
         let sql = "SELECT id, platform, platform_user_id, display_name, status, created_at, updated_at FROM channel_access_users WHERE platform = ? AND platform_user_id = ? LIMIT 1;"
         var statement: OpaquePointer?
         guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK else { return nil }
@@ -2266,7 +2273,19 @@ public actor SQLiteStore: PersistenceStore {
 
     public func saveChannelAccessUser(_ user: ChannelAccessUser) async {
 #if canImport(CSQLite3)
-        guard let db else { return }
+        // #region agent log
+        _debugLog980519("SQLiteStore.swift:saveChannelAccessUser", "entry", ["dbIsNil": db == nil, "userId": user.id, "platform": user.platform, "platformUserId": user.platformUserId, "status": user.status, "hypothesisId": "H1"])
+        // #endregion
+        guard let db else {
+            // #region agent log
+            _debugLog980519("SQLiteStore.swift:saveChannelAccessUser", "db is NIL - using fallback", ["userId": user.id, "hypothesisId": "H1"])
+            // #endregion
+            if let existing = fallbackAccessUsers.values.first(where: { $0.platform == user.platform && $0.platformUserId == user.platformUserId }) {
+                fallbackAccessUsers[existing.id] = nil
+            }
+            fallbackAccessUsers[user.id] = user
+            return
+        }
         let sql = """
             INSERT INTO channel_access_users(id, platform, platform_user_id, display_name, status, created_at, updated_at)
             VALUES(?, ?, ?, ?, ?, ?, ?)
@@ -2276,7 +2295,12 @@ public actor SQLiteStore: PersistenceStore {
                 updated_at = excluded.updated_at;
             """
         var statement: OpaquePointer?
-        guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK else { return }
+        guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK else {
+            // #region agent log
+            _debugLog980519("SQLiteStore.swift:saveChannelAccessUser", "prepare FAILED", ["userId": user.id, "hypothesisId": "H2"])
+            // #endregion
+            return
+        }
         defer { sqlite3_finalize(statement) }
         bindText(user.id, at: 1, statement: statement)
         bindText(user.platform, at: 2, statement: statement)
@@ -2285,13 +2309,19 @@ public actor SQLiteStore: PersistenceStore {
         bindText(user.status, at: 5, statement: statement)
         bindText(isoFormatter.string(from: user.createdAt), at: 6, statement: statement)
         bindText(isoFormatter.string(from: user.updatedAt), at: 7, statement: statement)
-        _ = sqlite3_step(statement)
+        let stepResult = sqlite3_step(statement)
+        // #region agent log
+        _debugLog980519("SQLiteStore.swift:saveChannelAccessUser", "step completed", ["userId": user.id, "stepResult": Int(stepResult), "expectedDone": Int(SQLITE_DONE), "hypothesisId": "H1,H2"])
+        // #endregion
 #endif
     }
 
     public func deleteChannelAccessUser(id: String) async {
 #if canImport(CSQLite3)
-        guard let db else { return }
+        guard let db else {
+            fallbackAccessUsers[id] = nil
+            return
+        }
         let sql = "DELETE FROM channel_access_users WHERE id = ?;"
         var statement: OpaquePointer?
         guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK else { return }
