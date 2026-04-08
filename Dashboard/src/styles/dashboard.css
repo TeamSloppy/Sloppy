@@ -535,8 +535,69 @@
   shape-rendering: crispEdges;
 }
 
+.agent-pet-png-stack {
+  position: relative;
+  width: 100%;
+  padding: 16px;
+  aspect-ratio: 48 / 88;
+}
+
+.agent-pet-png-layer {
+  position: absolute;
+  inset: 0;
+}
+
+.agent-pet-png-layer .sprite-layer {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  image-rendering: pixelated;
+}
+
+.agent-pet-png-layer .sprite-layer--sheet {
+  image-rendering: pixelated;
+}
+
+.agent-pet-png-shadow {
+  position: absolute;
+  bottom: 6%;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 66%;
+  height: 8%;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.28);
+}
+
+.agent-pet-png-icon-stack {
+  position: relative;
+  width: 100%;
+  height: 100%;
+}
+
+.agent-pet-png-icon-stack .agent-pet-png-layer {
+  inset: 0;
+}
+
+@keyframes sprite-sheet-play {
+  from { background-position: 0 0; }
+  to { background-position: -100% 0; }
+}
+
 .agent-pet-head {
   transform-origin: 24px 20px;
+}
+
+.agent-pet-png-layer.agent-pet-head {
+  transform-origin: center 23%;
+}
+
+.agent-pet-png-layer.agent-pet-face {
+  transform-origin: center 23%;
+}
+
+.agent-pet-png-layer.agent-pet-accessory {
+  transform-origin: center 55%;
 }
 
 .agent-pet-head.is-animated {
@@ -617,7 +678,8 @@
 @media (prefers-reduced-motion: reduce) {
   .agent-pet-head.is-animated,
   .agent-pet-face.is-animated,
-  .agent-pet-accessory.is-animated {
+  .agent-pet-accessory.is-animated,
+  .sprite-layer--sheet {
     animation: none;
   }
 }

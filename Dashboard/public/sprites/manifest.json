@@ -1,0 +1,245 @@
+{
+  "version": 1,
+  "parts": {
+    "head-bubble": {
+      "frames": 1,
+      "fps": 0,
+      "width": 48,
+      "height": 88
+    },
+    "head-cube": {
+      "frames": 1,
+      "fps": 0,
+      "width": 48,
+      "height": 88
+    },
+    "head-shell": {
+      "frames": 1,
+      "fps": 0,
+      "width": 48,
+      "height": 88
+    },
+    "head-fork": {
+      "frames": 1,
+      "fps": 0,
+      "width": 48,
+      "height": 88
+    },
+    "head-visor": {
+      "frames": 1,
+      "fps": 0,
+      "width": 48,
+      "height": 88
+    },
+    "head-probe": {
+      "frames": 1,
+      "fps": 0,
+      "width": 48,
+      "height": 88
+    },
+    "head-oracle": {
+      "frames": 1,
+      "fps": 0,
+      "width": 48,
+      "height": 88
+    },
+    "head-crown": {
+      "frames": 1,
+      "fps": 0,
+      "width": 48,
+      "height": 88
+    },
+    "body-core": {
+      "frames": 1,
+      "fps": 0,
+      "width": 48,
+      "height": 88
+    },
+    "body-puff": {
+      "frames": 1,
+      "fps": 0,
+      "width": 48,
+      "height": 88
+    },
+    "body-brick": {
+      "frames": 1,
+      "fps": 0,
+      "width": 48,
+      "height": 88
+    },
+    "body-terminal": {
+      "frames": 1,
+      "fps": 0,
+      "width": 48,
+      "height": 88
+    },
+    "body-satchel": {
+      "frames": 1,
+      "fps": 0,
+      "width": 48,
+      "height": 88
+    },
+    "body-relay": {
+      "frames": 1,
+      "fps": 0,
+      "width": 48,
+      "height": 88
+    },
+    "body-reactor": {
+      "frames": 1,
+      "fps": 0,
+      "width": 48,
+      "height": 88
+    },
+    "body-throne": {
+      "frames": 1,
+      "fps": 0,
+      "width": 48,
+      "height": 88
+    },
+    "legs-stub": {
+      "frames": 1,
+      "fps": 0,
+      "width": 48,
+      "height": 88
+    },
+    "legs-bouncer": {
+      "frames": 1,
+      "fps": 0,
+      "width": 48,
+      "height": 88
+    },
+    "legs-track": {
+      "frames": 1,
+      "fps": 0,
+      "width": 48,
+      "height": 88
+    },
+    "legs-sprinter": {
+      "frames": 1,
+      "fps": 0,
+      "width": 48,
+      "height": 88
+    },
+    "legs-spider": {
+      "frames": 1,
+      "fps": 0,
+      "width": 48,
+      "height": 88
+    },
+    "legs-piston": {
+      "frames": 1,
+      "fps": 0,
+      "width": 48,
+      "height": 88
+    },
+    "legs-hover": {
+      "frames": 1,
+      "fps": 0,
+      "width": 48,
+      "height": 88
+    },
+    "legs-singularity": {
+      "frames": 1,
+      "fps": 0,
+      "width": 48,
+      "height": 88
+    },
+    "face-default": {
+      "frames": 1,
+      "fps": 0,
+      "width": 48,
+      "height": 88
+    },
+    "face-mono": {
+      "frames": 1,
+      "fps": 0,
+      "width": 48,
+      "height": 88
+    },
+    "face-scan": {
+      "frames": 1,
+      "fps": 0,
+      "width": 48,
+      "height": 88
+    },
+    "face-grin": {
+      "frames": 1,
+      "fps": 0,
+      "width": 48,
+      "height": 88
+    },
+    "face-frown": {
+      "frames": 1,
+      "fps": 0,
+      "width": 48,
+      "height": 88
+    },
+    "face-x": {
+      "frames": 1,
+      "fps": 0,
+      "width": 48,
+      "height": 88
+    },
+    "face-star": {
+      "frames": 1,
+      "fps": 0,
+      "width": 48,
+      "height": 88
+    },
+    "face-halo": {
+      "frames": 1,
+      "fps": 0,
+      "width": 48,
+      "height": 88
+    },
+    "acc-none": {
+      "frames": 1,
+      "fps": 0,
+      "width": 48,
+      "height": 88
+    },
+    "acc-scarf": {
+      "frames": 1,
+      "fps": 0,
+      "width": 48,
+      "height": 88
+    },
+    "acc-badge": {
+      "frames": 1,
+      "fps": 0,
+      "width": 48,
+      "height": 88
+    },
+    "acc-cape": {
+      "frames": 1,
+      "fps": 0,
+      "width": 48,
+      "height": 88
+    },
+    "acc-chain": {
+      "frames": 1,
+      "fps": 0,
+      "width": 48,
+      "height": 88
+    },
+    "acc-stripe": {
+      "frames": 1,
+      "fps": 0,
+      "width": 48,
+      "height": 88
+    },
+    "acc-wings": {
+      "frames": 1,
+      "fps": 0,
+      "width": 48,
+      "height": 88
+    },
+    "acc-bolt": {
+      "frames": 1,
+      "fps": 0,
+      "width": 48,
+      "height": 88
+    }
+  }
+}
