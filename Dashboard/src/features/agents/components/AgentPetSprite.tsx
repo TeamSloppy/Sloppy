@@ -1,4 +1,13 @@
-import React from "react";
+import React, { useEffect, useState } from "react";
+import { SpriteLayer } from "./SpriteLayer";
+import {
+  type SpriteManifest,
+  loadManifest,
+  getManifestSync,
+  hasPngSprite,
+  spriteSrc,
+  spritePartMeta,
+} from "./spriteManifest";
 
 type Pixel = [number, number, number?, number?];
 
@@ -63,6 +72,9 @@ const ACCESSORIES: Record<string, SpritePart> = {
   "acc-bolt":   { fill: "#ffe266", pixels: [[6, 9, 2, 1], [5, 10, 2, 1], [6, 11, 2, 1], [5, 12, 2, 1]] }
 };
 
+export { HEADS, BODIES, LEGS, FACES, ACCESSORIES };
+export type { SpritePart, Pixel };
+
 function renderPixels(part: SpritePart, pixelSize: number) {
   return part.pixels.map(([x, y, w = 1, h = 1], index) => (
     <rect
@@ -85,7 +97,32 @@ function resolvePart<T extends Record<string, SpritePart>>(catalog: T, id: strin
   return catalog[fallbackKey as string];
 }
 
-export function AgentPetSprite({ parts, className = "", animated = true }: { parts?: any; className?: string; animated?: boolean }) {
+function resolvePartId(catalog: Record<string, SpritePart>, id: string | undefined, fallbackKey: string): string {
+  if (id && catalog[id]) return id;
+  return fallbackKey;
+}
+
+function useManifest(): SpriteManifest | null {
+  const [manifest, setManifest] = useState<SpriteManifest | null>(getManifestSync);
+
+  useEffect(() => {
+    if (manifest) return;
+    let cancelled = false;
+    loadManifest().then((m) => {
+      if (!cancelled) setManifest(m);
+    });
+    return () => { cancelled = true; };
+  }, [manifest]);
+
+  return manifest;
+}
+
+function usePngAvailable(manifest: SpriteManifest | null, partIds: string[]): boolean {
+  if (!manifest) return false;
+  return partIds.some((id) => hasPngSprite(manifest, id));
+}
+
+function SvgSprite({ parts, animated }: { parts?: any; animated: boolean }) {
   const pixelSize = 4;
   const head = resolvePart(HEADS, parts?.headId, "head-bubble");
   const body = resolvePart(BODIES, parts?.bodyId, "body-core");
@@ -94,36 +131,112 @@ export function AgentPetSprite({ parts, className = "", animated = true }: { par
   const accessory = resolvePart(ACCESSORIES, parts?.accessoryId, "acc-none");
 
   return (
-    <div className={`agent-pet-sprite ${className}`.trim()} aria-hidden="true">
-      <svg viewBox="0 0 48 88" role="presentation">
-        <g className="agent-pet-shadow">
-          <ellipse cx="24" cy="82" rx="16" ry="4" fill="rgba(0, 0, 0, 0.28)" />
-        </g>
-        <g className="agent-pet-legs">{renderPixels(legs, pixelSize)}</g>
-        <g className="agent-pet-body">{renderPixels(body, pixelSize)}</g>
-        <g className="agent-pet-accessory">{renderPixels(accessory, pixelSize)}</g>
-        <g className={animated ? "agent-pet-head is-animated" : "agent-pet-head"}>
-          {renderPixels(head, pixelSize)}
-        </g>
-        <g className={animated ? "agent-pet-face is-animated" : "agent-pet-face"}>
-          {renderPixels(face, pixelSize)}
-        </g>
-      </svg>
+    <svg viewBox="0 0 48 88" role="presentation">
+      <g className="agent-pet-shadow">
+        <ellipse cx="24" cy="82" rx="16" ry="4" fill="rgba(0, 0, 0, 0.28)" />
+      </g>
+      <g className="agent-pet-legs">{renderPixels(legs, pixelSize)}</g>
+      <g className="agent-pet-body">{renderPixels(body, pixelSize)}</g>
+      <g className="agent-pet-accessory">{renderPixels(accessory, pixelSize)}</g>
+      <g className={animated ? "agent-pet-head is-animated" : "agent-pet-head"}>
+        {renderPixels(head, pixelSize)}
+      </g>
+      <g className={animated ? "agent-pet-face is-animated" : "agent-pet-face"}>
+        {renderPixels(face, pixelSize)}
+      </g>
+    </svg>
+  );
+}
+
+function PngSprite({ parts, animated, manifest }: { parts?: any; animated: boolean; manifest: SpriteManifest }) {
+  const headId = resolvePartId(HEADS, parts?.headId, "head-bubble");
+  const bodyId = resolvePartId(BODIES, parts?.bodyId, "body-core");
+  const legsId = resolvePartId(LEGS, parts?.legsId, "legs-stub");
+  const faceId = resolvePartId(FACES, parts?.faceId, "face-default");
+  const accId = resolvePartId(ACCESSORIES, parts?.accessoryId, "acc-none");
+
+  return (
+    <div className="agent-pet-png-stack">
+      <div className="agent-pet-shadow agent-pet-png-shadow" />
+      <div className="agent-pet-legs agent-pet-png-layer">
+        <SpriteLayer src={spriteSrc(legsId)} meta={spritePartMeta(manifest, legsId)} />
+      </div>
+      <div className="agent-pet-body agent-pet-png-layer">
+        <SpriteLayer src={spriteSrc(bodyId)} meta={spritePartMeta(manifest, bodyId)} />
+      </div>
+      <div className={`agent-pet-accessory agent-pet-png-layer ${animated ? "is-animated" : ""}`}>
+        <SpriteLayer src={spriteSrc(accId)} meta={spritePartMeta(manifest, accId)} />
+      </div>
+      <div className={`agent-pet-head agent-pet-png-layer ${animated ? "is-animated" : ""}`}>
+        <SpriteLayer src={spriteSrc(headId)} meta={spritePartMeta(manifest, headId)} />
+      </div>
+      <div className={`agent-pet-face agent-pet-png-layer ${animated ? "is-animated" : ""}`}>
+        <SpriteLayer src={spriteSrc(faceId)} meta={spritePartMeta(manifest, faceId)} />
+      </div>
     </div>
   );
 }
 
-export function AgentPetIcon({ parts, className = "" }: { parts?: any; className?: string }) {
+export function AgentPetSprite({ parts, className = "", animated = true }: { parts?: any; className?: string; animated?: boolean }) {
+  const manifest = useManifest();
+  const headId = resolvePartId(HEADS, parts?.headId, "head-bubble");
+  const bodyId = resolvePartId(BODIES, parts?.bodyId, "body-core");
+  const legsId = resolvePartId(LEGS, parts?.legsId, "legs-stub");
+  const faceId = resolvePartId(FACES, parts?.faceId, "face-default");
+  const accId = resolvePartId(ACCESSORIES, parts?.accessoryId, "acc-none");
+  const usePng = usePngAvailable(manifest, [headId, bodyId, legsId, faceId, accId]);
+
+  return (
+    <div className={`agent-pet-sprite ${className}`.trim()} aria-hidden="true">
+      {usePng
+        ? <PngSprite parts={parts} animated={animated} manifest={manifest!} />
+        : <SvgSprite parts={parts} animated={animated} />
+      }
+    </div>
+  );
+}
+
+function SvgIcon({ parts }: { parts?: any }) {
   const pixelSize = 4;
   const head = resolvePart(HEADS, parts?.headId, "head-bubble");
   const face = resolvePart(FACES, parts?.faceId, "face-default");
 
   return (
+    <svg viewBox="8 0 32 32" role="presentation">
+      <g>{renderPixels(head, pixelSize)}</g>
+      <g>{renderPixels(face, pixelSize)}</g>
+    </svg>
+  );
+}
+
+function PngIcon({ parts, manifest }: { parts?: any; manifest: SpriteManifest }) {
+  const headId = resolvePartId(HEADS, parts?.headId, "head-bubble");
+  const faceId = resolvePartId(FACES, parts?.faceId, "face-default");
+
+  return (
+    <div className="agent-pet-png-icon-stack">
+      <div className="agent-pet-png-layer">
+        <SpriteLayer src={spriteSrc(headId)} meta={spritePartMeta(manifest, headId)} />
+      </div>
+      <div className="agent-pet-png-layer">
+        <SpriteLayer src={spriteSrc(faceId)} meta={spritePartMeta(manifest, faceId)} />
+      </div>
+    </div>
+  );
+}
+
+export function AgentPetIcon({ parts, className = "" }: { parts?: any; className?: string }) {
+  const manifest = useManifest();
+  const headId = resolvePartId(HEADS, parts?.headId, "head-bubble");
+  const faceId = resolvePartId(FACES, parts?.faceId, "face-default");
+  const usePng = usePngAvailable(manifest, [headId, faceId]);
+
+  return (
     <div className={`agent-pet-icon ${className}`.trim()} aria-hidden="true">
-      <svg viewBox="8 0 32 32" role="presentation">
-        <g>{renderPixels(head, pixelSize)}</g>
-        <g>{renderPixels(face, pixelSize)}</g>
-      </svg>
+      {usePng
+        ? <PngIcon parts={parts} manifest={manifest!} />
+        : <SvgIcon parts={parts} />
+      }
     </div>
   );
 }
