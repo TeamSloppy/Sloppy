@@ -14,12 +14,12 @@ func channelModelStoreGetSetAndPersist() async throws {
 
     #expect(await store.get(channelId: "general") == nil)
 
-    await store.set(channelId: "general", model: "openai:gpt-4.1-mini")
-    #expect(await store.get(channelId: "general") == "openai:gpt-4.1-mini")
+    await store.set(channelId: "general", model: "openai:gpt-5.4-mini")
+    #expect(await store.get(channelId: "general") == "openai:gpt-5.4-mini")
 
     // Reload from disk
     let reloaded = ChannelModelStore(workspaceRootURL: dir)
-    #expect(await reloaded.get(channelId: "general") == "openai:gpt-4.1-mini")
+    #expect(await reloaded.get(channelId: "general") == "openai:gpt-5.4-mini")
 }
 
 @Test
@@ -30,7 +30,7 @@ func channelModelStoreRemove() async throws {
     defer { try? FileManager.default.removeItem(at: dir) }
 
     let store = ChannelModelStore(workspaceRootURL: dir)
-    await store.set(channelId: "support", model: "openai:gpt-4.1-mini")
+    await store.set(channelId: "support", model: "openai:gpt-5.4-mini")
     #expect(await store.get(channelId: "support") != nil)
 
     await store.remove(channelId: "support")

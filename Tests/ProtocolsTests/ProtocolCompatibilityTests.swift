@@ -427,6 +427,7 @@ func projectTaskDecodesWithUnknownFields() throws {
         "description": "Test description",
         "priority": "high",
         "status": "in_progress",
+        "isArchived": false,
         "actorId": "actor-456",
         "teamId": "team-789",
         "claimedActorId": null,

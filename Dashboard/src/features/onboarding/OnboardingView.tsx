@@ -40,7 +40,7 @@ const PROVIDERS: ProviderDefinition[] = [
       title: "openai-api",
       apiKey: "",
       apiUrl: "https://api.openai.com/v1",
-      model: "gpt-4.1-mini"
+      model: "gpt-5.4-mini"
     }
   },
   {

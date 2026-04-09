@@ -915,7 +915,7 @@ actor ACPSessionManager {
 
     private func normalizePath(_ rawPath: String) -> String {
         if rawPath == "~" || rawPath.hasPrefix("~/") {
-            let home = FileManager.default.homeDirectoryForCurrentUser.path
+            let home = CoreConfig.resolvedHomeDirectoryPath()
             return rawPath == "~"
                 ? home
                 : URL(fileURLWithPath: home, isDirectory: true)

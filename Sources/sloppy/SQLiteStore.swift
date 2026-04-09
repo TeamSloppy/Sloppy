@@ -2273,13 +2273,7 @@ public actor SQLiteStore: PersistenceStore {
 
     public func saveChannelAccessUser(_ user: ChannelAccessUser) async {
 #if canImport(CSQLite3)
-        // #region agent log
-        _debugLog980519("SQLiteStore.swift:saveChannelAccessUser", "entry", ["dbIsNil": db == nil, "userId": user.id, "platform": user.platform, "platformUserId": user.platformUserId, "status": user.status, "hypothesisId": "H1"])
-        // #endregion
         guard let db else {
-            // #region agent log
-            _debugLog980519("SQLiteStore.swift:saveChannelAccessUser", "db is NIL - using fallback", ["userId": user.id, "hypothesisId": "H1"])
-            // #endregion
             if let existing = fallbackAccessUsers.values.first(where: { $0.platform == user.platform && $0.platformUserId == user.platformUserId }) {
                 fallbackAccessUsers[existing.id] = nil
             }
@@ -2296,9 +2290,6 @@ public actor SQLiteStore: PersistenceStore {
             """
         var statement: OpaquePointer?
         guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK else {
-            // #region agent log
-            _debugLog980519("SQLiteStore.swift:saveChannelAccessUser", "prepare FAILED", ["userId": user.id, "hypothesisId": "H2"])
-            // #endregion
             return
         }
         defer { sqlite3_finalize(statement) }
@@ -2309,10 +2300,7 @@ public actor SQLiteStore: PersistenceStore {
         bindText(user.status, at: 5, statement: statement)
         bindText(isoFormatter.string(from: user.createdAt), at: 6, statement: statement)
         bindText(isoFormatter.string(from: user.updatedAt), at: 7, statement: statement)
-        let stepResult = sqlite3_step(statement)
-        // #region agent log
-        _debugLog980519("SQLiteStore.swift:saveChannelAccessUser", "step completed", ["userId": user.id, "stepResult": Int(stepResult), "expectedDone": Int(SQLITE_DONE), "hypothesisId": "H1,H2"])
-        // #endregion
+        _ = sqlite3_step(statement)
 #endif
     }
 

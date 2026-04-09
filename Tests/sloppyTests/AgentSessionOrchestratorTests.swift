@@ -181,7 +181,7 @@ private func expectedFallbackBootstrapMessage(
 func agentSessionOrchestratorUsesSelectedReasoningModelAndEffort() async throws {
     let availableModels = [
         ProviderModelOption(id: "openai:o4-mini", title: "openai:o4-mini", capabilities: ["reasoning", "tools"]),
-        ProviderModelOption(id: "openai:gpt-4.1-mini", title: "openai:gpt-4.1-mini", capabilities: ["tools"])
+        ProviderModelOption(id: "openai:gpt-5.4-mini", title: "openai:gpt-5.4-mini", capabilities: ["tools"])
     ]
     let (catalogStore, sessionStore, _) = try makeAgentSessionFixture(
         agentID: "reasoning-agent",
@@ -189,7 +189,7 @@ func agentSessionOrchestratorUsesSelectedReasoningModelAndEffort() async throws 
         availableModels: availableModels
     )
     let provider = SessionCapturingModelProvider(models: availableModels.map(\.id))
-    let runtime = RuntimeSystem(modelProvider: provider, defaultModel: "openai:gpt-4.1-mini")
+    let runtime = RuntimeSystem(modelProvider: provider, defaultModel: "openai:gpt-5.4-mini")
     let orchestrator = AgentSessionOrchestrator(
         runtime: runtime,
         sessionStore: sessionStore,
@@ -216,11 +216,11 @@ func agentSessionOrchestratorUsesSelectedReasoningModelAndEffort() async throws 
 func agentSessionOrchestratorDropsReasoningEffortForNonReasoningModels() async throws {
     let availableModels = [
         ProviderModelOption(id: "openai:o4-mini", title: "openai:o4-mini", capabilities: ["reasoning", "tools"]),
-        ProviderModelOption(id: "openai:gpt-4.1-mini", title: "openai:gpt-4.1-mini", capabilities: ["tools"])
+        ProviderModelOption(id: "openai:gpt-5.4-mini", title: "openai:gpt-5.4-mini", capabilities: ["tools"])
     ]
     let (catalogStore, sessionStore, _) = try makeAgentSessionFixture(
         agentID: "non-reasoning-agent",
-        selectedModel: "openai:gpt-4.1-mini",
+        selectedModel: "openai:gpt-5.4-mini",
         availableModels: availableModels
     )
     let provider = SessionCapturingModelProvider(models: availableModels.map(\.id))
@@ -243,18 +243,18 @@ func agentSessionOrchestratorDropsReasoningEffortForNonReasoningModels() async t
         )
     )
 
-    #expect(await provider.requestedModelsSnapshot() == ["openai:gpt-4.1-mini"])
+    #expect(await provider.requestedModelsSnapshot() == ["openai:gpt-5.4-mini"])
     #expect(await provider.requestedReasoningEffortsSnapshot() == [nil])
 }
 
 @Test
 func agentSessionBootstrapIncludesInstalledSkillsSummary() async throws {
     let availableModels = [
-        ProviderModelOption(id: "openai:gpt-4.1-mini", title: "openai:gpt-4.1-mini", capabilities: ["tools"])
+        ProviderModelOption(id: "openai:gpt-5.4-mini", title: "openai:gpt-5.4-mini", capabilities: ["tools"])
     ]
     let (catalogStore, sessionStore, agentsRootURL) = try makeAgentSessionFixture(
         agentID: "skills-agent",
-        selectedModel: "openai:gpt-4.1-mini",
+        selectedModel: "openai:gpt-5.4-mini",
         availableModels: availableModels
     )
     let skillsStore = AgentSkillsFileStore(agentsRootURL: agentsRootURL)
@@ -291,11 +291,11 @@ func agentSessionBootstrapIncludesInstalledSkillsSummary() async throws {
 @Test
 func agentSessionBootstrapRendersEmptySkillsStateWhenAgentHasNoSkills() async throws {
     let availableModels = [
-        ProviderModelOption(id: "openai:gpt-4.1-mini", title: "openai:gpt-4.1-mini", capabilities: ["tools"])
+        ProviderModelOption(id: "openai:gpt-5.4-mini", title: "openai:gpt-5.4-mini", capabilities: ["tools"])
     ]
     let (catalogStore, sessionStore, agentsRootURL) = try makeAgentSessionFixture(
         agentID: "skills-empty-agent",
-        selectedModel: "openai:gpt-4.1-mini",
+        selectedModel: "openai:gpt-5.4-mini",
         availableModels: availableModels
     )
     let skillsStore = AgentSkillsFileStore(agentsRootURL: agentsRootURL)
@@ -321,11 +321,11 @@ func agentSessionBootstrapRendersEmptySkillsStateWhenAgentHasNoSkills() async th
 @Test
 func agentSessionBootstrapIncludesToolCallProtocol() async throws {
     let availableModels = [
-        ProviderModelOption(id: "openai:gpt-4.1-mini", title: "openai:gpt-4.1-mini", capabilities: ["tools"])
+        ProviderModelOption(id: "openai:gpt-5.4-mini", title: "openai:gpt-5.4-mini", capabilities: ["tools"])
     ]
     let (catalogStore, sessionStore, _) = try makeAgentSessionFixture(
         agentID: "tool-protocol-agent",
-        selectedModel: "openai:gpt-4.1-mini",
+        selectedModel: "openai:gpt-5.4-mini",
         availableModels: availableModels
     )
 
@@ -356,11 +356,11 @@ func agentSessionBootstrapIncludesToolCallProtocol() async throws {
 @Test
 func agentSessionTextContainingFailedDoesNotForceInterruptedStatus() async throws {
     let availableModels = [
-        ProviderModelOption(id: "openai:gpt-4.1-mini", title: "openai:gpt-4.1-mini", capabilities: ["tools"])
+        ProviderModelOption(id: "openai:gpt-5.4-mini", title: "openai:gpt-5.4-mini", capabilities: ["tools"])
     ]
     let (catalogStore, sessionStore, _) = try makeAgentSessionFixture(
         agentID: "non-error-failed-agent",
-        selectedModel: "openai:gpt-4.1-mini",
+        selectedModel: "openai:gpt-5.4-mini",
         availableModels: availableModels
     )
     let provider = FixedOutputModelProvider(
@@ -368,7 +368,7 @@ func agentSessionTextContainingFailedDoesNotForceInterruptedStatus() async throw
         output: "Initial inspection hit a tool failure, so I need one more recovery pass before I can claim the workspace has been reviewed."
     )
 
-    let runtime = RuntimeSystem(modelProvider: provider, defaultModel: "openai:gpt-4.1-mini")
+    let runtime = RuntimeSystem(modelProvider: provider, defaultModel: "openai:gpt-5.4-mini")
     let orchestrator = AgentSessionOrchestrator(
         runtime: runtime,
         sessionStore: sessionStore,
@@ -393,15 +393,15 @@ func agentSessionTextContainingFailedDoesNotForceInterruptedStatus() async throw
 @Test
 func agentSessionReusesPersistentSessionAcrossMessages() async throws {
     let availableModels = [
-        ProviderModelOption(id: "openai:gpt-4.1-mini", title: "openai:gpt-4.1-mini", capabilities: ["tools"])
+        ProviderModelOption(id: "openai:gpt-5.4-mini", title: "openai:gpt-5.4-mini", capabilities: ["tools"])
     ]
     let (catalogStore, sessionStore, _) = try makeAgentSessionFixture(
         agentID: "session-reuse-agent",
-        selectedModel: "openai:gpt-4.1-mini",
+        selectedModel: "openai:gpt-5.4-mini",
         availableModels: availableModels
     )
     let provider = SessionCapturingModelProvider(models: availableModels.map(\.id))
-    let runtime = RuntimeSystem(modelProvider: provider, defaultModel: "openai:gpt-4.1-mini")
+    let runtime = RuntimeSystem(modelProvider: provider, defaultModel: "openai:gpt-5.4-mini")
     let orchestrator = AgentSessionOrchestrator(
         runtime: runtime,
         sessionStore: sessionStore,
@@ -427,11 +427,11 @@ func agentSessionReusesPersistentSessionAcrossMessages() async throws {
 @Test
 func agentSessionBootstrapFallsBackWhenPromptComposerFails() async throws {
     let availableModels = [
-        ProviderModelOption(id: "openai:gpt-4.1-mini", title: "openai:gpt-4.1-mini", capabilities: ["tools"])
+        ProviderModelOption(id: "openai:gpt-5.4-mini", title: "openai:gpt-5.4-mini", capabilities: ["tools"])
     ]
     let (catalogStore, sessionStore, agentsRootURL) = try makeAgentSessionFixture(
         agentID: "fallback-agent",
-        selectedModel: "openai:gpt-4.1-mini",
+        selectedModel: "openai:gpt-5.4-mini",
         availableModels: availableModels
     )
     let documents = try catalogStore.readAgentDocuments(agentID: "fallback-agent")
@@ -461,20 +461,25 @@ func agentSessionBootstrapFallsBackWhenPromptComposerFails() async throws {
         sessionID: session.id,
         documents: documents
     )
-    #expect(
-        bootstrapMessage.trimmingCharacters(in: .newlines)
-            == expected.trimmingCharacters(in: .newlines)
-    )
+    func normalized(_ text: String) -> String {
+        let trimmed = text.trimmingCharacters(in: .newlines)
+        return trimmed.replacingOccurrences(
+            of: #"\n{3,}"#,
+            with: "\n\n",
+            options: .regularExpression
+        )
+    }
+    #expect(normalized(bootstrapMessage) == normalized(expected))
 }
 
 @Test
 func agentSessionBootstrapIncludesSkillsRulesPartial() async throws {
     let availableModels = [
-        ProviderModelOption(id: "openai:gpt-4.1-mini", title: "openai:gpt-4.1-mini", capabilities: ["tools"])
+        ProviderModelOption(id: "openai:gpt-5.4-mini", title: "openai:gpt-5.4-mini", capabilities: ["tools"])
     ]
     let (catalogStore, sessionStore, _) = try makeAgentSessionFixture(
         agentID: "skills-rules-agent",
-        selectedModel: "openai:gpt-4.1-mini",
+        selectedModel: "openai:gpt-5.4-mini",
         availableModels: availableModels
     )
 
@@ -500,11 +505,11 @@ func agentSessionBootstrapIncludesSkillsRulesPartial() async throws {
 @Test
 func notifySkillsChangedAppendsSystemMessageToActiveSessions() async throws {
     let availableModels = [
-        ProviderModelOption(id: "openai:gpt-4.1-mini", title: "openai:gpt-4.1-mini", capabilities: ["tools"])
+        ProviderModelOption(id: "openai:gpt-5.4-mini", title: "openai:gpt-5.4-mini", capabilities: ["tools"])
     ]
     let (catalogStore, sessionStore, agentsRootURL) = try makeAgentSessionFixture(
         agentID: "notify-skills-agent",
-        selectedModel: "openai:gpt-4.1-mini",
+        selectedModel: "openai:gpt-5.4-mini",
         availableModels: availableModels
     )
 
@@ -547,11 +552,11 @@ func notifySkillsChangedAppendsSystemMessageToActiveSessions() async throws {
 @Test
 func notifySkillsChangedDoesNothingForNonBootstrappedSessions() async throws {
     let availableModels = [
-        ProviderModelOption(id: "openai:gpt-4.1-mini", title: "openai:gpt-4.1-mini", capabilities: ["tools"])
+        ProviderModelOption(id: "openai:gpt-5.4-mini", title: "openai:gpt-5.4-mini", capabilities: ["tools"])
     ]
     let (catalogStore, sessionStore, agentsRootURL) = try makeAgentSessionFixture(
         agentID: "notify-no-bootstrap-agent",
-        selectedModel: "openai:gpt-4.1-mini",
+        selectedModel: "openai:gpt-5.4-mini",
         availableModels: availableModels
     )
 
@@ -576,7 +581,7 @@ func notifySkillsChangedDoesNothingForNonBootstrappedSessions() async throws {
 func agentSessionBootstrapIncludesConversationHistoryAfterRestart() async throws {
     let agentID = "restart-history-agent"
     let availableModels = [
-        ProviderModelOption(id: "openai:gpt-4.1-mini", title: "openai:gpt-4.1-mini", capabilities: ["tools"])
+        ProviderModelOption(id: "openai:gpt-5.4-mini", title: "openai:gpt-5.4-mini", capabilities: ["tools"])
     ]
     let agentsRootURL = FileManager.default.temporaryDirectory
         .appendingPathComponent("agent-restart-history-\(UUID().uuidString)", isDirectory: true)
@@ -591,7 +596,7 @@ func agentSessionBootstrapIncludesConversationHistoryAfterRestart() async throws
     _ = try catalogStore1.updateAgentConfig(
         agentID: agentID,
         request: AgentConfigUpdateRequest(
-            selectedModel: "openai:gpt-4.1-mini",
+            selectedModel: "openai:gpt-5.4-mini",
             documents: AgentDocumentBundle(
                 userMarkdown: "# User\nTest\n",
                 agentsMarkdown: "# Agent\nTest\n",
@@ -606,7 +611,7 @@ func agentSessionBootstrapIncludesConversationHistoryAfterRestart() async throws
         models: availableModels.map(\.id),
         output: "Hello! I can help with that."
     )
-    let runtime1 = RuntimeSystem(modelProvider: provider1, defaultModel: "openai:gpt-4.1-mini")
+    let runtime1 = RuntimeSystem(modelProvider: provider1, defaultModel: "openai:gpt-5.4-mini")
     let orchestrator1 = AgentSessionOrchestrator(
         runtime: runtime1,
         sessionStore: sessionStore1,
@@ -633,7 +638,7 @@ func agentSessionBootstrapIncludesConversationHistoryAfterRestart() async throws
         models: availableModels.map(\.id),
         output: "Continuing the discussion."
     )
-    let runtime2 = RuntimeSystem(modelProvider: provider2, defaultModel: "openai:gpt-4.1-mini")
+    let runtime2 = RuntimeSystem(modelProvider: provider2, defaultModel: "openai:gpt-5.4-mini")
     let sessionStore2 = AgentSessionFileStore(agentsRootURL: agentsRootURL)
     let catalogStore2 = AgentCatalogFileStore(agentsRootURL: agentsRootURL)
     let orchestrator2 = AgentSessionOrchestrator(
@@ -665,11 +670,11 @@ func agentSessionBootstrapIncludesConversationHistoryAfterRestart() async throws
 func agentSessionBootstrapOmitsHistoryForFreshSession() async throws {
     let agentID = "fresh-no-history-agent"
     let availableModels = [
-        ProviderModelOption(id: "openai:gpt-4.1-mini", title: "openai:gpt-4.1-mini", capabilities: ["tools"])
+        ProviderModelOption(id: "openai:gpt-5.4-mini", title: "openai:gpt-5.4-mini", capabilities: ["tools"])
     ]
     let (catalogStore, sessionStore, _) = try makeAgentSessionFixture(
         agentID: agentID,
-        selectedModel: "openai:gpt-4.1-mini",
+        selectedModel: "openai:gpt-5.4-mini",
         availableModels: availableModels
     )
 

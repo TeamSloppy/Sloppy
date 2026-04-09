@@ -116,7 +116,7 @@ struct ProvidersSection: View {
                     set: { draft[index].apiKey = $0 }
                 ), isSecure: true)
                 SettingsDivider()
-                SettingsFieldRow("Model", hint: "e.g. gpt-4.1-mini, claude-sonnet-4", text: Binding(
+                SettingsFieldRow("Model", hint: "e.g. gpt-5.4-mini, claude-sonnet-4", text: Binding(
                     get: { draft[index].model },
                     set: { draft[index].model = $0 }
                 ))

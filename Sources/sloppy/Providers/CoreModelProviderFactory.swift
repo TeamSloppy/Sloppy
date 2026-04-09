@@ -72,7 +72,7 @@ enum CoreModelProviderFactory {
             .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
 
         if !hasOpenAI, !environmentKey.isEmpty {
-            identifiers.append("openai:gpt-5.1-mini")
+            identifiers.append("openai:gpt-5.4-mini")
         }
         if !hasOpenAI, environmentKey.isEmpty, hasOAuthCredentials {
             identifiers.append("openai:gpt-5-codex-mini")

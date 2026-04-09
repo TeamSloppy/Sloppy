@@ -82,12 +82,12 @@ sloppy agent get <agentId>
 
 # Create / delete
 sloppy agent create --name "Reviewer" --role "Code review agent"
-sloppy agent create --id "custom-id" --name "Worker" --model "openai:gpt-4.1-mini"
+sloppy agent create --id "custom-id" --name "Worker" --model "openai:gpt-5.4-mini"
 sloppy agent delete <agentId>
 
 # Config
 sloppy agent config get <agentId>
-sloppy agent config set <agentId> --model "openai:gpt-4.1"
+sloppy agent config set <agentId> --model "openai:gpt-5.4"
 sloppy agent config set <agentId> --name "New Name" --role "Updated role"
 
 # Tool policy
@@ -181,7 +181,7 @@ sloppy config set --json '{"listen":{"port":25102}}'
 ```bash
 sloppy providers list
 sloppy providers add --title "openai-api" --api-url "https://api.openai.com/v1" \
-  --api-key "$OPENAI_API_KEY" --model "openai:gpt-4.1"
+  --api-key "$OPENAI_API_KEY" --model "openai:gpt-5.4"
 sloppy providers remove "openai-api"
 sloppy providers probe --provider-id openai --api-key "$OPENAI_API_KEY"
 sloppy providers models --api-url "https://api.openai.com/v1" --api-key "$OPENAI_API_KEY"

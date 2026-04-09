@@ -46,13 +46,18 @@ struct WorkersSpawnTool: CoreTool {
             mode = .fireAndForget
         }
 
+        // Interactive workers must be routable via `workers.route`. If we attach the calling agentID,
+        // ToolExecutionWorkerExecutorAdapter will execute the objective immediately and complete, leaving
+        // nothing to route. For interactive mode we intentionally spawn an independent worker.
+        let effectiveAgentID: String? = (mode == .interactive) ? nil : context.agentID
+
         let channelID = sessionChannelID(agentID: context.agentID, sessionID: context.sessionID)
         let spec = WorkerTaskSpec(
             taskId: effectiveTaskId,
             channelId: channelID,
             title: effectiveTitle,
             objective: objective,
-            agentID: context.agentID,
+            agentID: effectiveAgentID,
             tools: tools,
             mode: mode
         )
