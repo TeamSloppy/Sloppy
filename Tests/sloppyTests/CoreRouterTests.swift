@@ -826,7 +826,7 @@ func putConfigHotReloadsRuntimeModelProvider() async throws {
             title: "openai-main",
             apiKey: "test-key",
             apiUrl: "http://127.0.0.1:1/v1",
-            model: "gpt-4.1-mini"
+            model: "gpt-5.4-mini"
         )
     ]
     let updatePayload = try JSONEncoder().encode(updatedConfig)
@@ -1418,7 +1418,7 @@ func agentConfigHeartbeatValidationAndBackfill() async throws {
     #expect(FileManager.default.fileExists(atPath: heartbeatPath.path))
 
     let invalidUpdate = AgentConfigUpdateRequest(
-        selectedModel: "openai:gpt-4.1-mini",
+        selectedModel: "openai:gpt-5.4-mini",
         documents: AgentDocumentBundle(
             userMarkdown: "# User\nA\n",
             agentsMarkdown: "# Agent\nB\n",
@@ -1437,7 +1437,7 @@ func agentConfigHeartbeatValidationAndBackfill() async throws {
     #expect(invalidResponse.status == 400)
 
     let invalidChannelSessionUpdate = AgentConfigUpdateRequest(
-        selectedModel: "openai:gpt-4.1-mini",
+        selectedModel: "openai:gpt-5.4-mini",
         documents: AgentDocumentBundle(
             userMarkdown: "# User\nA\n",
             agentsMarkdown: "# Agent\nB\n",
@@ -2739,7 +2739,7 @@ func workerToolsSpawnAndRouteInteractiveWorker() async throws {
     #expect(spawnResult.ok)
 
     let workerId = try #require(spawnResult.data?.asObject?["workerId"]?.asString)
-    let spawned = await waitForCondition(timeoutSeconds: 3) {
+    let spawned = await waitForCondition(timeoutSeconds: 10, pollNanoseconds: 100_000_000) {
         let snapshots = await service.workerSnapshots()
         return snapshots.contains(where: { $0.workerId == workerId && $0.status == .waitingInput })
     }

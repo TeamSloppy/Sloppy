@@ -63,7 +63,7 @@ const PROVIDER_CATALOG = [
     id: "openai-api",
     title: "OpenAI API",
     description: "OpenAI via API key authentication.",
-    modelHint: "gpt-4.1-mini",
+    modelHint: "gpt-5.4-mini",
     authMethod: "api_key",
     requiresApiKey: true,
     supportsModelCatalog: true,
@@ -71,7 +71,7 @@ const PROVIDER_CATALOG = [
       title: "openai-api",
       apiKey: "",
       apiUrl: "https://api.openai.com/v1",
-      model: "gpt-4.1-mini"
+      model: "gpt-5.4-mini"
     }
   },
   {
@@ -141,7 +141,7 @@ function emptyModel() {
     title: "openai-api",
     apiKey: "",
     apiUrl: "https://api.openai.com/v1",
-    model: "gpt-4.1-mini"
+    model: "gpt-5.4-mini"
   };
 }
 

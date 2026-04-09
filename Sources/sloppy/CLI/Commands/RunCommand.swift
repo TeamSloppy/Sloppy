@@ -36,8 +36,9 @@ struct RunCommand: AsyncParsableCommand {
         var runtimeLogger: Logger?
 
         do {
+            let homeDirectory = CoreConfig.resolvedHomeDirectoryPath()
             var explicitConfigPath = normalizedServerConfigPath(configPath)
-            var config = CoreConfig.load(from: explicitConfigPath)
+            var config = CoreConfig.load(from: explicitConfigPath, currentDirectory: homeDirectory)
 
             if #available(macOS 15.0, *) {
                 let envConfig = ConfigReader(providers: [EnvironmentVariablesProvider()])
@@ -45,26 +46,32 @@ struct RunCommand: AsyncParsableCommand {
                     envConfig.string(forKey: "core.config.path", default: "")
                 ) {
                     explicitConfigPath = envConfigPath
-                    config = CoreConfig.load(from: explicitConfigPath)
+                    config = CoreConfig.load(from: explicitConfigPath, currentDirectory: homeDirectory)
                 }
 
                 applyServerEnvironmentOverrides(config: &config, envConfig: envConfig)
 
                 if explicitConfigPath == nil {
-                    let workspaceConfigPath = CoreConfig.defaultConfigPath(for: config.workspace)
+                    let workspaceConfigPath = CoreConfig.defaultConfigPath(
+                        for: config.workspace,
+                        currentDirectory: homeDirectory
+                    )
                     if FileManager.default.fileExists(atPath: workspaceConfigPath) {
-                        config = CoreConfig.load(from: workspaceConfigPath)
+                        config = CoreConfig.load(from: workspaceConfigPath, currentDirectory: homeDirectory)
                         applyServerEnvironmentOverrides(config: &config, envConfig: envConfig)
                     }
                 }
             } else if explicitConfigPath == nil {
-                let workspaceConfigPath = CoreConfig.defaultConfigPath(for: config.workspace)
+                let workspaceConfigPath = CoreConfig.defaultConfigPath(
+                    for: config.workspace,
+                    currentDirectory: homeDirectory
+                )
                 if FileManager.default.fileExists(atPath: workspaceConfigPath) {
-                    config = CoreConfig.load(from: workspaceConfigPath)
+                    config = CoreConfig.load(from: workspaceConfigPath, currentDirectory: homeDirectory)
                 }
             }
 
-            let workspaceRoot = try prepareServerWorkspace(config: &config)
+            let workspaceRoot = try prepareServerWorkspace(config: &config, currentDirectory: homeDirectory)
             let systemLogFileURL = defaultServerLogFileURL(in: workspaceRoot)
             await ServerLoggingBootstrapper.shared.bootstrapIfNeeded(logFileURL: systemLogFileURL)
             let logger = Logger(label: "sloppy.core.main")
@@ -394,8 +401,8 @@ func ensureServerConfigFileExists(path: String, config: CoreConfig, logger: Logg
     logger.info("Config initialized at \(configURL.path)")
 }
 
-func prepareServerWorkspace(config: inout CoreConfig) throws -> URL {
-    let workspaceRoot = config.resolvedWorkspaceRootURL()
+func prepareServerWorkspace(config: inout CoreConfig, currentDirectory: String) throws -> URL {
+    let workspaceRoot = config.resolvedWorkspaceRootURL(currentDirectory: currentDirectory)
 
     do {
         try createServerWorkspaceDirectories(at: workspaceRoot)

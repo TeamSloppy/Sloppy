@@ -1012,7 +1012,7 @@ public struct CoreConfig: Codable, Sendable {
                     title: "openai-main",
                     apiKey: "",
                     apiUrl: "https://api.openai.com/v1",
-                    model: "gpt-4.1-mini"
+                    model: "gpt-5.4-mini"
                 ),
                 .init(
                     title: "ollama-local",
@@ -1149,12 +1149,13 @@ public struct CoreConfig: Codable, Sendable {
 
     private static func expandHomeShortcut(_ rawPath: String) -> String? {
         let homePath = FileManager.default.homeDirectoryForCurrentUser.path
+        let homeDirPath = resolvedHomeDirectoryPath()
         if rawPath == "~" {
-            return homePath
+            return homeDirPath
         }
         if rawPath.hasPrefix("~/") {
             let suffix = String(rawPath.dropFirst(2))
-            return URL(fileURLWithPath: homePath, isDirectory: true)
+            return URL(fileURLWithPath: homeDirPath, isDirectory: true)
                 .appendingPathComponent(suffix, isDirectory: true)
                 .path
         }
@@ -1167,10 +1168,40 @@ public struct CoreConfig: Codable, Sendable {
                 .appendingPathComponent(suffix, isDirectory: true)
                 .path
         }
+        if rawPath == "$HOME_DIR" {
+            return homeDirPath
+        }
+        if rawPath.hasPrefix("$HOME_DIR/") {
+            let suffix = String(rawPath.dropFirst("$HOME_DIR/".count))
+            return URL(fileURLWithPath: homeDirPath, isDirectory: true)
+                .appendingPathComponent(suffix, isDirectory: true)
+                .path
+        }
         return nil
     }
 
     private static func isAbsolutePath(_ rawPath: String) -> Bool {
         rawPath.hasPrefix("/")
+    }
+}
+
+extension CoreConfig {
+    public static func resolvedHomeDirectoryPath(
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        fileManager: FileManager = .default
+    ) -> String {
+        if let homeDir = environment["HOME_DIR"]?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !homeDir.isEmpty
+        {
+            return homeDir
+        }
+
+        if let home = environment["HOME"]?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !home.isEmpty
+        {
+            return home
+        }
+
+        return fileManager.homeDirectoryForCurrentUser.path
     }
 }

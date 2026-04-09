@@ -511,7 +511,7 @@ struct ProviderProbeService {
         var contextWindow: String?
         var capabilities: [String] = []
 
-        if lowered.hasPrefix("gpt-4.1") {
+        if lowered.hasPrefix("gpt-5.4") {
             contextWindow = "1.0M"
             capabilities.append("tools")
         } else if lowered.hasPrefix("gpt-4o") {
@@ -535,9 +535,9 @@ struct ProviderProbeService {
 
     private func humanReadableOpenAIModelTitle(id: String) -> String {
         let lower = id.lowercased()
-        if lower.hasPrefix("gpt-4.1") {
-            let suffix = lower.replacingOccurrences(of: "gpt-4.1", with: "")
-            return "GPT-4.1" + titleSuffix(from: suffix)
+        if lower.hasPrefix("gpt-5.4") {
+            let suffix = lower.replacingOccurrences(of: "gpt-5.4", with: "")
+            return "gpt-5.4" + titleSuffix(from: suffix)
         }
         if lower.hasPrefix("gpt-4o") {
             let suffix = lower.replacingOccurrences(of: "gpt-4o", with: "")

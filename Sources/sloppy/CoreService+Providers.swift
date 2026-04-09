@@ -221,7 +221,7 @@ extension CoreService {
         }
 
         if options.isEmpty {
-            options.append(Self.providerModelOption(for: "openai:gpt-4.1-mini"))
+            options.append(Self.providerModelOption(for: "openai:gpt-5.4-mini"))
         }
 
         return options
@@ -240,7 +240,7 @@ extension CoreService {
         var capabilities: [String] = []
         var contextWindow: String?
 
-        if lowered.hasPrefix("gpt-4.1") {
+        if lowered.hasPrefix("gpt-5.4") {
             capabilities.append("tools")
             contextWindow = "1.0M"
         } else if lowered.hasPrefix("gpt-4o") {

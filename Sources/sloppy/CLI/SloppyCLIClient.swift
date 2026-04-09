@@ -70,16 +70,18 @@ struct SloppyCLIClient {
     }
 
     private static func loadConfigData() -> Data? {
-        let candidates = [
-            ".sloppy/sloppy.json",
-            "sloppy.json"
-        ]
+        let candidates = [".sloppy/sloppy.json", "sloppy.json"]
         let fm = FileManager.default
         let cwd = fm.currentDirectoryPath
-        for relative in candidates {
-            let path = (cwd as NSString).appendingPathComponent(relative)
-            if let data = try? Data(contentsOf: URL(fileURLWithPath: path)) {
-                return data
+        let home = CoreConfig.resolvedHomeDirectoryPath(fileManager: fm)
+
+        let roots = [home, cwd]
+        for root in roots {
+            for relative in candidates {
+                let path = (root as NSString).appendingPathComponent(relative)
+                if let data = try? Data(contentsOf: URL(fileURLWithPath: path)) {
+                    return data
+                }
             }
         }
         return nil

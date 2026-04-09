@@ -69,7 +69,7 @@ struct AgentCreateCommand: AsyncParsableCommand {
     @Option(name: .long, help: "Agent ID") var id: String?
     @Option(name: .long, help: "Agent name") var name: String = ""
     @Option(name: .long, help: "Agent role description") var role: String?
-    @Option(name: .long, help: "Model identifier (e.g. openai:gpt-4.1-mini)") var model: String?
+    @Option(name: .long, help: "Model identifier (e.g. openai:gpt-5.4-mini)") var model: String?
     @Option(name: .long) var url: String?
     @Option(name: .long) var token: String?
     @Option(name: .long) var format: String = "json"

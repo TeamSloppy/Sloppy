@@ -40,7 +40,7 @@ Each model entry in `sloppy.json` has four fields:
       "title": "openai-api",
       "apiKey": "",
       "apiUrl": "https://api.openai.com/v1",
-      "model": "gpt-4.1-mini"
+      "model": "gpt-5.4-mini"
     }
   ]
 }
@@ -51,7 +51,7 @@ Each model entry in `sloppy.json` has four fields:
 | `title` | Identifier used to infer the provider when the model string has no prefix. Must contain the provider name (e.g. `openai-api`, `gemini`, `anthropic`, `ollama-local`). |
 | `apiKey` | API key for authenticated providers. Leave empty to use the environment variable. |
 | `apiUrl` | Base URL for the provider API. Override for proxied or self-hosted endpoints. |
-| `model` | Model identifier passed to the provider. Can include a prefix (`openai:gpt-4.1-mini`) or be plain (`gpt-4.1-mini`). |
+| `model` | Model identifier passed to the provider. Can include a prefix (`openai:gpt-5.4-mini`) or be plain (`gpt-5.4-mini`). |
 
 ## Provider examples
 
@@ -62,7 +62,7 @@ Each model entry in `sloppy.json` has four fields:
   "title": "openai-api",
   "apiKey": "",
   "apiUrl": "https://api.openai.com/v1",
-  "model": "gpt-4.1-mini"
+  "model": "gpt-5.4-mini"
 }
 ```
 
@@ -118,7 +118,7 @@ The `models` array supports multiple entries. `sloppy` builds a composite model 
       "title": "openai-api",
       "apiKey": "",
       "apiUrl": "https://api.openai.com/v1",
-      "model": "gpt-4.1-mini"
+      "model": "gpt-5.4-mini"
     },
     {
       "title": "gemini",
@@ -142,7 +142,7 @@ Each agent has a `selectedModel` field in its config that determines which model
 
 | Provider | Example `selectedModel` |
 | --- | --- |
-| OpenAI | `openai:gpt-4.1-mini` |
+| OpenAI | `openai:gpt-5.4-mini` |
 | Gemini | `gemini:gemini-2.5-flash` |
 | Anthropic | `anthropic:claude-sonnet-4-20250514` |
 | Ollama | `ollama:qwen3` |
@@ -156,7 +156,7 @@ Set this via:
 ## Model resolution flow
 
 1. `sloppy` reads the `models` array from config at startup.
-2. Each entry is resolved to a prefixed identifier (e.g. `openai:gpt-4.1-mini`) using either an explicit prefix in the `model` field or by inferring the provider from `title` and `apiUrl`.
+2. Each entry is resolved to a prefixed identifier (e.g. `openai:gpt-5.4-mini`) using either an explicit prefix in the `model` field or by inferring the provider from `title` and `apiUrl`.
 3. Factory classes build provider instances for each recognized prefix.
 4. A `CompositeModelProvider` combines all active providers.
 5. When an agent runs, its `selectedModel` is matched against supported models and routed to the correct provider.
@@ -174,7 +174,7 @@ sloppy providers add \
   --title "openai-api" \
   --api-url "https://api.openai.com/v1" \
   --api-key "$OPENAI_API_KEY" \
-  --model "openai:gpt-4.1"
+  --model "openai:gpt-5.4"
 
 # Test connectivity
 sloppy providers probe --provider-id openai --api-key "$OPENAI_API_KEY"
