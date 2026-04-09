@@ -29,6 +29,11 @@ extension CoreService {
         _ = try getAgent(id: normalizedAgentID)
         await refreshAgentMemoryFile(agentID: normalizedAgentID)
 
+        if let rawCheckpoint = request.checkpointSessionId?.trimmingCharacters(in: .whitespacesAndNewlines),
+           let checkpointSID = normalizedSessionID(rawCheckpoint) {
+            await runAgentMemoryCheckpoint(agentID: normalizedAgentID, sessionID: checkpointSID, reason: "new_session_command")
+        }
+
         do {
             let session = try await sessionOrchestrator.createSession(agentID: normalizedAgentID, request: request)
             if !currentConfig.onboarding.completed,
@@ -314,11 +319,34 @@ extension CoreService {
         }
 
         do {
-            return try await sessionOrchestrator.postMessage(
+            let response = try await sessionOrchestrator.postMessage(
                 agentID: normalizedAgentID,
                 sessionID: normalizedSessionID,
                 request: request
             )
+            let uid = request.userId.lowercased()
+            let skipUserTurnCount = uid == "system_task_worker" || uid == "memory_checkpoint" || uid == "onboarding"
+            if !skipUserTurnCount {
+                do {
+                    let count = try sessionStore.incrementUserTurnCount(
+                        agentID: normalizedAgentID,
+                        sessionID: normalizedSessionID
+                    )
+                    if count >= CoreService.agentMemoryCheckpointUserTurnThreshold {
+                        await runAgentMemoryCheckpoint(
+                            agentID: normalizedAgentID,
+                            sessionID: normalizedSessionID,
+                            reason: "user_turn_threshold"
+                        )
+                    }
+                } catch {
+                    logger.warning(
+                        "memory.checkpoint.user_turn_count_failed",
+                        metadata: ["error": .string(error.localizedDescription)]
+                    )
+                }
+            }
+            return response
         } catch {
             throw mapSessionOrchestratorError(error)
         }

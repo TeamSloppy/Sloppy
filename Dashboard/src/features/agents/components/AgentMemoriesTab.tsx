@@ -957,7 +957,11 @@ export function AgentMemoriesTab({ agentId }: { agentId: string }) {
       const normalized = normalizeListResponse(response);
       setListResponse(normalized);
       if (normalized.items.length === 0) {
-        setListStatusText(searchQuery || filter !== "all" ? "No memories match the current search." : "No memories stored for this agent.");
+        setListStatusText(
+          searchQuery || filter !== "all"
+            ? "No memories match the current search."
+            : "No hybrid memory entries for this agent. memory.search / recall only read; memory.save must include scope (e.g. channel agent:…:session:…) to show here. FILE MEMORY.md is separate."
+        );
       } else {
         const from = normalized.offset + 1;
         const to = normalized.offset + normalized.items.length;

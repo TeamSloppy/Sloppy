@@ -300,6 +300,33 @@ struct AgentsAPIRouter: APIRouter {
             }
         }
 
+        router.post("/v1/agents/:agentId/sessions/:sessionId/checkpoint", metadata: RouteMetadata(summary: "Run agent memory checkpoint", description: "Runs a shadow memory checkpoint for a session (updates MEMORY via tools, no chat events)", tags: ["Agents"])) { request in
+            let agentId = request.pathParam("agentId") ?? ""
+            let sessionId = request.pathParam("sessionId") ?? ""
+            let payload: AgentMemoryCheckpointRequest
+            if let body = request.body {
+                guard let decoded = CoreRouter.decode(body, as: AgentMemoryCheckpointRequest.self) else {
+                    return CoreRouter.json(status: HTTPStatus.badRequest, payload: ["error": ErrorCode.invalidBody])
+                }
+                payload = decoded
+            } else {
+                payload = AgentMemoryCheckpointRequest()
+            }
+
+            do {
+                let response = try await service.requestAgentMemoryCheckpoint(
+                    agentID: agentId,
+                    sessionID: sessionId,
+                    reason: payload.reason
+                )
+                return CoreRouter.encodable(status: HTTPStatus.ok, payload: response)
+            } catch let error as CoreService.AgentSessionError {
+                return CoreRouter.agentSessionErrorResponse(error, fallback: ErrorCode.sessionWriteFailed)
+            } catch {
+                return CoreRouter.json(status: HTTPStatus.internalServerError, payload: ["error": ErrorCode.sessionWriteFailed])
+            }
+        }
+
         router.post("/v1/agents/:agentId/sessions", metadata: RouteMetadata(summary: "Create agent session", description: "Starts a new session with an agent", tags: ["Agents"])) { request in
             let agentId = request.pathParam("agentId") ?? ""
             let payload: AgentSessionCreateRequest

@@ -20,6 +20,8 @@ final class ToolExecutionService: @unchecked Sendable {
     var projectService: (any ProjectToolService)?
     var configService: (any RuntimeConfigToolService)?
     var skillsService: (any SkillsToolService)?
+    /// `(agentID, field, markdown)` — used to build per-invocation `ToolContext.applyAgentMarkdown`.
+    var applyAgentMarkdown: ((String, AgentMarkdownDocumentField, String) async throws -> Void)?
 
     init(
         workspaceRootURL: URL,
@@ -48,6 +50,7 @@ final class ToolExecutionService: @unchecked Sendable {
         self.lspManager = LSPServerManager(config: lspConfig, workspaceRootURL: workspaceRootURL)
         self.logger = logger
         self.registry = ToolRegistry.makeDefault()
+        self.applyAgentMarkdown = nil
     }
 
     func updateWorkspaceRootURL(_ url: URL) {
@@ -100,7 +103,12 @@ final class ToolExecutionService: @unchecked Sendable {
     }
 
     func makeContext(agentID: String, sessionID: String, policy: AgentToolsPolicy) -> ToolContext {
-        ToolContext(
+        let boundApply = applyAgentMarkdown.map { handler in
+            { (field: AgentMarkdownDocumentField, markdown: String) async throws in
+                try await handler(agentID, field, markdown)
+            }
+        }
+        return ToolContext(
             agentID: agentID,
             sessionID: sessionID,
             policy: policy,
@@ -118,7 +126,8 @@ final class ToolExecutionService: @unchecked Sendable {
             projectService: projectService,
             configService: configService,
             skillsService: skillsService,
-            lspManager: lspManager
+            lspManager: lspManager,
+            applyAgentMarkdown: boundApply
         )
     }
 }

@@ -802,6 +802,13 @@ public actor RuntimeSystem {
         bootstrapByChannel[channelId] = content
     }
 
+    /// Clears cached LLM session and bootstrap for an ephemeral channel (memory checkpoints).
+    public func discardEphemeralCheckpointChannel(channelId: String) async {
+        sessionsByChannel.removeValue(forKey: channelId)
+        bootstrapByChannel.removeValue(forKey: channelId)
+        await channels.removeChannel(channelId: channelId)
+    }
+
     /// Routes interactive payload to worker bound to the channel.
     public func routeMessage(channelId: String, workerId: String, message: String) async -> Bool {
         let result = await workers.route(workerId: workerId, message: message)

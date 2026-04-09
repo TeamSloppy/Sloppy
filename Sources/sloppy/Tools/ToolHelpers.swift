@@ -42,6 +42,20 @@ extension ToolContext {
         }
         return nil
     }
+
+    /// True when the path targets an agent's `USER.md` or `MEMORY.md` under `/agents` (including `.system`).
+    func isAgentsUserOrMemoryMarkdownFile(_ url: URL) -> Bool {
+        let name = url.lastPathComponent
+        guard name == "USER.md" || name == "MEMORY.md" else {
+            return false
+        }
+        let agentsRoot = workspaceRootURL.appendingPathComponent("agents", isDirectory: true).standardizedFileURL
+        let systemRoot = agentsRoot.appendingPathComponent(".system", isDirectory: true).standardizedFileURL
+        let path = url.standardizedFileURL.path
+        let agentsPath = agentsRoot.path
+        let systemPath = systemRoot.path
+        return path.hasPrefix(agentsPath + "/") || path.hasPrefix(systemPath + "/")
+    }
 }
 
 // MARK: - Command guard

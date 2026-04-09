@@ -30,6 +30,14 @@ struct FilesEditTool: CoreTool {
         guard let fileURL = context.resolveWritablePath(pathValue) else {
             return toolFailure(tool: name, code: "path_not_allowed", message: "File path is outside allowed roots.", retryable: false)
         }
+        if context.isAgentsUserOrMemoryMarkdownFile(fileURL) {
+            return toolFailure(
+                tool: name,
+                code: "path_not_allowed",
+                message: "USER.md and MEMORY.md must be updated with `agent.documents.set_user_markdown` or `agent.documents.set_memory_markdown`.",
+                retryable: false
+            )
+        }
         do {
             let original = try String(contentsOf: fileURL, encoding: .utf8)
             let updated: String

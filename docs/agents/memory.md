@@ -1,118 +1,152 @@
-# Memory
+---
+layout: doc
+title: Agent memory
+---
 
-Agents in Sloppy can remember things. Every fact, decision, goal, or observation an agent encounters can be stored and recalled later — across different conversations, sessions, and even after a server restart. Memory is what lets an agent build context over time instead of starting fresh on every message.
+# Agent memory
 
-## How memory works
+Sloppy gives agents two complementary ways to remember: a **hybrid memory store** (SQLite-backed, searchable entries) and **markdown documents** on disk (`USER.md`, `MEMORY.md`, and optional project `.meta/MEMORY.md`). Together they let an agent keep facts, preferences, and narrative context across sessions and restarts.
 
-When something worth remembering happens — a user states a preference, an agent reaches a decision, a task gets completed — a memory entry is created. Each entry has a short text (the "note"), an optional summary, a type, a scope that controls who can see it, and metadata like importance and confidence scores.
+This page describes how both layers work, how they show up in the Dashboard, which tools update them, and how **memory checkpoints** refresh long-form `MEMORY.md` without polluting the chat.
 
-Memory entries are stored locally in a SQLite database inside your workspace. On every message, the agent automatically searches its memory for relevant context and injects the most useful pieces into its understanding of the conversation. You don't need to do anything to trigger this — it happens automatically as part of every interaction.
+## Two layers: hybrid store vs markdown files
 
-## Types of memory
+| Layer | What it is | Where you see it |
+| --- | --- | --- |
+| **Hybrid memory** | Structured entries (note, summary, kind, class, scope, edges). Indexed for recall and search. | **Agents → Memories** tab (list and graph). SQLite in your workspace. |
+| **Agent markdown** | Plain files in the agent catalog: `USER.md` (identity/instructions), `MEMORY.md` (long-form narrative the model reads). | **Agents → Agent files** in the Dashboard; files under `.sloppy/agents/<agent>/` on disk. |
+| **Project meta memory** | Optional `.meta/MEMORY.md` inside a project repo. | On disk; updated via tools when the agent targets a project. |
 
-Not all memories are equal. Sloppy categorizes memories in two dimensions: what they represent and how long they should live.
+These are **not** the same list: saving a hybrid entry does **not** automatically rewrite `MEMORY.md`, and editing `MEMORY.md` does **not** create hybrid rows unless a workflow explicitly does both.
 
-### What a memory represents
+## Character limits (markdown files)
 
-| Type | What it is |
-|---|---|
+The API and tools enforce size limits (character counts) on bundled agent documents:
+
+| Resource | Limit (characters) |
+| --- | ---: |
+| `USER.md` | 2000 |
+| `MEMORY.md` (agent) | 3000 |
+| `.meta/MEMORY.md` (project) | 3000 |
+
+If generated or submitted text exceeds a limit, the update may be rejected or skipped with a warning—avoid treating markdown files as unlimited storage.
+
+## Dashboard: Memories vs Agent files
+
+- **Memories** — shows **hybrid store** entries for that agent (scoped to the agent or to channels like `agent:<agentId>:session:<sessionId>`). This is **not** a live view of the `MEMORY.md` file.
+- **Agent files → `MEMORY.md`** — often labeled as **auto-generated** or read-only in the UI when the server maintains that file from checkpoints or refresh logic. Prefer updating via **`agent.documents.set_memory_markdown`** (or checkpoints) rather than expecting ad-hoc hybrid saves to appear here.
+
+::: tip
+`memory.search` and `memory.recall` / `memory.get` **only read** the hybrid store. They do not create rows and do not edit `MEMORY.md`.
+:::
+
+## Scopes and the Memories list
+
+Hybrid entries are **scoped**. The **Agents → Memories** view lists entries that belong to **this agent**:
+
+- **`agent`** scope with id equal to the agent id, or  
+- **`channel`** scope whose channel id looks like `agent:<agentId>:session:<sessionId>`.
+
+Entries saved as **`global`** (or other scopes that do not match the rules above) **do not** appear under that agent’s Memories tab, even though they exist in the database.
+
+## Tools (runtime)
+
+Agents use tools to read and write memory. Policy may hide some tools depending on configuration.
+
+| Tool | Purpose |
+| --- | --- |
+| `memory.save` | Create a hybrid memory entry. **You must set scope** (see below). |
+| `memory.search` | Keyword search over the index. |
+| `memory.recall` / `memory.get` | Semantic-style recall with a query. |
+| `agent.documents.set_user_markdown` | Update `USER.md` (validated limits). |
+| `agent.documents.set_memory_markdown` | Update agent `MEMORY.md` (validated limits). |
+| `project.meta_memory_set` | Write project `.meta/MEMORY.md` when a repo path exists. |
+| `visor.status` | Read Visor readiness and latest bulletin digest (operational snapshot, not a substitute for long-term hybrid memory). |
+
+Direct **`files.write` / `files.edit`** on agent `USER.md` / `MEMORY.md` paths are blocked—use the `agent.documents.*` tools instead.
+
+### `memory.save` and scope
+
+The **caller (the model)** must attribute every save:
+
+- Either **`scope_type` + `scope_id`** together, or  
+- A **`scope`** object with **`type`** and **`id`** (and optional `channel_id`, `project_id`, `agent_id` when needed).
+
+Examples:
+
+- Current chat, visible under **Memories** for this agent:  
+  `scope_type: channel`, `scope_id: agent:<agentId>:session:<sessionId>`
+- Agent-wide fact:  
+  `scope_type: agent`, `scope_id: <agentId>`
+
+Omitting scope causes the call to fail validation—there is no silent default to “this session”.
+
+## Memory checkpoints (shadow)
+
+A **checkpoint** is a background pass that can refresh **`MEMORY.md`** (and optionally project meta memory) using a dedicated model turn on an **ephemeral channel**, so tool calls do **not** append to the visible chat transcript. Tool invocations during a checkpoint do **not** write tool-call rows into the session JSONL as normal user-visible events.
+
+Typical triggers include:
+
+- Starting a **new session** with a reference to the previous session id (e.g. Dashboard **New session** / `/new` flow).  
+- **Stopping** generation (e.g. `/stop`) when the client requests a checkpoint before interrupt.  
+- After enough **user turns** since the last checkpoint (server-side counter; resets after a successful checkpoint).  
+- **Context compactor** threshold events for agent session channels.  
+- **Gateway** channel sessions closed by inactivity (when the channel id maps to an agent session).
+
+Checkpoints use an allowlisted set of tools (for example Visor status, agent document setters, project meta memory). They are designed to consolidate durable facts into markdown files rather than spamming hybrid entries.
+
+## How hybrid memory works (recap)
+
+When something worth remembering happens, a hybrid entry can be created with a note, optional summary, kind, class, scope, and metadata. Entries live in **SQLite** in your workspace. Retrieval blends semantic, keyword, and graph signals when embeddings and graph edges are available—see [Configuration reference](#configuration-reference).
+
+### What a memory represents (kind)
+
+| Kind | What it is |
+| --- | --- |
 | Fact | General knowledge: names, versions, tech choices |
 | Preference | What the user prefers or avoids |
 | Goal | An objective the agent or user is working toward |
 | Decision | A choice that was made and should be remembered |
-| Todo | An action item that's been created |
-| Identity | Information about who the agent is working with |
+| Todo | An action item |
+| Identity | Who the agent is working with |
 | Event | Something that happened at a point in time |
-| Observation | Something the agent noticed during a task |
+| Observation | Something the agent noticed |
 
-Sloppy infers the type automatically from the content — entries starting with "[todo]" become todos, entries mentioning "decided" become decisions, and so on. You can also set the type explicitly when saving from a tool or plugin.
+Kinds can be inferred from text or set explicitly on save.
 
-### How long a memory lives
+### How long a class lives (memory class)
 
-| Class | What it is | Default lifespan |
-|---|---|---|
-| Semantic | Long-term knowledge: facts, preferences, identity | No automatic expiry |
-| Procedural | Goals, decisions, and todos | No automatic expiry |
-| Episodic | Time-bound events and observations | 90 days |
-| Bulletin | System-generated status summaries | 180 days |
+| Class | Role | Default lifespan |
+| --- | --- | --- |
+| Semantic | Long-term knowledge | No automatic expiry |
+| Procedural | Goals, decisions, todos | No automatic expiry |
+| Episodic | Time-bound events | 90 days (configurable) |
+| Bulletin | System / Visor digests | 180 days (configurable) |
 
-Episodic memories are meant to reflect "what happened", not "what is true", so they expire after 90 days by default. Long-term knowledge (semantic and procedural) stays until it decays in importance or gets pruned.
+### Scope types (hybrid)
 
-### Who can see a memory
-
-Every memory has a scope that limits which conversations can access it.
-
-| Scope | Visible to |
-|---|---|
-| Global | All agents and channels |
-| Project | All conversations within a project |
-| Channel | Only the specific conversation where it was created |
-| Agent | Only the specific agent it belongs to |
-
-When an agent recalls memory for a channel, it only sees entries scoped to that channel, the parent project, and global — not entries from other conversations.
+| Scope | Typical use |
+| --- | --- |
+| Global | Shared across many contexts (does **not** show on a single agent’s Memories tab unless you filter elsewhere). |
+| Project | Scoped to one project |
+| Channel | One channel id (for agent chat, use `agent:…:session:…`) |
+| Agent | One agent id |
 
 ## How recall works
 
-When searching memory, Sloppy combines three signals to find the most relevant entries:
-
-- **Semantic search** — finds entries that are conceptually similar to the query, even if the exact words differ. This requires either an external memory provider or local vector embeddings to be enabled.
-- **Keyword search** — finds entries that contain the query words directly, using full-text search built into SQLite.
-- **Graph expansion** — finds entries that are related to the top results via memory edges, surfacing connected context that might not match the query text directly.
-
-The three signals are blended using configurable weights. By default, semantic search carries the most weight (55%), followed by keyword (35%), and graph expansion (10%). If you prioritize exact-term matching over conceptual similarity, you can shift weight toward keywords.
+Sloppy combines **semantic** search (when embeddings or an external provider is configured), **keyword** search (SQLite FTS), and **graph expansion** over linked entries. Weights are configurable under `memory.retrieval`—defaults favor semantic recall. See the table below.
 
 ## Memory relationships
 
-Memories can be linked to each other. When an agent finishes a focused sub-task (a "branch"), it automatically saves the conclusion as a memory and links it back to the memories that informed the work. These links let future searches traverse the graph and surface related knowledge even when the query doesn't exactly match.
+Entries can link to each other (support, contradict, derive, supersede, and so on). Branch conclusions and merges can create or update links so future recall surfaces related context.
 
-Links have types: one memory can support another, contradict it, depend on it, derive from it, or supersede it. The "supersedes" relationship is used when two similar memories are merged into one.
+## Automatic maintenance
 
-## Memory operations
-
-The following operations are available to agents and tools at runtime:
-
-- **Recall** — search memory with a free-text query, optionally filtered by type, class, or scope. Returns ranked results with relevance scores.
-- **Save** — write a new memory entry. Type and class are inferred from the text when not provided.
-- **Link** — create a typed relationship between two existing entries.
-- **List** — retrieve entries using structured filters (scope, type, class, include deleted/expired).
-- **Update importance** — adjust the importance score of an entry.
-- **Soft delete** — hide an entry from retrieval without erasing it from the database.
-
-## Keeping memory healthy automatically
-
-Left unchecked, memory would grow forever. Sloppy automatically runs maintenance on a schedule (by default, every hour) via the Visor supervisor.
-
-**Decay** — older memories become less important over time. Each day, the importance score of every non-identity memory is reduced by 5% (configurable). This reflects the natural fading of relevance for things that haven't been touched in a while.
-
-**Pruning** — memories that have fallen below an importance threshold (default 0.1) and are at least 30 days old are soft-deleted. They remain in the database but are excluded from recall.
-
-**Merge** — when enabled, Visor periodically scans for pairs of memories that are very similar (above a configurable similarity threshold). When two entries cover the same ground, they are consolidated into one, the originals are soft-deleted, and a "supersedes" edge is written to preserve the history. If a model is configured, the merge produces a synthesized note; otherwise the two texts are joined.
-
-All of these thresholds are configurable. See the [configuration reference](#configuration-reference) below.
+Decay, pruning, and optional merge runs are driven by **Visor** on a schedule. Bulletins and merge behavior are described in [Visor: memory and bulletins](/visor/memory) and [Visor overview](/visor/overview).
 
 ## Connecting an external memory service
 
-By default, Sloppy stores and searches memory entirely on your local machine using SQLite. This works out of the box without any additional setup.
-
-If you need more powerful semantic search — for example, vector similarity powered by embeddings — you have two options.
-
-### Local embeddings
-
-You can enable Sloppy's built-in embedding service, which converts memory entries into numeric vectors and stores them alongside the text. At recall time, the query is also embedded and matched against stored vectors using cosine similarity. This makes semantic recall much more accurate, especially for conceptual queries.
-
-To enable this, set `memory.embedding.enabled` to `true` in `sloppy.json` and configure the embedding model endpoint and API key. Any OpenAI-compatible embeddings endpoint works — including OpenAI itself, Ollama, or a self-hosted model server.
-
-### HTTP provider
-
-You can point Sloppy at an external HTTP service that handles memory storage and search. Sloppy will continue writing to its local SQLite database as a canonical record, but will also send every save and query to your external service. The external service handles the semantic indexing; Sloppy uses its results as one of the recall signals.
-
-This is useful if you have an existing vector database, a custom retrieval service, or want to share memory across multiple Sloppy instances.
-
-### MCP provider
-
-If your memory service exposes an MCP (Model Context Protocol) server, Sloppy can integrate with it directly. You register the MCP server in your configuration and point the memory provider at it by server ID. Sloppy will call the server's tools for upsert, query, delete, and health check operations.
-
-In all external-provider modes, Sloppy's local SQLite database remains the canonical source of truth. The external provider is an index. If the provider is temporarily unavailable, operations are queued in an outbox and retried automatically with exponential backoff.
+You can use **local embeddings**, an **HTTP** provider, or an **MCP** provider while keeping SQLite canonical. See the configuration keys below.
 
 ## Configuration reference
 
@@ -121,7 +155,7 @@ All memory settings live under the `memory` key in `sloppy.json`.
 ### Provider settings (`memory.provider`)
 
 | Setting | Default | What it controls |
-|---|---|---|
+| --- | --- | --- |
 | `mode` | `local` | Where semantic indexing happens: `local`, `http`, or `mcp` |
 | `endpoint` | — | URL of the external HTTP memory service (required for `http` mode) |
 | `mcpServer` | — | ID of the MCP server to use (required for `mcp` mode) |
@@ -131,26 +165,32 @@ All memory settings live under the `memory` key in `sloppy.json`.
 ### Retrieval weights (`memory.retrieval`)
 
 | Setting | Default | What it controls |
-|---|---|---|
+| --- | --- | --- |
 | `topK` | `8` | How many results to return per recall query |
-| `semanticWeight` | `0.55` | Weight given to semantic/vector search results |
-| `keywordWeight` | `0.35` | Weight given to full-text keyword search results |
-| `graphWeight` | `0.10` | Weight given to graph-expanded related entries |
+| `semanticWeight` | `0.55` | Weight for semantic / vector search |
+| `keywordWeight` | `0.35` | Weight for full-text keyword search |
+| `graphWeight` | `0.10` | Weight for graph-expanded neighbors |
 
 ### Retention (`memory.retention`)
 
 | Setting | Default | What it controls |
-|---|---|---|
-| `episodicDays` | `90` | How many days episodic memories are kept before expiry |
-| `todoCompletedDays` | `30` | How many days completed todos are kept |
-| `bulletinDays` | `180` | How many days system bulletins are kept |
+| --- | --- | --- |
+| `episodicDays` | `90` | Episodic memory retention |
+| `todoCompletedDays` | `30` | Completed todo retention |
+| `bulletinDays` | `180` | Bulletin retention |
 
 ### Embeddings (`memory.embedding`)
 
 | Setting | Default | What it controls |
-|---|---|---|
-| `enabled` | `false` | Whether local vector embeddings are computed and stored |
-| `model` | `text-embedding-3-small` | Embedding model identifier |
-| `dimensions` | `1536` | Vector size; must match the model's output |
-| `endpoint` | — | Embeddings API URL; derived from configured model providers if omitted |
-| `apiKeyEnv` | — | Name of the environment variable holding the embeddings API key |
+| --- | --- | --- |
+| `enabled` | `false` | Compute and store local vectors |
+| `model` | `text-embedding-3-small` | Embedding model id |
+| `dimensions` | `1536` | Vector size (must match the model) |
+| `endpoint` | — | Embeddings API URL |
+| `apiKeyEnv` | — | Env var for the embeddings API key |
+
+## Related
+
+- [Visor: memory and bulletins](/visor/memory) — bulletins vs hybrid memory, maintenance, `visor.status`
+- [Context compactor](/agents/context-compactor) — compaction thresholds (checkpoint trigger)
+- [Visor overview](/visor/overview) — supervision, bulletins, dashboard

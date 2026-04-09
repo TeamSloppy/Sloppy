@@ -35,7 +35,8 @@ struct ToolPathResolutionTests {
             projectService: nil,
             configService: nil,
             skillsService: nil,
-            lspManager: nil
+            lspManager: nil,
+            applyAgentMarkdown: nil
         )
     }
 

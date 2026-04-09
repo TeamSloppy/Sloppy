@@ -188,28 +188,8 @@ public actor Visor {
             scope: scope
         )
 
-        let saved = await memoryStore.save(
-            entry: MemoryWriteRequest(
-                note: "[bulletin] \(digest)",
-                summary: headline,
-                kind: .event,
-                memoryClass: .bulletin,
-                scope: scope,
-                source: MemorySource(type: "visor.bulletin.generated", id: bulletin.id),
-                importance: 0.7,
-                confidence: 0.9
-            )
-        )
-        for ref in memoryRefs {
-            _ = await memoryStore.link(
-                MemoryEdgeWriteRequest(
-                    fromMemoryId: saved.id,
-                    toMemoryId: ref.id,
-                    relation: .about,
-                    provenance: "visor.bulletin"
-                )
-            )
-        }
+        // Bulletins are not persisted into the hybrid MemoryStore: they are operational snapshots
+        // exposed via Visor API/tools and SQLite `memory_bulletins`, not agent long-term memory.
 
         lastRetrievalHash = retrievalHash
         lastBulletin = bulletin

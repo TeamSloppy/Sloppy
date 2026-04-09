@@ -27,7 +27,8 @@ private func makeContext(lspManager: LSPServerManager? = nil) -> ToolContext {
         projectService: nil,
         configService: nil,
         skillsService: nil,
-        lspManager: lspManager
+        lspManager: lspManager,
+        applyAgentMarkdown: nil
     )
 }
 

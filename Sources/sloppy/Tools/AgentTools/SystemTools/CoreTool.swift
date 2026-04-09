@@ -51,6 +51,8 @@ struct ToolContext: @unchecked Sendable {
     let configService: (any RuntimeConfigToolService)?
     let skillsService: (any SkillsToolService)?
     let lspManager: LSPServerManager?
+    /// When set, updates `USER.md` / `MEMORY.md` through the same validation path as the HTTP API.
+    let applyAgentMarkdown: ((AgentMarkdownDocumentField, String) async throws -> Void)?
 }
 
 // MARK: - ProjectToolService

@@ -40,7 +40,7 @@ A bulletin is a compact digest of the system's current state. Visor generates bu
 
 1. Visor collects a snapshot of what's happening: how many channels and workers are active, recent decisions, active goals, recent memories, and recent events.
 2. If an LLM model is configured, Visor sends this data to the model and asks it to synthesize a concise briefing — a readable paragraph that captures what any conversation should know right now. If no model is configured, a plain-text summary is assembled from the collected data.
-3. The finished bulletin is saved to memory and broadcast as a system event.
+3. The finished bulletin is persisted for operators (including SQLite bulletin history where configured), published as a runtime event, and kept in Visor’s own bulletin list. Bulletins are **operational digests**, not a substitute for user-curated hybrid memories or agent `MEMORY.md` files.
 
 If the state hasn't changed since the last bulletin — same number of channels, same workers, same task status — Visor skips the synthesis step and returns the cached version. This avoids unnecessary model calls.
 
@@ -48,7 +48,7 @@ If the state hasn't changed since the last bulletin — same number of channels,
 
 Every time the runtime responds to a message, it injects the latest bulletin digest into the LLM prompt as background context. This means agents always have ambient awareness of what's going on in the system — what's running, what was recently decided, what the current workload looks like — without needing to ask or recall explicitly.
 
-Bulletins are also stored in memory with a long retention window (default: 180 days) and are visible in the Dashboard.
+Recent bulletins are visible in the Dashboard Visor area. For how bulletins relate to **hybrid memory**, **Agents → Memories**, and **`MEMORY.md`**, see [Visor: memory and bulletins](/visor/memory) and [Agent memory](/agents/memory). Agents can call **`visor.status`** to read readiness and the latest digest without treating it as long-term stored user facts.
 
 ### Task intent recognition
 

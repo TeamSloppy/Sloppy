@@ -120,10 +120,13 @@ extension CoreService {
             limitToChannelIDs: filteredChannelIDs
         )
         let globalDefault = globalChannelInactivityTimeoutMinutes()
-        _ = try await channelSessionStore.expireInactiveSessions(
+        let closed = try await channelSessionStore.expireInactiveSessions(
             timeoutByChannel: timeoutByChannel,
             globalDefaultTimeoutMinutes: globalDefault
         )
+        for summary in closed {
+            await handleGatewayChannelClosedForMemoryCheckpoint(summary)
+        }
         return try await channelSessionStore.listSessions(
             status: status,
             channelIds: filteredChannelIDs
@@ -149,10 +152,13 @@ extension CoreService {
             limitToChannelIDs: Set([normalizedChannelID])
         )
         let globalDefault = globalChannelInactivityTimeoutMinutes()
-        _ = try await channelSessionStore.expireInactiveSessions(
+        let closed = try await channelSessionStore.expireInactiveSessions(
             timeoutByChannel: timeoutByChannel,
             globalDefaultTimeoutMinutes: globalDefault
         )
+        for summary in closed {
+            await handleGatewayChannelClosedForMemoryCheckpoint(summary)
+        }
     }
 
     func globalChannelInactivityTimeoutMinutes() -> Int? {

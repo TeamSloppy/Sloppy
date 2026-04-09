@@ -119,6 +119,7 @@ private func makeToolContext(service: CoreService, sessionID: String) -> ToolCon
         projectService: service,
         configService: nil,
         skillsService: nil,
-        lspManager: nil
+        lspManager: nil,
+        applyAgentMarkdown: nil
     )
 }

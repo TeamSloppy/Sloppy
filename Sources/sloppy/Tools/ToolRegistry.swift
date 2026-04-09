@@ -112,6 +112,10 @@ struct ToolRegistry: Sendable {
             SkillsInstallTool(),
             SkillsUninstallTool(),
             LSPTool(),
+            VisorStatusTool(),
+            AgentDocumentsSetUserMarkdownTool(),
+            AgentDocumentsSetMemoryMarkdownTool(),
+            ProjectMetaMemoryTool(),
         ])
     }
 }

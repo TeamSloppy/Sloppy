@@ -605,6 +605,15 @@ public actor CoreRouter {
             return json(status: HTTPStatus.badRequest, payload: ["error": ErrorCode.invalidAgentModel])
         case .agentNotFound:
             return json(status: HTTPStatus.notFound, payload: ["error": ErrorCode.agentNotFound])
+        case .documentLengthExceeded(let resource, let limit):
+            return json(
+                status: HTTPStatus.badRequest,
+                payload: [
+                    "error": "agent_document_too_long",
+                    "resource": resource,
+                    "limit": String(limit)
+                ]
+            )
         case .storageFailure:
             return json(status: HTTPStatus.internalServerError, payload: ["error": fallback])
         }

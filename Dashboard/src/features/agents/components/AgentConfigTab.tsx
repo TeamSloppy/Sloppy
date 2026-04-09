@@ -547,7 +547,7 @@ export function AgentConfigTab({ agentId, agentDisplayName = "", onDeleteAgent =
               <label>
                 {activeFile.name}
                 {activeFile.readOnly && (
-                  <span className="agent-doc-files-readonly-badge">auto-generated</span>
+                  <span className="agent-doc-files-readonly-badge"> [Read-Only]</span>
                 )}
                 <textarea
                   rows={18}

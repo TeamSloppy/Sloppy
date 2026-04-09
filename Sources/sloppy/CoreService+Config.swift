@@ -62,6 +62,7 @@ extension CoreService {
             proxySession: ProxySessionFactory.makeSession(proxy: config.proxy)
         )
         let defaultModel = modelProvider?.supportedModels.first ?? resolvedModels.first
+        self.modelProvider = modelProvider
         await runtime.updateModelProvider(modelProvider: modelProvider, defaultModel: defaultModel)
         await sessionOrchestrator.updateAvailableModels(availableAgentModels())
 

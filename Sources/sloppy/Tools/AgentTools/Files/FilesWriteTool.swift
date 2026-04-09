@@ -29,6 +29,14 @@ struct FilesWriteTool: CoreTool {
         guard let fileURL = context.resolveWritablePath(pathValue) else {
             return toolFailure(tool: name, code: "path_not_allowed", message: "File path is outside allowed roots.", retryable: false)
         }
+        if context.isAgentsUserOrMemoryMarkdownFile(fileURL) {
+            return toolFailure(
+                tool: name,
+                code: "path_not_allowed",
+                message: "USER.md and MEMORY.md must be updated with `agent.documents.set_user_markdown` or `agent.documents.set_memory_markdown`.",
+                retryable: false
+            )
+        }
         let byteCount = content.lengthOfBytes(using: .utf8)
         if byteCount > context.policy.guardrails.maxWriteBytes {
             return toolFailure(tool: name, code: "content_too_large", message: "Content exceeds max writable bytes.", retryable: false)
