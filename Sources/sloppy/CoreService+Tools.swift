@@ -1,6 +1,7 @@
 import Foundation
 import Logging
 import Protocols
+import Tracing
 
 // MARK: - Tool Invocation
 
@@ -46,9 +47,10 @@ extension CoreService {
             )
         }
 
+        let sessionDetail: AgentSessionDetail
         do {
             _ = try getAgent(id: normalizedAgentID)
-            _ = try sessionStore.loadSession(agentID: normalizedAgentID, sessionID: normalizedSessionID)
+            sessionDetail = try sessionStore.loadSession(agentID: normalizedAgentID, sessionID: normalizedSessionID)
         } catch let error as AgentStorageError {
             if case .notFound = error {
                 return .init(
@@ -121,12 +123,17 @@ extension CoreService {
                 effectivePolicy.guardrails.allowedExecRoots += extraRoots
                 effectivePolicy.guardrails.allowedWriteRoots += extraRoots
             }
-            result = await toolExecution.invoke(
-                agentID: normalizedAgentID,
-                sessionID: normalizedSessionID,
-                request: request,
-                policy: effectivePolicy
-            )
+            result = await withSpan("tool.invoke", ofKind: .internal) { span in
+                span.attributes["agent_id"] = "\(normalizedAgentID)"
+                span.attributes["session_id"] = "\(normalizedSessionID)"
+                span.attributes["tool_id"] = "\(request.tool)"
+                return await toolExecution.invoke(
+                    agentID: normalizedAgentID,
+                    sessionID: normalizedSessionID,
+                    request: request,
+                    policy: effectivePolicy
+                )
+            }
         } else {
             result = .init(
                 tool: request.tool,
@@ -170,7 +177,55 @@ extension CoreService {
             }
         }
 
+        await persistToolInvocationAnalytics(
+            agentId: normalizedAgentID,
+            sessionId: normalizedSessionID,
+            sessionTitle: sessionDetail.summary.title,
+            toolId: request.tool,
+            ok: result.ok,
+            durationMs: result.durationMs
+        )
+
         return result
+    }
+
+    func persistToolInvocationAnalytics(
+        agentId: String,
+        sessionId: String,
+        sessionTitle: String,
+        toolId: String,
+        ok: Bool,
+        durationMs: Int
+    ) async {
+        let trimmedTitle = sessionTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        let taskId: String?
+        if trimmedTitle.hasPrefix("task-") {
+            let raw = String(trimmedTitle.dropFirst("task-".count)).trimmingCharacters(in: .whitespacesAndNewlines)
+            taskId = raw.isEmpty ? nil : raw
+        } else {
+            taskId = nil
+        }
+
+        let projectId: String?
+        if let taskId {
+            let projects = await store.listProjects()
+            projectId = projects.first(where: { $0.tasks.contains(where: { $0.id == taskId }) })?.id
+        } else {
+            projectId = nil
+        }
+
+        await store.persistToolInvocation(
+            id: UUID().uuidString,
+            projectId: projectId,
+            taskId: taskId,
+            agentId: agentId,
+            sessionId: sessionId,
+            tool: toolId,
+            ok: ok,
+            durationMs: durationMs,
+            traceId: nil,
+            createdAt: Date()
+        )
     }
 
     /// Persists config to file and updates in-memory snapshot.

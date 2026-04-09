@@ -121,6 +121,34 @@ CREATE TABLE IF NOT EXISTS token_usage (
     created_at TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS tool_invocations (
+    id TEXT PRIMARY KEY,
+    project_id TEXT,
+    task_id TEXT,
+    agent_id TEXT NOT NULL,
+    session_id TEXT NOT NULL,
+    tool TEXT NOT NULL,
+    ok INTEGER NOT NULL,
+    duration_ms INTEGER,
+    trace_id TEXT,
+    created_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_tool_invocations_project_created ON tool_invocations(project_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_tool_invocations_tool_created ON tool_invocations(tool, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS project_event_facts (
+    id TEXT PRIMARY KEY,
+    project_id TEXT NOT NULL,
+    channel_id TEXT NOT NULL,
+    message_type TEXT NOT NULL,
+    trace_id TEXT,
+    created_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_project_event_facts_project_created ON project_event_facts(project_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_project_event_facts_project_type_created ON project_event_facts(project_id, message_type, created_at DESC);
+
 CREATE TABLE IF NOT EXISTS dashboard_projects (
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL,
