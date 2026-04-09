@@ -570,6 +570,44 @@ extension CoreService {
         objective: String,
         workingDirectory: String?
     ) async -> String? {
+        await runSubagentTask(
+            agentID: agentID,
+            taskID: taskID,
+            objective: objective,
+            workingDirectory: workingDirectory,
+            toolsetNames: nil
+        )
+    }
+
+    /// Runs a one-shot agent session with optional toolset restriction and subagent deny rules.
+    func runSubagentTask(
+        agentID: String,
+        taskID: String,
+        objective: String,
+        workingDirectory: String?,
+        toolsetNames: [String]?
+    ) async -> String? {
+        let knownIDs = await ToolCatalog.knownToolIDs(mcpRegistry: mcpRegistry)
+        guard let policy = try? await toolsAuthorization.policy(agentID: agentID) else {
+            logger.warning(
+                "task.subagent.policy_failed",
+                metadata: ["agent_id": .string(agentID), "task_id": .string(taskID)]
+            )
+            return nil
+        }
+        let effectiveTools = SubagentDelegation.effectiveToolIDs(
+            policy: policy,
+            knownToolIDs: knownIDs,
+            toolsetNames: toolsetNames
+        )
+        guard !effectiveTools.isEmpty else {
+            logger.warning(
+                "task.subagent.no_tools",
+                metadata: ["agent_id": .string(agentID), "task_id": .string(taskID)]
+            )
+            return nil
+        }
+
         let sessionTitle = "task-\(taskID)"
         let existingSession: AgentSessionSummary? = try? listAgentSessions(agentID: agentID)
             .first(where: { $0.title == sessionTitle })
@@ -605,6 +643,10 @@ extension CoreService {
         }
         defer { sessionExtraRoots.removeValue(forKey: session.id) }
 
+        let channelId = sessionChannelID(agentID: agentID, sessionID: session.id)
+        sessionSubagentToolAllowList[session.id] = effectiveTools
+        await runtime.setChannelToolAllowList(channelId: channelId, toolIDs: effectiveTools)
+
         let response: AgentSessionMessageResponse
         do {
             response = try await postAgentSessionMessage(
@@ -617,10 +659,17 @@ extension CoreService {
                 "task.worker.session_post_failed",
                 metadata: ["agent_id": .string(agentID), "task_id": .string(taskID), "error": .string(error.localizedDescription)]
             )
+            sessionSubagentToolAllowList.removeValue(forKey: session.id)
+            await runtime.clearChannelToolAllowList(channelId: channelId)
+            await runtime.invalidateChannelSession(channelId: channelId)
             return nil
         }
 
-        return latestAssistantText(from: response.appendedEvents)
+        let text = latestAssistantText(from: response.appendedEvents)
+        sessionSubagentToolAllowList.removeValue(forKey: session.id)
+        await runtime.clearChannelToolAllowList(channelId: channelId)
+        await runtime.invalidateChannelSession(channelId: channelId)
+        return text
     }
 
     func createOrReclaimWorktree(repoPath: String, taskId: String) async throws -> GitWorktreeResult {

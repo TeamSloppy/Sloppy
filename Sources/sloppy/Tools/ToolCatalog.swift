@@ -132,6 +132,21 @@ enum ToolCatalog {
             ]),
             "required": .array([.string("objective")])
         ]),
+        "agents.delegate_task": .object([
+            "type": .string("object"),
+            "properties": .object([
+                "goal": .object(["type": .string("string")]),
+                "context": .object(["type": .string("string")]),
+                "toolsets": .object([
+                    "type": .string("array"),
+                    "items": .object(["type": .string("string")]),
+                ]),
+                "tasks": .object([
+                    "type": .string("array"),
+                    "items": .object(["type": .string("string")]),
+                ]),
+            ]),
+        ]),
         "workers.route": .object([
             "type": .string("object"),
             "properties": .object([

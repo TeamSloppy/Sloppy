@@ -543,7 +543,40 @@ function formatStructuredData(value) {
   }
 }
 
-function buildTechnicalRecord(eventItem, index) {
+function findPendingToolCallRecordIds(events) {
+  const unmatchedResultsByTool = new Map();
+  const pendingRecordIds = new Set();
+
+  for (let index = (Array.isArray(events) ? events.length : 0) - 1; index >= 0; index -= 1) {
+    const eventItem = events[index];
+
+    if (eventItem?.type === "tool_result" && eventItem.toolResult) {
+      const toolName = String(eventItem.toolResult.tool || "").trim();
+      const nextCount = (unmatchedResultsByTool.get(toolName) || 0) + 1;
+      unmatchedResultsByTool.set(toolName, nextCount);
+      continue;
+    }
+
+    if (eventItem?.type === "tool_call" && eventItem.toolCall) {
+      const toolName = String(eventItem.toolCall.tool || "").trim();
+      const unmatchedCount = unmatchedResultsByTool.get(toolName) || 0;
+      if (unmatchedCount > 0) {
+        if (unmatchedCount === 1) {
+          unmatchedResultsByTool.delete(toolName);
+        } else {
+          unmatchedResultsByTool.set(toolName, unmatchedCount - 1);
+        }
+      } else {
+        pendingRecordIds.add(`${extractEventKey(eventItem, index)}-tool-call`);
+      }
+    }
+  }
+
+  return pendingRecordIds;
+}
+
+function buildTechnicalRecord(eventItem, index, options = {}) {
+  const { activeToolCallRecordIds } = options;
   const eventKey = extractEventKey(eventItem, index);
 
   if (eventItem?.type === "run_status" && eventItem.runStatus) {
@@ -603,7 +636,8 @@ function buildTechnicalRecord(eventItem, index) {
       title: `Tool call: ${eventItem.toolCall.tool || "tool"}`,
       summary: previewText(reason || argumentsText, "Tool call"),
       detail,
-      createdAt: eventItem.createdAt
+      createdAt: eventItem.createdAt,
+      isActive: activeToolCallRecordIds?.has(`${eventKey}-tool-call`) || false
     };
   }
 
@@ -1010,6 +1044,21 @@ function AgentChatEvents({
   }, [timelineItems, isLoadingSession, isSending, latestRunStatus?.id]);
 
   const displayGroups = useMemo(() => groupTimelineItems(timelineItems), [timelineItems]);
+  const latestThinkingMessageId = useMemo(() => {
+    for (let index = timelineItems.length - 1; index >= 0; index -= 1) {
+      const item = timelineItems[index];
+      if (item?.kind !== "message" || item?.event?.message?.role !== "assistant") {
+        continue;
+      }
+
+      const segments = Array.isArray(item.event?.message?.segments) ? item.event.message.segments : [];
+      if (segments.some((segment) => segment.kind === "thinking")) {
+        return item.id || extractEventKey(item.event, index);
+      }
+    }
+
+    return null;
+  }, [timelineItems]);
 
   function renderTechEntry(techItem, techIndex) {
     const record = techItem.record;
@@ -1077,11 +1126,12 @@ function AgentChatEvents({
             if (timelineItem.kind === "tech-group") {
               const groupId = timelineItem.id;
               const isGroupOpen = Boolean(expandedRecordIds[groupId]);
+              const isGroupActive = timelineItem.items.some((item) => item.record?.isActive);
               return (
                 <div key={groupId} className="agent-chat-tech-group">
                   <button
                     type="button"
-                    className={`agent-chat-tech-trigger ${isGroupOpen ? "expanded" : ""}`}
+                    className={`agent-chat-tech-trigger ${isGroupOpen ? "expanded" : ""} ${isGroupActive ? "shimmer" : ""}`}
                     onClick={() => onToggleRecord(groupId)}
                     aria-expanded={isGroupOpen}
                   >
@@ -1116,6 +1166,7 @@ function AgentChatEvents({
             const messageText = segmentsToPlainText(visibleSegments);
             const isWaitingForStream = Boolean(timelineItem.isWaitingForStream);
             const isStreaming = Boolean(timelineItem.isStreaming);
+            const isThinkingActive = latestRunStatus?.stage === "thinking" && latestThinkingMessageId === eventKey;
 
             return (
               <article key={eventKey} className={`agent-chat-message ${role}${isStreaming ? " streaming" : ""}`} data-testid={`agent-chat-message-${role}-${index}`}>
@@ -1139,7 +1190,7 @@ function AgentChatEvents({
                       <div key={thoughtId} className="agent-chat-tech-entry">
                         <button
                           type="button"
-                          className={`agent-chat-tech-trigger ${isThoughtExpanded ? "expanded" : ""}`}
+                          className={`agent-chat-tech-trigger ${isThoughtExpanded ? "expanded" : ""} ${isThinkingActive ? "shimmer" : ""}`}
                           onClick={() => onToggleRecord(thoughtId)}
                           aria-expanded={isThoughtExpanded}
                         >
@@ -2849,6 +2900,7 @@ export function AgentChatTab({ agentId, initialSessionId = null }) {
     isRespondingPhase &&
     (normalizedStreamedAssistantText.length > 0 || isSending) &&
     !hasDuplicatedPersistedAssistant;
+  const activeToolCallRecordIds = useMemo(() => findPendingToolCallRecordIds(events), [events]);
   const timelineItems = [];
   for (let index = 0; index < events.length; index += 1) {
     const eventItem = events[index];
@@ -2866,7 +2918,7 @@ export function AgentChatTab({ agentId, initialSessionId = null }) {
       continue;
     }
 
-    const technicalRecord = buildTechnicalRecord(eventItem, index);
+    const technicalRecord = buildTechnicalRecord(eventItem, index, { activeToolCallRecordIds });
     if (technicalRecord) {
       timelineItems.push({
         id: technicalRecord.id,

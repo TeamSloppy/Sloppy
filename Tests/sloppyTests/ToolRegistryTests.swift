@@ -12,7 +12,7 @@ struct ToolRegistryTests {
             "runtime.exec", "runtime.process",
             "web.search", "web.fetch",
             "branches.spawn",
-            "workers.spawn", "workers.route",
+            "workers.spawn", "agents.delegate_task", "workers.route",
             "sessions.spawn", "sessions.list", "sessions.history", "sessions.status",
             "messages.send", "sessions.send",
             "memory.recall", "memory.get", "memory.save", "memory.search",
@@ -42,7 +42,7 @@ struct ToolRegistryTests {
     func catalogEntriesCountMatchesUniqueTools() {
         let entries = registry.catalogEntries
         // sessions.send is an alias for messages.send, so count is unique primary IDs
-        #expect(entries.count >= 28)
+        #expect(entries.count >= 29)
         #expect(entries.allSatisfy { !$0.id.isEmpty })
     }
 
