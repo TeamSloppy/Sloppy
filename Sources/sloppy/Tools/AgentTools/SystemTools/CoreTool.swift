@@ -53,6 +53,8 @@ struct ToolContext: @unchecked Sendable {
     let lspManager: LSPServerManager?
     /// When set, updates `USER.md` / `MEMORY.md` through the same validation path as the HTTP API.
     let applyAgentMarkdown: ((AgentMarkdownDocumentField, String) async throws -> Void)?
+    /// Runs an isolated subagent session; set by `CoreService.configureToolExecutionServices`.
+    let delegateSubagent: (@Sendable (String, String, String, String?, [String]?) async -> String?)?
 }
 
 // MARK: - ProjectToolService

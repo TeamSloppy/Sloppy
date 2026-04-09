@@ -22,6 +22,7 @@ final class ToolExecutionService: @unchecked Sendable {
     var skillsService: (any SkillsToolService)?
     /// `(agentID, field, markdown)` — used to build per-invocation `ToolContext.applyAgentMarkdown`.
     var applyAgentMarkdown: ((String, AgentMarkdownDocumentField, String) async throws -> Void)?
+    var delegateSubagent: (@Sendable (String, String, String, String?, [String]?) async -> String?)?
 
     init(
         workspaceRootURL: URL,
@@ -51,6 +52,7 @@ final class ToolExecutionService: @unchecked Sendable {
         self.logger = logger
         self.registry = ToolRegistry.makeDefault()
         self.applyAgentMarkdown = nil
+        self.delegateSubagent = nil
     }
 
     func updateWorkspaceRootURL(_ url: URL) {
@@ -127,7 +129,8 @@ final class ToolExecutionService: @unchecked Sendable {
             configService: configService,
             skillsService: skillsService,
             lspManager: lspManager,
-            applyAgentMarkdown: boundApply
+            applyAgentMarkdown: boundApply,
+            delegateSubagent: delegateSubagent
         )
     }
 }

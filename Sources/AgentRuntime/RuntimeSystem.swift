@@ -97,6 +97,9 @@ public actor RuntimeSystem {
     /// context overflow or model hot-swap.
     private var bootstrapByChannel: [String: String] = [:]
 
+    /// When set, only these tool names (matching `Tool.name`) are passed to `LanguageModelSession` for the channel.
+    private var channelToolAllowList: [String: Set<String>] = [:]
+
     public init(
         modelProvider: (any ModelProvider)? = nil,
         defaultModel: String? = nil,
@@ -140,6 +143,7 @@ public actor RuntimeSystem {
     public func updateModelProvider(modelProvider: (any ModelProvider)?, defaultModel: String?) {
         self.modelProvider = modelProvider
         sessionsByChannel.removeAll()
+        channelToolAllowList.removeAll()
 
         guard let modelProvider else {
             self.defaultModel = nil
@@ -153,6 +157,24 @@ public actor RuntimeSystem {
         }
 
         self.defaultModel = modelProvider.supportedModels.first
+    }
+
+    /// Restricts tools exposed to the model for this channel. Pass `nil` or an empty set to clear filtering.
+    public func setChannelToolAllowList(channelId: String, toolIDs: Set<String>?) {
+        guard let toolIDs, !toolIDs.isEmpty else {
+            channelToolAllowList.removeValue(forKey: channelId)
+            return
+        }
+        channelToolAllowList[channelId] = toolIDs
+    }
+
+    public func clearChannelToolAllowList(channelId: String) {
+        channelToolAllowList.removeValue(forKey: channelId)
+    }
+
+    /// Removes a cached `LanguageModelSession` so the next turn builds a fresh session (e.g. after tool allowlist changes).
+    public func invalidateChannelSession(channelId: String) {
+        sessionsByChannel.removeValue(forKey: channelId)
     }
 
     /// Posts channel message and executes route-specific orchestration flow.
@@ -626,6 +648,19 @@ public actor RuntimeSystem {
         }
     }
 
+    private func filteredModelTools(
+        channelId: String,
+        modelProvider: any ModelProvider,
+        includeTools: Bool
+    ) -> [any Tool] {
+        guard includeTools else { return [] }
+        let full = modelProvider.tools
+        guard let allow = channelToolAllowList[channelId], !allow.isEmpty else {
+            return full
+        }
+        return full.filter { allow.contains($0.name) }
+    }
+
     /// Returns cached session for channel, or creates a new one seeded with the bootstrap
     /// system message if present.
     private func getOrCreateSession(
@@ -639,7 +674,7 @@ public actor RuntimeSystem {
         }
 
         let languageModel = try await modelProvider.createLanguageModel(for: activeModel)
-        let tools: [any Tool] = includeTools ? modelProvider.tools : []
+        let tools = filteredModelTools(channelId: channelId, modelProvider: modelProvider, includeTools: includeTools)
         let session: LanguageModelSession
         if let instructions = modelProvider.systemInstructions {
             session = LanguageModelSession(model: languageModel, tools: tools, instructions: instructions)
@@ -685,7 +720,11 @@ public actor RuntimeSystem {
             return "Model provider error: \(error)"
         }
 
-        let tools: [any Tool] = toolInvoker != nil ? modelProvider.tools : []
+        let tools = filteredModelTools(
+            channelId: channelId,
+            modelProvider: modelProvider,
+            includeTools: toolInvoker != nil
+        )
         let freshSession: LanguageModelSession
         if let instructions = modelProvider.systemInstructions {
             freshSession = LanguageModelSession(model: languageModel, tools: tools, instructions: instructions)

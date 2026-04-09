@@ -70,6 +70,7 @@ struct ToolRegistry: Sendable {
             WebFetchTool(),
             BranchesSpawnTool(),
             WorkersSpawnTool(),
+            AgentsDelegateTaskTool(),
             WorkersRouteTool(),
             SessionsSpawnTool(),
             SessionsListTool(),

@@ -222,6 +222,8 @@ public actor CoreService {
     var liveSessionStreamContinuations: [String: [UUID: AsyncStream<AgentSessionStreamUpdate>.Continuation]] = [:]
     var liveSessionStreamCursor: [String: Int] = [:]
     var sessionExtraRoots: [String: [String]] = [:]
+    /// When set, only these tool IDs may execute for the session (subagent isolation overlay).
+    var sessionSubagentToolAllowList: [String: Set<String>] = [:]
     /// Prevents overlapping memory checkpoints per agent/session pair.
     var memoryCheckpointLocks: Set<String> = []
     public let notificationService: NotificationService
