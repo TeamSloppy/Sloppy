@@ -277,6 +277,8 @@ export function ProjectSettingsTab({
     function renderActors() {
         const projectActors = draft.actors;
         const projectTeams = draft.teams;
+        const actorNameById = new Map(availableActors.map((n) => [String(n?.id || ""), String(n?.displayName || "").trim()]));
+        const teamNameById = new Map(availableTeams.map((t) => [String(t?.id || ""), String(t?.name || "").trim()]));
 
         const actorQ = actorSearch.trim().toLowerCase();
         const filteredActors = availableActors.filter(
@@ -294,31 +296,35 @@ export function ProjectSettingsTab({
 
         function addActor(node) {
             mutateDraft((d) => {
-                if (!d.actors.includes(node.displayName)) {
-                    d.actors.push(node.displayName);
+                const actorId = String(node?.id || "").trim();
+                if (!actorId) return;
+                if (!d.actors.includes(actorId)) {
+                    d.actors.push(actorId);
                 }
             });
             setActorSearch("");
         }
 
-        function removeActor(actorName) {
+        function removeActor(actorId) {
             mutateDraft((d) => {
-                d.actors = d.actors.filter((a) => a !== actorName);
+                d.actors = d.actors.filter((a) => a !== actorId);
             });
         }
 
         function addTeam(team) {
             mutateDraft((d) => {
-                if (!d.teams.includes(team.name)) {
-                    d.teams.push(team.name);
+                const teamId = String(team?.id || "").trim();
+                if (!teamId) return;
+                if (!d.teams.includes(teamId)) {
+                    d.teams.push(teamId);
                 }
             });
             setTeamSearch("");
         }
 
-        function removeTeam(teamName) {
+        function removeTeam(teamId) {
             mutateDraft((d) => {
-                d.teams = d.teams.filter((t) => t !== teamName);
+                d.teams = d.teams.filter((t) => t !== teamId);
             });
         }
 
@@ -350,7 +356,7 @@ export function ProjectSettingsTab({
                                     <li className="actor-team-dropdown-empty">No actors available</li>
                                 ) : (
                                     actorsToShow.map((node) => {
-                                        const isSelected = projectActors.includes(node.displayName);
+                                        const isSelected = projectActors.includes(node.id);
                                         return (
                                             <li
                                                 key={node.id}
@@ -358,7 +364,7 @@ export function ProjectSettingsTab({
                                                 onMouseDown={(e) => {
                                                     e.preventDefault();
                                                     if (isSelected) {
-                                                        removeActor(node.displayName);
+                                                        removeActor(node.id);
                                                     } else {
                                                         addActor(node);
                                                     }
@@ -380,17 +386,17 @@ export function ProjectSettingsTab({
 
                 {projectActors.length > 0 && (
                     <div className="project-created-list" style={{ marginTop: 16 }}>
-                        {projectActors.map((actorName) => (
-                            <article key={actorName} className="project-created-item" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                        {projectActors.map((actorId) => (
+                            <article key={actorId} className="project-created-item" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                                 <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                                     <span className="material-symbols-rounded" style={{ fontSize: "1.1rem", color: "var(--accent)" }}>person</span>
-                                    <strong>{actorName}</strong>
+                                    <strong>{actorNameById.get(actorId) || actorId}</strong>
                                 </div>
                                 <button
                                     type="button"
                                     className="agent-channel-remove"
                                     style={{ color: "var(--warn)", border: "none", background: "transparent", cursor: "pointer", padding: "4px" }}
-                                    onClick={() => removeActor(actorName)}
+                                    onClick={() => removeActor(actorId)}
                                 >
                                     <span className="material-symbols-rounded">close</span>
                                 </button>
@@ -429,7 +435,7 @@ export function ProjectSettingsTab({
                                     <li className="actor-team-dropdown-empty">No teams available</li>
                                 ) : (
                                     teamsToShow.map((team) => {
-                                        const isSelected = projectTeams.includes(team.name);
+                                        const isSelected = projectTeams.includes(team.id);
                                         return (
                                             <li
                                                 key={team.id}
@@ -437,7 +443,7 @@ export function ProjectSettingsTab({
                                                 onMouseDown={(e) => {
                                                     e.preventDefault();
                                                     if (isSelected) {
-                                                        removeTeam(team.name);
+                                                        removeTeam(team.id);
                                                     } else {
                                                         addTeam(team);
                                                     }
@@ -459,17 +465,17 @@ export function ProjectSettingsTab({
 
                 {projectTeams.length > 0 && (
                     <div className="project-created-list" style={{ marginTop: 16 }}>
-                        {projectTeams.map((teamName) => (
-                            <article key={teamName} className="project-created-item" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                        {projectTeams.map((teamId) => (
+                            <article key={teamId} className="project-created-item" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                                 <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                                     <span className="material-symbols-rounded" style={{ fontSize: "1.1rem", color: "var(--accent)" }}>groups</span>
-                                    <strong>{teamName}</strong>
+                                    <strong>{teamNameById.get(teamId) || teamId}</strong>
                                 </div>
                                 <button
                                     type="button"
                                     className="agent-channel-remove"
                                     style={{ color: "var(--warn)", border: "none", background: "transparent", cursor: "pointer", padding: "4px" }}
-                                    onClick={() => removeTeam(teamName)}
+                                    onClick={() => removeTeam(teamId)}
                                 >
                                     <span className="material-symbols-rounded">close</span>
                                 </button>

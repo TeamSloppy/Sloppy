@@ -53,6 +53,7 @@ import { ProjectTasksTab } from "./Projects/ProjectTasksTab";
 import { ProjectWorkersTab } from "./Projects/ProjectWorkersTab";
 import { ProjectVisorTab } from "./Projects/ProjectVisorTab";
 import { ProjectChannelsTab } from "./Projects/ProjectChannelsTab";
+import { ProjectChatTab } from "./Projects/ProjectChatTab";
 import { ProjectSettingsTab } from "./Projects/ProjectSettingsTab";
 import { ProjectFilesTab } from "./Projects/ProjectFilesTab";
 import { ProjectMemoryTab } from "./Projects/ProjectMemoryTab";
@@ -1600,6 +1601,15 @@ export function ProjectsView({
     if (selectedTab === "channels") {
       return (
         <ProjectChannelsTab
+          project={project}
+          onNavigateToChannelSession={onNavigateToChannelSession}
+        />
+      );
+    }
+
+    if (selectedTab === "chat") {
+      return (
+        <ProjectChatTab
           project={project}
           onNavigateToChannelSession={onNavigateToChannelSession}
         />

@@ -135,6 +135,25 @@ struct ProjectsAPIRouter: APIRouter {
             }
         }
 
+        router.post(
+            "/v1/projects/:projectId/context/refresh",
+            metadata: RouteMetadata(
+                summary: "Refresh project context",
+                description: "Loads context files from project repoPath and applies them as channel bootstrap to all project channels",
+                tags: ["Projects"]
+            )
+        ) { request in
+            let projectId = request.pathParam("projectId") ?? ""
+            do {
+                let response = try await service.refreshProjectContext(projectID: projectId)
+                return CoreRouter.encodable(status: HTTPStatus.ok, payload: response)
+            } catch let error as CoreService.ProjectError {
+                return CoreRouter.projectErrorResponse(error, fallback: ErrorCode.projectContextRefreshFailed)
+            } catch {
+                return CoreRouter.json(status: HTTPStatus.internalServerError, payload: ["error": ErrorCode.projectContextRefreshFailed])
+            }
+        }
+
         router.patch("/v1/projects/:projectId/tasks/:taskId", metadata: RouteMetadata(summary: "Update project task", description: "Updates an existing task in a project", tags: ["Projects"])) { request in
             let projectId = request.pathParam("projectId") ?? ""
             let taskId = request.pathParam("taskId") ?? ""
