@@ -213,7 +213,7 @@ func visorCreatesBulletin() async {
     #expect(!bulletin.digest.isEmpty)
 
     let entries = await memory.entries()
-    #expect(entries.count == 1)
+    #expect(entries.isEmpty)
 }
 
 private actor ToolInvocationCounter {

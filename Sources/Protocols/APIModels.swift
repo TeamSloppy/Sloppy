@@ -1869,21 +1869,26 @@ public struct AgentSessionCreateRequest: Codable, Sendable {
     public var title: String?
     public var parentSessionId: String?
     public var kind: AgentSessionKind
+    /// When set, runs a memory checkpoint on this session before creating the new one (e.g. `/new`).
+    public var checkpointSessionId: String?
 
     public init(
         title: String? = nil,
         parentSessionId: String? = nil,
-        kind: AgentSessionKind = .chat
+        kind: AgentSessionKind = .chat,
+        checkpointSessionId: String? = nil
     ) {
         self.title = title
         self.parentSessionId = parentSessionId
         self.kind = kind
+        self.checkpointSessionId = checkpointSessionId
     }
 
     enum CodingKeys: String, CodingKey {
         case title
         case parentSessionId
         case kind
+        case checkpointSessionId
     }
 
     public init(from decoder: Decoder) throws {
@@ -1891,6 +1896,25 @@ public struct AgentSessionCreateRequest: Codable, Sendable {
         title = try container.decodeIfPresent(String.self, forKey: .title)
         parentSessionId = try container.decodeIfPresent(String.self, forKey: .parentSessionId)
         kind = try container.decodeIfPresent(AgentSessionKind.self, forKey: .kind) ?? .chat
+        checkpointSessionId = try container.decodeIfPresent(String.self, forKey: .checkpointSessionId)
+    }
+}
+
+public struct AgentMemoryCheckpointRequest: Codable, Sendable {
+    public var reason: String?
+
+    public init(reason: String? = nil) {
+        self.reason = reason
+    }
+}
+
+public struct AgentMemoryCheckpointResponse: Codable, Sendable {
+    public var ok: Bool
+    public var reason: String?
+
+    public init(ok: Bool, reason: String? = nil) {
+        self.ok = ok
+        self.reason = reason
     }
 }
 
@@ -1904,6 +1928,8 @@ public struct AgentSessionSummary: Codable, Sendable, Equatable {
     public var messageCount: Int
     public var lastMessagePreview: String?
     public var kind: AgentSessionKind
+    /// User-authored turns since last memory checkpoint (persisted in session sidecar).
+    public var userTurnCount: Int
 
     public init(
         id: String,
@@ -1914,7 +1940,8 @@ public struct AgentSessionSummary: Codable, Sendable, Equatable {
         updatedAt: Date = Date(),
         messageCount: Int = 0,
         lastMessagePreview: String? = nil,
-        kind: AgentSessionKind = .chat
+        kind: AgentSessionKind = .chat,
+        userTurnCount: Int = 0
     ) {
         self.id = id
         self.agentId = agentId
@@ -1925,6 +1952,7 @@ public struct AgentSessionSummary: Codable, Sendable, Equatable {
         self.messageCount = messageCount
         self.lastMessagePreview = lastMessagePreview
         self.kind = kind
+        self.userTurnCount = userTurnCount
     }
 
     enum CodingKeys: String, CodingKey {
@@ -1937,6 +1965,7 @@ public struct AgentSessionSummary: Codable, Sendable, Equatable {
         case messageCount
         case lastMessagePreview
         case kind
+        case userTurnCount
     }
 
     public init(from decoder: Decoder) throws {
@@ -1950,6 +1979,7 @@ public struct AgentSessionSummary: Codable, Sendable, Equatable {
         messageCount = try container.decodeIfPresent(Int.self, forKey: .messageCount) ?? 0
         lastMessagePreview = try container.decodeIfPresent(String.self, forKey: .lastMessagePreview)
         kind = try container.decodeIfPresent(AgentSessionKind.self, forKey: .kind) ?? .chat
+        userTurnCount = try container.decodeIfPresent(Int.self, forKey: .userTurnCount) ?? 0
     }
 }
 

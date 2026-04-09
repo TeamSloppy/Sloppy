@@ -96,6 +96,11 @@ export interface CoreApi {
   deleteActorTeam: (teamId: string) => Promise<AnyRecord | null>;
   fetchAgentSessions: (agentId: string) => Promise<AnyRecord[] | null>;
   createAgentSession: (agentId: string, payload?: AnyRecord) => Promise<AnyRecord | null>;
+  postAgentMemoryCheckpoint: (
+    agentId: string,
+    sessionId: string,
+    payload?: AnyRecord
+  ) => Promise<AnyRecord | null>;
   fetchAgentSession: (agentId: string, sessionId: string) => Promise<AnyRecord | null>;
   postAgentSessionMessage: (
     agentId: string,
@@ -924,6 +929,18 @@ export function createCoreApi(): CoreApi {
     createAgentSession: async (agentId, payload = {}) => {
       const response = await requestJson<AnyRecord, AnyRecord>({
         path: `/v1/agents/${encodeURIComponent(agentId)}/sessions`,
+        method: "POST",
+        body: payload
+      });
+      if (!response.ok) {
+        return null;
+      }
+      return response.data;
+    },
+
+    postAgentMemoryCheckpoint: async (agentId, sessionId, payload = {}) => {
+      const response = await requestJson<AnyRecord, AnyRecord>({
+        path: `/v1/agents/${encodeURIComponent(agentId)}/sessions/${encodeURIComponent(sessionId)}/checkpoint`,
         method: "POST",
         body: payload
       });

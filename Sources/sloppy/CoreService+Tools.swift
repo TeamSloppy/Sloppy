@@ -263,6 +263,12 @@ extension CoreService {
         toolExecution.projectService = self
         toolExecution.configService = self
         toolExecution.skillsService = self
+        toolExecution.applyAgentMarkdown = { [weak self] agentID, field, markdown in
+            guard let self else {
+                throw AgentConfigError.storageFailure
+            }
+            try await self.applyAgentMarkdownFromTool(agentID: agentID, field: field, markdown: markdown)
+        }
     }
 
 }

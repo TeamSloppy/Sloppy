@@ -146,10 +146,59 @@ final class AgentSessionFileStore {
 
         try fileManager.removeItem(at: fileURL)
 
+        if let sidecar = sessionSidecarURL(agentID: normalizedAgentID, sessionID: normalizedSessionID),
+           fileManager.fileExists(atPath: sidecar.path) {
+            try? fileManager.removeItem(at: sidecar)
+        }
+
         if let assetsDirectory = assetsDirectoryURL(agentID: normalizedAgentID, sessionID: normalizedSessionID),
            fileManager.fileExists(atPath: assetsDirectory.path) {
             try fileManager.removeItem(at: assetsDirectory)
         }
+    }
+
+    func incrementUserTurnCount(agentID: String, sessionID: String) throws -> Int {
+        let normalizedAgentID = try normalizedAgentID(agentID)
+        let normalizedSessionID = try normalizedSessionID(sessionID)
+        let prior = try readUserTurnCount(agentID: normalizedAgentID, sessionID: normalizedSessionID)
+        let next = prior + 1
+        try writeUserTurnCount(agentID: normalizedAgentID, sessionID: normalizedSessionID, count: next)
+        return next
+    }
+
+    func resetUserTurnCount(agentID: String, sessionID: String) throws {
+        let normalizedAgentID = try normalizedAgentID(agentID)
+        let normalizedSessionID = try normalizedSessionID(sessionID)
+        try writeUserTurnCount(agentID: normalizedAgentID, sessionID: normalizedSessionID, count: 0)
+    }
+
+    private struct AgentSessionSidecar: Codable {
+        var userTurnCount: Int
+    }
+
+    private func sessionSidecarURL(agentID: String, sessionID: String) -> URL? {
+        resolvedAgentDirectoryURL(agentID: agentID)?
+            .appendingPathComponent("sessions", isDirectory: true)
+            .appendingPathComponent("\(sessionID).sidecar.json", isDirectory: false)
+    }
+
+    private func readUserTurnCount(agentID: String, sessionID: String) throws -> Int {
+        guard let url = sessionSidecarURL(agentID: agentID, sessionID: sessionID),
+              fileManager.fileExists(atPath: url.path) else {
+            return 0
+        }
+        let data = try Data(contentsOf: url)
+        let sidecar = try JSONDecoder().decode(AgentSessionSidecar.self, from: data)
+        return max(0, sidecar.userTurnCount)
+    }
+
+    private func writeUserTurnCount(agentID: String, sessionID: String, count: Int) throws {
+        guard let url = sessionSidecarURL(agentID: agentID, sessionID: sessionID) else {
+            throw StoreError.agentNotFound
+        }
+        try fileManager.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let payload = try JSONEncoder().encode(AgentSessionSidecar(userTurnCount: max(0, count)))
+        try payload.write(to: url, options: .atomic)
     }
 
     func persistAttachments(agentID: String, sessionID: String, uploads: [AgentAttachmentUpload]) throws -> [AgentAttachment] {
@@ -311,6 +360,8 @@ final class AgentSessionFileStore {
             }
         }
 
+        let userTurnCount = (try? readUserTurnCount(agentID: agentID, sessionID: sessionID)) ?? 0
+
         return AgentSessionSummary(
             id: sessionID,
             agentId: agentID,
@@ -320,7 +371,8 @@ final class AgentSessionFileStore {
             updatedAt: updatedAt,
             messageCount: messageCount,
             lastMessagePreview: lastPreview,
-            kind: kind
+            kind: kind,
+            userTurnCount: userTurnCount
         )
     }
 

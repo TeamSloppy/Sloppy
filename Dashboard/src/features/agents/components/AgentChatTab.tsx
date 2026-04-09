@@ -8,6 +8,7 @@ import {
   fetchAgentSession,
   fetchAgentSessions,
   fetchTaskByReference,
+  postAgentMemoryCheckpoint,
   postAgentSessionControl,
   postAgentSessionEvents,
   postAgentSessionMessage,
@@ -2153,8 +2154,15 @@ export function AgentChatTab({ agentId, initialSessionId = null }) {
     await openSession(targetId);
   }
 
-  async function createSession(parentSessionId = null) {
-    const response = await createAgentSession(agentId, parentSessionId ? { parentSessionId } : {});
+  async function createSession(parentSessionId = null, checkpointSessionId = null) {
+    const payload = {};
+    if (parentSessionId) {
+      payload.parentSessionId = parentSessionId;
+    }
+    if (checkpointSessionId) {
+      payload.checkpointSessionId = checkpointSessionId;
+    }
+    const response = await createAgentSession(agentId, payload);
     if (!response) {
       setStatusText("Failed to create session.");
       return null;
@@ -2456,7 +2464,8 @@ export function AgentChatTab({ agentId, initialSessionId = null }) {
 
     if (lower === "/new" || lower === "/clear") {
       setInputText("");
-      createSession();
+      const previousSessionId = activeSessionId;
+      createSession(null, previousSessionId || null);
       setStatusText("New session created.");
       return true;
     }
@@ -2677,6 +2686,7 @@ export function AgentChatTab({ agentId, initialSessionId = null }) {
     setStatusText("Stopping...");
 
     if (sessionId) {
+      await postAgentMemoryCheckpoint(agentId, sessionId, { reason: "stop_command" });
       const response = await postAgentSessionControl(agentId, sessionId, {
         action: "interrupt",
         requestedBy: "dashboard",
@@ -2932,7 +2942,7 @@ export function AgentChatTab({ agentId, initialSessionId = null }) {
             type="button"
             className="agent-chat-icon-button"
             data-testid="agent-chat-new-session"
-            onClick={() => createSession()}
+            onClick={() => createSession(null, activeSessionId || null)}
             disabled={isSending}
             title="New session"
           >

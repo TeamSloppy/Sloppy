@@ -102,6 +102,7 @@ public actor CoreService {
         case invalidModel
         case agentNotFound
         case storageFailure
+        case documentLengthExceeded(resource: String, limit: Int)
     }
 
     public enum AgentToolsError: Error {
@@ -174,6 +175,8 @@ public actor CoreService {
         case storageFailure
     }
 
+    /// Retained for checkpoint / one-off model sessions (also held inside `runtime`).
+    var modelProvider: (any ModelProvider)?
     let runtime: RuntimeSystem
     let memoryStore: any MemoryStore
     let hybridMemoryStore: HybridMemoryStore?
@@ -219,6 +222,8 @@ public actor CoreService {
     var liveSessionStreamContinuations: [String: [UUID: AsyncStream<AgentSessionStreamUpdate>.Continuation]] = [:]
     var liveSessionStreamCursor: [String: Int] = [:]
     var sessionExtraRoots: [String: [String]] = [:]
+    /// Prevents overlapping memory checkpoints per agent/session pair.
+    var memoryCheckpointLocks: Set<String> = []
     public let notificationService: NotificationService
     public let pendingApprovalService: PendingApprovalService
 
@@ -297,6 +302,7 @@ public actor CoreService {
             visorModel: config.visor.model,
             resolvedModels: resolvedModels
         )
+        self.modelProvider = modelProvider
         let runtime = RuntimeSystem(
             modelProvider: modelProvider,
             defaultModel: modelProvider?.supportedModels.first ?? resolvedModels.first,
@@ -605,6 +611,11 @@ public actor CoreService {
     }
 
     func mapAgentConfigError(_ error: Error) -> AgentConfigError {
+        if let lengthError = error as? AgentDocumentLengthError,
+           case .exceeded(let resource, let limit) = lengthError {
+            return .documentLengthExceeded(resource: resource, limit: limit)
+        }
+
         guard let storeError = error as? AgentCatalogFileStore.StoreError else {
             return .storageFailure
         }

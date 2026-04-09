@@ -8,13 +8,29 @@ struct MemorySaveTool: CoreTool {
     let title = "Memory save"
     let status = "fully_functional"
     let name = "memory.save"
-    let description = "Persist memory entry with taxonomy and scope."
+    let description = """
+    Persist a hybrid memory entry. You must set scope (not the end user): either pass `scope_type` and `scope_id` together, or pass a `scope` object with `type` and `id`. \
+    For this chat and the dashboard Memories list: `scope_type` = channel, `scope_id` = agent:<agentId>:session:<sessionId>. \
+    For agent-wide rows: `scope_type` = agent, `scope_id` = <agentId>. Calls without a resolved scope are rejected.
+    """
 
     var parameters: GenerationSchema {
         .objectSchema([
             .init(name: "note", description: "Memory content to save", schema: DynamicGenerationSchema(type: String.self)),
+            .init(
+                name: "scope_type",
+                description: "Together with scope_id, or omit if using `scope` object. One of: global, project, channel, agent.",
+                schema: DynamicGenerationSchema(type: String.self),
+                isOptional: true
+            ),
+            .init(
+                name: "scope_id",
+                description: "Together with scope_type, or omit if using `scope` object. For channel: agent:<agentId>:session:<sessionId>.",
+                schema: DynamicGenerationSchema(type: String.self),
+                isOptional: true
+            ),
             .init(name: "summary", description: "Optional summary", schema: DynamicGenerationSchema(type: String.self), isOptional: true),
-            .init(name: "class", description: "Memory class", schema: DynamicGenerationSchema(type: String.self), isOptional: true)
+            .init(name: "class", description: "Memory class (e.g. semantic, episodic)", schema: DynamicGenerationSchema(type: String.self), isOptional: true)
         ])
     }
 
@@ -29,7 +45,14 @@ struct MemorySaveTool: CoreTool {
         let kind = arguments["kind"]?.asString.flatMap { MemoryKind(rawValue: $0.lowercased()) }
         let memoryClass = arguments["class"]?.asString.flatMap { MemoryClass(rawValue: $0.lowercased()) }
             ?? arguments["memory_class"]?.asString.flatMap { MemoryClass(rawValue: $0.lowercased()) }
-        let scope = parseMemoryScope(from: arguments)
+        guard let scope = parseMemoryScope(from: arguments) else {
+            return toolFailure(
+                tool: name,
+                code: "invalid_arguments",
+                message: "Set memory scope: either `scope_type` + `scope_id`, or `scope` as { \"type\", \"id\", optional \"channel_id\", \"project_id\", \"agent_id\" }. Example channel scope_id: agent:<agentId>:session:<sessionId>.",
+                retryable: false
+            )
+        }
         let importance = arguments["importance"]?.asNumber
         let confidence = arguments["confidence"]?.asNumber
 

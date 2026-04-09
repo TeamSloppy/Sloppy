@@ -31,6 +31,7 @@ extension CoreService {
                         await store.persist(event: enrichedEvent)
                         await recordProjectAnalyticsFactIfNeeded(enrichedEvent)
                         await handleVisorEvent(enrichedEvent)
+                        await handleMemoryCheckpointRuntimeEvent(enrichedEvent)
                         await extractAndPersistTokenUsage(from: enrichedEvent)
                         await emitNotificationIfNeeded(from: enrichedEvent)
                     }

@@ -241,6 +241,8 @@ final class AgentCatalogFileStore {
             memoryMarkdown: normalizedDocumentText(request.documents.memoryMarkdown)
         )
 
+        try AgentMarkdownLimits.validateAgentDocumentBundle(normalizedDocuments)
+
         guard !normalizedDocuments.userMarkdown.isEmpty,
               !normalizedDocuments.agentsMarkdown.isEmpty,
               !normalizedDocuments.soulMarkdown.isEmpty,

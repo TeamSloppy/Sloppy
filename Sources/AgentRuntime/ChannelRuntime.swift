@@ -161,6 +161,11 @@ public actor ChannelRuntime {
         _ = channels[channelId, default: ChannelState()]
     }
 
+    /// Drops in-memory channel state (e.g. ephemeral checkpoint channels).
+    public func removeChannel(channelId: String) {
+        channels.removeValue(forKey: channelId)
+    }
+
     /// Restores one channel message from persistence replay.
     public func restoreMessage(channelId: String, message: ChannelMessageEntry) {
         var state = channels[channelId, default: ChannelState()]

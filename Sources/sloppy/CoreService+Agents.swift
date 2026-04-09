@@ -404,6 +404,44 @@ extension CoreService {
         }
     }
 
+    /// Tool entry point for `agent.documents.set_*` (same validation as HTTP config updates).
+    func applyAgentMarkdownFromTool(agentID: String, field: AgentMarkdownDocumentField, markdown: String) async throws {
+        guard let normalizedID = normalizedAgentID(agentID) else {
+            throw AgentConfigError.invalidAgentID
+        }
+        let models = availableAgentModels()
+        let config = try agentCatalogStore.getAgentConfig(agentID: normalizedID, availableModels: models)
+        var documents = config.documents
+        switch field {
+        case .user:
+            documents.userMarkdown = markdown
+        case .memory:
+            documents.memoryMarkdown = markdown
+        }
+        do {
+            try AgentMarkdownLimits.validateAgentDocumentBundle(documents)
+        } catch let error as AgentDocumentLengthError {
+            throw error
+        } catch {
+            throw AgentConfigError.invalidPayload
+        }
+        do {
+            _ = try agentCatalogStore.updateAgentConfig(
+                agentID: normalizedID,
+                request: AgentConfigUpdateRequest(
+                    selectedModel: config.selectedModel,
+                    documents: documents,
+                    heartbeat: config.heartbeat,
+                    channelSessions: config.channelSessions,
+                    runtime: config.runtime
+                ),
+                availableModels: models
+            )
+        } catch {
+            throw mapAgentConfigError(error)
+        }
+    }
+
     /// Fetches token usage and estimated cost for the agent's selected model provider.
     public func getAgentTokenUsage(agentID: String) async throws -> AgentTokenUsageResponse {
         guard let normalizedID = normalizedAgentID(agentID) else {
@@ -463,6 +501,7 @@ extension CoreService {
     }
 
     func overrideModelProviderForTests(_ modelProvider: (any ModelProvider)?, defaultModel: String?) async {
+        self.modelProvider = modelProvider
         await runtime.updateModelProvider(modelProvider: modelProvider, defaultModel: defaultModel)
     }
 
@@ -725,6 +764,18 @@ extension CoreService {
             .appendingPathComponent(normalizedID, isDirectory: true)
             .appendingPathComponent("MEMORY.md")
 
+        if markdown.count > AgentMarkdownLimits.memoryMarkdownMaxCharacters {
+            logger.warning(
+                "refreshAgentMemoryFile skipped: generated MEMORY.md exceeds character limit",
+                metadata: [
+                    "agent_id": .string(normalizedID),
+                    "chars": .stringConvertible(markdown.count),
+                    "limit": .stringConvertible(AgentMarkdownLimits.memoryMarkdownMaxCharacters)
+                ]
+            )
+            return
+        }
+
         try? markdown.data(using: .utf8)?.write(to: memoryURL, options: .atomic)
     }
 
@@ -732,6 +783,7 @@ extension CoreService {
         let entries = await memoryStore.entries(filter: .default)
         return entries
             .filter { belongsToAgentMemory($0, agentID: agentID) }
+            .filter { $0.memoryClass != .bulletin }
             .sorted { left, right in
                 if left.createdAt == right.createdAt {
                     return left.id.localizedCaseInsensitiveCompare(right.id) == .orderedAscending

@@ -79,6 +79,7 @@ export default defineConfig({
         text: "Visor",
         items: [
           { text: "Overview", link: "/visor/overview" },
+          { text: "Memory and bulletins", link: "/visor/memory" },
           { text: "Configuration", link: "/visor/configuration" }
         ]
       },

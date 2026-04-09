@@ -222,10 +222,13 @@ enum ToolCatalog {
             "type": .string("object"),
             "properties": .object([
                 "note": .object(["type": .string("string")]),
+                "scope_type": .object(["type": .string("string")]),
+                "scope_id": .object(["type": .string("string")]),
                 "summary": .object(["type": .string("string")]),
-                "class": .object(["type": .string("string")])
+                "class": .object(["type": .string("string")]),
+                "kind": .object(["type": .string("string")])
             ]),
-            "required": .array([.string("note")])
+            "required": .array([.string("note"), .string("scope_type"), .string("scope_id")])
         ]),
         "mcp.list_servers": .object(["type": .string("object")]),
         "mcp.list_tools": .object([
@@ -457,6 +460,29 @@ enum ToolCatalog {
                 "query": .object(["type": .string("string")])
             ]),
             "required": .array([.string("operation")])
+        ]),
+        "visor.status": .object(["type": .string("object")]),
+        "agent.documents.set_user_markdown": .object([
+            "type": .string("object"),
+            "properties": .object([
+                "content": .object(["type": .string("string")])
+            ]),
+            "required": .array([.string("content")])
+        ]),
+        "agent.documents.set_memory_markdown": .object([
+            "type": .string("object"),
+            "properties": .object([
+                "content": .object(["type": .string("string")])
+            ]),
+            "required": .array([.string("content")])
+        ]),
+        "project.meta_memory_set": .object([
+            "type": .string("object"),
+            "properties": .object([
+                "projectId": .object(["type": .string("string")]),
+                "content": .object(["type": .string("string")])
+            ]),
+            "required": .array([.string("projectId"), .string("content")])
         ])
     ]
 }
