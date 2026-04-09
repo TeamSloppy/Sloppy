@@ -7,6 +7,8 @@ import Logging
 // MARK: - Projects
 
 extension CoreService {
+    private static let projectContextBootstrapMarker = "[project_context_bootstrap_v1]"
+
     public func listProjects() async -> [ProjectRecord] {
         await store.listProjects()
     }
@@ -122,6 +124,91 @@ extension CoreService {
         let relativePath = String(targetURL.path.dropFirst(rootURL.path.count))
             .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
         return ProjectFileContentResponse(path: relativePath, content: text, sizeBytes: data.count)
+    }
+
+    public func refreshProjectContext(projectID: String) async throws -> ProjectContextRefreshResponse {
+        await waitForStartup()
+        guard let normalizedID = normalizedProjectID(projectID) else {
+            throw ProjectError.invalidProjectID
+        }
+        guard let project = await store.project(id: normalizedID) else {
+            throw ProjectError.notFound
+        }
+        guard let repoPath = project.repoPath?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !repoPath.isEmpty
+        else {
+            throw ProjectError.invalidPayload
+        }
+
+        let loader = ProjectContextLoader()
+        let loaded = loader.load(repoPath: repoPath)
+        let content = renderProjectContextBootstrap(projectID: normalizedID, projectName: project.name, loaded: loaded)
+
+        let channelIDs = project.channels.map(\.channelId)
+        for channelID in channelIDs {
+            await runtime.appendSystemMessage(channelId: channelID, content: content)
+            await runtime.setChannelBootstrap(channelId: channelID, content: content)
+        }
+
+        return ProjectContextRefreshResponse(
+            projectId: normalizedID,
+            repoPath: loaded.repoPath,
+            appliedChannelIds: channelIDs,
+            loadedDocPaths: loaded.loadedDocs.map(\.relativePath),
+            loadedSkillPaths: loaded.loadedSkills.map(\.relativePath),
+            totalChars: loaded.totalChars,
+            truncated: loaded.truncated
+        )
+    }
+
+    private func renderProjectContextBootstrap(
+        projectID: String,
+        projectName: String,
+        loaded: ProjectContextLoader.Result
+    ) -> String {
+        var lines: [String] = []
+        lines.append(Self.projectContextBootstrapMarker)
+        lines.append("Project context initialized.")
+        lines.append("Project: \(projectName) (\(projectID))")
+        lines.append("Repo path: \(loaded.repoPath)")
+
+        if !loaded.loadedDocs.isEmpty {
+            lines.append("")
+            lines.append("[Project files]")
+            for file in loaded.loadedDocs {
+                lines.append("")
+                lines.append("[\(file.relativePath)]")
+                lines.append(file.content)
+                if file.truncated {
+                    lines.append("")
+                    lines.append("(truncated)")
+                }
+            }
+        }
+
+        if !loaded.loadedSkills.isEmpty {
+            lines.append("")
+            lines.append("[.skills]")
+            lines.append("Loaded \(loaded.loadedSkills.count) skill file(s).")
+            for file in loaded.loadedSkills {
+                lines.append("")
+                lines.append("[\(file.relativePath)]")
+                lines.append(file.content)
+                if file.truncated {
+                    lines.append("")
+                    lines.append("(truncated)")
+                }
+            }
+        }
+
+        if loaded.truncated {
+            lines.append("")
+            lines.append("[Note]")
+            lines.append("Project context was truncated due to size limits.")
+        }
+
+        lines.append("")
+        return lines.joined(separator: "\n")
     }
 
     /// Creates a new dashboard project.

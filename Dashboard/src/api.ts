@@ -33,6 +33,7 @@ export const fetchProject = coreApi.fetchProject;
 export const fetchTaskByReference = coreApi.fetchTaskByReference;
 export const createProject = coreApi.createProject;
 export const updateProject = coreApi.updateProject;
+export const refreshProjectContext = coreApi.refreshProjectContext;
 export const deleteProject = coreApi.deleteProject;
 export const createProjectChannel = coreApi.createProjectChannel;
 export const deleteProjectChannel = coreApi.deleteProjectChannel;

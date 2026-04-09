@@ -483,6 +483,34 @@ public struct ProjectUpdateRequest: Codable, Sendable {
     }
 }
 
+public struct ProjectContextRefreshResponse: Codable, Sendable {
+    public var projectId: String
+    public var repoPath: String?
+    public var appliedChannelIds: [String]
+    public var loadedDocPaths: [String]
+    public var loadedSkillPaths: [String]
+    public var totalChars: Int
+    public var truncated: Bool
+
+    public init(
+        projectId: String,
+        repoPath: String?,
+        appliedChannelIds: [String],
+        loadedDocPaths: [String],
+        loadedSkillPaths: [String],
+        totalChars: Int,
+        truncated: Bool
+    ) {
+        self.projectId = projectId
+        self.repoPath = repoPath
+        self.appliedChannelIds = appliedChannelIds
+        self.loadedDocPaths = loadedDocPaths
+        self.loadedSkillPaths = loadedSkillPaths
+        self.totalChars = totalChars
+        self.truncated = truncated
+    }
+}
+
 public struct ProjectChannelCreateRequest: Codable, Sendable {
     public var title: String
     public var channelId: String

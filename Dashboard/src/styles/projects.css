@@ -751,6 +751,85 @@
   gap: 12px;
 }
 
+.project-participants-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 10px;
+}
+
+.project-participant-card {
+  border: 1px solid var(--line);
+  background: var(--surface-2);
+  padding: 10px;
+  min-width: 0;
+  display: grid;
+  gap: 6px;
+}
+
+.project-participant-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 10px;
+  min-width: 0;
+}
+
+.project-participant-name {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.project-participant-agent {
+  color: var(--muted);
+  font-size: 0.75rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 50%;
+}
+
+.project-participant-meta {
+  display: flex;
+  gap: 10px;
+  justify-content: space-between;
+  align-items: baseline;
+  color: var(--muted);
+  font-size: 0.75rem;
+  min-width: 0;
+}
+
+.project-participant-id,
+.project-participant-channel {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.project-chat-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.project-chat-refresh-btn {
+  min-width: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  font-size: 0.8rem;
+  border: 1px solid var(--line);
+  background: var(--surface);
+}
+
+.project-chat-refresh-status {
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
 .project-overview-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
