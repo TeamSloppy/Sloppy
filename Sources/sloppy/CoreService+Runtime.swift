@@ -2,6 +2,7 @@ import Foundation
 import AgentRuntime
 import Protocols
 import Logging
+import Tracing
 
 // MARK: - Runtime
 
@@ -23,14 +24,55 @@ extension CoreService {
                 let stream = await runtime.eventBus.subscribe()
                 continuation.resume()
                 for await event in stream {
-                    let enrichedEvent = await eventByInjectingSwarmMetadata(event)
-                    await store.persist(event: enrichedEvent)
-                    await handleVisorEvent(enrichedEvent)
-                    await extractAndPersistTokenUsage(from: enrichedEvent)
-                    await emitNotificationIfNeeded(from: enrichedEvent)
+                    _ = await withSpan("runtime.event.persist", ofKind: .consumer) { span in
+                        span.attributes["channel_id"] = "\(event.channelId)"
+                        span.attributes["message_type"] = "\(event.messageType.rawValue)"
+                        let enrichedEvent = await eventByInjectingSwarmMetadata(event)
+                        await store.persist(event: enrichedEvent)
+                        await recordProjectAnalyticsFactIfNeeded(enrichedEvent)
+                        await handleVisorEvent(enrichedEvent)
+                        await extractAndPersistTokenUsage(from: enrichedEvent)
+                        await emitNotificationIfNeeded(from: enrichedEvent)
+                    }
                 }
             }
         }
+    }
+
+    func recordProjectAnalyticsFactIfNeeded(_ event: EventEnvelope) async {
+        let tracked: Set<MessageType> = [
+            .channelRouteDecided,
+            .visorWorkerTimeout,
+            .visorBranchTimeout,
+            .compactorThresholdHit,
+            .compactorSummaryApplied,
+            .visorBulletinGenerated,
+        ]
+        guard tracked.contains(event.messageType) else { return }
+
+        let projectId = await resolveProjectId(forChannelId: event.channelId)
+        guard let projectId else { return }
+
+        await store.persistProjectEventFact(
+            id: UUID().uuidString,
+            projectId: projectId,
+            channelId: event.channelId,
+            messageType: event.messageType.rawValue,
+            traceId: event.traceId,
+            createdAt: event.ts
+        )
+    }
+
+    func resolveProjectId(forChannelId channelId: String) async -> String? {
+        let normalized = channelId.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalized.isEmpty else { return nil }
+        let projects = await store.listProjects()
+        for project in projects {
+            if project.channels.contains(where: { $0.channelId == normalized }) {
+                return project.id
+            }
+        }
+        return nil
     }
 
     func eventByInjectingSwarmMetadata(_ event: EventEnvelope) async -> EventEnvelope {

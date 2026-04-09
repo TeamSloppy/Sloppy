@@ -57,6 +57,7 @@ import { ProjectChatTab } from "./Projects/ProjectChatTab";
 import { ProjectSettingsTab } from "./Projects/ProjectSettingsTab";
 import { ProjectFilesTab } from "./Projects/ProjectFilesTab";
 import { ProjectMemoryTab } from "./Projects/ProjectMemoryTab";
+import { ProjectAnalyticsTab } from "./Projects/ProjectAnalyticsTab";
 import { ProjectList } from "./Projects/ProjectList";
 import { TaskReviewView } from "./Projects/TaskReviewView";
 
@@ -1641,6 +1642,15 @@ export function ProjectsView({
           onOpenReview={openReview}
           workers={workers}
           onWatchAgentTaskSession={watchAgentTaskSession}
+        />
+      );
+    }
+
+    if (selectedTab === "analytics") {
+      return (
+        <ProjectAnalyticsTab
+          project={project}
+          onOpenTab={(tabId) => openProject(project.id, tabId)}
         />
       );
     }

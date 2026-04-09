@@ -68,6 +68,54 @@ public actor InMemoryPersistenceStore: PersistenceStore {
         return result
     }
 
+    public func listTokenUsage(channelIds: [String], from: Date?, to: Date?) async -> [TokenUsageRecord] {
+        // In-memory store: keep it simple by delegating to per-channel filtering (no timestamps tracked).
+        var result: [TokenUsageRecord] = []
+        for channelId in channelIds {
+            let records = await listTokenUsage(channelId: channelId, taskId: nil, from: from, to: to)
+            result.append(contentsOf: records)
+        }
+        return result
+    }
+
+    public func persistToolInvocation(
+        id: String,
+        projectId: String?,
+        taskId: String?,
+        agentId: String,
+        sessionId: String,
+        tool: String,
+        ok: Bool,
+        durationMs: Int?,
+        traceId: String?,
+        createdAt: Date
+    ) async {
+        // Intentionally ignored for in-memory store (used for lightweight dev/testing only).
+    }
+
+    public func persistProjectEventFact(
+        id: String,
+        projectId: String,
+        channelId: String,
+        messageType: String,
+        traceId: String?,
+        createdAt: Date
+    ) async {
+        // Intentionally ignored for in-memory store (used for lightweight dev/testing only).
+    }
+
+    public func listProjectEventCounts(projectId: String, from: Date?, to: Date?) async -> [String: Int] {
+        [:]
+    }
+
+    public func listToolInvocationAggregates(projectId: String, from: Date?, to: Date?) async -> [PersistedToolInvocationAggregate] {
+        []
+    }
+
+    public func listToolInvocationDurations(projectId: String, from: Date?, to: Date?, limit: Int) async -> [Int] {
+        []
+    }
+
     public func persistBulletin(_ bulletin: MemoryBulletin) async {
         bulletins.append(bulletin)
     }
@@ -496,6 +544,34 @@ enum CorePersistenceFactory {
             total_tokens INTEGER NOT NULL,
             created_at TEXT NOT NULL
         );
+
+        CREATE TABLE IF NOT EXISTS tool_invocations (
+            id TEXT PRIMARY KEY,
+            project_id TEXT,
+            task_id TEXT,
+            agent_id TEXT NOT NULL,
+            session_id TEXT NOT NULL,
+            tool TEXT NOT NULL,
+            ok INTEGER NOT NULL,
+            duration_ms INTEGER,
+            trace_id TEXT,
+            created_at TEXT NOT NULL
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_tool_invocations_project_created ON tool_invocations(project_id, created_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_tool_invocations_tool_created ON tool_invocations(tool, created_at DESC);
+
+        CREATE TABLE IF NOT EXISTS project_event_facts (
+            id TEXT PRIMARY KEY,
+            project_id TEXT NOT NULL,
+            channel_id TEXT NOT NULL,
+            message_type TEXT NOT NULL,
+            trace_id TEXT,
+            created_at TEXT NOT NULL
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_project_event_facts_project_created ON project_event_facts(project_id, created_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_project_event_facts_project_type_created ON project_event_facts(project_id, message_type, created_at DESC);
 
         CREATE TABLE IF NOT EXISTS dashboard_projects (
             id TEXT PRIMARY KEY,

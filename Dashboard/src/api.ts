@@ -114,6 +114,7 @@ export const createTaskClarification = coreApi.createTaskClarification;
 export const answerTaskClarification = coreApi.answerTaskClarification;
 export const fetchProjectFiles = coreApi.fetchProjectFiles;
 export const fetchProjectFileContent = coreApi.fetchProjectFileContent;
+export const fetchProjectAnalytics = coreApi.fetchProjectAnalytics;
 export const fetchUpdateStatus = coreApi.fetchUpdateStatus;
 export const forceUpdateCheck = coreApi.forceUpdateCheck;
 export const generateText = coreApi.generateText;

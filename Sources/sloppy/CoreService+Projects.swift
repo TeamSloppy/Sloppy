@@ -32,6 +32,106 @@ extension CoreService {
         )
     }
 
+    public func projectAnalytics(projectID: String, query: ProjectAnalyticsQuery) async throws -> ProjectAnalyticsResponse {
+        let project = try await getProject(id: projectID)
+
+        let now = Date()
+        let rangeFrom: Date?
+        let rangeTo: Date?
+
+        switch query.window {
+        case .last24h:
+            rangeFrom = query.from ?? Calendar.current.date(byAdding: .hour, value: -24, to: now)
+            rangeTo = query.to ?? now
+        case .last7d:
+            rangeFrom = query.from ?? Calendar.current.date(byAdding: .day, value: -7, to: now)
+            rangeTo = query.to ?? now
+        case .all:
+            rangeFrom = query.from
+            rangeTo = query.to
+        }
+
+        let runtimeCounts = await store.listProjectEventCounts(projectId: project.id, from: rangeFrom, to: rangeTo)
+
+        let outcome = ProjectTaskOutcomeCounts(
+            total: project.tasks.count,
+            success: project.tasks.filter { $0.status == ProjectTaskStatus.done.rawValue }.count,
+            failed: project.tasks.filter { $0.status == ProjectTaskStatus.blocked.rawValue }.count,
+            interrupted: project.tasks.filter { $0.status == ProjectTaskStatus.cancelled.rawValue }.count
+        )
+
+        let aggregates = await store.listToolInvocationAggregates(projectId: project.id, from: rangeFrom, to: rangeTo)
+        let totalCalls = aggregates.reduce(0) { $0 + $1.calls }
+        let totalFailures = aggregates.reduce(0) { $0 + $1.failures }
+        let totalDuration = aggregates.reduce(0) { $0 + $1.totalDurationMs }
+        let avgDurationMs: Int? = totalCalls > 0 ? Int(Double(totalDuration) / Double(totalCalls)) : nil
+        let failureRate = totalCalls > 0 ? Double(totalFailures) / Double(totalCalls) : 0
+
+        let durations = await store.listToolInvocationDurations(projectId: project.id, from: rangeFrom, to: rangeTo, limit: 5000).sorted()
+        let p50 = percentile(sorted: durations, p: 0.50)
+        let p95 = percentile(sorted: durations, p: 0.95)
+
+        let toolAggs: [ProjectToolStats.ToolAggregate] = aggregates.map { agg in
+            let avg = agg.calls > 0 ? Int(Double(agg.totalDurationMs) / Double(agg.calls)) : nil
+            return .init(tool: agg.tool, calls: agg.calls, failures: agg.failures, avgDurationMs: avg)
+        }
+
+        let topByTime = toolAggs
+            .sorted { (lhs, rhs) in
+                let lhsTotal = (lhs.avgDurationMs ?? 0) * lhs.calls
+                let rhsTotal = (rhs.avgDurationMs ?? 0) * rhs.calls
+                if lhsTotal != rhsTotal { return lhsTotal > rhsTotal }
+                return lhs.tool < rhs.tool
+            }
+            .prefix(8)
+
+        let topFailing = toolAggs
+            .sorted { (lhs, rhs) in
+                if lhs.failures != rhs.failures { return lhs.failures > rhs.failures }
+                return lhs.tool < rhs.tool
+            }
+            .prefix(8)
+
+        let toolStats = ProjectToolStats(
+            totalCalls: totalCalls,
+            totalFailures: totalFailures,
+            failureRate: failureRate,
+            avgDurationMs: avgDurationMs,
+            p50DurationMs: p50,
+            p95DurationMs: p95,
+            topToolsByTime: Array(topByTime),
+            topFailingTools: Array(topFailing)
+        )
+
+        let channelIds = project.channels.map { $0.channelId }
+        let tokenRecords = await store.listTokenUsage(channelIds: channelIds, from: rangeFrom, to: rangeTo)
+        let tokenTotals = ProjectTokenUsageTotals(
+            totalPromptTokens: tokenRecords.reduce(0) { $0 + $1.promptTokens },
+            totalCompletionTokens: tokenRecords.reduce(0) { $0 + $1.completionTokens },
+            totalTokens: tokenRecords.reduce(0) { $0 + $1.totalTokens }
+        )
+
+        return ProjectAnalyticsResponse(
+            projectId: project.id,
+            window: query.window,
+            from: rangeFrom,
+            to: rangeTo,
+            runtimeEventCounts: runtimeCounts,
+            taskOutcomes: outcome,
+            tools: toolStats,
+            tokenUsage: tokenTotals,
+            isPartial: false,
+            notes: []
+        )
+    }
+
+    private func percentile(sorted: [Int], p: Double) -> Int? {
+        guard !sorted.isEmpty else { return nil }
+        let clamped = max(0, min(p, 1))
+        let idx = Int(round(clamped * Double(sorted.count - 1)))
+        return sorted[min(max(idx, 0), sorted.count - 1)]
+    }
+
     /// Lists runtime event timeline for a channel (newest first) with cursor pagination.
     public func getProject(id: String) async throws -> ProjectRecord {
         guard let normalizedID = normalizedProjectID(id) else {

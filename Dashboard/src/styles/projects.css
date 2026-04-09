@@ -900,6 +900,139 @@
   font-size: 0.76rem;
 }
 
+.project-analytics-window {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.project-analytics-window .project-pane-link.active {
+  text-decoration: underline;
+}
+
+.project-analytics-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+@media (max-width: 900px) {
+  .project-analytics-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.project-analytics-card {
+  border: 1px solid var(--line);
+  background: var(--surface);
+  padding: 12px;
+}
+
+.project-analytics-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+  gap: 12px;
+}
+
+.project-analytics-kv {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px 14px;
+}
+
+.project-analytics-kv > div {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.project-analytics-kv span {
+  color: var(--muted);
+  font-size: 0.76rem;
+}
+
+.project-analytics-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.project-analytics-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.project-analytics-row-key {
+  color: var(--muted);
+  font-size: 0.76rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.project-analytics-row-value {
+  font-variant-numeric: tabular-nums;
+}
+
+.project-analytics-grid .project-analytics-card--wide {
+  grid-column: 1 / -1;
+}
+
+.project-analytics-card--split .project-analytics-split {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 14px;
+  align-items: start;
+}
+
+@media (max-width: 700px) {
+  .project-analytics-card--split .project-analytics-split {
+    grid-template-columns: 1fr;
+  }
+}
+
+.project-analytics-chart-wrap {
+  width: 100%;
+  min-height: 180px;
+}
+
+.project-analytics-chart-wrap--bar {
+  min-height: 0;
+}
+
+.project-analytics-chart-empty {
+  min-height: 160px;
+  margin: 0;
+  text-align: center;
+}
+
+.project-analytics-chart-block {
+  margin-top: 12px;
+}
+
+.project-analytics-chart-label {
+  display: block;
+  font-size: 0.76rem;
+  color: var(--muted);
+  margin-bottom: 6px;
+}
+
+.project-analytics-kv--tools-summary {
+  margin-bottom: 4px;
+}
+
+.project-analytics-list--compact {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+  max-height: 200px;
+  overflow: auto;
+}
+
 .project-overview-empty {
   min-height: 120px;
   display: flex;

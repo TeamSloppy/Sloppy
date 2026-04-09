@@ -167,6 +167,7 @@ export interface CoreApi {
   answerTaskClarification: (projectId: string, taskId: string, clarificationId: string, payload: AnyRecord) => Promise<AnyRecord | null>;
   fetchProjectFiles: (projectId: string, path?: string) => Promise<AnyRecord[] | null>;
   fetchProjectFileContent: (projectId: string, path: string) => Promise<AnyRecord | null>;
+  fetchProjectAnalytics: (projectId: string, query?: { window?: string; from?: string; to?: string }) => Promise<AnyRecord | null>;
   fetchUpdateStatus: () => Promise<AnyRecord | null>;
   forceUpdateCheck: () => Promise<AnyRecord | null>;
   generateText: (payload: AnyRecord) => Promise<AnyRecord | null>;
@@ -1459,6 +1460,19 @@ export function createCoreApi(): CoreApi {
     fetchProjectFileContent: async (projectId, path) => {
       const response = await requestJson<AnyRecord>({
         path: `/v1/projects/${encodeURIComponent(projectId)}/files/content?path=${encodeURIComponent(path)}`
+      });
+      if (!response.ok) return null;
+      return response.data;
+    },
+
+    fetchProjectAnalytics: async (projectId, query = {}) => {
+      const params = new URLSearchParams();
+      if (query.window) params.set("window", query.window);
+      if (query.from) params.set("from", query.from);
+      if (query.to) params.set("to", query.to);
+      const qs = params.toString();
+      const response = await requestJson<AnyRecord>({
+        path: `/v1/projects/${encodeURIComponent(projectId)}/analytics${qs ? `?${qs}` : ""}`
       });
       if (!response.ok) return null;
       return response.data;

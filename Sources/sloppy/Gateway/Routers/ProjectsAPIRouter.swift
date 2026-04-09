@@ -26,6 +26,23 @@ struct ProjectsAPIRouter: APIRouter {
             }
         }
 
+        router.get("/v1/projects/:projectId/analytics", metadata: RouteMetadata(summary: "Get project analytics", description: "Returns aggregated analytics for a project", tags: ["Projects"])) { request in
+            let projectId = request.pathParam("projectId") ?? ""
+            let windowRaw = (request.queryParam("window") ?? "24h").lowercased()
+            let window = ProjectAnalyticsWindow(rawValue: windowRaw) ?? .last24h
+            let from = request.queryParam("from").flatMap { CoreRouter.isoDate(from: $0) }
+            let to = request.queryParam("to").flatMap { CoreRouter.isoDate(from: $0) }
+
+            do {
+                let response = try await service.projectAnalytics(projectID: projectId, query: .init(window: window, from: from, to: to))
+                return CoreRouter.encodable(status: HTTPStatus.ok, payload: response)
+            } catch let error as CoreService.ProjectError {
+                return CoreRouter.projectErrorResponse(error, fallback: ErrorCode.projectReadFailed)
+            } catch {
+                return CoreRouter.json(status: HTTPStatus.internalServerError, payload: ["error": ErrorCode.projectReadFailed])
+            }
+        }
+
         router.get("/v1/projects/:projectId/files", metadata: RouteMetadata(summary: "List project files", description: "Returns the file tree entries for a directory in the project workspace", tags: ["Projects"])) { request in
             let projectId = request.pathParam("projectId") ?? ""
             let path = request.queryParam("path") ?? ""

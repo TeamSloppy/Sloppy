@@ -6,6 +6,7 @@ export const PROJECT_TABS = [
   { id: "chat", title: "Chat" },
   { id: "files", title: "Files" },
   { id: "tasks", title: "Tasks" },
+  { id: "analytics", title: "Analytics" },
   { id: "workers", title: "Workers" },
   { id: "visor", title: "Visor" },
   { id: "memory", title: "Memory" },
@@ -286,8 +287,10 @@ export function buildTaskCounts(tasks) {
 export function buildOverviewMetrics(project, taskCounts, activeWorkers, chatSnapshots) {
   const totalTasks = Number(taskCounts?.total || 0);
   const doneTasks = Number(taskCounts?.done || 0);
+  const cancelledTasks = Number(taskCounts?.cancelled || 0);
+  const blockedTasks = Number(taskCounts?.blocked || 0);
   const openTasks = Math.max(0, totalTasks - doneTasks);
-  const needsAttention = Number(taskCounts?.blocked || 0) + Number(taskCounts?.needs_review || 0);
+  const needsAttention = blockedTasks + Number(taskCounts?.needs_review || 0);
   const channelActivity = buildChannelActivity(project, chatSnapshots, activeWorkers);
   const activeChannelCount = channelActivity.filter((channel) => channel.hasActivity).length;
   const relatedChannelCount = Array.isArray(project?.chats) ? project.chats.length : 0;
@@ -305,8 +308,15 @@ export function buildOverviewMetrics(project, taskCounts, activeWorkers, chatSna
       id: "attention",
       label: "Needs attention",
       value: needsAttention,
-      sublabel: `${Number(taskCounts?.blocked || 0)} blocked / ${Number(taskCounts?.needs_review || 0)} review`,
+      sublabel: `${blockedTasks} blocked / ${Number(taskCounts?.needs_review || 0)} review`,
       tabId: "tasks"
+    },
+    {
+      id: "outcomes",
+      label: "Outcomes",
+      value: `${doneTasks} / ${blockedTasks} / ${cancelledTasks}`,
+      sublabel: "done / blocked / cancelled",
+      tabId: "analytics"
     },
     {
       id: "workers",

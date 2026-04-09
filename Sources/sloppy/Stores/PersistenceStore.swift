@@ -63,6 +63,20 @@ public struct PersistedEventCursor: Sendable, Equatable {
     }
 }
 
+public struct PersistedToolInvocationAggregate: Sendable, Equatable {
+    public var tool: String
+    public var calls: Int
+    public var failures: Int
+    public var totalDurationMs: Int
+
+    public init(tool: String, calls: Int, failures: Int, totalDurationMs: Int) {
+        self.tool = tool
+        self.calls = calls
+        self.failures = failures
+        self.totalDurationMs = totalDurationMs
+    }
+}
+
 public struct ChannelAccessUser: Codable, Sendable, Equatable {
     public var id: String
     public var platform: String
@@ -100,6 +114,42 @@ public protocol PersistenceStore: Sendable {
 
     /// Lists token usage records with optional filters.
     func listTokenUsage(channelId: String?, taskId: String?, from: Date?, to: Date?) async -> [TokenUsageRecord]
+
+    /// Lists token usage records across a set of channels (used for project analytics).
+    func listTokenUsage(channelIds: [String], from: Date?, to: Date?) async -> [TokenUsageRecord]
+
+    /// Persists a tool invocation analytics row (duration, ok/error, tracing correlation).
+    func persistToolInvocation(
+        id: String,
+        projectId: String?,
+        taskId: String?,
+        agentId: String,
+        sessionId: String,
+        tool: String,
+        ok: Bool,
+        durationMs: Int?,
+        traceId: String?,
+        createdAt: Date
+    ) async
+
+    /// Persists a runtime event fact for project-level analytics.
+    func persistProjectEventFact(
+        id: String,
+        projectId: String,
+        channelId: String,
+        messageType: String,
+        traceId: String?,
+        createdAt: Date
+    ) async
+
+    /// Lists counts of tracked runtime events for a project within optional date range.
+    func listProjectEventCounts(projectId: String, from: Date?, to: Date?) async -> [String: Int]
+
+    /// Lists tool invocation aggregates grouped by tool id for a project within optional date range.
+    func listToolInvocationAggregates(projectId: String, from: Date?, to: Date?) async -> [PersistedToolInvocationAggregate]
+
+    /// Lists tool invocation durations (ms) for percentile computation.
+    func listToolInvocationDurations(projectId: String, from: Date?, to: Date?, limit: Int) async -> [Int]
 
     /// Persists a generated memory bulletin.
     func persistBulletin(_ bulletin: MemoryBulletin) async

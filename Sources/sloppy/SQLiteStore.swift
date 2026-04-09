@@ -224,6 +224,313 @@ public actor SQLiteStore: PersistenceStore {
 #endif
     }
 
+    public func listTokenUsage(channelIds: [String], from: Date?, to: Date?) async -> [TokenUsageRecord] {
+#if canImport(CSQLite3)
+        guard let db else { return [] }
+        guard !channelIds.isEmpty else { return [] }
+
+        var conditions: [String] = []
+        let placeholders = channelIds.map { _ in "?" }.joined(separator: ", ")
+        conditions.append("channel_id IN (\(placeholders))")
+        if from != nil { conditions.append("created_at >= ?") }
+        if to != nil { conditions.append("created_at <= ?") }
+        let whereClause = "WHERE " + conditions.joined(separator: " AND ")
+
+        let sql =
+            """
+            SELECT id, channel_id, task_id, prompt_tokens, completion_tokens, total_tokens, created_at
+            FROM token_usage
+            \(whereClause)
+            ORDER BY created_at DESC
+            LIMIT 2000;
+            """
+
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK else { return [] }
+        defer { sqlite3_finalize(statement) }
+
+        var paramIndex: Int32 = 1
+        for id in channelIds {
+            bindText(id, at: paramIndex, statement: statement)
+            paramIndex += 1
+        }
+        if let from {
+            bindText(isoFormatter.string(from: from), at: paramIndex, statement: statement)
+            paramIndex += 1
+        }
+        if let to {
+            bindText(isoFormatter.string(from: to), at: paramIndex, statement: statement)
+        }
+
+        var result: [TokenUsageRecord] = []
+        while sqlite3_step(statement) == SQLITE_ROW {
+            guard
+                let idPtr = sqlite3_column_text(statement, 0),
+                let channelIdPtr = sqlite3_column_text(statement, 1),
+                let createdAtPtr = sqlite3_column_text(statement, 6)
+            else {
+                continue
+            }
+
+            let id = String(cString: idPtr)
+            let recordChannelId = String(cString: channelIdPtr)
+            let taskId = optionalText(statement: statement, index: 2)
+            let promptTokens = Int(sqlite3_column_int(statement, 3))
+            let completionTokens = Int(sqlite3_column_int(statement, 4))
+            let totalTokens = Int(sqlite3_column_int(statement, 5))
+            let createdAt = isoFormatter.date(from: String(cString: createdAtPtr)) ?? Date()
+
+            result.append(
+                TokenUsageRecord(
+                    id: id,
+                    channelId: recordChannelId,
+                    taskId: taskId,
+                    promptTokens: promptTokens,
+                    completionTokens: completionTokens,
+                    totalTokens: totalTokens,
+                    createdAt: createdAt
+                )
+            )
+        }
+
+        return result
+#else
+        return []
+#endif
+    }
+
+    public func persistToolInvocation(
+        id: String,
+        projectId: String?,
+        taskId: String?,
+        agentId: String,
+        sessionId: String,
+        tool: String,
+        ok: Bool,
+        durationMs: Int?,
+        traceId: String?,
+        createdAt: Date
+    ) async {
+#if canImport(CSQLite3)
+        guard let db else { return }
+
+        let sql =
+            """
+            INSERT INTO tool_invocations(
+                id,
+                project_id,
+                task_id,
+                agent_id,
+                session_id,
+                tool,
+                ok,
+                duration_ms,
+                trace_id,
+                created_at
+            ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+            """
+
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK else { return }
+        defer { sqlite3_finalize(statement) }
+
+        bindText(id, at: 1, statement: statement)
+        bindOptionalText(projectId, at: 2, statement: statement)
+        bindOptionalText(taskId, at: 3, statement: statement)
+        bindText(agentId, at: 4, statement: statement)
+        bindText(sessionId, at: 5, statement: statement)
+        bindText(tool, at: 6, statement: statement)
+        sqlite3_bind_int(statement, 7, ok ? 1 : 0)
+        if let durationMs {
+            sqlite3_bind_int(statement, 8, Int32(durationMs))
+        } else {
+            sqlite3_bind_null(statement, 8)
+        }
+        bindOptionalText(traceId, at: 9, statement: statement)
+        bindText(isoFormatter.string(from: createdAt), at: 10, statement: statement)
+
+        _ = sqlite3_step(statement)
+#endif
+    }
+
+    public func persistProjectEventFact(
+        id: String,
+        projectId: String,
+        channelId: String,
+        messageType: String,
+        traceId: String?,
+        createdAt: Date
+    ) async {
+#if canImport(CSQLite3)
+        guard let db else { return }
+
+        let sql =
+            """
+            INSERT INTO project_event_facts(
+                id,
+                project_id,
+                channel_id,
+                message_type,
+                trace_id,
+                created_at
+            ) VALUES(?, ?, ?, ?, ?, ?);
+            """
+
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK else { return }
+        defer { sqlite3_finalize(statement) }
+
+        bindText(id, at: 1, statement: statement)
+        bindText(projectId, at: 2, statement: statement)
+        bindText(channelId, at: 3, statement: statement)
+        bindText(messageType, at: 4, statement: statement)
+        bindOptionalText(traceId, at: 5, statement: statement)
+        bindText(isoFormatter.string(from: createdAt), at: 6, statement: statement)
+
+        _ = sqlite3_step(statement)
+#endif
+    }
+
+    public func listProjectEventCounts(projectId: String, from: Date?, to: Date?) async -> [String: Int] {
+#if canImport(CSQLite3)
+        guard let db else { return [:] }
+
+        var conditions: [String] = ["project_id = ?"]
+        if from != nil { conditions.append("created_at >= ?") }
+        if to != nil { conditions.append("created_at <= ?") }
+        let whereClause = "WHERE " + conditions.joined(separator: " AND ")
+
+        let sql =
+            """
+            SELECT message_type, COUNT(*)
+            FROM project_event_facts
+            \(whereClause)
+            GROUP BY message_type;
+            """
+
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK else { return [:] }
+        defer { sqlite3_finalize(statement) }
+
+        var paramIndex: Int32 = 1
+        bindText(projectId, at: paramIndex, statement: statement)
+        paramIndex += 1
+        if let from {
+            bindText(isoFormatter.string(from: from), at: paramIndex, statement: statement)
+            paramIndex += 1
+        }
+        if let to {
+            bindText(isoFormatter.string(from: to), at: paramIndex, statement: statement)
+        }
+
+        var result: [String: Int] = [:]
+        while sqlite3_step(statement) == SQLITE_ROW {
+            guard let typePtr = sqlite3_column_text(statement, 0) else { continue }
+            let type = String(cString: typePtr)
+            let count = Int(sqlite3_column_int(statement, 1))
+            result[type] = count
+        }
+        return result
+#else
+        return [:]
+#endif
+    }
+
+    public func listToolInvocationAggregates(projectId: String, from: Date?, to: Date?) async -> [PersistedToolInvocationAggregate] {
+#if canImport(CSQLite3)
+        guard let db else { return [] }
+
+        var conditions: [String] = ["project_id = ?"]
+        if from != nil { conditions.append("created_at >= ?") }
+        if to != nil { conditions.append("created_at <= ?") }
+        let whereClause = "WHERE " + conditions.joined(separator: " AND ")
+
+        let sql =
+            """
+            SELECT tool,
+                   COUNT(*) AS calls,
+                   SUM(CASE WHEN ok = 0 THEN 1 ELSE 0 END) AS failures,
+                   COALESCE(SUM(COALESCE(duration_ms, 0)), 0) AS total_duration
+            FROM tool_invocations
+            \(whereClause)
+            GROUP BY tool;
+            """
+
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK else { return [] }
+        defer { sqlite3_finalize(statement) }
+
+        var paramIndex: Int32 = 1
+        bindText(projectId, at: paramIndex, statement: statement)
+        paramIndex += 1
+        if let from {
+            bindText(isoFormatter.string(from: from), at: paramIndex, statement: statement)
+            paramIndex += 1
+        }
+        if let to {
+            bindText(isoFormatter.string(from: to), at: paramIndex, statement: statement)
+        }
+
+        var result: [PersistedToolInvocationAggregate] = []
+        while sqlite3_step(statement) == SQLITE_ROW {
+            guard let toolPtr = sqlite3_column_text(statement, 0) else { continue }
+            let tool = String(cString: toolPtr)
+            let calls = Int(sqlite3_column_int(statement, 1))
+            let failures = Int(sqlite3_column_int(statement, 2))
+            let totalDuration = Int(sqlite3_column_int(statement, 3))
+            result.append(.init(tool: tool, calls: calls, failures: failures, totalDurationMs: totalDuration))
+        }
+        return result
+#else
+        return []
+#endif
+    }
+
+    public func listToolInvocationDurations(projectId: String, from: Date?, to: Date?, limit: Int) async -> [Int] {
+#if canImport(CSQLite3)
+        guard let db else { return [] }
+
+        var conditions: [String] = ["project_id = ?"]
+        if from != nil { conditions.append("created_at >= ?") }
+        if to != nil { conditions.append("created_at <= ?") }
+        conditions.append("duration_ms IS NOT NULL")
+        let whereClause = "WHERE " + conditions.joined(separator: " AND ")
+        let clampedLimit = max(1, min(limit, 20_000))
+
+        let sql =
+            """
+            SELECT duration_ms
+            FROM tool_invocations
+            \(whereClause)
+            ORDER BY created_at DESC
+            LIMIT \(clampedLimit);
+            """
+
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK else { return [] }
+        defer { sqlite3_finalize(statement) }
+
+        var paramIndex: Int32 = 1
+        bindText(projectId, at: paramIndex, statement: statement)
+        paramIndex += 1
+        if let from {
+            bindText(isoFormatter.string(from: from), at: paramIndex, statement: statement)
+            paramIndex += 1
+        }
+        if let to {
+            bindText(isoFormatter.string(from: to), at: paramIndex, statement: statement)
+        }
+
+        var result: [Int] = []
+        while sqlite3_step(statement) == SQLITE_ROW {
+            result.append(Int(sqlite3_column_int(statement, 0)))
+        }
+        return result
+#else
+        return []
+#endif
+    }
+
     /// Persists generated memory bulletin.
     public func persistBulletin(_ bulletin: MemoryBulletin) async {
 #if canImport(CSQLite3)
