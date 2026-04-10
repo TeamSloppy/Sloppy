@@ -2,6 +2,9 @@ import ACP
 import ACPHTTP
 import ACPModel
 import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
 
 protocol ACPTransportClient: Sendable {
     func setDelegate(_ delegate: ClientDelegate?) async
