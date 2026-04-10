@@ -161,6 +161,9 @@ func sseStreamEndpointOverHTTPServerReturnsSessionReadyEvent() async throws {
     #expect(update.summary?.id == session.id)
 }
 
+// Linux Foundation uses libcurl for URLSession; WebSocket tasks are not supported there
+// (NSURLErrorDomain -1002 "WebSockets not supported by libcurl").
+#if !os(Linux)
 @Test
 func webSocketSessionStreamPublishesToolEventsOverHTTPServer() async throws {
     let config = CoreConfig.test
@@ -255,6 +258,7 @@ private func messagePayload(_ message: URLSessionWebSocketTask.Message) -> Strin
         return nil
     }
 }
+#endif
 
 private func withAsyncTestTimeout<T: Sendable>(
     seconds: Double = 10,
