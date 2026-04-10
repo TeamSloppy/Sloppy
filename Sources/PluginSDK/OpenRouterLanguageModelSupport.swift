@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
 
 /// Helpers for [OpenRouter](https://openrouter.ai/docs) — an OpenAI Chat Completions–compatible HTTP API.
 ///
