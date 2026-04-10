@@ -7,8 +7,8 @@ import {
   generateText,
   updateAgentConfig,
   fetchAgentConfig,
-  probeProvider,
 } from "../../api";
+import { collectAggregatedProviderModels } from "./utils/aggregateProviderModels";
 import { AgentOverviewTab } from "./components/AgentOverviewTab";
 import { AgentTasksTab } from "./components/AgentTasksTab";
 import { AgentChatTab } from "./components/AgentChatTab";
@@ -125,16 +125,6 @@ function parseGeneratedFiles(text: string): GeneratedAgentFiles {
   }
 
   return result;
-}
-
-function inferProviderId(entry: Record<string, unknown>): string {
-  const title = String(entry.title || "").toLowerCase();
-  const apiUrl = String(entry.apiUrl || "").toLowerCase();
-  if (title.includes("oauth")) return "openai-oauth";
-  if (title.includes("ollama") || apiUrl.includes("11434") || apiUrl.includes("ollama")) return "ollama";
-  if (title.includes("gemini") || apiUrl.includes("generativelanguage.googleapis.com")) return "gemini";
-  if (title.includes("anthropic") || apiUrl.includes("anthropic")) return "anthropic";
-  return "openai-api";
 }
 
 function AgentCreateModal({ isOpen, form, createError, onFormChange, onClose, onSubmit, availableModels, providerConfigured, isGenerating }) {
@@ -287,29 +277,7 @@ export function AgentsView({
       return;
     }
 
-    setProviderConfigured(true);
-
-    const allModels: { id: string; title: string }[] = [];
-
-    for (const entry of config.models as Record<string, unknown>[]) {
-      const providerId = inferProviderId(entry);
-      const result = await probeProvider({
-        providerId,
-        apiKey: String(entry.apiKey || ""),
-        apiUrl: String(entry.apiUrl || "")
-      });
-
-      if (result?.ok && Array.isArray(result.models)) {
-        for (const model of result.models as Record<string, unknown>[]) {
-          const id = String(model.id || "");
-          const title = String(model.title || id);
-          if (id && !allModels.some((m) => m.id === id)) {
-            allModels.push({ id, title });
-          }
-        }
-      }
-    }
-
+    const allModels = await collectAggregatedProviderModels(config as Record<string, unknown>);
     setAvailableModels(allModels);
     setProviderConfigured(allModels.length > 0);
   }
