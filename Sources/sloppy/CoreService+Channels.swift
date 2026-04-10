@@ -11,11 +11,34 @@ extension CoreService {
 
         let trimmedContent = request.content.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmedContent.lowercased() == "/abort" {
+            await channelStreamCancelRegistry.requestCancel(channelId: channelId)
             let cancelled = await runtime.abortChannel(channelId: channelId, reason: "Aborted by user")
+            await channelStreamCancelRegistry.clearCancel(channelId: channelId)
             let reason = cancelled > 0
                 ? "Aborted \(cancelled) active worker(s)."
                 : "No active workers to abort."
             return ChannelRouteDecision(action: .respond, reason: reason, confidence: 1.0, tokenBudget: 0)
+        }
+
+        if let btwTail = ChannelInboundBtwParsing.btwModelTailIfCommand(request.content) {
+            await channelStreamCancelRegistry.requestCancel(channelId: channelId)
+            _ = await runtime.abortChannel(channelId: channelId, reason: "Interrupted by /btw")
+            await runtime.invalidateChannelSession(channelId: channelId)
+            if btwTail.isEmpty {
+                return ChannelRouteDecision(
+                    action: .respond,
+                    reason: "btw_context_cleared",
+                    confidence: 1.0,
+                    tokenBudget: 0
+                )
+            }
+            let enrichedTail = await enrichMessageWithTaskReferences(btwTail)
+            let nextRequest = ChannelMessageRequest(
+                userId: request.userId,
+                content: enrichedTail,
+                topicId: request.topicId
+            )
+            return await runtime.postMessage(channelId: channelId, request: nextRequest)
         }
 
         if let approvalReference = TaskApprovalCommandParser.parse(request.content) {

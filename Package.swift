@@ -140,6 +140,7 @@ let package = Package(
                 "AgentRuntime",
                 "ChannelPluginDiscord",
                 "ChannelPluginTelegram",
+                "ChannelPluginSupport",
                 "Protocols",
                 "PluginSDK",
                 "CSQLite3"

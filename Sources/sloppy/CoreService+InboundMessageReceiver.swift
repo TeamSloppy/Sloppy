@@ -402,103 +402,79 @@ private actor ResponseCollector {
     func get() -> String { value }
 }
 
-extension CoreService: InboundMessageReceiver {
-    /// Checks whether a platform user is allowed to interact.
-    /// Priority: config allowlist (fast path) -> DB blocked -> DB approved -> pending approval flow.
-    public func checkAccess(
-        platform: String,
-        platformUserId: String,
-        displayName: String,
-        chatId: String
-    ) async -> ChannelAccessResult {
-        // Check DB for existing blocked entry
-        if let existing = await store.channelAccessUser(platform: platform, platformUserId: platformUserId) {
-            if existing.status == "blocked" {
-                return .blocked
-            }
-            if existing.status == "approved" {
-                return .allowed
-            }
+extension CoreService {
+    fileprivate func offerInboundChannelPluginMessage(
+        channelId: String,
+        userId: String,
+        contentForModel: String
+    ) async {
+        var slot = inboundChannelPluginQueues[channelId] ?? InboundChannelPluginQueueSlot()
+        if slot.processing {
+            slot.fifo.append((userId, contentForModel))
+            inboundChannelPluginQueues[channelId] = slot
+            await deliverToChannelPlugin(
+                channelId: channelId,
+                userId: "system",
+                content: "Message queued (\(slot.fifo.count) ahead)."
+            )
+            return
         }
-
-        // Already pending — return existing code
-        if let pending = await pendingApprovalService.findByUser(platform: platform, platformUserId: platformUserId) {
-            let msg = "Your access request is pending.\n\nVerification code: \(pending.code)\n\nShare this code with an admin to get approved."
-            return .pendingApproval(code: pending.code, message: msg)
+        slot.processing = true
+        inboundChannelPluginQueues[channelId] = slot
+        Task {
+            await self.runInboundChannelPluginDrain(
+                channelId: channelId,
+                initialUserId: userId,
+                initialContent: contentForModel
+            )
         }
-
-        // New user — create pending entry and notify Dashboard
-        let entry = await pendingApprovalService.addPending(
-            platform: platform,
-            platformUserId: platformUserId,
-            displayName: displayName,
-            chatId: chatId
-        )
-        await notificationService.pushPendingApproval(
-            title: "Access Request",
-            message: "\(displayName) (@\(platformUserId)) wants access via \(platform)",
-            approvalId: entry.id,
-            platform: platform,
-            userId: platformUserId,
-            channelId: entry.channelId
-        )
-        let msg = "Access requested.\n\nVerification code: \(entry.code)\n\nShare this code with an admin to get approved."
-        return .pendingApproval(code: entry.code, message: msg)
     }
 
-    /// Called by in-process channel plugins when a message arrives from an external platform.
-    /// Routes through the runtime, collects the response, persists to channel session,
-    /// and delivers it back to the channel plugin.
-    public func postMessage(channelId: String, userId: String, content: String) async -> Bool {
-        if let statusReply = await handleStatusCommand(channelId: channelId, content: content) {
-            await deliverToChannelPlugin(channelId: channelId, content: statusReply)
-            return true
-        }
-
-        if let modelCommandReply = await handleModelCommand(channelId: channelId, content: content) {
-            await deliverToChannelPlugin(channelId: channelId, content: modelCommandReply)
-            return true
-        }
-
-        if let contextReply = await handleContextCommand(channelId: channelId, content: content) {
-            await deliverToChannelPlugin(channelId: channelId, content: contextReply)
-            return true
-        }
-
-        do {
-            try await prepareChannelSession(channelId: channelId)
-        } catch {
-            logger.warning("Failed to prepare channel session for \(channelId): \(error)")
-        }
-
-        // Persist user message to channel session
-        do {
-            try await channelSessionStore.recordUserMessage(
+    fileprivate func runInboundChannelPluginDrain(
+        channelId: String,
+        initialUserId: String,
+        initialContent: String
+    ) async {
+        var userId = initialUserId
+        var content = initialContent
+        while true {
+            await executeSingleInboundChannelPluginTurn(
                 channelId: channelId,
                 userId: userId,
-                content: content
+                contentForModel: content
             )
-            await applyPetProgressForExternalChannel(
-                channelID: channelId,
-                event: AgentPetProgressionInput(
-                    sourceKind: petSourceKindForExternalChannelUser(userId),
-                    eventKind: .userMessage,
-                    channelId: channelId,
-                    timestamp: Date(),
-                    userId: userId,
-                    content: content
-                )
-            )
-        } catch {
-            logger.warning("Failed to persist user message to channel session: \(error)")
+            guard var slot = inboundChannelPluginQueues[channelId] else {
+                return
+            }
+            if slot.fifo.isEmpty {
+                slot.processing = false
+                inboundChannelPluginQueues[channelId] = slot
+                return
+            }
+            let next = slot.fifo.removeFirst()
+            inboundChannelPluginQueues[channelId] = slot
+            userId = next.userId
+            content = next.content
         }
+    }
+
+    fileprivate func executeSingleInboundChannelPluginTurn(
+        channelId: String,
+        userId: String,
+        contentForModel: String
+    ) async {
+        await channelStreamCancelRegistry.clearCancel(channelId: channelId)
 
         let modelOverride = await channelModelStore.get(channelId: channelId)
-        let request = ChannelMessageRequest(userId: userId, content: content, model: modelOverride)
+        let request = ChannelMessageRequest(userId: userId, content: contentForModel, model: modelOverride)
         let collector = ResponseCollector()
         let outboundStreamID = await channelDelivery.beginStream(channelId: channelId, userId: "assistant")
+        let cancelRegistry = channelStreamCancelRegistry
 
         let onChunk: @Sendable (String) async -> Bool = { chunk in
+            if await cancelRegistry.isCancelling(channelId: channelId) {
+                return false
+            }
             await collector.set(chunk)
             if let outboundStreamID {
                 _ = await self.channelDelivery.updateStream(id: outboundStreamID, content: chunk)
@@ -575,7 +551,6 @@ extension CoreService: InboundMessageReceiver {
 
         let reply = await collector.get().trimmingCharacters(in: .whitespacesAndNewlines)
         if !reply.isEmpty {
-            // Persist assistant response to channel session
             do {
                 try await channelSessionStore.recordAssistantMessage(
                     channelId: channelId,
@@ -616,6 +591,166 @@ extension CoreService: InboundMessageReceiver {
         } else if !reply.isEmpty {
             await channelDelivery.deliver(channelId: channelId, userId: "assistant", content: reply)
         }
+    }
+}
+
+extension CoreService: InboundMessageReceiver {
+    /// Checks whether a platform user is allowed to interact.
+    /// Priority: config allowlist (fast path) -> DB blocked -> DB approved -> pending approval flow.
+    public func checkAccess(
+        platform: String,
+        platformUserId: String,
+        displayName: String,
+        chatId: String
+    ) async -> ChannelAccessResult {
+        // Check DB for existing blocked entry
+        if let existing = await store.channelAccessUser(platform: platform, platformUserId: platformUserId) {
+            if existing.status == "blocked" {
+                return .blocked
+            }
+            if existing.status == "approved" {
+                return .allowed
+            }
+        }
+
+        // Already pending — return existing code
+        if let pending = await pendingApprovalService.findByUser(platform: platform, platformUserId: platformUserId) {
+            let msg = "Your access request is pending.\n\nVerification code: \(pending.code)\n\nShare this code with an admin to get approved."
+            return .pendingApproval(code: pending.code, message: msg)
+        }
+
+        // New user — create pending entry and notify Dashboard
+        let entry = await pendingApprovalService.addPending(
+            platform: platform,
+            platformUserId: platformUserId,
+            displayName: displayName,
+            chatId: chatId
+        )
+        await notificationService.pushPendingApproval(
+            title: "Access Request",
+            message: "\(displayName) (@\(platformUserId)) wants access via \(platform)",
+            approvalId: entry.id,
+            platform: platform,
+            userId: platformUserId,
+            channelId: entry.channelId
+        )
+        let msg = "Access requested.\n\nVerification code: \(entry.code)\n\nShare this code with an admin to get approved."
+        return .pendingApproval(code: entry.code, message: msg)
+    }
+
+    /// Called by in-process channel plugins when a message arrives from an external platform.
+    /// Routes through the runtime, collects the response, persists to channel session,
+    /// and delivers it back to the channel plugin.
+    public func postMessage(channelId: String, userId: String, content: String) async -> Bool {
+        if let statusReply = await handleStatusCommand(channelId: channelId, content: content) {
+            await deliverToChannelPlugin(channelId: channelId, content: statusReply)
+            return true
+        }
+
+        if let modelCommandReply = await handleModelCommand(channelId: channelId, content: content) {
+            await deliverToChannelPlugin(channelId: channelId, content: modelCommandReply)
+            return true
+        }
+
+        if let contextReply = await handleContextCommand(channelId: channelId, content: content) {
+            await deliverToChannelPlugin(channelId: channelId, content: contextReply)
+            return true
+        }
+
+        do {
+            try await prepareChannelSession(channelId: channelId)
+        } catch {
+            logger.warning("Failed to prepare channel session for \(channelId): \(error)")
+        }
+
+        let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
+        let lower = trimmed.lowercased()
+
+        if lower == "/abort" {
+            await channelStreamCancelRegistry.requestCancel(channelId: channelId)
+            let cancelled = await runtime.abortChannel(channelId: channelId, reason: "Aborted by user")
+            await channelStreamCancelRegistry.clearCancel(channelId: channelId)
+            let reason = cancelled > 0
+                ? "Aborted \(cancelled) active worker(s)."
+                : "No active workers to abort."
+            await deliverToChannelPlugin(channelId: channelId, content: reason)
+            return true
+        }
+
+        if let btwTail = ChannelInboundBtwParsing.btwModelTailIfCommand(content) {
+            await channelStreamCancelRegistry.requestCancel(channelId: channelId)
+            _ = await runtime.abortChannel(channelId: channelId, reason: "Interrupted by /btw")
+            await runtime.invalidateChannelSession(channelId: channelId)
+
+            do {
+                try await channelSessionStore.recordUserMessage(
+                    channelId: channelId,
+                    userId: userId,
+                    content: content
+                )
+                await applyPetProgressForExternalChannel(
+                    channelID: channelId,
+                    event: AgentPetProgressionInput(
+                        sourceKind: petSourceKindForExternalChannelUser(userId),
+                        eventKind: .userMessage,
+                        channelId: channelId,
+                        timestamp: Date(),
+                        userId: userId,
+                        content: content
+                    )
+                )
+            } catch {
+                logger.warning("Failed to persist user message to channel session: \(error)")
+            }
+
+            if btwTail.isEmpty {
+                await deliverToChannelPlugin(
+                    channelId: channelId,
+                    content: "Model context cleared for this channel. Send your next message when ready."
+                )
+                return true
+            }
+
+            if var slot = inboundChannelPluginQueues[channelId], slot.processing {
+                slot.fifo.insert((userId, btwTail), at: 0)
+                inboundChannelPluginQueues[channelId] = slot
+                return true
+            }
+
+            await offerInboundChannelPluginMessage(
+                channelId: channelId,
+                userId: userId,
+                contentForModel: btwTail
+            )
+            return true
+        }
+
+        do {
+            try await channelSessionStore.recordUserMessage(
+                channelId: channelId,
+                userId: userId,
+                content: content
+            )
+            await applyPetProgressForExternalChannel(
+                channelID: channelId,
+                event: AgentPetProgressionInput(
+                    sourceKind: petSourceKindForExternalChannelUser(userId),
+                    eventKind: .userMessage,
+                    channelId: channelId,
+                    timestamp: Date(),
+                    userId: userId,
+                    content: content
+                )
+            )
+        } catch {
+            logger.warning("Failed to persist user message to channel session: \(error)")
+        }
+
+        await offerInboundChannelPluginMessage(
+            channelId: channelId,
+            userId: userId,
+            contentForModel: trimmed
+        )
         return true
     }
 
