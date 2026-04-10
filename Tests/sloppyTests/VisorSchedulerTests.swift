@@ -66,7 +66,9 @@ func visorSchedulerAutoGeneratesBulletinFromConfiguredInterval() async throws {
     await service.bootstrapChannelPlugins()
     #expect(await service.visorSchedulerRunning())
 
-    let generated = await waitForBulletins(service: service, minimumCount: 1, timeoutNanoseconds: 2_500_000_000)
+    // VisorScheduler sleeps a full interval before the first tick, then bulletin work runs async.
+    // CI runners can be slow or contended; 2.5s was flaky on GitHub Actions.
+    let generated = await waitForBulletins(service: service, minimumCount: 1, timeoutNanoseconds: 12_000_000_000)
     #expect(generated)
 
     await service.shutdownChannelPlugins()
