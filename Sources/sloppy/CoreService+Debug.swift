@@ -83,7 +83,11 @@ extension CoreService {
 
         let agentConfig: AgentConfigDetail?
         do {
-            agentConfig = try agentCatalogStore.getAgentConfig(agentID: normalizedAgentID, availableModels: availableAgentModels())
+            agentConfig = try agentCatalogStore.getAgentConfig(
+                agentID: normalizedAgentID,
+                availableModels: availableAgentModels(),
+                persistedModelAllowed: makePersistedModelAllowance()
+            )
         } catch {
             agentConfig = nil
         }

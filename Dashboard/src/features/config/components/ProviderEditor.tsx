@@ -1,23 +1,20 @@
 import React from "react";
 import { createPortal } from "react-dom";
+import { Gemini, ProviderIcon } from "@lobehub/icons";
 
-function providerIcon(providerId) {
-  if (providerId === "openai-api") {
-    return "auto_awesome";
+/** ProviderIcon resolves providers via keyword map; "gemini" is not registered (only "google"). */
+function ProviderBrandMark({ brandProviderKey, size }) {
+  if (!brandProviderKey) {
+    return (
+      <span className="material-symbols-rounded" aria-hidden="true" style={{ fontSize: size, lineHeight: 1 }}>
+        hub
+      </span>
+    );
   }
-  if (providerId === "openai-oauth") {
-    return "login";
+  if (brandProviderKey === "gemini") {
+    return <Gemini.Color size={size} />;
   }
-  if (providerId === "ollama") {
-    return "deployed_code";
-  }
-  if (providerId === "gemini") {
-    return "diamond";
-  }
-  if (providerId === "anthropic") {
-    return "psychology";
-  }
-  return "hub";
+  return <ProviderIcon provider={brandProviderKey} size={size} type="color" />;
 }
 
 export function ProviderEditor({
@@ -102,8 +99,8 @@ export function ProviderEditor({
               className={`provider-card provider-list-item hover-levitate ${configured ? "configured" : ""}`}
               onClick={() => onOpenProviderModal(provider.id)}
             >
-              <span className="provider-list-icon material-symbols-rounded" aria-hidden="true">
-                {providerIcon(provider.id)}
+              <span className="provider-list-icon" aria-hidden="true">
+                <ProviderBrandMark brandProviderKey={provider.brandProviderKey} size={30} />
               </span>
               <div className="provider-list-main">
                 <div className="provider-card-head">
@@ -125,7 +122,14 @@ export function ProviderEditor({
         <div className="provider-modal-overlay" onClick={onCloseProviderModal}>
           <section className="provider-modal-card" onClick={(event) => event.stopPropagation()}>
             <div className="provider-modal-head">
-              <h3>{providerModalMeta.title}</h3>
+              <div className="provider-modal-title-row">
+                {providerModalMeta.brandProviderKey ? (
+                  <span className="provider-modal-brand" aria-hidden="true">
+                    <ProviderBrandMark brandProviderKey={providerModalMeta.brandProviderKey} size={28} />
+                  </span>
+                ) : null}
+                <h3>{providerModalMeta.title}</h3>
+              </div>
               <button type="button" className="provider-close-button" onClick={onCloseProviderModal}>
                 x
               </button>

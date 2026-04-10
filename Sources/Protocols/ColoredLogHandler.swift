@@ -32,28 +32,20 @@ public struct ColoredLogHandler: LogHandler, @unchecked Sendable {
         set { metadata[key] = newValue }
     }
 
-    public func log(
-        level: Logger.Level,
-        message: Logger.Message,
-        metadata callMetadata: Logger.Metadata?,
-        source: String,
-        file: String,
-        function: String,
-        line: UInt
-    ) {
+    public func log(event: LogEvent) {
         let ts = Self.timestampFormatter.string(from: Date())
-        let levelTag = Self.tag(for: level)
-        let metaString = formatMetadata(callMetadata)
+        let levelTag = Self.tag(for: event.level)
+        let metaString = formatMetadata(event.metadata)
 
         let output: String
         if Self.isColorEnabled {
-            let (color, reset) = Self.ansiCodes(for: level)
-            output = "\(Self.dim)\(ts)\(Self.resetAll) \(color)\(levelTag)\(reset) [\(label)] \(message)\(metaString)\n"
+            let (color, reset) = Self.ansiCodes(for: event.level)
+            output = "\(Self.dim)\(ts)\(Self.resetAll) \(color)\(levelTag)\(reset) [\(label)] \(event.message)\(metaString)\n"
         } else {
-            output = "\(ts) \(levelTag) [\(label)] \(message)\(metaString)\n"
+            output = "\(ts) \(levelTag) [\(label)] \(event.message)\(metaString)\n"
         }
 
-        var data = Array(output.utf8)
+        let data = Array(output.utf8)
         data.withUnsafeBufferPointer { buf in
             _ = write(STDERR_FILENO, buf.baseAddress, buf.count)
         }

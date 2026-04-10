@@ -14,7 +14,68 @@ export function inferProviderId(entry: Record<string, unknown>): string {
   if (title.includes("ollama") || apiUrl.includes("11434") || apiUrl.includes("ollama")) return "ollama";
   if (title.includes("gemini") || apiUrl.includes("generativelanguage.googleapis.com")) return "gemini";
   if (title.includes("anthropic") || apiUrl.includes("anthropic")) return "anthropic";
+  if (title.includes("openrouter") || apiUrl.includes("openrouter")) return "openrouter";
   return "openai-api";
+}
+
+/**
+ * Core expects routed ids like `openrouter:google/gemma-…:free`. Probe APIs return bare slugs;
+ * without the prefix, the first `:` in `:free` breaks parsing on the server.
+ */
+export function prefixedRuntimeModelId(providerCatalogId: string, rawId: string): string {
+  const trimmed = String(rawId || "").trim();
+  if (!trimmed) {
+    return trimmed;
+  }
+  if (
+    trimmed.startsWith("openai:") ||
+    trimmed.startsWith("openrouter:") ||
+    trimmed.startsWith("ollama:") ||
+    trimmed.startsWith("gemini:") ||
+    trimmed.startsWith("anthropic:")
+  ) {
+    return trimmed;
+  }
+
+  let route: string;
+  if (providerCatalogId === "openai-api" || providerCatalogId === "openai-oauth") {
+    route = "openai";
+  } else if (providerCatalogId === "openrouter") {
+    route = "openrouter";
+  } else if (providerCatalogId === "ollama") {
+    route = "ollama";
+  } else if (providerCatalogId === "gemini") {
+    route = "gemini";
+  } else if (providerCatalogId === "anthropic") {
+    route = "anthropic";
+  } else {
+    route = "openai";
+  }
+  return `${route}:${trimmed}`;
+}
+
+/**
+ * Older agent configs stored OpenRouter slugs without `openrouter:`; those strings contain `:` (`:free`)
+ * and break server parsing. Slugs almost always include `/` (`google/gemma-…`).
+ */
+export function coerceLegacySloppyModelId(modelId: string): string {
+  const t = String(modelId || "").trim();
+  if (!t) {
+    return t;
+  }
+  if (
+    t.startsWith("openai:") ||
+    t.startsWith("openrouter:") ||
+    t.startsWith("ollama:") ||
+    t.startsWith("gemini:") ||
+    t.startsWith("anthropic:")
+  ) {
+    return t;
+  }
+  if (t.includes("/")) {
+    return `openrouter:${t}`;
+  }
+  return t;
 }
 
 function normalizeSearch(value: unknown): string {
@@ -74,8 +135,9 @@ export async function collectAggregatedProviderModels(
 
     if (result?.ok && Array.isArray(result.models)) {
       for (const model of result.models as Record<string, unknown>[]) {
-        const id = String(model.id || "");
-        const title = String(model.title || id);
+        const rawId = String(model.id || "");
+        const id = prefixedRuntimeModelId(providerId, rawId);
+        const title = String(model.title || rawId);
         if (!id || allModels.some((m) => m.id === id)) {
           continue;
         }

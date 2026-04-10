@@ -1,4 +1,4 @@
-import { buildApiURL, buildWebSocketURL, requestJson } from "./httpClient";
+import { buildApiURL, buildWebSocketURL, formatHttpError, requestJson } from "./httpClient";
 
 type AnyRecord = Record<string, unknown>;
 
@@ -42,7 +42,7 @@ export interface CoreApi {
   fetchWorkers: () => Promise<AnyRecord[]>;
   fetchArtifact: (id: string) => Promise<AnyRecord | null>;
   fetchRuntimeConfig: () => Promise<AnyRecord | null>;
-  updateRuntimeConfig: (config: AnyRecord) => Promise<AnyRecord | null>;
+  updateRuntimeConfig: (config: AnyRecord) => Promise<AnyRecord>;
   fetchSystemLogs: () => Promise<AnyRecord | null>;
   selectDirectory: () => Promise<AnyRecord | null>;
   fetchOpenAIModels: (payload: AnyRecord) => Promise<AnyRecord | null>;
@@ -127,7 +127,7 @@ export interface CoreApi {
   ) => () => void;
   deleteAgentSession: (agentId: string, sessionId: string) => Promise<boolean>;
   fetchAgentConfig: (agentId: string) => Promise<AnyRecord | null>;
-  updateAgentConfig: (agentId: string, payload: AnyRecord) => Promise<AnyRecord | null>;
+  updateAgentConfig: (agentId: string, payload: AnyRecord) => Promise<AnyRecord>;
   fetchAgentTokenUsage: (agentId: string) => Promise<AnyRecord | null>;
   fetchAgentToolsCatalog: (agentId: string) => Promise<AnyRecord[] | null>;
   fetchAgentToolsPolicy: (agentId: string) => Promise<AnyRecord | null>;
@@ -316,8 +316,8 @@ export function createCoreApi(): CoreApi {
         method: "PUT",
         body: config
       });
-      if (!response.ok) {
-        return null;
+      if (!response.ok || response.data == null) {
+        throw new Error(formatHttpError(response.status, response.data));
       }
       return response.data;
     },
@@ -1088,8 +1088,8 @@ export function createCoreApi(): CoreApi {
         method: "PUT",
         body: payload
       });
-      if (!response.ok) {
-        return null;
+      if (!response.ok || response.data == null) {
+        throw new Error(formatHttpError(response.status, response.data));
       }
       return response.data;
     },

@@ -27,6 +27,7 @@ actor AgentSessionOrchestrator {
     private let acpSessionManager: ACPSessionManager?
     private let promptComposer: AgentPromptComposer
     private var availableModels: [ProviderModelOption]
+    private var persistedModelContext: (config: CoreConfig, hasOAuthCredentials: Bool)
     private let logger: Logger
     private var toolInvoker: ToolInvoker?
     private var responseChunkObserver: ResponseChunkObserver?
@@ -46,6 +47,7 @@ actor AgentSessionOrchestrator {
         acpSessionManager: ACPSessionManager? = nil,
         promptComposer: AgentPromptComposer = AgentPromptComposer(),
         availableModels: [ProviderModelOption],
+        persistedModelContext: (config: CoreConfig, hasOAuthCredentials: Bool) = (CoreConfig.default, false),
         toolInvoker: ToolInvoker? = nil,
         responseChunkObserver: ResponseChunkObserver? = nil,
         eventAppendObserver: EventAppendObserver? = nil,
@@ -58,6 +60,7 @@ actor AgentSessionOrchestrator {
         self.acpSessionManager = acpSessionManager
         self.promptComposer = promptComposer
         self.availableModels = availableModels
+        self.persistedModelContext = persistedModelContext
         self.toolInvoker = toolInvoker
         self.responseChunkObserver = responseChunkObserver
         self.eventAppendObserver = eventAppendObserver
@@ -71,6 +74,18 @@ actor AgentSessionOrchestrator {
 
     func updateAvailableModels(_ models: [ProviderModelOption]) {
         availableModels = models
+    }
+
+    func updatePersistedModelContext(config: CoreConfig, hasOAuthCredentials: Bool) {
+        persistedModelContext = (config, hasOAuthCredentials)
+    }
+
+    private func persistedModelAllowed() -> (String) -> Bool {
+        let cfg = persistedModelContext.config
+        let oauth = persistedModelContext.hasOAuthCredentials
+        return { id in
+            CoreService.isRuntimeRoutableModelID(id, config: cfg, hasOAuthCredentials: oauth)
+        }
     }
 
     func updateToolInvoker(_ toolInvoker: ToolInvoker?) {
@@ -139,7 +154,11 @@ actor AgentSessionOrchestrator {
 
         let agentConfig: AgentConfigDetail
         do {
-            agentConfig = try agentCatalogStore.getAgentConfig(agentID: agentID, availableModels: availableModels)
+            agentConfig = try agentCatalogStore.getAgentConfig(
+                agentID: agentID,
+                availableModels: availableModels,
+                persistedModelAllowed: persistedModelAllowed()
+            )
         } catch {
             throw OrchestratorError.storageFailure
         }
@@ -467,7 +486,11 @@ actor AgentSessionOrchestrator {
         sessionID: String,
         request: AgentSessionControlRequest
     ) async throws -> AgentSessionMessageResponse {
-        if let runtime = try? agentCatalogStore.getAgentConfig(agentID: agentID, availableModels: availableModels).runtime,
+        if let runtime = try? agentCatalogStore.getAgentConfig(
+            agentID: agentID,
+            availableModels: availableModels,
+            persistedModelAllowed: persistedModelAllowed()
+        ).runtime,
            runtime.type == .acp,
            let acpSessionManager
         {

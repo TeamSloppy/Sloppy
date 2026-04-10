@@ -211,11 +211,18 @@ public protocol ModelProvider: Sendable {
 
     /// Returns the token usage capture object for the given model, or `nil` if not supported.
     func tokenUsageCapture(for modelName: String) -> TokenUsageCapture?
+
+    /// Whether this provider can serve the given prefixed model id (including dynamic ids not listed in ``supportedModels``).
+    func supports(modelName: String) -> Bool
 }
 
 public extension ModelProvider {
     var systemInstructions: String? { nil }
     var tools: [any Tool] { [] }
+
+    func supports(modelName: String) -> Bool {
+        supportedModels.contains(modelName)
+    }
 
     func reasoningCapture(for modelName: String) -> ReasoningContentCapture? { nil }
     func tokenUsageCapture(for modelName: String) -> TokenUsageCapture? { nil }

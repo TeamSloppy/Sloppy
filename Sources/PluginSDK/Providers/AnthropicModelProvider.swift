@@ -32,6 +32,13 @@ public struct AnthropicModelProvider: ModelProvider {
         self.session = session
     }
 
+    public func supports(modelName: String) -> Bool {
+        if supportedModels.contains(modelName) {
+            return true
+        }
+        return modelName.hasPrefix("anthropic:")
+    }
+
     public func createLanguageModel(for modelName: String) async throws -> any LanguageModel {
         let resolved = modelName.hasPrefix("anthropic:") ? String(modelName.dropFirst(10)) : modelName
         if let session {

@@ -23,6 +23,7 @@ protocol ModelProviderFactory: Sendable {
 enum CoreModelProviderFactory {
     private static let factories: [any ModelProviderFactory] = [
         OpenAIModelProviderFactory(),
+        OpenRouterModelProviderFactory(),
         OllamaModelProviderFactory(),
         GeminiModelProviderFactory(),
         AnthropicModelProviderFactory(),
@@ -70,12 +71,18 @@ enum CoreModelProviderFactory {
         let hasOpenAI = identifiers.contains { $0.hasPrefix("openai:") }
         let environmentKey = ProcessInfo.processInfo.environment["OPENAI_API_KEY"]?
             .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let hasOpenRouter = identifiers.contains { $0.hasPrefix("openrouter:") }
+        let openRouterEnvKey = ProcessInfo.processInfo.environment["OPENROUTER_API_KEY"]?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
 
         if !hasOpenAI, !environmentKey.isEmpty {
             identifiers.append("openai:gpt-5.4-mini")
         }
         if !hasOpenAI, environmentKey.isEmpty, hasOAuthCredentials {
             identifiers.append("openai:gpt-5-codex-mini")
+        }
+        if !hasOpenRouter, !openRouterEnvKey.isEmpty {
+            identifiers.append("openrouter:openai/gpt-4o-mini")
         }
 
         return identifiers
@@ -87,7 +94,8 @@ enum CoreModelProviderFactory {
         let modelValue = model.model.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !modelValue.isEmpty else { return nil }
 
-        if modelValue.hasPrefix("openai:") || modelValue.hasPrefix("ollama:")
+        if modelValue.hasPrefix("openai:") || modelValue.hasPrefix("openrouter:")
+            || modelValue.hasPrefix("ollama:")
             || modelValue.hasPrefix("gemini:") || modelValue.hasPrefix("anthropic:") {
             return modelValue
         }
@@ -102,6 +110,10 @@ enum CoreModelProviderFactory {
 
         if title.contains("openai") || apiURL.contains("openai") {
             return "openai"
+        }
+
+        if title.contains("openrouter") || apiURL.contains("openrouter") {
+            return "openrouter"
         }
 
         if title.contains("ollama") || apiURL.contains("ollama") || apiURL.contains("11434") {

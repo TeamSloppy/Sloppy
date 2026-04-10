@@ -358,11 +358,41 @@ extension CoreService {
         }
     }
 
+    func makePersistedModelAllowance() -> (String) -> Bool {
+        let cfg = currentConfig
+        let hasOAuth = openAIOAuthService.currentAccessToken() != nil
+        return { id in
+            CoreService.isRuntimeRoutableModelID(id, config: cfg, hasOAuthCredentials: hasOAuth)
+        }
+    }
+
+    func widenAvailableModelsForAgentSave(
+        request: AgentConfigUpdateRequest,
+        base: [ProviderModelOption]
+    ) -> [ProviderModelOption] {
+        var available = base
+        let cfg = currentConfig
+        let hasOAuth = openAIOAuthService.currentAccessToken() != nil
+        if request.runtime.type == .native, let raw = request.selectedModel {
+            let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmed.isEmpty,
+               !available.contains(where: { $0.id == trimmed }),
+               CoreService.isRuntimeRoutableModelID(trimmed, config: cfg, hasOAuthCredentials: hasOAuth) {
+                available.append(CoreService.providerModelOption(for: trimmed))
+            }
+        }
+        return available
+    }
+
     /// Returns agent-specific config including selected model and editable markdown docs.
     public func getAgentConfig(agentID: String) throws -> AgentConfigDetail {
         let availableModels = availableAgentModels()
         do {
-            return try agentCatalogStore.getAgentConfig(agentID: agentID, availableModels: availableModels)
+            return try agentCatalogStore.getAgentConfig(
+                agentID: agentID,
+                availableModels: availableModels,
+                persistedModelAllowed: makePersistedModelAllowance()
+            )
         } catch {
             throw mapAgentConfigError(error)
         }
@@ -375,7 +405,10 @@ extension CoreService {
 
     /// Updates agent-specific model and markdown docs.
     public func updateAgentConfig(agentID: String, request: AgentConfigUpdateRequest) async throws -> AgentConfigDetail {
-        let availableModels = availableAgentModels()
+        let availableModels = widenAvailableModelsForAgentSave(
+            request: request,
+            base: availableAgentModels()
+        )
         do {
             if request.runtime.type == .acp {
                 do {
@@ -410,7 +443,11 @@ extension CoreService {
             throw AgentConfigError.invalidAgentID
         }
         let models = availableAgentModels()
-        let config = try agentCatalogStore.getAgentConfig(agentID: normalizedID, availableModels: models)
+        let config = try agentCatalogStore.getAgentConfig(
+            agentID: normalizedID,
+            availableModels: models,
+            persistedModelAllowed: makePersistedModelAllowance()
+        )
         var documents = config.documents
         switch field {
         case .user:
@@ -425,17 +462,19 @@ extension CoreService {
         } catch {
             throw AgentConfigError.invalidPayload
         }
+        let updateRequest = AgentConfigUpdateRequest(
+            selectedModel: config.selectedModel,
+            documents: documents,
+            heartbeat: config.heartbeat,
+            channelSessions: config.channelSessions,
+            runtime: config.runtime
+        )
+        let saveModels = widenAvailableModelsForAgentSave(request: updateRequest, base: models)
         do {
             _ = try agentCatalogStore.updateAgentConfig(
                 agentID: normalizedID,
-                request: AgentConfigUpdateRequest(
-                    selectedModel: config.selectedModel,
-                    documents: documents,
-                    heartbeat: config.heartbeat,
-                    channelSessions: config.channelSessions,
-                    runtime: config.runtime
-                ),
-                availableModels: models
+                request: updateRequest,
+                availableModels: saveModels
             )
         } catch {
             throw mapAgentConfigError(error)

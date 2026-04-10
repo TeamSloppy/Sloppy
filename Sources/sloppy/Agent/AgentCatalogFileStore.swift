@@ -172,13 +172,21 @@ final class AgentCatalogFileStore {
         }
     }
 
-    func getAgentConfig(agentID: String, availableModels: [ProviderModelOption]) throws -> AgentConfigDetail {
+    func getAgentConfig(
+        agentID: String,
+        availableModels: [ProviderModelOption],
+        persistedModelAllowed: ((String) -> Bool)? = nil
+    ) throws -> AgentConfigDetail {
         guard let normalizedAgentID = normalizedAgentID(agentID) else {
             throw StoreError.invalidID
         }
 
         let summary = try getAgent(id: normalizedAgentID)
-        let configFile = try readAgentConfigFile(for: summary, availableModels: availableModels)
+        let configFile = try readAgentConfigFile(
+            for: summary,
+            availableModels: availableModels,
+            persistedModelAllowed: persistedModelAllowed
+        )
         let documents = try readAgentDocuments(agentID: normalizedAgentID)
         let heartbeatStatus = try readHeartbeatStatus(agentID: normalizedAgentID, isSystem: summary.isSystem)
 
@@ -214,11 +222,13 @@ final class AgentCatalogFileStore {
                 throw StoreError.invalidModel
             }
 
-            let allowedModelIDs = Set(availableModels.map(\.id))
-            guard allowedModelIDs.contains(normalizedSelectedModel) else {
+            guard let canonical = CoreService.resolveCanonicalAgentModelID(
+                normalizedSelectedModel,
+                availableModels: availableModels
+            ) else {
                 throw StoreError.invalidModel
             }
-            selectedModel = normalizedSelectedModel
+            selectedModel = canonical
         case .acp:
             let targetId = runtime.acp?.targetId.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
             guard !targetId.isEmpty else {
@@ -563,7 +573,11 @@ final class AgentCatalogFileStore {
         agentDirectoryURL(for: id, isSystem: isSystem).appendingPathComponent("heartbeat-status.json")
     }
 
-    private func readAgentConfigFile(for summary: AgentSummary, availableModels: [ProviderModelOption]) throws -> AgentConfigFile {
+    private func readAgentConfigFile(
+        for summary: AgentSummary,
+        availableModels: [ProviderModelOption],
+        persistedModelAllowed: ((String) -> Bool)?
+    ) throws -> AgentConfigFile {
         let configURL = agentConfigURL(for: summary.id, isSystem: summary.isSystem)
         if !fileManager.fileExists(atPath: configURL.path) {
             let fallback = AgentConfigFile(
@@ -585,10 +599,31 @@ final class AgentCatalogFileStore {
         decoder.dateDecodingStrategy = .iso8601
         var decoded = try decoder.decode(AgentConfigFile.self, from: data)
         let selectedModel = decoded.selectedModel?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let availableModelIDs = Set(availableModels.map(\.id))
         let runtime = decoded.runtime ?? summary.runtime
+        let resolvedModel = selectedModel.flatMap { raw -> String? in
+            if let canonical = CoreService.resolveCanonicalAgentModelID(raw, availableModels: availableModels) {
+                return canonical
+            }
+            if let persistedModelAllowed, persistedModelAllowed(raw) {
+                return raw
+            }
+            return nil
+        }
+        if let selectedModel, let resolvedModel, resolvedModel != selectedModel {
+            decoded = AgentConfigFile(
+                id: decoded.id,
+                displayName: decoded.displayName,
+                role: decoded.role,
+                createdAt: decoded.createdAt,
+                selectedModel: resolvedModel,
+                heartbeat: decoded.heartbeat ?? AgentHeartbeatSettings(),
+                channelSessions: decoded.channelSessions ?? AgentChannelSessionSettings(),
+                runtime: runtime
+            )
+            try writeAgentConfigFile(decoded, isSystem: summary.isSystem)
+        }
         let requiresDefaultModel = runtime.type == .native
-            && (selectedModel?.isEmpty ?? true || !(selectedModel.map { availableModelIDs.contains($0) } ?? false))
+            && (resolvedModel == nil || (selectedModel?.isEmpty ?? true))
         if requiresDefaultModel {
             decoded = AgentConfigFile(
                 id: decoded.id,

@@ -227,6 +227,111 @@ extension CoreService {
         return options
     }
 
+    /// Resolves a dashboard- or CLI-entered model string to a canonical id present in `availableModels`.
+    ///
+    /// Accepts the full prefixed id (e.g. `openrouter:google/gemma-4-2-26b-a4b-it:free`) or the portion after the
+    /// **first** colon in an allowed id when that suffix matches exactly one catalog entry. This allows OpenRouter
+    /// slugs that contain additional colons (`:free`) to validate and save correctly.
+    /// True when `modelID` is a non-empty `provider:slug` string and that provider is configured (same rules as model factories).
+    nonisolated static func isRuntimeRoutableModelID(
+        _ modelID: String,
+        config: CoreConfig,
+        hasOAuthCredentials: Bool
+    ) -> Bool {
+        let trimmed = modelID.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let colon = trimmed.firstIndex(of: ":") else { return false }
+        let prefix = String(trimmed[..<colon])
+        let slug = String(trimmed[trimmed.index(after: colon)...]).trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !slug.isEmpty else { return false }
+
+        let resolved = CoreModelProviderFactory.resolveModelIdentifiers(
+            config: config,
+            hasOAuthCredentials: hasOAuthCredentials
+        )
+        let knowsProvider = resolved.contains { $0.hasPrefix("\(prefix):") }
+
+        switch prefix {
+        case "openrouter":
+            let env = ProcessInfo.processInfo.environment["OPENROUTER_API_KEY"]?
+                .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            if !env.isEmpty { return true }
+            guard knowsProvider else { return false }
+            return openRouterHasApiKey(config: config)
+        case "openai":
+            let env = ProcessInfo.processInfo.environment["OPENAI_API_KEY"]?
+                .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            if !env.isEmpty { return true }
+            if hasOAuthCredentials, knowsProvider { return true }
+            guard knowsProvider else { return false }
+            return openAIHasApiKey(config: config)
+        case "ollama":
+            return knowsProvider
+        case "gemini":
+            guard knowsProvider else { return false }
+            let env = ProcessInfo.processInfo.environment["GEMINI_API_KEY"]?
+                .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            if !env.isEmpty { return true }
+            return geminiHasApiKey(config: config)
+        case "anthropic":
+            guard knowsProvider else { return false }
+            let env = ProcessInfo.processInfo.environment["ANTHROPIC_API_KEY"]?
+                .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            if !env.isEmpty { return true }
+            return anthropicHasApiKey(config: config)
+        default:
+            return false
+        }
+    }
+
+    nonisolated private static func openRouterHasApiKey(config: CoreConfig) -> Bool {
+        let primary = config.models.first {
+            CoreModelProviderFactory.resolvedIdentifier(for: $0)?.hasPrefix("openrouter:") == true
+        }
+        return !(primary?.apiKey ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    nonisolated private static func openAIHasApiKey(config: CoreConfig) -> Bool {
+        let primary = config.models.first {
+            CoreModelProviderFactory.resolvedIdentifier(for: $0)?.hasPrefix("openai:") == true
+        }
+        return !(primary?.apiKey ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    nonisolated private static func geminiHasApiKey(config: CoreConfig) -> Bool {
+        let primary = config.models.first {
+            CoreModelProviderFactory.resolvedIdentifier(for: $0)?.hasPrefix("gemini:") == true
+        }
+        return !(primary?.apiKey ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    nonisolated private static func anthropicHasApiKey(config: CoreConfig) -> Bool {
+        let primary = config.models.first {
+            CoreModelProviderFactory.resolvedIdentifier(for: $0)?.hasPrefix("anthropic:") == true
+        }
+        return !(primary?.apiKey ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    static func resolveCanonicalAgentModelID(_ raw: String, availableModels: [ProviderModelOption]) -> String? {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        let allowedIDs = Set(availableModels.map(\.id))
+        if allowedIDs.contains(trimmed) {
+            return trimmed
+        }
+        var suffixMatches: [String] = []
+        for option in availableModels {
+            guard let colon = option.id.firstIndex(of: ":") else { continue }
+            let suffix = String(option.id[option.id.index(after: colon)...])
+            if suffix == trimmed {
+                suffixMatches.append(option.id)
+            }
+        }
+        if suffixMatches.count == 1 {
+            return suffixMatches[0]
+        }
+        return nil
+    }
+
     static func providerModelOption(for identifier: String) -> ProviderModelOption {
         let trimmed = identifier.trimmingCharacters(in: .whitespacesAndNewlines)
         let modelID: String

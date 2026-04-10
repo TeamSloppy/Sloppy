@@ -32,6 +32,13 @@ public struct GeminiModelProvider: ModelProvider {
         self.session = session
     }
 
+    public func supports(modelName: String) -> Bool {
+        if supportedModels.contains(modelName) {
+            return true
+        }
+        return modelName.hasPrefix("gemini:")
+    }
+
     public func createLanguageModel(for modelName: String) async throws -> any LanguageModel {
         let resolved = modelName.hasPrefix("gemini:") ? String(modelName.dropFirst(7)) : modelName
         if let session {
