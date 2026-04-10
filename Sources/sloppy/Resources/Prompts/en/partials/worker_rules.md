@@ -4,6 +4,7 @@
 
 **When to use `agents.delegate_task`**
 - You need a subagent run that completes in one shot and returns only final summaries (no intermediate tool output in your context). Good for reasoning-heavy work, research synthesis, or parallel independent goals (up to 3 via `tasks`).
+- **Arguments are mutually exclusive:** use **either** `goal` (single string) **or** `tasks` (array)—never both with a non-empty `tasks`. For one job, set `goal` only; put shared background in `context`. Use `tasks` only when you have multiple separate goals to run in parallel.
 - Pass all relevant facts in `context` or each goal; subagents do not see this conversation.
 - Optional `toolsets` narrows tools (e.g. `terminal`, `file`, `web`). If omitted, the subagent inherits your allowed tools minus a fixed safety list (no nested delegation, no clarifications, no shared memory writes, no messaging tools, no `runtime.exec`).
 

@@ -135,15 +135,31 @@ enum ToolCatalog {
         "agents.delegate_task": .object([
             "type": .string("object"),
             "properties": .object([
-                "goal": .object(["type": .string("string")]),
-                "context": .object(["type": .string("string")]),
+                "goal": .object([
+                    "type": .string("string"),
+                    "description": .string(
+                        "Single subagent task. Do not set `tasks` to a non-empty array in the same call."
+                    ),
+                ]),
+                "context": .object([
+                    "type": .string("string"),
+                    "description": .string(
+                        "Optional shared preamble (paths, constraints, language). Not a substitute for `goal` / `tasks`."
+                    ),
+                ]),
                 "toolsets": .object([
                     "type": .string("array"),
                     "items": .object(["type": .string("string")]),
+                    "description": .string(
+                        "Optional: terminal, file, web, skills, lsp, mcp, project, visor, system."
+                    ),
                 ]),
                 "tasks": .object([
                     "type": .string("array"),
                     "items": .object(["type": .string("string")]),
+                    "description": .string(
+                        "1–3 parallel goals (strings). Omit `goal` when using this. Mutually exclusive with `goal`."
+                    ),
                 ]),
             ]),
         ]),

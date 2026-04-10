@@ -1808,11 +1808,14 @@ public struct ToolErrorPayload: Codable, Sendable, Equatable {
     public var code: String
     public var message: String
     public var retryable: Bool
+    /// Optional guidance for the caller (e.g. how to fix path or permissions).
+    public var hint: String?
 
-    public init(code: String, message: String, retryable: Bool) {
+    public init(code: String, message: String, retryable: Bool, hint: String? = nil) {
         self.code = code
         self.message = message
         self.retryable = retryable
+        self.hint = hint
     }
 }
 

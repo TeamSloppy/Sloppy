@@ -159,10 +159,13 @@ export function ACPEditor({ draftConfig, mutateDraft }) {
         arguments: transport === "stdio" ? (editTarget.arguments || []).filter(Boolean) : [],
         host: transport === "ssh" ? String(editTarget.host || "").trim() || undefined : undefined,
         user: transport === "ssh" ? String(editTarget.user || "").trim() || undefined : undefined,
-        port:
-          transport === "ssh" && String(editTarget.port || "").trim().length > 0
-            ? parseInt(String(editTarget.port), 10) || undefined
-            : undefined,
+        port: (() => {
+          if (transport !== "ssh" || String(editTarget.port || "").trim().length === 0) {
+            return "";
+          }
+          const parsed = parseInt(String(editTarget.port), 10);
+          return Number.isFinite(parsed) ? String(parsed) : "";
+        })(),
         identityFile: transport === "ssh" ? String(editTarget.identityFile || "").trim() || undefined : undefined,
         strictHostKeyChecking: transport === "ssh" ? editTarget.strictHostKeyChecking !== false : true,
         remoteCommand: transport === "ssh" ? String(editTarget.remoteCommand || "").trim() || undefined : undefined,

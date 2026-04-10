@@ -24,6 +24,17 @@ struct FilesReadTool: CoreTool {
         guard let fileURL = context.resolveReadablePath(pathValue) else {
             return toolFailure(tool: name, code: "path_not_allowed", message: "File path is outside allowed roots.", retryable: false)
         }
+        var isDirectory: ObjCBool = false
+        if FileManager.default.fileExists(atPath: fileURL.path, isDirectory: &isDirectory), isDirectory.boolValue {
+            let detail = FileSystemToolErrorMapping.describePathIsDirectory(operation: .read, path: fileURL.path)
+            return toolFailure(
+                tool: name,
+                code: detail.code,
+                message: detail.message,
+                retryable: detail.retryable,
+                hint: detail.hint
+            )
+        }
         do {
             let data = try Data(contentsOf: fileURL)
             let maxBytes = arguments["maxBytes"]?.asInt ?? context.policy.guardrails.maxReadBytes
@@ -39,7 +50,14 @@ struct FilesReadTool: CoreTool {
                 "sizeBytes": .number(Double(data.count))
             ]))
         } catch {
-            return toolFailure(tool: name, code: "read_failed", message: "Failed to read file.", retryable: true)
+            let detail = FileSystemToolErrorMapping.describe(error: error, operation: .read, path: fileURL.path)
+            return toolFailure(
+                tool: name,
+                code: detail.code,
+                message: detail.message,
+                retryable: detail.retryable,
+                hint: detail.hint
+            )
         }
     }
 }

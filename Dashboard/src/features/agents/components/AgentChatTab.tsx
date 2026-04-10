@@ -632,7 +632,11 @@ function findPendingToolCallRecordIds(events) {
   return pendingRecordIds;
 }
 
-function buildTechnicalRecord(eventItem, index, options = {}) {
+function buildTechnicalRecord(
+  eventItem,
+  index,
+  options: { activeToolCallRecordIds?: Set<string> } = {}
+) {
   const { activeToolCallRecordIds } = options;
   const eventKey = extractEventKey(eventItem, index);
 
@@ -2520,12 +2524,13 @@ export function AgentChatTab({ agentId, initialSessionId = null }) {
         return;
       }
       setSubagentSession(detail);
+      const sessionDetail = detail as { summary?: { title?: string } };
       setSubagentPanel((previous) => ({
         ...previous,
         loading: false,
         error: "",
         status: "live",
-        title: String(detail?.summary?.title || previous.title || title || "Sub-session")
+        title: String(sessionDetail?.summary?.title || previous.title || title || "Sub-session")
       }));
     } catch {
       if (subagentSessionIdRef.current === normalizedSessionId) {
@@ -2582,7 +2587,7 @@ export function AgentChatTab({ agentId, initialSessionId = null }) {
   }
 
   async function createSession(parentSessionId = null, checkpointSessionId = null) {
-    const payload = {};
+    const payload: { parentSessionId?: string; checkpointSessionId?: string } = {};
     if (parentSessionId) {
       payload.parentSessionId = parentSessionId;
     }
