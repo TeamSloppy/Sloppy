@@ -1148,32 +1148,23 @@ public struct CoreConfig: Codable, Sendable {
     }
 
     private static func expandHomeShortcut(_ rawPath: String) -> String? {
-        let homePath = FileManager.default.homeDirectoryForCurrentUser.path
-        let homeDirPath = resolvedHomeDirectoryPath()
+        // Match `~` and literal `$HOME` in config to the same rule as CLI: `HOME`, else FileManager.
+        let home = resolvedHomeDirectoryPath()
         if rawPath == "~" {
-            return homeDirPath
+            return home
         }
         if rawPath.hasPrefix("~/") {
             let suffix = String(rawPath.dropFirst(2))
-            return URL(fileURLWithPath: homeDirPath, isDirectory: true)
+            return URL(fileURLWithPath: home, isDirectory: true)
                 .appendingPathComponent(suffix, isDirectory: true)
                 .path
         }
         if rawPath == "$HOME" {
-            return homePath
+            return home
         }
         if rawPath.hasPrefix("$HOME/") {
             let suffix = String(rawPath.dropFirst("$HOME/".count))
-            return URL(fileURLWithPath: homePath, isDirectory: true)
-                .appendingPathComponent(suffix, isDirectory: true)
-                .path
-        }
-        if rawPath == "$HOME_DIR" {
-            return homeDirPath
-        }
-        if rawPath.hasPrefix("$HOME_DIR/") {
-            let suffix = String(rawPath.dropFirst("$HOME_DIR/".count))
-            return URL(fileURLWithPath: homeDirPath, isDirectory: true)
+            return URL(fileURLWithPath: home, isDirectory: true)
                 .appendingPathComponent(suffix, isDirectory: true)
                 .path
         }
@@ -1190,12 +1181,6 @@ extension CoreConfig {
         environment: [String: String] = ProcessInfo.processInfo.environment,
         fileManager: FileManager = .default
     ) -> String {
-        if let homeDir = environment["HOME_DIR"]?.trimmingCharacters(in: .whitespacesAndNewlines),
-           !homeDir.isEmpty
-        {
-            return homeDir
-        }
-
         if let home = environment["HOME"]?.trimmingCharacters(in: .whitespacesAndNewlines),
            !home.isEmpty
         {
