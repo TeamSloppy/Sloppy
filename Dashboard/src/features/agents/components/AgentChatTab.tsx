@@ -2031,6 +2031,28 @@ function AgentChatComposer({
   );
 }
 
+const AGENT_CHAT_SIDEBAR_NARROW_MQ = "(max-width: 1000px)";
+
+const DEBUG_SESSION_STORAGE_PREFIX = "sloppy.agentChat.debugSession";
+
+function debugSessionStorageKey(agentId, sessionId) {
+  return `${DEBUG_SESSION_STORAGE_PREFIX}:${String(agentId || "").trim()}:${String(sessionId || "").trim()}`;
+}
+
+const DEBUG_INSTRUCTIONS_APPEND_TEXT = `[Dashboard — debug instructions]
+When anything fails, do not silently swallow errors. For each failure, report:
+- the exact error message and stack trace if available
+- the command or tool invoked and working directory (cwd) if relevant
+- minimal steps to reproduce
+
+Prefer actionable logs the user can paste into an issue.`;
+
+const ANALYSIS_PREP_APPEND_TEXT = `[Dashboard — analysis prep]
+Prepare for human/code review: list relevant file paths, note key excerpts or symbols, and call out anything suspicious. If you hit errors while gathering this, log them with full detail as above.`;
+
+const ANALYSIS_PREP_AGENT_PROMPT =
+  "Prepare this workspace/session for analysis: list the most relevant files for the current problem, give short notes per file, and surface any errors you encounter with full detail (command, cwd, stderr).";
+
 const IS_DEV_BUILD = import.meta.env.DEV;
 
 export function AgentChatTab({ agentId, initialSessionId = null }) {
@@ -2054,7 +2076,13 @@ export function AgentChatTab({ agentId, initialSessionId = null }) {
   const [knownTaskRecords, setKnownTaskRecords] = useState([]);
   const [taskPreview, setTaskPreview] = useState(null);
   const [isShareMenuOpen, setIsShareMenuOpen] = useState(false);
+  const [isDebugMenuOpen, setIsDebugMenuOpen] = useState(false);
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
+  const [isDesktopSessionsCollapsed, setIsDesktopSessionsCollapsed] = useState(false);
+  const [isNarrowChatViewport, setIsNarrowChatViewport] = useState(() =>
+    typeof window !== "undefined" ? window.matchMedia(AGENT_CHAT_SIDEBAR_NARROW_MQ).matches : false
+  );
+  const [isDebugSessionFlagOn, setIsDebugSessionFlagOn] = useState(false);
   const [tasksDirectoryOpen, setTasksDirectoryOpen] = useState(false);
   const [subagentPanel, setSubagentPanel] = useState({
     isOpen: false,
@@ -2070,6 +2098,7 @@ export function AgentChatTab({ agentId, initialSessionId = null }) {
   const fileInputRef = useRef(null);
   const composeInputRef = useRef(null);
   const shareMenuRef = useRef(null);
+  const debugMenuRef = useRef(null);
   const runStateRef = useRef({ sessionId: null, abortController: null });
   const streamCleanupRef = useRef(() => { });
   const subagentStreamCleanupRef = useRef(() => { });
@@ -2124,6 +2153,50 @@ export function AgentChatTab({ agentId, initialSessionId = null }) {
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, [isShareMenuOpen]);
+
+  useEffect(() => {
+    if (!isDebugMenuOpen) {
+      return;
+    }
+    function handleClickOutside(event) {
+      if (debugMenuRef.current && !debugMenuRef.current.contains(event.target)) {
+        setIsDebugMenuOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [isDebugMenuOpen]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+    const mq = window.matchMedia(AGENT_CHAT_SIDEBAR_NARROW_MQ);
+    function updateNarrow() {
+      setIsNarrowChatViewport(mq.matches);
+    }
+    updateNarrow();
+    mq.addEventListener("change", updateNarrow);
+    return () => mq.removeEventListener("change", updateNarrow);
+  }, []);
+
+  useEffect(() => {
+    setIsDesktopSessionsCollapsed(false);
+    setIsMobileSidebarOpen(false);
+  }, [agentId]);
+
+  useEffect(() => {
+    if (!agentId || !activeSessionId) {
+      setIsDebugSessionFlagOn(false);
+      return;
+    }
+    try {
+      const raw = window.localStorage.getItem(debugSessionStorageKey(agentId, activeSessionId));
+      setIsDebugSessionFlagOn(raw === "1" || raw === "true");
+    } catch {
+      setIsDebugSessionFlagOn(false);
+    }
+  }, [agentId, activeSessionId]);
 
   useEffect(() => {
     activeSessionIdRef.current = activeSessionId;
@@ -3198,11 +3271,11 @@ export function AgentChatTab({ agentId, initialSessionId = null }) {
     return `.sloppy/agents/${agentId}/sessions/${activeSessionId}.jsonl`;
   }
 
-  async function handleCopySessionPath() {
+  async function copyActiveSessionFilePath() {
     const path = getSessionFilePath();
     if (!path) {
       setStatusText("No active session.");
-      return;
+      return false;
     }
 
     try {
@@ -3220,16 +3293,22 @@ export function AgentChatTab({ agentId, initialSessionId = null }) {
         document.body.removeChild(fallbackInput);
       }
       setStatusText("Session path copied to clipboard.");
+      return true;
     } catch {
       setStatusText("Failed to copy session path.");
+      return false;
     }
+  }
+
+  async function handleCopySessionPath() {
+    await copyActiveSessionFilePath();
     setIsShareMenuOpen(false);
   }
 
-  function handleDownloadSession() {
+  function downloadActiveSessionJson() {
     if (!activeSession || !activeSessionId) {
       setStatusText("No active session to download.");
-      return;
+      return false;
     }
 
     try {
@@ -3248,10 +3327,165 @@ export function AgentChatTab({ agentId, initialSessionId = null }) {
       document.body.removeChild(link);
       URL.revokeObjectURL(url);
       setStatusText("Session downloaded.");
+      return true;
     } catch {
       setStatusText("Failed to download session.");
+      return false;
     }
+  }
+
+  function handleDownloadSession() {
+    downloadActiveSessionJson();
     setIsShareMenuOpen(false);
+  }
+
+  async function appendSingleDashboardMessageEvent(text) {
+    const sessionId = activeSessionId;
+    if (!sessionId || !agentId) {
+      setStatusText("No active session.");
+      return false;
+    }
+    const now = new Date().toISOString();
+    const userEvent = {
+      id: `dash-${Date.now()}`,
+      agentId,
+      sessionId,
+      type: "message",
+      createdAt: now,
+      message: {
+        role: "user",
+        createdAt: now,
+        segments: [{ kind: "text", text }]
+      }
+    };
+    try {
+      const response = await postAgentSessionEvents(agentId, sessionId, { events: [userEvent] });
+      if (response) {
+        await syncSessionDetail(sessionId);
+        return true;
+      }
+    } catch {
+      // fall through
+    }
+    setStatusText("Failed to append session note.");
+    return false;
+  }
+
+  function toggleDebugSessionFlag() {
+    if (!agentId || !activeSessionId) {
+      return;
+    }
+    const key = debugSessionStorageKey(agentId, activeSessionId);
+    const next = !isDebugSessionFlagOn;
+    try {
+      if (next) {
+        window.localStorage.setItem(key, "1");
+      } else {
+        window.localStorage.removeItem(key);
+      }
+    } catch {
+      setStatusText("Could not update debug flag (storage unavailable).");
+      return;
+    }
+    setIsDebugSessionFlagOn(next);
+    setStatusText(next ? "Debug mode on for this session." : "Debug mode off for this session.");
+    setIsDebugMenuOpen(false);
+  }
+
+  async function handleDebugInjectInstructions() {
+    if (!activeSessionId || isSending) {
+      return;
+    }
+    setIsDebugMenuOpen(false);
+    const ok = await appendSingleDashboardMessageEvent(DEBUG_INSTRUCTIONS_APPEND_TEXT);
+    if (ok) {
+      setStatusText("Debug instructions added to the transcript.");
+    }
+  }
+
+  async function handleDebugPrepareToTranscript() {
+    if (!activeSessionId || isSending) {
+      return;
+    }
+    setIsDebugMenuOpen(false);
+    await copyActiveSessionFilePath();
+    downloadActiveSessionJson();
+    const ok = await appendSingleDashboardMessageEvent(ANALYSIS_PREP_APPEND_TEXT);
+    if (ok) {
+      setStatusText("Session JSON exported, path copied, prep note added (no agent run).");
+    }
+  }
+
+  async function handleDebugPrepareRunAgent() {
+    const sessionId = activeSessionId;
+    if (!sessionId || !agentId || isSending) {
+      return;
+    }
+    setIsDebugMenuOpen(false);
+    setIsSending(true);
+    setStatusText("Thinking...");
+    setOptimisticAssistantText("");
+    runStateRef.current.sessionId = sessionId;
+    runStateRef.current.abortController = new AbortController();
+    setOptimisticUserEvent({
+      id: `local-user-${Date.now()}`,
+      createdAt: new Date().toISOString(),
+      type: "message",
+      message: {
+        role: "user",
+        createdAt: new Date().toISOString(),
+        segments: [{ kind: "text", text: ANALYSIS_PREP_AGENT_PROMPT }]
+      }
+    });
+    try {
+      const response = await postAgentSessionMessage(
+        agentId,
+        sessionId,
+        {
+          userId: "dashboard",
+          content: ANALYSIS_PREP_AGENT_PROMPT,
+          attachments: [],
+          spawnSubSession: false,
+          reasoningEffort: supportsReasoningEffort ? reasoningEffort : undefined
+        },
+        { signal: runStateRef.current.abortController.signal }
+      );
+      if (!response) {
+        setStatusText("Failed to send analysis prep message.");
+        return;
+      }
+      await refreshSessions(sessionId);
+      setStatusText("Analysis prep message sent to the agent.");
+    } catch (error) {
+      if (error?.name !== "AbortError") {
+        setStatusText("Failed to send analysis prep message.");
+      }
+    } finally {
+      runStateRef.current.abortController = null;
+      runStateRef.current.sessionId = null;
+      setOptimisticUserEvent(null);
+      setOptimisticAssistantText("");
+      setIsSending(false);
+    }
+  }
+
+  function toggleSessionSidebar() {
+    if (isNarrowChatViewport) {
+      setIsMobileSidebarOpen((prev) => !prev);
+    } else {
+      setIsDesktopSessionsCollapsed((prev) => !prev);
+    }
+  }
+
+  function closeMobileSessionSidebar() {
+    setIsMobileSidebarOpen(false);
+  }
+
+  function openSessionFromSidebar(sessionId) {
+    openSession(sessionId);
+    if (isNarrowChatViewport) {
+      setIsMobileSidebarOpen(false);
+    }
   }
 
   function handleReplyToMessage(target) {
@@ -3346,9 +3580,11 @@ export function AgentChatTab({ agentId, initialSessionId = null }) {
     return "open";
   }
 
+  const sessionSidebarMenuIcon = isNarrowChatViewport && isMobileSidebarOpen ? "close" : "menu";
+
   return (
     <section
-      className={`agent-chat-main ${isDragOver ? "drag-over" : ""}`}
+      className={`agent-chat-main ${isDragOver ? "drag-over" : ""}${isDesktopSessionsCollapsed ? " agent-chat-sessions-collapsed" : ""}`}
       onDragOver={(event) => {
         event.preventDefault();
         setIsDragOver(true);
@@ -3365,21 +3601,44 @@ export function AgentChatTab({ agentId, initialSessionId = null }) {
         addFiles(event.dataTransfer?.files);
       }}
     >
-      <div className={`agent-chat-sidebar ${isMobileSidebarOpen ? "mobile-open" : ""}`}>
+      {isNarrowChatViewport && isMobileSidebarOpen ? (
+        <button
+          type="button"
+          className="agent-chat-sidebar-backdrop"
+          aria-label="Close sessions list"
+          onClick={closeMobileSessionSidebar}
+        />
+      ) : null}
+      <div
+        id="agent-chat-session-sidebar"
+        className={`agent-chat-sidebar ${isMobileSidebarOpen ? "mobile-open" : ""}`}
+      >
         <div className="agent-chat-sidebar-header">
           <h3>Sessions</h3>
-          <button
-            type="button"
-            className="agent-chat-icon-button"
-            data-testid="agent-chat-new-session"
-            onClick={() => createSession(null, activeSessionId || null)}
-            disabled={isSending}
-            title="New session"
-          >
-            <span className="material-symbols-rounded" aria-hidden="true">
-              add
-            </span>
-          </button>
+          <div className="agent-chat-sidebar-header-actions">
+            <button
+              type="button"
+              className="agent-chat-sidebar-mobile-close"
+              aria-label="Close sessions list"
+              onClick={closeMobileSessionSidebar}
+            >
+              <span className="material-symbols-rounded" aria-hidden="true">
+                close
+              </span>
+            </button>
+            <button
+              type="button"
+              className="agent-chat-icon-button"
+              data-testid="agent-chat-new-session"
+              onClick={() => createSession(null, activeSessionId || null)}
+              disabled={isSending}
+              title="New session"
+            >
+              <span className="material-symbols-rounded" aria-hidden="true">
+                add
+              </span>
+            </button>
+          </div>
         </div>
         <div className="agent-chat-session-list" data-testid="agent-chat-session-list">
           {sessions.length === 0 ? (
@@ -3411,7 +3670,7 @@ export function AgentChatTab({ agentId, initialSessionId = null }) {
                       type="button"
                       className={`agent-chat-session-item ${session.id === activeSessionId ? "active" : ""}`}
                       data-testid={`agent-chat-session-${session.id}`}
-                      onClick={() => openSession(session.id)}
+                      onClick={() => openSessionFromSidebar(session.id)}
                       disabled={isLoadingSessions || isSending}
                     >
                       <div className="agent-chat-session-title">
@@ -3433,7 +3692,7 @@ export function AgentChatTab({ agentId, initialSessionId = null }) {
               type="button"
               className={`agent-chat-session-item ${session.id === activeSessionId ? "active" : ""}`}
               data-testid={`agent-chat-session-${session.id}`}
-              onClick={() => openSession(session.id)}
+              onClick={() => openSessionFromSidebar(session.id)}
               disabled={isLoadingSessions || isSending}
             >
               <div className="agent-chat-session-title">
@@ -3454,14 +3713,21 @@ export function AgentChatTab({ agentId, initialSessionId = null }) {
             <button
               type="button"
               className="agent-chat-icon-button agent-chat-mobile-menu-btn"
-              onClick={() => setIsMobileSidebarOpen((prev) => !prev)}
-              aria-label="Toggle sessions menu"
+              onClick={toggleSessionSidebar}
+              aria-expanded={isNarrowChatViewport ? isMobileSidebarOpen : !isDesktopSessionsCollapsed}
+              aria-controls="agent-chat-session-sidebar"
+              aria-label={
+                isNarrowChatViewport
+                  ? (isMobileSidebarOpen ? "Close sessions list" : "Open sessions list")
+                  : (isDesktopSessionsCollapsed ? "Expand sessions panel" : "Collapse sessions panel")
+              }
             >
               <span className="material-symbols-rounded" aria-hidden="true">
-                menu
+                {sessionSidebarMenuIcon}
               </span>
             </button>
             {activeSession ? getSessionDisplayLabel(activeSession) : "Select a session"}
+            {isDebugSessionFlagOn ? <span className="agent-chat-debug-badge">Debug</span> : null}
             {selectedModel ? (
               <span className="agent-chat-head-model">
                 {activeModelOption?.title || selectedModel}
@@ -3494,6 +3760,48 @@ export function AgentChatTab({ agentId, initialSessionId = null }) {
                         download
                       </span>
                       Download session
+                    </button>
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
+            {activeSessionId ? (
+              <div className="agent-chat-share-menu-container" ref={debugMenuRef}>
+                <button
+                  type="button"
+                  className="agent-chat-icon-button"
+                  onClick={() => setIsDebugMenuOpen((prev) => !prev)}
+                  title="Debug"
+                >
+                  <span className="material-symbols-rounded" aria-hidden="true">
+                    bug_report
+                  </span>
+                </button>
+                {isDebugMenuOpen ? (
+                  <div className="agent-chat-share-dropdown">
+                    <button type="button" onClick={toggleDebugSessionFlag}>
+                      <span className="material-symbols-rounded" aria-hidden="true">
+                        {isDebugSessionFlagOn ? "check_circle" : "radio_button_unchecked"}
+                      </span>
+                      {isDebugSessionFlagOn ? "Turn off session debug" : "Turn on session debug"}
+                    </button>
+                    <button type="button" onClick={handleDebugInjectInstructions} disabled={isSending}>
+                      <span className="material-symbols-rounded" aria-hidden="true">
+                        rule
+                      </span>
+                      Add debug instructions (transcript only)
+                    </button>
+                    <button type="button" onClick={handleDebugPrepareToTranscript} disabled={isSending}>
+                      <span className="material-symbols-rounded" aria-hidden="true">
+                        description
+                      </span>
+                      Prepare for analysis — export + note (no agent run)
+                    </button>
+                    <button type="button" onClick={handleDebugPrepareRunAgent} disabled={isSending}>
+                      <span className="material-symbols-rounded" aria-hidden="true">
+                        play_arrow
+                      </span>
+                      Prepare for analysis — run agent now
                     </button>
                   </div>
                 ) : null}
