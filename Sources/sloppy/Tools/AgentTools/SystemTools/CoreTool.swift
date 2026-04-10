@@ -110,11 +110,11 @@ func toolSuccess(tool: String, data: JSONValue) -> ToolInvocationResult {
     ToolInvocationResult(tool: tool, ok: true, data: data)
 }
 
-func toolFailure(tool: String, code: String, message: String, retryable: Bool) -> ToolInvocationResult {
+func toolFailure(tool: String, code: String, message: String, retryable: Bool, hint: String? = nil) -> ToolInvocationResult {
     ToolInvocationResult(
         tool: tool,
         ok: false,
-        error: ToolErrorPayload(code: code, message: message, retryable: retryable)
+        error: ToolErrorPayload(code: code, message: message, retryable: retryable, hint: hint)
     )
 }
 

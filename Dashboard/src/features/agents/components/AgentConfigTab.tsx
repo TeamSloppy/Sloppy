@@ -189,10 +189,9 @@ export function AgentConfigTab({ agentId, agentDisplayName = "", onDeleteAgent =
       if (catalogLoadError) {
         setModelCatalogStatus("Failed to load provider model catalogs.");
       } else if (catalog.length === 0) {
+        const modelsField = runtimeCfg ? (runtimeCfg as Record<string, unknown>).models : undefined;
         const hasModelEntries =
-          runtimeCfg &&
-          Array.isArray((runtimeCfg as Record<string, unknown>).models) &&
-          (runtimeCfg as Record<string, unknown>).models.length > 0;
+          runtimeCfg && Array.isArray(modelsField) && modelsField.length > 0;
         setModelCatalogStatus(
           hasModelEntries
             ? "Could not list models from configured providers. Check API keys in Settings."

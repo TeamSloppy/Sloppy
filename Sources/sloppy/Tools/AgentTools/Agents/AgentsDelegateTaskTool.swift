@@ -11,27 +11,34 @@ struct AgentsDelegateTaskTool: CoreTool {
     let description = """
     Spawn one or more subagents in isolated sessions. Each subagent has its own conversation and tool scope; only the final text is returned—intermediate tool results do not appear in your context.
 
-    Provide exactly one of:
-    - `goal`: a single task string (optional shared `context` is prepended), or
-    - `tasks`: up to 3 goal strings executed in parallel (same as passing an array of `{ \"goal\": \"...\" }` objects).
+    **Choose exactly one mode per call (mutually exclusive):**
+    - **Single subagent:** set only `goal` (one string). Do **not** include `tasks`, or use `tasks: []` if your client always sends the key—an empty `tasks` array is ignored when `goal` is set.
+    - **Parallel subagents (1–3):** set only `tasks` (array of goal strings, or objects `{\"goal\": \"...\"}`). Do **not** include `goal`.
 
-    Optional `toolsets` narrows tools (e.g. terminal, file, web, skills, lsp, mcp, project, visor, system). If omitted, the subagent inherits your allowed tools minus a fixed safety denylist (no recursive delegation, no clarify, no shared memory writes, no session messaging, no `runtime.exec`).
+    Putting the same instructions in both `goal` and `tasks` causes an error. For one job, use `goal` plus optional `context`; reserve `tasks` for multiple independent goals to run at once.
 
-    Subagents have no memory of this chat—put paths, errors, and constraints in `context` or each goal.
+    Optional `context` is shared background prepended to every subagent (paths, errors, locale, constraints). Optional `toolsets` narrows tools (e.g. terminal, file, web, skills, lsp, mcp, project, visor, system). If omitted, the subagent inherits your allowed tools minus a fixed safety denylist (no recursive delegation, no clarify, no shared memory writes, no session messaging, no `runtime.exec`).
+
+    Subagents have no memory of this chat—put everything they need in `context` and/or each goal string.
     """
 
     var parameters: GenerationSchema {
         .objectSchema([
-            .init(name: "goal", description: "Single task description.", schema: DynamicGenerationSchema(type: String.self), isOptional: true),
+            .init(
+                name: "goal",
+                description: "One standalone task for a single subagent. Omit `tasks` entirely (or pass `tasks: []`). Never combine with a non-empty `tasks` array.",
+                schema: DynamicGenerationSchema(type: String.self),
+                isOptional: true
+            ),
             .init(
                 name: "tasks",
-                description: "Alternative to goal: up to 3 parallel goals (strings or objects with a `goal` field).",
+                description: "Only for 1–3 parallel subagents: each item is a goal string, or an object with a `goal` field. Omit `goal` when using this. Do not duplicate the same work here and in `goal`.",
                 schema: DynamicGenerationSchema(arrayOf: DynamicGenerationSchema(type: String.self)),
                 isOptional: true
             ),
             .init(
                 name: "context",
-                description: "Shared background (paths, errors, constraints) prepended to each run.",
+                description: "Optional shared preamble for all subagents in this call (workspace layout, session id, language, prior errors). Not a second task—use `goal` or `tasks` for the actual assignment.",
                 schema: DynamicGenerationSchema(type: String.self),
                 isOptional: true
             ),
@@ -85,7 +92,8 @@ struct AgentsDelegateTaskTool: CoreTool {
                 tool: name,
                 code: "invalid_arguments",
                 message: "Provide either `goal` or `tasks`, not both.",
-                retryable: false
+                retryable: false,
+                hint: "Use only `goal` (plus optional `context`) for one subagent. Use only `tasks` for 1–3 parallel goals—remove `goal` or clear `tasks`."
             )
         }
         if !hasSingle, !hasBatch {

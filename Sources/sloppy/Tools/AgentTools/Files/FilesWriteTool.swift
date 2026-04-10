@@ -41,6 +41,17 @@ struct FilesWriteTool: CoreTool {
         if byteCount > context.policy.guardrails.maxWriteBytes {
             return toolFailure(tool: name, code: "content_too_large", message: "Content exceeds max writable bytes.", retryable: false)
         }
+        var isDirectory: ObjCBool = false
+        if FileManager.default.fileExists(atPath: fileURL.path, isDirectory: &isDirectory), isDirectory.boolValue {
+            let detail = FileSystemToolErrorMapping.describePathIsDirectory(operation: .write, path: fileURL.path)
+            return toolFailure(
+                tool: name,
+                code: detail.code,
+                message: detail.message,
+                retryable: detail.retryable,
+                hint: detail.hint
+            )
+        }
         do {
             try FileManager.default.createDirectory(at: fileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
             try content.write(to: fileURL, atomically: true, encoding: .utf8)
@@ -49,7 +60,14 @@ struct FilesWriteTool: CoreTool {
                 "sizeBytes": .number(Double(byteCount))
             ]))
         } catch {
-            return toolFailure(tool: name, code: "write_failed", message: "Failed to write file.", retryable: true)
+            let detail = FileSystemToolErrorMapping.describe(error: error, operation: .write, path: fileURL.path)
+            return toolFailure(
+                tool: name,
+                code: detail.code,
+                message: detail.message,
+                retryable: detail.retryable,
+                hint: detail.hint
+            )
         }
     }
 }

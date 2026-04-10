@@ -64,7 +64,17 @@ toolSuccess(tool: name, data: .array([.string("a"), .string("b")]))
 // Failure
 toolFailure(tool: name, code: "not_found", message: "Item not found.", retryable: false)
 toolFailure(tool: name, code: "store_error", message: "Persistence failed.", retryable: true)
+// Optional hint (what to try next); omit or pass nil when not needed
+toolFailure(tool: name, code: "permission_denied", message: "Access denied.", retryable: false, hint: "Check credentials or scope.")
 ```
+
+## Errors: messages, codes, and file I/O
+
+- Use a **stable `code`** (snake_case) that reflects the failure class (`not_found`, `permission_denied`, `invalid_arguments`, …).
+- **`message`** should state what went wrong in plain language; avoid dumping raw system errors into `message`.
+- Set **`retryable`** to `false` when repeating the same call will not help without changed inputs (bad path, validation, permission).
+- Pass **`hint`** when a short next step helps the model or operator (verify path, fix permissions, free disk space, etc.).
+- For **filesystem reads/writes**, classify errors instead of a single generic failure: map Cocoa/POSIX errors via `FileSystemToolErrorMapping.describe` (see `Sources/sloppy/Tools/FileSystemToolErrorMapping.swift`). For paths that exist as directories, use `describePathIsDirectory` after `fileExists(atPath:isDirectory:)` so behavior is consistent across APIs.
 
 ## JSONValue argument extraction
 

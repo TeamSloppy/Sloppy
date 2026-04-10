@@ -404,8 +404,9 @@ export function ActorsView() {
       if (Array.isArray(agentsResult)) {
         const rmap = {};
         for (const a of agentsResult) {
-          if (a.runtime?.type) {
-            rmap[a.id] = a.runtime;
+          const row = a as { id?: string; runtime?: { type?: string } };
+          if (row.runtime?.type && row.id) {
+            rmap[row.id] = row.runtime;
           }
         }
         setAgentRuntimeMap(rmap);
