@@ -315,14 +315,14 @@ actor ACPSessionManager {
     func controlSession(agentID: String, sloppySessionID: String, action: AgentRunControlAction) async throws {
         let sessionKey = Self.sessionKey(agentID: agentID, sloppySessionID: sloppySessionID)
         guard let managed = sessions[sessionKey] else {
-            if action == .interrupt {
+            if action == .interrupt || action == .interruptTree {
                 return
             }
             throw ACPError.unsupportedControl(action.rawValue)
         }
 
         switch action {
-        case .interrupt:
+        case .interrupt, .interruptTree:
             do {
                 try await managed.client.cancelSession(sessionId: managed.upstreamSessionId)
             } catch {

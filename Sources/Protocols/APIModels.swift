@@ -2109,6 +2109,7 @@ public enum AgentRunControlAction: String, Codable, Sendable {
     case pause
     case resume
     case interrupt
+    case interruptTree
 }
 
 public struct AgentRunControlEvent: Codable, Sendable, Equatable {

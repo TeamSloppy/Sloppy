@@ -38,7 +38,7 @@ extension CoreService {
     public func controlChannel(channelId: String, action: AgentRunControlAction) async -> ChannelControlResponse {
         await waitForStartup()
         switch action {
-        case .interrupt:
+        case .interrupt, .interruptTree:
             let cancelled = await runtime.abortChannel(channelId: channelId, reason: "Interrupted by user")
             return ChannelControlResponse(
                 channelId: channelId,

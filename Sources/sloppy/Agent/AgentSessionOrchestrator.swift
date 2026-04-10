@@ -471,14 +471,14 @@ actor AgentSessionOrchestrator {
            runtime.type == .acp,
            let acpSessionManager
         {
-            if request.action != .interrupt {
+            if request.action != .interrupt && request.action != .interruptTree {
                 throw OrchestratorError.invalidPayload
             }
             do {
                 try await acpSessionManager.controlSession(
                     agentID: agentID,
                     sloppySessionID: sessionID,
-                    action: request.action
+                    action: .interrupt
                 )
             } catch {
                 throw OrchestratorError.storageFailure
@@ -494,47 +494,105 @@ actor AgentSessionOrchestrator {
         case .resume:
             statusStage = .thinking
             statusLabel = "Resumed"
-        case .interrupt:
+        case .interrupt, .interruptTree:
             statusStage = .interrupted
             statusLabel = "Interrupted"
-            interruptedSessionRunChannels.insert(sessionChannelID(agentID: agentID, sessionID: sessionID))
         }
 
-        let events = [
-            AgentSessionEvent(
-                agentId: agentID,
-                sessionId: sessionID,
-                type: .runControl,
-                runControl: AgentRunControlEvent(
-                    action: request.action,
-                    requestedBy: request.requestedBy,
-                    reason: request.reason
-                )
-            ),
-            AgentSessionEvent(
-                agentId: agentID,
-                sessionId: sessionID,
-                type: .runStatus,
-                runStatus: AgentRunStatusEvent(
-                    stage: statusStage,
-                    label: statusLabel,
-                    details: request.reason
-                )
-            )
-        ]
-
-        let summary: AgentSessionSummary
+        let targetSessionIDs: [String]
         do {
-            summary = try appendEventsAndNotify(
-                agentID: agentID,
-                sessionID: sessionID,
-                events: events
-            )
+            if request.action == .interruptTree {
+                let sessions = try sessionStore.listSessions(agentID: agentID, includeHeartbeat: true)
+                if sessions.isEmpty {
+                    targetSessionIDs = [sessionID]
+                } else {
+                    var childrenByParentID: [String: [String]] = [:]
+                    for summary in sessions {
+                        guard let parentID = summary.parentSessionId?.trimmingCharacters(in: .whitespacesAndNewlines),
+                              !parentID.isEmpty
+                        else {
+                            continue
+                        }
+                        childrenByParentID[parentID, default: []].append(summary.id)
+                    }
+
+                    var orderedIDs: [String] = []
+                    var queue: [String] = [sessionID]
+                    var visited = Set<String>()
+                    while !queue.isEmpty {
+                        let currentID = queue.removeFirst()
+                        if visited.contains(currentID) {
+                            continue
+                        }
+                        visited.insert(currentID)
+                        orderedIDs.append(currentID)
+                        let children = childrenByParentID[currentID] ?? []
+                        if !children.isEmpty {
+                            queue.append(contentsOf: children)
+                        }
+                    }
+
+                    targetSessionIDs = orderedIDs
+                }
+            } else {
+                targetSessionIDs = [sessionID]
+            }
         } catch {
             throw mapSessionStoreError(error)
         }
 
-        return AgentSessionMessageResponse(summary: summary, appendedEvents: events, routeDecision: nil)
+        var rootSummary: AgentSessionSummary?
+        var appendedEvents: [AgentSessionEvent] = []
+        for targetSessionID in targetSessionIDs {
+            if request.action == .interrupt || request.action == .interruptTree {
+                interruptedSessionRunChannels.insert(sessionChannelID(agentID: agentID, sessionID: targetSessionID))
+            }
+
+            let events = [
+                AgentSessionEvent(
+                    agentId: agentID,
+                    sessionId: targetSessionID,
+                    type: .runControl,
+                    runControl: AgentRunControlEvent(
+                        action: request.action,
+                        requestedBy: request.requestedBy,
+                        reason: request.reason
+                    )
+                ),
+                AgentSessionEvent(
+                    agentId: agentID,
+                    sessionId: targetSessionID,
+                    type: .runStatus,
+                    runStatus: AgentRunStatusEvent(
+                        stage: statusStage,
+                        label: statusLabel,
+                        details: request.reason
+                    )
+                )
+            ]
+
+            let summary: AgentSessionSummary
+            do {
+                summary = try appendEventsAndNotify(
+                    agentID: agentID,
+                    sessionID: targetSessionID,
+                    events: events
+                )
+            } catch {
+                throw mapSessionStoreError(error)
+            }
+
+            if targetSessionID == sessionID || rootSummary == nil {
+                rootSummary = summary
+            }
+            appendedEvents.append(contentsOf: events)
+        }
+
+        guard let summary = rootSummary else {
+            throw OrchestratorError.storageFailure
+        }
+
+        return AgentSessionMessageResponse(summary: summary, appendedEvents: appendedEvents, routeDecision: nil)
     }
 
     func appendSessionEvents(
