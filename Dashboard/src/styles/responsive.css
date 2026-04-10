@@ -301,6 +301,10 @@
     background: var(--surface);
   }
 
+  .agent-chat-sidebar.mobile-open .agent-chat-sidebar-mobile-close {
+    display: inline-flex;
+  }
+
   .agent-chat-mobile-menu-btn {
     display: flex;
   }
