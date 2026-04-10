@@ -80,6 +80,11 @@ public actor CoreService {
     static let agentMemoryGraphSeedLimit = 50
     static let agentMemoryGraphNeighborLimit = 150
 
+    struct InboundChannelPluginQueueSlot: Sendable {
+        var fifo: [(userId: String, content: String)] = []
+        var processing: Bool = false
+    }
+
     public enum AgentStorageError: Error {
         case invalidID
         case invalidPayload
@@ -228,6 +233,8 @@ public actor CoreService {
     var memoryCheckpointLocks: Set<String> = []
     public let notificationService: NotificationService
     public let pendingApprovalService: PendingApprovalService
+    let channelStreamCancelRegistry: ChannelStreamCancelRegistry
+    var inboundChannelPluginQueues: [String: InboundChannelPluginQueueSlot] = [:]
 
     /// Creates core orchestration service with runtime and persistence backend.
     public init(
@@ -391,6 +398,7 @@ public actor CoreService {
             workspaceDirectory: config
                 .resolvedWorkspaceRootURL(currentDirectory: FileManager.default.currentDirectoryPath).path
         )
+        self.channelStreamCancelRegistry = ChannelStreamCancelRegistry()
         self.currentConfig = config
         Task { [weak self] in
             guard let self else {

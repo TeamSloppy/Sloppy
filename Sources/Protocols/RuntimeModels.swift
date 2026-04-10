@@ -11,12 +11,25 @@ public struct ChannelRouteDecision: Codable, Sendable, Equatable {
     public var reason: String
     public var confidence: Double
     public var tokenBudget: Int
+    /// When present, indicates the message was accepted into an inbound queue instead of running immediately.
+    public var queued: Bool?
+    /// Depth of the FIFO after enqueue (plugins), if applicable.
+    public var queueDepth: Int?
 
-    public init(action: RouteAction, reason: String, confidence: Double, tokenBudget: Int) {
+    public init(
+        action: RouteAction,
+        reason: String,
+        confidence: Double,
+        tokenBudget: Int,
+        queued: Bool? = nil,
+        queueDepth: Int? = nil
+    ) {
         self.action = action
         self.reason = reason
         self.confidence = confidence
         self.tokenBudget = tokenBudget
+        self.queued = queued
+        self.queueDepth = queueDepth
     }
 }
 

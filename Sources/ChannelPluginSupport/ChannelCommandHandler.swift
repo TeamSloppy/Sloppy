@@ -37,6 +37,7 @@ public struct ChannelCommandHandler: Sendable {
         BotCommand(name: "model", description: "Show or switch model", argument: "model_id"),
         BotCommand(name: "context", description: "Show token usage and context info"),
         BotCommand(name: "abort", description: "Abort current agent processing"),
+        BotCommand(name: "btw", description: "Stop current reply, reset model context, optional message", argument: "message"),
         BotCommand(name: "create-skill", description: "Create a new agent skill", argument: "description"),
         BotCommand(name: "create-subagent", description: "Create a subagent", argument: "description"),
         BotCommand(name: "fork", description: "Fork operation to a subagent", argument: "task"),
@@ -97,6 +98,10 @@ public struct ChannelCommandHandler: Sendable {
         }
 
         if lower == "/abort" {
+            return nil
+        }
+
+        if lower == "/btw" || lower.hasPrefix("/btw ") {
             return nil
         }
 
