@@ -1009,6 +1009,106 @@ function groupTimelineItems(items) {
   return result;
 }
 
+function buildTimelineItems({
+  events,
+  activeToolCallRecordIds,
+  optimisticUserEvent = null,
+  optimisticAssistantText = "",
+  isSending = false
+}) {
+  const safeEvents = Array.isArray(events) ? events : [];
+  const latestRunStatus = [...safeEvents]
+    .reverse()
+    .find((eventItem) => eventItem.type === "run_status" && eventItem.runStatus)?.runStatus;
+  const persistedMessages = safeEvents.filter(
+    (eventItem) =>
+      eventItem.type === "message" &&
+      eventItem.message &&
+      (eventItem.message.role === "user" || eventItem.message.role === "assistant")
+  );
+  const streamedAssistantText = isSending
+    ? optimisticAssistantText
+    : optimisticAssistantText || latestRespondingTextFromEvents(safeEvents);
+  const latestPersistedAssistantEvent = [...persistedMessages]
+    .reverse()
+    .find((eventItem) => eventItem?.message?.role === "assistant");
+  const latestPersistedAssistantText = latestPersistedAssistantEvent?.message?.segments
+    ? segmentsToPlainText(latestPersistedAssistantEvent.message.segments)
+    : "";
+  const normalizedStreamedAssistantText = String(streamedAssistantText || "").trim();
+  const hasDuplicatedPersistedAssistant =
+    !isSending &&
+    normalizedStreamedAssistantText.length > 0 &&
+    normalizedStreamedAssistantText === String(latestPersistedAssistantText || "").trim();
+  const isRespondingPhase = isSending || latestRunStatus?.stage === "responding";
+  const shouldRenderStreamMessage =
+    isRespondingPhase &&
+    (normalizedStreamedAssistantText.length > 0 || isSending) &&
+    !hasDuplicatedPersistedAssistant;
+
+  const timelineItems = [];
+  for (let index = 0; index < safeEvents.length; index += 1) {
+    const eventItem = safeEvents[index];
+    const isChatMessage =
+      eventItem?.type === "message" &&
+      eventItem?.message &&
+      (eventItem.message.role === "user" || eventItem.message.role === "assistant");
+
+    if (isChatMessage) {
+      timelineItems.push({
+        id: extractEventKey(eventItem, index),
+        kind: "message",
+        event: eventItem
+      });
+      continue;
+    }
+
+    const technicalRecord = buildTechnicalRecord(eventItem, index, { activeToolCallRecordIds });
+    if (technicalRecord) {
+      timelineItems.push({
+        id: technicalRecord.id,
+        kind: "technical",
+        record: technicalRecord
+      });
+    }
+  }
+
+  if (optimisticUserEvent) {
+    timelineItems.push({
+      id: extractEventKey(optimisticUserEvent, timelineItems.length),
+      kind: "message",
+      event: optimisticUserEvent
+    });
+  }
+
+  if (shouldRenderStreamMessage) {
+    const hasStreamText = normalizedStreamedAssistantText.length > 0;
+    timelineItems.push({
+      id: "local-assistant-stream",
+      kind: "message",
+      isStreaming: true,
+      isWaitingForStream: !hasStreamText,
+      event: {
+        id: "local-assistant-stream",
+        createdAt: new Date().toISOString(),
+        type: "message",
+        message: {
+          role: "assistant",
+          createdAt: new Date().toISOString(),
+          segments: hasStreamText
+            ? [{ kind: "text", text: streamedAssistantText }]
+            : []
+        }
+      }
+    });
+  }
+
+  return {
+    timelineItems,
+    latestRunStatus
+  };
+}
+
 function AgentChatEvents({
   isLoadingSession,
   isSending,
@@ -1018,7 +1118,8 @@ function AgentChatEvents({
   onToggleRecord,
   onReplyToMessage,
   onCopyMessage,
-  onOpenSession,
+  onOpenSubagent,
+  getSubagentStatusLabel,
   onTaskTagClick,
   onTaskTagHoverStart,
   onTaskTagHoverEnd
@@ -1090,9 +1191,9 @@ function AgentChatEvents({
                 <button
                   type="button"
                   className="agent-chat-technical-link"
-                  onClick={() => onOpenSession(record.childSessionId)}
+                  onClick={() => onOpenSubagent(record.childSessionId, record.title)}
                 >
-                  Open sub-session
+                  Open sub-session{getSubagentStatusLabel ? ` (${getSubagentStatusLabel(record.childSessionId)})` : ""}
                 </button>
               ) : null}
               {containsOAuthError(record.detail) || containsOAuthError(record.summary) ? (
@@ -1889,12 +1990,25 @@ export function AgentChatTab({ agentId, initialSessionId = null }) {
   const [isShareMenuOpen, setIsShareMenuOpen] = useState(false);
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
   const [tasksDirectoryOpen, setTasksDirectoryOpen] = useState(false);
+  const [subagentPanel, setSubagentPanel] = useState({
+    isOpen: false,
+    sessionId: "",
+    title: "",
+    loading: false,
+    error: "",
+    status: "idle"
+  });
+  const [subagentSession, setSubagentSession] = useState(null);
+  const [subagentExpandedRecordIds, setSubagentExpandedRecordIds] = useState({});
+  const [subagentOptimisticAssistantText, setSubagentOptimisticAssistantText] = useState("");
   const fileInputRef = useRef(null);
   const composeInputRef = useRef(null);
   const shareMenuRef = useRef(null);
   const runStateRef = useRef({ sessionId: null, abortController: null });
   const streamCleanupRef = useRef(() => { });
+  const subagentStreamCleanupRef = useRef(() => { });
   const activeSessionIdRef = useRef(null);
+  const subagentSessionIdRef = useRef("");
   const sessionSyncRef = useRef({ sessionId: null, timerId: null, inflight: false, queued: false });
   const taskRecordCacheRef = useRef(new Map());
   const taskRecordInflightRef = useRef(new Map());
@@ -1922,10 +2036,13 @@ export function AgentChatTab({ agentId, initialSessionId = null }) {
     return () => {
       streamCleanupRef.current?.();
       streamCleanupRef.current = () => { };
+      subagentStreamCleanupRef.current?.();
+      subagentStreamCleanupRef.current = () => { };
       if (sessionSyncRef.current.timerId) {
         window.clearTimeout(sessionSyncRef.current.timerId);
       }
       sessionSyncRef.current = { sessionId: null, timerId: null, inflight: false, queued: false };
+      subagentSessionIdRef.current = "";
       document.body.classList.remove("agent-chat-no-page-scroll");
     };
   }, []);
@@ -1944,6 +2061,10 @@ export function AgentChatTab({ agentId, initialSessionId = null }) {
   useEffect(() => {
     activeSessionIdRef.current = activeSessionId;
   }, [activeSessionId]);
+
+  useEffect(() => {
+    subagentSessionIdRef.current = subagentPanel.sessionId;
+  }, [subagentPanel.sessionId]);
 
   function cacheTaskRecord(record) {
     if (!record?.referenceLower) {
@@ -2092,8 +2213,21 @@ export function AgentChatTab({ agentId, initialSessionId = null }) {
       setAvailableModels([]);
       setReasoningEffort(DEFAULT_REASONING_EFFORT);
       setIsSending(false);
+      setSubagentPanel({
+        isOpen: false,
+        sessionId: "",
+        title: "",
+        loading: false,
+        error: "",
+        status: "idle"
+      });
+      setSubagentSession(null);
+      setSubagentExpandedRecordIds({});
+      setSubagentOptimisticAssistantText("");
       streamCleanupRef.current?.();
       streamCleanupRef.current = () => { };
+      subagentStreamCleanupRef.current?.();
+      subagentStreamCleanupRef.current = () => { };
       if (sessionSyncRef.current.timerId) {
         window.clearTimeout(sessionSyncRef.current.timerId);
       }
@@ -2151,6 +2285,8 @@ export function AgentChatTab({ agentId, initialSessionId = null }) {
       isCancelled = true;
       streamCleanupRef.current?.();
       streamCleanupRef.current = () => { };
+      subagentStreamCleanupRef.current?.();
+      subagentStreamCleanupRef.current = () => { };
       if (sessionSyncRef.current.timerId) {
         window.clearTimeout(sessionSyncRef.current.timerId);
       }
@@ -2178,6 +2314,77 @@ export function AgentChatTab({ agentId, initialSessionId = null }) {
       }
       setIsLoadingSession(false);
     }
+  }
+
+  async function openSubagentPanel(sessionId, title = "Sub-session") {
+    const normalizedSessionId = String(sessionId || "").trim();
+    if (!normalizedSessionId) {
+      return;
+    }
+
+    subagentStreamCleanupRef.current?.();
+    subagentStreamCleanupRef.current = () => { };
+    setSubagentPanel({
+      isOpen: true,
+      sessionId: normalizedSessionId,
+      title: String(title || "Sub-session").trim() || "Sub-session",
+      loading: true,
+      error: "",
+      status: "loading"
+    });
+    setSubagentSession(null);
+    setSubagentExpandedRecordIds({});
+    setSubagentOptimisticAssistantText("");
+
+    try {
+      const detail = await fetchAgentSession(agentId, normalizedSessionId);
+      if (subagentSessionIdRef.current !== normalizedSessionId) {
+        return;
+      }
+      if (!detail) {
+        setSubagentPanel((previous) => ({
+          ...previous,
+          loading: false,
+          error: "Failed to load sub-session.",
+          status: "disconnected"
+        }));
+        return;
+      }
+      setSubagentSession(detail);
+      setSubagentPanel((previous) => ({
+        ...previous,
+        loading: false,
+        error: "",
+        status: "live",
+        title: String(detail?.summary?.title || previous.title || title || "Sub-session")
+      }));
+    } catch {
+      if (subagentSessionIdRef.current === normalizedSessionId) {
+        setSubagentPanel((previous) => ({
+          ...previous,
+          loading: false,
+          error: "Failed to load sub-session.",
+          status: "disconnected"
+        }));
+      }
+    }
+  }
+
+  function closeSubagentPanel() {
+    subagentStreamCleanupRef.current?.();
+    subagentStreamCleanupRef.current = () => { };
+    subagentSessionIdRef.current = "";
+    setSubagentPanel({
+      isOpen: false,
+      sessionId: "",
+      title: "",
+      loading: false,
+      error: "",
+      status: "idle"
+    });
+    setSubagentSession(null);
+    setSubagentExpandedRecordIds({});
+    setSubagentOptimisticAssistantText("");
   }
 
   async function refreshSessions(preferredSessionId = null) {
@@ -2224,12 +2431,6 @@ export function AgentChatTab({ agentId, initialSessionId = null }) {
     await openSession(response.id);
     setStatusText(`Session ${response.id} created`);
     return response;
-  }
-
-  function latestRunStatusFromEvents(events) {
-    return [...events]
-      .reverse()
-      .find((eventItem) => eventItem.type === "run_status" && eventItem.runStatus)?.runStatus;
   }
 
   function mergeSessionSummary(summary) {
@@ -2428,6 +2629,103 @@ export function AgentChatTab({ agentId, initialSessionId = null }) {
       }
     };
   }, [agentId, activeSessionId]);
+
+  function applySubagentStreamEvent(summary, streamEvent) {
+    if (!streamEvent?.id || !streamEvent?.sessionId) {
+      return;
+    }
+
+    setSubagentSession((previous) => {
+      if (!previous?.summary?.id || previous.summary.id !== streamEvent.sessionId) {
+        return previous;
+      }
+
+      const existingEvents = Array.isArray(previous.events) ? previous.events : [];
+      const alreadyExists = existingEvents.some((item) => item?.id === streamEvent.id);
+      if (alreadyExists) {
+        if (summary?.id === previous.summary.id) {
+          return { ...previous, summary };
+        }
+        return previous;
+      }
+
+      return {
+        ...previous,
+        summary: summary?.id === previous.summary.id ? summary : previous.summary,
+        events: [...existingEvents, streamEvent]
+      };
+    });
+  }
+
+  function handleSubagentStreamUpdate(update) {
+    if (!update || typeof update !== "object") {
+      return;
+    }
+
+    const kind = String(update.kind || "");
+    const summary = update.summary && typeof update.summary === "object" ? update.summary : null;
+    const streamEvent = update.event && typeof update.event === "object" ? update.event : null;
+
+    if (kind === "session_delta") {
+      const deltaText = String(update.message || "");
+      if (deltaText.trim().length > 0) {
+        setSubagentOptimisticAssistantText(deltaText);
+      }
+      return;
+    }
+
+    if (streamEvent) {
+      applySubagentStreamEvent(summary, streamEvent);
+      if (streamEvent.type === "run_status" && streamEvent.runStatus) {
+        if (streamEvent.runStatus.stage === "responding" && streamEvent.runStatus.expandedText) {
+          setSubagentOptimisticAssistantText(String(streamEvent.runStatus.expandedText));
+        }
+        if (streamEvent.runStatus.stage === "done" || streamEvent.runStatus.stage === "interrupted") {
+          setSubagentOptimisticAssistantText("");
+        }
+      }
+      if (streamEvent.type === "message" && streamEvent.message?.role === "assistant") {
+        const streamedText = segmentsToPlainText(streamEvent.message.segments || []);
+        if (streamedText) {
+          setSubagentOptimisticAssistantText(streamedText);
+        }
+      }
+    }
+
+    if (kind === "session_error" || kind === "session_closed") {
+      setSubagentPanel((previous) => ({ ...previous, status: "disconnected" }));
+    } else if (kind === "session_ready" || kind === "session_event" || kind === "heartbeat") {
+      setSubagentPanel((previous) => ({ ...previous, status: "live" }));
+    }
+  }
+
+  useEffect(() => {
+    subagentStreamCleanupRef.current?.();
+    subagentStreamCleanupRef.current = () => { };
+
+    if (!subagentPanel.isOpen || !subagentPanel.sessionId) {
+      return;
+    }
+
+    const disconnect = subscribeAgentSessionStream(agentId, subagentPanel.sessionId, {
+      onUpdate: handleSubagentStreamUpdate,
+      onError: () => {
+        setSubagentPanel((previous) => ({
+          ...previous,
+          status: "disconnected",
+          error: previous.error || "Realtime stream reconnecting..."
+        }));
+      }
+    });
+    subagentStreamCleanupRef.current = disconnect;
+
+    return () => {
+      disconnect();
+      if (subagentStreamCleanupRef.current === disconnect) {
+        subagentStreamCleanupRef.current = () => { };
+      }
+    };
+  }, [agentId, subagentPanel.isOpen, subagentPanel.sessionId]);
 
   function addFiles(fileList) {
     const next = Array.from(fileList || []);
@@ -2873,90 +3171,33 @@ export function AgentChatTab({ agentId, initialSessionId = null }) {
   }
 
   const events = Array.isArray(activeSession?.events) ? activeSession.events : [];
-  const latestRunStatus = latestRunStatusFromEvents(events);
-  const persistedMessages = events.filter(
-    (eventItem) =>
-      eventItem.type === "message" &&
-      eventItem.message &&
-      (eventItem.message.role === "user" || eventItem.message.role === "assistant")
-  );
-  const streamedAssistantText = isSending
-    ? optimisticAssistantText
-    : optimisticAssistantText || latestRespondingTextFromEvents(events);
-  const latestPersistedAssistantEvent = [...persistedMessages]
-    .reverse()
-    .find((eventItem) => eventItem?.message?.role === "assistant");
-  const latestPersistedAssistantText = latestPersistedAssistantEvent?.message?.segments
-    ? segmentsToPlainText(latestPersistedAssistantEvent.message.segments)
-    : "";
-  const normalizedStreamedAssistantText = String(streamedAssistantText || "").trim();
-  const hasDuplicatedPersistedAssistant =
-    !isSending &&
-    normalizedStreamedAssistantText.length > 0 &&
-    normalizedStreamedAssistantText === String(latestPersistedAssistantText || "").trim();
-  const isRespondingPhase =
-    isSending || latestRunStatus?.stage === "responding";
-  const shouldRenderStreamMessage =
-    isRespondingPhase &&
-    (normalizedStreamedAssistantText.length > 0 || isSending) &&
-    !hasDuplicatedPersistedAssistant;
   const activeToolCallRecordIds = useMemo(() => findPendingToolCallRecordIds(events), [events]);
-  const timelineItems = [];
-  for (let index = 0; index < events.length; index += 1) {
-    const eventItem = events[index];
-    const isChatMessage =
-      eventItem?.type === "message" &&
-      eventItem?.message &&
-      (eventItem.message.role === "user" || eventItem.message.role === "assistant");
-
-    if (isChatMessage) {
-      timelineItems.push({
-        id: extractEventKey(eventItem, index),
-        kind: "message",
-        event: eventItem
-      });
-      continue;
-    }
-
-    const technicalRecord = buildTechnicalRecord(eventItem, index, { activeToolCallRecordIds });
-    if (technicalRecord) {
-      timelineItems.push({
-        id: technicalRecord.id,
-        kind: "technical",
-        record: technicalRecord
-      });
-    }
-  }
-
-  if (optimisticUserEvent) {
-    timelineItems.push({
-      id: extractEventKey(optimisticUserEvent, timelineItems.length),
-      kind: "message",
-      event: optimisticUserEvent
-    });
-  }
-
-  if (shouldRenderStreamMessage) {
-    const hasStreamText = normalizedStreamedAssistantText.length > 0;
-    timelineItems.push({
-      id: "local-assistant-stream",
-      kind: "message",
-      isStreaming: true,
-      isWaitingForStream: !hasStreamText,
-      event: {
-        id: "local-assistant-stream",
-        createdAt: new Date().toISOString(),
-        type: "message",
-        message: {
-          role: "assistant",
-          createdAt: new Date().toISOString(),
-          segments: hasStreamText
-            ? [{ kind: "text", text: streamedAssistantText }]
-            : []
-        }
-      }
-    });
-  }
+  const { timelineItems, latestRunStatus } = useMemo(
+    () =>
+      buildTimelineItems({
+        events,
+        activeToolCallRecordIds,
+        optimisticUserEvent,
+        optimisticAssistantText,
+        isSending
+      }),
+    [events, activeToolCallRecordIds, optimisticUserEvent, optimisticAssistantText, isSending]
+  );
+  const subagentEvents = Array.isArray(subagentSession?.events) ? subagentSession.events : [];
+  const subagentActiveToolCallRecordIds = useMemo(
+    () => findPendingToolCallRecordIds(subagentEvents),
+    [subagentEvents]
+  );
+  const { timelineItems: subagentTimelineItems, latestRunStatus: subagentLatestRunStatus } = useMemo(
+    () =>
+      buildTimelineItems({
+        events: subagentEvents,
+        activeToolCallRecordIds: subagentActiveToolCallRecordIds,
+        optimisticAssistantText: subagentOptimisticAssistantText,
+        isSending: subagentPanel.status === "loading" || subagentPanel.status === "live"
+      }),
+    [subagentEvents, subagentActiveToolCallRecordIds, subagentOptimisticAssistantText, subagentPanel.status]
+  );
 
   function toggleExpandedRecord(recordId) {
     if (!recordId) {
@@ -2966,6 +3207,32 @@ export function AgentChatTab({ agentId, initialSessionId = null }) {
       ...previous,
       [recordId]: !previous[recordId]
     }));
+  }
+
+  function toggleSubagentExpandedRecord(recordId) {
+    if (!recordId) {
+      return;
+    }
+    setSubagentExpandedRecordIds((previous) => ({
+      ...previous,
+      [recordId]: !previous[recordId]
+    }));
+  }
+
+  function getSubagentStatusLabel(sessionId) {
+    if (!sessionId) {
+      return "open";
+    }
+    if (subagentPanel.isOpen && subagentPanel.sessionId === sessionId) {
+      if (subagentPanel.loading) {
+        return "loading";
+      }
+      if (subagentPanel.status === "disconnected" || subagentPanel.error) {
+        return "disconnected";
+      }
+      return "live";
+    }
+    return "open";
   }
 
   return (
@@ -3134,48 +3401,91 @@ export function AgentChatTab({ agentId, initialSessionId = null }) {
         </div>
 
         <div className="agent-chat-workspace">
-          <div className="agent-chat-thread">
-            <AgentChatEvents
-              isLoadingSession={isLoadingSession}
-              isSending={isSending}
-              timelineItems={timelineItems}
-              latestRunStatus={latestRunStatus}
-              expandedRecordIds={expandedRecordIds}
-              onToggleRecord={toggleExpandedRecord}
-              onReplyToMessage={handleReplyToMessage}
-              onCopyMessage={handleCopyMessage}
-              onOpenSession={openSession}
-              onTaskTagClick={openTaskReference}
-              onTaskTagHoverStart={handleTaskTagHoverStart}
-              onTaskTagHoverEnd={handleTaskTagHoverEnd}
-            />
-
-            <div className="agent-chat-compose-sticky-wrap">
-              <AgentChatComposer
-                agentId={agentId}
-                inputText={inputText}
-                onInputTextChange={setInputText}
+          <div className={`agent-chat-workspace-inner ${subagentPanel.isOpen ? "has-subagent" : ""}`}>
+            <div className="agent-chat-thread">
+              <AgentChatEvents
+                isLoadingSession={isLoadingSession}
                 isSending={isSending}
-                onSend={handleSend}
-                onStop={handleStop}
-                pendingFiles={pendingFiles}
-                onRemovePendingFile={removePendingFile}
-                onAddFiles={addFiles}
-                fileInputRef={fileInputRef}
-                textareaRef={composeInputRef}
-                replyTarget={replyTarget}
-                onCancelReply={() => setReplyTarget(null)}
-                supportsReasoningEffort={supportsReasoningEffort}
-                reasoningEffort={reasoningEffort}
-                onReasoningEffortChange={setReasoningEffort}
-                availableTasks={knownTaskRecords}
+                timelineItems={timelineItems}
+                latestRunStatus={latestRunStatus}
+                expandedRecordIds={expandedRecordIds}
+                onToggleRecord={toggleExpandedRecord}
+                onReplyToMessage={handleReplyToMessage}
+                onCopyMessage={handleCopyMessage}
+                onOpenSubagent={openSubagentPanel}
+                getSubagentStatusLabel={getSubagentStatusLabel}
                 onTaskTagClick={openTaskReference}
                 onTaskTagHoverStart={handleTaskTagHoverStart}
                 onTaskTagHoverEnd={handleTaskTagHoverEnd}
               />
 
-              <p className="agent-chat-status-line placeholder-text">{statusText}</p>
+              <div className="agent-chat-compose-sticky-wrap">
+                <AgentChatComposer
+                  agentId={agentId}
+                  inputText={inputText}
+                  onInputTextChange={setInputText}
+                  isSending={isSending}
+                  onSend={handleSend}
+                  onStop={handleStop}
+                  pendingFiles={pendingFiles}
+                  onRemovePendingFile={removePendingFile}
+                  onAddFiles={addFiles}
+                  fileInputRef={fileInputRef}
+                  textareaRef={composeInputRef}
+                  replyTarget={replyTarget}
+                  onCancelReply={() => setReplyTarget(null)}
+                  supportsReasoningEffort={supportsReasoningEffort}
+                  reasoningEffort={reasoningEffort}
+                  onReasoningEffortChange={setReasoningEffort}
+                  availableTasks={knownTaskRecords}
+                  onTaskTagClick={openTaskReference}
+                  onTaskTagHoverStart={handleTaskTagHoverStart}
+                  onTaskTagHoverEnd={handleTaskTagHoverEnd}
+                />
+
+                <p className="agent-chat-status-line placeholder-text">{statusText}</p>
+              </div>
             </div>
+
+            {subagentPanel.isOpen ? (
+              <aside className="agent-chat-subagent-panel" data-testid="agent-chat-subagent-panel">
+                <div className="agent-chat-subagent-head">
+                  <div className="agent-chat-subagent-title-wrap">
+                    <strong>{subagentPanel.title || "Sub-session"}</strong>
+                    <small>{subagentPanel.sessionId}</small>
+                  </div>
+                  <button
+                    type="button"
+                    className="agent-chat-icon-button"
+                    onClick={closeSubagentPanel}
+                    title="Back to parent"
+                  >
+                    <span className="material-symbols-rounded" aria-hidden="true">
+                      close
+                    </span>
+                  </button>
+                </div>
+                {subagentPanel.error ? (
+                  <p className="placeholder-text">{subagentPanel.error}</p>
+                ) : (
+                  <AgentChatEvents
+                    isLoadingSession={subagentPanel.loading}
+                    isSending={subagentPanel.status === "loading" || subagentPanel.status === "live"}
+                    timelineItems={subagentTimelineItems}
+                    latestRunStatus={subagentLatestRunStatus}
+                    expandedRecordIds={subagentExpandedRecordIds}
+                    onToggleRecord={toggleSubagentExpandedRecord}
+                    onReplyToMessage={() => { }}
+                    onCopyMessage={handleCopyMessage}
+                    onOpenSubagent={openSubagentPanel}
+                    getSubagentStatusLabel={getSubagentStatusLabel}
+                    onTaskTagClick={openTaskReference}
+                    onTaskTagHoverStart={handleTaskTagHoverStart}
+                    onTaskTagHoverEnd={handleTaskTagHoverEnd}
+                  />
+                )}
+              </aside>
+            ) : null}
           </div>
         </div>
       </div>
