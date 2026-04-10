@@ -108,7 +108,7 @@ func resolvedWorkspaceSupportsHomeShortcuts() {
     tildeConfig.workspace = .init(name: "workspace", basePath: "~")
 
     let tildeWorkspace = tildeConfig.resolvedWorkspaceRootURL(currentDirectory: "/tmp/slop")
-    let homePath = FileManager.default.homeDirectoryForCurrentUser.path
+    let homePath = CoreConfig.resolvedHomeDirectoryPath()
     #expect(tildeWorkspace.standardizedFileURL.path == "\(homePath)/workspace")
 
     var envConfig = CoreConfig.default
