@@ -12,6 +12,7 @@ import {
   connectGitHub,
   disconnectGitHub
 } from "../../api";
+import { filterModelsByQuery } from "../agents/utils/aggregateProviderModels";
 import { NodeHostEditor } from "./components/NodeHostEditor";
 import { PluginEditor } from "./components/PluginEditor";
 import { ProviderEditor } from "./components/ProviderEditor";
@@ -588,36 +589,7 @@ function isSettingsSection(id) {
   return SETTINGS_ITEMS.some((item) => item.id === id);
 }
 
-function normalizeSearch(value) {
-  return String(value || "").trim().toLowerCase();
-}
-
 const DRAFT_CONFIG_KEY = "sloppy_draft_config";
-
-function filterProviderModels(models, query) {
-  const needle = normalizeSearch(query);
-  if (!needle) {
-    return models;
-  }
-
-  return [...models]
-    .map((model) => {
-      const id = normalizeSearch(model?.id);
-      const title = normalizeSearch(model?.title);
-      const idIndex = id.indexOf(needle);
-      const titleIndex = title.indexOf(needle);
-      const rank = Math.min(idIndex >= 0 ? idIndex : Number.MAX_SAFE_INTEGER, titleIndex >= 0 ? titleIndex : Number.MAX_SAFE_INTEGER);
-      return { model, rank };
-    })
-    .filter((item) => item.rank !== Number.MAX_SAFE_INTEGER)
-    .sort((left, right) => {
-      if (left.rank !== right.rank) {
-        return left.rank - right.rank;
-      }
-      return String(left.model?.id || "").localeCompare(String(right.model?.id || ""));
-    })
-    .map((item) => item.model);
-}
 
 export function ConfigView({ sectionId = "providers", onSectionChange = null }) {
   const initialSectionId = isSettingsSection(sectionId) ? sectionId : "providers";
@@ -1292,7 +1264,7 @@ export function ConfigView({ sectionId = "providers", onSectionChange = null }) 
             onSetProviderModelMenuRect={setProviderModelMenuRect}
             getProviderEntry={getProviderEntry}
             providerIsConfigured={providerIsConfigured}
-            filterProviderModels={filterProviderModels}
+            filterProviderModels={filterModelsByQuery}
           />
           <section className="entry-editor-card providers-intro-card" style={{ marginTop: 0 }}>
             <h3>GitHub Access</h3>

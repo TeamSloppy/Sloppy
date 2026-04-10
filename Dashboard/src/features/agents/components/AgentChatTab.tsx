@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   createAgentSession,
   deleteAgentSession,
@@ -40,6 +40,54 @@ const SLASH_COMMANDS = [
 const SLASH_COMMAND_NAMES = new Set(SLASH_COMMANDS.map((c) => c.name));
 const SLASH_CMD_INLINE_PATTERN = /\/([a-z][a-z0-9_-]*)/g;
 const SLASH_CMD_REMOVE_PATTERN = /(^|\s)(\/[a-z][a-z0-9_-]*)(\s?)$/;
+
+const AGENT_CHAT_COMPOSE_DRAFT_PREFIX = "sloppy.agentChat.composeDraft";
+
+function agentChatComposeDraftKey(agentId, sessionId) {
+  const aid = String(agentId || "").trim();
+  const sid = sessionId && String(sessionId).trim() ? String(sessionId).trim() : "_new";
+  return `${AGENT_CHAT_COMPOSE_DRAFT_PREFIX}:${aid}:${sid}`;
+}
+
+function readAgentChatComposeDraft(agentId, sessionId) {
+  if (typeof window === "undefined") {
+    return "";
+  }
+  try {
+    const raw = window.localStorage.getItem(agentChatComposeDraftKey(agentId, sessionId));
+    return typeof raw === "string" ? raw : "";
+  } catch {
+    return "";
+  }
+}
+
+function writeAgentChatComposeDraft(agentId, sessionId, text) {
+  if (typeof window === "undefined") {
+    return;
+  }
+  try {
+    const key = agentChatComposeDraftKey(agentId, sessionId);
+    const normalized = String(text ?? "");
+    if (!normalized.trim()) {
+      window.localStorage.removeItem(key);
+    } else {
+      window.localStorage.setItem(key, normalized);
+    }
+  } catch {
+    // ignore quota / private mode
+  }
+}
+
+function removeAgentChatComposeDraft(agentId, sessionId) {
+  if (typeof window === "undefined") {
+    return;
+  }
+  try {
+    window.localStorage.removeItem(agentChatComposeDraftKey(agentId, sessionId));
+  } catch {
+    // ignore
+  }
+}
 
 function normalizeTaskReference(value) {
   return String(value || "").trim();
@@ -2026,6 +2074,7 @@ export function AgentChatTab({ agentId, initialSessionId = null }) {
   const streamCleanupRef = useRef(() => { });
   const subagentStreamCleanupRef = useRef(() => { });
   const activeSessionIdRef = useRef(null);
+  const prevAgentIdForDraftRef = useRef(agentId);
   const subagentSessionIdRef = useRef("");
   const sessionSyncRef = useRef({ sessionId: null, timerId: null, inflight: false, queued: false });
   const taskRecordCacheRef = useRef(new Map());
@@ -2079,6 +2128,33 @@ export function AgentChatTab({ agentId, initialSessionId = null }) {
   useEffect(() => {
     activeSessionIdRef.current = activeSessionId;
   }, [activeSessionId]);
+
+  useLayoutEffect(() => {
+    if (!agentId) {
+      prevAgentIdForDraftRef.current = agentId;
+      setInputText("");
+      return;
+    }
+    const agentChanged = prevAgentIdForDraftRef.current !== agentId;
+    prevAgentIdForDraftRef.current = agentId;
+    if (agentChanged) {
+      setActiveSessionId(null);
+      setActiveSession(null);
+      setInputText(readAgentChatComposeDraft(agentId, null));
+      return;
+    }
+    setInputText(readAgentChatComposeDraft(agentId, activeSessionId));
+  }, [agentId, activeSessionId]);
+
+  useEffect(() => {
+    if (!agentId) {
+      return;
+    }
+    const timerId = window.setTimeout(() => {
+      writeAgentChatComposeDraft(agentId, activeSessionId, inputText);
+    }, 200);
+    return () => window.clearTimeout(timerId);
+  }, [agentId, activeSessionId, inputText]);
 
   useEffect(() => {
     subagentSessionIdRef.current = subagentPanel.sessionId;
@@ -2222,7 +2298,6 @@ export function AgentChatTab({ agentId, initialSessionId = null }) {
       setActiveSessionId(null);
       setActiveSession(null);
       setPendingFiles([]);
-      setInputText("");
       setOptimisticUserEvent(null);
       setOptimisticAssistantText("");
       setReplyTarget(null);
@@ -2319,6 +2394,8 @@ export function AgentChatTab({ agentId, initialSessionId = null }) {
     if (!sessionId) {
       return;
     }
+    const previousSessionId = activeSessionIdRef.current;
+    setActiveSessionId(sessionId);
     setIsLoadingSession(true);
     setReplyTarget(null);
     setExpandedRecordIds({});
@@ -2329,6 +2406,7 @@ export function AgentChatTab({ agentId, initialSessionId = null }) {
         setActiveSessionId(sessionId);
       } else {
         setStatusText("Failed to load session.");
+        setActiveSessionId(previousSessionId);
       }
       setIsLoadingSession(false);
     }
@@ -3077,11 +3155,13 @@ export function AgentChatTab({ agentId, initialSessionId = null }) {
       return;
     }
 
-    const success = await deleteAgentSession(agentId, activeSessionId);
+    const deletedSessionId = activeSessionId;
+    const success = await deleteAgentSession(agentId, deletedSessionId);
     if (!success) {
       setStatusText("Failed to delete session.");
       return;
     }
+    removeAgentChatComposeDraft(agentId, deletedSessionId);
     await refreshSessions(null);
     setStatusText("Session deleted.");
   }
