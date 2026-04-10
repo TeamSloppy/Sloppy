@@ -12,11 +12,15 @@ site/
 /core.sqlite
 /core.sqlite-*
 /memory/
+
+artifacts/
+logs/
+
+# Sloppy
+.meta/
 .env
 .sloppy/
 .sloppy-worktrees/
-artifacts/
-logs/
 
 # Cursor
 .cursor/*

@@ -494,6 +494,11 @@ function getSessionDisplayLabel(session) {
   return title || preview || "Session";
 }
 
+function isActiveRunStage(stage) {
+  const value = String(stage || "").trim().toLowerCase();
+  return value === "thinking" || value === "searching" || value === "responding";
+}
+
 function extractEventKey(event, index) {
   return event?.id || `${event?.type || "event"}-${index}`;
 }
@@ -544,30 +549,34 @@ function formatStructuredData(value) {
 }
 
 function findPendingToolCallRecordIds(events) {
-  const unmatchedResultsByTool = new Map();
+  const openCallsByTool = new Map();
   const pendingRecordIds = new Set();
 
-  for (let index = (Array.isArray(events) ? events.length : 0) - 1; index >= 0; index -= 1) {
+  for (let index = 0; index < (Array.isArray(events) ? events.length : 0); index += 1) {
     const eventItem = events[index];
-
-    if (eventItem?.type === "tool_result" && eventItem.toolResult) {
-      const toolName = String(eventItem.toolResult.tool || "").trim();
-      const nextCount = (unmatchedResultsByTool.get(toolName) || 0) + 1;
-      unmatchedResultsByTool.set(toolName, nextCount);
-      continue;
-    }
 
     if (eventItem?.type === "tool_call" && eventItem.toolCall) {
       const toolName = String(eventItem.toolCall.tool || "").trim();
-      const unmatchedCount = unmatchedResultsByTool.get(toolName) || 0;
-      if (unmatchedCount > 0) {
-        if (unmatchedCount === 1) {
-          unmatchedResultsByTool.delete(toolName);
-        } else {
-          unmatchedResultsByTool.set(toolName, unmatchedCount - 1);
-        }
+      const recordId = `${extractEventKey(eventItem, index)}-tool-call`;
+      pendingRecordIds.add(recordId);
+      if (!openCallsByTool.has(toolName)) {
+        openCallsByTool.set(toolName, []);
+      }
+      openCallsByTool.get(toolName).push(recordId);
+      continue;
+    }
+
+    if (eventItem?.type === "tool_result" && eventItem.toolResult) {
+      const toolName = String(eventItem.toolResult.tool || "").trim();
+      const queue = openCallsByTool.get(toolName) || [];
+      const matchedRecordId = queue.shift();
+      if (queue.length === 0) {
+        openCallsByTool.delete(toolName);
       } else {
-        pendingRecordIds.add(`${extractEventKey(eventItem, index)}-tool-call`);
+        openCallsByTool.set(toolName, queue);
+      }
+      if (matchedRecordId) {
+        pendingRecordIds.delete(matchedRecordId);
       }
     }
   }
@@ -980,9 +989,10 @@ function groupTimelineItems(items) {
   const result = [];
   let techBuffer = [];
 
-  function flush(followedByAssistant) {
+  function flush(followedByAssistant, isTail = false) {
     if (techBuffer.length === 0) return;
-    if (techBuffer.length >= TECH_GROUP_THRESHOLD && followedByAssistant) {
+    const shouldGroup = techBuffer.length >= TECH_GROUP_THRESHOLD && (followedByAssistant || isTail);
+    if (shouldGroup) {
       result.push({
         kind: "tech-group",
         id: `tech-group-${techBuffer[0]?.id || "g"}`,
@@ -1005,7 +1015,7 @@ function groupTimelineItems(items) {
     }
   }
 
-  flush(false);
+  flush(false, true);
   return result;
 }
 
@@ -1145,6 +1155,10 @@ function AgentChatEvents({
   }, [timelineItems, isLoadingSession, isSending, latestRunStatus?.id]);
 
   const displayGroups = useMemo(() => groupTimelineItems(timelineItems), [timelineItems]);
+  const hasWaitingStreamIndicator = useMemo(
+    () => timelineItems.some((item) => item?.kind === "message" && item?.isWaitingForStream),
+    [timelineItems]
+  );
   const latestThinkingMessageId = useMemo(() => {
     for (let index = timelineItems.length - 1; index >= 0; index -= 1) {
       const item = timelineItems[index];
@@ -1165,10 +1179,7 @@ function AgentChatEvents({
     const record = techItem.record;
     if (!record) return null;
     const isExpanded = Boolean(expandedRecordIds[record.id]);
-    const isLatestActive =
-      latestRunStatus &&
-      record.isActive &&
-      record.id.includes(latestRunStatus.id || "");
+    const isLatestActive = Boolean(record.isActive);
 
     return (
       <div key={techItem.id || `tech-${techIndex}`} className="agent-chat-tech-entry">
@@ -1455,6 +1466,13 @@ function AgentChatEvents({
               </article>
             );
           })}
+          {(isSending || isActiveRunStage(latestRunStatus?.stage)) && !hasWaitingStreamIndicator ? (
+            <div className="agent-chat-stream-indicator" aria-label="Agent is processing">
+              <span className="agent-chat-stream-dot" />
+              <span className="agent-chat-stream-dot" />
+              <span className="agent-chat-stream-dot" />
+            </div>
+          ) : null}
         </>
       )}
     </div>
@@ -1465,7 +1483,7 @@ function AgentChatComposer({
   agentId,
   inputText,
   onInputTextChange,
-  isSending,
+  isBusy,
   onSend,
   onStop,
   pendingFiles,
@@ -1698,7 +1716,7 @@ function AgentChatComposer({
               onAddFiles(event.target.files);
               event.target.value = "";
             }}
-            disabled={isSending}
+            disabled={isBusy}
           />
 
           {pendingFiles.length > 0 ? (
@@ -1719,7 +1737,7 @@ function AgentChatComposer({
               type="button"
               className="agent-chat-icon-button"
               onClick={() => fileInputRef.current?.click()}
-              disabled={isSending}
+              disabled={isBusy}
               title="Attach files"
             >
               <span className="material-symbols-rounded" aria-hidden="true">
@@ -1731,7 +1749,7 @@ function AgentChatComposer({
               ref={editorRef}
               className="agent-chat-compose-input"
               data-testid="agent-chat-compose-input"
-              contentEditable={!isSending}
+              contentEditable={!isBusy}
               suppressContentEditableWarning
               data-placeholder={agentId ? `Message ${agentId}...` : "Message..."}
               role="textbox"
@@ -1899,7 +1917,7 @@ function AgentChatComposer({
                   return;
                 }
                 event.preventDefault();
-                if (!isSending && canSend) {
+                if (!isBusy && canSend) {
                   onSend();
                 }
               }}
@@ -1917,7 +1935,7 @@ function AgentChatComposer({
                   <select
                     value={reasoningEffort}
                     onChange={(event) => onReasoningEffortChange(event.target.value)}
-                    disabled={isSending}
+                    disabled={isBusy}
                     aria-label="Reasoning effort"
                   >
                     <option value="low">Low</option>
@@ -1938,7 +1956,7 @@ function AgentChatComposer({
                 </span>
               </button>
 
-              {isSending ? (
+              {isBusy ? (
                 <button type="button" className="agent-chat-icon-button agent-chat-send-button danger" onClick={onStop}>
                   <span className="material-symbols-rounded" aria-hidden="true">
                     stop
@@ -2820,11 +2838,7 @@ export function AgentChatTab({ agentId, initialSessionId = null }) {
     }
 
     if (lower === "/abort" || lower === "/stop") {
-      if (isSending) {
-        handleStop();
-      } else {
-        setStatusText("Nothing to abort.");
-      }
+      handleStop();
       setInputText("");
       return true;
     }
@@ -3024,11 +3038,12 @@ export function AgentChatTab({ agentId, initialSessionId = null }) {
   }
 
   async function handleStop() {
-    if (!isSending) {
+    const sessionId = runStateRef.current.sessionId || activeSessionId;
+    if (!sessionId) {
+      setStatusText("Nothing to abort.");
       return;
     }
 
-    const sessionId = runStateRef.current.sessionId || activeSessionId;
     runStateRef.current.abortController?.abort();
     runStateRef.current.abortController = null;
     runStateRef.current.sessionId = null;
@@ -3037,7 +3052,7 @@ export function AgentChatTab({ agentId, initialSessionId = null }) {
     if (sessionId) {
       await postAgentMemoryCheckpoint(agentId, sessionId, { reason: "stop_command" });
       const response = await postAgentSessionControl(agentId, sessionId, {
-        action: "interrupt",
+        action: "interruptTree",
         requestedBy: "dashboard",
         reason: "Stopped by user"
       });
@@ -3198,6 +3213,22 @@ export function AgentChatTab({ agentId, initialSessionId = null }) {
       }),
     [subagentEvents, subagentActiveToolCallRecordIds, subagentOptimisticAssistantText, subagentPanel.status]
   );
+  const isActiveSessionBusy = isSending || isActiveRunStage(latestRunStatus?.stage) || activeToolCallRecordIds.size > 0;
+  const isSubagentBusy =
+    subagentPanel.loading ||
+    subagentPanel.status === "live" ||
+    isActiveRunStage(subagentLatestRunStatus?.stage) ||
+    subagentActiveToolCallRecordIds.size > 0;
+  const busySessionIds = useMemo(() => {
+    const next = new Set();
+    if (activeSessionId && isActiveSessionBusy) {
+      next.add(activeSessionId);
+    }
+    if (subagentPanel.sessionId && isSubagentBusy) {
+      next.add(subagentPanel.sessionId);
+    }
+    return next;
+  }, [activeSessionId, isActiveSessionBusy, subagentPanel.sessionId, isSubagentBusy]);
 
   function toggleExpandedRecord(recordId) {
     if (!recordId) {
@@ -3304,6 +3335,7 @@ export function AgentChatTab({ agentId, initialSessionId = null }) {
                       disabled={isLoadingSessions || isSending}
                     >
                       <div className="agent-chat-session-title">
+                        {busySessionIds.has(session.id) ? <span className="agent-chat-session-active-dot" aria-hidden="true" /> : null}
                         {getSessionDisplayLabel(session)}
                       </div>
                       <div className="agent-chat-session-meta">
@@ -3325,6 +3357,7 @@ export function AgentChatTab({ agentId, initialSessionId = null }) {
               disabled={isLoadingSessions || isSending}
             >
               <div className="agent-chat-session-title">
+                {busySessionIds.has(session.id) ? <span className="agent-chat-session-active-dot" aria-hidden="true" /> : null}
                 {getSessionDisplayLabel(session)}
               </div>
               <div className="agent-chat-session-meta">
@@ -3405,7 +3438,7 @@ export function AgentChatTab({ agentId, initialSessionId = null }) {
             <div className="agent-chat-thread">
               <AgentChatEvents
                 isLoadingSession={isLoadingSession}
-                isSending={isSending}
+                isSending={isActiveSessionBusy}
                 timelineItems={timelineItems}
                 latestRunStatus={latestRunStatus}
                 expandedRecordIds={expandedRecordIds}
@@ -3424,7 +3457,7 @@ export function AgentChatTab({ agentId, initialSessionId = null }) {
                   agentId={agentId}
                   inputText={inputText}
                   onInputTextChange={setInputText}
-                  isSending={isSending}
+                  isBusy={isActiveSessionBusy}
                   onSend={handleSend}
                   onStop={handleStop}
                   pendingFiles={pendingFiles}
@@ -3470,7 +3503,7 @@ export function AgentChatTab({ agentId, initialSessionId = null }) {
                 ) : (
                   <AgentChatEvents
                     isLoadingSession={subagentPanel.loading}
-                    isSending={subagentPanel.status === "loading" || subagentPanel.status === "live"}
+                    isSending={isSubagentBusy}
                     timelineItems={subagentTimelineItems}
                     latestRunStatus={subagentLatestRunStatus}
                     expandedRecordIds={subagentExpandedRecordIds}
