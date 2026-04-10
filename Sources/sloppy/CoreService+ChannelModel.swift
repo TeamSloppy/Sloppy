@@ -17,11 +17,20 @@ extension CoreService {
     public func setChannelModel(channelId: String, model: String) async throws -> ChannelModelResponse {
         let trimmed = model.trimmingCharacters(in: .whitespacesAndNewlines)
         let available = availableAgentModels()
-        guard !trimmed.isEmpty, available.contains(where: { $0.id == trimmed }) else {
+        let hasOAuth = openAIOAuthService.currentAccessToken() != nil
+        let canonical: String?
+        if let resolved = CoreService.resolveCanonicalAgentModelID(trimmed, availableModels: available) {
+            canonical = resolved
+        } else if CoreService.isRuntimeRoutableModelID(trimmed, config: currentConfig, hasOAuthCredentials: hasOAuth) {
+            canonical = trimmed
+        } else {
+            canonical = nil
+        }
+        guard !trimmed.isEmpty, let canonical else {
             throw AgentConfigError.invalidModel
         }
-        await channelModelStore.set(channelId: channelId, model: trimmed)
-        return ChannelModelResponse(channelId: channelId, selectedModel: trimmed, availableModels: available)
+        await channelModelStore.set(channelId: channelId, model: canonical)
+        return ChannelModelResponse(channelId: channelId, selectedModel: canonical, availableModels: available)
     }
 
     public func removeChannelModel(channelId: String) async {
@@ -121,13 +130,22 @@ extension CoreService {
             return "Usage: /model <model_id>"
         }
 
-        guard available.contains(where: { $0.id == modelId }) else {
+        let hasOAuth = openAIOAuthService.currentAccessToken() != nil
+        let canonical: String?
+        if let resolved = CoreService.resolveCanonicalAgentModelID(modelId, availableModels: available) {
+            canonical = resolved
+        } else if CoreService.isRuntimeRoutableModelID(modelId, config: currentConfig, hasOAuthCredentials: hasOAuth) {
+            canonical = modelId
+        } else {
+            canonical = nil
+        }
+        guard let canonical else {
             let list = available.map { "  \($0.id)" }.joined(separator: "\n")
             return "Unknown model: \(modelId)\n\nAvailable models:\n\(list)"
         }
 
-        await channelModelStore.set(channelId: channelId, model: modelId)
-        return "Model set to: \(modelId)"
+        await channelModelStore.set(channelId: channelId, model: canonical)
+        return "Model set to: \(canonical)"
     }
 
     func handleStatusCommand(channelId: String, content: String) async -> String? {

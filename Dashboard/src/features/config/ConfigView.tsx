@@ -5,6 +5,7 @@ import {
   fetchOpenAIProviderStatus,
   fetchRuntimeConfig,
   fetchSearchProviderStatus,
+  probeProvider,
   startOpenAIDeviceCode,
   pollOpenAIDeviceCode,
   updateRuntimeConfig,
@@ -62,6 +63,7 @@ const GIT_SYNC_CONFLICT_STRATEGIES = new Set(["remote_wins", "local_wins", "manu
 const PROVIDER_CATALOG = [
   {
     id: "openai-api",
+    brandProviderKey: "openai",
     title: "OpenAI API",
     description: "OpenAI via API key authentication.",
     modelHint: "gpt-5.4-mini",
@@ -76,37 +78,8 @@ const PROVIDER_CATALOG = [
     }
   },
   {
-    id: "gemini",
-    title: "Google Gemini",
-    description: "Google Gemini models via API key.",
-    modelHint: "gemini-2.5-flash",
-    authMethod: "api_key",
-    requiresApiKey: true,
-    supportsModelCatalog: false,
-    defaultEntry: {
-      title: "gemini",
-      apiKey: "",
-      apiUrl: "https://generativelanguage.googleapis.com",
-      model: "gemini-2.5-flash"
-    }
-  },
-  {
-    id: "anthropic",
-    title: "Anthropic",
-    description: "Claude models via Anthropic API key.",
-    modelHint: "claude-sonnet-4-20250514",
-    authMethod: "api_key",
-    requiresApiKey: true,
-    supportsModelCatalog: false,
-    defaultEntry: {
-      title: "anthropic",
-      apiKey: "",
-      apiUrl: "https://api.anthropic.com",
-      model: "claude-sonnet-4-20250514"
-    }
-  },
-  {
     id: "openai-oauth",
+    brandProviderKey: "openai",
     title: "OpenAI Codex",
     description: "ChatGPT/Codex login via OpenAI OAuth.",
     modelHint: "gpt-5.3-codex",
@@ -121,7 +94,56 @@ const PROVIDER_CATALOG = [
     }
   },
   {
+    id: "openrouter",
+    brandProviderKey: null,
+    title: "OpenRouter",
+    description: "Unified API for many models (OpenAI-compatible Chat Completions).",
+    modelHint: "openai/gpt-4o-mini",
+    authMethod: "api_key",
+    requiresApiKey: true,
+    supportsModelCatalog: true,
+    defaultEntry: {
+      title: "openrouter",
+      apiKey: "",
+      apiUrl: "https://openrouter.ai/api/v1",
+      model: "openai/gpt-4o-mini"
+    }
+  },
+  {
+    id: "anthropic",
+    brandProviderKey: "anthropic",
+    title: "Anthropic",
+    description: "Claude models via Anthropic API key.",
+    modelHint: "claude-sonnet-4-20250514",
+    authMethod: "api_key",
+    requiresApiKey: true,
+    supportsModelCatalog: false,
+    defaultEntry: {
+      title: "anthropic",
+      apiKey: "",
+      apiUrl: "https://api.anthropic.com",
+      model: "claude-sonnet-4-20250514"
+    }
+  },
+  {
+    id: "gemini",
+    brandProviderKey: "gemini",
+    title: "Google Gemini",
+    description: "Google Gemini models via API key.",
+    modelHint: "gemini-2.5-flash",
+    authMethod: "api_key",
+    requiresApiKey: true,
+    supportsModelCatalog: false,
+    defaultEntry: {
+      title: "gemini",
+      apiKey: "",
+      apiUrl: "https://generativelanguage.googleapis.com",
+      model: "gemini-2.5-flash"
+    }
+  },
+  {
     id: "ollama",
+    brandProviderKey: "ollama",
     title: "Ollama",
     description: "Local provider served by Ollama.",
     modelHint: "qwen3",
@@ -272,6 +294,7 @@ function normalizeModel(item, index) {
     const [provider, name] = item.includes(":") ? item.split(":", 2) : ["", item];
     const apiUrlMap = {
       openai: "https://api.openai.com/v1",
+      openrouter: "https://openrouter.ai/api/v1",
       ollama: "http://127.0.0.1:11434",
       gemini: "https://generativelanguage.googleapis.com",
       anthropic: "https://api.anthropic.com"
@@ -304,6 +327,10 @@ function inferModelProvider(model) {
     /^o\d/.test(modelName)
   ) {
     return "openai";
+  }
+
+  if (apiUrl.includes("openrouter") || title.includes("openrouter")) {
+    return "openrouter";
   }
 
   if (apiUrl.includes("ollama") || apiUrl.includes("11434") || title.includes("ollama")) {
@@ -341,6 +368,9 @@ function findProviderModelIndex(models, providerId) {
   }
   if (providerId === "anthropic") {
     return models.findIndex((item) => inferModelProvider(item) === "anthropic");
+  }
+  if (providerId === "openrouter") {
+    return models.findIndex((item) => inferModelProvider(item) === "openrouter");
   }
   return -1;
 }
@@ -754,10 +784,6 @@ export function ConfigView({ sectionId = "providers", onSectionChange = null }) 
   async function persistConfig(payload) {
     try {
       const response = await updateRuntimeConfig(payload);
-      if (!response) {
-        setStatusText("Failed to save config");
-        return false;
-      }
 
       if (pendingOAuthDisconnect) {
         await disconnectOpenAIOAuth();
@@ -775,8 +801,9 @@ export function ConfigView({ sectionId = "providers", onSectionChange = null }) 
       await loadGitHubAuthStatus();
       setStatusText("Config saved");
       return true;
-    } catch {
-      setStatusText("Failed to save config");
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Failed to save config";
+      setStatusText(message);
       return false;
     }
   }
@@ -1019,18 +1046,38 @@ export function ConfigView({ sectionId = "providers", onSectionChange = null }) 
     const entry = entryOverride || entryFromConfig;
     setProviderStatus(provider.id, "Loading provider models...");
 
-    const response = await fetchOpenAIModels({
-      authMethod: provider.authMethod,
-      apiKey: provider.authMethod === "api_key" ? entry.apiKey : undefined,
-      apiUrl: entry.apiUrl || provider.defaultEntry.apiUrl
-    });
+    let payload;
+    if (provider.id === "openrouter") {
+      const probe = await probeProvider({
+        providerId: "openrouter",
+        apiKey: String(entry.apiKey || "").trim() || undefined,
+        apiUrl: entry.apiUrl || provider.defaultEntry.apiUrl
+      });
+      if (!probe) {
+        setProviderStatus(provider.id, "Failed to load models from sloppy");
+        return;
+      }
+      payload = {
+        models: Array.isArray(probe.models) ? probe.models : [],
+        warning: probe.ok ? undefined : String(probe.message || ""),
+        source: probe.ok ? "remote" : "fallback",
+        usedEnvironmentKey: Boolean(probe.usedEnvironmentKey)
+      };
+    } else {
+      const response = await fetchOpenAIModels({
+        authMethod: provider.authMethod,
+        apiKey: provider.authMethod === "api_key" ? entry.apiKey : undefined,
+        apiUrl: entry.apiUrl || provider.defaultEntry.apiUrl
+      });
 
-    if (!response) {
-      setProviderStatus(provider.id, "Failed to load models from sloppy");
-      return;
+      if (!response) {
+        setProviderStatus(provider.id, "Failed to load models from sloppy");
+        return;
+      }
+      payload = response;
     }
 
-    const payload = response as any;
+    payload = payload as any;
     const models = Array.isArray(payload.models) ? payload.models : [];
 
     setProviderModelOptions((previous) => ({
@@ -1041,7 +1088,8 @@ export function ConfigView({ sectionId = "providers", onSectionChange = null }) 
     if (payload.warning) {
       setProviderStatus(provider.id, payload.warning);
     } else if (payload.source === "remote") {
-      setProviderStatus(provider.id, `Loaded ${models.length} models from OpenAI`);
+      const label = provider.id === "openrouter" ? "OpenRouter" : "OpenAI";
+      setProviderStatus(provider.id, `Loaded ${models.length} models from ${label}`);
     } else {
       setProviderStatus(provider.id, `Loaded fallback catalog (${models.length} models)`);
     }

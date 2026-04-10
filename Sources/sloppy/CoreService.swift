@@ -364,7 +364,8 @@ public actor CoreService {
             agentCatalogStore: orchestratorCatalogStore,
             agentSkillsStore: orchestratorSkillsStore,
             acpSessionManager: self.acpSessionManager,
-            availableModels: initialAvailableAgentModels
+            availableModels: initialAvailableAgentModels,
+            persistedModelContext: (config, hasOAuth)
         )
         let toolsStore = AgentToolsFileStore(agentsRootURL: self.agentsRootURL)
         self.toolsAuthorization = ToolAuthorizationService(store: toolsStore, mcpRegistry: self.mcpRegistry)

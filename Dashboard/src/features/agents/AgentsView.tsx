@@ -433,18 +433,25 @@ export function AgentsView({
 
     const agentConfig = await fetchAgentConfig(normalizedId);
     if (agentConfig) {
-      await updateAgentConfig(normalizedId, {
-        selectedModel: agentConfig.selectedModel || form.generateModel || "",
-        documents: {
-          agentsMarkdown: generatedFiles.agentsMarkdown,
-          identityMarkdown: generatedFiles.identityMarkdown,
-          soulMarkdown: generatedFiles.soulMarkdown,
-          userMarkdown: generatedFiles.userMarkdown,
-          heartbeatMarkdown: String((agentConfig.documents as Record<string, unknown>)?.heartbeatMarkdown || "")
-        },
-        heartbeat: agentConfig.heartbeat,
-        channelSessions: agentConfig.channelSessions
-      });
+      try {
+        await updateAgentConfig(normalizedId, {
+          selectedModel: agentConfig.selectedModel || form.generateModel || "",
+          documents: {
+            agentsMarkdown: generatedFiles.agentsMarkdown,
+            identityMarkdown: generatedFiles.identityMarkdown,
+            soulMarkdown: generatedFiles.soulMarkdown,
+            userMarkdown: generatedFiles.userMarkdown,
+            heartbeatMarkdown: String((agentConfig.documents as Record<string, unknown>)?.heartbeatMarkdown || "")
+          },
+          heartbeat: agentConfig.heartbeat,
+          channelSessions: agentConfig.channelSessions
+        });
+      } catch (err) {
+        setCreateError(err instanceof Error ? err.message : "Failed to update agent config after creation.");
+        setIsSubmittingAgent(false);
+        setGenerationPhase("form");
+        return;
+      }
     }
 
     setAgents((previous) => mergeAgent(previous, response));

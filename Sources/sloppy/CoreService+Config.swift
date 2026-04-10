@@ -65,6 +65,10 @@ extension CoreService {
         self.modelProvider = modelProvider
         await runtime.updateModelProvider(modelProvider: modelProvider, defaultModel: defaultModel)
         await sessionOrchestrator.updateAvailableModels(availableAgentModels())
+        await sessionOrchestrator.updatePersistedModelContext(
+            config: config,
+            hasOAuthCredentials: hasOAuth
+        )
 
         if previousChannels.telegram != config.channels.telegram {
             var plugin: (any GatewayPlugin)?

@@ -103,6 +103,29 @@ async function parseJSONSafely<TData>(response: Response): Promise<TData | null>
   }
 }
 
+/** Builds a short message for failed API calls (dashboard status lines, thrown errors). */
+export function formatHttpError(status: number, data: unknown): string {
+  if (status === 0) {
+    return "Could not reach Sloppy. Is the core running and is the API base URL correct?";
+  }
+  let code = "";
+  if (data && typeof data === "object" && "error" in data && data.error != null) {
+    code = String((data as Record<string, unknown>).error);
+  }
+  const hints: Record<string, string> = {
+    invalid_body: "The server rejected the JSON body (wrong shape or types). Try reloading settings or editing in Raw config.",
+    config_write_failed: "Could not write sloppy.json on the server (path or permissions).",
+    invalid_agent_model: "This model id is not accepted for the agent. Pick another model or fix provider config.",
+    invalid_agent_config_payload: "Agent config payload was rejected (validation or decode).",
+    invalid_agent_id: "Invalid agent id.",
+    agent_not_found: "Agent was not found.",
+    agent_config_write_failed: "Agent config could not be saved."
+  };
+  const hint = code && hints[code] ? ` — ${hints[code]}` : "";
+  const suffix = code ? `: ${code}` : "";
+  return `Request failed (HTTP ${status})${suffix}${hint}`;
+}
+
 export async function requestJson<TResponse, TBody = unknown>(
   options: JsonRequestOptions<TBody>
 ): Promise<JsonResponse<TResponse>> {

@@ -32,25 +32,48 @@ public struct CompositeModelProvider: ModelProvider {
         self.systemInstructions = systemInstructions
     }
 
+    private func provider(matching modelName: String) -> (any ModelProvider)? {
+        if let exact = providers.first(where: { $0.supportedModels.contains(modelName) }) {
+            return exact
+        }
+        let routes: [(prefix: String, id: String)] = [
+            ("openrouter:", "openrouter"),
+            ("openai:", "openai"),
+            ("ollama:", "ollama"),
+            ("gemini:", "gemini"),
+            ("anthropic:", "anthropic"),
+        ]
+        for route in routes where modelName.hasPrefix(route.prefix) {
+            if let match = providers.first(where: { $0.id == route.id }) {
+                return match
+            }
+        }
+        return nil
+    }
+
+    public func supports(modelName: String) -> Bool {
+        provider(matching: modelName) != nil
+    }
+
     public func createLanguageModel(for modelName: String) async throws -> any LanguageModel {
-        guard let provider = providers.first(where: { $0.supportedModels.contains(modelName) }) else {
+        guard let provider = provider(matching: modelName) else {
             throw ProviderError.unsupportedModel(modelName)
         }
         return try await provider.createLanguageModel(for: modelName)
     }
 
     public func generationOptions(for modelName: String, maxTokens: Int, reasoningEffort: ReasoningEffort?) -> GenerationOptions {
-        guard let provider = providers.first(where: { $0.supportedModels.contains(modelName) }) else {
+        guard let provider = provider(matching: modelName) else {
             return GenerationOptions(maximumResponseTokens: maxTokens)
         }
         return provider.generationOptions(for: modelName, maxTokens: maxTokens, reasoningEffort: reasoningEffort)
     }
 
     public func reasoningCapture(for modelName: String) -> ReasoningContentCapture? {
-        providers.first(where: { $0.supportedModels.contains(modelName) })?.reasoningCapture(for: modelName)
+        provider(matching: modelName)?.reasoningCapture(for: modelName)
     }
 
     public func tokenUsageCapture(for modelName: String) -> TokenUsageCapture? {
-        providers.first(where: { $0.supportedModels.contains(modelName) })?.tokenUsageCapture(for: modelName)
+        provider(matching: modelName)?.tokenUsageCapture(for: modelName)
     }
 }

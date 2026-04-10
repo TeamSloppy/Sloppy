@@ -104,7 +104,7 @@ extension CoreService {
         }
 
         let activeModel: String
-        if let visorModel, !visorModel.isEmpty, modelProvider.supportedModels.contains(visorModel) {
+        if let visorModel, !visorModel.isEmpty, modelProvider.supports(modelName: visorModel) {
             activeModel = visorModel
         } else if let fallback = modelProvider.supportedModels.first ?? resolvedModels.first {
             activeModel = fallback
@@ -132,7 +132,7 @@ extension CoreService {
         }
 
         let activeModel: String
-        if let visorModel, !visorModel.isEmpty, modelProvider.supportedModels.contains(visorModel) {
+        if let visorModel, !visorModel.isEmpty, modelProvider.supports(modelName: visorModel) {
             activeModel = visorModel
         } else if let fallback = modelProvider.supportedModels.first ?? resolvedModels.first {
             activeModel = fallback

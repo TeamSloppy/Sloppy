@@ -44,6 +44,19 @@ const PROVIDERS: ProviderDefinition[] = [
     }
   },
   {
+    id: "openrouter",
+    title: "OpenRouter",
+    description: "Many models through one OpenAI-compatible API.",
+    requiresApiKey: true,
+    authHint: "Uses payload key, saved config key, or OPENROUTER_API_KEY.",
+    defaultEntry: {
+      title: "openrouter",
+      apiKey: "",
+      apiUrl: "https://openrouter.ai/api/v1",
+      model: "openai/gpt-4o-mini"
+    }
+  },
+  {
     id: "gemini",
     title: "Google Gemini",
     description: "Google Gemini models via API key auth.",
@@ -235,6 +248,9 @@ function inferProviderId(config: AnyRecord) {
   if (title.includes("anthropic") || apiUrl.includes("anthropic")) {
     return "anthropic";
   }
+  if (title.includes("openrouter") || apiUrl.includes("openrouter")) {
+    return "openrouter";
+  }
   return "openai-api";
 }
 
@@ -255,6 +271,9 @@ function initialProviderState(config: AnyRecord) {
 function runtimeModelId(providerId: string, modelId: string) {
   if (providerId.startsWith("openai")) {
     return `openai:${modelId}`;
+  }
+  if (providerId === "openrouter") {
+    return `openrouter:${modelId}`;
   }
   if (providerId === "ollama") {
     return `ollama:${modelId}`;
@@ -311,6 +330,9 @@ function providerCardIcon(providerId: string) {
   }
   if (providerId === "openai-oauth") {
     return "login";
+  }
+  if (providerId === "openrouter") {
+    return "hub";
   }
   if (providerId === "gemini") {
     return "diamond";
@@ -549,7 +571,11 @@ export function OnboardingView({ coreApi, initialConfig, onCompleted }: Onboardi
   async function runProviderProbe(nextProviderId = activeProvider.id, nextApiKey = providerApiKey, nextApiUrl = providerApiUrl) {
     setIsProbing(true);
     setProbeStatus(`Testing ${nextProviderId === "openai-oauth" ? "OpenAI Codex" : activeProvider.title}...`);
-    const requiresKey = nextProviderId === "openai-api" || nextProviderId === "gemini" || nextProviderId === "anthropic";
+    const requiresKey =
+      nextProviderId === "openai-api" ||
+      nextProviderId === "openrouter" ||
+      nextProviderId === "gemini" ||
+      nextProviderId === "anthropic";
     const response = await coreApi.probeProvider({
       providerId: nextProviderId,
       apiKey: requiresKey ? nextApiKey : undefined,
@@ -743,9 +769,6 @@ export function OnboardingView({ coreApi, initialConfig, onCompleted }: Onboardi
         false
       );
       const savedConfig = await coreApi.updateRuntimeConfig(draftConfig);
-      if (!savedConfig) {
-        throw new Error("Failed to save runtime config.");
-      }
 
       setStatusText("Creating the first agent...");
       await ensureAgent();
@@ -780,15 +803,12 @@ export function OnboardingView({ coreApi, initialConfig, onCompleted }: Onboardi
         nextDocuments = currentDocuments;
       }
 
-      const updatedAgentConfig = await coreApi.updateAgentConfig(agentId, {
+      await coreApi.updateAgentConfig(agentId, {
         selectedModel: selectedRuntimeModel,
         documents: nextDocuments,
         heartbeat: agentConfig.heartbeat,
         channelSessions: agentConfig.channelSessions
       });
-      if (!updatedAgentConfig) {
-        throw new Error("Failed to update the first agent config.");
-      }
 
       setStatusText("Opening the first session...");
       const session = await coreApi.createAgentSession(agentId, {
@@ -808,9 +828,6 @@ export function OnboardingView({ coreApi, initialConfig, onCompleted }: Onboardi
         true
       );
       const finalized = await coreApi.updateRuntimeConfig(completedConfig);
-      if (!finalized) {
-        throw new Error("Failed to mark onboarding as completed.");
-      }
 
       window.history.pushState({}, "", `/agents/${encodeURIComponent(agentId)}/chat`);
       onCompleted(finalized);
@@ -842,9 +859,6 @@ export function OnboardingView({ coreApi, initialConfig, onCompleted }: Onboardi
       setStatusText("Skipping provider setup. You can configure it later in Settings.");
       const completedConfig = createConfigWithoutProvider(initialConfig, true);
       const finalized = await coreApi.updateRuntimeConfig(completedConfig);
-      if (!finalized) {
-        throw new Error("Failed to skip provider setup.");
-      }
 
       onCompleted(finalized);
     } catch (error) {

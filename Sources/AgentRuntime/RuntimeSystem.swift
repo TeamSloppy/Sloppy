@@ -151,7 +151,7 @@ public actor RuntimeSystem {
         }
 
         let normalizedDefault = defaultModel?.trimmingCharacters(in: .whitespacesAndNewlines)
-        if let normalizedDefault, !normalizedDefault.isEmpty, modelProvider.supportedModels.contains(normalizedDefault) {
+        if let normalizedDefault, !normalizedDefault.isEmpty, modelProvider.supports(modelName: normalizedDefault) {
             self.defaultModel = normalizedDefault
             return
         }

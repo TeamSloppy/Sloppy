@@ -44,5 +44,19 @@ export default defineConfig({
   server: {
     port: 25102,
     host: true
+  },
+  build: {
+    rollupOptions: {
+      onwarn(warning, defaultHandler) {
+        if (
+          warning.code === "MODULE_LEVEL_DIRECTIVE" &&
+          typeof warning.message === "string" &&
+          warning.message.includes('"use client"')
+        ) {
+          return;
+        }
+        defaultHandler(warning);
+      }
+    }
   }
 });

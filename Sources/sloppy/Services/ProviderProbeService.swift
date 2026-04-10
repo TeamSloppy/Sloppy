@@ -2,6 +2,7 @@ import Foundation
 #if canImport(FoundationNetworking)
 import FoundationNetworking
 #endif
+import PluginSDK
 import Protocols
 
 struct ProviderProbeService {
@@ -48,6 +49,8 @@ struct ProviderProbeService {
             return await probeOpenAI(config: config, request: request, authMethod: .apiKey)
         case .openAIOAuth:
             return await probeOpenAI(config: config, request: request, authMethod: .deeplink)
+        case .openRouter:
+            return await probeOpenRouter(config: config, request: request)
         case .ollama:
             return await probeOllama(config: config, request: request)
         case .gemini:
@@ -55,6 +58,104 @@ struct ProviderProbeService {
         case .anthropic:
             return await probeAnthropic(config: config, request: request)
         }
+    }
+
+    private func probeOpenRouter(
+        config: CoreConfig,
+        request: ProviderProbeRequest
+    ) async -> ProviderProbeResponse {
+        let primaryConfig = config.models.first {
+            CoreModelProviderFactory.resolvedIdentifier(for: $0)?.hasPrefix("openrouter:") == true
+        }
+
+        let apiURL = CoreModelProviderFactory.parseURL(request.apiUrl)
+            ?? CoreModelProviderFactory.parseURL(primaryConfig?.apiUrl)
+            ?? OpenRouterLanguageModelSupport.defaultBaseURL
+
+        let envKey = environmentLookup("OPENROUTER_API_KEY")?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let configuredKey = (primaryConfig?.apiKey ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let requestKey = request.apiKey?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+
+        let resolvedKey: String
+        let usedEnvironmentKey: Bool
+        if !requestKey.isEmpty {
+            resolvedKey = requestKey
+            usedEnvironmentKey = false
+        } else if !configuredKey.isEmpty {
+            resolvedKey = configuredKey
+            usedEnvironmentKey = false
+        } else if !envKey.isEmpty {
+            resolvedKey = envKey
+            usedEnvironmentKey = true
+        } else {
+            return ProviderProbeResponse(
+                providerId: request.providerId,
+                ok: false,
+                usedEnvironmentKey: false,
+                message: "OpenRouter API key is missing. Provide a key or set OPENROUTER_API_KEY.",
+                models: []
+            )
+        }
+
+        do {
+            let models = try await fetchOpenRouterModels(apiKey: resolvedKey, baseURL: apiURL)
+            guard !models.isEmpty else {
+                return ProviderProbeResponse(
+                    providerId: request.providerId,
+                    ok: false,
+                    usedEnvironmentKey: usedEnvironmentKey,
+                    message: "OpenRouter responded successfully, but no models were returned.",
+                    models: []
+                )
+            }
+
+            return ProviderProbeResponse(
+                providerId: request.providerId,
+                ok: true,
+                usedEnvironmentKey: usedEnvironmentKey,
+                message: "Connected to OpenRouter. Loaded \(models.count) models.",
+                models: models
+            )
+        } catch {
+            return ProviderProbeResponse(
+                providerId: request.providerId,
+                ok: false,
+                usedEnvironmentKey: usedEnvironmentKey,
+                message: "Failed to connect to OpenRouter: \(error.localizedDescription)",
+                models: []
+            )
+        }
+    }
+
+    private func fetchOpenRouterModels(apiKey: String, baseURL: URL) async throws -> [ProviderModelOption] {
+        let endpoint = openAIModelsURL(baseURL: baseURL)
+        var urlRequest = URLRequest(url: endpoint)
+        urlRequest.httpMethod = "GET"
+        urlRequest.setValue("application/json", forHTTPHeaderField: "Accept")
+        urlRequest.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+        let title = environmentLookup("OPENROUTER_APP_TITLE")?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        urlRequest.setValue(title.isEmpty ? "Sloppy" : title, forHTTPHeaderField: "X-OpenRouter-Title")
+        let referer = environmentLookup("OPENROUTER_HTTP_REFERER")?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if !referer.isEmpty {
+            urlRequest.setValue(referer, forHTTPHeaderField: "HTTP-Referer")
+        }
+
+        let (data, response) = try await transport(urlRequest)
+        guard (200..<300).contains(response.statusCode) else {
+            throw URLError(.userAuthenticationRequired)
+        }
+
+        let decoded = try JSONDecoder().decode(OpenAIModelsResponse.self, from: data)
+        return decoded.data
+            .map(\.id)
+            .filter { !$0.isEmpty }
+            .sorted()
+            .map { id in
+                ProviderModelOption(id: id, title: id, capabilities: ["tools"])
+            }
     }
 
     private func probeOpenAI(

@@ -1,7 +1,11 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { fetchActorsBoard, fetchAgentConfig, fetchRuntimeConfig, updateAgentConfig, deleteAgent } from "../../../api";
-import { collectAggregatedProviderModels, filterModelsByQuery } from "../utils/aggregateProviderModels";
+import {
+  coerceLegacySloppyModelId,
+  collectAggregatedProviderModels,
+  filterModelsByQuery
+} from "../utils/aggregateProviderModels";
 import { ChannelModelSelector } from "./ChannelModelSelector";
 
 const AGENT_CONFIG_SECTIONS = [
@@ -52,7 +56,7 @@ function emptyAgentConfigDraft(agentId) {
 function normalizeConfigDraft(agentId, config) {
   return {
     agentId: config.agentId || agentId,
-    selectedModel: config.selectedModel || "",
+    selectedModel: coerceLegacySloppyModelId(String(config.selectedModel || "")),
     availableModels: Array.isArray(config.availableModels) ? config.availableModels : [],
     documents: {
       userMarkdown: String(config.documents?.userMarkdown || ""),
@@ -381,7 +385,7 @@ export function AgentConfigTab({ agentId, agentDisplayName = "", onDeleteAgent =
     }
 
     const runtimeType = draft.runtime?.type || "native";
-    const selectedModel = String(draft.selectedModel || "").trim();
+    const selectedModel = coerceLegacySloppyModelId(String(draft.selectedModel || "").trim());
     if (runtimeType === "native" && !selectedModel) {
       setStatusText("Model is required for native runtime.");
       return;
@@ -432,17 +436,15 @@ export function AgentConfigTab({ agentId, agentDisplayName = "", onDeleteAgent =
     };
 
     setIsSaving(true);
-    const response = await updateAgentConfig(agentId, payload);
-    if (!response) {
-      setStatusText("Failed to save config.");
-      setIsSaving(false);
-      return;
+    try {
+      const response = await updateAgentConfig(agentId, payload);
+      const normalized = normalizeConfigDraft(agentId, response);
+      setDraft(normalized);
+      setSavedDraft(clone(normalized));
+      setStatusText("Config saved.");
+    } catch (err) {
+      setStatusText(err instanceof Error ? err.message : "Failed to save config.");
     }
-
-    const normalized = normalizeConfigDraft(agentId, response);
-    setDraft(normalized);
-    setSavedDraft(clone(normalized));
-    setStatusText("Config saved.");
     setIsSaving(false);
   }
 

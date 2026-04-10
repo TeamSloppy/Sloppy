@@ -99,7 +99,11 @@ extension CoreService {
         let models = availableAgentModels()
         let config: AgentConfigDetail
         do {
-            config = try agentCatalogStore.getAgentConfig(agentID: normalizedAgentID, availableModels: models)
+            config = try agentCatalogStore.getAgentConfig(
+                agentID: normalizedAgentID,
+                availableModels: models,
+                persistedModelAllowed: makePersistedModelAllowance()
+            )
         } catch {
             logger.warning("memory.checkpoint.no_agent_config", metadata: ["agent_id": .string(normalizedAgentID)])
             return

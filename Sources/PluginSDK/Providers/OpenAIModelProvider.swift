@@ -17,6 +17,12 @@ public struct OpenAIModelProvider: ModelProvider {
         public var accountId: String?
         public var refreshTokenIfNeeded: (@Sendable () async throws -> Void)?
         public var session: URLSession?
+        /// Strips this prefix from configured model ids (e.g. `openai:` or `openrouter:`).
+        public var modelIdentifierPrefix: String
+        /// When `true`, bearer tokens that are not OpenAI-style `sk-…` keys are sent to ``OpenAIOAuthModel`` (ChatGPT Codex).
+        public var useOpenAICodexOAuthPath: Bool
+        /// When `true`, failed Chat Completions requests may retry against OpenAI’s Responses API. Disable for OpenAI-compatible hosts such as OpenRouter.
+        public var allowResponsesAPIFallback: Bool
 
         public init(
             apiKey: @escaping @Sendable () -> String,
@@ -24,7 +30,10 @@ public struct OpenAIModelProvider: ModelProvider {
             apiVariant: OpenAILanguageModel.APIVariant = .chatCompletions,
             accountId: String? = nil,
             refreshTokenIfNeeded: (@Sendable () async throws -> Void)? = nil,
-            session: URLSession? = nil
+            session: URLSession? = nil,
+            modelIdentifierPrefix: String = "openai:",
+            useOpenAICodexOAuthPath: Bool = true,
+            allowResponsesAPIFallback: Bool = true
         ) {
             self.apiKey = apiKey
             self.baseURL = baseURL
@@ -32,6 +41,9 @@ public struct OpenAIModelProvider: ModelProvider {
             self.accountId = accountId
             self.refreshTokenIfNeeded = refreshTokenIfNeeded
             self.session = session
+            self.modelIdentifierPrefix = modelIdentifierPrefix
+            self.useOpenAICodexOAuthPath = useOpenAICodexOAuthPath
+            self.allowResponsesAPIFallback = allowResponsesAPIFallback
         }
     }
 
@@ -68,10 +80,17 @@ public struct OpenAIModelProvider: ModelProvider {
         _tokenUsageCapture
     }
 
+    public func supports(modelName: String) -> Bool {
+        if supportedModels.contains(modelName) {
+            return true
+        }
+        return modelName.hasPrefix(settings.modelIdentifierPrefix)
+    }
+
     public func createLanguageModel(for modelName: String) async throws -> any LanguageModel {
         let resolved = normalizeModelName(modelName)
         let token = settings.apiKey()
-        if isOAuthToken(token) {
+        if settings.useOpenAICodexOAuthPath, isOAuthToken(token) {
             try? await settings.refreshTokenIfNeeded?()
             return OpenAIOAuthModel(
                 bearerToken: token,
@@ -87,7 +106,8 @@ public struct OpenAIModelProvider: ModelProvider {
             baseURL: settings.baseURL,
             apiVariant: settings.apiVariant,
             model: resolved,
-            session: settings.session
+            session: settings.session,
+            allowResponsesAPIFallback: settings.allowResponsesAPIFallback
         )
     }
 
@@ -102,7 +122,11 @@ public struct OpenAIModelProvider: ModelProvider {
     }
 
     private func normalizeModelName(_ model: String) -> String {
-        model.hasPrefix("openai:") ? String(model.dropFirst(7)) : model
+        let prefix = settings.modelIdentifierPrefix
+        if model.hasPrefix(prefix) {
+            return String(model.dropFirst(prefix.count))
+        }
+        return model
     }
 
     private func isOAuthToken(_ token: String) -> Bool {
@@ -131,19 +155,22 @@ struct OpenAIRetryingLanguageModel: LanguageModel {
     let apiVariant: OpenAILanguageModel.APIVariant
     let model: String
     let session: URLSession?
+    let allowResponsesAPIFallback: Bool
 
     init(
         apiKey: @escaping @Sendable () -> String,
         baseURL: URL,
         apiVariant: OpenAILanguageModel.APIVariant,
         model: String,
-        session: URLSession? = nil
+        session: URLSession? = nil,
+        allowResponsesAPIFallback: Bool = true
     ) {
         self.apiKey = apiKey
         self.baseURL = baseURL
         self.apiVariant = apiVariant
         self.model = model
         self.session = session
+        self.allowResponsesAPIFallback = allowResponsesAPIFallback
     }
 
     func respond<Content>(
@@ -160,7 +187,9 @@ struct OpenAIRetryingLanguageModel: LanguageModel {
                 includeSchemaInPrompt: includeSchemaInPrompt, options: options
             )
         } catch {
-            guard shouldRetryWithResponses(error: error, currentVariant: apiVariant) else { throw error }
+            guard allowResponsesAPIFallback,
+                  shouldRetryWithResponses(error: error, currentVariant: apiVariant)
+            else { throw error }
             let fallback = makeModel(variant: .responses)
             return try await fallback.respond(
                 within: session, to: prompt, generating: type,
@@ -181,6 +210,7 @@ struct OpenAIRetryingLanguageModel: LanguageModel {
         let apiVariant = self.apiVariant
         let model = self.model
         let urlSession = self.session
+        let allowResponsesAPIFallback = self.allowResponsesAPIFallback
 
         let stream = AsyncThrowingStream<LanguageModelSession.ResponseStream<Content>.Snapshot, any Error> { continuation in
             Task {
@@ -198,7 +228,8 @@ struct OpenAIRetryingLanguageModel: LanguageModel {
                         continuation.yield(snapshot)
                     }
                 } catch {
-                    if shouldRetryWithResponses(error: error, currentVariant: apiVariant) {
+                    if allowResponsesAPIFallback,
+                       shouldRetryWithResponses(error: error, currentVariant: apiVariant) {
                         retryNeeded = true
                     } else {
                         continuation.finish(throwing: error)

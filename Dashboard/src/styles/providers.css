@@ -87,6 +87,12 @@
   color: #959db1;
 }
 
+.provider-list-icon .material-symbols-rounded {
+  font-size: 30px;
+  line-height: 1;
+  color: inherit;
+}
+
 .provider-list-main {
   min-width: 0;
   display: grid;
@@ -170,6 +176,20 @@
   align-items: center;
   justify-content: space-between;
   gap: 10px;
+}
+
+.provider-modal-title-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.provider-modal-brand {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
 }
 
 .provider-modal-head h3 {
