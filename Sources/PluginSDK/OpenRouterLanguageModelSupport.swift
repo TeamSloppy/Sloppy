@@ -3,10 +3,10 @@ import Foundation
 import FoundationNetworking
 #endif
 
-/// Helpers for [OpenRouter](https://openrouter.ai/docs) — an OpenAI Chat Completions–compatible HTTP API.
+/// Helpers for [OpenRouter](https://openrouter.ai/docs).
 ///
-/// Unlike ``OpenAIOAuthModel``, which speaks ChatGPT Codex’s **Responses** API, OpenRouter is used with
-/// ``OpenAILanguageModel`` and the standard `POST …/chat/completions` flow from AnyLanguageModel.
+/// Sloppy uses AnyLanguageModel’s `OpenResponsesLanguageModel` (Open Responses) for OpenRouter.
+/// Use ``makeURLSession()`` so optional [app attribution](https://openrouter.ai/docs/api/reference/overview) headers are applied.
 public enum OpenRouterLanguageModelSupport {
     public static let defaultBaseURL = URL(string: "https://openrouter.ai/api/v1")!
 

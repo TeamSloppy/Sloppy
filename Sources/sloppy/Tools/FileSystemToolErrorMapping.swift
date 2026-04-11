@@ -1,5 +1,9 @@
-import Darwin
 import Foundation
+#if canImport(Darwin)
+import Darwin
+#elseif canImport(Glibc)
+import Glibc
+#endif
 
 /// Whether file I/O was a read or write, for tailored messages and codes.
 enum FileSystemToolOperation: Sendable, Equatable {

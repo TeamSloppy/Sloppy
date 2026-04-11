@@ -2,7 +2,7 @@ import AnyLanguageModel
 import Foundation
 import PluginSDK
 
-/// OpenRouter ([openrouter.ai](https://openrouter.ai)) — OpenAI Chat Completions–compatible API.
+/// OpenRouter ([openrouter.ai](https://openrouter.ai)) via AnyLanguageModel `OpenResponsesLanguageModel`.
 struct OpenRouterModelProviderFactory: ModelProviderFactory {
     func buildProvider(from config: ModelProviderBuildConfig) -> (any ModelProvider)? {
         let openRouterModels = config.resolvedModels.filter { $0.hasPrefix("openrouter:") }
@@ -32,7 +32,8 @@ struct OpenRouterModelProviderFactory: ModelProviderFactory {
             session: session,
             modelIdentifierPrefix: "openrouter:",
             useOpenAICodexOAuthPath: false,
-            allowResponsesAPIFallback: false
+            allowResponsesAPIFallback: false,
+            useOpenResponsesLanguageModel: true
         )
 
         return OpenAIModelProvider(

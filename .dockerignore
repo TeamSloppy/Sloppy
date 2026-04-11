@@ -1,0 +1,26 @@
+# Keep Docker/Podman build context small (compose uses repo root as context for all images).
+
+.git
+.github
+.cursor
+.idea
+
+# Host Swift PM artifacts
+.build
+
+# Dashboard: only sources are needed for dashboard image; deps are installed in-container
+Dashboard/node_modules
+Dashboard/dist
+
+# Not used by Core Dockerfiles
+Apps
+Vendor
+Demos
+
+# Node (if any at repo root)
+**/node_modules
+
+# Tooling / OS noise
+**/.DS_Store
+*.xcworkspace
+*.xcodeproj
