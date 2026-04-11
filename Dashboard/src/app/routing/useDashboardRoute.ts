@@ -18,6 +18,11 @@ interface DashboardRouteController {
   setProjectRoute: (projectId: string | null, projectTab?: string | null, projectTaskReference?: string | null) => void;
   setAgentRoute: (agentId: string | null, agentTab?: string | null, initialChatSessionId?: string | null) => void;
   setSessionRoute: (sessionId: string | null) => void;
+  setChatsRoute: (
+    chatProjectId: string | null,
+    chatAgentId?: string | null,
+    chatSessionId?: string | null
+  ) => void;
 }
 
 export function useDashboardRoute(): DashboardRouteController {
@@ -36,6 +41,9 @@ export function useDashboardRoute(): DashboardRouteController {
     route.agentId,
     route.agentTab,
     route.agentInitialChatSessionId,
+    route.chatAgentId,
+    route.chatProjectId,
+    route.chatSessionId,
     route.configSection,
     route.projectId,
     route.projectTab,
@@ -50,7 +58,10 @@ export function useDashboardRoute(): DashboardRouteController {
     setRoute((current) => ({
       ...current,
       section: nextSection,
-      agentInitialChatSessionId: nextSection === "agents" ? current.agentInitialChatSessionId : null
+      agentInitialChatSessionId: nextSection === "agents" ? current.agentInitialChatSessionId : null,
+      ...(nextSection !== "chats"
+        ? { chatProjectId: null, chatAgentId: null, chatSessionId: null }
+        : {})
     }));
   }, []);
 
@@ -77,7 +88,10 @@ export function useDashboardRoute(): DashboardRouteController {
         projectId: normalizedProjectID,
         projectTab: normalizedProjectTab,
         projectTaskReference: normalizedTaskReference,
-        agentInitialChatSessionId: null
+        agentInitialChatSessionId: null,
+        chatProjectId: null,
+        chatAgentId: null,
+        chatSessionId: null
       }));
     },
     []
@@ -96,7 +110,10 @@ export function useDashboardRoute(): DashboardRouteController {
         agentId: normalizedAgentID,
         agentTab: normalizedAgentTab,
         agentInitialChatSessionId:
-          normalizedAgentID && normalizedAgentTab === "chat" ? initialChatSessionId : null
+          normalizedAgentID && normalizedAgentTab === "chat" ? initialChatSessionId : null,
+        chatProjectId: null,
+        chatAgentId: null,
+        chatSessionId: null
       }));
     },
     []
@@ -110,9 +127,40 @@ export function useDashboardRoute(): DashboardRouteController {
       section: "sessions",
       sessionAgentId: null,
       sessionId: normalizedSessionID,
-      agentInitialChatSessionId: null
+      agentInitialChatSessionId: null,
+      chatProjectId: null,
+      chatAgentId: null,
+      chatSessionId: null
     }));
   }, []);
+
+  const setChatsRoute = useCallback(
+    (chatProjectId: string | null, chatAgentId: string | null = null, chatSessionId: string | null = null) => {
+      const normalizedProjectID =
+        typeof chatProjectId === "string" && chatProjectId.trim().length > 0 ? chatProjectId.trim() : null;
+      const normalizedAgentID =
+        normalizedProjectID && typeof chatAgentId === "string" && chatAgentId.trim().length > 0
+          ? chatAgentId.trim()
+          : null;
+      const normalizedSessionID =
+        normalizedAgentID && typeof chatSessionId === "string" && chatSessionId.trim().length > 0
+          ? chatSessionId.trim()
+          : null;
+
+      setRoute((current) => ({
+        ...current,
+        section: "chats",
+        chatProjectId: normalizedProjectID,
+        chatAgentId: normalizedAgentID,
+        chatSessionId: normalizedSessionID,
+        agentInitialChatSessionId: null,
+        projectId: null,
+        projectTab: null,
+        projectTaskReference: null
+      }));
+    },
+    []
+  );
 
   return {
     route,
@@ -120,6 +168,7 @@ export function useDashboardRoute(): DashboardRouteController {
     setConfigSection,
     setProjectRoute,
     setAgentRoute,
-    setSessionRoute
+    setSessionRoute,
+    setChatsRoute
   };
 }

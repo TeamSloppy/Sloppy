@@ -27,6 +27,8 @@ import {
   resolveApiBase,
   setStoredApiBaseOverride
 } from "./shared/api/httpClient";
+import { fetchProjects } from "./api";
+import { ProjectChatsView } from "./features/project-chats/ProjectChatsView";
 
 interface SidebarItem {
   id: string;
@@ -41,9 +43,11 @@ type AnyRecord = Record<string, unknown>;
 
 function DashboardShell({ dependencies, debugEnabled }: { dependencies: ReturnType<typeof createDependencies>; debugEnabled: boolean }) {
   const runtime = useRuntimeOverview(dependencies.coreApi);
-  const { route, setSection, setConfigSection, setProjectRoute, setAgentRoute, setSessionRoute } = useDashboardRoute();
+  const { route, setSection, setConfigSection, setProjectRoute, setAgentRoute, setSessionRoute, setChatsRoute } =
+    useDashboardRoute();
   const [sidebarCompact, setSidebarCompact] = useState(true);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
+  const [sidebarProjects, setSidebarProjects] = useState<AnyRecord[]>([]);
   const { status: updateStatus } = useUpdateCheck();
   useNotificationSocket();
 
@@ -53,6 +57,24 @@ function DashboardShell({ dependencies, debugEnabled }: { dependencies: ReturnTy
       document.body.classList.remove("mobile-menu-open");
     };
   }, [mobileSidebarOpen]);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetchProjects()
+      .then((list) => {
+        if (!cancelled && Array.isArray(list)) {
+          setSidebarProjects(list);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setSidebarProjects([]);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     const mediaQuery = window.matchMedia("(min-width: 1001px)");
@@ -186,7 +208,9 @@ function DashboardShell({ dependencies, debugEnabled }: { dependencies: ReturnTy
   ];
 
   const isNotFound = route.section === "not_found";
-  const activeItem = sidebarItems.find((item) => item.id === route.section) || sidebarItems[0];
+  const navHighlightItem =
+    sidebarItems.find((item) => item.id === (route.section === "chats" ? "projects" : route.section)) ||
+    sidebarItems[0];
   const pageContent = isNotFound ? (
     <NotFoundView />
   ) : route.section === "sessions" ? (
@@ -194,20 +218,27 @@ function DashboardShell({ dependencies, debugEnabled }: { dependencies: ReturnTy
       sessionId={route.sessionId}
       onNavigateBack={() => setSection("overview")}
     />
+  ) : route.section === "chats" ? (
+    <ProjectChatsView route={route} setChatsRoute={setChatsRoute} projects={sidebarProjects} />
   ) : (
-    activeItem.content
+    (sidebarItems.find((item) => item.id === route.section) || sidebarItems[0]).content
   );
 
   return (
     <div className="layout">
       <SidebarView
         items={sidebarItems}
-        activeItemId={activeItem.id}
+        activeItemId={navHighlightItem.id}
         isCompact={sidebarCompact}
         onToggleCompact={() => setSidebarCompact((value) => !value)}
         onSelect={onSelectSidebar}
         isMobileOpen={mobileSidebarOpen}
         onRequestClose={() => setMobileSidebarOpen(false)}
+        projectRailProjects={sidebarProjects}
+        selectedChatProjectId={route.section === "chats" ? route.chatProjectId : null}
+        onSelectChatProject={(projectId: string) => {
+          setChatsRoute(projectId, null, null);
+        }}
         footer={
           <>
             <a
@@ -238,7 +269,7 @@ function DashboardShell({ dependencies, debugEnabled }: { dependencies: ReturnTy
         aria-label="Close menu"
       />
 
-      <div className={`page ${activeItem.id === "config" ? "page-config" : ""}`} style={{ position: "relative" }}>
+      <div className={`page ${navHighlightItem.id === "config" ? "page-config" : ""}`} style={{ position: "relative" }}>
         <div
           style={{
             position: "absolute",

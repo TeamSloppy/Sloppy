@@ -263,6 +263,26 @@ extension CoreService {
         )
     }
 
+    /// Same markdown as channel `refreshProjectContext`, for merging into agent session bootstrap (no channel writes).
+    func projectBootstrapMarkdownForAgentSession(projectID: String) async -> String? {
+        await waitForStartup()
+        guard let normalizedID = normalizedProjectID(projectID) else {
+            return nil
+        }
+        guard let project = await store.project(id: normalizedID) else {
+            return nil
+        }
+        guard let repoPath = project.repoPath?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !repoPath.isEmpty
+        else {
+            return nil
+        }
+
+        let loader = ProjectContextLoader()
+        let loaded = loader.load(repoPath: repoPath)
+        return renderProjectContextBootstrap(projectID: normalizedID, projectName: project.name, loaded: loaded)
+    }
+
     private func renderProjectContextBootstrap(
         projectID: String,
         projectName: String,

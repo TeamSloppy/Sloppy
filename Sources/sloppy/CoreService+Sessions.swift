@@ -5,7 +5,7 @@ import Protocols
 // MARK: - Agent Sessions
 
 extension CoreService {
-    public func listAgentSessions(agentID: String) throws -> [AgentSessionSummary] {
+    public func listAgentSessions(agentID: String, projectID: String? = nil) throws -> [AgentSessionSummary] {
         guard let normalizedAgentID = normalizedAgentID(agentID) else {
             throw AgentSessionError.invalidAgentID
         }
@@ -13,7 +13,11 @@ extension CoreService {
         _ = try getAgent(id: normalizedAgentID)
 
         do {
-            return try sessionStore.listSessions(agentID: normalizedAgentID)
+            var sessions = try sessionStore.listSessions(agentID: normalizedAgentID)
+            if let filter = projectID?.trimmingCharacters(in: .whitespacesAndNewlines), !filter.isEmpty {
+                sessions = sessions.filter { ($0.projectId ?? "").caseInsensitiveCompare(filter) == .orderedSame }
+            }
+            return sessions
         } catch {
             throw mapSessionStoreError(error)
         }

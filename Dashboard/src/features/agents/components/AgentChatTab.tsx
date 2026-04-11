@@ -519,6 +519,20 @@ function isUserCreatedSession(session) {
   return !title.startsWith("task-comment:");
 }
 
+/** When scopedProjectId is set (project chat), only sessions with matching summary.projectId. */
+function sessionMatchesProjectScope(session, scopedProjectId) {
+  const scope = typeof scopedProjectId === "string" ? scopedProjectId.trim() : "";
+  if (!scope) {
+    return true;
+  }
+  const raw = session?.projectId ?? session?.project_id;
+  const pid = typeof raw === "string" ? raw.trim() : String(raw || "").trim();
+  if (!pid) {
+    return false;
+  }
+  return pid.toLowerCase() === scope.toLowerCase();
+}
+
 function isTaskSession(session) {
   const title = String(session?.title || "").trim();
   return title.startsWith("task-");
@@ -2059,7 +2073,17 @@ const ANALYSIS_PREP_AGENT_PROMPT =
 
 const IS_DEV_BUILD = import.meta.env.DEV;
 
-export function AgentChatTab({ agentId, initialSessionId = null }) {
+export function AgentChatTab({
+  agentId,
+  initialSessionId = null,
+  projectId = null,
+  onActiveSessionIdChange
+}: {
+  agentId: string;
+  initialSessionId?: string | null;
+  projectId?: string | null;
+  onActiveSessionIdChange?: (sessionId: string | null) => void;
+}) {
   const [sessions, setSessions] = useState([]);
   const [activeSessionId, setActiveSessionId] = useState(null);
   const [activeSession, setActiveSession] = useState(null);
@@ -2116,6 +2140,16 @@ export function AgentChatTab({ agentId, initialSessionId = null }) {
     () => availableModels.find((model) => String(model?.id || "").trim() === selectedModel) || null,
     [availableModels, selectedModel]
   );
+
+  useEffect(() => {
+    if (typeof onActiveSessionIdChange !== "function") {
+      return;
+    }
+    if (isLoadingSessions) {
+      return;
+    }
+    onActiveSessionIdChange(activeSessionId);
+  }, [activeSessionId, isLoadingSessions, onActiveSessionIdChange]);
   const supportsReasoningEffort = useMemo(() => {
     const capabilities = Array.isArray(activeModelOption?.capabilities) ? activeModelOption.capabilities : [];
     return capabilities.some((capability) => String(capability || "").toLowerCase() === "reasoning");
@@ -2406,7 +2440,12 @@ export function AgentChatTab({ agentId, initialSessionId = null }) {
       runStateRef.current.sessionId = null;
       runStateRef.current.abortController = null;
 
-      const [sessionsResponse, configResponse] = await Promise.all([fetchAgentSessions(agentId), fetchAgentConfig(agentId)]);
+      const scoped = projectId && String(projectId).trim() ? String(projectId).trim() : "";
+      const sessionOpts = scoped ? { projectId: scoped } : undefined;
+      const [sessionsResponse, configResponse] = await Promise.all([
+        fetchAgentSessions(agentId, sessionOpts),
+        fetchAgentConfig(agentId)
+      ]);
       if (isCancelled) {
         return;
       }
@@ -2417,7 +2456,9 @@ export function AgentChatTab({ agentId, initialSessionId = null }) {
       }
 
       const allSessions = Array.isArray(sessionsResponse) ? sortSessionsByUpdate(sessionsResponse) : [];
-      const nextSessions = allSessions.filter(isUserCreatedSession);
+      const nextSessions = allSessions.filter(
+        (s) => isUserCreatedSession(s) && sessionMatchesProjectScope(s, scoped)
+      );
       setSessions(nextSessions);
       setIsLoadingSessions(false);
 
@@ -2426,18 +2467,23 @@ export function AgentChatTab({ agentId, initialSessionId = null }) {
         return;
       }
 
-      if (allSessions.length === 0) {
-        setStatusText("No sessions yet. Create one.");
+      if (nextSessions.length === 0) {
+        setStatusText(
+          scoped ? "No sessions for this project yet. Create one." : "No sessions yet. Create one."
+        );
         return;
       }
 
-      setStatusText(`Loaded ${allSessions.length} sessions`);
+      const count = nextSessions.length;
+      setStatusText(`Loaded ${count} session${count === 1 ? "" : "s"}`);
       const preferredId =
-        initialSessionId && allSessions.some((s) => s.id === initialSessionId)
+        initialSessionId && nextSessions.some((s) => s.id === initialSessionId)
           ? initialSessionId
-          : (nextSessions[0] || allSessions[0])?.id;
+          : nextSessions[0]?.id;
       if (!preferredId) {
-        setStatusText("No sessions yet. Create one.");
+        setStatusText(
+          scoped ? "No sessions for this project yet. Create one." : "No sessions yet. Create one."
+        );
         return;
       }
       setActiveSessionId(preferredId);
@@ -2465,7 +2511,7 @@ export function AgentChatTab({ agentId, initialSessionId = null }) {
       runStateRef.current.sessionId = null;
       runStateRef.current.abortController = null;
     };
-  }, [agentId, initialSessionId]);
+  }, [agentId, initialSessionId, projectId]);
 
   async function openSession(sessionId, isCancelled = false) {
     if (!sessionId) {
@@ -2562,19 +2608,25 @@ export function AgentChatTab({ agentId, initialSessionId = null }) {
   }
 
   async function refreshSessions(preferredSessionId = null) {
-    const response = await fetchAgentSessions(agentId);
+    const scoped = projectId && String(projectId).trim() ? String(projectId).trim() : "";
+    const sessionOpts = scoped ? { projectId: scoped } : undefined;
+    const response = await fetchAgentSessions(agentId, sessionOpts);
     if (!Array.isArray(response)) {
       setStatusText("Failed to refresh sessions.");
       return;
     }
 
-    const nextSessions = sortSessionsByUpdate(response.filter(isUserCreatedSession));
+    const nextSessions = sortSessionsByUpdate(
+      response.filter((s) => isUserCreatedSession(s) && sessionMatchesProjectScope(s, scoped))
+    );
     setSessions(nextSessions);
 
     if (nextSessions.length === 0) {
       setActiveSessionId(null);
       setActiveSession(null);
-      setStatusText("No sessions yet. Create one.");
+      setStatusText(
+        scoped ? "No sessions for this project yet. Create one." : "No sessions yet. Create one."
+      );
       return;
     }
 
@@ -2587,12 +2639,16 @@ export function AgentChatTab({ agentId, initialSessionId = null }) {
   }
 
   async function createSession(parentSessionId = null, checkpointSessionId = null) {
-    const payload: { parentSessionId?: string; checkpointSessionId?: string } = {};
+    const payload: { parentSessionId?: string; checkpointSessionId?: string; projectId?: string } = {};
     if (parentSessionId) {
       payload.parentSessionId = parentSessionId;
     }
     if (checkpointSessionId) {
       payload.checkpointSessionId = checkpointSessionId;
+    }
+    const scopedProject = projectId && String(projectId).trim() ? String(projectId).trim() : "";
+    if (scopedProject) {
+      payload.projectId = scopedProject;
     }
     const response = await createAgentSession(agentId, payload);
     if (!response) {
@@ -2609,6 +2665,10 @@ export function AgentChatTab({ agentId, initialSessionId = null }) {
 
   function mergeSessionSummary(summary) {
     if (!summary?.id || !isUserCreatedSession(summary)) {
+      return;
+    }
+    const scoped = projectId && String(projectId).trim() ? String(projectId).trim() : "";
+    if (scoped && !sessionMatchesProjectScope(summary, scoped)) {
       return;
     }
     setSessions((previous) =>
@@ -2988,7 +3048,7 @@ export function AgentChatTab({ agentId, initialSessionId = null }) {
     if (lower === "/new" || lower === "/clear") {
       setInputText("");
       const previousSessionId = activeSessionId;
-      createSession(null, previousSessionId || null);
+      void createSession(null, previousSessionId || null);
       setStatusText("New session created.");
       return true;
     }
@@ -3635,7 +3695,9 @@ export function AgentChatTab({ agentId, initialSessionId = null }) {
               type="button"
               className="agent-chat-icon-button"
               data-testid="agent-chat-new-session"
-              onClick={() => createSession(null, activeSessionId || null)}
+              onClick={() => {
+                void createSession();
+              }}
               disabled={isSending}
               title="New session"
             >

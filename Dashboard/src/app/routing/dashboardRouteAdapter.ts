@@ -40,6 +40,10 @@ export interface DashboardRoute {
   agentInitialChatSessionId: string | null;
   sessionAgentId: string | null;
   sessionId: string | null;
+  /** Project-scoped agent chat (sidebar rail). */
+  chatProjectId: string | null;
+  chatAgentId: string | null;
+  chatSessionId: string | null;
 }
 
 function decodePathSegment(value: string) {
@@ -93,7 +97,10 @@ export function parseRouteFromPath(pathname: string): DashboardRoute {
       agentTab: null,
       agentInitialChatSessionId: null,
       sessionAgentId: null,
-      sessionId: null
+      sessionId: null,
+      chatProjectId: null,
+      chatAgentId: null,
+      chatSessionId: null
     };
   }
 
@@ -101,6 +108,24 @@ export function parseRouteFromPath(pathname: string): DashboardRoute {
   const sectionArg = decodePathSegment(sectionArgRaw);
   const sectionArg2 = decodePathSegment(sectionArg2Raw);
   const sectionArg3 = decodePathSegment(sectionArg3Raw);
+
+  if (section === "chats") {
+    return {
+      section: "chats",
+      configSection: null,
+      projectId: null,
+      projectTab: null,
+      projectTaskReference: null,
+      agentId: null,
+      agentTab: null,
+      agentInitialChatSessionId: null,
+      sessionAgentId: null,
+      sessionId: null,
+      chatProjectId: sectionArg || null,
+      chatAgentId: sectionArg2 || null,
+      chatSessionId: sectionArg3 || null
+    };
+  }
 
   const sectionArgLower = sectionArg.toLowerCase();
   const sectionArg2Lower = sectionArg2.toLowerCase();
@@ -118,7 +143,10 @@ export function parseRouteFromPath(pathname: string): DashboardRoute {
       agentTab: null,
       agentInitialChatSessionId: null,
       sessionAgentId: null,
-      sessionId: null
+      sessionId: null,
+      chatProjectId: null,
+      chatAgentId: null,
+      chatSessionId: null
     };
   }
 
@@ -144,11 +172,28 @@ export function parseRouteFromPath(pathname: string): DashboardRoute {
     agentTab,
     agentInitialChatSessionId: null,
     sessionAgentId,
-    sessionId
+    sessionId,
+    chatProjectId: null,
+    chatAgentId: null,
+    chatSessionId: null
   };
 }
 
 export function buildPathFromRoute(route: DashboardRoute) {
+  if (route.section === "chats") {
+    let nextPathname = "/chats";
+    if (route.chatProjectId) {
+      nextPathname += `/${encodeURIComponent(route.chatProjectId)}`;
+      if (route.chatAgentId) {
+        nextPathname += `/${encodeURIComponent(route.chatAgentId)}`;
+        if (route.chatSessionId) {
+          nextPathname += `/${encodeURIComponent(route.chatSessionId)}`;
+        }
+      }
+    }
+    return nextPathname;
+  }
+
   let nextPathname = `/${route.section}`;
 
   if (route.section === "config" && route.configSection) {

@@ -164,8 +164,10 @@ struct AgentsAPIRouter: APIRouter {
 
         router.get("/v1/agents/:agentId/sessions", metadata: RouteMetadata(summary: "List agent sessions", description: "Returns a list of sessions for a specific agent", tags: ["Agents"])) { request in
             let agentId = request.pathParam("agentId") ?? ""
+            let projectFilter = request.queryParam("projectId")?.trimmingCharacters(in: .whitespacesAndNewlines)
+            let projectID = (projectFilter?.isEmpty == false) ? projectFilter : nil
             do {
-                let sessions = try await service.listAgentSessions(agentID: agentId)
+                let sessions = try await service.listAgentSessions(agentID: agentId, projectID: projectID)
                 return CoreRouter.encodable(status: HTTPStatus.ok, payload: sessions)
             } catch let error as CoreService.AgentSessionError {
                 return CoreRouter.agentSessionErrorResponse(error, fallback: ErrorCode.sessionListFailed)

@@ -1,5 +1,13 @@
 import React from "react";
 
+function sidebarProjectInitials(name, id) {
+  const raw = String(name || id || "?").trim();
+  const parts = raw.split(/[\s_-]+/).filter(Boolean);
+  if (parts.length === 0) return "??";
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return (parts[0][0] + parts[1][0]).toUpperCase();
+}
+
 export function SidebarView({
   items,
   activeItemId,
@@ -8,7 +16,10 @@ export function SidebarView({
   onSelect,
   isMobileOpen = false,
   onRequestClose = () => { },
-  footer = null
+  footer = null,
+  projectRailProjects = [],
+  selectedChatProjectId = null,
+  onSelectChatProject = () => { }
 }) {
   return (
     <aside className={`sidebar ${isCompact ? "compact" : "full"} ${isMobileOpen ? "mobile-open" : ""}`}>
@@ -60,6 +71,36 @@ export function SidebarView({
           </button>
         ))}
       </nav>
+      {Array.isArray(projectRailProjects) && projectRailProjects.length > 0 ? (
+        <div className="sidebar-project-rail" aria-label="Project chats">
+          {!isCompact ? <div className="sidebar-project-rail-label">Project chats</div> : null}
+          <div className="sidebar-project-rail-icons">
+            {projectRailProjects.map((p) => {
+              const pid = String(p?.id || "").trim();
+              if (!pid) {
+                return null;
+              }
+              return (
+                <button
+                  key={pid}
+                  type="button"
+                  className={`sidebar-project-rail-item ${selectedChatProjectId === pid ? "active" : ""}`}
+                  title={String(p?.name || pid)}
+                  data-testid={`sidebar-project-rail-${pid}`}
+                  onClick={() => {
+                    onSelectChatProject(pid);
+                    onRequestClose();
+                  }}
+                >
+                  <span className="sidebar-project-rail-avatar" aria-hidden="true">
+                    {sidebarProjectInitials(p?.name, pid)}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      ) : null}
       {footer && <div className="sidebar-footer">{footer}</div>}
     </aside>
   );

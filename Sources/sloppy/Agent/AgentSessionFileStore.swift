@@ -94,6 +94,13 @@ final class AgentSessionFileStore {
             title = "Session \(sessionID.prefix(8))"
         }
 
+        let projectIdMeta: String? = {
+            guard let raw = request.projectId?.trimmingCharacters(in: .whitespacesAndNewlines), !raw.isEmpty else {
+                return nil
+            }
+            return raw
+        }()
+
         let createdEvent = AgentSessionEvent(
             agentId: normalizedAgentID,
             sessionId: sessionID,
@@ -101,7 +108,8 @@ final class AgentSessionFileStore {
             metadata: AgentSessionMetadataEvent(
                 title: title,
                 parentSessionId: normalizedParentSessionID,
-                kind: request.kind
+                kind: request.kind,
+                projectId: projectIdMeta
             )
         )
 
@@ -337,6 +345,7 @@ final class AgentSessionFileStore {
         var title = "Session \(sessionID.prefix(8))"
         var parentSessionID: String?
         var kind: AgentSessionKind = .chat
+        var projectID: String?
         var createdAt = events.first?.createdAt ?? Date()
         var updatedAt = createdAt
         var messageCount = 0
@@ -350,6 +359,7 @@ final class AgentSessionFileStore {
                 title = metadata.title
                 parentSessionID = metadata.parentSessionId
                 kind = metadata.kind
+                projectID = metadata.projectId
             }
 
             if let message = event.message {
@@ -372,7 +382,8 @@ final class AgentSessionFileStore {
             messageCount: messageCount,
             lastMessagePreview: lastPreview,
             kind: kind,
-            userTurnCount: userTurnCount
+            userTurnCount: userTurnCount,
+            projectId: projectID
         )
     }
 
