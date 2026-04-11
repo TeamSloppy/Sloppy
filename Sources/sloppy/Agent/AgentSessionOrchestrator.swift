@@ -32,6 +32,8 @@ actor AgentSessionOrchestrator {
     private var toolInvoker: ToolInvoker?
     private var responseChunkObserver: ResponseChunkObserver?
     private var eventAppendObserver: EventAppendObserver?
+    /// Loads `[project_context_bootstrap_v1]` markdown for a project id (agent session dashboard).
+    private var projectBootstrapProvider: (@Sendable (String) async -> String?)?
 
     private var activeSessionRunChannels: Set<String> = []
     private var interruptedSessionRunChannels: Set<String> = []
@@ -65,6 +67,10 @@ actor AgentSessionOrchestrator {
         self.responseChunkObserver = responseChunkObserver
         self.eventAppendObserver = eventAppendObserver
         self.logger = logger
+    }
+
+    func setProjectBootstrapProvider(_ provider: (@Sendable (String) async -> String?)?) {
+        projectBootstrapProvider = provider
     }
 
     func updateAgentsRootURL(_ url: URL) {
@@ -1014,6 +1020,18 @@ actor AgentSessionOrchestrator {
                     "history_chars": .stringConvertible(historyContext.count)
                 ]
             )
+        }
+
+        if let detail = try? sessionStore.loadSession(agentID: agentID, sessionID: sessionID),
+           let pid = detail.summary.projectId?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !pid.isEmpty,
+           let provider = projectBootstrapProvider {
+            if let extra = await provider(pid) {
+                let trimmed = extra.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !trimmed.isEmpty {
+                    bootstrapContent += "\n\n" + extra
+                }
+            }
         }
 
         logger.info(

@@ -1,5 +1,8 @@
 import AnyLanguageModel
 import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
 import PluginSDK
 
 /// OpenRouter ([openrouter.ai](https://openrouter.ai)) via AnyLanguageModel `OpenResponsesLanguageModel`.

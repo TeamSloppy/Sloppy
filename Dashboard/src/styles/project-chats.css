@@ -1,0 +1,136 @@
+.project-chats-shell {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-height: 0;
+  flex: 1;
+}
+
+.project-chats-head {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--line);
+}
+
+.project-chats-title-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.project-chats-avatar {
+  width: 40px;
+  height: 40px;
+  border-radius: 0;
+  border: 1px solid var(--line);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--accent);
+  background: var(--surface);
+}
+
+.project-chats-title {
+  margin: 0;
+  font-size: 1.1rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.project-chats-sub {
+  margin: 4px 0 0;
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+
+.project-chats-agent-label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-width: 420px;
+}
+
+.project-chats-agent-label-text {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+}
+
+.project-chats-agent-search {
+  position: relative;
+}
+
+/* Sidebar project rail */
+.sidebar-project-rail {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 6px 12px;
+  border-top: 1px solid var(--line);
+  flex-shrink: 0;
+}
+
+.sidebar-project-rail-label {
+  font-size: 0.65rem;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--muted);
+  padding: 0 4px;
+}
+
+.sidebar.compact .sidebar-project-rail-label {
+  display: none;
+}
+
+.sidebar-project-rail-icons {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: stretch;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.sidebar-project-rail-item {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  padding: 6px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease, color 0.15s ease;
+}
+
+.sidebar-project-rail-item:hover {
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.sidebar-project-rail-item.active {
+  border-color: var(--line);
+  background: var(--surface);
+  color: var(--text);
+  border-left: 2px solid var(--accent);
+}
+
+.sidebar-project-rail-avatar {
+  width: 32px;
+  height: 32px;
+  min-width: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.65rem;
+  font-weight: 600;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--accent);
+}

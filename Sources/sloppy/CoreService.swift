@@ -405,6 +405,10 @@ public actor CoreService {
             guard let self else {
                 return
             }
+            await self.sessionOrchestrator.setProjectBootstrapProvider { [weak self] projectID in
+                guard let self else { return nil }
+                return await self.projectBootstrapMarkdownForAgentSession(projectID: projectID)
+            }
             await self.configureToolExecutionServices()
             await self.runtime.updateWorkerExecutor(
                 ToolExecutionWorkerExecutorAdapter(
