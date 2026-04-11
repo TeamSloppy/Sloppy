@@ -13,7 +13,8 @@ import {
   postAgentSessionEvents,
   postAgentSessionMessage,
   subscribeAgentSessionStream,
-  fetchAgentTokenUsage
+  fetchAgentTokenUsage,
+  searchProjectFiles
 } from "../../../api";
 import { navigateToTaskScreen } from "../../../app/routing/navigateToTaskScreen";
 import ReactMarkdown from "react-markdown";
@@ -40,6 +41,7 @@ const SLASH_COMMANDS = [
 const SLASH_COMMAND_NAMES = new Set(SLASH_COMMANDS.map((c) => c.name));
 const SLASH_CMD_INLINE_PATTERN = /\/([a-z][a-z0-9_-]*)/g;
 const SLASH_CMD_REMOVE_PATTERN = /(^|\s)(\/[a-z][a-z0-9_-]*)(\s?)$/;
+const PATH_AT_QUERY_VALUE_PATTERN = /^[A-Za-z0-9._/-]*$/;
 
 const AGENT_CHAT_COMPOSE_DRAFT_PREFIX = "sloppy.agentChat.composeDraft";
 
@@ -293,6 +295,42 @@ function getSlashCommandAtCursor(value, caret) {
 
   return {
     start: slashIndex,
+    end: tokenEnd,
+    query: queryBeforeCaret
+  };
+}
+
+function getPathQueryAtCursor(value, caret) {
+  const text = String(value || "");
+  const safeCaret = Math.max(0, Math.min(Number.isFinite(caret) ? caret : text.length, text.length));
+  const atIndex = text.lastIndexOf("@", Math.max(0, safeCaret - 1));
+
+  if (atIndex < 0) {
+    return null;
+  }
+
+  const charBeforeAt = atIndex > 0 ? text[atIndex - 1] : "";
+  if (charBeforeAt && !/\s/.test(charBeforeAt)) {
+    return null;
+  }
+
+  const queryBeforeCaret = text.slice(atIndex + 1, safeCaret);
+  if (/\s/.test(queryBeforeCaret)) {
+    return null;
+  }
+
+  let tokenEnd = safeCaret;
+  while (tokenEnd < text.length && !/\s/.test(text[tokenEnd])) {
+    tokenEnd += 1;
+  }
+
+  const fullTokenValue = text.slice(atIndex + 1, tokenEnd);
+  if (!PATH_AT_QUERY_VALUE_PATTERN.test(fullTokenValue)) {
+    return null;
+  }
+
+  return {
+    start: atIndex,
     end: tokenEnd,
     query: queryBeforeCaret
   };
@@ -1554,6 +1592,7 @@ function AgentChatEvents({
 
 function AgentChatComposer({
   agentId,
+  projectId = null,
   inputText,
   onInputTextChange,
   isBusy,
@@ -1579,19 +1618,37 @@ function AgentChatComposer({
   const [isInputFocused, setIsInputFocused] = useState(false);
   const [activeSuggestionIndex, setActiveSuggestionIndex] = useState(0);
   const [activeSlashIndex, setActiveSlashIndex] = useState(0);
+  const [activePathIndex, setActivePathIndex] = useState(0);
+  const [pathSuggestions, setPathSuggestions] = useState<Array<{ path: string; type?: string }>>([]);
+  const [pathSearchLoading, setPathSearchLoading] = useState(false);
+  const [pathSearchError, setPathSearchError] = useState<string | null>(null);
+  const pathSearchRequestIdRef = useRef(0);
   const pendingCaretOffsetRef = useRef(null);
+  const scopedProjectId = projectId && String(projectId).trim() ? String(projectId).trim() : "";
+
   const taskQuery = useMemo(() => getTaskQueryAtCursor(inputText, caretIndex), [inputText, caretIndex]);
   const taskSuggestions = useMemo(
     () => filterTaskSuggestions(availableTasks, taskQuery?.query || ""),
     [availableTasks, taskQuery?.query]
   );
   const isTaskDropdownOpen = isInputFocused && Boolean(taskQuery);
+
+  const pathQuery = useMemo(() => {
+    if (!scopedProjectId) {
+      return null;
+    }
+    return getPathQueryAtCursor(inputText, caretIndex);
+  }, [scopedProjectId, inputText, caretIndex]);
+
   const slashQuery = useMemo(() => getSlashCommandAtCursor(inputText, caretIndex), [inputText, caretIndex]);
   const slashSuggestions = useMemo(
     () => filterSlashCommandSuggestions(SLASH_COMMANDS, slashQuery?.query || ""),
     [slashQuery?.query]
   );
-  const isSlashDropdownOpen = isInputFocused && Boolean(slashQuery) && !isTaskDropdownOpen;
+
+  const isPathDropdownOpen = isInputFocused && Boolean(pathQuery) && Boolean(scopedProjectId) && !isTaskDropdownOpen;
+  const isSlashDropdownOpen =
+    isInputFocused && Boolean(slashQuery) && !isTaskDropdownOpen && !isPathDropdownOpen;
   const editorRef = textareaRef;
 
   useEffect(() => {
@@ -1601,6 +1658,45 @@ function AgentChatComposer({
   useEffect(() => {
     setActiveSlashIndex(0);
   }, [slashQuery?.start, slashQuery?.query, slashSuggestions.length]);
+
+  useEffect(() => {
+    setActivePathIndex(0);
+  }, [pathQuery?.start, pathQuery?.query, pathSuggestions.length]);
+
+  useEffect(() => {
+    if (!isPathDropdownOpen || !scopedProjectId || !pathQuery) {
+      return;
+    }
+    const q = pathQuery.query ?? "";
+    const requestId = pathSearchRequestIdRef.current + 1;
+    pathSearchRequestIdRef.current = requestId;
+    setPathSearchLoading(true);
+    setPathSearchError(null);
+
+    const timer = window.setTimeout(async () => {
+      try {
+        const rows = await searchProjectFiles(scopedProjectId, q, 50);
+        if (pathSearchRequestIdRef.current !== requestId) {
+          return;
+        }
+        setPathSuggestions(Array.isArray(rows) ? rows : []);
+      } catch {
+        if (pathSearchRequestIdRef.current !== requestId) {
+          return;
+        }
+        setPathSearchError("Could not search project files");
+        setPathSuggestions([]);
+      } finally {
+        if (pathSearchRequestIdRef.current === requestId) {
+          setPathSearchLoading(false);
+        }
+      }
+    }, 200);
+
+    return () => {
+      window.clearTimeout(timer);
+    };
+  }, [isPathDropdownOpen, scopedProjectId, pathQuery?.start, pathQuery?.query]);
 
   useEffect(() => {
     const editor = editorRef.current;
@@ -1658,6 +1754,23 @@ function AgentChatComposer({
     const after = inputText.slice(slashQuery.end);
     const shouldAddSpace = after.length === 0 || !/^\s/.test(after);
     const replacement = `/${command.name}${shouldAddSpace ? " " : ""}`;
+    const nextValue = `${before}${replacement}${after}`;
+    const nextCaret = before.length + replacement.length;
+    applyInputValue(nextValue, nextCaret);
+  }
+
+  function applyPathSuggestion(entry) {
+    if (!pathQuery || !entry?.path) {
+      return;
+    }
+    const rel = String(entry.path).trim();
+    if (!rel) {
+      return;
+    }
+    const before = inputText.slice(0, pathQuery.start);
+    const after = inputText.slice(pathQuery.end);
+    const shouldAddSpace = after.length === 0 || !/^\s/.test(after);
+    const replacement = `@${rel}${shouldAddSpace ? " " : ""}`;
     const nextValue = `${before}${replacement}${after}`;
     const nextCaret = before.length + replacement.length;
     applyInputValue(nextValue, nextCaret);
@@ -1723,6 +1836,49 @@ function AgentChatComposer({
     );
   }
 
+  function renderPathDropdown() {
+    if (!isPathDropdownOpen) {
+      return null;
+    }
+
+    return (
+      <div className="agent-chat-task-dropdown" role="listbox" aria-label="Project path suggestions">
+        {pathSearchError ? (
+          <p className="agent-chat-task-dropdown-empty">{pathSearchError}</p>
+        ) : pathSearchLoading ? (
+          <p className="agent-chat-task-dropdown-empty agent-chat-path-dropdown-status">Loading…</p>
+        ) : pathSuggestions.length === 0 ? (
+          <p className="agent-chat-task-dropdown-empty">No paths found</p>
+        ) : (
+          pathSuggestions.map((entry, index) => {
+            const isActive = index === activePathIndex;
+            const isDir = String(entry?.type || "").toLowerCase() === "directory";
+            return (
+              <button
+                key={`${entry.path}-${index}`}
+                ref={isActive ? (el) => el?.scrollIntoView({ block: "nearest" }) : undefined}
+                type="button"
+                className={`agent-chat-task-dropdown-item ${isActive ? "active" : ""}`}
+                onMouseDown={(event) => {
+                  event.preventDefault();
+                  applyPathSuggestion(entry);
+                }}
+                onMouseEnter={() => setActivePathIndex(index)}
+              >
+                <div className="agent-chat-task-dropdown-row agent-chat-path-dropdown-row">
+                  <span className="material-symbols-rounded agent-chat-path-type-icon" aria-hidden="true">
+                    {isDir ? "folder" : "description"}
+                  </span>
+                  <strong className="agent-chat-path-suggestion-text">@{entry.path}</strong>
+                </div>
+              </button>
+            );
+          })
+        )}
+      </div>
+    );
+  }
+
   function renderSlashDropdown() {
     if (!isSlashDropdownOpen) {
       return null;
@@ -1777,6 +1933,7 @@ function AgentChatComposer({
 
       <div className="agent-chat-compose-shell">
         {renderTaskDropdown()}
+        {renderPathDropdown()}
         {renderSlashDropdown()}
 
         <form className="agent-chat-compose" onSubmit={onSend}>
@@ -1824,7 +1981,13 @@ function AgentChatComposer({
               data-testid="agent-chat-compose-input"
               contentEditable={!isBusy}
               suppressContentEditableWarning
-              data-placeholder={agentId ? `Message ${agentId}...` : "Message..."}
+              data-placeholder={
+                scopedProjectId && agentId
+                  ? `Message ${agentId}… Type @ to search project files`
+                  : agentId
+                    ? `Message ${agentId}...`
+                    : "Message..."
+              }
               role="textbox"
               aria-multiline="true"
               onInput={(event) => {
@@ -1881,6 +2044,7 @@ function AgentChatComposer({
               onKeyDown={(event) => {
                 const target = event.currentTarget;
                 const hasSuggestions = taskSuggestions.length > 0;
+                const hasPathSuggestions = pathSuggestions.length > 0;
                 const hasSlashSuggestions = slashSuggestions.length > 0;
 
                 if (isTaskDropdownOpen) {
@@ -1912,6 +2076,46 @@ function AgentChatComposer({
                     event.preventDefault();
                     const selectedTask = taskSuggestions[Math.min(activeSuggestionIndex, taskSuggestions.length - 1)];
                     applyTaskSuggestion(selectedTask);
+                    return;
+                  }
+
+                  if (event.key === "Escape") {
+                    event.preventDefault();
+                    setIsInputFocused(false);
+                    target.blur();
+                    return;
+                  }
+                }
+
+                if (isPathDropdownOpen) {
+                  if (event.key === "ArrowDown" && hasPathSuggestions && !pathSearchLoading && !pathSearchError) {
+                    event.preventDefault();
+                    setActivePathIndex((current) => (current + 1) % pathSuggestions.length);
+                    return;
+                  }
+
+                  if (event.key === "ArrowUp" && hasPathSuggestions && !pathSearchLoading && !pathSearchError) {
+                    event.preventDefault();
+                    setActivePathIndex((current) => {
+                      if (current <= 0) {
+                        return pathSuggestions.length - 1;
+                      }
+                      return current - 1;
+                    });
+                    return;
+                  }
+
+                  if (event.key === "Enter" && hasPathSuggestions && !pathSearchLoading && !pathSearchError) {
+                    event.preventDefault();
+                    const selected = pathSuggestions[Math.min(activePathIndex, pathSuggestions.length - 1)];
+                    applyPathSuggestion(selected);
+                    return;
+                  }
+
+                  if (event.key === "Tab" && hasPathSuggestions && !pathSearchLoading && !pathSearchError) {
+                    event.preventDefault();
+                    const selected = pathSuggestions[Math.min(activePathIndex, pathSuggestions.length - 1)];
+                    applyPathSuggestion(selected);
                     return;
                   }
 
@@ -1984,6 +2188,11 @@ function AgentChatComposer({
                     applyInputValue(nextValue, resolvedCmd.start);
                     return;
                   }
+                }
+
+                if (event.key === "Enter" && isPathDropdownOpen && pathSearchLoading) {
+                  event.preventDefault();
+                  return;
                 }
 
                 if (event.key !== "Enter" || event.shiftKey || event.nativeEvent.isComposing) {
@@ -3999,6 +4208,7 @@ export function AgentChatTab({
               <div className="agent-chat-compose-sticky-wrap">
                 <AgentChatComposer
                   agentId={agentId}
+                  projectId={projectId}
                   inputText={inputText}
                   onInputTextChange={setInputText}
                   isBusy={isActiveSessionBusy}
@@ -4019,6 +4229,12 @@ export function AgentChatTab({
                   onTaskTagHoverStart={handleTaskTagHoverStart}
                   onTaskTagHoverEnd={handleTaskTagHoverEnd}
                 />
+
+                {projectId && String(projectId).trim() ? (
+                  <p className="agent-chat-project-path-hint placeholder-text">
+                    Type <kbd className="agent-chat-path-hint-kbd">@</kbd> to search files and folders in this project.
+                  </p>
+                ) : null}
 
                 <p className="agent-chat-status-line placeholder-text">{statusText}</p>
               </div>

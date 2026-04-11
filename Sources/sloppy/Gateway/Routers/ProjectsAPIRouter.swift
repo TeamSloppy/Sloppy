@@ -56,6 +56,21 @@ struct ProjectsAPIRouter: APIRouter {
             }
         }
 
+        router.get("/v1/projects/:projectId/files/search", metadata: RouteMetadata(summary: "Search project files", description: "Returns file and directory paths under the project workspace matching a query string", tags: ["Projects"])) { request in
+            let projectId = request.pathParam("projectId") ?? ""
+            let query = request.queryParam("q") ?? ""
+            let parsedLimit = Int(request.queryParam("limit") ?? "") ?? 50
+            let limit = max(1, min(parsedLimit, 100))
+            do {
+                let entries = try await service.searchProjectFiles(projectID: projectId, query: query, limit: limit)
+                return CoreRouter.encodable(status: HTTPStatus.ok, payload: entries)
+            } catch let error as CoreService.ProjectError {
+                return CoreRouter.projectErrorResponse(error, fallback: ErrorCode.projectNotFound)
+            } catch {
+                return CoreRouter.json(status: HTTPStatus.internalServerError, payload: ["error": ErrorCode.projectNotFound])
+            }
+        }
+
         router.get("/v1/projects/:projectId/files/content", metadata: RouteMetadata(summary: "Read project file", description: "Returns the text content of a file in the project workspace", tags: ["Projects"])) { request in
             let projectId = request.pathParam("projectId") ?? ""
             let path = request.queryParam("path") ?? ""

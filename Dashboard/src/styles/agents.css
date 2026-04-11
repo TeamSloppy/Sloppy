@@ -1270,6 +1270,47 @@ body.agent-chat-no-page-scroll .page {
   flex-shrink: 0;
 }
 
+.agent-chat-project-path-hint {
+  margin: 6px 2px 0;
+  font-size: 0.78rem;
+  line-height: 1.35;
+}
+
+.agent-chat-path-hint-kbd {
+  display: inline-block;
+  padding: 0 5px;
+  border: 1px solid var(--line-strong);
+  border-radius: 2px;
+  font-size: 0.72rem;
+  font-family: inherit;
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+.agent-chat-path-dropdown-row {
+  justify-content: flex-start;
+  gap: 6px;
+  min-width: 0;
+}
+
+.agent-chat-path-type-icon {
+  font-size: 1.05rem;
+  flex-shrink: 0;
+  opacity: 0.88;
+}
+
+.agent-chat-path-suggestion-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-chat-path-dropdown-status {
+  font-style: italic;
+}
+
 @media (max-width: 1200px) {
   .agent-chat-workspace-inner.has-subagent {
     grid-template-columns: minmax(0, 1fr);

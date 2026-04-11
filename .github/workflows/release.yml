@@ -9,27 +9,38 @@ concurrency:
   group: release-${{ github.ref }}
   cancel-in-progress: false
 
+env:
+  SWIFT_VERSION: "6.2"
+
 jobs:
-  release:
-    name: Build and Release
+  build-linux:
+    name: Build (Linux)
     runs-on: ubuntu-latest
-    container:
-      image: swift:6.2-jammy
 
     permissions:
-      contents: write
+      contents: read
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Setup Swift
+        uses: swift-actions/setup-swift@v2
+        with:
+          swift-version: ${{ env.SWIFT_VERSION }}
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
       - name: Install System Dependencies
         run: |
-          apt-get update
-          apt-get install -y libsqlite3-dev
+          sudo apt-get update
+          sudo apt-get install -y libsqlite3-dev
 
       - name: Extract Version from Tag
-        id: version
+        id: meta
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
@@ -37,18 +48,13 @@ jobs:
 
       - name: Inject Version into sloppy-version.json
         run: |
-          VERSION="${{ steps.version.outputs.version }}"
+          VERSION="${{ steps.meta.outputs.version }}"
           sed -i "s/__SLOPPY_APP_VERSION__/$VERSION/g" Sources/sloppy/Resources/sloppy-version.json
-          cat Sources/sloppy/Resources/sloppy-version.json
 
       - name: Inject Version into Dashboard package.json
         run: |
-          VERSION="${{ steps.version.outputs.version }}"
+          VERSION="${{ steps.meta.outputs.version }}"
           sed -i "s/\"version\": \"[^\"]*\"/\"version\": \"$VERSION\"/" Dashboard/package.json
-          grep '"version"' Dashboard/package.json
-
-      - name: Swift Version
-        run: swift --version
 
       - name: Resolve Swift Packages
         run: swift package resolve
@@ -56,17 +62,303 @@ jobs:
       - name: Run Test Suite
         run: swift test --parallel
 
-      - name: Build sloppy (Release)
-        run: swift build -c release --product sloppy
+      - name: Build Release Binaries
+        run: |
+          swift build -c release --product sloppy
+          swift build -c release --product SloppyNode
 
-      - name: Build SloppyNode (Release)
-        run: swift build -c release --product SloppyNode
+      - name: Build Dashboard
+        working-directory: Dashboard
+        run: |
+          npm install
+          npm run build
+
+      - name: Package Tarball
+        id: pack
+        run: |
+          set -euo pipefail
+          BIN_PATH="$(swift build --show-bin-path -c release)"
+          STAGE="$(mktemp -d)"
+          mkdir -p "$STAGE/bin" "$STAGE/share/sloppy/dashboard"
+          cp "$BIN_PATH/sloppy" "$BIN_PATH/SloppyNode" "$STAGE/bin/"
+          cp -R Dashboard/dist "$STAGE/share/sloppy/dashboard/"
+          cp Dashboard/config.json "$STAGE/share/sloppy/dashboard/"
+          OUT="Sloppy-linux-x86_64.tar.gz"
+          tar -C "$STAGE" -czvf "${{ runner.temp }}/$OUT" bin share
+          echo "tarball_path=${{ runner.temp }}/$OUT" >> "$GITHUB_OUTPUT"
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-tarball
+          path: ${{ steps.pack.outputs.tarball_path }}
+
+  build-macos:
+    name: Build (macOS)
+    runs-on: macos-latest
+
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Swift
+        uses: swift-actions/setup-swift@v2
+        with:
+          swift-version: ${{ env.SWIFT_VERSION }}
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Extract Version from Tag
+        id: meta
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=$GITHUB_REF_NAME" >> "$GITHUB_OUTPUT"
+
+      - name: Inject Version into sloppy-version.json
+        run: |
+          VERSION="${{ steps.meta.outputs.version }}"
+          sed -i '' "s/__SLOPPY_APP_VERSION__/$VERSION/g" Sources/sloppy/Resources/sloppy-version.json
+
+      - name: Inject Version into Dashboard package.json
+        run: |
+          VERSION="${{ steps.meta.outputs.version }}"
+          sed -i '' "s/\"version\": \"[^\"]*\"/\"version\": \"$VERSION\"/" Dashboard/package.json
+
+      - name: Resolve Swift Packages
+        run: swift package resolve
+
+      - name: Run Test Suite
+        run: swift test --parallel
+
+      - name: Build Release Binaries
+        run: |
+          swift build -c release --product sloppy
+          swift build -c release --product SloppyNode
+
+      - name: Build Dashboard
+        working-directory: Dashboard
+        run: |
+          npm install
+          npm run build
+
+      - name: Package Tarball
+        id: pack
+        run: |
+          set -euo pipefail
+          ARCH="$(uname -m)"
+          case "$ARCH" in
+            arm64) ASSET_ARCH="arm64" ;;
+            x86_64) ASSET_ARCH="x86_64" ;;
+            *) echo "Unsupported macOS arch: $ARCH"; exit 1 ;;
+          esac
+          BIN_PATH="$(swift build --show-bin-path -c release)"
+          STAGE="$(mktemp -d)"
+          mkdir -p "$STAGE/bin" "$STAGE/share/sloppy/dashboard"
+          cp "$BIN_PATH/sloppy" "$BIN_PATH/SloppyNode" "$STAGE/bin/"
+          cp -R Dashboard/dist "$STAGE/share/sloppy/dashboard/"
+          cp Dashboard/config.json "$STAGE/share/sloppy/dashboard/"
+          OUT="Sloppy-macos-${ASSET_ARCH}.tar.gz"
+          tar -C "$STAGE" -czvf "${{ runner.temp }}/$OUT" bin share
+          echo "tarball_path=${{ runner.temp }}/$OUT" >> "$GITHUB_OUTPUT"
+          echo "asset_name=$OUT" >> "$GITHUB_OUTPUT"
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-tarball
+          path: ${{ steps.pack.outputs.tarball_path }}
+
+  publish:
+    name: Publish Release
+    needs:
+      - build-linux
+      - build-macos
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: write
+
+    outputs:
+      version: ${{ steps.meta.outputs.version }}
+      tag: ${{ steps.meta.outputs.tag }}
+      prerelease: ${{ steps.meta.outputs.prerelease }}
+      linux_sha256: ${{ steps.assets.outputs.linux_sha256 }}
+      macos_sha256: ${{ steps.assets.outputs.macos_sha256 }}
+      macos_asset: ${{ steps.assets.outputs.macos_asset }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Extract Version from Tag
+        id: meta
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=$GITHUB_REF_NAME" >> "$GITHUB_OUTPUT"
+          if echo "$VERSION" | grep -qiE 'alpha|beta|rc|preview|pre'; then
+            echo "prerelease=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "prerelease=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Download Linux Artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: linux-tarball
+          path: release-assets
+
+      - name: Download macOS Artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: macos-tarball
+          path: release-assets
+
+      - name: Write sloppy-version.json and SHA256SUMS
+        id: assets
+        working-directory: release-assets
+        run: |
+          set -euo pipefail
+          VERSION="${{ steps.meta.outputs.version }}"
+          cat > sloppy-version.json <<EOF
+          {
+            "sloppy-core": {
+              "version": "$VERSION"
+            }
+          }
+          EOF
+          LINUX=$(ls Sloppy-linux-x86_64.tar.gz)
+          MACOS=$(ls Sloppy-macos-*.tar.gz | head -1)
+          LINUX_SHA=$(sha256sum "$LINUX" | awk '{print $1}')
+          MACOS_SHA=$(sha256sum "$MACOS" | awk '{print $1}')
+          sha256sum sloppy-version.json "$LINUX" "$MACOS" > SHA256SUMS.txt
+          {
+            echo "linux_sha256=$LINUX_SHA"
+            echo "macos_sha256=$MACOS_SHA"
+            echo "macos_asset=$MACOS"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ steps.version.outputs.tag }}
-          name: "Sloppy ${{ steps.version.outputs.version }}"
+          tag_name: ${{ steps.meta.outputs.tag }}
+          name: Sloppy ${{ steps.meta.outputs.version }}
           generate_release_notes: true
           draft: false
-          prerelease: false
+          prerelease: ${{ steps.meta.outputs.prerelease == 'true' }}
+          files: |
+            release-assets/SHA256SUMS.txt
+            release-assets/sloppy-version.json
+            release-assets/Sloppy-linux-x86_64.tar.gz
+            release-assets/Sloppy-macos-*.tar.gz
+
+  bump-homebrew:
+    name: Bump Homebrew Tap Files
+    needs: publish
+    if: success()
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout default branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Configure Git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Update Casks/sloppy.rb and Formula/sloppy.rb
+        env:
+          VERSION: ${{ needs.publish.outputs.version }}
+          LINUX_SHA256: ${{ needs.publish.outputs.linux_sha256 }}
+          MACOS_SHA256: ${{ needs.publish.outputs.macos_sha256 }}
+          MACOS_ASSET: ${{ needs.publish.outputs.macos_asset }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          mkdir -p Casks Formula
+          TAG="v${VERSION}"
+          MACOS_URL="https://github.com/${REPO}/releases/download/${TAG}/${MACOS_ASSET}"
+          LINUX_URL="https://github.com/${REPO}/releases/download/${TAG}/Sloppy-linux-x86_64.tar.gz"
+          export VERSION LINUX_SHA256 MACOS_SHA256 MACOS_URL LINUX_URL REPO
+          python3 <<'PY'
+          import os
+          v = os.environ["VERSION"]
+          linux_sha = os.environ["LINUX_SHA256"]
+          macos_sha = os.environ["MACOS_SHA256"]
+          macos_url = os.environ["MACOS_URL"]
+          linux_url = os.environ["LINUX_URL"]
+          repo = os.environ["REPO"]
+          cask_lines = [
+              'cask "sloppy" do',
+              f'  version "{v}"',
+              f'  sha256 "{macos_sha}"',
+              "",
+              f'  url "{macos_url}"',
+              '  name "Sloppy"',
+              '  desc "Agent runtime and dashboard for Sloppy"',
+              f'  homepage "https://github.com/{repo}"',
+              "",
+              '  binary "bin/sloppy"',
+              '  binary "bin/SloppyNode"',
+              "",
+              '  artifact "share/sloppy/dashboard", target: "#{Dir.home}/.local/share/sloppy/dashboard"',
+              "end",
+          ]
+          formula_lines = [
+              "class Sloppy < Formula",
+              '  desc "Agent runtime and dashboard for Sloppy"',
+              f'  homepage "https://github.com/{repo}"',
+              f'  version "{v}"',
+              f'  url "{linux_url}"',
+              f'  sha256 "{linux_sha}"',
+              '  license "MIT"',
+              "",
+              "  def install",
+              '    bin.install "bin/sloppy" => "sloppy"',
+              '    bin.install "bin/SloppyNode" => "SloppyNode"',
+              '    (share/"sloppy/dashboard").install Dir["share/sloppy/dashboard/*"]',
+              "  end",
+              "",
+              "  test do",
+              '    system "#{bin}/sloppy", "--version"',
+              "  end",
+              "end",
+          ]
+          os.makedirs("Casks", exist_ok=True)
+          os.makedirs("Formula", exist_ok=True)
+          with open("Casks/sloppy.rb", "w", encoding="utf-8") as f:
+              f.write("\n".join(cask_lines) + "\n")
+          with open("Formula/sloppy.rb", "w", encoding="utf-8") as f:
+              f.write("\n".join(formula_lines) + "\n")
+          PY
+
+      - name: Commit and Push
+        env:
+          VERSION: ${{ needs.publish.outputs.version }}
+        run: |
+          set -euo pipefail
+          git pull --rebase origin "${{ github.event.repository.default_branch }}"
+          git add Casks/sloppy.rb Formula/sloppy.rb
+          if git diff --staged --quiet; then
+            echo "No Homebrew file changes."
+            exit 0
+          fi
+          git commit -m "chore(release): bump Homebrew cask and formula to v${VERSION}"
+          git push origin "${{ github.event.repository.default_branch }}"
