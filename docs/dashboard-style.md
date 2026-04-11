@@ -9,6 +9,8 @@ The docs portal mirrors the Dashboard UI tokens so product docs and runtime UI r
 
 ## Shared palette
 
+Values align with `Dashboard/src/styles/root.css` (`:root`).
+
 | Token | Value |
 | --- | --- |
 | Background | `#000000` |

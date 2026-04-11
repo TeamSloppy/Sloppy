@@ -13,24 +13,37 @@ enum FileSystemToolOperation: Sendable, Equatable {
 
 /// Maps Foundation / POSIX file errors into stable tool error fields.
 enum FileSystemToolErrorMapping {
+    /// When `FileManager` reports nothing exists at `path` (before attempting I/O).
+    static func describeMissingPath(operation: FileSystemToolOperation, path: String) -> (
+        code: String,
+        message: String,
+        retryable: Bool,
+        hint: String?
+    ) {
+        notFound(operation: operation, path: path)
+    }
+
     static func describe(error: Error, operation: FileSystemToolOperation, path: String) -> (
         code: String,
         message: String,
         retryable: Bool,
         hint: String?
     ) {
-        if let cocoa = error as? CocoaError {
-            return describeCocoa(cocoa, operation: operation, path: path)
-        }
-
         let ns = error as NSError
+
+        // Prefer explicit domains before `CocoaError` — some runtimes bridge POSIX `NSError`s to
+        // `CocoaError`, and `describeCocoa` would then mis-map numeric codes (e.g. EACCES).
         if ns.domain == NSPOSIXErrorDomain {
             return describePOSIX(code: ns.code, operation: operation, path: path)
         }
 
         if ns.domain == NSCocoaErrorDomain {
-            let cocoaCode = CocoaError.Code(rawValue: ns.code)
-            return describeCocoa(CocoaError(cocoaCode), operation: operation, path: path)
+            // Use numeric codes directly: bridging `NSError` → `CocoaError` is unreliable on non-Darwin.
+            return describeCocoaNumeric(ns.code, operation: operation, path: path)
+        }
+
+        if let cocoa = error as? CocoaError {
+            return describeCocoa(cocoa, operation: operation, path: path)
         }
 
         return fallback(operation: operation, path: path)

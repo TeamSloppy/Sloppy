@@ -80,12 +80,13 @@ export function SidebarView({
               if (!pid) {
                 return null;
               }
+              const projectLabel = String(p?.name || pid).trim() || pid;
               return (
                 <button
                   key={pid}
                   type="button"
                   className={`sidebar-project-rail-item ${selectedChatProjectId === pid ? "active" : ""}`}
-                  title={String(p?.name || pid)}
+                  title={projectLabel}
                   data-testid={`sidebar-project-rail-${pid}`}
                   onClick={() => {
                     onSelectChatProject(pid);
@@ -95,6 +96,9 @@ export function SidebarView({
                   <span className="sidebar-project-rail-avatar" aria-hidden="true">
                     {sidebarProjectInitials(p?.name, pid)}
                   </span>
+                  {!isCompact ? (
+                    <span className="sidebar-project-rail-name">{projectLabel}</span>
+                  ) : null}
                 </button>
               );
             })}

@@ -99,7 +99,8 @@
 .sidebar-project-rail-item {
   display: flex;
   align-items: center;
-  justify-content: center;
+  justify-content: flex-start;
+  gap: 10px;
   width: 100%;
   padding: 6px;
   border: 1px solid transparent;
@@ -107,6 +108,11 @@
   color: var(--muted);
   cursor: pointer;
   transition: border-color 0.15s ease, background 0.15s ease, color 0.15s ease;
+}
+
+.sidebar.compact .sidebar-project-rail-item {
+  justify-content: center;
+  gap: 0;
 }
 
 .sidebar-project-rail-item:hover {
@@ -133,4 +139,17 @@
   border: 1px solid var(--line);
   background: var(--surface);
   color: var(--accent);
+}
+
+.sidebar-project-rail-name {
+  flex: 1;
+  min-width: 0;
+  font-size: 0.75rem;
+  font-weight: 500;
+  line-height: 1.2;
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: inherit;
 }
