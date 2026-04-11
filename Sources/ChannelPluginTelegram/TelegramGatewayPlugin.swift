@@ -9,6 +9,8 @@ public actor TelegramGatewayPlugin: StreamingGatewayPlugin {
     private struct StreamState: Sendable {
         let chatId: Int64
         let messageId: Int64
+        /// Telegram forum topic thread; nil for non-forum chats.
+        let messageThreadId: Int?
         var lastRenderedText: String
         var lastUpdatedAt: Date
     }
@@ -19,6 +21,7 @@ public actor TelegramGatewayPlugin: StreamingGatewayPlugin {
     private let config: TelegramPluginConfig
     private let bot: TelegramBotAPI
     private let logger: Logger
+    private let modelPickerBridge: (any TelegramModelPickerBridge)?
     private var pollerTask: Task<Void, Never>?
     private var streams: [String: StreamState] = [:]
     /// Tracks the most recent inbound chatId per channelId for catch-all bindings (chatId == 0).
@@ -29,7 +32,8 @@ public actor TelegramGatewayPlugin: StreamingGatewayPlugin {
         channelChatMap: [String: Int64],
         allowedUserIds: [Int64] = [],
         allowedChatIds: [Int64] = [],
-        logger: Logger? = nil
+        logger: Logger? = nil,
+        modelPickerBridge: (any TelegramModelPickerBridge)? = nil
     ) {
         self.config = TelegramPluginConfig(
             botToken: botToken,
@@ -41,6 +45,7 @@ public actor TelegramGatewayPlugin: StreamingGatewayPlugin {
         let resolvedLogger = logger ?? Logger(label: "sloppy.plugin.telegram")
         self.logger = resolvedLogger
         self.bot = TelegramBotAPI(botToken: botToken, logger: resolvedLogger)
+        self.modelPickerBridge = modelPickerBridge
     }
 
     func setActiveChatId(channelId: String, chatId: Int64) {
@@ -74,7 +79,8 @@ public actor TelegramGatewayPlugin: StreamingGatewayPlugin {
             logger: logger,
             onMessageRouted: { [self] channelId, chatId in
                 await self.setActiveChatId(channelId: channelId, chatId: chatId)
-            }
+            },
+            modelPickerBridge: modelPickerBridge
         )
         pollerTask = Task { await poller.run() }
     }
@@ -88,30 +94,45 @@ public actor TelegramGatewayPlugin: StreamingGatewayPlugin {
 
     /// Returns the effective Telegram chatId for outbound messages.
     /// For catch-all bindings (configured chatId == 0) uses the last known active chatId.
+    /// `channelId` may be topic-scoped (see ``ChannelGatewayScope``); config keys use the binding id only.
     private func resolvedChatId(forChannelId channelId: String) -> Int64? {
-        guard let configured = config.chatId(forChannelId: channelId) else { return nil }
-        return configured == 0 ? activeChatIds[channelId] : configured
+        let bindingId = ChannelGatewayScope.parse(channelId).baseChannelId
+        guard let configured = config.chatId(forChannelId: bindingId) else { return nil }
+        return configured == 0 ? activeChatIds[bindingId] : configured
     }
 
-    public func send(channelId: String, message: String) async throws {
+    private func messageThreadId(fromTopicId topicId: String?) -> Int? {
+        guard let topicId, !topicId.isEmpty else { return nil }
+        return Int(topicId)
+    }
+
+    private func effectiveMessageThreadId(channelId: String, topicId: String?) -> Int? {
+        if let n = messageThreadId(fromTopicId: topicId) { return n }
+        return ChannelGatewayScope.parse(channelId).topicKey.flatMap { Int($0) }
+    }
+
+    public func send(channelId: String, message: String, topicId: String?) async throws {
         guard let chatId = resolvedChatId(forChannelId: channelId) else {
             logger.warning("No Telegram chat target for channel \(channelId). Message dropped.")
             return
         }
-        _ = try await bot.sendMessage(chatId: chatId, text: message)
+        let threadId = effectiveMessageThreadId(channelId: channelId, topicId: topicId)
+        _ = try await bot.sendMessage(chatId: chatId, text: message, messageThreadId: threadId)
     }
 
-    public func beginStreaming(channelId: String, userId: String) async throws -> GatewayOutboundStreamHandle {
+    public func beginStreaming(channelId: String, userId: String, topicId: String?) async throws -> GatewayOutboundStreamHandle {
         guard let chatId = resolvedChatId(forChannelId: channelId) else {
             logger.warning("No Telegram chat target for channel \(channelId). Stream start dropped.")
             throw TelegramAPIError.invalidResponse(method: "beginStreaming")
         }
 
-        let placeholder = try await bot.sendMessage(chatId: chatId, text: "Thinking...")
+        let threadId = effectiveMessageThreadId(channelId: channelId, topicId: topicId)
+        let placeholder = try await bot.sendMessage(chatId: chatId, text: "Thinking...", messageThreadId: threadId)
         let handle = GatewayOutboundStreamHandle(id: UUID().uuidString)
         streams[handle.id] = StreamState(
             chatId: chatId,
             messageId: placeholder.messageId,
+            messageThreadId: threadId,
             lastRenderedText: "",
             lastUpdatedAt: .distantPast
         )
@@ -136,7 +157,12 @@ public actor TelegramGatewayPlugin: StreamingGatewayPlugin {
             return
         }
 
-        _ = try await bot.editMessageText(chatId: state.chatId, messageId: state.messageId, text: normalized)
+        _ = try await bot.editMessageText(
+            chatId: state.chatId,
+            messageId: state.messageId,
+            text: normalized,
+            messageThreadId: state.messageThreadId
+        )
         state.lastRenderedText = normalized
         state.lastUpdatedAt = now
         streams[handle.id] = state
@@ -155,7 +181,11 @@ public actor TelegramGatewayPlugin: StreamingGatewayPlugin {
         guard let finalContent = finalContent?.trimmingCharacters(in: .whitespacesAndNewlines),
               !finalContent.isEmpty
         else {
-            try await bot.deleteMessage(chatId: state.chatId, messageId: state.messageId)
+            try await bot.deleteMessage(
+                chatId: state.chatId,
+                messageId: state.messageId,
+                messageThreadId: state.messageThreadId
+            )
             return
         }
 
@@ -163,6 +193,11 @@ public actor TelegramGatewayPlugin: StreamingGatewayPlugin {
             return
         }
 
-        _ = try await bot.editMessageText(chatId: state.chatId, messageId: state.messageId, text: finalContent)
+        _ = try await bot.editMessageText(
+            chatId: state.chatId,
+            messageId: state.messageId,
+            text: finalContent,
+            messageThreadId: state.messageThreadId
+        )
     }
 }

@@ -1,5 +1,6 @@
 import Foundation
 import AgentRuntime
+import PluginSDK
 import Protocols
 import Logging
 
@@ -9,11 +10,16 @@ extension CoreService {
     public func postChannelMessage(channelId: String, request: ChannelMessageRequest) async -> ChannelRouteDecision {
         await waitForStartup()
 
+        let sessionChannelId = ChannelGatewayScope.scopedChannelId(
+            baseChannelId: channelId,
+            topicKey: request.topicId
+        )
+
         let trimmedContent = request.content.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmedContent.lowercased() == "/abort" {
-            await channelStreamCancelRegistry.requestCancel(channelId: channelId)
-            let cancelled = await runtime.abortChannel(channelId: channelId, reason: "Aborted by user")
-            await channelStreamCancelRegistry.clearCancel(channelId: channelId)
+            await channelStreamCancelRegistry.requestCancel(channelId: sessionChannelId)
+            let cancelled = await runtime.abortChannel(channelId: sessionChannelId, reason: "Aborted by user")
+            await channelStreamCancelRegistry.clearCancel(channelId: sessionChannelId)
             let reason = cancelled > 0
                 ? "Aborted \(cancelled) active worker(s)."
                 : "No active workers to abort."
@@ -21,9 +27,9 @@ extension CoreService {
         }
 
         if let btwTail = ChannelInboundBtwParsing.btwModelTailIfCommand(request.content) {
-            await channelStreamCancelRegistry.requestCancel(channelId: channelId)
-            _ = await runtime.abortChannel(channelId: channelId, reason: "Interrupted by /btw")
-            await runtime.invalidateChannelSession(channelId: channelId)
+            await channelStreamCancelRegistry.requestCancel(channelId: sessionChannelId)
+            _ = await runtime.abortChannel(channelId: sessionChannelId, reason: "Interrupted by /btw")
+            await runtime.invalidateChannelSession(channelId: sessionChannelId)
             if btwTail.isEmpty {
                 return ChannelRouteDecision(
                     action: .respond,
@@ -38,13 +44,13 @@ extension CoreService {
                 content: enrichedTail,
                 topicId: request.topicId
             )
-            return await runtime.postMessage(channelId: channelId, request: nextRequest)
+            return await runtime.postMessage(channelId: sessionChannelId, request: nextRequest)
         }
 
         if let approvalReference = TaskApprovalCommandParser.parse(request.content) {
-            return await handleTaskApprovalCommand(channelId: channelId, reference: approvalReference)
+            return await handleTaskApprovalCommand(channelId: sessionChannelId, reference: approvalReference)
         }
-        if let plannedDecision = await handleVisorTaskPlan(channelId: channelId, request: request) {
+        if let plannedDecision = await handleVisorTaskPlan(channelId: sessionChannelId, request: request) {
             return plannedDecision
         }
 
@@ -54,7 +60,7 @@ extension CoreService {
             content: enrichedContent,
             topicId: request.topicId
         )
-        return await runtime.postMessage(channelId: channelId, request: nextRequest)
+        return await runtime.postMessage(channelId: sessionChannelId, request: nextRequest)
     }
 
     /// Controls channel processing: abort active workers on this channel.
@@ -89,8 +95,13 @@ extension CoreService {
 
     /// Delivers an outbound message to the channel plugin responsible for this channelId.
     @discardableResult
-    public func deliverToChannelPlugin(channelId: String, userId: String = "system", content: String) async -> Bool {
-        await channelDelivery.deliver(channelId: channelId, userId: userId, content: content)
+    public func deliverToChannelPlugin(
+        channelId: String,
+        userId: String = "system",
+        content: String,
+        topicId: String? = nil
+    ) async -> Bool {
+        await channelDelivery.deliver(channelId: channelId, userId: userId, content: content, topicId: topicId)
     }
 
     /// Returns current state snapshot for a channel.
@@ -252,7 +263,9 @@ extension CoreService {
             return nil
         }
 
-        let normalizedChannelID = normalizeWhitespace(channelID)
+        let normalizedChannelID = normalizeWhitespace(
+            ChannelGatewayScope.parse(channelID).baseChannelId
+        )
         for node in board.nodes {
             guard normalizeWhitespace(node.channelId ?? "") == normalizedChannelID else {
                 continue

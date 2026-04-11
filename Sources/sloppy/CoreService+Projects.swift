@@ -347,6 +347,92 @@ extension CoreService {
         return ProjectFileContentResponse(path: relativePath, content: text, sizeBytes: data.count)
     }
 
+    /// Line stats and unified diff for the project workspace (must be a git checkout to return `isGitRepository: true`).
+    public func projectWorkingTreeGit(projectID: String) async throws -> ProjectWorkingTreeGitResponse {
+        guard let normalizedID = normalizedProjectID(projectID) else {
+            throw ProjectError.invalidProjectID
+        }
+        guard let project = await store.project(id: normalizedID) else {
+            throw ProjectError.notFound
+        }
+
+        let rootPath = project.repoPath ?? projectDirectoryURL(projectID: normalizedID).path
+
+        guard gitWorktreeService.isGitWorkingCopy(repoPath: rootPath) else {
+            return ProjectWorkingTreeGitResponse(
+                isGitRepository: false,
+                branch: nil,
+                linesAdded: 0,
+                linesDeleted: 0,
+                diff: "",
+                diffTruncated: false,
+                message: "This project folder is not a git repository."
+            )
+        }
+
+        do {
+            let branch = try await gitWorktreeService.currentBranchLabel(repoPath: rootPath)
+            let stats = try await gitWorktreeService.workingTreeLineStats(repoPath: rootPath)
+            let patch = try await gitWorktreeService.workingTreePatch(repoPath: rootPath, maxBytes: 512 * 1024)
+            return ProjectWorkingTreeGitResponse(
+                isGitRepository: true,
+                branch: branch,
+                linesAdded: stats.linesAdded,
+                linesDeleted: stats.linesDeleted,
+                diff: patch.text,
+                diffTruncated: patch.truncated,
+                message: nil
+            )
+        } catch {
+            return ProjectWorkingTreeGitResponse(
+                isGitRepository: true,
+                branch: nil,
+                linesAdded: 0,
+                linesDeleted: 0,
+                diff: "",
+                diffTruncated: false,
+                message: error.localizedDescription
+            )
+        }
+    }
+
+    /// Reverts a tracked file under the project workspace to `HEAD` (index + working tree), same as `git restore --source=HEAD --staged --worktree`.
+    public func restoreProjectWorkingTreeFile(projectID: String, path: String) async throws {
+        guard let normalizedID = normalizedProjectID(projectID) else {
+            throw ProjectError.invalidProjectID
+        }
+        guard let project = await store.project(id: normalizedID) else {
+            throw ProjectError.notFound
+        }
+
+        let rootPath = project.repoPath ?? projectDirectoryURL(projectID: normalizedID).path
+        guard gitWorktreeService.isGitWorkingCopy(repoPath: rootPath) else {
+            throw ProjectError.invalidPayload
+        }
+
+        let trimmed = path.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            throw ProjectError.invalidPayload
+        }
+
+        let segments = trimmed.split(separator: "/").map(String.init)
+        guard !segments.contains("..") else {
+            throw ProjectError.invalidProjectID
+        }
+
+        let rootURL = URL(fileURLWithPath: rootPath, isDirectory: true).standardized
+        let targetURL = rootURL.appendingPathComponent(trimmed).standardized
+        guard targetURL.path.hasPrefix(rootURL.path) else {
+            throw ProjectError.invalidProjectID
+        }
+
+        do {
+            try await gitWorktreeService.restorePathFromHead(repoPath: rootPath, relativePath: trimmed)
+        } catch {
+            throw ProjectError.invalidPayload
+        }
+    }
+
     public func refreshProjectContext(projectID: String) async throws -> ProjectContextRefreshResponse {
         await waitForStartup()
         guard let normalizedID = normalizedProjectID(projectID) else {

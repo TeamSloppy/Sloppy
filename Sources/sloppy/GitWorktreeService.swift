@@ -145,6 +145,113 @@ struct GitWorktreeService: Sendable {
             .path
     }
 
+    /// True when `.git` exists under `repoPath` (normal clone or worktree checkout).
+    func isGitWorkingCopy(repoPath: String) -> Bool {
+        let fm = FileManager.default
+        return fm.fileExists(atPath: URL(fileURLWithPath: repoPath).appendingPathComponent(".git").path)
+    }
+
+    /// Added/deleted line counts for the working tree vs `HEAD`, or all uncommitted changes when there is no commit yet.
+    func workingTreeLineStats(repoPath: String) async throws -> (linesAdded: Int, linesDeleted: Int) {
+        let hasHead = await hasHeadCommit(repoPath: repoPath)
+        if hasHead {
+            let (_, out) = try await runGit(args: ["diff", "HEAD", "--numstat"], cwd: repoPath)
+            return Self.accumulateNumstat(out)
+        }
+        let (_, unstaged) = try await runGit(args: ["diff", "--numstat"], cwd: repoPath)
+        let (_, staged) = try await runGit(args: ["diff", "--cached", "--numstat"], cwd: repoPath)
+        let a = Self.accumulateNumstat(unstaged)
+        let b = Self.accumulateNumstat(staged)
+        return (a.linesAdded + b.linesAdded, a.linesDeleted + b.linesDeleted)
+    }
+
+    /// Unified diff text for the working tree (same scope as ``workingTreeLineStats``).
+    func workingTreePatch(repoPath: String, maxBytes: Int) async throws -> (text: String, truncated: Bool) {
+        let hasHead = await hasHeadCommit(repoPath: repoPath)
+        let raw: String
+        if hasHead {
+            let (_, out) = try await runGit(args: ["diff", "HEAD"], cwd: repoPath)
+            raw = out
+        } else {
+            let (_, unstaged) = try await runGit(args: ["diff"], cwd: repoPath)
+            let (_, staged) = try await runGit(args: ["diff", "--cached"], cwd: repoPath)
+            let parts = [unstaged, staged].map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
+            raw = parts.joined(separator: "\n\n")
+        }
+        return Self.truncateUTF8(raw, maxBytes: maxBytes)
+    }
+
+    /// Restores a tracked path to the committed version at `HEAD` (staged + working tree).
+    func restorePathFromHead(repoPath: String, relativePath: String) async throws {
+        let (exitCode, output) = try await runGit(
+            args: ["restore", "--source=HEAD", "--staged", "--worktree", "--", relativePath],
+            cwd: repoPath
+        )
+        guard exitCode == 0 else {
+            throw GitWorktreeError.commandFailed(exitCode, output)
+        }
+    }
+
+    /// Current branch name, or nil if detached / unknown.
+    func currentBranchLabel(repoPath: String) async throws -> String? {
+        let (code, out) = try await runGit(args: ["branch", "--show-current"], cwd: repoPath)
+        if code == 0 {
+            let s = out.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !s.isEmpty { return s }
+        }
+        let (c2, o2) = try await runGit(args: ["rev-parse", "--abbrev-ref", "HEAD"], cwd: repoPath)
+        guard c2 == 0 else { return nil }
+        let ref = o2.trimmingCharacters(in: .whitespacesAndNewlines)
+        if ref.isEmpty || ref == "HEAD" { return nil }
+        return ref
+    }
+
+    private func hasHeadCommit(repoPath: String) async -> Bool {
+        guard let (code, _) = try? await runGit(args: ["rev-parse", "--verify", "HEAD"], cwd: repoPath) else {
+            return false
+        }
+        return code == 0
+    }
+
+    private static func accumulateNumstat(_ text: String) -> (linesAdded: Int, linesDeleted: Int) {
+        var add = 0
+        var del = 0
+        for line in text.split(separator: "\n", omittingEmptySubsequences: false) where !line.isEmpty {
+            let parts = line.split(separator: "\t", omittingEmptySubsequences: false)
+            guard parts.count >= 3 else { continue }
+            let a = String(parts[0])
+            let d = String(parts[1])
+            if a == "-" || d == "-" { continue }
+            if let ai = Int(a), let di = Int(d) {
+                add += ai
+                del += di
+            }
+        }
+        return (add, del)
+    }
+
+    private static func truncateUTF8(_ string: String, maxBytes: Int) -> (String, Bool) {
+        guard maxBytes > 0 else { return ("", string.isEmpty ? false : true) }
+        var total = 0
+        var result = ""
+        result.reserveCapacity(min(string.count, maxBytes))
+        for ch in string {
+            let seg = String(ch)
+            let n = seg.utf8.count
+            if total + n > maxBytes {
+                let note = "\n\n…(diff truncated by server)"
+                let noteBytes = note.utf8.count
+                if total + noteBytes > maxBytes {
+                    return (result + String(note.prefix(max(0, maxBytes - total))), true)
+                }
+                return (result + note, true)
+            }
+            result.append(ch)
+            total += n
+        }
+        return (result, false)
+    }
+
     private func isWorktreeRoot(repoPath: String) throws -> Bool {
         // Use a local FileManager so the service itself remains Sendable.
         let fileManager = FileManager.default

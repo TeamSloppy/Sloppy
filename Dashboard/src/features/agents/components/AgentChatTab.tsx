@@ -14,9 +14,11 @@ import {
   postAgentSessionMessage,
   subscribeAgentSessionStream,
   fetchAgentTokenUsage,
-  searchProjectFiles
+  searchProjectFiles,
+  fetchProjectWorkingTreeGit
 } from "../../../api";
 import { navigateToTaskScreen } from "../../../app/routing/navigateToTaskScreen";
+import { ProjectGitDiffPanel } from "./ProjectGitDiffPanel";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
@@ -51,29 +53,57 @@ function agentChatComposeDraftKey(agentId, sessionId) {
   return `${AGENT_CHAT_COMPOSE_DRAFT_PREFIX}:${aid}:${sid}`;
 }
 
-function readAgentChatComposeDraft(agentId, sessionId) {
+function readComposeDraftState(agentId, sessionId) {
   if (typeof window === "undefined") {
-    return "";
+    return { text: "", gitTags: [] };
   }
   try {
     const raw = window.localStorage.getItem(agentChatComposeDraftKey(agentId, sessionId));
-    return typeof raw === "string" ? raw : "";
+    if (raw == null || raw === "") {
+      return { text: "", gitTags: [] };
+    }
+    if (typeof raw === "string" && raw.startsWith("{")) {
+      try {
+        const o = JSON.parse(raw);
+        if (o && o.v === 2 && typeof o.text === "string") {
+          const gitTags = Array.isArray(o.gitTags)
+            ? o.gitTags
+                .filter(
+                  (t) =>
+                    t &&
+                    typeof t.id === "string" &&
+                    typeof t.label === "string" &&
+                    typeof t.markdown === "string"
+                )
+                .map((t) => ({ id: t.id, label: t.label, markdown: t.markdown }))
+            : [];
+          return { text: o.text, gitTags };
+        }
+      } catch {
+        return { text: raw, gitTags: [] };
+      }
+    }
+    return { text: typeof raw === "string" ? raw : "", gitTags: [] };
   } catch {
-    return "";
+    return { text: "", gitTags: [] };
   }
 }
 
-function writeAgentChatComposeDraft(agentId, sessionId, text) {
+function writeComposeDraftState(agentId, sessionId, text, gitTags) {
   if (typeof window === "undefined") {
     return;
   }
   try {
     const key = agentChatComposeDraftKey(agentId, sessionId);
-    const normalized = String(text ?? "");
-    if (!normalized.trim()) {
+    const t = String(text ?? "");
+    const tags = Array.isArray(gitTags) ? gitTags : [];
+    const hasTags = tags.length > 0;
+    if (!t.trim() && !hasTags) {
       window.localStorage.removeItem(key);
+    } else if (hasTags) {
+      window.localStorage.setItem(key, JSON.stringify({ v: 2, text: t, gitTags: tags }));
     } else {
-      window.localStorage.setItem(key, normalized);
+      window.localStorage.setItem(key, t);
     }
   } catch {
     // ignore quota / private mode
@@ -1601,6 +1631,8 @@ function AgentChatComposer({
   pendingFiles,
   onRemovePendingFile,
   onAddFiles,
+  gitDiffComposeTags = [],
+  onRemoveGitDiffComposeTag,
   fileInputRef,
   textareaRef,
   replyTarget,
@@ -1613,7 +1645,8 @@ function AgentChatComposer({
   onTaskTagHoverStart,
   onTaskTagHoverEnd
 }) {
-  const canSend = String(inputText || "").trim().length > 0 || pendingFiles.length > 0;
+  const canSend =
+    String(inputText || "").trim().length > 0 || pendingFiles.length > 0 || gitDiffComposeTags.length > 0;
   const [caretIndex, setCaretIndex] = useState(0);
   const [isInputFocused, setIsInputFocused] = useState(false);
   const [activeSuggestionIndex, setActiveSuggestionIndex] = useState(0);
@@ -1958,6 +1991,29 @@ function AgentChatComposer({
                     close
                   </span>
                 </button>
+              ))}
+            </div>
+          ) : null}
+
+          {gitDiffComposeTags.length > 0 ? (
+            <div className="agent-chat-git-compose-tags" aria-label="Git diff references">
+              {gitDiffComposeTags.map((tag) => (
+                <span key={tag.id} className="agent-chat-git-compose-tag" title={tag.markdown}>
+                  <span className="material-symbols-rounded" aria-hidden="true">
+                    data_object
+                  </span>
+                  <span className="agent-chat-git-compose-tag__label">{tag.label}</span>
+                  <button
+                    type="button"
+                    className="agent-chat-git-compose-tag__remove"
+                    onClick={() => onRemoveGitDiffComposeTag(tag.id)}
+                    aria-label="Remove diff reference"
+                  >
+                    <span className="material-symbols-rounded" aria-hidden="true">
+                      close
+                    </span>
+                  </button>
+                </span>
               ))}
             </div>
           ) : null}
@@ -2309,6 +2365,7 @@ export function AgentChatTab({
   const [isDragOver, setIsDragOver] = useState(false);
   const [inputText, setInputText] = useState("");
   const [pendingFiles, setPendingFiles] = useState([]);
+  const [gitDiffComposeTags, setGitDiffComposeTags] = useState([]);
   const [statusText, setStatusText] = useState("Loading sessions...");
   const [optimisticUserEvent, setOptimisticUserEvent] = useState(null);
   const [optimisticAssistantText, setOptimisticAssistantText] = useState("");
@@ -2319,6 +2376,8 @@ export function AgentChatTab({
   const [taskPreview, setTaskPreview] = useState(null);
   const [isShareMenuOpen, setIsShareMenuOpen] = useState(false);
   const [isDebugMenuOpen, setIsDebugMenuOpen] = useState(false);
+  const [gitPanelOpen, setGitPanelOpen] = useState(false);
+  const [gitBadge, setGitBadge] = useState(null);
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
   const [isDesktopSessionsCollapsed, setIsDesktopSessionsCollapsed] = useState(false);
   const [isNarrowChatViewport, setIsNarrowChatViewport] = useState(() =>
@@ -2358,6 +2417,9 @@ export function AgentChatTab({
     [availableModels, selectedModel]
   );
 
+  const scopedProjectId =
+    projectId && String(projectId).trim() ? String(projectId).trim() : "";
+
   useEffect(() => {
     if (typeof onActiveSessionIdChange !== "function") {
       return;
@@ -2384,14 +2446,46 @@ export function AgentChatTab({
     if (!urlRaw || !agentId) {
       return false;
     }
-    const scoped = projectId && String(projectId).trim() ? String(projectId).trim() : "";
     return sessions.some(
       (s) =>
         isUserCreatedSession(s) &&
-        sessionMatchesProjectScope(s, scoped, Boolean(scoped)) &&
+        sessionMatchesProjectScope(s, scopedProjectId, Boolean(scopedProjectId)) &&
         s.id === urlRaw
     );
-  }, [sessions, initialSessionId, projectId, agentId]);
+  }, [sessions, initialSessionId, scopedProjectId, agentId]);
+
+  useEffect(() => {
+    if (!scopedProjectId) {
+      setGitBadge(null);
+      return;
+    }
+    let cancelled = false;
+    async function refreshGit() {
+      try {
+        const res = await fetchProjectWorkingTreeGit(scopedProjectId);
+        if (cancelled || !res) {
+          return;
+        }
+        const isGit = res.isGitRepository === true;
+        setGitBadge({
+          isGit,
+          added: typeof res.linesAdded === "number" ? res.linesAdded : 0,
+          deleted: typeof res.linesDeleted === "number" ? res.linesDeleted : 0,
+          branch: res.branch ? String(res.branch) : null
+        });
+      } catch {
+        if (!cancelled) {
+          setGitBadge(null);
+        }
+      }
+    }
+    void refreshGit();
+    const timerId = window.setInterval(refreshGit, 45_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timerId);
+    };
+  }, [scopedProjectId]);
 
   useEffect(() => {
     const active = sessions.find((s) => s.id === activeSessionId);
@@ -2486,6 +2580,7 @@ export function AgentChatTab({
     if (!agentId) {
       prevAgentIdForDraftRef.current = agentId;
       setInputText("");
+      setGitDiffComposeTags([]);
       return;
     }
     const agentChanged = prevAgentIdForDraftRef.current !== agentId;
@@ -2493,10 +2588,14 @@ export function AgentChatTab({
     if (agentChanged) {
       setActiveSessionId(null);
       setActiveSession(null);
-      setInputText(readAgentChatComposeDraft(agentId, null));
+      const d = readComposeDraftState(agentId, null);
+      setInputText(d.text);
+      setGitDiffComposeTags(d.gitTags);
       return;
     }
-    setInputText(readAgentChatComposeDraft(agentId, activeSessionId));
+    const d = readComposeDraftState(agentId, activeSessionId);
+    setInputText(d.text);
+    setGitDiffComposeTags(d.gitTags);
   }, [agentId, activeSessionId]);
 
   useEffect(() => {
@@ -2504,10 +2603,10 @@ export function AgentChatTab({
       return;
     }
     const timerId = window.setTimeout(() => {
-      writeAgentChatComposeDraft(agentId, activeSessionId, inputText);
+      writeComposeDraftState(agentId, activeSessionId, inputText, gitDiffComposeTags);
     }, 200);
     return () => window.clearTimeout(timerId);
-  }, [agentId, activeSessionId, inputText]);
+  }, [agentId, activeSessionId, inputText, gitDiffComposeTags]);
 
   useEffect(() => {
     subagentSessionIdRef.current = subagentPanel.sessionId;
@@ -3405,8 +3504,10 @@ export function AgentChatTab({
     }
 
     const trimmed = String(inputText || "").trim();
+    const tagMarkdown = gitDiffComposeTags.map((t) => t.markdown).join("\n\n");
+    const mergedBody = [trimmed, tagMarkdown].filter(Boolean).join("\n\n");
 
-    if (trimmed.startsWith("/") && pendingFiles.length === 0 && !replyTarget) {
+    if (trimmed.startsWith("/") && pendingFiles.length === 0 && !replyTarget && gitDiffComposeTags.length === 0) {
       if (await handleSlashCommand(trimmed)) {
         setInputText("");
         composeInputRef.current?.focus();
@@ -3415,7 +3516,11 @@ export function AgentChatTab({
     }
 
     const replyContext = replyTarget ? `Reply to assistant: "${replyTarget.text}"` : "";
-    const contentForSend = trimmed ? (replyContext ? `${replyContext}\n\n${trimmed}` : trimmed) : replyContext;
+    const contentForSend = mergedBody
+      ? replyContext
+        ? `${replyContext}\n\n${mergedBody}`
+        : mergedBody
+      : replyContext;
     if (!contentForSend && pendingFiles.length === 0) {
       return;
     }
@@ -3430,10 +3535,17 @@ export function AgentChatTab({
     }
 
     const localMessageSegments = [];
+    const previewLines = [];
     if (trimmed) {
-      localMessageSegments.push({ kind: "text", text: trimmed });
+      previewLines.push(trimmed);
     } else if (replyTarget) {
-      localMessageSegments.push({ kind: "text", text: `↪ ${replyTarget.text}` });
+      previewLines.push(`↪ ${replyTarget.text}`);
+    }
+    if (gitDiffComposeTags.length > 0) {
+      previewLines.push(gitDiffComposeTags.map((t) => `· ${t.label}`).join("\n"));
+    }
+    if (previewLines.length > 0) {
+      localMessageSegments.push({ kind: "text", text: previewLines.join("\n\n") });
     }
     localMessageSegments.push(
       ...pendingFiles.map((file) => ({
@@ -3459,6 +3571,7 @@ export function AgentChatTab({
     setIsSending(true);
     setStatusText("Thinking...");
     setInputText("");
+    setGitDiffComposeTags([]);
     setPendingFiles([]);
     setReplyTarget(null);
 
@@ -4102,6 +4215,31 @@ export function AgentChatTab({
             ) : null}
           </div>
           <div className="agent-chat-actions">
+            {scopedProjectId ? (
+              <button
+                type="button"
+                className="agent-chat-git-toolbar-btn"
+                onClick={() => setGitPanelOpen(true)}
+                title={
+                  gitBadge?.isGit
+                    ? `Working tree changes (${gitBadge.branch ? `branch ${gitBadge.branch}` : "git"})`
+                    : "Open project git diff (folder is not a git repo)"
+                }
+                data-testid="agent-chat-git-working-tree-btn"
+              >
+                <span className="material-symbols-rounded" aria-hidden="true">
+                  data_object
+                </span>
+                {gitBadge?.isGit ? (
+                  <span className="agent-chat-git-toolbar-stats">
+                    <span className="agent-chat-git-stat-add">+{gitBadge.added}</span>
+                    <span className="agent-chat-git-stat-del">−{gitBadge.deleted}</span>
+                  </span>
+                ) : (
+                  <span className="agent-chat-git-toolbar-muted">git</span>
+                )}
+              </button>
+            ) : null}
             <div className="agent-chat-share-menu-container" ref={shareMenuRef}>
               <button
                 type="button"
@@ -4187,6 +4325,23 @@ export function AgentChatTab({
         </div>
 
         <div className="agent-chat-workspace">
+          {scopedProjectId ? (
+            <ProjectGitDiffPanel
+              projectId={scopedProjectId}
+              open={gitPanelOpen}
+              onClose={() => setGitPanelOpen(false)}
+              onAddGitComposeTag={(payload) => {
+                setGitDiffComposeTags((prev) => [
+                  ...prev,
+                  {
+                    id: `git-${Date.now()}-${Math.random().toString(36).slice(2, 11)}`,
+                    label: payload.label,
+                    markdown: payload.markdown
+                  }
+                ]);
+              }}
+            />
+          ) : null}
           <div className={`agent-chat-workspace-inner ${subagentPanel.isOpen ? "has-subagent" : ""}`}>
             <div className="agent-chat-thread">
               <AgentChatEvents
@@ -4217,6 +4372,10 @@ export function AgentChatTab({
                   pendingFiles={pendingFiles}
                   onRemovePendingFile={removePendingFile}
                   onAddFiles={addFiles}
+                  gitDiffComposeTags={gitDiffComposeTags}
+                  onRemoveGitDiffComposeTag={(tagId) =>
+                    setGitDiffComposeTags((prev) => prev.filter((t) => t.id !== tagId))
+                  }
                   fileInputRef={fileInputRef}
                   textareaRef={composeInputRef}
                   replyTarget={replyTarget}

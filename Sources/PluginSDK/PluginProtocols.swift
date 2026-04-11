@@ -12,7 +12,8 @@ public enum ChannelAccessResult: Sendable {
 /// Receives inbound messages from external channels and routes them into sloppy.
 /// Implementations bridge external platforms (Telegram, Slack, etc.) to channel runtime.
 public protocol InboundMessageReceiver: Sendable {
-    func postMessage(channelId: String, userId: String, content: String) async -> Bool
+    /// - Parameter topicId: Optional platform-specific thread/topic scope (e.g. Telegram forum `message_thread_id` as decimal string).
+    func postMessage(channelId: String, userId: String, content: String, topicId: String?) async -> Bool
 
     /// Checks whether a user is allowed to interact with the given channel.
     /// Returns `.allowed` by default; override in CoreService to enforce allowlists and pending approval.
@@ -25,6 +26,10 @@ public protocol InboundMessageReceiver: Sendable {
 }
 
 public extension InboundMessageReceiver {
+    func postMessage(channelId: String, userId: String, content: String) async -> Bool {
+        await postMessage(channelId: channelId, userId: userId, content: content, topicId: nil)
+    }
+
     func checkAccess(
         platform: String,
         platformUserId: String,
@@ -49,7 +54,14 @@ public protocol GatewayPlugin: Sendable {
     func stop() async
 
     /// Send a message to a channel.
-    func send(channelId: String, message: String) async throws
+    /// - Parameter topicId: Optional platform thread/topic (e.g. Telegram forum thread id as string); nil for default / non-threaded chat.
+    func send(channelId: String, message: String, topicId: String?) async throws
+}
+
+public extension GatewayPlugin {
+    func send(channelId: String, message: String) async throws {
+        try await send(channelId: channelId, message: message, topicId: nil)
+    }
 }
 
 public struct GatewayOutboundStreamHandle: Codable, Sendable, Equatable {
@@ -69,8 +81,9 @@ public protocol StreamingGatewayPlugin: GatewayPlugin {
     /// - Parameters:
     ///   - channelId: The unique channel identifier for this conversation or context.
     ///   - userId: The identifier of the user who initiated the operation.
+    ///   - topicId: Optional platform thread/topic matching the inbound message (e.g. Telegram forum thread).
     /// - Returns: A handle representing the streaming session, to be passed to update/end operations.
-    func beginStreaming(channelId: String, userId: String) async throws -> GatewayOutboundStreamHandle
+    func beginStreaming(channelId: String, userId: String, topicId: String?) async throws -> GatewayOutboundStreamHandle
 
     /// Update the ongoing streaming session with new content.
     /// This may be called multiple times as new output is generated, e.g., partial completions.
@@ -93,6 +106,12 @@ public protocol StreamingGatewayPlugin: GatewayPlugin {
         userId: String,
         finalContent: String?
     ) async throws
+}
+
+public extension StreamingGatewayPlugin {
+    func beginStreaming(channelId: String, userId: String) async throws -> GatewayOutboundStreamHandle {
+        try await beginStreaming(channelId: channelId, userId: userId, topicId: nil)
+    }
 }
 
 /// Plugin interface for exposing structured external tools ("actions") to an agent runtime.

@@ -11,6 +11,7 @@ private actor RecordingInboundReceiver: InboundMessageReceiver {
         let channelId: String
         let userId: String
         let content: String
+        let topicId: String?
     }
 
     private var messages: [Message] = []
@@ -20,8 +21,8 @@ private actor RecordingInboundReceiver: InboundMessageReceiver {
         self.shouldAccept = shouldAccept
     }
 
-    func postMessage(channelId: String, userId: String, content: String) async -> Bool {
-        messages.append(Message(channelId: channelId, userId: userId, content: content))
+    func postMessage(channelId: String, userId: String, content: String, topicId: String?) async -> Bool {
+        messages.append(Message(channelId: channelId, userId: userId, content: content, topicId: topicId))
         return shouldAccept
     }
 
@@ -256,7 +257,8 @@ func discordGatewayPluginForwardsMappedMessages() async throws {
         .init(
             channelId: "general",
             userId: "discord:user-1",
-            content: "hello from discord"
+            content: "hello from discord",
+            topicId: nil
         )
     ])
 
@@ -304,7 +306,8 @@ func discordGatewayPluginIgnoresBotMessagesAndTransformsTaskCommand() async thro
         .init(
             channelId: "general",
             userId: "discord:user-1",
-            content: "/task ship it"
+            content: "/task ship it",
+            topicId: nil
         )
     ])
 }

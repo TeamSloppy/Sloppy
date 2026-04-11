@@ -3169,6 +3169,53 @@ public struct TaskDiffResponse: Codable, Sendable {
     }
 }
 
+/// Working-tree diff vs `HEAD` (or all uncommitted changes when there is no commit yet).
+public struct ProjectWorkingTreeGitResponse: Codable, Sendable {
+    public var isGitRepository: Bool
+    public var branch: String?
+    public var linesAdded: Int
+    public var linesDeleted: Int
+    public var diff: String
+    public var diffTruncated: Bool
+    /// Set when `isGitRepository` is false or git could not be read.
+    public var message: String?
+
+    public init(
+        isGitRepository: Bool,
+        branch: String? = nil,
+        linesAdded: Int = 0,
+        linesDeleted: Int = 0,
+        diff: String = "",
+        diffTruncated: Bool = false,
+        message: String? = nil
+    ) {
+        self.isGitRepository = isGitRepository
+        self.branch = branch
+        self.linesAdded = linesAdded
+        self.linesDeleted = linesDeleted
+        self.diff = diff
+        self.diffTruncated = diffTruncated
+        self.message = message
+    }
+}
+
+public struct ProjectGitRestoreRequest: Codable, Sendable {
+    /// Project-relative path (POSIX, no `..` segments).
+    public var path: String
+
+    public init(path: String) {
+        self.path = path
+    }
+}
+
+public struct ProjectGitRestoreResponse: Codable, Sendable {
+    public var ok: Bool
+
+    public init(ok: Bool = true) {
+        self.ok = ok
+    }
+}
+
 public struct ReviewComment: Codable, Sendable, Identifiable {
     public var id: String
     public var taskId: String

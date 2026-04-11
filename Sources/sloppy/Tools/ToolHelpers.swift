@@ -1,4 +1,5 @@
 import Foundation
+import PluginSDK
 import Protocols
 import AgentRuntime
 
@@ -219,15 +220,18 @@ func parseMemoryScope(from arguments: [String: JSONValue]) -> MemoryScope? {
 
 func findProjectForChannel(store: any PersistenceStore, channelId: String, topicId: String?) async -> ProjectRecord? {
     let projects = await store.listProjects()
-    if let topicId, !topicId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-        let compositeId = "\(channelId):\(topicId)"
+    let scoped = ChannelGatewayScope.parse(channelId)
+    let base = scoped.baseChannelId
+    let effectiveTopic = scoped.topicKey ?? topicId
+    if let effectiveTopic, !effectiveTopic.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+        let compositeId = "\(base):\(effectiveTopic)"
         if let found = projects.sorted(by: { $0.createdAt < $1.createdAt })
             .first(where: { $0.channels.contains(where: { $0.channelId == compositeId }) }) {
             return found
         }
     }
     return projects.sorted(by: { $0.createdAt < $1.createdAt })
-        .first(where: { $0.channels.contains(where: { $0.channelId == channelId }) })
+        .first(where: { $0.channels.contains(where: { $0.channelId == base || $0.channelId == channelId }) })
 }
 
 func normalizeTaskRef(_ raw: String) -> String? {

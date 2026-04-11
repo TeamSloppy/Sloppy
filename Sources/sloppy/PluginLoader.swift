@@ -173,7 +173,7 @@ final class AnyGatewayPluginBox: GatewayPlugin, @unchecked Sendable {
         await _stop()
     }
 
-    func send(channelId: String, message: String) async throws {
+    func send(channelId: String, message: String, topicId: String?) async throws {
         try await _send(channelId, message)
     }
 }

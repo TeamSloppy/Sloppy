@@ -16,6 +16,8 @@ actor ChannelDeliveryService {
 
         let channelId: String
         let userId: String
+        /// Platform thread/topic (e.g. Telegram forum); nil when not scoped.
+        let topicId: String?
         let transport: Transport
         var latestContent: String
     }
@@ -56,14 +58,27 @@ actor ChannelDeliveryService {
         }
     }
 
-    func beginStream(channelId: String, userId: String) async -> UUID? {
-        if let plugin = inProcessPlugins[channelId] as? any StreamingGatewayPlugin {
+    /// Resolves a topic-scoped channel id (see ``ChannelGatewayScope``) to the registered gateway plugin.
+    private func resolvedInProcessPlugin(channelId: String) -> (any GatewayPlugin)? {
+        if let plugin = inProcessPlugins[channelId] {
+            return plugin
+        }
+        let base = ChannelGatewayScope.parse(channelId).baseChannelId
+        if base != channelId {
+            return inProcessPlugins[base]
+        }
+        return nil
+    }
+
+    func beginStream(channelId: String, userId: String, topicId: String? = nil) async -> UUID? {
+        if let plugin = resolvedInProcessPlugin(channelId: channelId) as? any StreamingGatewayPlugin {
             do {
-                let handle = try await plugin.beginStreaming(channelId: channelId, userId: userId)
+                let handle = try await plugin.beginStreaming(channelId: channelId, userId: userId, topicId: topicId)
                 let streamID = UUID()
                 activeStreams[streamID] = ActiveStream(
                     channelId: channelId,
                     userId: userId,
+                    topicId: topicId,
                     transport: .inProcess(plugin: plugin, handle: handle),
                     latestContent: ""
                 )
@@ -73,7 +88,7 @@ actor ChannelDeliveryService {
             }
         }
 
-        guard let plugin = await externalPlugin(for: channelId),
+        guard let plugin = await externalPluginBinding(for: channelId),
               let remoteStreamId = await startHTTPStream(plugin: plugin, channelId: channelId, userId: userId)
         else {
             return nil
@@ -83,6 +98,7 @@ actor ChannelDeliveryService {
         activeStreams[streamID] = ActiveStream(
             channelId: channelId,
             userId: userId,
+            topicId: topicId,
             transport: .http(plugin: plugin, remoteStreamId: remoteStreamId),
             latestContent: ""
         )
@@ -170,35 +186,41 @@ actor ChannelDeliveryService {
             return false
         }
 
-        return await deliver(channelId: stream.channelId, userId: stream.userId, content: normalizedFinal)
+        return await deliver(
+            channelId: stream.channelId,
+            userId: stream.userId,
+            content: normalizedFinal,
+            topicId: stream.topicId
+        )
     }
 
     /// Delivers a message to the plugin responsible for `channelId`, if any.
     /// Prefers in-process delivery; falls back to HTTP for out-of-process plugins.
     /// Returns `true` when delivery was attempted successfully.
     @discardableResult
-    func deliver(channelId: String, userId: String, content: String) async -> Bool {
-        if let plugin = inProcessPlugins[channelId] {
+    func deliver(channelId: String, userId: String, content: String, topicId: String? = nil) async -> Bool {
+        if let plugin = resolvedInProcessPlugin(channelId: channelId) {
             do {
-                try await plugin.send(channelId: channelId, message: content)
+                try await plugin.send(channelId: channelId, message: content, topicId: topicId)
                 return true
             } catch {
                 return false
             }
         }
 
-        guard let plugin = await externalPlugin(for: channelId) else {
+        guard let plugin = await externalPluginBinding(for: channelId) else {
             return false
         }
         return await postHTTP(plugin: plugin, channelId: channelId, userId: userId, content: content)
     }
 
-    private func externalPlugin(for channelId: String) async -> ChannelPluginRecord? {
+    private func externalPluginBinding(for channelId: String) async -> ChannelPluginRecord? {
         let plugins = await store.listChannelPlugins()
+        let base = ChannelGatewayScope.parse(channelId).baseChannelId
         return plugins.first(where: {
             $0.enabled
             && $0.deliveryMode != ChannelPluginRecord.DeliveryMode.inProcess
-            && $0.channelIds.contains(channelId)
+            && ($0.channelIds.contains(channelId) || $0.channelIds.contains(base))
         })
     }
 

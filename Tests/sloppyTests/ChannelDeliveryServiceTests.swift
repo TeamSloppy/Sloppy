@@ -27,11 +27,11 @@ private actor RecordingStreamingGatewayPlugin: StreamingGatewayPlugin {
 
     func stop() async {}
 
-    func send(channelId: String, message: String) async throws {
+    func send(channelId: String, message: String, topicId: String?) async throws {
         sent.append(message)
     }
 
-    func beginStreaming(channelId: String, userId: String) async throws -> GatewayOutboundStreamHandle {
+    func beginStreaming(channelId: String, userId: String, topicId: String?) async throws -> GatewayOutboundStreamHandle {
         started.append((channelId: channelId, userId: userId))
         return GatewayOutboundStreamHandle(id: "mock-stream-\(started.count)")
     }
@@ -68,7 +68,7 @@ private actor RecordingGatewayPlugin: GatewayPlugin {
 
     func stop() async {}
 
-    func send(channelId: String, message: String) async throws {
+    func send(channelId: String, message: String, topicId: String?) async throws {
         sent.append(message)
     }
 

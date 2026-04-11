@@ -91,19 +91,18 @@ public actor DiscordGatewayPlugin: StreamingGatewayPlugin {
         logger.info("Discord gateway plugin stopped.")
     }
 
-    public func send(channelId: String, message: String) async throws {
+    public func send(channelId: String, message: String, topicId: String?) async throws {
         guard let discordChannelId = config.discordChannelId(forChannelId: channelId) else {
             logger.warning("No Discord channel mapping for channel \(channelId). Message dropped.")
             return
         }
-
         _ = try await client.sendMessage(
             channelId: discordChannelId,
             content: renderContent(message)
         )
     }
 
-    public func beginStreaming(channelId: String, userId: String) async throws -> GatewayOutboundStreamHandle {
+    public func beginStreaming(channelId: String, userId: String, topicId: String?) async throws -> GatewayOutboundStreamHandle {
         guard let discordChannelId = config.discordChannelId(forChannelId: channelId) else {
             logger.warning("No Discord channel mapping for channel \(channelId). Stream start dropped.")
             throw DiscordTransportError.invalidResponse(method: "beginStreaming")
