@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { fetchActorsBoard, fetchAgents, fetchProjects, fetchAgentSessions, fetchChannelSessions, fetchChannelSession } from "../api";
+import { gatewayBindingChannelId } from "../shared/channelGatewayScope";
 import { Breadcrumbs } from "../components/Breadcrumbs/Breadcrumbs";
 import { AgentPetIcon } from "../features/agents/components/AgentPetSprite";
 
@@ -163,9 +164,10 @@ function ActiveChannelsSection({
 
     return channelSessions.map((session) => {
       const channelId = String(session?.channelId || "").trim();
-      const projectMeta = projectByChannel.get(channelId);
+      const baseChannelId = gatewayBindingChannelId(channelId);
+      const projectMeta = projectByChannel.get(channelId) || projectByChannel.get(baseChannelId);
       const agentSession = sessionById.get(String(session?.sessionId || "").trim());
-      const channelAgents = agentsByChannel.get(channelId) || [];
+      const channelAgents = agentsByChannel.get(channelId) || agentsByChannel.get(baseChannelId) || [];
       const fallbackAgentId = channelAgents.length === 1 ? String(channelAgents[0]?.id || "").trim() : "";
       const agentId = String(agentSession?.agentId || fallbackAgentId).trim();
       const sessionId = String(session?.sessionId || "");

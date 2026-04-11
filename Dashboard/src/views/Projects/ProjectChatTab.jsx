@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { fetchActorsBoard, fetchChannelSession, fetchChannelSessions, refreshProjectContext } from "../../api";
+import { gatewayBindingChannelId, sessionChannelMatchesBinding } from "../../shared/channelGatewayScope";
 
 const CHANNEL_MESSAGES_LIMIT = 9;
 
@@ -175,7 +176,15 @@ export function ProjectChatTab({ project, onNavigateToChannelSession }) {
 
       const sessions = (Array.isArray(allSessions) ? allSessions : []).filter((s) => {
         const channelId = normalizeId(s?.channelId);
-        return projectChannelIds.has(channelId);
+        if (!channelId) {
+          return false;
+        }
+        for (const bindingId of projectChannelIds) {
+          if (sessionChannelMatchesBinding(channelId, bindingId)) {
+            return true;
+          }
+        }
+        return false;
       });
       setChannelSessions(sessions);
 
@@ -212,7 +221,11 @@ export function ProjectChatTab({ project, onNavigateToChannelSession }) {
         key: sessionId || channelId,
         sessionId,
         channelId,
-        channelTitle: channelTitleById.get(channelId) || channelId || "Channel",
+        channelTitle:
+          channelTitleById.get(channelId) ||
+          channelTitleById.get(gatewayBindingChannelId(channelId)) ||
+          channelId ||
+          "Channel",
         updatedAt: session?.updatedAt || session?.createdAt || "",
         messageCount: Number(session?.messageCount || 0),
         lastMessagePreview: normalizeId(session?.lastMessagePreview),

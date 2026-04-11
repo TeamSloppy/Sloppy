@@ -7,6 +7,8 @@
   flex-direction: column;
   gap: 28px;
   padding: 0 0 40px;
+  min-width: 0;
+  max-width: 100%;
 }
 
 .overview-header {
@@ -61,6 +63,7 @@
   display: flex;
   flex-direction: column;
   gap: 14px;
+  min-width: 0;
 }
 
 .overview-section-header {
@@ -142,8 +145,12 @@
 /* ── Active Channels ── */
 .active-channels-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  /* minmax(0,1fr) avoids grid blowout from long unbroken message lines on narrow viewports */
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr));
   gap: 10px;
+  min-width: 0;
+  width: 100%;
+  max-width: 100%;
 }
 
 .active-channels-grid .channel-card:nth-child(1) { animation-delay: 50ms; }
@@ -165,6 +172,8 @@
   cursor: pointer;
   text-align: left;
   width: 100%;
+  min-width: 0;
+  max-width: 100%;
   transition: transform var(--motion-duration-fast) var(--motion-ease-brutalist),
               box-shadow var(--motion-duration-fast) var(--motion-ease-brutalist),
               border-color var(--motion-duration-fast) ease;
@@ -196,6 +205,7 @@
   align-items: center;
   gap: 8px;
   flex-wrap: wrap;
+  min-width: 0;
 }
 
 .channel-card-dot {
@@ -219,6 +229,7 @@
   overflow: hidden;
   text-overflow: ellipsis;
   flex: 1;
+  min-width: 0;
 }
 
 .channel-card-project {
@@ -264,6 +275,8 @@
   gap: 2px;
   border-top: 1px solid var(--line);
   padding-top: 8px;
+  min-width: 0;
+  overflow: hidden;
 }
 
 .channel-msg-row {
@@ -887,7 +900,7 @@
   }
 
   .active-channels-grid {
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .channel-session-transcript-panel {
@@ -901,7 +914,7 @@
   }
 
   .active-channels-grid {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .activity-charts-grid {
