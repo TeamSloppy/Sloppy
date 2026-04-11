@@ -201,7 +201,7 @@ export function ProjectAnalyticsTab({
                   {outcomePieData.length === 0 ? (
                     <p className="placeholder-text project-analytics-chart-empty">No completed tasks in this window.</p>
                   ) : (
-                    <ResponsiveContainer width="100%" height={220}>
+                    <ResponsiveContainer width="100%" height={300}>
                       <PieChart>
                         <Pie
                           data={outcomePieData}
@@ -209,8 +209,8 @@ export function ProjectAnalyticsTab({
                           nameKey="name"
                           cx="50%"
                           cy="50%"
-                          innerRadius={48}
-                          outerRadius={80}
+                          innerRadius={56}
+                          outerRadius={96}
                           paddingAngle={2}
                         >
                           {outcomePieData.map((entry) => (
@@ -364,7 +364,7 @@ export function ProjectAnalyticsTab({
                   {tokenPieData.length === 0 ? (
                     <p className="placeholder-text project-analytics-chart-empty">No token usage in this window.</p>
                   ) : (
-                    <ResponsiveContainer width="100%" height={200}>
+                    <ResponsiveContainer width="100%" height={280}>
                       <PieChart>
                         <Pie
                           data={tokenPieData}
@@ -372,8 +372,8 @@ export function ProjectAnalyticsTab({
                           nameKey="name"
                           cx="50%"
                           cy="50%"
-                          innerRadius={40}
-                          outerRadius={72}
+                          innerRadius={48}
+                          outerRadius={88}
                           paddingAngle={2}
                         >
                           {tokenPieData.map((entry) => (

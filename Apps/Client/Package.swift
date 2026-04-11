@@ -37,7 +37,9 @@ let package = Package(
                 .product(name: "AdaEngine", package: "AdaEngine")
             ],
             path: "Sources/SloppyClientUI",
-            resources: [.process("Assets")]
+            plugins: [
+                .plugin(name: "TextureAtlasBuildPlugin", package: "AdaEngine")
+            ]
         ),
         .target(
             name: "SloppyFeatureOverview",

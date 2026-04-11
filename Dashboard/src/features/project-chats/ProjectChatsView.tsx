@@ -5,6 +5,40 @@ import type { DashboardRoute } from "../../app/routing/dashboardRouteAdapter";
 
 type AnyRecord = Record<string, unknown>;
 
+const PROJECT_CHAT_LAST_AGENT_STORAGE_PREFIX = "sloppy.projectChat.lastAgent:";
+
+function storageKeyProjectChatAgent(projectId: string) {
+  return `${PROJECT_CHAT_LAST_AGENT_STORAGE_PREFIX}${encodeURIComponent(projectId)}`;
+}
+
+function readStoredAgentIdForProject(projectId: string): string | null {
+  if (typeof window === "undefined") {
+    return null;
+  }
+  try {
+    const raw = window.localStorage.getItem(storageKeyProjectChatAgent(projectId));
+    const s = typeof raw === "string" ? raw.trim() : "";
+    return s || null;
+  } catch {
+    return null;
+  }
+}
+
+function writeStoredAgentIdForProject(projectId: string, agentId: string) {
+  if (typeof window === "undefined") {
+    return;
+  }
+  const id = String(agentId || "").trim();
+  if (!id) {
+    return;
+  }
+  try {
+    window.localStorage.setItem(storageKeyProjectChatAgent(projectId), id);
+  } catch {
+    // quota / private mode
+  }
+}
+
 function normalizeAgent(item: AnyRecord, index: number) {
   const id = String(item?.id || `agent-${index + 1}`).trim();
   return {
@@ -78,6 +112,24 @@ export function ProjectChatsView({
       setAgentSearch("");
     }
   }, [chatAgentId, agents]);
+
+  useEffect(() => {
+    if (!chatProjectId || !chatAgentId) {
+      return;
+    }
+    writeStoredAgentIdForProject(chatProjectId, chatAgentId);
+  }, [chatProjectId, chatAgentId]);
+
+  useEffect(() => {
+    if (!chatProjectId || agents.length === 0 || chatAgentId) {
+      return;
+    }
+    const stored = readStoredAgentIdForProject(chatProjectId);
+    if (!stored || !agents.some((a) => a.id === stored)) {
+      return;
+    }
+    setChatsRoute(chatProjectId, stored, null);
+  }, [agents, chatAgentId, chatProjectId, setChatsRoute]);
 
   const onActiveSessionIdChange = useCallback(
     (sessionId: string | null) => {

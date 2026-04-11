@@ -163,6 +163,24 @@ function buildActivityPreview(channel) {
 
 function LiveActivitySection({ channels, onOpenTab }) {
     const visibleChannels = channels.filter((channel) => channel.hasActivity).slice(0, CHANNEL_ACTIVITY_LIMIT);
+    const [expandedChannelId, setExpandedChannelId] = React.useState(null);
+
+    const expandedChannel = expandedChannelId
+        ? visibleChannels.find((c) => c.channelId === expandedChannelId)
+        : null;
+
+    React.useEffect(() => {
+        if (!expandedChannelId) {
+            return undefined;
+        }
+        function onKeyDown(event) {
+            if (event.key === "Escape") {
+                setExpandedChannelId(null);
+            }
+        }
+        window.addEventListener("keydown", onKeyDown);
+        return () => window.removeEventListener("keydown", onKeyDown);
+    }, [expandedChannelId]);
 
     return (
         <section className="project-pane">
@@ -177,26 +195,79 @@ function LiveActivitySection({ channels, onOpenTab }) {
                 </p>
             ) : (
                 <div className="project-overview-channel-list">
-                    {visibleChannels.map((channel) => (
-                        <article key={channel.channelId} className="project-overview-channel">
-                            <div className="project-overview-channel-head">
-                                <strong>{channel.title}</strong>
-                                <span className="placeholder-text">
-                                    {channel.lastMessageAt ? formatRelativeTime(channel.lastMessageAt) : "active now"}
-                                </span>
-                            </div>
-                            <p>{buildActivityPreview(channel)}</p>
-                            <div className="project-overview-channel-meta">
-                                <span>{channel.messageCount} messages</span>
-                                {channel.activeWorkerCount > 0 ? (
-                                    <span>{channel.activeWorkerCount} worker{channel.activeWorkerCount !== 1 ? "s" : ""} active</span>
-                                ) : null}
-                                {channel.lastDecision?.action ? <span>Decision: {String(channel.lastDecision.action)}</span> : null}
-                            </div>
-                        </article>
-                    ))}
+                    {visibleChannels.map((channel) => {
+                        const preview = buildActivityPreview(channel);
+                        return (
+                            <article key={channel.channelId} className="project-overview-channel">
+                                <div className="project-overview-channel-head">
+                                    <strong>{channel.title}</strong>
+                                    <span className="placeholder-text">
+                                        {channel.lastMessageAt ? formatRelativeTime(channel.lastMessageAt) : "active now"}
+                                    </span>
+                                </div>
+                                <div className="project-overview-channel-preview">
+                                    <p>{preview}</p>
+                                </div>
+                                <div className="project-overview-channel-meta">
+                                    <span>{channel.messageCount} messages</span>
+                                    {channel.activeWorkerCount > 0 ? (
+                                        <span>
+                                            {channel.activeWorkerCount} worker{channel.activeWorkerCount !== 1 ? "s" : ""} active
+                                        </span>
+                                    ) : null}
+                                    {channel.lastDecision?.action ? (
+                                        <span>Decision: {String(channel.lastDecision.action)}</span>
+                                    ) : null}
+                                </div>
+                                <button
+                                    type="button"
+                                    className="project-overview-channel-read"
+                                    onClick={() => setExpandedChannelId(channel.channelId)}
+                                >
+                                    Read full
+                                </button>
+                            </article>
+                        );
+                    })}
                 </div>
             )}
+
+            {expandedChannel ? (
+                <div
+                    className="project-overview-channel-modal-backdrop"
+                    role="presentation"
+                    onClick={() => setExpandedChannelId(null)}
+                >
+                    <div
+                        className="project-overview-channel-modal"
+                        role="dialog"
+                        aria-modal="true"
+                        aria-labelledby="project-overview-channel-modal-title"
+                        onClick={(event) => event.stopPropagation()}
+                    >
+                        <div className="project-overview-channel-modal-head">
+                            <h4 id="project-overview-channel-modal-title">{expandedChannel.title}</h4>
+                            <button
+                                type="button"
+                                className="project-overview-channel-modal-close"
+                                onClick={() => setExpandedChannelId(null)}
+                                aria-label="Close"
+                            >
+                                <span className="material-symbols-rounded" aria-hidden="true">
+                                    close
+                                </span>
+                            </button>
+                        </div>
+                        <p className="project-overview-channel-modal-meta">
+                            {expandedChannel.lastMessageAt
+                                ? formatRelativeTime(expandedChannel.lastMessageAt)
+                                : "active now"}{" "}
+                            · {expandedChannel.messageCount} messages
+                        </p>
+                        <pre className="project-overview-channel-modal-body">{buildActivityPreview(expandedChannel)}</pre>
+                    </div>
+                </div>
+            ) : null}
         </section>
     );
 }

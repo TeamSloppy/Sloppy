@@ -59,6 +59,7 @@ function SkillCard({
   onInstall: () => void;
   onUninstall: () => void;
 }) {
+  const descriptionText = typeof skill.description === "string" ? skill.description.trim() : "";
   return (
     <div className="skill-card hover-levitate">
       <div className="skill-card-header">
@@ -67,8 +68,8 @@ function SkillCard({
           <span className="skill-owner">{skill.owner}/{skill.repo}</span>
         </a>
       </div>
-      <p className="skill-description">
-        {skill.description || "No description provided"}
+      <p className={`skill-description ${descriptionText ? "" : "skill-description--missing"}`}>
+        {descriptionText || "No description"}
       </p>
       <div className="skill-card-footer">
         <span className="skill-installs">{formatInstalls(skill.installs)} installs</span>
@@ -114,6 +115,8 @@ function InstalledSkillCard({
     skill.context ||
     skill.agent;
 
+  const descriptionText = typeof skill.description === "string" ? skill.description.trim() : "";
+
   return (
     <div className="skill-card hover-levitate">
       <div className="skill-card-header">
@@ -122,8 +125,8 @@ function InstalledSkillCard({
           <span className="skill-owner">{skill.owner}/{skill.repo}</span>
         </a>
       </div>
-      <p className="skill-description">
-        {skill.description || "No description provided"}
+      <p className={`skill-description ${descriptionText ? "" : "skill-description--missing"}`}>
+        {descriptionText || "No description"}
       </p>
       {hasMetadata && (
         <div className="skill-metadata">
