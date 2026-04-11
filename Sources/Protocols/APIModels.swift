@@ -1712,6 +1712,10 @@ public struct AgentToolsGuardrails: Codable, Sendable, Equatable {
     public var maxExecOutputBytes: Int
     public var maxProcessesPerSession: Int
     public var maxToolCallsPerMinute: Int
+    public var toolLoopWindowSeconds: Int
+    public var maxConsecutiveIdenticalToolCalls: Int
+    public var maxIdenticalToolCallsPerWindow: Int
+    public var maxRepeatedNonRetryableFailures: Int
     public var deniedCommandPrefixes: [String]
     public var allowedWriteRoots: [String]
     public var allowedExecRoots: [String]
@@ -1724,8 +1728,12 @@ public struct AgentToolsGuardrails: Codable, Sendable, Equatable {
         maxWriteBytes: Int = 512 * 1024,
         execTimeoutMs: Int = 15_000,
         maxExecOutputBytes: Int = 256 * 1024,
-        maxProcessesPerSession: Int = 3,
-        maxToolCallsPerMinute: Int = 120,
+        maxProcessesPerSession: Int = 2,
+        maxToolCallsPerMinute: Int = 60,
+        toolLoopWindowSeconds: Int = 60,
+        maxConsecutiveIdenticalToolCalls: Int = 3,
+        maxIdenticalToolCallsPerWindow: Int = 6,
+        maxRepeatedNonRetryableFailures: Int = 2,
         deniedCommandPrefixes: [String] = ["rm", "shutdown", "reboot", "mkfs", "dd", "killall", "launchctl"],
         allowedWriteRoots: [String] = [],
         allowedExecRoots: [String] = [],
@@ -1739,12 +1747,58 @@ public struct AgentToolsGuardrails: Codable, Sendable, Equatable {
         self.maxExecOutputBytes = maxExecOutputBytes
         self.maxProcessesPerSession = maxProcessesPerSession
         self.maxToolCallsPerMinute = maxToolCallsPerMinute
+        self.toolLoopWindowSeconds = toolLoopWindowSeconds
+        self.maxConsecutiveIdenticalToolCalls = maxConsecutiveIdenticalToolCalls
+        self.maxIdenticalToolCallsPerWindow = maxIdenticalToolCallsPerWindow
+        self.maxRepeatedNonRetryableFailures = maxRepeatedNonRetryableFailures
         self.deniedCommandPrefixes = deniedCommandPrefixes
         self.allowedWriteRoots = allowedWriteRoots
         self.allowedExecRoots = allowedExecRoots
         self.webTimeoutMs = webTimeoutMs
         self.webMaxBytes = webMaxBytes
         self.webBlockPrivateNetworks = webBlockPrivateNetworks
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case maxReadBytes
+        case maxWriteBytes
+        case execTimeoutMs
+        case maxExecOutputBytes
+        case maxProcessesPerSession
+        case maxToolCallsPerMinute
+        case toolLoopWindowSeconds
+        case maxConsecutiveIdenticalToolCalls
+        case maxIdenticalToolCallsPerWindow
+        case maxRepeatedNonRetryableFailures
+        case deniedCommandPrefixes
+        case allowedWriteRoots
+        case allowedExecRoots
+        case webTimeoutMs
+        case webMaxBytes
+        case webBlockPrivateNetworks
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let defaults = AgentToolsGuardrails()
+        self.init(
+            maxReadBytes: try container.decodeIfPresent(Int.self, forKey: .maxReadBytes) ?? defaults.maxReadBytes,
+            maxWriteBytes: try container.decodeIfPresent(Int.self, forKey: .maxWriteBytes) ?? defaults.maxWriteBytes,
+            execTimeoutMs: try container.decodeIfPresent(Int.self, forKey: .execTimeoutMs) ?? defaults.execTimeoutMs,
+            maxExecOutputBytes: try container.decodeIfPresent(Int.self, forKey: .maxExecOutputBytes) ?? defaults.maxExecOutputBytes,
+            maxProcessesPerSession: try container.decodeIfPresent(Int.self, forKey: .maxProcessesPerSession) ?? defaults.maxProcessesPerSession,
+            maxToolCallsPerMinute: try container.decodeIfPresent(Int.self, forKey: .maxToolCallsPerMinute) ?? defaults.maxToolCallsPerMinute,
+            toolLoopWindowSeconds: try container.decodeIfPresent(Int.self, forKey: .toolLoopWindowSeconds) ?? defaults.toolLoopWindowSeconds,
+            maxConsecutiveIdenticalToolCalls: try container.decodeIfPresent(Int.self, forKey: .maxConsecutiveIdenticalToolCalls) ?? defaults.maxConsecutiveIdenticalToolCalls,
+            maxIdenticalToolCallsPerWindow: try container.decodeIfPresent(Int.self, forKey: .maxIdenticalToolCallsPerWindow) ?? defaults.maxIdenticalToolCallsPerWindow,
+            maxRepeatedNonRetryableFailures: try container.decodeIfPresent(Int.self, forKey: .maxRepeatedNonRetryableFailures) ?? defaults.maxRepeatedNonRetryableFailures,
+            deniedCommandPrefixes: try container.decodeIfPresent([String].self, forKey: .deniedCommandPrefixes) ?? defaults.deniedCommandPrefixes,
+            allowedWriteRoots: try container.decodeIfPresent([String].self, forKey: .allowedWriteRoots) ?? defaults.allowedWriteRoots,
+            allowedExecRoots: try container.decodeIfPresent([String].self, forKey: .allowedExecRoots) ?? defaults.allowedExecRoots,
+            webTimeoutMs: try container.decodeIfPresent(Int.self, forKey: .webTimeoutMs) ?? defaults.webTimeoutMs,
+            webMaxBytes: try container.decodeIfPresent(Int.self, forKey: .webMaxBytes) ?? defaults.webMaxBytes,
+            webBlockPrivateNetworks: try container.decodeIfPresent(Bool.self, forKey: .webBlockPrivateNetworks) ?? defaults.webBlockPrivateNetworks
+        )
     }
 }
 

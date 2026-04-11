@@ -711,16 +711,15 @@
 }
 
 .project-workspace {
-  display: grid;
-  gap: 10px;
-}
-
-.project-workspace:has(.pft-shell) {
   display: flex;
   flex-direction: column;
   gap: 10px;
   flex: 1;
   min-height: 0;
+  min-width: 0;
+}
+
+.project-workspace:has(.pft-shell) {
   overflow: hidden;
 }
 
@@ -749,6 +748,15 @@
 .project-tab-layout {
   display: grid;
   gap: 12px;
+}
+
+/* Tasks kanban: stretch to bottom of the project workspace */
+.project-tab-layout:has(.project-kanban-pane) {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
 }
 
 .project-participants-grid {
@@ -1494,7 +1502,10 @@
 }
 
 .project-kanban-pane {
-  min-height: 540px;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
 }
 
 .project-kanban-head {
@@ -1505,6 +1516,7 @@
   border-bottom: 1px solid var(--line);
   padding-bottom: 10px;
   margin-bottom: 10px;
+  flex-shrink: 0;
 }
 
 .project-kanban-summary {
@@ -1659,6 +1671,9 @@
   width: 100%;
   max-width: 100%;
   min-width: 0;
+  flex: 1;
+  min-height: 0;
+  align-content: stretch;
   overflow-x: auto;
   overflow-y: hidden;
   padding-bottom: 4px;
@@ -1691,7 +1706,9 @@
   border-radius: 0;
   display: grid;
   grid-template-rows: auto 1fr;
-  min-height: 420px;
+  min-height: 0;
+  height: 100%;
+  align-self: stretch;
 }
 
 .project-kanban-column-head {
@@ -1768,6 +1785,8 @@
   display: grid;
   align-content: start;
   gap: 8px;
+  min-height: 0;
+  overflow-y: auto;
 }
 
 .project-kanban-task {
@@ -2696,13 +2715,34 @@
   gap: 0;
   flex: 1;
   margin-top: 8px;
+  min-width: 0;
 }
 
 .td-tabs-bar {
   display: flex;
   align-items: center;
+  flex-wrap: nowrap;
   gap: 0;
   border-bottom: 1px solid var(--line);
+  min-width: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
+  scrollbar-color: var(--line-strong) transparent;
+}
+
+.td-tabs-bar::-webkit-scrollbar {
+  height: 6px;
+}
+
+.td-tabs-bar::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.td-tabs-bar::-webkit-scrollbar-thumb {
+  background: rgba(138, 153, 180, 0.45);
+  border-radius: 0;
 }
 
 .td-tab {
@@ -2717,6 +2757,8 @@
   font-size: 0.84rem;
   cursor: pointer;
   min-width: auto;
+  flex-shrink: 0;
+  white-space: nowrap;
   transition: color 120ms ease, border-color 120ms ease;
 }
 

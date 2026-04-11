@@ -7,41 +7,15 @@ import AgentRuntime
 
 extension ToolContext {
     func resolveReadablePath(_ path: String) -> URL? {
-        resolvePath(path, extraRoots: policy.guardrails.allowedWriteRoots)
+        resolveToolPath(path, workspaceRootURL: workspaceRootURL, extraRoots: policy.guardrails.allowedWriteRoots)
     }
 
     func resolveWritablePath(_ path: String) -> URL? {
-        resolvePath(path, extraRoots: policy.guardrails.allowedWriteRoots)
+        resolveToolPath(path, workspaceRootURL: workspaceRootURL, extraRoots: policy.guardrails.allowedWriteRoots)
     }
 
     func resolveExecCwd(_ path: String) -> URL? {
-        resolvePath(path, extraRoots: policy.guardrails.allowedExecRoots)
-    }
-
-    private func resolvePath(_ path: String, extraRoots: [String]) -> URL? {
-        let trimmed = path.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return nil }
-
-        let candidate: URL
-        if trimmed.hasPrefix("/") {
-            candidate = URL(fileURLWithPath: trimmed)
-        } else {
-            candidate = workspaceRootURL.appendingPathComponent(trimmed)
-        }
-
-        let resolved = candidate.resolvingSymlinksInPath().standardizedFileURL
-        let roots = [workspaceRootURL] + extraRoots.map { raw -> URL in
-            raw.hasPrefix("/") ? URL(fileURLWithPath: raw) : workspaceRootURL.appendingPathComponent(raw)
-        }
-
-        for root in roots {
-            let rootResolved = root.resolvingSymlinksInPath().standardizedFileURL
-            let rootPath = rootResolved.path.hasSuffix("/") ? rootResolved.path : rootResolved.path + "/"
-            if resolved.path == rootResolved.path || resolved.path.hasPrefix(rootPath) {
-                return resolved
-            }
-        }
-        return nil
+        resolveToolPath(path, workspaceRootURL: workspaceRootURL, extraRoots: policy.guardrails.allowedExecRoots)
     }
 
     /// True when the path targets an agent's `USER.md` or `MEMORY.md` under `/agents` (including `.system`).
@@ -57,6 +31,32 @@ extension ToolContext {
         let systemPath = systemRoot.path
         return path.hasPrefix(agentsPath + "/") || path.hasPrefix(systemPath + "/")
     }
+}
+
+func resolveToolPath(_ path: String, workspaceRootURL: URL, extraRoots: [String]) -> URL? {
+    let trimmed = path.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !trimmed.isEmpty else { return nil }
+
+    let candidate: URL
+    if trimmed.hasPrefix("/") {
+        candidate = URL(fileURLWithPath: trimmed)
+    } else {
+        candidate = workspaceRootURL.appendingPathComponent(trimmed)
+    }
+
+    let resolved = candidate.resolvingSymlinksInPath().standardizedFileURL
+    let roots = [workspaceRootURL] + extraRoots.map { raw -> URL in
+        raw.hasPrefix("/") ? URL(fileURLWithPath: raw) : workspaceRootURL.appendingPathComponent(raw)
+    }
+
+    for root in roots {
+        let rootResolved = root.resolvingSymlinksInPath().standardizedFileURL
+        let rootPath = rootResolved.path.hasSuffix("/") ? rootResolved.path : rootResolved.path + "/"
+        if resolved.path == rootResolved.path || resolved.path.hasPrefix(rootPath) {
+            return resolved
+        }
+    }
+    return nil
 }
 
 // MARK: - Command guard
@@ -176,6 +176,17 @@ func encodeJSONValue<T: Encodable>(_ value: T) -> JSONValue {
         return try JSONDecoder().decode(JSONValue.self, from: data)
     } catch {
         return .null
+    }
+}
+
+func stableJSONString(_ value: JSONValue) -> String? {
+    let encoder = JSONEncoder()
+    encoder.outputFormatting = [.sortedKeys]
+    do {
+        let data = try encoder.encode(value)
+        return String(data: data, encoding: .utf8)
+    } catch {
+        return nil
     }
 }
 

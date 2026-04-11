@@ -94,3 +94,44 @@ func authorizationAllowsSystemListToolsFromCatalog() async throws {
     #expect(decision.allowed == true)
     #expect(decision.error == nil)
 }
+
+@Test
+func toolsStoreLoadsLegacyGuardrailsWithLoopDefaults() throws {
+    let root = FileManager.default.temporaryDirectory
+        .appendingPathComponent("tools-store-legacy-\(UUID().uuidString)", isDirectory: true)
+    let agentsRoot = root.appendingPathComponent("agents", isDirectory: true)
+    let agentDirectory = agentsRoot.appendingPathComponent("agent-legacy", isDirectory: true)
+    let toolsDirectory = agentDirectory.appendingPathComponent("tools", isDirectory: true)
+    try FileManager.default.createDirectory(at: toolsDirectory, withIntermediateDirectories: true)
+
+    let legacyJSON = """
+    {
+      "version": 1,
+      "defaultPolicy": "allow",
+      "tools": {},
+      "guardrails": {
+        "maxReadBytes": 524288,
+        "maxWriteBytes": 524288,
+        "execTimeoutMs": 15000,
+        "maxExecOutputBytes": 262144,
+        "maxProcessesPerSession": 2,
+        "maxToolCallsPerMinute": 60,
+        "deniedCommandPrefixes": ["rm"],
+        "allowedWriteRoots": [],
+        "allowedExecRoots": [],
+        "webTimeoutMs": 10000,
+        "webMaxBytes": 524288,
+        "webBlockPrivateNetworks": true
+      }
+    }
+    """
+    try Data(legacyJSON.utf8).write(to: toolsDirectory.appendingPathComponent("tools.json"))
+
+    let store = AgentToolsFileStore(agentsRootURL: agentsRoot)
+    let policy = try store.getPolicy(agentID: "agent-legacy", knownToolIDs: ToolCatalog.knownToolIDs)
+
+    #expect(policy.guardrails.toolLoopWindowSeconds == 60)
+    #expect(policy.guardrails.maxConsecutiveIdenticalToolCalls == 3)
+    #expect(policy.guardrails.maxIdenticalToolCallsPerWindow == 6)
+    #expect(policy.guardrails.maxRepeatedNonRetryableFailures == 2)
+}

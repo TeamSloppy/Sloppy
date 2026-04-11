@@ -7,11 +7,11 @@ struct RuntimeProcessTool: CoreTool {
     let title = "Manage process"
     let status = "fully_functional"
     let name = "runtime.process"
-    let description = "Start, inspect, list, and stop background session processes."
+    let description = "Manage long-lived background session processes. Use this only when a process must stay alive across steps; for one-shot commands use `runtime.exec`. Supported actions: start, status, stop, list."
 
     var parameters: GenerationSchema {
         .objectSchema([
-            .init(name: "action", description: "Action: start, status, stop, list", schema: DynamicGenerationSchema(type: String.self)),
+            .init(name: "action", description: "Background process action. Only start, status, stop, and list are supported.", schema: DynamicGenerationSchema(type: String.self)),
             .init(name: "command", description: "Executable name or path to start (e.g. 'bash', '/bin/ls', 'git'). Required for start. Do NOT repeat the command name in arguments.", schema: DynamicGenerationSchema(type: String.self), isOptional: true),
             .init(name: "arguments", description: "Array of arguments passed to the command (argv). For shell one-liners use command='bash' arguments=['-lc', 'your command here']. Do NOT include the command name itself.", schema: DynamicGenerationSchema(arrayOf: DynamicGenerationSchema(type: String.self)), isOptional: true),
             .init(name: "cwd", description: "Working directory (absolute path or relative to workspace root). Defaults to workspace root if omitted.", schema: DynamicGenerationSchema(type: String.self), isOptional: true),

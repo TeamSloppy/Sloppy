@@ -96,8 +96,12 @@ function defaultDraft() {
       maxWriteBytes: 524288,
       execTimeoutMs: 15000,
       maxExecOutputBytes: 262144,
-      maxProcessesPerSession: 3,
-      maxToolCallsPerMinute: 120,
+      maxProcessesPerSession: 2,
+      maxToolCallsPerMinute: 60,
+      toolLoopWindowSeconds: 60,
+      maxConsecutiveIdenticalToolCalls: 3,
+      maxIdenticalToolCallsPerWindow: 6,
+      maxRepeatedNonRetryableFailures: 2,
       deniedCommandPrefixes: ["rm", "shutdown", "reboot", "mkfs", "dd", "killall", "launchctl"],
       allowedWriteRoots: [],
       allowedExecRoots: [],
@@ -153,6 +157,30 @@ const NUMERIC_GUARDRAILS = [
     key: "maxToolCallsPerMinute",
     label: "Max Tool Calls / Minute",
     hint: "Rate limit across all tool invocations.",
+    unit: ""
+  },
+  {
+    key: "toolLoopWindowSeconds",
+    label: "Loop Window",
+    hint: "Sliding window used for repeated-call loop detection.",
+    unit: "s"
+  },
+  {
+    key: "maxConsecutiveIdenticalToolCalls",
+    label: "Max Consecutive Identical Calls",
+    hint: "Block repeated identical exec/process calls after this many same-shape attempts.",
+    unit: ""
+  },
+  {
+    key: "maxIdenticalToolCallsPerWindow",
+    label: "Max Identical Calls / Window",
+    hint: "Block a repeated shell/process signature when it appears too many times inside the loop window.",
+    unit: ""
+  },
+  {
+    key: "maxRepeatedNonRetryableFailures",
+    label: "Max Repeated Hard Failures",
+    hint: "Block a retried tool signature after repeated non-retryable failures.",
     unit: ""
   },
   {
@@ -319,6 +347,10 @@ export function AgentToolsTab({ agentId }) {
         maxExecOutputBytes: Number(draft.guardrails.maxExecOutputBytes),
         maxProcessesPerSession: Number(draft.guardrails.maxProcessesPerSession),
         maxToolCallsPerMinute: Number(draft.guardrails.maxToolCallsPerMinute),
+        toolLoopWindowSeconds: Number(draft.guardrails.toolLoopWindowSeconds),
+        maxConsecutiveIdenticalToolCalls: Number(draft.guardrails.maxConsecutiveIdenticalToolCalls),
+        maxIdenticalToolCallsPerWindow: Number(draft.guardrails.maxIdenticalToolCallsPerWindow),
+        maxRepeatedNonRetryableFailures: Number(draft.guardrails.maxRepeatedNonRetryableFailures),
         deniedCommandPrefixes: parseList(draft.guardrails.deniedCommandPrefixes),
         allowedWriteRoots: parseList(draft.guardrails.allowedWriteRoots),
         allowedExecRoots: parseList(draft.guardrails.allowedExecRoots),

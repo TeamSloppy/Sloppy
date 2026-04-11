@@ -128,6 +128,10 @@ final class AgentToolsFileStore {
             policy.guardrails.maxExecOutputBytes <= 0 ||
             policy.guardrails.maxProcessesPerSession <= 0 ||
             policy.guardrails.maxToolCallsPerMinute <= 0 ||
+            policy.guardrails.toolLoopWindowSeconds <= 0 ||
+            policy.guardrails.maxConsecutiveIdenticalToolCalls <= 0 ||
+            policy.guardrails.maxIdenticalToolCallsPerWindow <= 0 ||
+            policy.guardrails.maxRepeatedNonRetryableFailures <= 0 ||
             policy.guardrails.webTimeoutMs <= 0 ||
             policy.guardrails.webMaxBytes <= 0 {
             throw StoreError.invalidPayload
