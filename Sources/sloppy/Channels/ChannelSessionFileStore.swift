@@ -1,5 +1,6 @@
 import Foundation
 import AgentRuntime
+import PluginSDK
 import Protocols
 
 /// File-based persistence store for channel sessions.
@@ -53,8 +54,16 @@ actor ChannelSessionFileStore {
             if let status, summary.status != status {
                 continue
             }
-            if let channelIds, !channelIds.contains(summary.channelId) {
-                continue
+            if let channelIds {
+                let matchesBinding = channelIds.contains { binding in
+                    ChannelGatewayScope.sessionMatchesBinding(
+                        sessionChannelId: summary.channelId,
+                        bindingChannelId: binding
+                    )
+                }
+                if !matchesBinding {
+                    continue
+                }
             }
             summaries.append(summary)
         }
@@ -123,7 +132,10 @@ actor ChannelSessionFileStore {
         var closed: [ChannelSessionSummary] = []
 
         for summary in openSessions {
-            let timeoutMinutes = timeoutByChannel[summary.channelId] ?? globalDefaultTimeoutMinutes ?? 0
+            let bindingId = ChannelGatewayScope.parse(summary.channelId).baseChannelId
+            let timeoutMinutes = timeoutByChannel[summary.channelId]
+                ?? timeoutByChannel[bindingId]
+                ?? globalDefaultTimeoutMinutes ?? 0
             guard timeoutMinutes > 0 else {
                 continue
             }

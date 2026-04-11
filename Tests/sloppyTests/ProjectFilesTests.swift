@@ -213,3 +213,68 @@ func listProjectFilesRejectsPathTraversal() async throws {
     )
     #expect(resp.status == 400 || resp.status == 404)
 }
+
+private func runGitInProjectDir(_ cwd: URL, _ args: [String]) throws {
+    let process = Process()
+    process.executableURL = URL(fileURLWithPath: "/usr/bin/git")
+    process.arguments = args
+    process.currentDirectoryURL = cwd
+    let pipe = Pipe()
+    process.standardOutput = pipe
+    process.standardError = pipe
+    try process.run()
+    process.waitUntilExit()
+    guard process.terminationStatus == 0 else {
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        let s = String(data: data, encoding: .utf8) ?? ""
+        throw NSError(domain: "git", code: Int(process.terminationStatus), userInfo: [NSLocalizedDescriptionKey: s])
+    }
+}
+
+@Test
+func projectWorkingTreeGitReturnsDiffAndStats() async throws {
+    let config = CoreConfig.test
+    let service = CoreService(config: config, persistenceBuilder: InMemoryCorePersistenceBuilder())
+    let router = CoreRouter(service: service)
+    let (projectID, projectDir) = try await makeProjectAndDir(router: router, config: config)
+
+    try FileManager.default.createDirectory(at: projectDir, withIntermediateDirectories: true)
+    try runGitInProjectDir(projectDir, ["init", "--initial-branch=main"])
+    try runGitInProjectDir(projectDir, ["config", "user.email", "test@sloppy.dev"])
+    try runGitInProjectDir(projectDir, ["config", "user.name", "SloppyTest"])
+    try Data("v1".utf8).write(to: projectDir.appendingPathComponent("file.txt"))
+    try runGitInProjectDir(projectDir, ["add", "."])
+    try runGitInProjectDir(projectDir, ["commit", "-m", "init"])
+    try Data("v2\nline2".utf8).write(to: projectDir.appendingPathComponent("file.txt"))
+
+    let resp = await router.handle(method: "GET", path: "/v1/projects/\(projectID)/git/working-tree", body: nil)
+    #expect(resp.status == 200)
+    let payload = try JSONDecoder().decode(ProjectWorkingTreeGitResponse.self, from: resp.body)
+    #expect(payload.isGitRepository == true)
+    #expect(payload.linesAdded + payload.linesDeleted > 0)
+    #expect(!payload.diff.isEmpty)
+}
+
+@Test
+func projectGitRestoreRevertsFileToHead() async throws {
+    let config = CoreConfig.test
+    let service = CoreService(config: config, persistenceBuilder: InMemoryCorePersistenceBuilder())
+    let router = CoreRouter(service: service)
+    let (projectID, projectDir) = try await makeProjectAndDir(router: router, config: config)
+
+    try FileManager.default.createDirectory(at: projectDir, withIntermediateDirectories: true)
+    try runGitInProjectDir(projectDir, ["init", "--initial-branch=main"])
+    try runGitInProjectDir(projectDir, ["config", "user.email", "test@sloppy.dev"])
+    try runGitInProjectDir(projectDir, ["config", "user.name", "SloppyTest"])
+    try Data("committed".utf8).write(to: projectDir.appendingPathComponent("tracked.txt"))
+    try runGitInProjectDir(projectDir, ["add", "."])
+    try runGitInProjectDir(projectDir, ["commit", "-m", "init"])
+    try Data("working".utf8).write(to: projectDir.appendingPathComponent("tracked.txt"))
+
+    let body = try JSONEncoder().encode(ProjectGitRestoreRequest(path: "tracked.txt"))
+    let resp = await router.handle(method: "POST", path: "/v1/projects/\(projectID)/git/restore", body: body)
+    #expect(resp.status == 200)
+
+    let restored = try String(contentsOf: projectDir.appendingPathComponent("tracked.txt"), encoding: .utf8)
+    #expect(restored == "committed")
+}

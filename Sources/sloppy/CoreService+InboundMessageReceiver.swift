@@ -8,7 +8,8 @@ import Logging
 
 extension CoreService {
     func handleTaskApprovalCommand(channelId: String, reference: TaskApprovalReference) async -> ChannelRouteDecision {
-        guard let project = await projectForChannel(channelId: channelId) else {
+        let scoped = ChannelGatewayScope.parse(channelId)
+        guard let project = await projectForChannel(channelId: scoped.baseChannelId, topicId: scoped.topicKey) else {
             await runtime.appendSystemMessage(
                 channelId: channelId,
                 content: "project_not_found_for_channel"
@@ -77,7 +78,9 @@ extension CoreService {
         channelId: String,
         request: ChannelMessageRequest
     ) async -> ChannelRouteDecision? {
-        let project = await projectForChannel(channelId: channelId, topicId: request.topicId)
+        let scoped = ChannelGatewayScope.parse(channelId)
+        let topicKey = scoped.topicKey ?? request.topicId
+        let project = await projectForChannel(channelId: scoped.baseChannelId, topicId: topicKey)
         let channelState = await runtime.channelState(channelId: channelId)
         let board = try? getActorBoard()
         let context = VisorTaskPlanningContext(
@@ -406,16 +409,18 @@ extension CoreService {
     fileprivate func offerInboundChannelPluginMessage(
         channelId: String,
         userId: String,
-        contentForModel: String
+        contentForModel: String,
+        topicId: String?
     ) async {
         var slot = inboundChannelPluginQueues[channelId] ?? InboundChannelPluginQueueSlot()
         if slot.processing {
-            slot.fifo.append((userId, contentForModel))
+            slot.fifo.append((userId, contentForModel, topicId))
             inboundChannelPluginQueues[channelId] = slot
             await deliverToChannelPlugin(
                 channelId: channelId,
                 userId: "system",
-                content: "Message queued (\(slot.fifo.count) ahead)."
+                content: "Message queued (\(slot.fifo.count) ahead).",
+                topicId: topicId
             )
             return
         }
@@ -425,7 +430,8 @@ extension CoreService {
             await self.runInboundChannelPluginDrain(
                 channelId: channelId,
                 initialUserId: userId,
-                initialContent: contentForModel
+                initialContent: contentForModel,
+                initialTopicId: topicId
             )
         }
     }
@@ -433,15 +439,18 @@ extension CoreService {
     fileprivate func runInboundChannelPluginDrain(
         channelId: String,
         initialUserId: String,
-        initialContent: String
+        initialContent: String,
+        initialTopicId: String?
     ) async {
         var userId = initialUserId
         var content = initialContent
+        var topicId = initialTopicId
         while true {
             await executeSingleInboundChannelPluginTurn(
                 channelId: channelId,
                 userId: userId,
-                contentForModel: content
+                contentForModel: content,
+                topicId: topicId
             )
             guard var slot = inboundChannelPluginQueues[channelId] else {
                 return
@@ -455,20 +464,32 @@ extension CoreService {
             inboundChannelPluginQueues[channelId] = slot
             userId = next.userId
             content = next.content
+            topicId = next.topicId
         }
     }
 
     fileprivate func executeSingleInboundChannelPluginTurn(
         channelId: String,
         userId: String,
-        contentForModel: String
+        contentForModel: String,
+        topicId: String?
     ) async {
         await channelStreamCancelRegistry.clearCancel(channelId: channelId)
 
-        let modelOverride = await channelModelStore.get(channelId: channelId)
-        let request = ChannelMessageRequest(userId: userId, content: contentForModel, model: modelOverride)
+        let bindingChannelId = ChannelGatewayScope.parse(channelId).baseChannelId
+        let modelOverride = await channelModelStore.get(channelId: bindingChannelId)
+        let request = ChannelMessageRequest(
+            userId: userId,
+            content: contentForModel,
+            topicId: topicId,
+            model: modelOverride
+        )
         let collector = ResponseCollector()
-        let outboundStreamID = await channelDelivery.beginStream(channelId: channelId, userId: "assistant")
+        let outboundStreamID = await channelDelivery.beginStream(
+            channelId: channelId,
+            userId: "assistant",
+            topicId: topicId
+        )
         let cancelRegistry = channelStreamCancelRegistry
 
         let onChunk: @Sendable (String) async -> Bool = { chunk in
@@ -589,7 +610,12 @@ extension CoreService {
                 finalContent: reply.isEmpty ? nil : reply
             )
         } else if !reply.isEmpty {
-            await channelDelivery.deliver(channelId: channelId, userId: "assistant", content: reply)
+            await channelDelivery.deliver(
+                channelId: channelId,
+                userId: "assistant",
+                content: reply,
+                topicId: topicId
+            )
         }
     }
 }
@@ -641,59 +667,65 @@ extension CoreService: InboundMessageReceiver {
     /// Called by in-process channel plugins when a message arrives from an external platform.
     /// Routes through the runtime, collects the response, persists to channel session,
     /// and delivers it back to the channel plugin.
-    public func postMessage(channelId: String, userId: String, content: String) async -> Bool {
-        if let statusReply = await handleStatusCommand(channelId: channelId, content: content) {
-            await deliverToChannelPlugin(channelId: channelId, content: statusReply)
+    public func postMessage(channelId: String, userId: String, content: String, topicId: String?) async -> Bool {
+        let bindingChannelId = channelId
+        let sessionChannelId = ChannelGatewayScope.scopedChannelId(
+            baseChannelId: bindingChannelId,
+            topicKey: topicId
+        )
+
+        if let statusReply = await handleStatusCommand(channelId: sessionChannelId, content: content) {
+            await deliverToChannelPlugin(channelId: sessionChannelId, content: statusReply, topicId: topicId)
             return true
         }
 
-        if let modelCommandReply = await handleModelCommand(channelId: channelId, content: content) {
-            await deliverToChannelPlugin(channelId: channelId, content: modelCommandReply)
+        if let modelCommandReply = await handleModelCommand(channelId: sessionChannelId, content: content) {
+            await deliverToChannelPlugin(channelId: sessionChannelId, content: modelCommandReply, topicId: topicId)
             return true
         }
 
-        if let contextReply = await handleContextCommand(channelId: channelId, content: content) {
-            await deliverToChannelPlugin(channelId: channelId, content: contextReply)
+        if let contextReply = await handleContextCommand(channelId: sessionChannelId, content: content) {
+            await deliverToChannelPlugin(channelId: sessionChannelId, content: contextReply, topicId: topicId)
             return true
         }
 
         do {
-            try await prepareChannelSession(channelId: channelId)
+            try await prepareChannelSession(channelId: bindingChannelId)
         } catch {
-            logger.warning("Failed to prepare channel session for \(channelId): \(error)")
+            logger.warning("Failed to prepare channel session for \(bindingChannelId): \(error)")
         }
 
         let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
         let lower = trimmed.lowercased()
 
         if lower == "/abort" {
-            await channelStreamCancelRegistry.requestCancel(channelId: channelId)
-            let cancelled = await runtime.abortChannel(channelId: channelId, reason: "Aborted by user")
-            await channelStreamCancelRegistry.clearCancel(channelId: channelId)
+            await channelStreamCancelRegistry.requestCancel(channelId: sessionChannelId)
+            let cancelled = await runtime.abortChannel(channelId: sessionChannelId, reason: "Aborted by user")
+            await channelStreamCancelRegistry.clearCancel(channelId: sessionChannelId)
             let reason = cancelled > 0
                 ? "Aborted \(cancelled) active worker(s)."
                 : "No active workers to abort."
-            await deliverToChannelPlugin(channelId: channelId, content: reason)
+            await deliverToChannelPlugin(channelId: sessionChannelId, content: reason, topicId: topicId)
             return true
         }
 
         if let btwTail = ChannelInboundBtwParsing.btwModelTailIfCommand(content) {
-            await channelStreamCancelRegistry.requestCancel(channelId: channelId)
-            _ = await runtime.abortChannel(channelId: channelId, reason: "Interrupted by /btw")
-            await runtime.invalidateChannelSession(channelId: channelId)
+            await channelStreamCancelRegistry.requestCancel(channelId: sessionChannelId)
+            _ = await runtime.abortChannel(channelId: sessionChannelId, reason: "Interrupted by /btw")
+            await runtime.invalidateChannelSession(channelId: sessionChannelId)
 
             do {
                 try await channelSessionStore.recordUserMessage(
-                    channelId: channelId,
+                    channelId: sessionChannelId,
                     userId: userId,
                     content: content
                 )
                 await applyPetProgressForExternalChannel(
-                    channelID: channelId,
+                    channelID: sessionChannelId,
                     event: AgentPetProgressionInput(
                         sourceKind: petSourceKindForExternalChannelUser(userId),
                         eventKind: .userMessage,
-                        channelId: channelId,
+                        channelId: sessionChannelId,
                         timestamp: Date(),
                         userId: userId,
                         content: content
@@ -705,38 +737,40 @@ extension CoreService: InboundMessageReceiver {
 
             if btwTail.isEmpty {
                 await deliverToChannelPlugin(
-                    channelId: channelId,
-                    content: "Model context cleared for this channel. Send your next message when ready."
+                    channelId: sessionChannelId,
+                    content: "Model context cleared for this channel. Send your next message when ready.",
+                    topicId: topicId
                 )
                 return true
             }
 
-            if var slot = inboundChannelPluginQueues[channelId], slot.processing {
-                slot.fifo.insert((userId, btwTail), at: 0)
-                inboundChannelPluginQueues[channelId] = slot
+            if var slot = inboundChannelPluginQueues[sessionChannelId], slot.processing {
+                slot.fifo.insert((userId, btwTail, topicId), at: 0)
+                inboundChannelPluginQueues[sessionChannelId] = slot
                 return true
             }
 
             await offerInboundChannelPluginMessage(
-                channelId: channelId,
+                channelId: sessionChannelId,
                 userId: userId,
-                contentForModel: btwTail
+                contentForModel: btwTail,
+                topicId: topicId
             )
             return true
         }
 
         do {
             try await channelSessionStore.recordUserMessage(
-                channelId: channelId,
+                channelId: sessionChannelId,
                 userId: userId,
                 content: content
             )
             await applyPetProgressForExternalChannel(
-                channelID: channelId,
+                channelID: sessionChannelId,
                 event: AgentPetProgressionInput(
                     sourceKind: petSourceKindForExternalChannelUser(userId),
                     eventKind: .userMessage,
-                    channelId: channelId,
+                    channelId: sessionChannelId,
                     timestamp: Date(),
                     userId: userId,
                     content: content
@@ -747,9 +781,10 @@ extension CoreService: InboundMessageReceiver {
         }
 
         await offerInboundChannelPluginMessage(
-            channelId: channelId,
+            channelId: sessionChannelId,
             userId: userId,
-            contentForModel: trimmed
+            contentForModel: trimmed,
+            topicId: topicId
         )
         return true
     }

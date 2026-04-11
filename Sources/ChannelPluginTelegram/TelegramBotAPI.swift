@@ -30,10 +30,26 @@ actor TelegramBotAPI {
     struct Update: Decodable {
         let updateId: Int64
         let message: Message?
+        let callbackQuery: CallbackQuery?
 
         enum CodingKeys: String, CodingKey {
             case updateId = "update_id"
             case message
+            case callbackQuery = "callback_query"
+        }
+    }
+
+    struct CallbackQuery: Decodable {
+        let id: String
+        let from: User
+        let message: Message?
+        let data: String?
+
+        enum CodingKeys: String, CodingKey {
+            case id
+            case from
+            case message
+            case data
         }
     }
 
@@ -43,10 +59,13 @@ actor TelegramBotAPI {
         let chat: Chat
         let text: String?
         let date: Int
+        /// Present for messages in forum topic threads (supergroups).
+        let messageThreadId: Int?
 
         enum CodingKeys: String, CodingKey {
             case messageId = "message_id"
             case from, chat, text, date
+            case messageThreadId = "message_thread_id"
         }
     }
 
@@ -90,11 +109,12 @@ actor TelegramBotAPI {
 
     // MARK: - sendChatAction
 
-    func sendChatAction(chatId: Int64, action: String) async throws {
-        let params: [String: Any] = [
+    func sendChatAction(chatId: Int64, action: String, messageThreadId: Int? = nil) async throws {
+        var params: [String: Any] = [
             "chat_id": chatId,
             "action": action
         ]
+        if let messageThreadId { params["message_thread_id"] = messageThreadId }
         _ = try await post(method: "sendChatAction", params: params)
     }
 
@@ -115,17 +135,32 @@ actor TelegramBotAPI {
         let result: Bool?
     }
 
-    func sendMessage(chatId: Int64, text: String, parseMode: String? = nil) async throws -> Message {
+    /// - Parameters:
+    ///   - showTyping: When false, skips `sendChatAction` (e.g. inline keyboard refreshes).
+    ///   - replyMarkup: Optional inline keyboard (`inline_keyboard` rows).
+    func sendMessage(
+        chatId: Int64,
+        text: String,
+        messageThreadId: Int? = nil,
+        parseMode: String? = nil,
+        replyMarkup: [[[String: String]]]? = nil,
+        showTyping: Bool = true
+    ) async throws -> Message {
         logger.debug("sendMessage: chatId=\(chatId), length=\(text.count)")
 
-        // Show typing indicator so user knows bot is responding
-        try? await sendChatAction(chatId: chatId, action: "typing")
+        if showTyping {
+            try? await sendChatAction(chatId: chatId, action: "typing", messageThreadId: messageThreadId)
+        }
 
         var params: [String: Any] = [
             "chat_id": chatId,
             "text": text
         ]
+        if let messageThreadId { params["message_thread_id"] = messageThreadId }
         if let parseMode { params["parse_mode"] = parseMode }
+        if let replyMarkup {
+            params["reply_markup"] = ["inline_keyboard": replyMarkup]
+        }
         let data = try await post(method: "sendMessage", params: params)
         let response = try JSONDecoder().decode(SendMessageResponse.self, from: data)
         guard response.ok, let message = response.result else {
@@ -134,7 +169,14 @@ actor TelegramBotAPI {
         return message
     }
 
-    func editMessageText(chatId: Int64, messageId: Int64, text: String, parseMode: String? = nil) async throws -> Message {
+    func editMessageText(
+        chatId: Int64,
+        messageId: Int64,
+        text: String,
+        messageThreadId: Int? = nil,
+        parseMode: String? = nil,
+        replyMarkup: [[[String: String]]]? = nil
+    ) async throws -> Message {
         logger.debug("editMessageText: chatId=\(chatId), messageId=\(messageId), length=\(text.count)")
 
         var params: [String: Any] = [
@@ -142,7 +184,11 @@ actor TelegramBotAPI {
             "message_id": messageId,
             "text": text
         ]
+        if let messageThreadId { params["message_thread_id"] = messageThreadId }
         if let parseMode { params["parse_mode"] = parseMode }
+        if let replyMarkup {
+            params["reply_markup"] = ["inline_keyboard": replyMarkup]
+        }
         let data = try await post(method: "editMessageText", params: params)
         let response = try JSONDecoder().decode(EditMessageTextResponse.self, from: data)
         guard response.ok, let message = response.result else {
@@ -151,18 +197,34 @@ actor TelegramBotAPI {
         return message
     }
 
-    func deleteMessage(chatId: Int64, messageId: Int64) async throws {
+    func deleteMessage(chatId: Int64, messageId: Int64, messageThreadId: Int? = nil) async throws {
         logger.debug("deleteMessage: chatId=\(chatId), messageId=\(messageId)")
 
-        let params: [String: Any] = [
+        var params: [String: Any] = [
             "chat_id": chatId,
             "message_id": messageId
         ]
+        if let messageThreadId { params["message_thread_id"] = messageThreadId }
         let data = try await post(method: "deleteMessage", params: params)
         let response = try JSONDecoder().decode(DeleteMessageResponse.self, from: data)
         guard response.ok else {
             throw TelegramAPIError.invalidResponse(method: "deleteMessage")
         }
+    }
+
+    // MARK: - answerCallbackQuery
+
+    func answerCallbackQuery(
+        callbackQueryId: String,
+        text: String? = nil,
+        showAlert: Bool = false
+    ) async throws {
+        var params: [String: Any] = [
+            "callback_query_id": callbackQueryId
+        ]
+        if let text { params["text"] = text }
+        if showAlert { params["show_alert"] = true }
+        _ = try await post(method: "answerCallbackQuery", params: params)
     }
 
     // MARK: - setMyCommands

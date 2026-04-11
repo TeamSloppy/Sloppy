@@ -29,7 +29,7 @@ private actor LifecycleGatewayPlugin: GatewayPlugin {
         stoppedCount += 1
     }
 
-    func send(channelId: String, message: String) async throws {}
+    func send(channelId: String, message: String, topicId: String?) async throws {}
 
     func snapshot() -> Snapshot {
         Snapshot(startedCount: startedCount, stoppedCount: stoppedCount)
@@ -52,7 +52,7 @@ func bootstrapChannelPluginsSeedsDiscordRecord() async throws {
 
     let probe = LifecyclePluginProbe()
     let factory = BuiltInGatewayPluginFactory(
-        makeTelegram: { pluginConfig in
+        makeTelegram: { pluginConfig, _ in
             LifecycleGatewayPlugin(
                 id: "telegram",
                 channelIds: Array(pluginConfig.channelChatMap.keys)
@@ -101,7 +101,7 @@ func updateConfigReloadsAndRemovesDiscordPlugin() async throws {
 
     let probe = LifecyclePluginProbe()
     let factory = BuiltInGatewayPluginFactory(
-        makeTelegram: { pluginConfig in
+        makeTelegram: { pluginConfig, _ in
             LifecycleGatewayPlugin(
                 id: "telegram",
                 channelIds: Array(pluginConfig.channelChatMap.keys)

@@ -49,17 +49,18 @@ public struct AgentSessionStreamUpdate: Codable, Sendable {
 }
 
 struct BuiltInGatewayPluginFactory: Sendable {
-    let makeTelegram: @Sendable (CoreConfig.ChannelConfig.Telegram) -> any GatewayPlugin
+    let makeTelegram: @Sendable (CoreConfig.ChannelConfig.Telegram, (any TelegramModelPickerBridge)?) -> any GatewayPlugin
     let makeDiscord: @Sendable (CoreConfig.ChannelConfig.Discord) -> any GatewayPlugin
 
     static let live = BuiltInGatewayPluginFactory(
-        makeTelegram: { config in
+        makeTelegram: { config, _ in
             TelegramGatewayPlugin(
                 botToken: config.botToken,
                 channelChatMap: config.channelChatMap,
                 allowedUserIds: config.allowedUserIds,
                 allowedChatIds: config.allowedChatIds,
-                logger: Logger(label: "sloppy.plugin.telegram")
+                logger: Logger(label: "sloppy.plugin.telegram"),
+                modelPickerBridge: nil
             )
         },
         makeDiscord: { config in
@@ -81,7 +82,7 @@ public actor CoreService {
     static let agentMemoryGraphNeighborLimit = 150
 
     struct InboundChannelPluginQueueSlot: Sendable {
-        var fifo: [(userId: String, content: String)] = []
+        var fifo: [(userId: String, content: String, topicId: String?)] = []
         var processing: Bool = false
     }
 
@@ -481,8 +482,11 @@ public actor CoreService {
 
     func projectForChannel(channelId: String, topicId: String? = nil) async -> ProjectRecord? {
         let projects = await store.listProjects()
-        if let topicId, !topicId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            let compositeId = "\(channelId):\(topicId)"
+        let scoped = ChannelGatewayScope.parse(channelId)
+        let base = scoped.baseChannelId
+        let effectiveTopic = scoped.topicKey ?? topicId
+        if let effectiveTopic, !effectiveTopic.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            let compositeId = "\(base):\(effectiveTopic)"
             if let found = projects
                 .sorted(by: { $0.createdAt < $1.createdAt })
                 .first(where: { project in
@@ -494,7 +498,7 @@ public actor CoreService {
         return projects
             .sorted(by: { $0.createdAt < $1.createdAt })
             .first(where: { project in
-                project.channels.contains(where: { $0.channelId == channelId })
+                project.channels.contains(where: { $0.channelId == base || $0.channelId == channelId })
             })
     }
 

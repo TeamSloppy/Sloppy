@@ -84,6 +84,35 @@ struct ProjectsAPIRouter: APIRouter {
             }
         }
 
+        router.get("/v1/projects/:projectId/git/working-tree", metadata: RouteMetadata(summary: "Project working tree git diff", description: "Returns line add/delete counts and a unified diff for uncommitted changes in the project workspace", tags: ["Projects"])) { request in
+            let projectId = request.pathParam("projectId") ?? ""
+            do {
+                let response = try await service.projectWorkingTreeGit(projectID: projectId)
+                return CoreRouter.encodable(status: HTTPStatus.ok, payload: response)
+            } catch let error as CoreService.ProjectError {
+                return CoreRouter.projectErrorResponse(error, fallback: ErrorCode.projectNotFound)
+            } catch {
+                return CoreRouter.json(status: HTTPStatus.internalServerError, payload: ["error": ErrorCode.projectReadFailed])
+            }
+        }
+
+        router.post("/v1/projects/:projectId/git/restore", metadata: RouteMetadata(summary: "Restore project file from HEAD", description: "Runs git restore --source=HEAD --staged --worktree for a path under the project repo", tags: ["Projects"])) { request in
+            let projectId = request.pathParam("projectId") ?? ""
+            guard let body = request.body,
+                  let payload = CoreRouter.decode(body, as: ProjectGitRestoreRequest.self)
+            else {
+                return CoreRouter.json(status: HTTPStatus.badRequest, payload: ["error": ErrorCode.invalidBody])
+            }
+            do {
+                try await service.restoreProjectWorkingTreeFile(projectID: projectId, path: payload.path)
+                return CoreRouter.encodable(status: HTTPStatus.ok, payload: ProjectGitRestoreResponse(ok: true))
+            } catch let error as CoreService.ProjectError {
+                return CoreRouter.projectErrorResponse(error, fallback: ErrorCode.projectUpdateFailed)
+            } catch {
+                return CoreRouter.json(status: HTTPStatus.internalServerError, payload: ["error": ErrorCode.projectUpdateFailed])
+            }
+        }
+
         router.post("/v1/projects", metadata: RouteMetadata(summary: "Create project", description: "Creates a new project", tags: ["Projects"])) { request in
             guard let body = request.body,
                   let payload = CoreRouter.decode(body, as: ProjectCreateRequest.self)

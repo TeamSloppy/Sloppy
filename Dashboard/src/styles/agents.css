@@ -1138,6 +1138,319 @@ body.agent-chat-no-page-scroll .page {
   flex-shrink: 0;
 }
 
+.agent-chat-git-toolbar-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border: 1px solid var(--line);
+  background: var(--surface-2);
+  color: var(--text);
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+  border-radius: 0;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.agent-chat-git-toolbar-btn:hover {
+  background: var(--surface-3);
+  border-color: var(--line-strong);
+}
+
+.agent-chat-git-toolbar-btn .material-symbols-rounded {
+  font-size: 1.05rem;
+  color: var(--muted);
+}
+
+.agent-chat-git-toolbar-stats {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-variant-numeric: tabular-nums;
+}
+
+.agent-chat-git-stat-add {
+  color: #7ee787;
+}
+
+.agent-chat-git-stat-del {
+  color: #f85149;
+}
+
+.agent-chat-git-toolbar-muted {
+  font-weight: 500;
+  color: var(--muted);
+  text-transform: lowercase;
+}
+
+.agent-chat-git-panel {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 8;
+  width: min(440px, 100%);
+  max-width: 100%;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  background: var(--surface-2);
+  border-left: 1px solid var(--line);
+  box-shadow: -6px 0 28px rgba(0, 0, 0, 0.35);
+}
+
+.agent-chat-git-panel:fullscreen,
+.agent-chat-git-panel:-webkit-full-screen {
+  position: relative;
+  inset: auto;
+  width: 100%;
+  max-width: none;
+  height: 100%;
+  border-left: none;
+  box-shadow: none;
+  z-index: 0;
+}
+
+.agent-chat-git-panel__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--line);
+  background: var(--surface);
+}
+
+.agent-chat-git-panel__title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.agent-chat-git-panel__title .material-symbols-rounded {
+  font-size: 1.25rem;
+  color: var(--muted);
+}
+
+.agent-chat-git-panel__title strong {
+  display: block;
+  font-size: 0.85rem;
+}
+
+.agent-chat-git-panel__title small {
+  display: block;
+  font-size: 0.72rem;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.agent-chat-git-panel__head-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.agent-chat-git-panel__body {
+  min-height: 0;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
+}
+
+.agent-chat-git-panel__label {
+  display: grid;
+  gap: 6px;
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+
+.agent-chat-git-panel__comment {
+  width: 100%;
+  min-height: 72px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--text);
+  font-size: 0.85rem;
+  font-family: inherit;
+  resize: vertical;
+}
+
+.agent-chat-git-panel__select-hint {
+  margin: 0;
+  font-size: 0.76rem;
+}
+
+.agent-chat-git-code {
+  font-size: 0.85em;
+  padding: 1px 5px;
+  border: 1px solid var(--line-strong);
+  background: var(--surface-2);
+  border-radius: 2px;
+}
+
+.agent-chat-git-panel__diff-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  flex-shrink: 0;
+}
+
+.agent-chat-git-file {
+  border: 1px solid var(--line);
+  background: var(--surface);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.agent-chat-git-file--collapsed .agent-chat-git-file__head {
+  border-bottom: none;
+}
+
+.agent-chat-git-file__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--line);
+  background: var(--surface-2);
+}
+
+.agent-chat-git-file__collapse-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  border-radius: 0;
+}
+
+.agent-chat-git-file__collapse-btn:hover {
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.agent-chat-git-file__collapse-btn .material-symbols-rounded {
+  font-size: 20px;
+}
+
+.agent-chat-git-file__path {
+  font-size: 0.78rem;
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+  flex: 1;
+}
+
+.agent-chat-git-file__actions {
+  display: flex;
+  gap: 2px;
+  flex-shrink: 0;
+}
+
+.agent-chat-git-file__icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  border-radius: 0;
+}
+
+.agent-chat-git-file__icon-btn:hover:not(:disabled) {
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.agent-chat-git-file__icon-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.agent-chat-git-file__hint {
+  margin: 0;
+  padding: 4px 8px;
+  font-size: 0.74rem;
+  color: #f85149;
+}
+
+.agent-chat-git-file__diff-wrap {
+  min-height: 0;
+  overflow: visible;
+}
+
+.agent-chat-git-file__diff-wrap .diff-view-wrapper {
+  font-size: 12px;
+}
+
+.agent-chat-git-panel__diff {
+  min-height: 120px;
+  margin: 0;
+  padding: 10px;
+  overflow: auto;
+  font-size: 0.72rem;
+  line-height: 1.45;
+  white-space: pre;
+  word-break: break-all;
+  border: 1px solid var(--line);
+  background: #0d1117;
+  color: #e6edf3;
+  overscroll-behavior: contain;
+}
+
+.agent-chat-git-panel__error {
+  margin: 0;
+  font-size: 0.78rem;
+  color: #f85149;
+}
+
+.agent-chat-git-panel__footer {
+  padding: 10px 12px;
+  border-top: 1px solid var(--line);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  background: var(--surface);
+}
+
+.agent-chat-git-panel__add-btn {
+  align-self: flex-end;
+}
+
+.agent-chat-git-panel__diff--fallback {
+  flex: 1;
+}
+
+@media (max-width: 720px) {
+  .agent-chat-git-panel {
+    width: 100%;
+    left: 0;
+    border-left: none;
+  }
+}
+
 .agent-chat-share-menu-container {
   position: relative;
 }
@@ -1883,6 +2196,63 @@ body.agent-chat-no-page-scroll .page {
 
 .agent-chat-pending-files button .material-symbols-rounded {
   font-size: 15px;
+}
+
+.agent-chat-git-compose-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 0 4px;
+}
+
+.agent-chat-git-compose-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 100%;
+  padding: 4px 6px 4px 8px;
+  font-size: 0.78rem;
+  border: 1px solid var(--accent);
+  background: rgba(88, 166, 255, 0.08);
+  color: var(--text);
+  border-radius: 0;
+}
+
+.agent-chat-git-compose-tag > .material-symbols-rounded:first-child {
+  font-size: 16px;
+  color: var(--accent);
+  flex-shrink: 0;
+}
+
+.agent-chat-git-compose-tag__label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+  max-width: min(320px, 70vw);
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+}
+
+.agent-chat-git-compose-tag__remove {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.agent-chat-git-compose-tag__remove:hover {
+  color: var(--text);
+}
+
+.agent-chat-git-compose-tag__remove .material-symbols-rounded {
+  font-size: 16px;
 }
 
 .agent-chat-file-input {

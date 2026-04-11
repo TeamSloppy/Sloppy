@@ -75,7 +75,7 @@ extension CoreService {
             if let telegramConfig = config.channels.telegram {
                 let token = telegramConfig.botToken.trimmingCharacters(in: .whitespacesAndNewlines)
                 if !token.isEmpty {
-                    plugin = builtInGatewayPluginFactory.makeTelegram(telegramConfig)
+                    plugin = builtInGatewayPluginFactory.makeTelegram(telegramConfig, self as any TelegramModelPickerBridge)
                 }
             }
             let channelIds = config.channels.telegram.map { Array($0.channelChatMap.keys) } ?? []

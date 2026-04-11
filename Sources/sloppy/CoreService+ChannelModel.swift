@@ -1,5 +1,6 @@
 import Foundation
 import AgentRuntime
+import PluginSDK
 import Protocols
 
 // MARK: - Channel Model
@@ -41,7 +42,8 @@ extension CoreService {
         let lower = content.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         guard lower == "/context" else { return nil }
 
-        let modelOverride = await channelModelStore.get(channelId: channelId)
+        let bindingId = ChannelGatewayScope.parse(channelId).baseChannelId
+        let modelOverride = await channelModelStore.get(channelId: bindingId)
         let available = availableAgentModels()
         let activeModel = modelOverride.flatMap { id in available.first { $0.id == id } } ?? available.first
 
@@ -117,7 +119,8 @@ extension CoreService {
         }
 
         let available = availableAgentModels()
-        let current = await channelModelStore.get(channelId: channelId)
+        let bindingId = ChannelGatewayScope.parse(channelId).baseChannelId
+        let current = await channelModelStore.get(channelId: bindingId)
 
         if lower == "/model" {
             let currentLine = current.map { "Current model: \($0)" } ?? "Current model: default (not set)"
@@ -144,7 +147,7 @@ extension CoreService {
             return "Unknown model: \(modelId)\n\nAvailable models:\n\(list)"
         }
 
-        await channelModelStore.set(channelId: channelId, model: canonical)
+        await channelModelStore.set(channelId: bindingId, model: canonical)
         return "Model set to: \(canonical)"
     }
 
@@ -152,13 +155,14 @@ extension CoreService {
         let lower = content.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         guard lower == "/status" else { return nil }
 
+        let bindingId = ChannelGatewayScope.parse(channelId).baseChannelId
         let board = try? getActorBoard()
         let agentLabel: String = board?.nodes
-            .first(where: { normalizeWhitespace($0.channelId ?? "") == channelId })
+            .first(where: { normalizeWhitespace($0.channelId ?? "") == bindingId })
             .flatMap { normalizeWhitespace($0.linkedAgentId ?? "").isEmpty ? nil : normalizeWhitespace($0.linkedAgentId ?? "") }
-            ?? channelId
+            ?? bindingId
 
-        let modelOverride = await channelModelStore.get(channelId: channelId)
+        let modelOverride = await channelModelStore.get(channelId: bindingId)
         let available = availableAgentModels()
         let activeModel = modelOverride.flatMap { id in available.first { $0.id == id } } ?? available.first
         let modelLabel = activeModel?.title ?? modelOverride ?? "default"
