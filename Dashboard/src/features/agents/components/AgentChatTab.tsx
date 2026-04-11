@@ -721,12 +721,48 @@ function findPendingToolCallRecordIds(events) {
   return pendingRecordIds;
 }
 
+/**
+ * Shimmer on "Executing tool" (run_status stage searching) only while that tool round is still in flight.
+ * Stale searching rows stay in the log after newer run_status / tool_result — they must not look active.
+ */
+function isSearchingRunStatusShimmerActive(events, eventIndex, stage) {
+  if (String(stage || "").toLowerCase() !== "searching") {
+    return false;
+  }
+  const safe = Array.isArray(events) ? events : [];
+  let lastRunStatusIdx = -1;
+  for (let i = safe.length - 1; i >= 0; i -= 1) {
+    const ev = safe[i];
+    if (ev?.type === "run_status" && ev.runStatus) {
+      lastRunStatusIdx = i;
+      break;
+    }
+  }
+  if (eventIndex !== lastRunStatusIdx) {
+    return false;
+  }
+  const lastEv = safe[lastRunStatusIdx];
+  if (String(lastEv?.runStatus?.stage || "").toLowerCase() !== "searching") {
+    return false;
+  }
+  let sawToolCall = false;
+  for (let j = eventIndex + 1; j < safe.length; j += 1) {
+    const t = safe[j]?.type;
+    if (t === "tool_call") {
+      sawToolCall = true;
+    } else if (t === "tool_result" && sawToolCall) {
+      return false;
+    }
+  }
+  return true;
+}
+
 function buildTechnicalRecord(
   eventItem,
   index,
-  options: { activeToolCallRecordIds?: Set<string> } = {}
+  options: { activeToolCallRecordIds?: Set<string>; events?: unknown[] } = {}
 ) {
-  const { activeToolCallRecordIds } = options;
+  const { activeToolCallRecordIds, events: eventsForActive } = options;
   const eventKey = extractEventKey(eventItem, index);
 
   if (eventItem?.type === "run_status" && eventItem.runStatus) {
@@ -755,7 +791,7 @@ function buildTechnicalRecord(
       summary: previewText(summary, label),
       detail: detailParts.join("\n\n"),
       createdAt: eventItem.createdAt || eventItem.runStatus.createdAt,
-      isActive: stage === "thinking" || stage === "searching"
+      isActive: isSearchingRunStatusShimmerActive(eventsForActive, index, stage)
     };
   }
 
@@ -1214,7 +1250,10 @@ function buildTimelineItems({
       continue;
     }
 
-    const technicalRecord = buildTechnicalRecord(eventItem, index, { activeToolCallRecordIds });
+    const technicalRecord = buildTechnicalRecord(eventItem, index, {
+      activeToolCallRecordIds,
+      events: safeEvents
+    });
     if (technicalRecord) {
       timelineItems.push({
         id: technicalRecord.id,

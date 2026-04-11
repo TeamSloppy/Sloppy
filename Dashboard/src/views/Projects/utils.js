@@ -1,3 +1,5 @@
+import { sessionChannelMatchesBinding } from "../../shared/channelGatewayScope";
+
 export const ACTIVE_WORKER_STATUSES = new Set(["queued", "running", "waitinginput", "waiting_input"]);
 
 export const PROJECT_TABS = [
@@ -262,10 +264,15 @@ export function workersForProject(project, workers) {
     return [];
   }
 
-  const projectChannels = new Set(project.chats.map((chat) => String(chat.channelId || "").trim()));
+  const bindings = (Array.isArray(project.chats) ? project.chats : [])
+    .map((chat) => String(chat.channelId || "").trim())
+    .filter(Boolean);
   return (Array.isArray(workers) ? workers : []).filter((worker) => {
     const channelId = String(worker?.channelId || "").trim();
-    return channelId.length > 0 && projectChannels.has(channelId);
+    if (!channelId) {
+      return false;
+    }
+    return bindings.some((binding) => sessionChannelMatchesBinding(channelId, binding));
   });
 }
 

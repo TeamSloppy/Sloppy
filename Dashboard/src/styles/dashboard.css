@@ -4,6 +4,13 @@
   display: flex;
   flex-direction: column;
   gap: 24px;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.agent-dashboard .dashboard-section {
+  min-width: 0;
+  max-width: 100%;
 }
 
 .dashboard-section-header {
@@ -321,8 +328,9 @@
 /* Costs Card */
 .costs-card {
   display: grid;
-  grid-template-columns: repeat(2, 1fr);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 8px;
+  min-width: 0;
 }
 
 .cost-metric {
@@ -332,12 +340,15 @@
   padding: 20px;
   border: 1px solid var(--line);
   background: rgba(255, 255, 255, 0.02);
+  min-width: 0;
 }
 
 .cost-label {
   font-size: 0.8rem;
   color: var(--muted);
   line-height: 1.3;
+  overflow-wrap: anywhere;
+  hyphens: auto;
 }
 
 .cost-value {
@@ -345,6 +356,8 @@
   font-weight: 600;
   color: var(--text);
   font-variant-numeric: tabular-nums;
+  min-width: 0;
+  overflow-wrap: anywhere;
   transition: color var(--motion-duration-fast) ease,
               text-shadow var(--motion-duration-fast) ease;
 }
@@ -374,25 +387,36 @@
 
 .agent-top-grid {
   display: grid;
-  grid-template-columns: 3fr 2fr;
+  grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
   gap: 20px;
   align-items: start;
+  min-width: 0;
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+.agent-top-grid > * {
+  min-width: 0;
 }
 
 .agent-top-right {
   display: flex;
   flex-direction: column;
   gap: 20px;
+  min-width: 0;
 }
 
 .agent-pet-card {
   display: grid;
-  grid-template-columns: minmax(220px, 320px) 1fr;
+  grid-template-columns: minmax(0, min(320px, 100%)) minmax(0, 1fr);
   gap: 20px;
   padding: 20px;
   border: 1px solid var(--line);
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.03), rgba(255, 255, 255, 0.015));
   animation: motion-hard-cut var(--motion-duration-normal) var(--motion-ease-brutalist) both;
+  min-width: 0;
+  box-sizing: border-box;
 }
 
 .agent-pet-stage {
@@ -432,6 +456,7 @@
   display: flex;
   flex-direction: column;
   gap: 16px;
+  min-width: 0;
 }
 
 .agent-pet-parts {
@@ -451,7 +476,7 @@
 
 .agent-pet-stat-row {
   display: grid;
-  grid-template-columns: 90px 1fr 40px;
+  grid-template-columns: minmax(0, 90px) minmax(0, 1fr) minmax(0, 40px);
   gap: 12px;
   align-items: center;
 }
@@ -468,6 +493,7 @@
   border: 1px solid rgba(255, 255, 255, 0.08);
   background: rgba(255, 255, 255, 0.04);
   overflow: hidden;
+  min-width: 0;
 }
 
 .agent-pet-stat-fill {
@@ -680,21 +706,28 @@
   }
 }
 
+/* Stack overview (pet + costs) before the narrow layout breaks horizontally (~tablet / small laptop) */
+@media (max-width: 1040px) {
+  .agent-top-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
 @media (max-width: 768px) {
   .dashboard-charts-grid {
     grid-template-columns: 1fr;
   }
 
   .costs-card {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .agent-top-grid {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .agent-pet-card {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .agent-pet-stage {
