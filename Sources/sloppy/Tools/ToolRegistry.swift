@@ -66,6 +66,7 @@ struct ToolRegistry: Sendable {
             FilesWriteTool(),
             RuntimeExecTool(),
             RuntimeProcessTool(),
+            SleepTool(),
             WebSearchTool(),
             WebFetchTool(),
             BranchesSpawnTool(),

@@ -336,6 +336,13 @@ enum ToolCatalog {
             ]),
             "required": .array([.string("schedule"), .string("command")])
         ]),
+        "tools.sleep": .object([
+            "type": .string("object"),
+            "properties": .object([
+                "seconds": .object(["type": .string("number")])
+            ]),
+            "required": .array([.string("seconds")])
+        ]),
         "project.list": .object(["type": .string("object")]),
         "project.create": .object([
             "type": .string("object"),
