@@ -99,6 +99,26 @@ extension CoreService {
             )
         }
 
+        var effectivePolicy = authorization.policy
+        if authorization.allowed,
+           let extraRoots = sessionExtraRoots[normalizedSessionID],
+           !extraRoots.isEmpty {
+            effectivePolicy.guardrails.allowedExecRoots += extraRoots
+            effectivePolicy.guardrails.allowedWriteRoots += extraRoots
+        }
+
+        let loopDecision: ToolLoopGuard.Decision
+        if authorization.allowed {
+            loopDecision = await toolLoopGuard.evaluate(
+                sessionID: normalizedSessionID,
+                request: request,
+                policy: effectivePolicy,
+                workspaceRootURL: workspaceRootURL
+            )
+        } else {
+            loopDecision = .allow(signature: "")
+        }
+
         let toolCallEvent = AgentSessionEvent(
             agentId: normalizedAgentID,
             sessionId: normalizedSessionID,
@@ -134,20 +154,37 @@ extension CoreService {
 
         let result: ToolInvocationResult
         if authorization.allowed {
-            var effectivePolicy = authorization.policy
-            if let extraRoots = sessionExtraRoots[normalizedSessionID], !extraRoots.isEmpty {
-                effectivePolicy.guardrails.allowedExecRoots += extraRoots
-                effectivePolicy.guardrails.allowedWriteRoots += extraRoots
-            }
-            result = await withSpan("tool.invoke", ofKind: .internal) { span in
-                span.attributes["agent_id"] = "\(normalizedAgentID)"
-                span.attributes["session_id"] = "\(normalizedSessionID)"
-                span.attributes["tool_id"] = "\(request.tool)"
-                return await toolExecution.invoke(
-                    agentID: normalizedAgentID,
+            switch loopDecision {
+            case .block(let message):
+                result = .init(
+                    tool: request.tool,
+                    ok: false,
+                    error: .init(
+                        code: "tool_loop_detected",
+                        message: message,
+                        retryable: false,
+                        hint: "Change the command or arguments, or summarize the blocker instead of retrying the same tool call."
+                    )
+                )
+
+            case .allow:
+                result = await withSpan("tool.invoke", ofKind: .internal) { span in
+                    span.attributes["agent_id"] = "\(normalizedAgentID)"
+                    span.attributes["session_id"] = "\(normalizedSessionID)"
+                    span.attributes["tool_id"] = "\(request.tool)"
+                    return await toolExecution.invoke(
+                        agentID: normalizedAgentID,
+                        sessionID: normalizedSessionID,
+                        request: request,
+                        policy: effectivePolicy
+                    )
+                }
+                await toolLoopGuard.recordResult(
                     sessionID: normalizedSessionID,
                     request: request,
-                    policy: effectivePolicy
+                    result: result,
+                    policy: effectivePolicy,
+                    workspaceRootURL: workspaceRootURL
                 )
             }
         } else {
@@ -173,16 +210,32 @@ extension CoreService {
 
         if recordSessionEvents {
             do {
+                var eventsToAppend: [AgentSessionEvent] = []
+                if result.error?.code == "tool_loop_detected" {
+                    eventsToAppend.append(
+                        AgentSessionEvent(
+                            agentId: normalizedAgentID,
+                            sessionId: normalizedSessionID,
+                            type: .runStatus,
+                            runStatus: AgentRunStatusEvent(
+                                stage: .paused,
+                                label: "Loop blocked",
+                                details: result.error?.message ?? "Loop blocked: repeated identical tool call."
+                            )
+                        )
+                    )
+                }
+                eventsToAppend.append(toolResultEvent)
                 let summary = try sessionStore.appendEvents(
                     agentID: normalizedAgentID,
                     sessionID: normalizedSessionID,
-                    events: [toolResultEvent]
+                    events: eventsToAppend
                 )
                 publishLiveSessionEvents(
                     agentID: normalizedAgentID,
                     sessionID: normalizedSessionID,
                     summary: summary,
-                    events: [toolResultEvent]
+                    events: eventsToAppend
                 )
             } catch {
                 return .init(

@@ -23,10 +23,8 @@ actor SessionProcessRegistry {
     private var processesBySession: [String: [String: ManagedProcess]] = [:]
 
     func activeCount(sessionID: String) -> Int {
-        let processes = processesBySession[sessionID] ?? [:]
-        return processes.values.filter { item in
-            item.process.isRunning || item.exitCode == nil
-        }.count
+        let processes = normalizedSessionProcesses(sessionID: sessionID)
+        return processes.values.filter(\.process.isRunning).count
     }
 
     func start(
@@ -79,7 +77,7 @@ actor SessionProcessRegistry {
             finishedAt: nil,
             exitCode: nil
         )
-        var sessionProcesses = processesBySession[sessionID] ?? [:]
+        var sessionProcesses = normalizedSessionProcesses(sessionID: sessionID)
         sessionProcesses[id] = managed
         processesBySession[sessionID] = sessionProcesses
 
@@ -92,8 +90,8 @@ actor SessionProcessRegistry {
     }
 
     func status(sessionID: String, processID: String) throws -> JSONValue {
-        guard var sessionProcesses = processesBySession[sessionID],
-              var process = sessionProcesses[processID] else {
+        var sessionProcesses = normalizedSessionProcesses(sessionID: sessionID)
+        guard var process = sessionProcesses[processID] else {
             throw RegistryError.processNotFound
         }
 
@@ -104,8 +102,8 @@ actor SessionProcessRegistry {
     }
 
     func stop(sessionID: String, processID: String) throws -> JSONValue {
-        guard var sessionProcesses = processesBySession[sessionID],
-              var process = sessionProcesses[processID] else {
+        var sessionProcesses = normalizedSessionProcesses(sessionID: sessionID)
+        guard var process = sessionProcesses[processID] else {
             throw RegistryError.processNotFound
         }
 
@@ -120,9 +118,8 @@ actor SessionProcessRegistry {
     }
 
     func list(sessionID: String) -> JSONValue {
-        let sessionProcesses = processesBySession[sessionID] ?? [:]
+        let sessionProcesses = normalizedSessionProcesses(sessionID: sessionID)
         let items = sessionProcesses.values
-            .map(refreshed)
             .sorted { $0.startedAt > $1.startedAt }
 
         var refreshedSessionMap: [String: ManagedProcess] = [:]
@@ -164,6 +161,13 @@ actor SessionProcessRegistry {
         copy.exitCode = process.process.terminationStatus
         copy.finishedAt = Date()
         return copy
+    }
+
+    private func normalizedSessionProcesses(sessionID: String) -> [String: ManagedProcess] {
+        let sessionProcesses = processesBySession[sessionID] ?? [:]
+        let normalized = sessionProcesses.mapValues(refreshed)
+        processesBySession[sessionID] = normalized
+        return normalized
     }
 
     private func processPayload(_ process: ManagedProcess) -> JSONValue {

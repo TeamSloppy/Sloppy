@@ -199,6 +199,7 @@ public actor CoreService {
     let sessionOrchestrator: AgentSessionOrchestrator
     let acpSessionManager: ACPSessionManager
     let toolsAuthorization: ToolAuthorizationService
+    let toolLoopGuard: ToolLoopGuard
     var toolExecution: ToolExecutionService
     let mcpRegistry: MCPClientRegistry
     let systemLogStore: SystemLogFileStore
@@ -370,6 +371,7 @@ public actor CoreService {
         )
         let toolsStore = AgentToolsFileStore(agentsRootURL: self.agentsRootURL)
         self.toolsAuthorization = ToolAuthorizationService(store: toolsStore, mcpRegistry: self.mcpRegistry)
+        self.toolLoopGuard = ToolLoopGuard()
         let processRegistry = SessionProcessRegistry()
         self.toolExecution = ToolExecutionService(
             workspaceRootURL: self.workspaceRootURL,
@@ -843,4 +845,3 @@ extension CoreService: RuntimeConfigToolService {
 }
 
 extension CoreService: SkillsToolService {}
-
