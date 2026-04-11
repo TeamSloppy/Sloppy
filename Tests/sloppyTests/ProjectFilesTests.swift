@@ -65,6 +65,52 @@ func listProjectFilesDirectoriesBeforeFiles() async throws {
 }
 
 @Test
+func searchProjectFilesReturnsRankedPaths() async throws {
+    let config = CoreConfig.test
+    let service = CoreService(config: config, persistenceBuilder: InMemoryCorePersistenceBuilder())
+    let router = CoreRouter(service: service)
+    let (projectID, projectDir) = try await makeProjectAndDir(router: router, config: config)
+
+    let srcDir = projectDir.appendingPathComponent("src", isDirectory: true)
+    try FileManager.default.createDirectory(at: srcDir, withIntermediateDirectories: true)
+    try Data("x".utf8).write(to: srcDir.appendingPathComponent("AppMain.swift"))
+    try Data("y".utf8).write(to: projectDir.appendingPathComponent("readme.md"))
+
+    let encodedQuery = "main".addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? "main"
+    let resp = await router.handle(
+        method: "GET",
+        path: "/v1/projects/\(projectID)/files/search?q=\(encodedQuery)&limit=20",
+        body: nil
+    )
+    #expect(resp.status == 200)
+
+    let hits = try JSONDecoder().decode([ProjectFileSearchEntry].self, from: resp.body)
+    let paths = hits.map(\.path)
+    #expect(paths.contains("src/AppMain.swift"))
+}
+
+@Test
+func searchProjectFilesEmptyQueryListsRoot() async throws {
+    let config = CoreConfig.test
+    let service = CoreService(config: config, persistenceBuilder: InMemoryCorePersistenceBuilder())
+    let router = CoreRouter(service: service)
+    let (projectID, projectDir) = try await makeProjectAndDir(router: router, config: config)
+
+    try FileManager.default.createDirectory(at: projectDir, withIntermediateDirectories: true)
+    try Data("z".utf8).write(to: projectDir.appendingPathComponent("root.txt"))
+
+    let resp = await router.handle(
+        method: "GET",
+        path: "/v1/projects/\(projectID)/files/search?limit=10",
+        body: nil
+    )
+    #expect(resp.status == 200)
+
+    let hits = try JSONDecoder().decode([ProjectFileSearchEntry].self, from: resp.body)
+    #expect(hits.contains(where: { $0.path == "root.txt" && $0.type == .file }))
+}
+
+@Test
 func listProjectFilesSubdirectory() async throws {
     let config = CoreConfig.test
     let service = CoreService(config: config, persistenceBuilder: InMemoryCorePersistenceBuilder())

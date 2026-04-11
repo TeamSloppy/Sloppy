@@ -80,6 +80,12 @@ CI (`.github/workflows/ci.yml`) runs:
 - `npm install` + `npm run build` in `Dashboard/`
 Keep local changes green for the same command set.
 
+## Releases and install from GitHub
+
+Pushing a tag `v*` runs [`.github/workflows/release.yml`](.github/workflows/release.yml): Swift tests and release builds on Linux and macOS, Dashboard `npm run build` on both, tarballs uploaded to the GitHub Release together with `SHA256SUMS.txt` and `sloppy-version.json`, release notes from **GitHub auto-generated changelog** (`generate_release_notes: true`), prerelease when the version segment looks like alpha/beta/rc/preview/pre. The workflow then commits updated [`Casks/sloppy.rb`](Casks/sloppy.rb) (macOS) and [`Formula/sloppy.rb`](Formula/sloppy.rb) (Linuxbrew) on the repository default branch.
+
+Install prebuilt binaries without building: [`scripts/install.sh`](scripts/install.sh) `--release` (uses `SHA256SUMS.txt` from the release). Set `SLOPPY_RELEASE_REPO`, `SLOPPY_RELEASE_TAG`, or `SLOPPY_LOCAL_ROOT` as needed.
+
 ## Code style guide
 
 ### Swift: imports and formatting

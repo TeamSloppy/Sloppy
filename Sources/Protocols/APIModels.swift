@@ -3132,6 +3132,17 @@ public struct ProjectFileEntry: Codable, Sendable {
     }
 }
 
+/// A file or directory path under the project workspace (used by `/files/search`).
+public struct ProjectFileSearchEntry: Codable, Sendable {
+    public var path: String
+    public var type: ProjectFileEntry.EntryType
+
+    public init(path: String, type: ProjectFileEntry.EntryType) {
+        self.path = path
+        self.type = type
+    }
+}
+
 public struct ProjectFileContentResponse: Codable, Sendable {
     public var path: String
     public var content: String
