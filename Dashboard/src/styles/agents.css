@@ -856,6 +856,41 @@ body.agent-chat-no-page-scroll .page {
   border-right: 1px solid var(--line);
   background: var(--surface);
   overflow: hidden;
+  position: relative;
+}
+
+.agent-chat-new-session-fab {
+  display: none;
+  position: absolute;
+  right: 12px;
+  bottom: 14px;
+  z-index: 3;
+  box-sizing: border-box;
+  width: 48px;
+  height: 48px;
+  min-width: 48px;
+  padding: 0;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--line);
+  border-radius: 0;
+  background: var(--accent);
+  color: #0a0a0a;
+  cursor: pointer;
+  box-shadow: var(--shadow-brutalist);
+}
+
+.agent-chat-new-session-fab:hover:not(:disabled) {
+  filter: brightness(1.06);
+}
+
+.agent-chat-new-session-fab:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.agent-chat-new-session-fab .material-symbols-rounded {
+  font-size: 22px;
 }
 
 .agent-chat-sidebar-header {
@@ -1100,6 +1135,7 @@ body.agent-chat-no-page-scroll .page {
   display: flex;
   align-items: center;
   gap: 6px;
+  flex-shrink: 0;
 }
 
 .agent-chat-share-menu-container {

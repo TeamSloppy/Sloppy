@@ -25,8 +25,20 @@ struct FilesReadTool: CoreTool {
             return toolFailure(tool: name, code: "path_not_allowed", message: "File path is outside allowed roots.", retryable: false)
         }
         var isDirectory: ObjCBool = false
-        if FileManager.default.fileExists(atPath: fileURL.path, isDirectory: &isDirectory), isDirectory.boolValue {
+        let exists = FileManager.default.fileExists(atPath: fileURL.path, isDirectory: &isDirectory)
+        if exists, isDirectory.boolValue {
             let detail = FileSystemToolErrorMapping.describePathIsDirectory(operation: .read, path: fileURL.path)
+            return toolFailure(
+                tool: name,
+                code: detail.code,
+                message: detail.message,
+                retryable: detail.retryable,
+                hint: detail.hint
+            )
+        }
+        if !exists {
+            // Linux `Data(contentsOf:)` has historically not always thrown for missing paths; fail deterministically.
+            let detail = FileSystemToolErrorMapping.describeMissingPath(operation: .read, path: fileURL.path)
             return toolFailure(
                 tool: name,
                 code: detail.code,

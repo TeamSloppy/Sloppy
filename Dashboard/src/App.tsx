@@ -208,9 +208,11 @@ function DashboardShell({ dependencies, debugEnabled }: { dependencies: ReturnTy
   ];
 
   const isNotFound = route.section === "not_found";
-  const navHighlightItem =
-    sidebarItems.find((item) => item.id === (route.section === "chats" ? "projects" : route.section)) ||
-    sidebarItems[0];
+  /** Project chat lives under /chats — do not mark a main nav tab active; the project rail shows context. */
+  const sidebarActiveItemId =
+    route.section === "chats"
+      ? null
+      : (sidebarItems.find((item) => item.id === route.section)?.id ?? sidebarItems[0].id);
   const pageContent = isNotFound ? (
     <NotFoundView />
   ) : route.section === "sessions" ? (
@@ -228,7 +230,7 @@ function DashboardShell({ dependencies, debugEnabled }: { dependencies: ReturnTy
     <div className="layout">
       <SidebarView
         items={sidebarItems}
-        activeItemId={navHighlightItem.id}
+        activeItemId={sidebarActiveItemId}
         isCompact={sidebarCompact}
         onToggleCompact={() => setSidebarCompact((value) => !value)}
         onSelect={onSelectSidebar}
@@ -269,7 +271,7 @@ function DashboardShell({ dependencies, debugEnabled }: { dependencies: ReturnTy
         aria-label="Close menu"
       />
 
-      <div className={`page ${navHighlightItem.id === "config" ? "page-config" : ""}`} style={{ position: "relative" }}>
+      <div className={`page ${route.section === "config" ? "page-config" : ""}`} style={{ position: "relative" }}>
         <div
           style={{
             position: "absolute",

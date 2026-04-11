@@ -39,6 +39,7 @@ export default defineConfig({
           { text: "What is Sloppy?", link: "/" },
           { text: "Install", link: "/install" },
           { text: "Dashboard Style", link: "/dashboard-style" },
+          { text: "Agent chat (Dashboard)", link: "/dashboard/agent-chat" },
           { text: "API Reference", link: "/api/reference" }
         ]
       },

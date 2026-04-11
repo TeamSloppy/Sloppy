@@ -301,6 +301,18 @@
     background: var(--surface);
   }
 
+  .agent-chat-sidebar.mobile-open .agent-chat-session-list {
+    padding-bottom: 72px;
+  }
+
+  .agent-chat-new-session-header {
+    display: none !important;
+  }
+
+  .agent-chat-new-session-fab {
+    display: inline-flex !important;
+  }
+
   .agent-chat-sidebar.mobile-open .agent-chat-sidebar-mobile-close {
     display: inline-flex;
   }

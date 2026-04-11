@@ -2071,8 +2071,6 @@ Prepare for human/code review: list relevant file paths, note key excerpts or sy
 const ANALYSIS_PREP_AGENT_PROMPT =
   "Prepare this workspace/session for analysis: list the most relevant files for the current problem, give short notes per file, and surface any errors you encounter with full detail (command, cwd, stderr).";
 
-const IS_DEV_BUILD = import.meta.env.DEV;
-
 export function AgentChatTab({
   agentId,
   initialSessionId = null,
@@ -2238,6 +2236,13 @@ export function AgentChatTab({
 
   useEffect(() => {
     activeSessionIdRef.current = activeSessionId;
+  }, [activeSessionId]);
+
+  useEffect(() => {
+    if (!activeSessionId) {
+      setIsShareMenuOpen(false);
+      setIsDebugMenuOpen(false);
+    }
   }, [activeSessionId]);
 
   useLayoutEffect(() => {
@@ -3693,8 +3698,8 @@ export function AgentChatTab({
             </button>
             <button
               type="button"
-              className="agent-chat-icon-button"
-              data-testid="agent-chat-new-session"
+              className="agent-chat-icon-button agent-chat-new-session-header"
+              data-testid={isNarrowChatViewport ? undefined : "agent-chat-new-session"}
               onClick={() => {
                 void createSession();
               }}
@@ -3772,6 +3777,21 @@ export function AgentChatTab({
             </button>
           ))}
         </div>
+        <button
+          type="button"
+          className="agent-chat-new-session-fab"
+          data-testid={isNarrowChatViewport ? "agent-chat-new-session" : undefined}
+          onClick={() => {
+            void createSession();
+          }}
+          disabled={isSending}
+          title="New session"
+          aria-label="New session"
+        >
+          <span className="material-symbols-rounded" aria-hidden="true">
+            add
+          </span>
+        </button>
       </div>
 
       <div className="agent-chat-main-area">
@@ -3802,78 +3822,76 @@ export function AgentChatTab({
             ) : null}
           </div>
           <div className="agent-chat-actions">
-            {IS_DEV_BUILD && activeSessionId ? (
-              <div className="agent-chat-share-menu-container" ref={shareMenuRef}>
-                <button
-                  type="button"
-                  className="agent-chat-icon-button"
-                  onClick={() => setIsShareMenuOpen((prev) => !prev)}
-                  title="Share session"
-                >
-                  <span className="material-symbols-rounded" aria-hidden="true">
-                    share
-                  </span>
-                </button>
-                {isShareMenuOpen ? (
-                  <div className="agent-chat-share-dropdown">
-                    <button type="button" onClick={handleCopySessionPath}>
-                      <span className="material-symbols-rounded" aria-hidden="true">
-                        content_copy
-                      </span>
-                      Copy file path
-                    </button>
-                    <button type="button" onClick={handleDownloadSession}>
-                      <span className="material-symbols-rounded" aria-hidden="true">
-                        download
-                      </span>
-                      Download session
-                    </button>
-                  </div>
-                ) : null}
-              </div>
-            ) : null}
-            {activeSessionId ? (
-              <div className="agent-chat-share-menu-container" ref={debugMenuRef}>
-                <button
-                  type="button"
-                  className="agent-chat-icon-button"
-                  onClick={() => setIsDebugMenuOpen((prev) => !prev)}
-                  title="Debug"
-                >
-                  <span className="material-symbols-rounded" aria-hidden="true">
-                    bug_report
-                  </span>
-                </button>
-                {isDebugMenuOpen ? (
-                  <div className="agent-chat-share-dropdown">
-                    <button type="button" onClick={toggleDebugSessionFlag}>
-                      <span className="material-symbols-rounded" aria-hidden="true">
-                        {isDebugSessionFlagOn ? "check_circle" : "radio_button_unchecked"}
-                      </span>
-                      {isDebugSessionFlagOn ? "Turn off session debug" : "Turn on session debug"}
-                    </button>
-                    <button type="button" onClick={handleDebugInjectInstructions} disabled={isSending}>
-                      <span className="material-symbols-rounded" aria-hidden="true">
-                        rule
-                      </span>
-                      Add debug instructions (transcript only)
-                    </button>
-                    <button type="button" onClick={handleDebugPrepareToTranscript} disabled={isSending}>
-                      <span className="material-symbols-rounded" aria-hidden="true">
-                        description
-                      </span>
-                      Prepare for analysis — export + note (no agent run)
-                    </button>
-                    <button type="button" onClick={handleDebugPrepareRunAgent} disabled={isSending}>
-                      <span className="material-symbols-rounded" aria-hidden="true">
-                        play_arrow
-                      </span>
-                      Prepare for analysis — run agent now
-                    </button>
-                  </div>
-                ) : null}
-              </div>
-            ) : null}
+            <div className="agent-chat-share-menu-container" ref={shareMenuRef}>
+              <button
+                type="button"
+                className="agent-chat-icon-button"
+                onClick={() => setIsShareMenuOpen((prev) => !prev)}
+                disabled={!activeSessionId}
+                title={activeSessionId ? "Share session" : "Select a session to share"}
+              >
+                <span className="material-symbols-rounded" aria-hidden="true">
+                  share
+                </span>
+              </button>
+              {activeSessionId && isShareMenuOpen ? (
+                <div className="agent-chat-share-dropdown">
+                  <button type="button" onClick={handleCopySessionPath}>
+                    <span className="material-symbols-rounded" aria-hidden="true">
+                      content_copy
+                    </span>
+                    Copy file path
+                  </button>
+                  <button type="button" onClick={handleDownloadSession}>
+                    <span className="material-symbols-rounded" aria-hidden="true">
+                      download
+                    </span>
+                    Download session
+                  </button>
+                </div>
+              ) : null}
+            </div>
+            <div className="agent-chat-share-menu-container" ref={debugMenuRef}>
+              <button
+                type="button"
+                className="agent-chat-icon-button"
+                onClick={() => setIsDebugMenuOpen((prev) => !prev)}
+                disabled={!activeSessionId}
+                title={activeSessionId ? "Debug" : "Select a session for debug tools"}
+              >
+                <span className="material-symbols-rounded" aria-hidden="true">
+                  bug_report
+                </span>
+              </button>
+              {activeSessionId && isDebugMenuOpen ? (
+                <div className="agent-chat-share-dropdown">
+                  <button type="button" onClick={toggleDebugSessionFlag}>
+                    <span className="material-symbols-rounded" aria-hidden="true">
+                      {isDebugSessionFlagOn ? "check_circle" : "radio_button_unchecked"}
+                    </span>
+                    {isDebugSessionFlagOn ? "Turn off session debug" : "Turn on session debug"}
+                  </button>
+                  <button type="button" onClick={handleDebugInjectInstructions} disabled={isSending}>
+                    <span className="material-symbols-rounded" aria-hidden="true">
+                      rule
+                    </span>
+                    Add debug instructions (transcript only)
+                  </button>
+                  <button type="button" onClick={handleDebugPrepareToTranscript} disabled={isSending}>
+                    <span className="material-symbols-rounded" aria-hidden="true">
+                      description
+                    </span>
+                    Prepare for analysis — export + note (no agent run)
+                  </button>
+                  <button type="button" onClick={handleDebugPrepareRunAgent} disabled={isSending}>
+                    <span className="material-symbols-rounded" aria-hidden="true">
+                      play_arrow
+                    </span>
+                    Prepare for analysis — run agent now
+                  </button>
+                </div>
+              ) : null}
+            </div>
             <button
               type="button"
               className="agent-chat-icon-button danger"
