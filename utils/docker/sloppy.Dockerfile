@@ -1,20 +1,19 @@
-# syntax=docker/dockerfile:1.7
+# Multi-stage image for the `sloppy` Core binary (Linux).
+# Build: from repo root — podman build -f utils/docker/sloppy.Dockerfile .
+# Plain RUN steps (no BuildKit cache mounts) so Podman works without BuildKit.
+
 FROM swift:6.2-jammy AS builder
 RUN apt-get update && apt-get install -y libsqlite3-dev && rm -rf /var/lib/apt/lists/*
 WORKDIR /workspace
+# Podman/Docker may inject HTTP(S)_PROXY to host.containers.internal; SwiftPM/git then cannot reach GitHub.
+ENV http_proxy="" https_proxy="" HTTP_PROXY="" HTTPS_PROXY="" ALL_PROXY="" all_proxy=""
 ARG SWIFT_BUILD_CONFIGURATION=release
-COPY Package.swift ./
-COPY Package.resolved ./
-RUN --mount=type=cache,id=sloppy-swiftpm,target=/root/.swiftpm \
-    --mount=type=cache,id=sloppy-swift-cache,target=/root/.cache \
-    swift package resolve
+COPY Package.swift Package.resolved ./
+RUN swift package resolve
 COPY Sources ./Sources
 COPY Tests ./Tests
 COPY docs ./docs
-RUN --mount=type=cache,id=sloppy-swiftpm,target=/root/.swiftpm \
-    --mount=type=cache,id=sloppy-swift-cache,target=/root/.cache \
-    --mount=type=cache,id=sloppy-core-build,target=/workspace/.build \
-    set -eux; \
+RUN set -eux; \
     swift build -c "${SWIFT_BUILD_CONFIGURATION}" --product sloppy; \
     mkdir -p /artifacts; \
     mkdir -p /artifacts/Sloppy_sloppy.resources; \
