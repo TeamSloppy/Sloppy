@@ -588,6 +588,18 @@ function normalizeConfig(config) {
   return normalized;
 }
 
+/** JSON.stringify ignores key order; server round-trips and UI mutations can reorder keys while staying semantically equal. */
+function stableConfigStringify(value) {
+  if (value === null || typeof value !== "object") {
+    return JSON.stringify(value);
+  }
+  if (Array.isArray(value)) {
+    return `[${value.map((item) => stableConfigStringify(item)).join(",")}]`;
+  }
+  const keys = Object.keys(value).sort();
+  return `{${keys.map((k) => `${JSON.stringify(k)}:${stableConfigStringify(value[k])}`).join(",")}}`;
+}
+
 function parseLines(value) {
   return value
     .split("\n")
@@ -767,7 +779,9 @@ export function ConfigView({ sectionId = "providers", onSectionChange = null }) 
     if (isRawMode) {
       return rawConfig !== JSON.stringify(savedConfig, null, 2);
     }
-    return JSON.stringify(draftConfig) !== JSON.stringify(savedConfig);
+    const draftNorm = normalizeConfig(draftConfig);
+    const savedNorm = normalizeConfig(savedConfig);
+    return stableConfigStringify(draftNorm) !== stableConfigStringify(savedNorm);
   }, [isRawMode, rawConfig, draftConfig, savedConfig]);
 
   const rawValid = useMemo(() => {

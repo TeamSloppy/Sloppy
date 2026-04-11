@@ -162,7 +162,8 @@ export function TelegramEditor({ draftConfig, mutateDraft }) {
         draft.channels.telegram = {
           botToken: "",
           channelChatMap: {},
-          allowedUserIds: []
+          allowedUserIds: [],
+          allowedChatIds: []
         };
       }
     });

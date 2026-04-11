@@ -1,0 +1,11 @@
+{
+  "atlasName": "Icons",
+  "inputDirectory": ".",
+  "padding": 2,
+  "extrude": 1,
+  "powerOfTwo": false,
+  "accessorTypeName": "Icons",
+  "keyStrategy": "filenameStem",
+  "sampler": "linear",
+  "maxShelfWidth": 4096
+}

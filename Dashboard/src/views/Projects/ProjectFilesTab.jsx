@@ -55,12 +55,54 @@ function languageForPath(path) {
   return EXTENSION_LANGUAGE_MAP[ext] || "text";
 }
 
-function FileTreeNode({ projectId, name, type, path, depth, selectedPath, onSelectFile }) {
+const MOBILE_FILES_BREAKPOINT_PX = 1000;
+
+function useNarrowProjectFilesLayout() {
+  const [narrow, setNarrow] = useState(
+    () => typeof window !== "undefined" && window.innerWidth <= MOBILE_FILES_BREAKPOINT_PX
+  );
+
+  useEffect(() => {
+    const mq = window.matchMedia(`(max-width: ${MOBILE_FILES_BREAKPOINT_PX}px)`);
+    const sync = () => setNarrow(mq.matches);
+    sync();
+    mq.addEventListener("change", sync);
+    return () => mq.removeEventListener("change", sync);
+  }, []);
+
+  return narrow;
+}
+
+function FileSyntaxBlock({ language, fileLoading, fileError, fileContent }) {
+  if (fileLoading) {
+    return <div className="pft-status">Loading…</div>;
+  }
+  if (fileError) {
+    return <div className="pft-status pft-status-error">{fileError}</div>;
+  }
+  if (!fileContent) {
+    return null;
+  }
+  return (
+    <SyntaxHighlighter
+      language={language}
+      style={oneDark}
+      showLineNumbers
+      customStyle={{ margin: 0, borderRadius: 0, background: "transparent", fontSize: "0.82rem" }}
+      lineNumberStyle={{ color: "var(--muted)", minWidth: "2.5em" }}
+    >
+      {fileContent.content}
+    </SyntaxHighlighter>
+  );
+}
+
+function FileTreeNode({ projectId, name, type, path, depth, selectedPath, onSelectFile, narrowLayout }) {
   const [isExpanded, setIsExpanded] = useState(false);
   const [children, setChildren] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
 
   const isSelected = type === "file" && path === selectedPath;
+  const rowPadLeft = narrowLayout ? 12 + depth * 22 : 8 + depth * 16;
 
   async function handleExpand() {
     if (type !== "directory") return;
@@ -90,8 +132,8 @@ function FileTreeNode({ projectId, name, type, path, depth, selectedPath, onSele
     <div className="pft-node">
       <button
         type="button"
-        className={`pft-node-row ${isSelected ? "selected" : ""}`}
-        style={{ paddingLeft: `${8 + depth * 16}px` }}
+        className={`pft-node-row ${isSelected ? "selected" : ""} ${narrowLayout ? "pft-node-row--touch" : ""}`}
+        style={{ paddingLeft: `${rowPadLeft}px` }}
         onClick={handleClick}
         title={name}
       >
@@ -100,11 +142,22 @@ function FileTreeNode({ projectId, name, type, path, depth, selectedPath, onSele
         </span>
         <span className="pft-node-name">{name}</span>
         {isLoading && <span className="pft-node-spinner" />}
+        {narrowLayout && (
+          <span
+            className={`pft-node-chevron ${type === "directory" && isExpanded ? "pft-node-chevron--expanded" : ""}`}
+            aria-hidden
+          >
+            <span className="material-symbols-rounded">chevron_right</span>
+          </span>
+        )}
       </button>
       {isExpanded && children !== null && (
         <div className="pft-children">
           {children.length === 0 ? (
-            <div className="pft-empty-dir" style={{ paddingLeft: `${8 + (depth + 1) * 16}px` }}>
+            <div
+              className="pft-empty-dir"
+              style={{ paddingLeft: `${(narrowLayout ? 12 : 8) + (depth + 1) * (narrowLayout ? 22 : 16)}px` }}
+            >
               Empty
             </div>
           ) : (
@@ -118,6 +171,7 @@ function FileTreeNode({ projectId, name, type, path, depth, selectedPath, onSele
                 depth={depth + 1}
                 selectedPath={selectedPath}
                 onSelectFile={onSelectFile}
+                narrowLayout={narrowLayout}
               />
             ))
           )}
@@ -135,6 +189,7 @@ export function ProjectFilesTab({ project }) {
   const [fileLoading, setFileLoading] = useState(false);
   const [fileError, setFileError] = useState(null);
   const abortRef = useRef(null);
+  const narrowLayout = useNarrowProjectFilesLayout();
 
   useEffect(() => {
     let cancelled = false;
@@ -147,6 +202,31 @@ export function ProjectFilesTab({ project }) {
     });
     return () => { cancelled = true; };
   }, [project.id]);
+
+  const closeMobileFile = useCallback(() => {
+    if (abortRef.current) abortRef.current.cancelled = true;
+    setSelectedPath(null);
+    setFileContent(null);
+    setFileError(null);
+    setFileLoading(false);
+  }, []);
+
+  useEffect(() => {
+    if (!narrowLayout || !selectedPath) return undefined;
+    function onKeyDown(e) {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        closeMobileFile();
+      }
+    }
+    window.addEventListener("keydown", onKeyDown);
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+      document.body.style.overflow = prevOverflow;
+    };
+  }, [narrowLayout, selectedPath, closeMobileFile]);
 
   const loadFile = useCallback(async (path) => {
     if (abortRef.current) abortRef.current.cancelled = true;
@@ -171,8 +251,32 @@ export function ProjectFilesTab({ project }) {
 
   const language = useMemo(() => languageForPath(selectedPath), [selectedPath]);
 
+  const showMobileFileOverlay = narrowLayout && Boolean(selectedPath);
+
+  const viewerPanel = !selectedPath ? (
+    <div className="pft-viewer-empty">
+      <span className="material-symbols-rounded pft-viewer-empty-icon">description</span>
+      <p>Select a file to view its contents</p>
+    </div>
+  ) : (
+    <>
+      <div className="pft-viewer-head">
+        <span className="material-symbols-rounded pft-viewer-path-icon">description</span>
+        <span className="pft-viewer-path">{selectedPath}</span>
+      </div>
+      <div className="pft-viewer-body">
+        <FileSyntaxBlock
+          language={language}
+          fileLoading={fileLoading}
+          fileError={fileError}
+          fileContent={fileContent}
+        />
+      </div>
+    </>
+  );
+
   return (
-    <section className="pft-shell">
+    <section className={`pft-shell${narrowLayout ? " pft-shell--narrow" : ""}`}>
       <div className="pft-tree-panel">
         <div className="pft-tree-head">
           <span className="material-symbols-rounded pft-tree-head-icon">folder</span>
@@ -196,44 +300,50 @@ export function ProjectFilesTab({ project }) {
                 depth={0}
                 selectedPath={selectedPath}
                 onSelectFile={loadFile}
+                narrowLayout={narrowLayout}
               />
             ))
           )}
         </div>
       </div>
 
-      <div className="pft-viewer-panel">
-        {!selectedPath ? (
-          <div className="pft-viewer-empty">
-            <span className="material-symbols-rounded pft-viewer-empty-icon">description</span>
-            <p>Select a file to view its contents</p>
-          </div>
-        ) : (
-          <>
-            <div className="pft-viewer-head">
+      {!narrowLayout && (
+        <div className="pft-viewer-panel">{viewerPanel}</div>
+      )}
+
+      {showMobileFileOverlay && (
+        <div
+          className="pft-mobile-file-overlay"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="pft-mobile-file-title"
+        >
+          <div className="pft-mobile-file-overlay-inner">
+            <div className="pft-viewer-head pft-mobile-file-head">
+              <button
+                type="button"
+                className="pft-mobile-file-back"
+                onClick={closeMobileFile}
+                aria-label="Close file"
+              >
+                <span className="material-symbols-rounded">arrow_back</span>
+              </button>
               <span className="material-symbols-rounded pft-viewer-path-icon">description</span>
-              <span className="pft-viewer-path">{selectedPath}</span>
+              <span className="pft-viewer-path" id="pft-mobile-file-title">
+                {selectedPath}
+              </span>
             </div>
-            <div className="pft-viewer-body">
-              {fileLoading ? (
-                <div className="pft-status">Loading…</div>
-              ) : fileError ? (
-                <div className="pft-status pft-status-error">{fileError}</div>
-              ) : fileContent ? (
-                <SyntaxHighlighter
-                  language={language}
-                  style={oneDark}
-                  showLineNumbers
-                  customStyle={{ margin: 0, borderRadius: 0, background: "transparent", fontSize: "0.82rem" }}
-                  lineNumberStyle={{ color: "var(--muted)", minWidth: "2.5em" }}
-                >
-                  {fileContent.content}
-                </SyntaxHighlighter>
-              ) : null}
+            <div className="pft-viewer-body pft-mobile-file-body">
+              <FileSyntaxBlock
+                language={language}
+                fileLoading={fileLoading}
+                fileError={fileError}
+                fileContent={fileContent}
+              />
             </div>
-          </>
-        )}
-      </div>
+          </div>
+        </div>
+      )}
     </section>
   );
 }

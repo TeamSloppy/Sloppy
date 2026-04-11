@@ -983,16 +983,23 @@
 }
 
 .project-analytics-card--split .project-analytics-split {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  gap: 14px;
-  align-items: start;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  align-items: stretch;
+  min-height: 0;
 }
 
-@media (max-width: 700px) {
-  .project-analytics-card--split .project-analytics-split {
-    grid-template-columns: 1fr;
-  }
+.project-analytics-card--split .project-analytics-kv {
+  width: 100%;
+}
+
+.project-analytics-card--split .project-analytics-chart-wrap {
+  min-height: 280px;
+}
+
+.project-analytics-card--split .project-analytics-chart-empty {
+  min-height: 260px;
 }
 
 .project-analytics-chart-wrap {
@@ -1096,10 +1103,16 @@
   min-width: 0;
 }
 
-.project-overview-task-list,
-.project-overview-channel-list {
+.project-overview-task-list {
   display: grid;
   gap: 8px;
+}
+
+.project-overview-channel-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 10px;
+  align-items: start;
 }
 
 .project-overview-task {
@@ -1145,13 +1158,129 @@
 .project-overview-channel {
   border: 1px solid var(--line);
   padding: 10px;
-  display: grid;
-  gap: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-height: 0;
+  aspect-ratio: 1 / 1;
   background: rgba(255, 255, 255, 0.015);
+  overflow: hidden;
 }
 
-.project-overview-channel p {
+.project-overview-channel-preview {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.project-overview-channel-preview p {
   margin: 0;
+  font-size: 0.76rem;
+  line-height: 1.35;
+  display: -webkit-box;
+  -webkit-line-clamp: 6;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  word-break: break-word;
+}
+
+.project-overview-channel .project-overview-channel-meta {
+  flex-shrink: 0;
+  margin-top: auto;
+}
+
+.project-overview-channel-read {
+  flex-shrink: 0;
+  align-self: stretch;
+  margin: 0;
+  padding: 6px 8px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--accent);
+  cursor: pointer;
+}
+
+.project-overview-channel-read:hover {
+  border-color: var(--accent);
+  background: rgba(204, 255, 0, 0.08);
+}
+
+.project-overview-channel-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 4000;
+  background: rgba(0, 0, 0, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+
+.project-overview-channel-modal {
+  width: min(720px, 100%);
+  max-height: min(82vh, 880px);
+  overflow: auto;
+  border: 1px solid var(--line);
+  background: var(--surface-3);
+  box-shadow: var(--shadow-brutalist);
+  padding: 14px 16px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.project-overview-channel-modal-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.project-overview-channel-modal-head h4 {
+  margin: 0;
+  font-size: 0.95rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.project-overview-channel-modal-close {
+  flex-shrink: 0;
+  min-width: 36px;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.project-overview-channel-modal-close:hover {
+  color: var(--text);
+  border-color: var(--accent);
+}
+
+.project-overview-channel-modal-meta {
+  margin: 0;
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+
+.project-overview-channel-modal-body {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: inherit;
+  font-size: 0.8rem;
+  line-height: 1.45;
+  color: var(--text);
 }
 
 .project-readiness-grid {
@@ -1211,6 +1340,149 @@
 .project-created-item p {
   margin: 4px 0 0;
   color: var(--muted);
+}
+
+/* Project Visor tab — square grid cards + full-text modal */
+.project-visor-card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 10px;
+  align-items: start;
+}
+
+.project-visor-card {
+  border: 1px solid var(--line);
+  padding: 10px;
+  background: var(--surface-2);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-height: 0;
+  aspect-ratio: 1 / 1;
+  overflow: hidden;
+}
+
+.project-visor-card-head {
+  flex-shrink: 0;
+  min-width: 0;
+}
+
+.project-visor-card-head strong {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  font-size: 0.78rem;
+  line-height: 1.25;
+  word-break: break-word;
+}
+
+.project-visor-card-preview {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.project-visor-card-preview p {
+  margin: 0;
+  font-size: 0.76rem;
+  line-height: 1.35;
+  color: var(--muted);
+  display: -webkit-box;
+  -webkit-line-clamp: 6;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  word-break: break-word;
+  white-space: pre-line;
+}
+
+.project-visor-card-read {
+  flex-shrink: 0;
+  align-self: stretch;
+  margin: 0;
+  margin-top: auto;
+  padding: 6px 8px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--accent);
+  cursor: pointer;
+}
+
+.project-visor-card-read:hover {
+  border-color: var(--accent);
+  background: rgba(204, 255, 0, 0.08);
+}
+
+.project-visor-preview-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 4000;
+  background: rgba(0, 0, 0, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+
+.project-visor-preview-modal {
+  width: min(720px, 100%);
+  max-height: min(82vh, 880px);
+  overflow: auto;
+  border: 1px solid var(--line);
+  background: var(--surface-3);
+  box-shadow: var(--shadow-brutalist);
+  padding: 14px 16px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.project-visor-preview-modal-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.project-visor-preview-modal-head h4 {
+  margin: 0;
+  font-size: 0.95rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.project-visor-preview-modal-close {
+  flex-shrink: 0;
+  min-width: 36px;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.project-visor-preview-modal-close:hover {
+  color: var(--text);
+  border-color: var(--accent);
+}
+
+.project-visor-preview-modal-body {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: inherit;
+  font-size: 0.8rem;
+  line-height: 1.45;
+  color: var(--text);
 }
 
 @media (max-width: 980px) {
@@ -3269,6 +3541,74 @@
   padding: 3px 8px;
 }
 
+/* Narrow / mobile project file tree: larger tap targets + chevrons (see ProjectFilesTab) */
+.pft-shell--narrow .pft-tree-head {
+  padding: 12px 14px;
+  gap: 8px;
+}
+
+.pft-shell--narrow .pft-tree-head-icon {
+  font-size: 1.2rem;
+}
+
+.pft-shell--narrow .pft-tree-head-label {
+  font-size: 0.9rem;
+}
+
+.pft-shell--narrow .pft-tree-body {
+  padding: 8px 0;
+}
+
+.pft-shell--narrow .pft-node-row.pft-node-row--touch {
+  min-height: 48px;
+  padding-top: 10px;
+  padding-bottom: 10px;
+  padding-right: 10px;
+  font-size: 0.92rem;
+  gap: 10px;
+  border-radius: 10px;
+}
+
+.pft-shell--narrow .pft-node-row .pft-node-icon {
+  font-size: 1.28rem;
+}
+
+.pft-shell--narrow .pft-node-spinner {
+  width: 14px;
+  height: 14px;
+  border-width: 2px;
+}
+
+.pft-shell--narrow .pft-empty-dir {
+  font-size: 0.82rem;
+  padding-top: 8px;
+  padding-bottom: 8px;
+}
+
+.pft-node-chevron {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  margin-left: auto;
+  color: var(--muted);
+  pointer-events: none;
+}
+
+.pft-node-chevron .material-symbols-rounded {
+  font-size: 1.4rem;
+  line-height: 1;
+  transition: transform 0.18s ease;
+}
+
+.pft-node-chevron--expanded .material-symbols-rounded {
+  transform: rotate(90deg);
+}
+
+.pft-shell--narrow .pft-node-row.selected .pft-node-chevron {
+  color: var(--accent);
+}
+
 .pft-status {
   padding: 16px 12px;
   font-size: 0.82rem;
@@ -3284,6 +3624,7 @@
   flex-direction: column;
   flex: 1;
   min-width: 0;
+  min-height: 0;
   overflow: hidden;
   background: var(--bg);
 }
@@ -3335,7 +3676,10 @@
 
 .pft-viewer-body {
   flex: 1;
+  min-height: 0;
   overflow: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
   background: #282c34;
   position: relative;
 }
@@ -3343,6 +3687,66 @@
 .pft-viewer-body > pre {
   min-height: 100%;
   box-sizing: border-box;
+}
+
+/* Long lines: scroll instead of clipping (Prism / react-syntax-highlighter) */
+.pft-viewer-body pre,
+.pft-viewer-body code {
+  overflow-x: auto !important;
+  max-width: none;
+}
+
+/* Full-screen file viewer on narrow layouts (see ProjectFilesTab) */
+.pft-mobile-file-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 12000;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+  padding: env(safe-area-inset-top, 0) env(safe-area-inset-right, 0) env(safe-area-inset-bottom, 0) env(safe-area-inset-left, 0);
+}
+
+.pft-mobile-file-overlay-inner {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.pft-mobile-file-head {
+  gap: 8px;
+}
+
+.pft-mobile-file-head .pft-viewer-path {
+  flex: 1;
+  min-width: 0;
+}
+
+.pft-mobile-file-back {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 40px;
+  height: 40px;
+  margin: -6px 0 -6px -8px;
+  padding: 0;
+  border: none;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--fg);
+  cursor: pointer;
+}
+
+.pft-mobile-file-back:hover {
+  background: var(--surface-alt, var(--line));
+}
+
+.pft-mobile-file-body {
+  flex: 1;
+  min-height: 0;
 }
 
 @media (max-width: 1000px) {
@@ -3362,7 +3766,26 @@
     flex-direction: column;
   }
 
-  .pft-tree-panel {
+  /*
+   * Files tab (pft-shell--narrow): no side-by-side viewer — only the file tree.
+   * Do not cap tree height or draw a bottom border (that was the old tree | viewer split).
+   */
+  .pft-shell.pft-shell--narrow {
+    flex: 1;
+    min-height: 0;
+  }
+
+  .pft-shell.pft-shell--narrow .pft-tree-panel {
+    width: 100%;
+    max-height: none;
+    flex: 1 1 auto;
+    min-height: 0;
+    border-right: none;
+    border-bottom: none;
+  }
+
+  /* Split column layout when a viewer still sits below the tree (no pft-shell--narrow) */
+  .pft-shell:not(.pft-shell--narrow) .pft-tree-panel {
     width: 100%;
     max-height: 180px;
     border-right: none;
