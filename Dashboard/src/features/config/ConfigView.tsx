@@ -13,7 +13,7 @@ import {
   connectGitHub,
   disconnectGitHub
 } from "../../api";
-import { filterModelsByQuery } from "../agents/utils/aggregateProviderModels";
+import { collectAggregatedProviderModels, filterModelsByQuery } from "../agents/utils/aggregateProviderModels";
 import { NodeHostEditor } from "./components/NodeHostEditor";
 import { PluginEditor } from "./components/PluginEditor";
 import { ProviderEditor } from "./components/ProviderEditor";
@@ -29,6 +29,7 @@ import { ProxyEditor } from "./components/ProxyEditor";
 import { ACPEditor } from "./components/ACPEditor";
 import { UIEditor } from "./components/UIEditor";
 import { VisorEditor } from "./components/VisorEditor";
+import { AggregatedModelPicker } from "./components/AggregatedModelPicker";
 import { ClientConnectView } from "./components/ClientConnectView";
 import { UpdatesView } from "../updates/UpdatesView";
 import { useUpdateCheck } from "../updates/useUpdateCheck";
@@ -36,6 +37,7 @@ import { useUpdateCheck } from "../updates/useUpdateCheck";
 const SETTINGS_ITEMS = [
   { id: "providers", title: "Providers", icon: "hub" },
   { id: "search-tools", title: "Search Tools", icon: "travel_explore" },
+  { id: "model-routing", title: "Model routing", icon: "linear_scale" },
   { id: "channels", title: "Channels", icon: "forum" },
   { id: "approvals", title: "Approvals", icon: "fact_check" },
   { id: "plugins", title: "Plugins", icon: "extension" },
@@ -282,6 +284,7 @@ const EMPTY_CONFIG = {
     mergeSimilarityThreshold: 0.80,
     mergeMaxPerRun: 10
   },
+  modelRouting: {},
   sqlitePath: "core.sqlite"
 };
 
@@ -478,6 +481,19 @@ function normalizeConfig(config) {
   normalized.memory.embedding.endpoint = String(config?.memory?.embedding?.endpoint || "");
   normalized.memory.embedding.apiKeyEnv = String(config?.memory?.embedding?.apiKeyEnv || "");
   normalized.sqlitePath = config?.sqlitePath || normalized.sqlitePath;
+
+  const mr = config?.modelRouting;
+  normalized.modelRouting = {};
+  if (mr && typeof mr === "object" && !Array.isArray(mr)) {
+    for (const [k, v] of Object.entries(mr)) {
+      const key = String(k).trim();
+      const val = String(v ?? "").trim();
+      if (key && val) {
+        normalized.modelRouting[key] = val;
+      }
+    }
+  }
+
   normalized.gitSync.enabled = Boolean(config?.gitSync?.enabled);
   normalized.gitSync.authToken = String(config?.gitSync?.authToken || "");
   normalized.gitSync.repository = String(config?.gitSync?.repository || "");
@@ -655,6 +671,8 @@ export function ConfigView({ sectionId = "providers", onSectionChange = null }) 
   const [gitHubToken, setGitHubToken] = useState("");
   const [gitHubStatusText, setGitHubStatusText] = useState("");
   const [gitHubConnecting, setGitHubConnecting] = useState(false);
+  const [modelRoutingCatalog, setModelRoutingCatalog] = useState([]);
+  const [modelRoutingCatalogStatus, setModelRoutingCatalogStatus] = useState("");
 
   const [searchProviderStatus, setSearchProviderStatus] = useState({
     activeProvider: "perplexity",
@@ -671,6 +689,46 @@ export function ConfigView({ sectionId = "providers", onSectionChange = null }) 
       setStatusText("Failed to load config");
     });
   }, []);
+
+  const providerModelsProbeKey = useMemo(
+    () => JSON.stringify(draftConfig?.models ?? []),
+    [draftConfig.models]
+  );
+
+  useEffect(() => {
+    if (selectedSettings !== "model-routing") {
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      setModelRoutingCatalogStatus("Loading model catalog...");
+      try {
+        const catalog = await collectAggregatedProviderModels(draftConfig);
+        if (cancelled) {
+          return;
+        }
+        setModelRoutingCatalog(catalog);
+        if (catalog.length === 0) {
+          const hasModelEntries = Array.isArray(draftConfig.models) && draftConfig.models.length > 0;
+          setModelRoutingCatalogStatus(
+            hasModelEntries
+              ? "No models returned from providers. Check API keys and probe status under Providers."
+              : "Add at least one provider under Providers to list models."
+          );
+        } else {
+          setModelRoutingCatalogStatus("");
+        }
+      } catch {
+        if (!cancelled) {
+          setModelRoutingCatalog([]);
+          setModelRoutingCatalogStatus("Failed to load provider model catalogs.");
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedSettings, providerModelsProbeKey]);
 
   useEffect(() => {
     if (selectedPluginIndex >= draftConfig.plugins.length) {
@@ -1556,6 +1614,73 @@ export function ConfigView({ sectionId = "providers", onSectionChange = null }) 
 
     if (selectedSettings === "visor") {
       return <VisorEditor draftConfig={draftConfig} mutateDraft={mutateDraft} parseLines={parseLines} />;
+    }
+
+    if (selectedSettings === "model-routing") {
+      const routing = draftConfig.modelRouting || {};
+      const fast = routing.fast ?? "";
+      const heavy = routing.heavy ?? "";
+      return (
+        <section className="entry-editor-card">
+          <h3>Model aliases</h3>
+          <p className="placeholder-text">
+            Optional shortcuts for <code>model:</code> in skill <code>SKILL.md</code> frontmatter and for{" "}
+            <code>workers.spawn</code> with <code>skillId</code>. Pick a model from your configured providers (same
+            catalog as agent default model). Clear removes the alias.
+          </p>
+          {modelRoutingCatalogStatus ? (
+            <p className="placeholder-text" style={{ marginBottom: 12 }}>
+              {modelRoutingCatalogStatus}
+            </p>
+          ) : null}
+          <div className="entry-form-grid" style={{ maxWidth: 640 }}>
+            <AggregatedModelPicker
+              label={
+                <>
+                  Alias <code>fast</code> → model
+                </>
+              }
+              value={fast}
+              onChange={(id) =>
+                mutateDraft((draft) => {
+                  if (!draft.modelRouting) draft.modelRouting = {};
+                  const v = String(id || "").trim();
+                  if (!v) {
+                    delete draft.modelRouting.fast;
+                  } else {
+                    draft.modelRouting.fast = v;
+                  }
+                })
+              }
+              aggregatedModels={modelRoutingCatalog}
+            />
+            <AggregatedModelPicker
+              label={
+                <>
+                  Alias <code>heavy</code> → model
+                </>
+              }
+              value={heavy}
+              onChange={(id) =>
+                mutateDraft((draft) => {
+                  if (!draft.modelRouting) draft.modelRouting = {};
+                  const v = String(id || "").trim();
+                  if (!v) {
+                    delete draft.modelRouting.heavy;
+                  } else {
+                    draft.modelRouting.heavy = v;
+                  }
+                })
+              }
+              aggregatedModels={modelRoutingCatalog}
+            />
+          </div>
+          <p className="placeholder-text" style={{ marginTop: 12 }}>
+            Advanced: add more keys by editing the JSON in the <strong>Config</strong> raw view — <code>modelRouting</code>{" "}
+            is a flat string map.
+          </p>
+        </section>
+      );
     }
 
     if (selectedSettings === "approvals") {

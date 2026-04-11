@@ -103,6 +103,15 @@ extension CoreService {
                 field: .description, oldValue: oldTask.description, newValue: newTask.description, actorId: changedBy
             )
         }
+        if oldTask.selectedModel != newTask.selectedModel {
+            await recordTaskActivity(
+                projectID: projectID, taskID: taskID,
+                field: .selectedModel,
+                oldValue: oldTask.selectedModel,
+                newValue: newTask.selectedModel,
+                actorId: changedBy
+            )
+        }
     }
 
 }

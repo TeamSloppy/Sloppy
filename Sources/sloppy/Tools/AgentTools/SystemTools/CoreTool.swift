@@ -41,6 +41,7 @@ struct ToolContext: @unchecked Sendable {
     let memoryStore: any MemoryStore
     let sessionStore: AgentSessionFileStore
     let agentCatalogStore: AgentCatalogFileStore
+    let agentSkillsStore: AgentSkillsFileStore?
     let processRegistry: SessionProcessRegistry
     let channelSessionStore: ChannelSessionFileStore
     let store: any PersistenceStore
@@ -54,7 +55,7 @@ struct ToolContext: @unchecked Sendable {
     /// When set, updates `USER.md` / `MEMORY.md` through the same validation path as the HTTP API.
     let applyAgentMarkdown: ((AgentMarkdownDocumentField, String) async throws -> Void)?
     /// Runs an isolated subagent session; set by `CoreService.configureToolExecutionServices`.
-    let delegateSubagent: (@Sendable (String, String, String, String?, [String]?) async -> String?)?
+    let delegateSubagent: (@Sendable (String, String, String, String?, [String]?, String?) async -> String?)?
 }
 
 // MARK: - ProjectToolService

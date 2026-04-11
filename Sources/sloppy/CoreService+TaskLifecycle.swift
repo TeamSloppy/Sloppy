@@ -134,7 +134,11 @@ extension CoreService {
                 agentID: delegation.agentID,
                 tools: ["shell", "file", "exec", "browser"],
                 mode: workerMode,
-                workingDirectory: effectiveWorkingDirectory
+                workingDirectory: effectiveWorkingDirectory,
+                selectedModel: {
+                    let t = task.selectedModel?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                    return t.isEmpty ? nil : t
+                }()
             )
         )
 
@@ -568,14 +572,16 @@ extension CoreService {
         agentID: String,
         taskID: String,
         objective: String,
-        workingDirectory: String?
+        workingDirectory: String?,
+        selectedModel: String? = nil
     ) async -> String? {
         await runSubagentTask(
             agentID: agentID,
             taskID: taskID,
             objective: objective,
             workingDirectory: workingDirectory,
-            toolsetNames: nil
+            toolsetNames: nil,
+            selectedModel: selectedModel
         )
     }
 
@@ -585,7 +591,8 @@ extension CoreService {
         taskID: String,
         objective: String,
         workingDirectory: String?,
-        toolsetNames: [String]?
+        toolsetNames: [String]?,
+        selectedModel: String? = nil
     ) async -> String? {
         let knownIDs = await ToolCatalog.knownToolIDs(mcpRegistry: mcpRegistry)
         guard let policy = try? await toolsAuthorization.policy(agentID: agentID) else {
@@ -652,7 +659,14 @@ extension CoreService {
             response = try await postAgentSessionMessage(
                 agentID: agentID,
                 sessionID: session.id,
-                request: AgentSessionPostMessageRequest(userId: "system_task_worker", content: objective)
+                request: AgentSessionPostMessageRequest(
+                    userId: "system_task_worker",
+                    content: objective,
+                    selectedModel: {
+                        let t = selectedModel?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                        return t.isEmpty ? nil : t
+                    }()
+                )
             )
         } catch {
             logger.warning(

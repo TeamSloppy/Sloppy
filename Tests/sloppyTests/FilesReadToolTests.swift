@@ -21,6 +21,7 @@ struct FilesReadToolTests {
             memoryStore: InMemoryMemoryStore(),
             sessionStore: AgentSessionFileStore(agentsRootURL: tmp),
             agentCatalogStore: AgentCatalogFileStore(agentsRootURL: tmp),
+            agentSkillsStore: nil,
             processRegistry: SessionProcessRegistry(),
             channelSessionStore: ChannelSessionFileStore(workspaceRootURL: tmp),
             store: InMemoryCorePersistenceBuilder().makeStore(config: CoreConfig.test),
