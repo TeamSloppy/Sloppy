@@ -580,6 +580,7 @@ extension CoreService {
             originChannelId: request.originChannelId,
             actorId: try normalizeOptionalTaskActorID(request.actorId),
             teamId: try normalizeOptionalTaskTeamID(request.teamId),
+            selectedModel: normalizeOptionalTaskSelectedModel(request.selectedModel),
             createdAt: now,
             updatedAt: now
         )
@@ -642,6 +643,9 @@ extension CoreService {
         }
         if request.loopModeOverride != nil {
             task.loopModeOverride = request.loopModeOverride
+        }
+        if request.selectedModel != nil {
+            task.selectedModel = normalizeOptionalTaskSelectedModel(request.selectedModel)
         }
         if let status = request.status {
             task.status = try normalizeTaskStatus(status)
@@ -876,6 +880,14 @@ extension CoreService {
         return normalized
     }
 
+    func normalizeOptionalTaskSelectedModel(_ raw: String?) -> String? {
+        guard let raw else {
+            return nil
+        }
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
     func normalizeTaskReference(_ raw: String) -> String? {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
@@ -971,6 +983,7 @@ extension CoreService {
             "swarmDependencyIds": task.swarmDependencyIds.map { .array($0.map { .string($0) }) } ?? .null,
             "swarmDepth": task.swarmDepth.map { .number(Double($0)) } ?? .null,
             "swarmActorPath": task.swarmActorPath.map { .array($0.map { .string($0) }) } ?? .null,
+            "selectedModel": task.selectedModel.map { .string($0) } ?? .null,
             "createdAt": .string(ISO8601DateFormatter().string(from: task.createdAt)),
             "updatedAt": .string(ISO8601DateFormatter().string(from: task.updatedAt))
         ])

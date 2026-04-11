@@ -231,6 +231,8 @@ public struct ProjectTask: Codable, Sendable, Equatable {
     public var swarmDepth: Int?
     public var swarmActorPath: [String]?
     public var worktreeBranch: String?
+    /// When set and present in the agent's available models, overrides the agent default model for this task's worker run.
+    public var selectedModel: String?
     public var isArchived: Bool
     public var createdAt: Date
     public var updatedAt: Date
@@ -256,6 +258,7 @@ public struct ProjectTask: Codable, Sendable, Equatable {
         swarmDepth: Int? = nil,
         swarmActorPath: [String]? = nil,
         worktreeBranch: String? = nil,
+        selectedModel: String? = nil,
         isArchived: Bool = false,
         createdAt: Date = Date(),
         updatedAt: Date = Date()
@@ -280,6 +283,7 @@ public struct ProjectTask: Codable, Sendable, Equatable {
         self.swarmDepth = swarmDepth
         self.swarmActorPath = swarmActorPath
         self.worktreeBranch = worktreeBranch
+        self.selectedModel = selectedModel
         self.isArchived = isArchived
         self.createdAt = createdAt
         self.updatedAt = updatedAt
@@ -664,6 +668,7 @@ public struct ProjectTaskCreateRequest: Codable, Sendable {
     public var originChannelId: String?
     public var actorId: String?
     public var teamId: String?
+    public var selectedModel: String?
 
     public init(
         title: String,
@@ -675,7 +680,8 @@ public struct ProjectTaskCreateRequest: Codable, Sendable {
         originType: TaskOriginType? = nil,
         originChannelId: String? = nil,
         actorId: String? = nil,
-        teamId: String? = nil
+        teamId: String? = nil,
+        selectedModel: String? = nil
     ) {
         self.title = title
         self.description = description
@@ -687,6 +693,7 @@ public struct ProjectTaskCreateRequest: Codable, Sendable {
         self.originChannelId = originChannelId
         self.actorId = actorId
         self.teamId = teamId
+        self.selectedModel = selectedModel
     }
 }
 
@@ -699,6 +706,7 @@ public struct ProjectTaskUpdateRequest: Codable, Sendable {
     public var loopModeOverride: ProjectLoopMode?
     public var actorId: String?
     public var teamId: String?
+    public var selectedModel: String?
     public var changedBy: String?
 
     public init(
@@ -710,6 +718,7 @@ public struct ProjectTaskUpdateRequest: Codable, Sendable {
         loopModeOverride: ProjectLoopMode? = nil,
         actorId: String? = nil,
         teamId: String? = nil,
+        selectedModel: String? = nil,
         changedBy: String? = nil
     ) {
         self.title = title
@@ -720,6 +729,7 @@ public struct ProjectTaskUpdateRequest: Codable, Sendable {
         self.loopModeOverride = loopModeOverride
         self.actorId = actorId
         self.teamId = teamId
+        self.selectedModel = selectedModel
         self.changedBy = changedBy
     }
 }
@@ -2309,19 +2319,23 @@ public struct AgentSessionPostMessageRequest: Codable, Sendable {
     public var attachments: [AgentAttachmentUpload]
     public var spawnSubSession: Bool
     public var reasoningEffort: ReasoningEffort?
+    /// When set and allowed for the agent, overrides catalog `selectedModel` for this turn only.
+    public var selectedModel: String?
 
     public init(
         userId: String,
         content: String,
         attachments: [AgentAttachmentUpload] = [],
         spawnSubSession: Bool = false,
-        reasoningEffort: ReasoningEffort? = nil
+        reasoningEffort: ReasoningEffort? = nil,
+        selectedModel: String? = nil
     ) {
         self.userId = userId
         self.content = content
         self.attachments = attachments
         self.spawnSubSession = spawnSubSession
         self.reasoningEffort = reasoningEffort
+        self.selectedModel = selectedModel
     }
 }
 
@@ -3252,6 +3266,7 @@ public enum TaskActivityField: String, Codable, Sendable {
     case assignee
     case title
     case description
+    case selectedModel
 }
 
 public struct TaskActivity: Codable, Sendable, Identifiable {

@@ -169,7 +169,15 @@ actor AgentSessionOrchestrator {
             throw OrchestratorError.storageFailure
         }
 
-        let selectedModel = agentConfig.selectedModel?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let catalogModel = agentConfig.selectedModel?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let availableModelIDs = Set(agentConfig.availableModels.map(\.id))
+        let overrideRaw = request.selectedModel?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let selectedModel: String?
+        if let raw = overrideRaw, !raw.isEmpty, availableModelIDs.contains(raw) {
+            selectedModel = raw
+        } else {
+            selectedModel = (catalogModel?.isEmpty == false) ? catalogModel : nil
+        }
         let selectedModelCapabilities = Set(
             agentConfig.availableModels
                 .first(where: { $0.id == selectedModel })?

@@ -376,6 +376,7 @@ public actor CoreService {
             memoryStore: self.memoryStore,
             sessionStore: self.sessionStore,
             agentCatalogStore: self.agentCatalogStore,
+            agentSkillsStore: self.agentSkillsStore,
             processRegistry: processRegistry,
             channelSessionStore: self.channelSessionStore,
             store: self.store,
@@ -413,13 +414,14 @@ public actor CoreService {
             await self.runtime.updateWorkerExecutor(
                 ToolExecutionWorkerExecutorAdapter(
                     toolExecutionService: self.toolExecution,
-                    agentRunner: { [weak self] agentID, taskID, objective, workingDirectory in
+                    agentRunner: { [weak self] agentID, taskID, objective, workingDirectory, selectedModel in
                         guard let self else { return nil }
                         return await self.runAgentTask(
                             agentID: agentID,
                             taskID: taskID,
                             objective: objective,
-                            workingDirectory: workingDirectory
+                            workingDirectory: workingDirectory,
+                            selectedModel: selectedModel
                         )
                     }
                 )

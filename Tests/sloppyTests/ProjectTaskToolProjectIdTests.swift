@@ -110,6 +110,7 @@ private func makeToolContext(service: CoreService, sessionID: String) -> ToolCon
         memoryStore: InMemoryMemoryStore(),
         sessionStore: AgentSessionFileStore(agentsRootURL: tmpURL),
         agentCatalogStore: AgentCatalogFileStore(agentsRootURL: tmpURL),
+        agentSkillsStore: nil,
         processRegistry: SessionProcessRegistry(),
         channelSessionStore: ChannelSessionFileStore(workspaceRootURL: tmpURL),
         store: InMemoryCorePersistenceBuilder().makeStore(config: CoreConfig.test),

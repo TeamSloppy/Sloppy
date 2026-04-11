@@ -960,6 +960,8 @@ public struct CoreConfig: Codable, Sendable {
     public var proxy: Proxy
     public var visor: Visor
     public var sqlitePath: String
+    /// Optional aliases for model ids (e.g. `"fast"` → `"openai:gpt-5.4-mini"`) used when resolving `model` from SKILL.md or tools.
+    public var modelRouting: [String: String]
 
     public init(
         listen: Listen,
@@ -979,7 +981,8 @@ public struct CoreConfig: Codable, Sendable {
         searchTools: SearchTools = SearchTools(),
         proxy: Proxy = Proxy(),
         visor: Visor = Visor(),
-        sqlitePath: String
+        sqlitePath: String,
+        modelRouting: [String: String] = [:]
     ) {
         self.listen = listen
         self.workspace = workspace
@@ -999,6 +1002,7 @@ public struct CoreConfig: Codable, Sendable {
         self.proxy = proxy
         self.visor = visor
         self.sqlitePath = sqlitePath
+        self.modelRouting = modelRouting
     }
 
     public static var `default`: CoreConfig {
@@ -1032,7 +1036,8 @@ public struct CoreConfig: Codable, Sendable {
             searchTools: .init(),
             proxy: .init(),
             visor: .init(),
-            sqlitePath: CoreConfig.defaultSQLiteFileName
+            sqlitePath: CoreConfig.defaultSQLiteFileName,
+            modelRouting: [:]
         )
     }
 
@@ -1097,6 +1102,7 @@ public struct CoreConfig: Codable, Sendable {
         case proxy
         case visor
         case sqlitePath
+        case modelRouting
     }
 
     public init(from decoder: Decoder) throws {
@@ -1120,6 +1126,32 @@ public struct CoreConfig: Codable, Sendable {
         sqlitePath = try container.decode(String.self, forKey: .sqlitePath)
         models = try container.decodeIfPresent([ModelConfig].self, forKey: .models) ?? []
         plugins = try container.decodeIfPresent([PluginConfig].self, forKey: .plugins) ?? []
+        modelRouting = try container.decodeIfPresent([String: String].self, forKey: .modelRouting) ?? [:]
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(listen, forKey: .listen)
+        try container.encode(workspace, forKey: .workspace)
+        try container.encode(auth, forKey: .auth)
+        try container.encode(onboarding, forKey: .onboarding)
+        try container.encode(models, forKey: .models)
+        try container.encode(memory, forKey: .memory)
+        try container.encode(nodes, forKey: .nodes)
+        try container.encode(gateways, forKey: .gateways)
+        try container.encode(plugins, forKey: .plugins)
+        try container.encode(channels, forKey: .channels)
+        try container.encode(gitSync, forKey: .gitSync)
+        try container.encode(mcp, forKey: .mcp)
+        try container.encode(acp, forKey: .acp)
+        try container.encode(lsp, forKey: .lsp)
+        try container.encode(searchTools, forKey: .searchTools)
+        try container.encode(proxy, forKey: .proxy)
+        try container.encode(visor, forKey: .visor)
+        try container.encode(sqlitePath, forKey: .sqlitePath)
+        if !modelRouting.isEmpty {
+            try container.encode(modelRouting, forKey: .modelRouting)
+        }
     }
 
     public func resolvedWorkspaceRootURL(currentDirectory: String = FileManager.default.currentDirectoryPath) -> URL {

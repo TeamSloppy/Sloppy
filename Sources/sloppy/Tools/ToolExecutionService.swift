@@ -8,6 +8,7 @@ final class ToolExecutionService: @unchecked Sendable {
     private let memoryStore: any MemoryStore
     private let sessionStore: AgentSessionFileStore
     private let agentCatalogStore: AgentCatalogFileStore
+    private let agentSkillsStore: AgentSkillsFileStore?
     private let processRegistry: SessionProcessRegistry
     private let channelSessionStore: ChannelSessionFileStore
     private var store: any PersistenceStore
@@ -22,7 +23,7 @@ final class ToolExecutionService: @unchecked Sendable {
     var skillsService: (any SkillsToolService)?
     /// `(agentID, field, markdown)` — used to build per-invocation `ToolContext.applyAgentMarkdown`.
     var applyAgentMarkdown: ((String, AgentMarkdownDocumentField, String) async throws -> Void)?
-    var delegateSubagent: (@Sendable (String, String, String, String?, [String]?) async -> String?)?
+    var delegateSubagent: (@Sendable (String, String, String, String?, [String]?, String?) async -> String?)?
 
     init(
         workspaceRootURL: URL,
@@ -30,6 +31,7 @@ final class ToolExecutionService: @unchecked Sendable {
         memoryStore: any MemoryStore,
         sessionStore: AgentSessionFileStore,
         agentCatalogStore: AgentCatalogFileStore,
+        agentSkillsStore: AgentSkillsFileStore? = nil,
         processRegistry: SessionProcessRegistry,
         channelSessionStore: ChannelSessionFileStore,
         store: any PersistenceStore,
@@ -43,6 +45,7 @@ final class ToolExecutionService: @unchecked Sendable {
         self.memoryStore = memoryStore
         self.sessionStore = sessionStore
         self.agentCatalogStore = agentCatalogStore
+        self.agentSkillsStore = agentSkillsStore
         self.processRegistry = processRegistry
         self.channelSessionStore = channelSessionStore
         self.store = store
@@ -119,6 +122,7 @@ final class ToolExecutionService: @unchecked Sendable {
             memoryStore: memoryStore,
             sessionStore: sessionStore,
             agentCatalogStore: agentCatalogStore,
+            agentSkillsStore: agentSkillsStore,
             processRegistry: processRegistry,
             channelSessionStore: channelSessionStore,
             store: store,

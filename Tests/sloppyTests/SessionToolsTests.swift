@@ -71,6 +71,7 @@ struct SessionToolsTests {
             memoryStore: InMemoryMemoryStore(),
             sessionStore: sessionStore,
             agentCatalogStore: AgentCatalogFileStore(agentsRootURL: rootURL),
+            agentSkillsStore: nil,
             processRegistry: SessionProcessRegistry(),
             channelSessionStore: ChannelSessionFileStore(workspaceRootURL: rootURL),
             store: InMemoryCorePersistenceBuilder().makeStore(config: CoreConfig.test),

@@ -1094,8 +1094,9 @@ public actor SQLiteStore: PersistenceStore {
                 loop_mode_override,
                 origin_type,
                 origin_channel_id,
-                is_archived
-            ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+                is_archived,
+                selected_model
+            ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
             """
 
         for task in project.tasks {
@@ -1134,6 +1135,7 @@ public actor SQLiteStore: PersistenceStore {
             bindOptionalText(task.originType?.rawValue, at: 22, statement: taskStatement)
             bindOptionalText(task.originChannelId, at: 23, statement: taskStatement)
             sqlite3_bind_int(taskStatement, 24, task.isArchived ? 1 : 0)
+            bindOptionalText(task.selectedModel, at: 25, statement: taskStatement)
             _ = sqlite3_step(taskStatement)
         }
 #endif
@@ -1538,7 +1540,8 @@ public actor SQLiteStore: PersistenceStore {
                 loop_mode_override,
                 origin_type,
                 origin_channel_id,
-                is_archived
+                is_archived,
+                selected_model
             FROM dashboard_project_tasks
             WHERE project_id = ?
             ORDER BY created_at ASC;
@@ -1593,6 +1596,7 @@ public actor SQLiteStore: PersistenceStore {
                     swarmDepth: optionalInt(statement: statement, index: 13),
                     swarmActorPath: actorPath,
                     worktreeBranch: optionalText(statement: statement, index: 17),
+                    selectedModel: optionalText(statement: statement, index: 23),
                     isArchived: sqlite3_column_int(statement, 22) != 0,
                     createdAt: createdAt,
                     updatedAt: updatedAt
@@ -2741,6 +2745,11 @@ public actor SQLiteStore: PersistenceStore {
         _ = sqlite3_exec(
             db,
             "ALTER TABLE dashboard_projects ADD COLUMN is_archived INTEGER NOT NULL DEFAULT 0;",
+            nil, nil, nil
+        )
+        _ = sqlite3_exec(
+            db,
+            "ALTER TABLE dashboard_project_tasks ADD COLUMN selected_model TEXT;",
             nil, nil, nil
         )
     }

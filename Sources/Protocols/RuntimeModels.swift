@@ -242,6 +242,8 @@ public struct WorkerTaskSpec: Codable, Sendable, Equatable {
     public var tools: [String]
     public var mode: WorkerMode
     public var workingDirectory: String?
+    /// When set and allowed for the agent, overrides the agent catalog `selectedModel` for this worker run.
+    public var selectedModel: String?
 
     public init(
         taskId: String,
@@ -251,7 +253,8 @@ public struct WorkerTaskSpec: Codable, Sendable, Equatable {
         agentID: String? = nil,
         tools: [String],
         mode: WorkerMode,
-        workingDirectory: String? = nil
+        workingDirectory: String? = nil,
+        selectedModel: String? = nil
     ) {
         self.taskId = taskId
         self.channelId = channelId
@@ -261,6 +264,7 @@ public struct WorkerTaskSpec: Codable, Sendable, Equatable {
         self.tools = tools
         self.mode = mode
         self.workingDirectory = workingDirectory
+        self.selectedModel = selectedModel
     }
 }
 

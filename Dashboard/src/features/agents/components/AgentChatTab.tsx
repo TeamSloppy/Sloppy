@@ -519,10 +519,17 @@ function isUserCreatedSession(session) {
   return !title.startsWith("task-comment:");
 }
 
-/** When scopedProjectId is set (project chat), only sessions with matching summary.projectId. */
-function sessionMatchesProjectScope(session, scopedProjectId) {
+/**
+ * When scopedProjectId is set (project chat), keep only sessions for that project.
+ * If `serverListFromProjectQuery` is true, the list came from GET .../sessions?projectId=…
+ * (already filtered server-side) — do not drop rows missing `projectId` on each item.
+ */
+function sessionMatchesProjectScope(session, scopedProjectId, serverListFromProjectQuery = false) {
   const scope = typeof scopedProjectId === "string" ? scopedProjectId.trim() : "";
   if (!scope) {
+    return true;
+  }
+  if (serverListFromProjectQuery) {
     return true;
   }
   const raw = session?.projectId ?? session?.project_id;
@@ -2129,6 +2136,9 @@ export function AgentChatTab({
   const streamCleanupRef = useRef(() => { });
   const subagentStreamCleanupRef = useRef(() => { });
   const activeSessionIdRef = useRef(null);
+  /** Latest session id from route; bootstrap reads this after async fetch without re-running when URL updates. */
+  const initialSessionIdRef = useRef(null);
+  initialSessionIdRef.current = initialSessionId;
   const prevAgentIdForDraftRef = useRef(agentId);
   const subagentSessionIdRef = useRef("");
   const sessionSyncRef = useRef({ sessionId: null, timerId: null, inflight: false, queued: false });
@@ -2155,6 +2165,24 @@ export function AgentChatTab({
 
   const taskSessions = useMemo(() => sessions.filter(isTaskSession), [sessions]);
   const regularSessions = useMemo(() => sessions.filter((s) => !isTaskSession(s)), [sessions]);
+
+  /** Boolean only — avoids re-running the URL-sync effect on every session list merge (stream/SSE). */
+  const urlSessionPresentInList = useMemo(() => {
+    const urlRaw =
+      initialSessionId != null && String(initialSessionId).trim()
+        ? String(initialSessionId).trim()
+        : "";
+    if (!urlRaw || !agentId) {
+      return false;
+    }
+    const scoped = projectId && String(projectId).trim() ? String(projectId).trim() : "";
+    return sessions.some(
+      (s) =>
+        isUserCreatedSession(s) &&
+        sessionMatchesProjectScope(s, scoped, Boolean(scoped)) &&
+        s.id === urlRaw
+    );
+  }, [sessions, initialSessionId, projectId, agentId]);
 
   useEffect(() => {
     const active = sessions.find((s) => s.id === activeSessionId);
@@ -2446,6 +2474,7 @@ export function AgentChatTab({
       runStateRef.current.abortController = null;
 
       const scoped = projectId && String(projectId).trim() ? String(projectId).trim() : "";
+      const serverProjectList = Boolean(scoped);
       const sessionOpts = scoped ? { projectId: scoped } : undefined;
       const [sessionsResponse, configResponse] = await Promise.all([
         fetchAgentSessions(agentId, sessionOpts),
@@ -2462,7 +2491,7 @@ export function AgentChatTab({
 
       const allSessions = Array.isArray(sessionsResponse) ? sortSessionsByUpdate(sessionsResponse) : [];
       const nextSessions = allSessions.filter(
-        (s) => isUserCreatedSession(s) && sessionMatchesProjectScope(s, scoped)
+        (s) => isUserCreatedSession(s) && sessionMatchesProjectScope(s, scoped, serverProjectList)
       );
       setSessions(nextSessions);
       setIsLoadingSessions(false);
@@ -2481,9 +2510,12 @@ export function AgentChatTab({
 
       const count = nextSessions.length;
       setStatusText(`Loaded ${count} session${count === 1 ? "" : "s"}`);
+      const urlSessionRaw = initialSessionIdRef.current;
+      const urlSessionId =
+        urlSessionRaw && String(urlSessionRaw).trim() ? String(urlSessionRaw).trim() : "";
       const preferredId =
-        initialSessionId && nextSessions.some((s) => s.id === initialSessionId)
-          ? initialSessionId
+        urlSessionId && nextSessions.some((s) => s.id === urlSessionId)
+          ? urlSessionId
           : nextSessions[0]?.id;
       if (!preferredId) {
         setStatusText(
@@ -2516,7 +2548,40 @@ export function AgentChatTab({
       runStateRef.current.sessionId = null;
       runStateRef.current.abortController = null;
     };
-  }, [agentId, initialSessionId, projectId]);
+  }, [agentId, projectId]);
+
+  /** When the session id in the URL changes (e.g. browser back/forward) without agent/project change, follow it. */
+  useEffect(() => {
+    if (isLoadingSessions) {
+      return;
+    }
+    if (!agentId) {
+      return;
+    }
+    const urlRaw =
+      initialSessionId != null && String(initialSessionId).trim()
+        ? String(initialSessionId).trim()
+        : "";
+    if (!urlRaw) {
+      return;
+    }
+    const current = String(activeSessionId ?? "").trim();
+    if (current === urlRaw) {
+      return;
+    }
+    if (!urlSessionPresentInList) {
+      return;
+    }
+    setActiveSessionId(urlRaw);
+    void openSession(urlRaw);
+  }, [
+    agentId,
+    projectId,
+    initialSessionId,
+    isLoadingSessions,
+    activeSessionId,
+    urlSessionPresentInList
+  ]);
 
   async function openSession(sessionId, isCancelled = false) {
     if (!sessionId) {
@@ -2622,7 +2687,9 @@ export function AgentChatTab({
     }
 
     const nextSessions = sortSessionsByUpdate(
-      response.filter((s) => isUserCreatedSession(s) && sessionMatchesProjectScope(s, scoped))
+      response.filter((s) =>
+        isUserCreatedSession(s) && sessionMatchesProjectScope(s, scoped, Boolean(scoped))
+      )
     );
     setSessions(nextSessions);
 
@@ -2673,8 +2740,12 @@ export function AgentChatTab({
       return;
     }
     const scoped = projectId && String(projectId).trim() ? String(projectId).trim() : "";
-    if (scoped && !sessionMatchesProjectScope(summary, scoped)) {
-      return;
+    if (scoped && !sessionMatchesProjectScope(summary, scoped, false)) {
+      const sameAsActive =
+        String(summary.id || "").trim() === String(activeSessionIdRef.current || "").trim();
+      if (!sameAsActive) {
+        return;
+      }
     }
     setSessions((previous) =>
       sortSessionsByUpdate([summary, ...previous.filter((sessionItem) => sessionItem.id !== summary.id)])

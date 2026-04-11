@@ -123,7 +123,7 @@ struct AgentsDelegateTaskTool: CoreTool {
             }
             objective += "[Goal]\n\(singleGoal)"
             let taskId = UUID().uuidString
-            let summary = await runner(agentID, taskId, objective, workingDirectory, toolsets)
+            let summary = await runner(agentID, taskId, objective, workingDirectory, toolsets, nil)
                 ?? ""
             return toolSuccess(
                 tool: name,
@@ -147,7 +147,7 @@ struct AgentsDelegateTaskTool: CoreTool {
                     }
                     objective += "[Goal]\n\(goal)"
                     let taskId = UUID().uuidString
-                    let summary = await runner(agentID, taskId, objective, workingDirectory, toolsets) ?? ""
+                    let summary = await runner(agentID, taskId, objective, workingDirectory, toolsets, nil) ?? ""
                     return .object([
                         "goal": .string(goal),
                         "summary": .string(summary),

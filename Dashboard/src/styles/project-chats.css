@@ -73,6 +73,11 @@
   padding: 8px 6px 12px;
   border-top: 1px solid var(--line);
   flex-shrink: 0;
+  font-family: "Fira Code", monospace;
+}
+
+.sidebar-project-rail button {
+  font-family: inherit;
 }
 
 .sidebar-project-rail-label {
