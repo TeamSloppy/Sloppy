@@ -70,10 +70,10 @@ const FACE_IDS = [
 ];
 
 const BOX = {
-  head: { x: -5, y: -30, w: 190, h: 190 },
-  face: { x: 10, y: -15, w: 190, h: 190 },
-  body: { x: 10, y: 60, w: 160, h: 190 },
-  legs: { x: 2, y: 155, w: 190, h: 190 },
+  head: { x: 20, y: -10, w: 140, h: 140 },
+  face: { x: 20, y: -8, w: 160, h: 160 },
+  body: { x: 10, y: 40, w: 160, h: 190 },
+  legs: { x: 10, y: 140, w: 160, h: 160 },
 };
 
 function fitContain(box, sw, sh) {
