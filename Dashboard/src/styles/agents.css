@@ -2861,6 +2861,106 @@ body.agent-chat-no-page-scroll .page {
   align-items: center;
 }
 
+.agent-memory-filter-dropdown {
+  position: relative;
+  justify-self: end;
+}
+
+.agent-memory-filter-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--text);
+  padding: 10px 12px;
+  font-size: 0.85rem;
+  cursor: pointer;
+  min-width: 152px;
+  justify-content: space-between;
+}
+
+.agent-memory-filter-trigger:hover {
+  background: var(--surface-2);
+}
+
+.agent-memory-filter-chevron {
+  font-size: 1.1rem;
+  transition: transform 0.15s ease;
+  color: var(--muted);
+}
+
+.agent-memory-filter-chevron.open {
+  transform: rotate(180deg);
+}
+
+.agent-memory-filter-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 20;
+  margin: 0;
+  padding: 4px 0;
+  list-style: none;
+  min-width: 100%;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+}
+
+.agent-memory-filter-option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  border: none;
+  background: transparent;
+  color: var(--text);
+  padding: 8px 12px;
+  font-size: 0.85rem;
+  text-align: left;
+  cursor: pointer;
+}
+
+.agent-memory-filter-option:hover,
+.agent-memory-filter-option:focus-visible {
+  background: var(--surface-2);
+  outline: none;
+}
+
+.agent-memory-filter-option.active {
+  background: color-mix(in srgb, var(--surface-2) 80%, var(--accent) 20%);
+}
+
+.agent-memory-filter-check {
+  font-size: 1rem;
+  color: var(--accent);
+  flex-shrink: 0;
+}
+
+.agent-memory-view-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid var(--line);
+  background: var(--surface-2);
+  color: var(--text);
+  padding: 10px 14px;
+  font-size: 0.85rem;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.agent-memory-view-toggle:hover {
+  border-color: var(--accent);
+  background: var(--surface-3);
+}
+
+.agent-memory-view-toggle .material-symbols-rounded {
+  font-size: 1.15rem;
+}
+
 .agent-memories-search {
   min-width: 0;
 }

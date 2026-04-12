@@ -21,6 +21,9 @@ actor TelegramPoller {
     private let onMessageRouted: (@Sendable (String, Int64) async -> Void)?
     private let modelPickerBridge: (any TelegramModelPickerBridge)?
     private var offset: Int64? = nil
+    /// Resolved via `getMe` for `/cmd@bot` routing and mention detection.
+    private var botUserId: Int64 = 0
+    private var botUsernameLowercased: String = ""
     /// Picker UI state keyed by the Telegram message id that hosts the keyboard.
     private var modelPickerSessions: [Int64: PickerSession] = [:]
 
@@ -43,6 +46,14 @@ actor TelegramPoller {
 
     func run() async {
         logger.info("Telegram poller started. Waiting for messages...")
+        do {
+            let me = try await bot.getMe()
+            botUserId = me.id
+            botUsernameLowercased = me.username?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() ?? ""
+            logger.info("Telegram bot identity: id=\(botUserId) username=@\(botUsernameLowercased)")
+        } catch {
+            logger.warning("getMe failed; command @suffix routing may be unreliable: \(error)")
+        }
         while !Task.isCancelled {
             do {
                 let updates = try await bot.getUpdates(offset: offset, timeout: 60)
@@ -192,7 +203,18 @@ actor TelegramPoller {
     // MARK: - Messages
 
     private func handleMessage(_ message: TelegramBotAPI.Message) async {
-        guard let text = message.text, !text.isEmpty else { return }
+        guard let rawText = message.text, !rawText.isEmpty else { return }
+        if !ChannelSlashBotTargeting.telegramCommandTargetsThisBot(
+            commandText: rawText,
+            ourBotUsernameLowercased: botUsernameLowercased
+        ) {
+            logger.debug("Ignoring slash line targeted at another bot: \(rawText.prefix(80))")
+            return
+        }
+        let text = ChannelSlashBotTargeting.stripTelegramBotUsernameSuffix(
+            commandText: rawText,
+            ourBotUsernameLowercased: botUsernameLowercased
+        )
         let userId = message.from?.id ?? 0
         let chatId = message.chat.id
         let messageThreadId = message.messageThreadId
@@ -201,7 +223,7 @@ actor TelegramPoller {
         let chatTitle = message.chat.title.map { " (\($0))" } ?? ""
 
         logger.info(
-            "Incoming message: userId=\(userId) chatId=\(chatId)\(chatTitle) thread=\(messageThreadId.map { String($0) } ?? "none") from=\(displayName) length=\(text.count)"
+            "Incoming message: userId=\(userId) chatId=\(chatId)\(chatTitle) thread=\(messageThreadId.map { String($0) } ?? "none") from=\(displayName) length=\(rawText.count)"
         )
 
         if !config.allowedUserIds.isEmpty {
@@ -250,6 +272,7 @@ actor TelegramPoller {
             platform: "telegram",
             displayName: displayName
         )
+        let inboundContext = buildTelegramInboundContext(message: message, rawText: rawText)
         if let localReply = commands.handle(text: text, context: messageContext) {
             logger.debug("Handled locally by CommandHandler, not forwarding to Sloppy.")
             _ = try? await bot.sendMessage(chatId: chatId, text: localReply, messageThreadId: messageThreadId)
@@ -271,7 +294,8 @@ actor TelegramPoller {
             channelId: channelId,
             userId: userIdString,
             content: text,
-            topicId: topicId
+            topicId: topicId,
+            inboundContext: inboundContext
         )
 
         if ok {
@@ -429,5 +453,28 @@ actor TelegramPoller {
                 messageThreadId: messageThreadId
             )
         }
+    }
+
+    private func buildTelegramInboundContext(message: TelegramBotAPI.Message, rawText: String) -> ChannelInboundContext {
+        if message.chat.type == "private" {
+            return ChannelInboundContext(mentionsThisBot: true, isReplyToThisBot: true)
+        }
+        var mentions = false
+        if !botUsernameLowercased.isEmpty {
+            let needle = "@\(botUsernameLowercased)"
+            if rawText.lowercased().contains(needle) {
+                mentions = true
+            }
+        }
+        if let entities = message.entities {
+            for entity in entities {
+                if entity.type == "text_mention", let user = entity.user, user.id == botUserId {
+                    mentions = true
+                    break
+                }
+            }
+        }
+        let replyToBot = message.replyToMessage?.from?.id == botUserId && botUserId != 0
+        return ChannelInboundContext(mentionsThisBot: mentions, isReplyToThisBot: replyToBot)
     }
 }

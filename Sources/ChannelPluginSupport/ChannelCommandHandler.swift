@@ -124,3 +124,40 @@ public struct ChannelCommandHandler: Sendable {
         return nil
     }
 }
+
+// MARK: - Slash command @bot targeting (Telegram / Discord)
+
+public enum ChannelSlashBotTargeting: Sendable {
+    /// `/cmd@otherbot` is meant for another bot — return `false` so this gateway ignores the update.
+    public static func telegramCommandTargetsThisBot(commandText: String, ourBotUsernameLowercased: String) -> Bool {
+        guard !ourBotUsernameLowercased.isEmpty else { return true }
+        let trimmed = commandText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.hasPrefix("/") else { return true }
+        let withoutSlash = trimmed.dropFirst()
+        let firstSegment = withoutSlash.split(separator: " ", maxSplits: 1, omittingEmptySubsequences: true).first.map(String.init) ?? ""
+        guard let at = firstSegment.firstIndex(of: "@") else { return true }
+        let suffix = String(firstSegment[firstSegment.index(after: at)...]).lowercased()
+        guard !suffix.isEmpty else { return true }
+        return suffix == ourBotUsernameLowercased
+    }
+
+    /// Turns `/model@mybot gpt` → `/model gpt` for core command parsers (must already match ``telegramCommandTargetsThisBot``).
+    public static func stripTelegramBotUsernameSuffix(commandText: String, ourBotUsernameLowercased: String) -> String {
+        guard !ourBotUsernameLowercased.isEmpty else { return commandText }
+        let trimmed = commandText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.hasPrefix("/") else { return commandText }
+        let withoutSlash = trimmed.dropFirst()
+        let parts = withoutSlash.split(separator: " ", maxSplits: 1, omittingEmptySubsequences: true)
+        guard let rawCmd = parts.first else { return commandText }
+        let rest = parts.count > 1 ? String(parts[1]) : ""
+        let cmdStr = String(rawCmd)
+        guard let at = cmdStr.firstIndex(of: "@") else { return commandText }
+        let suffix = String(cmdStr[cmdStr.index(after: at)...]).lowercased()
+        guard suffix == ourBotUsernameLowercased else { return commandText }
+        let cmdBase = String(cmdStr[..<at])
+        if rest.isEmpty {
+            return "/" + cmdBase
+        }
+        return "/" + cmdBase + " " + rest
+    }
+}

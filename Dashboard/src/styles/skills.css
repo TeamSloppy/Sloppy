@@ -271,11 +271,51 @@
   align-items: center;
   margin-top: auto;
   padding-top: 10px;
+  gap: 12px;
+}
+
+.skill-card-footer-buttons {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.skill-github-link-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 12px;
+  border: 1px solid var(--line-strong);
+  background: var(--surface);
+  color: var(--text);
+  font-size: 0.78rem;
+  font-weight: 600;
+  text-decoration: none;
+  cursor: pointer;
+  transition: border-color 0.2s, background 0.2s, color 0.2s;
+}
+
+.skill-github-link-btn:hover {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--surface-3) 88%, var(--accent) 12%);
+  color: var(--text);
+}
+
+.skill-github-link-btn .material-symbols-rounded {
+  font-size: 16px;
+}
+
+.skill-github-link-label {
+  line-height: 1;
 }
 
 .skill-installs {
   font-size: 0.8rem;
   color: var(--muted);
+  min-width: 0;
 }
 
 .skill-button {

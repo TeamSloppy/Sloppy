@@ -55,3 +55,22 @@ func channelRouteDecisionEncodesOptionalQueueFields() throws {
     #expect(decoded.queued == true)
     #expect(decoded.queueDepth == 2)
 }
+
+@Test
+func slashBotTargeting_acceptsMatchingOrBare() {
+    #expect(ChannelSlashBotTargeting.telegramCommandTargetsThisBot(commandText: "/model", ourBotUsernameLowercased: "mybot"))
+    #expect(ChannelSlashBotTargeting.telegramCommandTargetsThisBot(commandText: "/model@mybot", ourBotUsernameLowercased: "mybot"))
+    #expect(!ChannelSlashBotTargeting.telegramCommandTargetsThisBot(commandText: "/model@other", ourBotUsernameLowercased: "mybot"))
+}
+
+@Test
+func slashBotTargeting_stripsSuffix() {
+    #expect(
+        ChannelSlashBotTargeting.stripTelegramBotUsernameSuffix(commandText: "/model@mybot openai:gpt", ourBotUsernameLowercased: "mybot")
+            == "/model openai:gpt"
+    )
+    #expect(
+        ChannelSlashBotTargeting.stripTelegramBotUsernameSuffix(commandText: "/model@MYBOT", ourBotUsernameLowercased: "mybot")
+            == "/model"
+    )
+}
