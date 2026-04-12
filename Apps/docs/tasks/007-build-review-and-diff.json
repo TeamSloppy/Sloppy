@@ -10,7 +10,7 @@
   "adr_refs": [
     "0004"
   ],
-  "summary": "Implement the review surface with unified diff rendering and review comments, reusing existing backend APIs where available.",
+  "summary": "Implement the review surface with unified diff rendering and review comments on top of the current app shell, chat, and project navigation foundations.",
   "scope": [
     "Unified diff renderer with hunk sections",
     "Task review screen entry points from projects/tasks",
@@ -23,7 +23,7 @@
     "review comments integration"
   ],
   "acceptance_criteria": [
-    "Task review can load diff data from Sloppy",
+    "Task review can load diff data from Sloppy once the backend endpoint contract is wired into the client",
     "Added, removed, and context lines render distinctly",
     "Existing review comments display correctly",
     "User can add a new review comment from the client"

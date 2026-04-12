@@ -10,7 +10,7 @@
     "0003",
     "0005"
   ],
-  "summary": "Extend Sloppy and the Apple client for device registration, APNs delivery, and internal testing distribution over the Tailscale-first deployment model.",
+  "summary": "Extend Sloppy and the Apple client beyond the current websocket notification baseline to support device registration, APNs delivery, and internal testing distribution over the Tailscale-first deployment model.",
   "scope": [
     "Device registration and preferences endpoints in Sloppy",
     "APNs sender integration on the backend",
@@ -33,7 +33,7 @@
   "suggested_files": [
     "Sources/sloppy",
     "Apps/Client/Sources/SloppyClientCore",
-    "Apps/Client/Sources/SloppyAppleApp",
+    "Apps/Client/Sources/SloppyClient",
     "Apps/Client/README.md"
   ]
 }
