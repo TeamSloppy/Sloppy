@@ -8,11 +8,11 @@
     "0001",
     "0005"
   ],
-  "summary": "Create the initial Apps/Client layout, package boundaries, and Xcode project generation strategy without removing the current Sources/App placeholder.",
+  "summary": "Create the initial Apps/Client layout, package boundaries, and Xcode project generation strategy for the standalone Apple client workspace.",
   "scope": [
     "Create Apps/Client package skeleton and module directories",
     "Add project generation config for a reproducible .xcodeproj",
-    "Document how Sources/App coexists temporarily with Apps/Client",
+    "Document how Apps/Client is organized as its own workspace",
     "Add initial README/build notes for the new app workspace"
   ],
   "deliverables": [
@@ -25,7 +25,7 @@
     "Apps/Client exists and has a compilable package skeleton",
     "An .xcodeproj can be generated from repo state",
     "No existing root package products are broken",
-    "Sources/App remains untouched or only documented"
+    "Apps/Client is documented as the canonical Apple client workspace"
   ],
   "suggested_files": [
     "Apps/Client/Package.swift",

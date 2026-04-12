@@ -1,7 +1,7 @@
 {
   "id": "sloppy-apple-006",
   "title": "Build live chat and notification transport on top of REST plus WebSocket",
-  "status": "todo",
+  "status": "in_progress",
   "priority": "high",
   "depends_on": [
     "sloppy-apple-005"
@@ -10,28 +10,29 @@
     "0003",
     "0004"
   ],
-  "summary": "Implement agent chat, live session streaming, and in-app notifications using the existing Sloppy REST and WebSocket routes.",
+  "summary": "Continue hardening agent chat, live session streaming, and in-app notifications on top of the existing REST and WebSocket integration that now exists in the client workspace.",
   "scope": [
-    "API client actor for REST",
-    "notification socket manager",
-    "agent session socket manager",
-    "chat transcript rendering and composer",
-    "reconnect and resync behavior"
+    "stabilize the API client and REST-backed chat flows",
+    "harden notification socket manager behavior",
+    "harden agent session socket manager reconnect behavior",
+    "polish chat transcript rendering and composer UX",
+    "close reconnect and resync gaps"
   ],
   "deliverables": [
-    "network actors for REST and WS",
+    "REST and WebSocket client foundations",
     "chat feature with live streaming",
-    "in-app notification presentation"
+    "in-app notification presentation and reconnect behavior"
   ],
   "acceptance_criteria": [
     "User can open an agent chat and send a message",
-    "Assistant responses stream over WS and recover after disconnect",
+    "Assistant responses stream over WS and reconnect behavior is stable",
     "Notifications arrive over the global notifications socket",
-    "Reconnect path resyncs stale state through REST"
+    "Reconnect path resyncs stale state through REST where required"
   ],
   "suggested_files": [
-    "Apps/Client/Sources/SloppyClientNetwork",
+    "Apps/Client/Sources/SloppyClientCore",
     "Apps/Client/Sources/SloppyFeatureAgents",
+    "Apps/Client/Sources/SloppyFeatureChat",
     "Apps/Client/Sources/SloppyClientUI"
   ]
 }

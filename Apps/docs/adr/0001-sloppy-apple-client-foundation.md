@@ -10,33 +10,32 @@ We want a native macOS/iOS client for Sloppy that mirrors the product surface of
 The original planning draft used `Clients/SloppyApple`, but the repository direction is now:
 - product app code lives under `Apps/Client`
 - design and execution docs live under `Apps/docs`
-
-The repository still contains `Sources/App/AppMain.swift`, but it is only a placeholder executable currently used by the root SwiftPM package.
+- the Apple client is maintained as a separate workspace from the root server package
+- the app is already structured into core, UI, and feature modules inside `Apps/Client/Sources`
 
 ## Decision
 
-- The future Apple client will live at `Apps/Client`.
+- The Apple client lives at `Apps/Client`.
 - Architecture and execution planning documents will live at `Apps/docs/adr` and `Apps/docs/tasks`.
-- The product scope for v1 is an internal-first macOS/iOS client built on AdaEngine + AdaUI.
+- The product scope for v1 is an internal-first Apple client built on AdaEngine + AdaUI.
 - The app will mirror the dashboard information architecture:
   - root navigation for `Overview`, `Projects`, `Agents`, `Tasks`, `Review`
   - nested tabs inside project and agent detail screens
-- `Sources/App` will not be removed yet. It stays as a compatibility placeholder until `Apps/Client` has a real executable, schemes, and CI wiring.
+- The app is maintained as its own package and project-generation flow, separate from the root `Package.swift` products.
 
 ## Consequences
 
 Positive:
 - `Apps/Client` is clearer and product-oriented than `Clients/SloppyApple`.
 - Docs and execution artifacts sit next to the future app rather than near backend targets.
-- We avoid breaking the current `App` product and CI while the new client is still in planning and scaffold phases.
+- Package boundaries and generated Apple targets are explicit and reproducible.
 
 Negative:
-- The repo will temporarily contain two app concepts:
-  - placeholder `Sources/App`
-  - planned real client in `Apps/Client`
-- A later cleanup ADR or task will be required to retire `Sources/App`.
+- The client still trails the web dashboard in feature completeness.
+- Apple-specific build, signing, and release concerns remain a separate maintenance track from the server runtime.
 
 ## Implementation Notes
 
 - All new execution work should reference `Apps/Client` as the target path.
-- Any task that changes the root `Package.swift` executable graph must explicitly account for the current `App` product.
+- Human-readable implementation status should be maintained in `Apps/docs/current-state.md`.
+- ADRs should capture durable architecture decisions; task JSON should capture execution status and remaining roadmap.

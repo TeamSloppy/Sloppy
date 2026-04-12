@@ -29,7 +29,7 @@
     "Navigation actions from Overview change routes correctly"
   ],
   "suggested_files": [
-    "Apps/Client/Sources/SloppyAppleApp",
+    "Apps/Client/Sources/SloppyClient",
     "Apps/Client/Sources/SloppyClientCore",
     "Apps/Client/Sources/SloppyFeatureOverview"
   ]

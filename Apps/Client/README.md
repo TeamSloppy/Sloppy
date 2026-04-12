@@ -2,6 +2,8 @@
 
 Native macOS/iOS client for Sloppy. Built on AdaEngine + AdaUI.
 
+Current status: internal-first Apple client workspace with connection setup, local server discovery, deep-link connection, chat, websocket-backed notifications, and settings/config editing foundations.
+
 ## Build
 
 ```bash
@@ -19,11 +21,9 @@ xcodegen generate
 open SloppyClient.xcodeproj
 ```
 
-## Coexistence with Sources/App
+## Workspace Notes
 
-The root package at the repo root contains a `Sources/App` placeholder executable (`App` product). It remains untouched as a compatibility shim for the root SwiftPM graph and CI. `Apps/Client` is the real Apple client workspace and is built independently.
-
-`Sources/App` will be retired in a future task once `Apps/Client` has a real executable, schemes, and CI wiring wired up.
+`Apps/Client` is the canonical Apple client workspace. It is built independently from the root server package and has its own package boundaries plus generated Xcode project flow.
 
 ## Structure
 
@@ -35,11 +35,30 @@ Apps/Client/
     SloppyClient/        # App entry point and product screens
 ```
 
+## Current Feature Status
+
+Implemented now:
+
+- splash and connection setup flow
+- saved server retry and local network discovery
+- manual host/port connection
+- `sloppy://connect` deep-link handling
+- chat UI with session streaming
+- notification socket integration and in-app banners
+- settings and server config editing surfaces
+
+Still on the roadmap:
+
+- review and diff flows
+- APNs device registration and push delivery
+- release/distribution hardening
+
 ## Notes
 
 - AdaEngine is vendored as a git submodule at `Vendor/AdaEngine` (see ADR 0002).
 - Requires macOS 15.0+ (driven by AdaEngine's minimum platform requirement).
 - Push notification entitlements are already stubbed in `project.yml` per ADR 0005.
+- More implementation status is tracked in [Apps/docs/current-state.md](../docs/current-state.md).
 
 ## Updating the pinned engine revision
 
@@ -60,4 +79,4 @@ To initialize the submodule after a fresh clone:
 git submodule update --init --recursive
 ```
 
-Ownership rules for changes: see [ADR 0002](../Apps/docs/adr/0002-adaengine-fork-and-submodule.md).
+Ownership rules for changes: see [ADR 0002](../docs/adr/0002-adaengine-fork-and-submodule.md).

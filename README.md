@@ -1,10 +1,12 @@
-# 🤖 Sloppy - AI Assistant that increase your vibe
+# 🤖 Sloppy - AI Agents that increase your vibe
 
 <p align="center">
   <picture>
     <img src="Assets/sloppy_github_banner.png" alt="Sloppy Banner" width="500"/>
   </picture>
 </p>
+
+> Did you catch your Sloppie?
 
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/TeamSloppy/Sloppy)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/TeamSloppy/Sloppy/blob/main/LICENSE)
@@ -43,7 +45,7 @@ At its core, the project provides:
 | `Node` | ⚙️ Daemon for process execution |
 | `Dashboard` | 📊 Vite/React UI for runtime visibility |
 
-The runtime is designed to keep execution structured and observable instead of turning agent behavior into a single opaque prompt loop.
+The runtime is designed to keep agent execution structured, inspectable, and recoverable instead of collapsing everything into one opaque prompt loop.
 
 ## ✨ Features
 
@@ -89,51 +91,68 @@ What makes Sloppy distinct in its current form:
 git clone https://github.com/TeamSloppy/Sloppy.git
 cd Sloppy
 bash scripts/install.sh
+sloppy run
 ```
 
-By default the installer builds the server stack plus the Dashboard bundle. To skip the Dashboard build, run `bash scripts/install.sh --server-only`.
+By default the installer builds the server stack and bundled dashboard assets. To skip the dashboard build, run:
 
-Remote bootstrap variant:
+```bash
+bash scripts/install.sh --server-only
+```
+
+Default local endpoints after `sloppy run`:
+
+- API: `http://localhost:25101`
+- Dashboard: `http://localhost:25102`
+
+Remote bootstrap variants:
 
 ```bash
 curl -fsSL https://sloppy.team/install.sh | bash
 curl -fsSL https://sloppy.team/install.sh | bash -s -- --server-only
 ```
 
-📖 For detailed installation instructions, prerequisites, Docker setup, and environment variables see **[docs.sloppy.team/install](https://docs.sloppy.team/install)**.
+📖 For detailed install options, Docker, and configuration, see [docs/install.md](docs/install.md) and [docs/index.md](docs/index.md).
 
 ## ❓ FAQ
 
 ### Do I need an API key to run Sloppy?
 
-No. The runtime, tests, and dashboard can run without OpenAI credentials. You only need `OPENAI_API_KEY` for OpenAI-backed model execution.
-If you want agent web search, provide `BRAVE_API_KEY` or `PERPLEXITY_API_KEY`, or store the fallback keys in runtime config.
+No. The runtime, tests, and dashboard can run without OpenAI credentials. You only need provider-specific credentials when you want to use those providers.
+
+### Which channels are supported?
+
+The repository currently ships built-in Telegram and Discord channel plugins. The HTTP API is also a first-class entry point, and additional gateways can be added through the plugin system.
+
+### Does Sloppy support MCP and ACP?
+
+Yes. Sloppy can connect to external MCP servers and expose their tools/resources to agents, and it can delegate agent execution to external ACP-compatible coding agents.
 
 ### Where does Sloppy store data?
 
 The default runtime uses SQLite for persistence. Workspace data, logs, artifacts, and related runtime files are created under the configured workspace root.
 
-### Can I use a local model instead of OpenAI?
+### Does Sloppy have observability tooling built in?
 
-Yes. The project includes an `AnyLanguageModel` bridge and documents Ollama as a supported local path.
+Yes. The dashboard, persisted events, artifact tracking, and Visor bulletins are all part of the current product surface, not future roadmap items.
+
+### Is there a native app?
+
+Yes. The repository includes an Apple client workspace in `Apps/Client`. It is currently an internal-first native client, built separately from the root server package.
 
 ### Does Sloppy support Linux?
 
-Yes. Linux is part of the active build matrix in CI. For direct terminal builds on Ubuntu/Debian-based systems, install `libsqlite3-dev` before running the Swift commands.
+Yes. Linux is part of the active build and release matrix in CI. For direct terminal builds on Ubuntu or Debian-based systems, install `libsqlite3-dev` before running Swift commands.
 
-### Is Telegram supported?
+### Where can I read more about the architecture?
 
-Yes. The repository includes a Telegram channel plugin that maps Telegram chats to Sloppy channels and forwards inbound and outbound messages.
-
-### Where can I read more about the runtime model?
-
-See the specs in [docs/specs/runtime-v1.md](docs/specs/runtime-v1.md) and [docs/specs/prd-runtime-v1.md](docs/specs/prd-runtime-v1.md).
+Learn more about Sloppy in [DeepWiki](https://deepwiki.com/TeamSloppy/Sloppy)
 
 ## 🤝 Contributing
 
 Contributions should stay aligned with the current architecture, validation steps, and repository rules.
 
-📖 Start here: **[docs.sloppy.team/install](https://docs.sloppy.team/install)** · [Development Workflow](docs/guides/development-workflow.md)
+📖 Start here: [install](https://docs.sloppy.team/install) and [development workflow](https://docs.sloppy.team/guides/development-workflow)
 
 ## ⭐ Star History
 

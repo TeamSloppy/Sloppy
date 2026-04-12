@@ -20,6 +20,14 @@ The app must be an SPM-based project, but it also needs an `.xcodeproj` so iOS b
   - simulator/device builds
   - TestFlight when ready
 
+## Implemented Now
+
+- `Apps/Client` is package-first and builds independently from the root server package.
+- `project.yml` defines generated Apple app targets, deployment targets, and entitlements for macOS, iOS, iPadOS, and visionOS.
+- `SloppyClient.xcodeproj` is generated from repo state rather than hand-maintained.
+
+## Roadmap / Not Yet Implemented
+
 ## Push Model
 
 Add a backend push pipeline to Sloppy with:
@@ -34,6 +42,8 @@ Initial push categories:
 - task assigned or mentioned
 - agent error
 - task completed
+
+This section remains roadmap work. The client already has websocket-backed in-app notifications, but APNs device registration, backend token storage, and push delivery are not complete yet.
 
 ## Consequences
 
