@@ -88,14 +88,14 @@ private struct SplitMix64 {
 
 enum AgentPetFactory {
     private static let heads: [AgentPetPartCatalogEntry] = [
-        .init(id: "head-bubble", rarity: .common, weight: 28),
-        .init(id: "head-cube", rarity: .common, weight: 26),
-        .init(id: "head-shell", rarity: .common, weight: 24),
-        .init(id: "head-fork", rarity: .uncommon, weight: 18),
-        .init(id: "head-visor", rarity: .uncommon, weight: 14),
-        .init(id: "head-probe", rarity: .rare, weight: 9),
-        .init(id: "head-oracle", rarity: .rare, weight: 6),
-        .init(id: "head-crown", rarity: .legendary, weight: 2)
+        .init(id: "head_vladimir", rarity: .common, weight: 28),
+        .init(id: "head_kisya", rarity: .common, weight: 26),
+        .init(id: "head_ada", rarity: .common, weight: 24),
+        .init(id: "head_bipbop", rarity: .uncommon, weight: 18),
+        .init(id: "head_george", rarity: .uncommon, weight: 14),
+        .init(id: "head_hollow", rarity: .rare, weight: 9),
+        .init(id: "head_pooh", rarity: .rare, weight: 6),
+        .init(id: "head_proj1018_secret", rarity: .legendary, weight: 2)
     ]
 
     private static let bodies: [AgentPetPartCatalogEntry] = [

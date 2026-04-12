@@ -188,7 +188,7 @@ function AgentsIndexSection({
             >
               <div className="agent-list-avatar-wrap" aria-hidden="true">
                 {agent.pet?.parts
-                  ? <AgentPetIcon parts={agent.pet.parts} />
+                  ? <AgentPetIcon parts={agent.pet.parts} genomeHex={agent.pet.genomeHex} />
                   : agentInitials(agent.displayName || agent.id)}
               </div>
               <div className="agent-list-main">

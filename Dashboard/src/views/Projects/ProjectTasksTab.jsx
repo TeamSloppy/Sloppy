@@ -43,11 +43,11 @@ function assigneeInitials(name) {
     return (parts[0][0] + parts[1][0]).toUpperCase();
 }
 
-function TaskCardSloppieSlot({ parts, label }) {
+function TaskCardSloppieSlot({ parts, genomeHex, label }) {
     if (parts) {
         return (
             <span className="agent-kanban-sloppie">
-                <AgentPetIcon parts={parts} />
+                <AgentPetIcon parts={parts} genomeHex={genomeHex} />
             </span>
         );
     }
@@ -67,6 +67,7 @@ function resolveClaimedAgentSloppie(task, agentDirectory) {
     const entry = agentDirectory[agentId];
     return {
         parts: entry?.pet?.parts,
+        genomeHex: entry?.pet?.genomeHex,
         label: entry?.displayName || agentId
     };
 }
@@ -80,6 +81,7 @@ function resolveActorLinkedSloppie(actorId, createModalActors, agentDirectory) {
     const entry = agentDirectory[linked];
     return {
         parts: entry?.pet?.parts,
+        genomeHex: entry?.pet?.genomeHex,
         label: actor?.displayName || id
     };
 }
@@ -88,7 +90,7 @@ function ProjectKanbanClaimedAgentBadge({ task, agentDirectory }) {
     const ca = resolveClaimedAgentSloppie(task, agentDirectory);
     return (
         <span className="project-task-claim-badge project-task-claim-badge--with-sloppie">
-            <TaskCardSloppieSlot parts={ca?.parts} label={ca?.label} />
+            <TaskCardSloppieSlot parts={ca?.parts} genomeHex={ca?.genomeHex} label={ca?.label} />
             <span>Agent: {ca?.label || task.claimedAgentId}</span>
         </span>
     );
@@ -101,7 +103,7 @@ function ProjectKanbanClaimedActorBadge({ task, createModalActors, agentDirector
     return (
         <span className={`project-task-claim-badge ${ar ? "project-task-claim-badge--with-sloppie" : ""}`}>
             {ar ? (
-                <TaskCardSloppieSlot parts={ar.parts} label={ar.label} />
+                <TaskCardSloppieSlot parts={ar.parts} genomeHex={ar.genomeHex} label={ar.label} />
             ) : (
                 <span className="material-symbols-rounded" aria-hidden="true">
                     person
@@ -118,7 +120,7 @@ function ProjectKanbanAssignedActorBadge({ task, createModalActors, agentDirecto
     return (
         <span className={`project-task-assignee-badge ${ar ? "project-task-assignee-badge--with-sloppie" : ""}`}>
             {ar ? (
-                <TaskCardSloppieSlot parts={ar.parts} label={ar.label} />
+                <TaskCardSloppieSlot parts={ar.parts} genomeHex={ar.genomeHex} label={ar.label} />
             ) : (
                 <span className="material-symbols-rounded" aria-hidden="true">
                     assignment_ind

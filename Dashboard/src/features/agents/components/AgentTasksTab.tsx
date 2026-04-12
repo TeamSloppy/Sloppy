@@ -210,7 +210,7 @@ export function AgentTasksTab({ agentId }: { agentId: string }) {
                       <span className="agent-kanban-assignee">
                         {petParts ? (
                           <span className="agent-kanban-sloppie">
-                            <AgentPetIcon parts={petParts} />
+                            <AgentPetIcon parts={petParts} genomeHex={assignee?.pet?.genomeHex} />
                           </span>
                         ) : (
                           <span className="agent-kanban-sloppie-fallback" aria-hidden="true">

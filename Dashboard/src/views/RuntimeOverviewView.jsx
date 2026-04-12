@@ -397,7 +397,7 @@ function BotActivitySection({ agents, sessions, onNavigateToBots, onNavigateToAg
                 <div className="agent-chart-title">
                   <span className="channel-agent-avatar agent-chart-avatar">
                     {agent.pet?.parts
-                      ? <AgentPetIcon parts={agent.pet.parts} />
+                      ? <AgentPetIcon parts={agent.pet.parts} genomeHex={agent.pet.genomeHex} />
                       : agentInitials(agent.displayName || agent.id)}
                   </span>
                   <h4>{agent.displayName || agent.id}</h4>

@@ -562,12 +562,16 @@ export function ChannelSessionView({ sessionId, onNavigateBack }) {
       ? agentById.get(linkedAgents[0].id)?.pet?.parts ?? null
       : null;
 
+    const primaryAgentGenomeHex =
+      linkedAgents.length > 0 ? agentById.get(linkedAgents[0].id)?.pet?.genomeHex : undefined;
+
     return {
       channelId,
       channelTitle: projectMeta?.channelTitle || channelId || "Channel",
       projectName: projectMeta?.projectName || "",
       linkedAgents,
-      primaryAgentParts
+      primaryAgentParts,
+      primaryAgentGenomeHex
     };
   }, [actorBoard, agents, projects, summary?.channelId]);
 
@@ -650,7 +654,12 @@ export function ChannelSessionView({ sessionId, onNavigateBack }) {
         <div className="channel-session-titlebar">
           <div className="channel-session-avatar">
             {channelMeta.primaryAgentParts
-              ? <AgentPetIcon parts={channelMeta.primaryAgentParts} />
+              ? (
+                <AgentPetIcon
+                  parts={channelMeta.primaryAgentParts}
+                  genomeHex={channelMeta.primaryAgentGenomeHex}
+                />
+              )
               : agentInitials(channelMeta.linkedAgents[0]?.name || channelMeta.channelTitle)}
           </div>
           <div className="channel-session-copy">
