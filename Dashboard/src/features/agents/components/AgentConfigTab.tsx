@@ -36,7 +36,8 @@ function emptyAgentConfigDraft(agentId) {
     },
     channelSessions: {
       autoCloseEnabled: false,
-      autoCloseAfterMinutes: 30
+      autoCloseAfterMinutes: 30,
+      inboundActivation: "all"
     },
     heartbeatStatus: {
       lastRunAt: null,
@@ -72,7 +73,9 @@ function normalizeConfigDraft(agentId, config) {
     },
     channelSessions: {
       autoCloseEnabled: Boolean(config.channelSessions?.autoCloseEnabled),
-      autoCloseAfterMinutes: Number.parseInt(String(config.channelSessions?.autoCloseAfterMinutes ?? 30), 10) || 30
+      autoCloseAfterMinutes: Number.parseInt(String(config.channelSessions?.autoCloseAfterMinutes ?? 30), 10) || 30,
+      inboundActivation:
+        config.channelSessions?.inboundActivation === "mention_or_reply" ? "mention_or_reply" : "all"
     },
     heartbeatStatus: {
       lastRunAt: config.heartbeatStatus?.lastRunAt || null,
@@ -430,7 +433,8 @@ export function AgentConfigTab({ agentId, agentDisplayName = "", onDeleteAgent =
       },
       channelSessions: {
         autoCloseEnabled: Boolean(draft.channelSessions.autoCloseEnabled),
-        autoCloseAfterMinutes: autoCloseAfterMinutes || 30
+        autoCloseAfterMinutes: autoCloseAfterMinutes || 30,
+        inboundActivation: draft.channelSessions.inboundActivation === "mention_or_reply" ? "mention_or_reply" : "all"
       },
       runtime
     };
@@ -693,9 +697,21 @@ export function AgentConfigTab({ agentId, agentDisplayName = "", onDeleteAgent =
         <section className="entry-editor-card">
           <h3>Channel Sessions</h3>
           <p className="placeholder-text">
-            Automatically close inactive incoming channel sessions and start a new one on the next message.
+            Telegram and Discord: control when this agent reacts in shared chats. Slash commands (e.g. <code>/model</code>) always
+            apply when sent as <code>/model@YourBot</code> or without an <code>@</code> suffix. Use <code>/command@bot_username</code> to
+            target a specific bot when several agents share a group.
           </p>
           <div className="entry-form-grid">
+            <label style={{ gridColumn: "1 / -1" }}>
+              Inbound messages (Telegram / Discord)
+              <select
+                value={draft.channelSessions.inboundActivation || "all"}
+                onChange={(event) => updateChannelSessionField("inboundActivation", event.target.value)}
+              >
+                <option value="all">Respond to every message</option>
+                <option value="mention_or_reply">Only @mention or reply to the bot (recommended for busy groups)</option>
+              </select>
+            </label>
             <label className="cron-form-toggle" style={{ gridColumn: "1 / -1" }}>
               <span>Close session after</span>
               <span className="agent-tools-switch">

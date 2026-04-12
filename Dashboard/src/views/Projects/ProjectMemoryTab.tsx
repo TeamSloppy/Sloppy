@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Network, DataSet } from "vis-network/standalone";
+import { AgentMemoriesToolbar } from "../../features/agents/components/AgentMemoriesToolbar";
 import { fetchProjectMemories, fetchProjectMemoryGraph } from "../../api";
 
 const PAGE_SIZE = 20;
@@ -229,11 +230,6 @@ function categoryLabel(value: Exclude<MemoryFilter, "all">) {
   if (value === "persistent") return "Persistent";
   if (value === "temporary") return "Temporary";
   return "Todo";
-}
-
-function filterLabel(value: MemoryFilter) {
-  if (value === "all") return "All";
-  return categoryLabel(value);
 }
 
 const NODE_COLOR = "#555555";
@@ -816,43 +812,14 @@ export function ProjectMemoryTab({ projectId }: { projectId: string }) {
         <span className="agent-tools-status">{view === "graph" ? graphStatusText : listStatusText}</span>
       </div>
 
-      <div className="agent-memories-toolbar">
-        <div className="skills-search agent-memories-search">
-          <span className="material-symbols-rounded">search</span>
-          <input
-            type="search"
-            value={searchInput}
-            onChange={(event) => setSearchInput(event.target.value)}
-            placeholder="Search notes, summaries, or memory IDs"
-          />
-        </div>
-
-        <div className="agent-memory-segmented" role="tablist" aria-label="Memory filter">
-          {(["all", "persistent", "temporary", "todo"] as MemoryFilter[]).map((value) => (
-            <button
-              key={value}
-              type="button"
-              className={`agent-memory-segment ${filter === value ? "active" : ""}`}
-              onClick={() => setFilter(value)}
-            >
-              {filterLabel(value)}
-            </button>
-          ))}
-        </div>
-
-        <div className="agent-memory-segmented" role="tablist" aria-label="Memory view">
-          {(["list", "graph"] as MemoryView[]).map((value) => (
-            <button
-              key={value}
-              type="button"
-              className={`agent-memory-segment ${view === value ? "active" : ""}`}
-              onClick={() => setView(value)}
-            >
-              {value === "list" ? "List" : "Graph"}
-            </button>
-          ))}
-        </div>
-      </div>
+      <AgentMemoriesToolbar
+        searchInput={searchInput}
+        onSearchInputChange={setSearchInput}
+        filter={filter}
+        onFilterChange={setFilter}
+        view={view}
+        onViewChange={setView}
+      />
 
       <div className="agent-memories-body">
         <div className="agent-memories-main">

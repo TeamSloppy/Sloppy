@@ -53,6 +53,20 @@ actor TelegramBotAPI {
         }
     }
 
+    struct MessageEntity: Decodable {
+        let type: String
+        let offset: Int
+        let length: Int
+        let user: User?
+    }
+
+    struct ReplyToMessage: Decodable {
+        let from: User?
+        enum CodingKeys: String, CodingKey {
+            case from
+        }
+    }
+
     struct Message: Decodable {
         let messageId: Int64
         let from: User?
@@ -61,11 +75,15 @@ actor TelegramBotAPI {
         let date: Int
         /// Present for messages in forum topic threads (supergroups).
         let messageThreadId: Int?
+        let replyToMessage: ReplyToMessage?
+        let entities: [MessageEntity]?
 
         enum CodingKeys: String, CodingKey {
             case messageId = "message_id"
             case from, chat, text, date
             case messageThreadId = "message_thread_id"
+            case replyToMessage = "reply_to_message"
+            case entities
         }
     }
 
@@ -232,6 +250,22 @@ actor TelegramBotAPI {
     func setMyCommands(_ commands: [[String: String]]) async throws {
         let params: [String: Any] = ["commands": commands]
         _ = try await post(method: "setMyCommands", params: params)
+    }
+
+    // MARK: - getMe
+
+    struct GetMeResponse: Decodable {
+        let ok: Bool
+        let result: User?
+    }
+
+    func getMe() async throws -> User {
+        let data = try await post(method: "getMe", params: [:])
+        let decoded = try JSONDecoder().decode(GetMeResponse.self, from: data)
+        guard decoded.ok, let user = decoded.result else {
+            throw TelegramAPIError.invalidResponse(method: "getMe")
+        }
+        return user
     }
 
     // MARK: - HTTP transport

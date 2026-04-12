@@ -63,39 +63,51 @@ function SkillCard({
   return (
     <div className="skill-card hover-levitate">
       <div className="skill-card-header">
-        <a href={skill.githubUrl} target="_blank" rel="noopener noreferrer" style={{ textDecoration: 'none', color: 'inherit' }}>
-          <h4 className="skill-name">{skill.name}</h4>
-          <span className="skill-owner">{skill.owner}/{skill.repo}</span>
-        </a>
+        <h4 className="skill-name">{skill.name}</h4>
+        <span className="skill-owner">{skill.owner}/{skill.repo}</span>
       </div>
       <p className={`skill-description ${descriptionText ? "" : "skill-description--missing"}`}>
         {descriptionText || "No description"}
       </p>
       <div className="skill-card-footer">
         <span className="skill-installs">{formatInstalls(skill.installs)} installs</span>
-        {isInstalled ? (
-          <button
-            type="button"
-            className="skill-button skill-button-installed"
-            onClick={onUninstall}
-            disabled={isInstalling}
+        <div className="skill-card-footer-buttons">
+          <a
+            href={skill.githubUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="skill-github-link-btn"
+            title={`Open ${skill.owner}/${skill.repo} on GitHub`}
           >
-            <span className="material-symbols-rounded">check</span>
-          </button>
-        ) : (
-          <button
-            type="button"
-            className="skill-button skill-button-install"
-            onClick={onInstall}
-            disabled={isInstalling}
-          >
-            {isInstalling ? (
-              <span className="material-symbols-rounded">hourglass_empty</span>
-            ) : (
-              <span className="material-symbols-rounded">download</span>
-            )}
-          </button>
-        )}
+            <span className="material-symbols-rounded" aria-hidden>
+              open_in_new
+            </span>
+            <span className="skill-github-link-label">GitHub</span>
+          </a>
+          {isInstalled ? (
+            <button
+              type="button"
+              className="skill-button skill-button-installed"
+              onClick={onUninstall}
+              disabled={isInstalling}
+            >
+              <span className="material-symbols-rounded">check</span>
+            </button>
+          ) : (
+            <button
+              type="button"
+              className="skill-button skill-button-install"
+              onClick={onInstall}
+              disabled={isInstalling}
+            >
+              {isInstalling ? (
+                <span className="material-symbols-rounded">hourglass_empty</span>
+              ) : (
+                <span className="material-symbols-rounded">download</span>
+              )}
+            </button>
+          )}
+        </div>
       </div>
     </div>
   );
@@ -117,13 +129,13 @@ function InstalledSkillCard({
 
   const descriptionText = typeof skill.description === "string" ? skill.description.trim() : "";
 
+  const githubRepoUrl = `https://github.com/${skill.owner}/${skill.repo}`;
+
   return (
     <div className="skill-card hover-levitate">
       <div className="skill-card-header">
-        <a href={`https://github.com/${skill.owner}/${skill.repo}`} target="_blank" rel="noopener noreferrer" style={{ textDecoration: 'none', color: 'inherit' }}>
-          <h4 className="skill-name">{skill.name}</h4>
-          <span className="skill-owner">{skill.owner}/{skill.repo}</span>
-        </a>
+        <h4 className="skill-name">{skill.name}</h4>
+        <span className="skill-owner">{skill.owner}/{skill.repo}</span>
       </div>
       <p className={`skill-description ${descriptionText ? "" : "skill-description--missing"}`}>
         {descriptionText || "No description"}
@@ -149,18 +161,32 @@ function InstalledSkillCard({
         <span className="skill-installs">
           Installed {new Date(skill.installedAt).toLocaleDateString()}
         </span>
-        <button
-          type="button"
-          className="skill-button skill-button-uninstall"
-          onClick={onUninstall}
-          disabled={isUninstalling}
-        >
-          {isUninstalling ? (
-            <span className="material-symbols-rounded">hourglass_empty</span>
-          ) : (
-            <span className="material-symbols-rounded">delete</span>
-          )}
-        </button>
+        <div className="skill-card-footer-buttons">
+          <a
+            href={githubRepoUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="skill-github-link-btn"
+            title={`Open ${skill.owner}/${skill.repo} on GitHub`}
+          >
+            <span className="material-symbols-rounded" aria-hidden>
+              open_in_new
+            </span>
+            <span className="skill-github-link-label">GitHub</span>
+          </a>
+          <button
+            type="button"
+            className="skill-button skill-button-uninstall"
+            onClick={onUninstall}
+            disabled={isUninstalling}
+          >
+            {isUninstalling ? (
+              <span className="material-symbols-rounded">hourglass_empty</span>
+            ) : (
+              <span className="material-symbols-rounded">delete</span>
+            )}
+          </button>
+        </div>
       </div>
     </div>
   );

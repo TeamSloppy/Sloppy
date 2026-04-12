@@ -9,11 +9,32 @@ public enum ChannelAccessResult: Sendable {
     case blocked
 }
 
+/// Hints from a gateway plugin about how the user addressed this bot (group / shared-channel UX).
+public struct ChannelInboundContext: Sendable, Equatable {
+    /// `@bot` / `<@id>` / entity mention includes this integration.
+    public var mentionsThisBot: Bool
+    /// User replied to a message sent by this bot.
+    public var isReplyToThisBot: Bool
+
+    public init(mentionsThisBot: Bool = false, isReplyToThisBot: Bool = false) {
+        self.mentionsThisBot = mentionsThisBot
+        self.isReplyToThisBot = isReplyToThisBot
+    }
+}
+
 /// Receives inbound messages from external channels and routes them into sloppy.
 /// Implementations bridge external platforms (Telegram, Slack, etc.) to channel runtime.
 public protocol InboundMessageReceiver: Sendable {
-    /// - Parameter topicId: Optional platform-specific thread/topic scope (e.g. Telegram forum `message_thread_id` as decimal string).
-    func postMessage(channelId: String, userId: String, content: String, topicId: String?) async -> Bool
+    /// - Parameters:
+    ///   - topicId: Optional platform-specific thread/topic scope (e.g. Telegram forum `message_thread_id` as decimal string).
+    ///   - inboundContext: When non-`nil`, Core may apply per-agent activation policy (mention/reply-only). Pass `nil` for non-gateway callers.
+    func postMessage(
+        channelId: String,
+        userId: String,
+        content: String,
+        topicId: String?,
+        inboundContext: ChannelInboundContext?
+    ) async -> Bool
 
     /// Checks whether a user is allowed to interact with the given channel.
     /// Returns `.allowed` by default; override in CoreService to enforce allowlists and pending approval.
@@ -26,8 +47,12 @@ public protocol InboundMessageReceiver: Sendable {
 }
 
 public extension InboundMessageReceiver {
+    func postMessage(channelId: String, userId: String, content: String, topicId: String?) async -> Bool {
+        await postMessage(channelId: channelId, userId: userId, content: content, topicId: topicId, inboundContext: nil)
+    }
+
     func postMessage(channelId: String, userId: String, content: String) async -> Bool {
-        await postMessage(channelId: channelId, userId: userId, content: content, topicId: nil)
+        await postMessage(channelId: channelId, userId: userId, content: content, topicId: nil, inboundContext: nil)
     }
 
     func checkAccess(

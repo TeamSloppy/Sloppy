@@ -620,6 +620,34 @@ extension CoreService {
     }
 }
 
+extension CoreService {
+    /// Applies per-agent ``ChannelInboundActivation`` for gateway-originated messages (mention/reply-only).
+    fileprivate func shouldDeliverChannelInbound(
+        baseChannelId: String,
+        sessionChannelId: String,
+        content: String,
+        inboundContext: ChannelInboundContext
+    ) async -> Bool {
+        let board = try? getActorBoard()
+        guard let agentID = linkedAgentID(forChannelID: baseChannelId, board: board) else {
+            return true
+        }
+        guard let config = try? getAgentConfig(agentID: agentID) else {
+            return true
+        }
+        switch config.channelSessions.inboundActivation {
+        case .allMessages:
+            return true
+        case .mentionOrReply:
+            let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
+            if trimmed.hasPrefix("/") {
+                return true
+            }
+            return inboundContext.mentionsThisBot || inboundContext.isReplyToThisBot
+        }
+    }
+}
+
 extension CoreService: InboundMessageReceiver {
     /// Checks whether a platform user is allowed to interact.
     /// Priority: config allowlist (fast path) -> DB blocked -> DB approved -> pending approval flow.
@@ -667,12 +695,28 @@ extension CoreService: InboundMessageReceiver {
     /// Called by in-process channel plugins when a message arrives from an external platform.
     /// Routes through the runtime, collects the response, persists to channel session,
     /// and delivers it back to the channel plugin.
-    public func postMessage(channelId: String, userId: String, content: String, topicId: String?) async -> Bool {
+    public func postMessage(
+        channelId: String,
+        userId: String,
+        content: String,
+        topicId: String?,
+        inboundContext: ChannelInboundContext?
+    ) async -> Bool {
         let bindingChannelId = channelId
         let sessionChannelId = ChannelGatewayScope.scopedChannelId(
             baseChannelId: bindingChannelId,
             topicKey: topicId
         )
+
+        if let inboundContext,
+           !(await shouldDeliverChannelInbound(
+               baseChannelId: bindingChannelId,
+               sessionChannelId: sessionChannelId,
+               content: content,
+               inboundContext: inboundContext
+           )) {
+            return true
+        }
 
         if let statusReply = await handleStatusCommand(channelId: sessionChannelId, content: content) {
             await deliverToChannelPlugin(channelId: sessionChannelId, content: statusReply, topicId: topicId)

@@ -868,13 +868,24 @@
     grid-template-columns: 1fr;
   }
 
-  .agent-memory-segmented {
+  .agent-memory-filter-dropdown {
     width: 100%;
-    overflow: auto;
+    justify-self: stretch;
   }
 
-  .agent-memory-segment {
-    flex: 1 0 auto;
+  .agent-memory-filter-trigger {
+    width: 100%;
+  }
+
+  .agent-memory-filter-menu {
+    left: 0;
+    right: 0;
+    width: 100%;
+  }
+
+  .agent-memory-view-toggle {
+    width: 100%;
+    justify-content: center;
   }
 
   .agent-memory-inspector {

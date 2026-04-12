@@ -1322,16 +1322,47 @@ public struct AgentHeartbeatStatus: Codable, Sendable, Equatable {
     }
 }
 
+/// When an agent should react to inbound gateway traffic (Telegram / Discord groups).
+public enum ChannelInboundActivation: String, Codable, Sendable, Equatable {
+    /// Forward every non-empty message to the agent (default).
+    case allMessages = "all"
+    /// Only when the bot is @mentioned or the user replies to the bot's message. Slash commands still always apply.
+    case mentionOrReply = "mention_or_reply"
+}
+
 public struct AgentChannelSessionSettings: Codable, Sendable, Equatable {
     public var autoCloseEnabled: Bool
     public var autoCloseAfterMinutes: Int
+    public var inboundActivation: ChannelInboundActivation
 
     public init(
         autoCloseEnabled: Bool = false,
-        autoCloseAfterMinutes: Int = 30
+        autoCloseAfterMinutes: Int = 30,
+        inboundActivation: ChannelInboundActivation = .allMessages
     ) {
         self.autoCloseEnabled = autoCloseEnabled
         self.autoCloseAfterMinutes = autoCloseAfterMinutes
+        self.inboundActivation = inboundActivation
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case autoCloseEnabled
+        case autoCloseAfterMinutes
+        case inboundActivation
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        autoCloseEnabled = try c.decodeIfPresent(Bool.self, forKey: .autoCloseEnabled) ?? false
+        autoCloseAfterMinutes = try c.decodeIfPresent(Int.self, forKey: .autoCloseAfterMinutes) ?? 30
+        inboundActivation = try c.decodeIfPresent(ChannelInboundActivation.self, forKey: .inboundActivation) ?? .allMessages
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(autoCloseEnabled, forKey: .autoCloseEnabled)
+        try c.encode(autoCloseAfterMinutes, forKey: .autoCloseAfterMinutes)
+        try c.encode(inboundActivation, forKey: .inboundActivation)
     }
 }
 

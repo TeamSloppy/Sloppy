@@ -26,6 +26,8 @@ actor DiscordGatewayLoop {
         let content: String
         let type: Int
         let author: IncomingAuthor
+        let mentionUserIds: [String]
+        let referencedMessageAuthorId: String?
 
         init?(payload: DiscordGatewayPayload) {
             guard payload.op == 0,
@@ -42,11 +44,17 @@ actor DiscordGatewayLoop {
                 return nil
             }
 
+            let mentions = object["mentions"]?.asArray ?? []
+            let mentionUserIds = mentions.compactMap { $0.asObject?["id"]?.asString }
+            let referencedAuthor = object["referenced_message"]?.asObject?["author"]?.asObject?["id"]?.asString
+
             self.id = id
             self.channelId = channelId
             self.guildId = object["guild_id"]?.asString
             self.content = content
             self.type = type
+            self.mentionUserIds = mentionUserIds
+            self.referencedMessageAuthorId = referencedAuthor
             self.author = IncomingAuthor(
                 id: authorId,
                 username: username,
@@ -336,7 +344,9 @@ actor DiscordGatewayLoop {
         let ok = await receiver.postMessage(
             channelId: sloppyChannelId,
             userId: "discord:\(userId)",
-            content: text
+            content: text,
+            topicId: nil,
+            inboundContext: nil
         )
         if !ok {
             logger.warning("Failed to forward interaction to sloppy: channelId=\(sloppyChannelId)")
@@ -438,10 +448,14 @@ actor DiscordGatewayLoop {
             return
         }
 
+        let inboundContext = buildDiscordInboundContext(message: message)
+
         let ok = await receiver.postMessage(
             channelId: sloppyChannelId,
             userId: "discord:\(message.author.id)",
-            content: content
+            content: content,
+            topicId: nil,
+            inboundContext: inboundContext
         )
 
         if !ok {
@@ -450,6 +464,21 @@ actor DiscordGatewayLoop {
                 content: "Failed to reach Sloppy. Please try again later."
             )
         }
+    }
+
+    private func buildDiscordInboundContext(message: IncomingMessage) -> ChannelInboundContext {
+        if message.guildId == nil {
+            return ChannelInboundContext(mentionsThisBot: true, isReplyToThisBot: true)
+        }
+        guard let botId = botUserID else {
+            return ChannelInboundContext()
+        }
+        var mentions = message.mentionUserIds.contains(botId)
+        if !mentions, message.content.contains("<@\(botId)>") {
+            mentions = true
+        }
+        let replyToBot = message.referencedMessageAuthorId == botId
+        return ChannelInboundContext(mentionsThisBot: mentions, isReplyToThisBot: replyToBot)
     }
 
     private func trimmedContent(_ value: String) -> String {
