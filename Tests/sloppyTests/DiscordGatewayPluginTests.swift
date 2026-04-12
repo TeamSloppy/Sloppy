@@ -32,6 +32,14 @@ private actor RecordingInboundReceiver: InboundMessageReceiver {
         return shouldAccept
     }
 
+    func skillSlashCommandTokens(forChannelID: String) async -> [String] {
+        []
+    }
+
+    func skillSlashMenuEntriesUnion(forChannelIDs: [String]) async -> [ChannelSlashCommandItem] {
+        []
+    }
+
     func snapshot() -> [Message] {
         messages
     }

@@ -71,6 +71,8 @@ actor DiscordGatewayLoop {
     private let client: any DiscordPlatformClient
     private let receiver: any InboundMessageReceiver
     private let config: DiscordPluginConfig
+    /// Sloppy channel ids this plugin binds (for skill slash menu union).
+    private let sloppyChannelIds: [String]
     private let commands: ChannelCommandHandler
     private let logger: Logger
     private var sequence: Int?
@@ -81,11 +83,13 @@ actor DiscordGatewayLoop {
         client: any DiscordPlatformClient,
         receiver: any InboundMessageReceiver,
         config: DiscordPluginConfig,
+        sloppyChannelIds: [String],
         logger: Logger
     ) {
         self.client = client
         self.receiver = receiver
         self.config = config
+        self.sloppyChannelIds = sloppyChannelIds
         self.commands = ChannelCommandHandler(platformName: "Discord")
         self.logger = logger
     }
@@ -249,7 +253,7 @@ actor DiscordGatewayLoop {
             logger.warning("Cannot register Discord commands: applicationId not available from READY payload.")
             return
         }
-        let commandPayloads: [JSONValue] = ChannelCommandHandler.commands.map { cmd in
+        var commandPayloads: [JSONValue] = ChannelCommandHandler.commands.map { cmd in
             var fields: [String: JSONValue] = [
                 "name": .string(cmd.name),
                 "description": .string(cmd.description),
@@ -267,9 +271,23 @@ actor DiscordGatewayLoop {
             }
             return .object(fields)
         }
+        let skillRows = await receiver.skillSlashMenuEntriesUnion(forChannelIDs: sloppyChannelIds)
+        for row in skillRows {
+            commandPayloads.append(
+                .object([
+                    "name": .string(row.name),
+                    "description": .string(String(row.description.prefix(100))),
+                    "type": .number(1)
+                ])
+            )
+        }
+        if commandPayloads.count > 100 {
+            commandPayloads = Array(commandPayloads.prefix(100))
+            logger.warning("Discord slash command list capped at 100 (including skills).")
+        }
         do {
             try await client.registerGlobalCommands(applicationId: applicationId, commands: commandPayloads)
-            logger.info("Discord global slash commands registered: \(ChannelCommandHandler.commands.map { $0.name })")
+            logger.info("Discord global slash commands registered: \(commandPayloads.count) commands")
         } catch {
             logger.warning("Failed to register Discord global commands: \(error)")
         }
@@ -311,7 +329,14 @@ actor DiscordGatewayLoop {
             platform: "discord",
             displayName: displayName
         )
-        if let localReply = commands.handle(text: text, context: messageContext) {
+        let skillTokens: [String]
+        if let mappedSloppyChannelId = sloppyChannelId {
+            skillTokens = await receiver.skillSlashCommandTokens(forChannelID: mappedSloppyChannelId)
+        } else {
+            skillTokens = []
+        }
+        let skillSet = Set(skillTokens.map { $0.lowercased() })
+        if let localReply = commands.handle(text: text, context: messageContext, skillSlashTokensLowercased: skillSet) {
             do {
                 try await client.createInteractionResponse(
                     interactionId: interactionId,
@@ -440,7 +465,9 @@ actor DiscordGatewayLoop {
             platform: "discord",
             displayName: message.author.displayName
         )
-        if let localReply = commands.handle(text: content, context: messageContext) {
+        let skillTokens = await receiver.skillSlashCommandTokens(forChannelID: sloppyChannelId)
+        let skillSet = Set(skillTokens.map { $0.lowercased() })
+        if let localReply = commands.handle(text: content, context: messageContext, skillSlashTokensLowercased: skillSet) {
             _ = try? await client.sendMessage(
                 channelId: message.channelId,
                 content: trimmedContent(localReply)

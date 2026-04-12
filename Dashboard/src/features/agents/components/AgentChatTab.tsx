@@ -15,7 +15,8 @@ import {
   subscribeAgentSessionStream,
   fetchAgentTokenUsage,
   searchProjectFiles,
-  fetchProjectWorkingTreeGit
+  fetchProjectWorkingTreeGit,
+  fetchAgentChatSlashCommands
 } from "../../../api";
 import { navigateToTaskScreen } from "../../../app/routing/navigateToTaskScreen";
 import { ProjectGitDiffPanel } from "./ProjectGitDiffPanel";
@@ -30,17 +31,32 @@ const TASK_TAG_REMOVE_PATTERN = /(^|\s)#([A-Za-z0-9][A-Za-z0-9._-]*)(\s?)$/;
 const TASK_TAG_QUERY_VALUE_PATTERN = /^[A-Za-z0-9._-]*$/;
 const DEFAULT_REASONING_EFFORT = "medium";
 
-const SLASH_COMMANDS = [
-  { name: "help", description: "Show available commands" },
-  { name: "status", description: "Check agent connectivity" },
-  { name: "new", description: "Start a new session with the agent" },
-  { name: "abort", description: "Abort current agent processing" },
-  { name: "model", description: "Show or switch model" },
-  { name: "context", description: "Show token usage and context info" },
-  { name: "tasks", description: "List available tasks" },
+/** Web-chat-only commands (not in channel plugin list). */
+const DASHBOARD_ONLY_SLASH_COMMANDS = [
   { name: "clear", description: "Clear conversation (new session)" },
+  { name: "tasks", description: "List tasks linked to this agent" }
 ];
-const SLASH_COMMAND_NAMES = new Set(SLASH_COMMANDS.map((c) => c.name));
+
+function mergeDashboardSlashCommands(
+  server: { commands?: Array<{ name?: string; description?: string }> } | null
+): Array<{ name: string; description: string }> {
+  const byKey = new Map<string, { name: string; description: string }>();
+  const fromServer = server && Array.isArray(server.commands) ? server.commands : [];
+  for (const raw of fromServer) {
+    const name = String(raw?.name || "").trim();
+    if (!name) {
+      continue;
+    }
+    const description = String(raw?.description || "").trim() || name;
+    byKey.set(name.toLowerCase(), { name, description });
+  }
+  for (const extra of DASHBOARD_ONLY_SLASH_COMMANDS) {
+    if (!byKey.has(extra.name.toLowerCase())) {
+      byKey.set(extra.name.toLowerCase(), extra);
+    }
+  }
+  return Array.from(byKey.values()).sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }));
+}
 const SLASH_CMD_INLINE_PATTERN = /\/([a-z][a-z0-9_-]*)/g;
 const SLASH_CMD_REMOVE_PATTERN = /(^|\s)(\/[a-z][a-z0-9_-]*)(\s?)$/;
 const PATH_AT_QUERY_VALUE_PATTERN = /^[A-Za-z0-9._/-]*$/;
@@ -388,7 +404,7 @@ function findBackwardTaskTag(value, caret) {
   };
 }
 
-function findBackwardSlashCommand(value, caret) {
+function findBackwardSlashCommand(value, caret, allowedNames) {
   const text = String(value || "");
   const safeCaret = Math.max(0, Math.min(Number.isFinite(caret) ? caret : text.length, text.length));
   const beforeCaret = text.slice(0, safeCaret);
@@ -401,7 +417,9 @@ function findBackwardSlashCommand(value, caret) {
   const full = match[0];
   const commandValue = match[2];
   const name = commandValue.slice(1);
-  if (!SLASH_COMMAND_NAMES.has(name)) {
+  const allowed =
+    allowedNames instanceof Set ? allowedNames : new Set(Array.isArray(allowedNames) ? allowedNames : []);
+  if (!allowed.has(name.toLowerCase())) {
     return null;
   }
 
@@ -411,7 +429,7 @@ function findBackwardSlashCommand(value, caret) {
   return { start, end, name };
 }
 
-function splitTextBySlashCommands(value) {
+function splitTextBySlashCommands(value, allowedNames) {
   const text = String(value || "");
   if (!text) {
     return [{ kind: "text", value: "" }];
@@ -419,6 +437,8 @@ function splitTextBySlashCommands(value) {
 
   const parts = [];
   let cursor = 0;
+  const allowed =
+    allowedNames instanceof Set ? allowedNames : new Set(Array.isArray(allowedNames) ? allowedNames : []);
 
   SLASH_CMD_INLINE_PATTERN.lastIndex = 0;
   let match = SLASH_CMD_INLINE_PATTERN.exec(text);
@@ -434,7 +454,7 @@ function splitTextBySlashCommands(value) {
       continue;
     }
 
-    if (!SLASH_COMMAND_NAMES.has(name)) {
+    if (!allowed.has(name.toLowerCase())) {
       match = SLASH_CMD_INLINE_PATTERN.exec(text);
       continue;
     }
@@ -966,7 +986,7 @@ function readEditorTextFromElement(root) {
   return normalizeEditorText(readEditorNodeText(root));
 }
 
-function setEditorContentFromText(root, text) {
+function setEditorContentFromText(root, text, slashCommandNames) {
   if (!root) {
     return;
   }
@@ -984,7 +1004,7 @@ function setEditorContentFromText(root, text) {
       tag.textContent = part.value;
       fragment.appendChild(tag);
     } else if (part.value) {
-      const subParts = splitTextBySlashCommands(part.value);
+      const subParts = splitTextBySlashCommands(part.value, slashCommandNames);
       for (const sub of subParts) {
         if (sub.kind === "command") {
           const cmdTag = document.createElement("span");
@@ -1680,6 +1700,7 @@ function AgentChatComposer({
   reasoningEffort,
   onReasoningEffortChange,
   availableTasks = [],
+  slashCommands = [],
   onTaskTagClick,
   onTaskTagHoverStart,
   onTaskTagHoverEnd
@@ -1698,6 +1719,16 @@ function AgentChatComposer({
   const pendingCaretOffsetRef = useRef(null);
   const scopedProjectId = projectId && String(projectId).trim() ? String(projectId).trim() : "";
 
+  const slashCommandNameSet = useMemo(
+    () =>
+      new Set(
+        (Array.isArray(slashCommands) ? slashCommands : [])
+          .map((c) => String(c?.name || "").trim().toLowerCase())
+          .filter(Boolean)
+      ),
+    [slashCommands]
+  );
+
   const taskQuery = useMemo(() => getTaskQueryAtCursor(inputText, caretIndex), [inputText, caretIndex]);
   const taskSuggestions = useMemo(
     () => filterTaskSuggestions(availableTasks, taskQuery?.query || ""),
@@ -1714,8 +1745,8 @@ function AgentChatComposer({
 
   const slashQuery = useMemo(() => getSlashCommandAtCursor(inputText, caretIndex), [inputText, caretIndex]);
   const slashSuggestions = useMemo(
-    () => filterSlashCommandSuggestions(SLASH_COMMANDS, slashQuery?.query || ""),
-    [slashQuery?.query]
+    () => filterSlashCommandSuggestions(slashCommands, slashQuery?.query || ""),
+    [slashCommands, slashQuery?.query]
   );
 
   const isPathDropdownOpen = isInputFocused && Boolean(pathQuery) && Boolean(scopedProjectId) && !isTaskDropdownOpen;
@@ -1778,7 +1809,7 @@ function AgentChatComposer({
 
     const currentText = readEditorTextFromElement(editor);
     if (currentText !== inputText) {
-      setEditorContentFromText(editor, inputText);
+      setEditorContentFromText(editor, inputText, slashCommandNameSet);
     }
 
     if (pendingCaretOffsetRef.current != null) {
@@ -1788,7 +1819,7 @@ function AgentChatComposer({
       setCaretOffsetInEditor(editor, nextCaret);
       setCaretIndex(nextCaret);
     }
-  }, [editorRef, inputText]);
+  }, [editorRef, inputText, slashCommandNameSet]);
 
   useEffect(() => {
     setCaretIndex((current) => {
@@ -2276,7 +2307,11 @@ function AgentChatComposer({
                     applyInputValue(nextValue, resolved.start);
                     return;
                   }
-                  const resolvedCmd = findBackwardSlashCommand(inputText, getCaretOffsetInEditor(target));
+                  const resolvedCmd = findBackwardSlashCommand(
+                    inputText,
+                    getCaretOffsetInEditor(target),
+                    slashCommandNameSet
+                  );
                   if (resolvedCmd) {
                     event.preventDefault();
                     const nextValue = `${inputText.slice(0, resolvedCmd.start)}${inputText.slice(resolvedCmd.end)}`;
@@ -2455,6 +2490,36 @@ export function AgentChatTab({
     () => availableModels.find((model) => String(model?.id || "").trim() === selectedModel) || null,
     [availableModels, selectedModel]
   );
+
+  const [slashCommands, setSlashCommands] = useState(() => mergeDashboardSlashCommands(null));
+  const slashCommandNameSet = useMemo(
+    () =>
+      new Set(slashCommands.map((c) => String(c?.name || "").trim().toLowerCase()).filter(Boolean)),
+    [slashCommands]
+  );
+
+  useEffect(() => {
+    const aid = String(agentId || "").trim();
+    if (!aid) {
+      setSlashCommands(mergeDashboardSlashCommands(null));
+      return;
+    }
+    let cancelled = false;
+    fetchAgentChatSlashCommands(aid)
+      .then((res) => {
+        if (!cancelled) {
+          setSlashCommands(mergeDashboardSlashCommands(res));
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setSlashCommands(mergeDashboardSlashCommands(null));
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [agentId]);
 
   const scopedProjectId =
     projectId && String(projectId).trim() ? String(projectId).trim() : "";
@@ -3455,7 +3520,7 @@ export function AgentChatTab({
     const lower = text.toLowerCase();
 
     if (lower === "/help") {
-      const lines = SLASH_COMMANDS.map((cmd) => `/${cmd.name} — ${cmd.description}`).join("\n");
+      const lines = slashCommands.map((cmd) => `/${cmd.name} — ${cmd.description}`).join("\n");
       await persistCommandEvents(text, `Available commands:\n${lines}\n\nAny other message is forwarded to the agent.`);
       return true;
     }
@@ -3525,9 +3590,14 @@ export function AgentChatTab({
       return true;
     }
 
+    // Same as channel plugins: /task … is not a local dashboard command; forward full line to the agent.
+    if (lower.startsWith("/task ")) {
+      return false;
+    }
+
     if (lower.startsWith("/") && !lower.slice(1).includes(" ")) {
       const cmdName = lower.slice(1);
-      if (!SLASH_COMMAND_NAMES.has(cmdName)) {
+      if (!slashCommandNameSet.has(cmdName)) {
         await persistCommandEvents(text, "Unknown command. Send /help for available commands.");
         return true;
       }
@@ -4423,6 +4493,7 @@ export function AgentChatTab({
                   reasoningEffort={reasoningEffort}
                   onReasoningEffortChange={setReasoningEffort}
                   availableTasks={knownTaskRecords}
+                  slashCommands={slashCommands}
                   onTaskTagClick={openTaskReference}
                   onTaskTagHoverStart={handleTaskTagHoverStart}
                   onTaskTagHoverEnd={handleTaskTagHoverEnd}

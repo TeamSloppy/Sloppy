@@ -33,6 +33,20 @@ struct AgentsAPIRouter: APIRouter {
             }
         }
 
+        router.get("/v1/agents/:agentId/chat-slash-commands", metadata: RouteMetadata(summary: "Agent chat slash commands", description: "Channel plugin commands plus user-invocable skill shortcuts for this agent (Dashboard / autocomplete)", tags: ["Agents"])) { request in
+            let agentId = request.pathParam("agentId") ?? ""
+            do {
+                let payload = try await service.buildAgentChatSlashCommands(agentID: agentId)
+                return CoreRouter.encodable(status: HTTPStatus.ok, payload: payload)
+            } catch CoreService.AgentSkillsError.invalidAgentID {
+                return CoreRouter.json(status: HTTPStatus.badRequest, payload: ["error": ErrorCode.invalidAgentId])
+            } catch CoreService.AgentStorageError.notFound {
+                return CoreRouter.json(status: HTTPStatus.notFound, payload: ["error": ErrorCode.agentNotFound])
+            } catch {
+                return CoreRouter.json(status: HTTPStatus.internalServerError, payload: ["error": ErrorCode.agentsListFailed])
+            }
+        }
+
         router.delete("/v1/agents/:agentId", metadata: RouteMetadata(summary: "Delete agent", description: "Permanently deletes a non-system agent and all its data", tags: ["Agents"])) { request in
             let agentId = request.pathParam("agentId") ?? ""
             do {

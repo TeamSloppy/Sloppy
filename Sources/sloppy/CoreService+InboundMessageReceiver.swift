@@ -1,5 +1,6 @@
 import Foundation
 import AgentRuntime
+import ChannelPluginSupport
 import Protocols
 import PluginSDK
 import Logging
@@ -831,6 +832,62 @@ extension CoreService: InboundMessageReceiver {
             topicId: topicId
         )
         return true
+    }
+
+    private func resolvedSkillSlashToken(skillId: String, builtinNames: Set<String>) -> String {
+        var token = SkillSlashCommandNaming.slashToken(fromSkillId: skillId)
+        if builtinNames.contains(token) {
+            token = "skill_" + token
+            token = String(token.prefix(32)).trimmingCharacters(in: CharacterSet(charactersIn: "_"))
+        }
+        return token
+    }
+
+    public func skillSlashCommandTokens(forChannelID: String) async -> [String] {
+        let board = try? getActorBoard()
+        let base = ChannelGatewayScope.parse(forChannelID).baseChannelId
+        guard let agentID = linkedAgentID(forChannelID: base, board: board) else {
+            return []
+        }
+        guard let skills = try? await getAgentSkillsForRuntime(agentID: agentID) else {
+            return []
+        }
+        let builtin = Set(ChannelCommandHandler.commands.map { $0.name.lowercased() })
+        return skills.filter(\.userInvocable).map { skill in
+            resolvedSkillSlashToken(skillId: skill.id, builtinNames: builtin)
+        }
+    }
+
+    public func skillSlashMenuEntriesUnion(forChannelIDs: [String]) async -> [ChannelSlashCommandItem] {
+        var seen = Set<String>()
+        var items: [ChannelSlashCommandItem] = []
+        for cid in forChannelIDs {
+            let board = try? getActorBoard()
+            let base = ChannelGatewayScope.parse(cid).baseChannelId
+            guard let agentID = linkedAgentID(forChannelID: base, board: board) else {
+                continue
+            }
+            guard let skills = try? await getAgentSkillsForRuntime(agentID: agentID) else {
+                continue
+            }
+            let builtin = Set(ChannelCommandHandler.commands.map { $0.name.lowercased() })
+            for skill in skills where skill.userInvocable {
+                let token = resolvedSkillSlashToken(skillId: skill.id, builtinNames: builtin)
+                guard !token.isEmpty, !seen.contains(token) else {
+                    continue
+                }
+                seen.insert(token)
+                let desc: String
+                if let d = skill.description?.trimmingCharacters(in: .whitespacesAndNewlines), !d.isEmpty {
+                    desc = "\(skill.name) — \(d)"
+                } else {
+                    desc = skill.name
+                }
+                let clipped = desc.count > 240 ? String(desc.prefix(240)) + "…" : desc
+                items.append(ChannelSlashCommandItem(name: token, description: clipped, argument: nil))
+            }
+        }
+        return items.sorted { $0.name < $1.name }
     }
 
     func emitNotificationIfNeeded(from event: EventEnvelope) async {

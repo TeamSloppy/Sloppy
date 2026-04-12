@@ -1,3 +1,4 @@
+import ChannelPluginSupport
 import Foundation
 import Protocols
 
@@ -52,6 +53,14 @@ struct SystemAPIRouter: APIRouter {
     func configure(on router: CoreRouterRegistrar) {
         router.get("/health", metadata: RouteMetadata(summary: "Health check", description: "Returns the current status of the sloppy service", tags: ["System"])) { _ in
             CoreRouter.json(status: HTTPStatus.ok, payload: ["status": "ok"])
+        }
+
+        router.get("/v1/channel/slash-commands", metadata: RouteMetadata(summary: "List channel slash commands", description: "Returns the same command metadata as Telegram/Discord channel plugins (ChannelCommandHandler)", tags: ["System"])) { _ in
+            let items: [ChannelSlashCommandItem] = ChannelCommandHandler.commands.map { cmd in
+                ChannelSlashCommandItem(name: cmd.name, description: cmd.description, argument: cmd.argument)
+            }
+            let payload = ChannelSlashCommandsResponse(commands: items)
+            return CoreRouter.encodable(status: HTTPStatus.ok, payload: payload)
         }
 
         router.get("/v1/bulletins", metadata: RouteMetadata(summary: "List bulletins", description: "Returns a list of active system bulletins", tags: ["System"])) { _ in

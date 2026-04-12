@@ -39,6 +39,18 @@ export interface CoreApi {
   fetchChannelSession: (sessionId: string) => Promise<AnyRecord | null>;
   postChannelControl: (channelId: string, payload: AnyRecord) => Promise<AnyRecord | null>;
   fetchBulletins: () => Promise<AnyRecord[]>;
+  fetchChannelSlashCommands: () => Promise<{
+    commands: Array<{ name: string; description: string; argument?: string | null }>;
+  } | null>;
+  fetchAgentChatSlashCommands: (agentId: string) => Promise<{
+    commands: Array<{
+      source: string;
+      name: string;
+      description: string;
+      argument?: string | null;
+      skillId?: string | null;
+    }>;
+  } | null>;
   fetchWorkers: () => Promise<AnyRecord[]>;
   fetchArtifact: (id: string) => Promise<AnyRecord | null>;
   fetchRuntimeConfig: () => Promise<AnyRecord | null>;
@@ -282,6 +294,36 @@ export function createCoreApi(): CoreApi {
       });
       if (!response.ok || !Array.isArray(response.data)) {
         return [];
+      }
+      return response.data;
+    },
+
+    fetchChannelSlashCommands: async () => {
+      const response = await requestJson<{
+        commands: Array<{ name: string; description: string; argument?: string | null }>;
+      }>({
+        path: "/v1/channel/slash-commands"
+      });
+      if (!response.ok || !response.data || !Array.isArray(response.data.commands)) {
+        return null;
+      }
+      return response.data;
+    },
+
+    fetchAgentChatSlashCommands: async (agentId) => {
+      const response = await requestJson<{
+        commands: Array<{
+          source: string;
+          name: string;
+          description: string;
+          argument?: string | null;
+          skillId?: string | null;
+        }>;
+      }>({
+        path: `/v1/agents/${encodeURIComponent(agentId)}/chat-slash-commands`
+      });
+      if (!response.ok || !response.data || !Array.isArray(response.data.commands)) {
+        return null;
       }
       return response.data;
     },

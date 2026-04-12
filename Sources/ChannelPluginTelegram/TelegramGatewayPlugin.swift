@@ -2,6 +2,7 @@ import Foundation
 import ChannelPluginSupport
 import Logging
 import PluginSDK
+import Protocols
 
 /// In-process GatewayPlugin that bridges Telegram to Sloppy channels.
 /// Uses long-polling to receive messages and InboundMessageReceiver to forward them to Sloppy.
@@ -62,8 +63,16 @@ public actor TelegramGatewayPlugin: StreamingGatewayPlugin {
         if channelIds.isEmpty {
             logger.warning("No channel-chat mappings configured. Bot will receive messages but cannot route them to Sloppy channels.")
         }
-        let botCommands = ChannelCommandHandler.commands.map {
+        var botCommands = ChannelCommandHandler.commands.map {
             ["command": $0.name, "description": $0.description]
+        }
+        let skillRows = await inboundReceiver.skillSlashMenuEntriesUnion(forChannelIDs: channelIds)
+        for row in skillRows {
+            botCommands.append(["command": row.name, "description": row.description])
+        }
+        if botCommands.count > 100 {
+            botCommands = Array(botCommands.prefix(100))
+            logger.warning("Telegram bot command list capped at 100 (including skills).")
         }
         do {
             try await bot.setMyCommands(botCommands)
