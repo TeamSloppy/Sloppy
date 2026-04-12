@@ -38,15 +38,15 @@ func sloppyVersionNotNewerWithMissingSegment() {
 }
 
 @Test
-func sloppyVersionDevBuildDetection() {
-    // In test builds the resource bundle contains the placeholder,
-    // so isReleaseBuild should be false.
-    #expect(SloppyVersion.isReleaseBuild == false)
-    #expect(SloppyVersion.current == "__SLOPPY_APP_VERSION__")
+func sloppyVersionReleaseVsDevDetection() {
+    // Source tree uses `__SLOPPY_APP_VERSION__`; release CI substitutes a semver before tests.
+    let devPlaceholder = "__SLOPPY_APP_VERSION__"
+    #expect(SloppyVersion.isReleaseBuild == (SloppyVersion.current != devPlaceholder))
 }
 
 @Test
 func updateCheckerDevBuildSkipsCheck() async {
+    guard !SloppyVersion.isReleaseBuild else { return }
     let checker = UpdateCheckerService()
     let status = await checker.status()
     // Dev builds never report updateAvailable and never set latestVersion.
@@ -57,6 +57,7 @@ func updateCheckerDevBuildSkipsCheck() async {
 
 @Test
 func updateCheckerForceCheckDevBuild() async {
+    guard !SloppyVersion.isReleaseBuild else { return }
     let checker = UpdateCheckerService()
     let status = await checker.forceCheck()
     #expect(status.isReleaseBuild == false)
