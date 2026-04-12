@@ -1626,6 +1626,54 @@ public struct ChannelPluginRecord: Codable, Sendable, Equatable {
     }
 }
 
+/// One slash command for channel bots; mirrors ``ChannelCommandHandler.commands`` (Telegram/Discord).
+public struct ChannelSlashCommandItem: Codable, Sendable, Equatable {
+    public var name: String
+    public var description: String
+    public var argument: String?
+
+    public init(name: String, description: String, argument: String? = nil) {
+        self.name = name
+        self.description = description
+        self.argument = argument
+    }
+}
+
+public struct ChannelSlashCommandsResponse: Codable, Sendable, Equatable {
+    public var commands: [ChannelSlashCommandItem]
+
+    public init(commands: [ChannelSlashCommandItem]) {
+        self.commands = commands
+    }
+}
+
+/// Slash menu entries for agent chat (channel builtins + per-agent skills).
+public struct AgentChatSlashCommandItem: Codable, Sendable, Equatable {
+    /// `"channel"` (shared plugin commands) or `"skill"`.
+    public var source: String
+    public var name: String
+    public var description: String
+    public var argument: String?
+    /// Set when `source == "skill"` (original `owner/repo` id).
+    public var skillId: String?
+
+    public init(source: String, name: String, description: String, argument: String? = nil, skillId: String? = nil) {
+        self.source = source
+        self.name = name
+        self.description = description
+        self.argument = argument
+        self.skillId = skillId
+    }
+}
+
+public struct AgentChatSlashCommandsResponse: Codable, Sendable, Equatable {
+    public var commands: [AgentChatSlashCommandItem]
+
+    public init(commands: [AgentChatSlashCommandItem]) {
+        self.commands = commands
+    }
+}
+
 public struct ChannelPluginCreateRequest: Codable, Sendable {
     public var id: String?
     public var type: String

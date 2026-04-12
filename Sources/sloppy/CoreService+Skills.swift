@@ -1,3 +1,4 @@
+import ChannelPluginSupport
 import Foundation
 import Logging
 import Protocols
@@ -176,6 +177,58 @@ extension CoreService {
         default:
             return .storageFailure
         }
+    }
+
+    /// Channel plugin slash commands plus user-invocable skill shortcuts for agent chat UI (Dashboard).
+    public func buildAgentChatSlashCommands(agentID: String) async throws -> AgentChatSlashCommandsResponse {
+        guard let normalizedAgentID = normalizedAgentID(agentID) else {
+            throw AgentSkillsError.invalidAgentID
+        }
+        _ = try getAgent(id: normalizedAgentID)
+
+        var items: [AgentChatSlashCommandItem] = []
+        for cmd in ChannelCommandHandler.commands {
+            items.append(
+                AgentChatSlashCommandItem(
+                    source: "channel",
+                    name: cmd.name,
+                    description: cmd.description,
+                    argument: cmd.argument,
+                    skillId: nil
+                )
+            )
+        }
+        let builtin = Set(ChannelCommandHandler.commands.map { $0.name.lowercased() })
+        let skills = try await getAgentSkillsForRuntime(agentID: normalizedAgentID)
+        for skill in skills where skill.userInvocable {
+            var token = SkillSlashCommandNaming.slashToken(fromSkillId: skill.id)
+            if builtin.contains(token) {
+                token = "skill_" + token
+                token = String(token.prefix(32)).trimmingCharacters(in: CharacterSet(charactersIn: "_"))
+            }
+            let desc: String
+            if let d = skill.description?.trimmingCharacters(in: .whitespacesAndNewlines), !d.isEmpty {
+                desc = "\(skill.name) — \(d)"
+            } else {
+                desc = skill.name
+            }
+            items.append(
+                AgentChatSlashCommandItem(
+                    source: "skill",
+                    name: token,
+                    description: desc,
+                    argument: nil,
+                    skillId: skill.id
+                )
+            )
+        }
+        items.sort { lhs, rhs in
+            if lhs.source != rhs.source {
+                return lhs.source < rhs.source
+            }
+            return lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
+        }
+        return AgentChatSlashCommandsResponse(commands: items)
     }
 }
 

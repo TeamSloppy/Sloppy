@@ -19,7 +19,7 @@ export function SidebarView({
   footer = null,
   projectRailProjects = [],
   selectedChatProjectId = null,
-  onSelectChatProject = () => { }
+  onSelectChatProject = (_projectId) => { }
 }) {
   return (
     <aside className={`sidebar ${isCompact ? "compact" : "full"} ${isMobileOpen ? "mobile-open" : ""}`}>

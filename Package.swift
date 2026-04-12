@@ -63,6 +63,7 @@ let package = Package(
             name: "sloppy",
             dependencies: [
                 "AgentRuntime",
+                "ChannelPluginSupport",
                 "ChannelPluginDiscord",
                 "ChannelPluginTelegram",
                 "Protocols",

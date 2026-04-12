@@ -273,7 +273,13 @@ actor TelegramPoller {
             displayName: displayName
         )
         let inboundContext = buildTelegramInboundContext(message: message, rawText: rawText)
-        if let localReply = commands.handle(text: text, context: messageContext) {
+        let skillTokens = await receiver.skillSlashCommandTokens(forChannelID: channelId)
+        let skillTokenSet = Set(skillTokens.map { $0.lowercased() })
+        if let localReply = commands.handle(
+            text: text,
+            context: messageContext,
+            skillSlashTokensLowercased: skillTokenSet
+        ) {
             logger.debug("Handled locally by CommandHandler, not forwarding to Sloppy.")
             _ = try? await bot.sendMessage(chatId: chatId, text: localReply, messageThreadId: messageThreadId)
             return

@@ -44,6 +44,12 @@ public protocol InboundMessageReceiver: Sendable {
         displayName: String,
         chatId: String
     ) async -> ChannelAccessResult
+
+    /// Slash tokens for user-invocable skills installed on the agent linked to this channel (for `/token` handling).
+    func skillSlashCommandTokens(forChannelID: String) async -> [String]
+
+    /// Unique skill slash menu rows for all linked agents across the given channel ids (Telegram/Discord menus).
+    func skillSlashMenuEntriesUnion(forChannelIDs: [String]) async -> [ChannelSlashCommandItem]
 }
 
 public extension InboundMessageReceiver {
@@ -62,6 +68,14 @@ public extension InboundMessageReceiver {
         chatId: String
     ) async -> ChannelAccessResult {
         .allowed
+    }
+
+    public func skillSlashCommandTokens(forChannelID: String) async -> [String] {
+        []
+    }
+
+    public func skillSlashMenuEntriesUnion(forChannelIDs: [String]) async -> [ChannelSlashCommandItem] {
+        []
     }
 }
 

@@ -800,6 +800,7 @@ export function ProjectsView({
   routeProjectTab = "overview",
   routeProjectTaskReference = null,
   onRouteProjectChange = () => { },
+  onSidebarProjectsListChanged = () => { },
   onNavigateToChannelSession = (_sessionId) => { },
   onNavigateToAgentChatSession = null
 }) {
@@ -1044,7 +1045,7 @@ export function ProjectsView({
     }
   }
 
-  function replaceProjectInState(rawProject) {
+  function replaceProjectInState(rawProject, syncSidebar = false) {
     if (!rawProject) {
       return;
     }
@@ -1056,6 +1057,9 @@ export function ProjectsView({
         left.name.localeCompare(right.name, undefined, { sensitivity: "base" })
       );
     });
+    if (syncSidebar) {
+      onSidebarProjectsListChanged();
+    }
   }
 
   function openProject(projectId, projectTab = "overview") {
@@ -1190,7 +1194,7 @@ export function ProjectsView({
       return;
     }
 
-    replaceProjectInState(created);
+    replaceProjectInState(created, true);
     onRouteProjectChange(String(created.id || ""), "overview");
     closeCreateProjectModal();
     setStatusText(`Project ${displayName} created.`);
@@ -1218,7 +1222,7 @@ export function ProjectsView({
       return;
     }
 
-    replaceProjectInState(updated);
+    replaceProjectInState(updated, true);
     setStatusText(`Project renamed to ${nextName}.`);
   }
 
@@ -1240,6 +1244,7 @@ export function ProjectsView({
     }
 
     setProjects((previous) => previous.filter((candidate) => candidate.id !== projectId));
+    onSidebarProjectsListChanged();
     if (routeProjectId === projectId) {
       onRouteProjectChange(null, null);
     }
@@ -1252,7 +1257,7 @@ export function ProjectsView({
       setStatusText(`Failed to ${archive ? "archive" : "unarchive"} project.`);
       return;
     }
-    replaceProjectInState(updated);
+    replaceProjectInState(updated, true);
     if (archive && routeProjectId === projectId) {
       onRouteProjectChange(null, null, null);
     }
@@ -1675,7 +1680,7 @@ export function ProjectsView({
           if (!updated) {
             return null;
           }
-          replaceProjectInState(updated);
+          replaceProjectInState(updated, true);
           return updated;
         }}
         deleteProject={deleteProject}

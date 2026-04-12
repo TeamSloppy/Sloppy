@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createDependencies } from "./app/di/createDependencies";
 import { DEFAULT_AGENT_TAB, DEFAULT_PROJECT_TAB } from "./app/routing/dashboardRouteAdapter";
 import { useDashboardRoute } from "./app/routing/useDashboardRoute";
@@ -48,8 +48,21 @@ function DashboardShell({ dependencies, debugEnabled }: { dependencies: ReturnTy
   const [sidebarCompact, setSidebarCompact] = useState(true);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [sidebarProjects, setSidebarProjects] = useState<AnyRecord[]>([]);
+  const sidebarChatRepairRef = useRef<string | null>(null);
   const { status: updateStatus } = useUpdateCheck();
   useNotificationSocket();
+
+  const refreshSidebarProjects = useCallback(() => {
+    fetchProjects()
+      .then((list) => {
+        if (Array.isArray(list)) {
+          setSidebarProjects(list);
+        }
+      })
+      .catch(() => {
+        setSidebarProjects([]);
+      });
+  }, []);
 
   useEffect(() => {
     document.body.classList.toggle("mobile-menu-open", mobileSidebarOpen);
@@ -59,22 +72,30 @@ function DashboardShell({ dependencies, debugEnabled }: { dependencies: ReturnTy
   }, [mobileSidebarOpen]);
 
   useEffect(() => {
-    let cancelled = false;
-    fetchProjects()
-      .then((list) => {
-        if (!cancelled && Array.isArray(list)) {
-          setSidebarProjects(list);
-        }
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setSidebarProjects([]);
-        }
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+    refreshSidebarProjects();
+  }, [refreshSidebarProjects]);
+
+  /** If /chats route targets a project missing from the rail (e.g. created before refresh), refetch once. */
+  useEffect(() => {
+    if (route.section !== "chats" || !route.chatProjectId) {
+      sidebarChatRepairRef.current = null;
+      return;
+    }
+    const pid = String(route.chatProjectId).trim();
+    if (!pid) {
+      return;
+    }
+    const found = sidebarProjects.some((p) => String((p as AnyRecord)?.id || "").trim() === pid);
+    if (found) {
+      sidebarChatRepairRef.current = null;
+      return;
+    }
+    if (sidebarChatRepairRef.current === pid) {
+      return;
+    }
+    sidebarChatRepairRef.current = pid;
+    refreshSidebarProjects();
+  }, [route.section, route.chatProjectId, sidebarProjects, refreshSidebarProjects]);
 
   useEffect(() => {
     const mediaQuery = window.matchMedia("(min-width: 1001px)");
@@ -154,6 +175,7 @@ function DashboardShell({ dependencies, debugEnabled }: { dependencies: ReturnTy
           routeProjectTab={route.projectTab}
           routeProjectTaskReference={route.projectTaskReference}
           onRouteProjectChange={onProjectRouteChange as any}
+          onSidebarProjectsListChanged={refreshSidebarProjects}
           onNavigateToChannelSession={(sessionId: string) => {
             setSessionRoute(sessionId);
           }}

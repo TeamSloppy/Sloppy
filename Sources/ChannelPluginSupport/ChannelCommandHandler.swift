@@ -49,7 +49,7 @@ public struct ChannelCommandHandler: Sendable {
         self.platformName = platformName
     }
 
-    public func handle(text: String, context: MessageContext) -> String? {
+    public func handle(text: String, context: MessageContext, skillSlashTokensLowercased: Set<String> = []) -> String? {
         let lower = text.lowercased()
 
         if lower == "/start" || lower == "/help" {
@@ -114,6 +114,13 @@ public struct ChannelCommandHandler: Sendable {
         }
 
         if lower.hasPrefix("/fork") {
+            return nil
+        }
+
+        if lower.hasPrefix("/"),
+           !skillSlashTokensLowercased.isEmpty,
+           let token = ChannelSlashLineParsing.firstCommandTokenLowercased(text),
+           skillSlashTokensLowercased.contains(token) {
             return nil
         }
 

@@ -77,6 +77,7 @@ public actor DiscordGatewayPlugin: StreamingGatewayPlugin {
             client: client,
             receiver: inboundReceiver,
             config: config,
+            sloppyChannelIds: channelIds,
             logger: logger
         )
         gatewayTask = Task {
