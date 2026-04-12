@@ -1,131 +1,131 @@
 {
   "version": 1,
   "parts": {
-    "head-bubble": {
+    "head_vladimir": {
       "frames": 1,
       "fps": 0,
-      "width": 48,
-      "height": 88
+      "width": 168,
+      "height": 308
     },
-    "head-cube": {
+    "head_ada": {
       "frames": 1,
       "fps": 0,
-      "width": 48,
-      "height": 88
+      "width": 168,
+      "height": 308
     },
-    "head-shell": {
+    "head_kisya": {
       "frames": 1,
       "fps": 0,
-      "width": 48,
-      "height": 88
+      "width": 168,
+      "height": 308
     },
-    "head-fork": {
+    "head_george": {
       "frames": 1,
       "fps": 0,
-      "width": 48,
-      "height": 88
+      "width": 168,
+      "height": 308
     },
-    "head-visor": {
+    "head_pooh": {
       "frames": 1,
       "fps": 0,
-      "width": 48,
-      "height": 88
+      "width": 168,
+      "height": 308
     },
-    "head-probe": {
+    "head_hollow": {
       "frames": 1,
       "fps": 0,
-      "width": 48,
-      "height": 88
+      "width": 168,
+      "height": 308
     },
-    "head-oracle": {
+    "head_proj1018_secret": {
       "frames": 1,
       "fps": 0,
-      "width": 48,
-      "height": 88
+      "width": 168,
+      "height": 308
     },
-    "head-crown": {
+    "head_bipbop": {
       "frames": 1,
       "fps": 0,
-      "width": 48,
-      "height": 88
+      "width": 168,
+      "height": 308
     },
     "body-core": {
       "frames": 1,
       "fps": 0,
-      "width": 48,
-      "height": 88
+      "width": 168,
+      "height": 308
     },
     "body-puff": {
       "frames": 1,
       "fps": 0,
-      "width": 48,
-      "height": 88
+      "width": 168,
+      "height": 308
     },
     "body-brick": {
       "frames": 1,
       "fps": 0,
-      "width": 48,
-      "height": 88
+      "width": 168,
+      "height": 308
     },
     "body-terminal": {
       "frames": 1,
       "fps": 0,
-      "width": 48,
-      "height": 88
+      "width": 168,
+      "height": 308
     },
     "body-satchel": {
       "frames": 1,
       "fps": 0,
-      "width": 48,
-      "height": 88
+      "width": 168,
+      "height": 308
     },
     "body-relay": {
       "frames": 1,
       "fps": 0,
-      "width": 48,
-      "height": 88
+      "width": 168,
+      "height": 308
     },
     "body-reactor": {
       "frames": 1,
       "fps": 0,
-      "width": 48,
-      "height": 88
+      "width": 168,
+      "height": 308
     },
     "body-throne": {
       "frames": 1,
       "fps": 0,
-      "width": 48,
-      "height": 88
+      "width": 168,
+      "height": 308
     },
     "legs-stub": {
       "frames": 1,
       "fps": 0,
-      "width": 48,
-      "height": 88
+      "width": 168,
+      "height": 308
     },
     "legs-bouncer": {
       "frames": 1,
       "fps": 0,
-      "width": 48,
-      "height": 88
+      "width": 168,
+      "height": 308
     },
     "legs-track": {
       "frames": 1,
       "fps": 0,
-      "width": 48,
-      "height": 88
+      "width": 168,
+      "height": 308
     },
     "legs-sprinter": {
       "frames": 1,
       "fps": 0,
-      "width": 48,
-      "height": 88
+      "width": 168,
+      "height": 308
     },
     "legs-spider": {
       "frames": 1,
       "fps": 0,
-      "width": 48,
-      "height": 88
+      "width": 168,
+      "height": 308
     },
     "legs-piston": {
       "frames": 1,
@@ -148,50 +148,50 @@
     "face-default": {
       "frames": 1,
       "fps": 0,
-      "width": 48,
-      "height": 88
+      "width": 168,
+      "height": 308
     },
     "face-mono": {
       "frames": 1,
       "fps": 0,
-      "width": 48,
-      "height": 88
+      "width": 168,
+      "height": 308
     },
     "face-scan": {
       "frames": 1,
       "fps": 0,
-      "width": 48,
-      "height": 88
+      "width": 168,
+      "height": 308
     },
     "face-grin": {
       "frames": 1,
       "fps": 0,
-      "width": 48,
-      "height": 88
+      "width": 168,
+      "height": 308
     },
     "face-frown": {
       "frames": 1,
       "fps": 0,
-      "width": 48,
-      "height": 88
+      "width": 168,
+      "height": 308
     },
     "face-x": {
       "frames": 1,
       "fps": 0,
-      "width": 48,
-      "height": 88
+      "width": 168,
+      "height": 308
     },
     "face-star": {
       "frames": 1,
       "fps": 0,
-      "width": 48,
-      "height": 88
+      "width": 168,
+      "height": 308
     },
     "face-halo": {
       "frames": 1,
       "fps": 0,
-      "width": 48,
-      "height": 88
+      "width": 168,
+      "height": 308
     },
     "acc-none": {
       "frames": 1,

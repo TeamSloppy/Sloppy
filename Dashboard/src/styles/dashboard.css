@@ -568,6 +568,12 @@
   aspect-ratio: 48 / 88;
 }
 
+.agent-pet-png-stack .agent-pet-tint-bundle {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
 .agent-pet-png-layer {
   position: absolute;
   inset: 0;
@@ -601,6 +607,12 @@
   width: 100%;
   height: 100%;
   overflow: hidden;
+}
+
+.agent-pet-png-icon-stack .agent-pet-tint-bundle--icon {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
 }
 
 .agent-pet-png-icon-stack .agent-pet-png-layer {
@@ -649,8 +661,17 @@
   transform-origin: center 23%;
 }
 
+.agent-pet-png-layer.agent-pet-body {
+  transform-origin: center 42%;
+}
+
 .agent-pet-png-layer.agent-pet-accessory {
   transform-origin: center 55%;
+}
+
+svg .agent-pet-body {
+  transform-origin: 24px 40px;
+  transform-box: fill-box;
 }
 
 .agent-pet-head.is-animated {
@@ -659,10 +680,10 @@
 
 @keyframes agent-pet-head-sway {
   0%, 100% {
-    transform: rotate(-3deg) translateY(0);
+    transform: rotate(-1deg) translateY(-1px);
   }
   50% {
-    transform: rotate(3deg) translateY(-1px);
+    transform: rotate(1deg) translateY(1.5px);
   }
 }
 
@@ -671,7 +692,18 @@
 }
 
 .agent-pet-face.is-animated {
-  animation: agent-pet-face-blink 4.2s ease-in-out infinite;
+  animation:
+    agent-pet-face-eyes-sway 2.6s ease-in-out infinite,
+    agent-pet-face-blink 4.2s ease-in-out infinite;
+}
+
+@keyframes agent-pet-face-eyes-sway {
+  0%, 100% {
+    transform: translateX(-1.5px);
+  }
+  50% {
+    transform: translateX(1.5px);
+  }
 }
 
 @keyframes agent-pet-face-blink {
@@ -680,6 +712,19 @@
   }
   90% {
     opacity: 0.1;
+  }
+}
+
+.agent-pet-body.is-animated {
+  animation: agent-pet-body-breathe 3.3s ease-in-out infinite;
+}
+
+@keyframes agent-pet-body-breathe {
+  0%, 100% {
+    transform: translateY(0px);
+  }
+  50% {
+    transform: translateY(-3px);
   }
 }
 
@@ -738,6 +783,7 @@
 @media (prefers-reduced-motion: reduce) {
   .agent-pet-head.is-animated,
   .agent-pet-face.is-animated,
+  .agent-pet-body.is-animated,
   .agent-pet-accessory.is-animated,
   .sprite-layer--sheet {
     animation: none;

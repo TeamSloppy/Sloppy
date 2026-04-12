@@ -50,7 +50,8 @@ export function getManifestSync(): SpriteManifest | null {
 }
 
 function categoryFolder(partId: string): string {
-  const prefix = partId.split("-")[0];
+  // Part ids use either underscores (`head_vladimir`) or hyphens (`face-mono`, `body-core`).
+  const prefix = partId.split(/[-_]/)[0] ?? partId;
   return CATEGORY_MAP[prefix] || prefix;
 }
 

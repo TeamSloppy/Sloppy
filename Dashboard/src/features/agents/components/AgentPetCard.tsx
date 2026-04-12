@@ -31,7 +31,7 @@ export function AgentPetCard({ pet }: { pet?: any }) {
 
       <div className="agent-pet-card">
         <div className="agent-pet-stage">
-          <AgentPetSprite parts={pet.parts} />
+          <AgentPetSprite parts={pet.parts} genomeHex={pet.genomeHex} />
           <div className="agent-pet-stage-meta">
             <span className="agent-pet-id">{pet.petId || "pet-unknown"}</span>
             <span className="agent-pet-genome">Genome {pet.genomeHex || "0000000000000000"}</span>
