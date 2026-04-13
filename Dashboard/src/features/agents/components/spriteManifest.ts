@@ -59,6 +59,26 @@ export function hasPngSprite(manifest: SpriteManifest, partId: string): boolean 
   return partId in manifest.parts;
 }
 
+/**
+ * Pick the part id for raster sprites: use API `id` when a PNG exists in the manifest,
+ * else when `id` exists in the SVG fallback catalog, else `fallbackKey`.
+ * Server catalogs (e.g. `head_kisya`) often extend beyond the inline SVG pixel maps.
+ */
+export function resolveSpritePartId(
+  svgCatalog: Record<string, unknown>,
+  id: string | undefined,
+  fallbackKey: string,
+  manifest: SpriteManifest | null,
+): string {
+  if (id && manifest && hasPngSprite(manifest, id)) {
+    return id;
+  }
+  if (id && Object.prototype.hasOwnProperty.call(svgCatalog, id)) {
+    return id;
+  }
+  return fallbackKey;
+}
+
 export function spriteSrc(partId: string): string {
   return `${SPRITE_BASE}/${categoryFolder(partId)}/${partId}.png`;
 }

@@ -437,7 +437,7 @@ export function ChannelSessionView({ sessionId, onNavigateBack }) {
       const [detail, projectsResponse, agentsResponse, boardResponse] = await Promise.all([
         fetchChannelSession(sessionId).catch(() => null),
         fetchProjects().catch(() => null),
-        fetchAgents().catch(() => null),
+        fetchAgents({ includeSystem: true }).catch(() => null),
         fetchActorsBoard().catch(() => null)
       ]);
 
@@ -653,14 +653,20 @@ export function ChannelSessionView({ sessionId, onNavigateBack }) {
       <section className="channel-session-hero">
         <div className="channel-session-titlebar">
           <div className="channel-session-avatar">
-            {channelMeta.primaryAgentParts
-              ? (
-                <AgentPetIcon
-                  parts={channelMeta.primaryAgentParts}
-                  genomeHex={channelMeta.primaryAgentGenomeHex}
-                />
-              )
-              : agentInitials(channelMeta.linkedAgents[0]?.name || channelMeta.channelTitle)}
+            {channelMeta.primaryAgentParts ? (
+              <AgentPetIcon
+                className="channel-session-avatar-pet"
+                parts={channelMeta.primaryAgentParts}
+                genomeHex={channelMeta.primaryAgentGenomeHex}
+              />
+            ) : channelMeta.linkedAgents.length > 0 ? (
+              <AgentPetIcon
+                className="channel-session-avatar-pet"
+                genomeHex={channelMeta.primaryAgentGenomeHex}
+              />
+            ) : (
+              agentInitials(channelMeta.channelTitle)
+            )}
           </div>
           <div className="channel-session-copy">
             <h1>{channelMeta.channelTitle || "Channel Session"}</h1>
