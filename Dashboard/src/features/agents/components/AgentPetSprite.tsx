@@ -5,6 +5,7 @@ import {
   loadManifest,
   getManifestSync,
   hasPngSprite,
+  resolveSpritePartId,
   spriteSrc,
   spritePartMeta,
 } from "./spriteManifest";
@@ -98,11 +99,6 @@ function resolvePart<T extends Record<string, SpritePart>>(catalog: T, id: strin
   return catalog[fallbackKey as string];
 }
 
-function resolvePartId(catalog: Record<string, SpritePart>, id: string | undefined, fallbackKey: string): string {
-  if (id && catalog[id]) return id;
-  return fallbackKey;
-}
-
 function useManifest(): SpriteManifest | null {
   const [manifest, setManifest] = useState<SpriteManifest | null>(getManifestSync);
 
@@ -182,11 +178,11 @@ function PngSprite({
   manifest: SpriteManifest;
   genomeHex?: string;
 }) {
-  const headId = resolvePartId(HEADS, parts?.headId, "head_vladimir");
-  const bodyId = resolvePartId(BODIES, parts?.bodyId, "body-core");
-  const legsId = resolvePartId(LEGS, parts?.legsId, "legs-stub");
-  const faceId = resolvePartId(FACES, parts?.faceId, "face-default");
-  const accId = resolvePartId(ACCESSORIES, parts?.accessoryId, "acc-none");
+  const headId = resolveSpritePartId(HEADS, parts?.headId, "head_vladimir", manifest);
+  const bodyId = resolveSpritePartId(BODIES, parts?.bodyId, "body-core", manifest);
+  const legsId = resolveSpritePartId(LEGS, parts?.legsId, "legs-stub", manifest);
+  const faceId = resolveSpritePartId(FACES, parts?.faceId, "face-default", manifest);
+  const accId = resolveSpritePartId(ACCESSORIES, parts?.accessoryId, "acc-none", manifest);
 
   return (
     <div className="agent-pet-png-stack">
@@ -239,11 +235,11 @@ export function AgentPetSprite({
   animated?: boolean;
 }) {
   const manifest = useManifest();
-  const headId = resolvePartId(HEADS, parts?.headId, "head_vladimir");
-  const bodyId = resolvePartId(BODIES, parts?.bodyId, "body-core");
-  const legsId = resolvePartId(LEGS, parts?.legsId, "legs-stub");
-  const faceId = resolvePartId(FACES, parts?.faceId, "face-default");
-  const accId = resolvePartId(ACCESSORIES, parts?.accessoryId, "acc-none");
+  const headId = resolveSpritePartId(HEADS, parts?.headId, "head_vladimir", manifest);
+  const bodyId = resolveSpritePartId(BODIES, parts?.bodyId, "body-core", manifest);
+  const legsId = resolveSpritePartId(LEGS, parts?.legsId, "legs-stub", manifest);
+  const faceId = resolveSpritePartId(FACES, parts?.faceId, "face-default", manifest);
+  const accId = resolveSpritePartId(ACCESSORIES, parts?.accessoryId, "acc-none", manifest);
   const usePng = usePngAvailable(manifest, [headId, bodyId, legsId, faceId, accId]);
 
   return (
@@ -270,8 +266,8 @@ function SvgIcon({ parts, genomeHex }: { parts?: any; genomeHex?: string }) {
 }
 
 function PngIcon({ parts, manifest, genomeHex }: { parts?: any; manifest: SpriteManifest; genomeHex?: string }) {
-  const headId = resolvePartId(HEADS, parts?.headId, "head_vladimir");
-  const faceId = resolvePartId(FACES, parts?.faceId, "face-default");
+  const headId = resolveSpritePartId(HEADS, parts?.headId, "head_vladimir", manifest);
+  const faceId = resolveSpritePartId(FACES, parts?.faceId, "face-default", manifest);
 
   return (
     <div className="agent-pet-png-icon-stack">
@@ -303,8 +299,8 @@ export function AgentPetIcon({
   className?: string;
 }) {
   const manifest = useManifest();
-  const headId = resolvePartId(HEADS, parts?.headId, "head_vladimir");
-  const faceId = resolvePartId(FACES, parts?.faceId, "face-default");
+  const headId = resolveSpritePartId(HEADS, parts?.headId, "head_vladimir", manifest);
+  const faceId = resolveSpritePartId(FACES, parts?.faceId, "face-default", manifest);
   const usePng = usePngAvailable(manifest, [headId, faceId]);
 
   return (

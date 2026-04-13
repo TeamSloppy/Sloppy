@@ -83,7 +83,7 @@ export interface CoreApi {
   updateProjectTask: (projectId: string, taskId: string, payload: AnyRecord) => Promise<AnyRecord | null>;
   deleteProjectTask: (projectId: string, taskId: string) => Promise<AnyRecord | null>;
   fetchArchivedTasks: (projectId: string) => Promise<AnyRecord[] | null>;
-  fetchAgents: () => Promise<AnyRecord[] | null>;
+  fetchAgents: (options?: { includeSystem?: boolean }) => Promise<AnyRecord[] | null>;
   fetchAgent: (agentId: string) => Promise<AnyRecord | null>;
   fetchAgentTasks: (agentId: string) => Promise<AnyRecord[] | null>;
   fetchAgentMemories: (agentId: string, query?: AgentMemoryQuery) => Promise<AnyRecord | null>;
@@ -667,10 +667,10 @@ export function createCoreApi(): CoreApi {
       return response.data;
     },
 
-    fetchAgents: async () => {
-      const response = await requestJson<AnyRecord[]>({
-        path: "/v1/agents?system=false"
-      });
+    fetchAgents: async (options?: { includeSystem?: boolean }) => {
+      const path =
+        options?.includeSystem === true ? "/v1/agents" : "/v1/agents?system=false";
+      const response = await requestJson<AnyRecord[]>({ path });
       if (!response.ok || !Array.isArray(response.data)) {
         return null;
       }

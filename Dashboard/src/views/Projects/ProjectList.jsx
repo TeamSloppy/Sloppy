@@ -6,7 +6,7 @@ import { workersForProject, activeWorkersForProject, buildTaskCounts, formatRela
 const MAX_VISIBLE_AGENTS = 4;
 
 function useBoard() {
-  const [petPartsByName, setPetPartsByName] = useState({});
+  const [actorPetByName, setActorPetByName] = useState({});
   const [teamMembersByName, setTeamMembersByName] = useState({});
 
   useEffect(() => {
@@ -32,7 +32,10 @@ function useBoard() {
         if (name && agentId) {
           const agent = agentById.get(agentId);
           if (agent?.pet?.parts) {
-            petMap[name] = agent.pet.parts;
+            petMap[name] = {
+              parts: agent.pet.parts,
+              genomeHex: agent.pet.genomeHex
+            };
           }
         }
       }
@@ -49,25 +52,25 @@ function useBoard() {
           .filter(Boolean);
       }
 
-      setPetPartsByName(petMap);
+      setActorPetByName(petMap);
       setTeamMembersByName(teamMap);
     }
     load();
     return () => { cancelled = true; };
   }, []);
 
-  return { petPartsByName, teamMembersByName };
+  return { actorPetByName, teamMembersByName };
 }
 
-function AgentStack({ actorNames, teams = [], petPartsByName, teamMembersByName = {} }) {
+function AgentStack({ actorNames, teams = [], actorPetByName, teamMembersByName = {} }) {
   const resolved = useMemo(() => {
     const teamActors = teams.flatMap((teamName) => teamMembersByName[teamName] ?? []);
     const allNames = Array.from(new Set([...actorNames, ...teamActors]));
     return allNames.map((name) => ({
       name,
-      parts: petPartsByName[name] ?? null
+      pet: actorPetByName[name] ?? null
     }));
-  }, [actorNames, teams, petPartsByName, teamMembersByName]);
+  }, [actorNames, teams, actorPetByName, teamMembersByName]);
 
   if (resolved.length === 0) {
     return null;
@@ -78,9 +81,13 @@ function AgentStack({ actorNames, teams = [], petPartsByName, teamMembersByName 
 
   return (
     <div className="project-agent-stack" aria-hidden="true">
-      {visible.map(({ name, parts }) => (
+      {visible.map(({ name, pet }) => (
         <div key={name} className="project-agent-icon">
-          {parts ? <AgentPetIcon parts={parts} /> : name.slice(0, 2).toUpperCase()}
+          {pet?.parts ? (
+            <AgentPetIcon parts={pet.parts} genomeHex={pet.genomeHex} />
+          ) : (
+            name.slice(0, 2).toUpperCase()
+          )}
         </div>
       ))}
       {overflow > 0 && (
@@ -101,7 +108,7 @@ export function ProjectList({
   onToggleArchived,
   onUnarchiveProject
 }) {
-  const { petPartsByName, teamMembersByName } = useBoard();
+  const { actorPetByName, teamMembersByName } = useBoard();
 
   if (isLoadingProjects) {
     return (
@@ -211,7 +218,7 @@ export function ProjectList({
                   <span className="project-grid-badge project-grid-badge--active">{activeWorkers.length} running</span>
                 )}
               </div>
-              <AgentStack actorNames={actors} teams={teams} petPartsByName={petPartsByName} teamMembersByName={teamMembersByName} />
+              <AgentStack actorNames={actors} teams={teams} actorPetByName={actorPetByName} teamMembersByName={teamMembersByName} />
             </div>
           </article>
         );
