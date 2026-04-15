@@ -91,7 +91,7 @@ struct SplashScreen: View {
     }
 
     private func checkHealth(url: URL) async -> Bool {
-        let endpoint = url.appendingPathComponent("/v1/health")
+        let endpoint = url.appendingPathComponent("/health")
         var request = URLRequest(url: endpoint)
         request.timeoutInterval = 5
         do {
