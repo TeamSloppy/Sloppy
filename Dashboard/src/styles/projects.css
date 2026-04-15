@@ -2368,6 +2368,12 @@
   gap: 8px;
 }
 
+.review-approval-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
 .review-approval-option {
   position: relative;
   display: flex;
@@ -2381,7 +2387,26 @@
   cursor: pointer;
   text-align: left;
   transition: border-color 0.15s, background 0.15s;
-  min-height: auto;
+  min-height: 116px;
+  height: 100%;
+}
+
+.review-approval-grid.disabled .review-approval-option {
+  opacity: 0.6;
+}
+
+@media (max-width: 960px) {
+  .review-approval-grid,
+  .review-approval-options {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 680px) {
+  .review-approval-grid,
+  .review-approval-options {
+    grid-template-columns: 1fr;
+  }
 }
 
 .review-approval-option:hover {

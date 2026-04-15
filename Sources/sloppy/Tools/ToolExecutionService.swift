@@ -87,9 +87,15 @@ final class ToolExecutionService: @unchecked Sendable {
         agentID: String,
         sessionID: String,
         request: ToolInvocationRequest,
-        policy: AgentToolsPolicy
+        policy: AgentToolsPolicy,
+        currentDirectoryURL: URL? = nil
     ) async -> ToolInvocationResult {
-        let context = makeContext(agentID: agentID, sessionID: sessionID, policy: policy)
+        let context = makeContext(
+            agentID: agentID,
+            sessionID: sessionID,
+            policy: policy,
+            currentDirectoryURL: currentDirectoryURL
+        )
         if let result = await registry.invoke(request: request, context: context) {
             return result
         }
@@ -107,7 +113,12 @@ final class ToolExecutionService: @unchecked Sendable {
         )
     }
 
-    func makeContext(agentID: String, sessionID: String, policy: AgentToolsPolicy) -> ToolContext {
+    func makeContext(
+        agentID: String,
+        sessionID: String,
+        policy: AgentToolsPolicy,
+        currentDirectoryURL: URL? = nil
+    ) -> ToolContext {
         let boundApply = applyAgentMarkdown.map { handler in
             { (field: AgentMarkdownDocumentField, markdown: String) async throws in
                 try await handler(agentID, field, markdown)
@@ -118,6 +129,7 @@ final class ToolExecutionService: @unchecked Sendable {
             sessionID: sessionID,
             policy: policy,
             workspaceRootURL: workspaceRootURL,
+            currentDirectoryURL: currentDirectoryURL,
             runtime: runtime,
             memoryStore: memoryStore,
             sessionStore: sessionStore,

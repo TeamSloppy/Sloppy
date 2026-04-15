@@ -310,7 +310,7 @@ private func runManagedCommand(
         }
         cwdURL = resolved
     } else {
-        cwdURL = context.workspaceRootURL
+        cwdURL = context.currentDirectoryURL
     }
 
     return try await runForegroundProcess(

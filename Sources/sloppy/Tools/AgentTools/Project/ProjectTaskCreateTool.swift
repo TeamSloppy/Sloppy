@@ -17,6 +17,7 @@ struct ProjectTaskCreateTool: CoreTool {
             .init(name: "status", description: "Initial task status", schema: DynamicGenerationSchema(type: String.self), isOptional: true),
             .init(name: "kind", description: "Task kind: planning, execution, bugfix", schema: DynamicGenerationSchema(type: String.self), isOptional: true),
             .init(name: "loopModeOverride", description: "Override loop mode: human or agent", schema: DynamicGenerationSchema(type: String.self), isOptional: true),
+            .init(name: "parentTaskId", description: "Parent task ID (e.g. 'SLOPPY-123')", schema: DynamicGenerationSchema(type: String.self), isOptional: true),
             .init(name: "actorId", description: "Assigned actor ID", schema: DynamicGenerationSchema(type: String.self), isOptional: true),
             .init(name: "teamId", description: "Assigned team ID", schema: DynamicGenerationSchema(type: String.self), isOptional: true),
             .init(name: "projectId", description: "Project ID (e.g. 'sloppy'), NOT a task ID like 'SLOPPY-4'. Use instead of channelId when known.", schema: DynamicGenerationSchema(type: String.self), isOptional: true),
@@ -63,7 +64,8 @@ struct ProjectTaskCreateTool: CoreTool {
                     kind: kind,
                     loopModeOverride: loopMode,
                     actorId: arguments["actorId"]?.asString,
-                    teamId: arguments["teamId"]?.asString
+                    teamId: arguments["teamId"]?.asString,
+                    parentTaskId: arguments["parentTaskId"]?.asString
                 )
             )
             let created = updated.tasks.last

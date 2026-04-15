@@ -113,7 +113,7 @@ struct AgentsDelegateTaskTool: CoreTool {
             )
         }
 
-        let workingDirectory = context.workspaceRootURL.path
+        let workingDirectory = context.currentDirectoryURL.path
         let agentID = context.agentID
 
         if hasSingle {

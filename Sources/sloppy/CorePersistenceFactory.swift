@@ -605,8 +605,22 @@ enum CorePersistenceFactory {
             team_id TEXT,
             claimed_actor_id TEXT,
             claimed_agent_id TEXT,
+            parent_task_id TEXT,
+            swarm_id TEXT,
+            swarm_task_id TEXT,
+            swarm_parent_task_id TEXT,
+            swarm_dependency_ids_json TEXT NOT NULL DEFAULT '[]',
+            swarm_depth INTEGER,
+            swarm_actor_path_json TEXT NOT NULL DEFAULT '[]',
             created_at TEXT NOT NULL,
-            updated_at TEXT NOT NULL
+            updated_at TEXT NOT NULL,
+            worktree_branch TEXT,
+            kind TEXT,
+            loop_mode_override TEXT,
+            origin_type TEXT,
+            origin_channel_id TEXT,
+            is_archived INTEGER NOT NULL DEFAULT 0,
+            selected_model TEXT
         );
 
         CREATE INDEX IF NOT EXISTS idx_dashboard_project_tasks_project ON dashboard_project_tasks(project_id);

@@ -58,10 +58,65 @@ extension CoreService {
     /// Forces immediate visor bulletin generation and stores it.
     public func triggerVisorBulletin() async -> MemoryBulletin {
         await waitForStartup()
+        await processAutonomousExecution()
         let taskSummary = await buildProjectTaskSummary()
         let bulletin = await runtime.generateVisorBulletin(taskSummary: taskSummary)
         await store.persistBulletin(bulletin)
         return bulletin
+    }
+
+    /// Processes autonomous task execution for all projects.
+    public func processAutonomousExecution() async {
+        let projects = await store.listProjects()
+        for project in projects {
+            guard project.reviewSettings.autonomousMode != .off else { continue }
+
+            let tasks = project.tasks
+            let activeTasks = tasks.filter { task in
+                let status = ProjectTaskStatus(rawValue: task.status)
+                return status == .inProgress || status == .needsReview || status == .waitingInput || status == .ready
+            }
+
+            if project.reviewSettings.autonomousMode == .sequential, !activeTasks.isEmpty {
+                continue
+            }
+
+            let backlogTasks = tasks.filter { $0.status == ProjectTaskStatus.backlog.rawValue }
+                .sorted { (lhs, rhs) -> Bool in
+                    // Sort by priority then by creation date
+                    if lhs.priority != rhs.priority {
+                        let priorities = ["high": 3, "medium": 2, "low": 1]
+                        return (priorities[lhs.priority] ?? 0) > (priorities[rhs.priority] ?? 0)
+                    }
+                    return lhs.createdAt < rhs.createdAt
+                }
+
+            guard let nextTask = backlogTasks.first else { continue }
+
+            logger.info(
+                "visor.autonomous.pick",
+                metadata: [
+                    "project_id": .string(project.id),
+                    "task_id": .string(nextTask.id),
+                    "mode": .string(project.reviewSettings.autonomousMode.rawValue)
+                ]
+            )
+
+            // Transition from backlog to ready, which triggers handleTaskBecameReady via updateProjectTask
+            let update = ProjectTaskUpdateRequest(status: ProjectTaskStatus.ready.rawValue, changedBy: "visor")
+            do {
+                _ = try await updateProjectTask(projectID: project.id, taskID: nextTask.id, request: update)
+            } catch {
+                logger.warning(
+                    "visor.autonomous.failed",
+                    metadata: [
+                        "project_id": .string(project.id),
+                        "task_id": .string(nextTask.id),
+                        "error": .string(error.localizedDescription)
+                    ]
+                )
+            }
+        }
     }
 
     func visorSchedulerRunning() async -> Bool {

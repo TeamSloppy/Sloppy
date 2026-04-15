@@ -504,5 +504,9 @@ struct ProjectsAPIRouter: APIRouter {
                 return CoreRouter.json(status: HTTPStatus.internalServerError, payload: ["error": ErrorCode.projectMemoryReadFailed])
             }
         }
+        router.get("/v1/projects/:projectId/kanban/ws", metadata: RouteMetadata(summary: "Kanban WebSocket", description: "WebSocket for real-time project kanban board updates", tags: ["Projects"])) { _ in
+            // This is just a placeholder for OpenAPI, actual WS is handled by CoreRouter.webSocket
+            return CoreRouter.json(status: HTTPStatus.notFound, payload: ["error": ErrorCode.notFound])
+        }
     }
 }

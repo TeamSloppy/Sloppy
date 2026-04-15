@@ -291,6 +291,9 @@ extension CoreService {
             await acpSessionManager.removeSession(agentID: normalizedAgentID, sloppySessionID: normalizedSessionID)
             await toolExecution.cleanupSessionProcesses(normalizedSessionID)
             await toolLoopGuard.cleanup(sessionID: normalizedSessionID)
+            sessionExtraRoots.removeValue(forKey: normalizedSessionID)
+            sessionWorkingDirectories.removeValue(forKey: normalizedSessionID)
+            sessionSubagentToolAllowList.removeValue(forKey: normalizedSessionID)
         } catch {
             throw mapSessionStoreError(error)
         }

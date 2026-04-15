@@ -14,7 +14,7 @@ struct RuntimeProcessTool: CoreTool {
             .init(name: "action", description: "Background process action. Only start, status, stop, and list are supported.", schema: DynamicGenerationSchema(type: String.self)),
             .init(name: "command", description: "Executable name or path to start (e.g. 'bash', '/bin/ls', 'git'). Required for start. Do NOT repeat the command name in arguments.", schema: DynamicGenerationSchema(type: String.self), isOptional: true),
             .init(name: "arguments", description: "Array of arguments passed to the command (argv). For shell one-liners use command='bash' arguments=['-lc', 'your command here']. Do NOT include the command name itself.", schema: DynamicGenerationSchema(arrayOf: DynamicGenerationSchema(type: String.self)), isOptional: true),
-            .init(name: "cwd", description: "Working directory (absolute path or relative to workspace root). Defaults to workspace root if omitted.", schema: DynamicGenerationSchema(type: String.self), isOptional: true),
+            .init(name: "cwd", description: "Working directory (absolute path or relative to current session directory). Defaults to current session directory if omitted.", schema: DynamicGenerationSchema(type: String.self), isOptional: true),
             .init(name: "processId", description: "Process ID (required for status/stop)", schema: DynamicGenerationSchema(type: String.self), isOptional: true)
         ])
     }
@@ -54,15 +54,20 @@ struct RuntimeProcessTool: CoreTool {
         }
         let args = arguments["arguments"]?.asArray?.compactMap(\.asString) ?? []
         let cwdValue = arguments["cwd"]?.asString
+        let cwdPath: String
         if let cwdValue, !cwdValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-           context.resolveExecCwd(cwdValue) == nil {
+           let resolved = context.resolveExecCwd(cwdValue) {
+            cwdPath = resolved.path
+        } else if let cwdValue, !cwdValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             return toolFailure(tool: name, code: "cwd_not_allowed", message: "CWD is outside allowed execution roots.", retryable: false)
+        } else {
+            cwdPath = context.currentDirectoryURL.path
         }
         let payload = try await context.processRegistry.start(
             sessionID: context.sessionID,
             command: command,
             arguments: args,
-            cwd: cwdValue,
+            cwd: cwdPath,
             maxProcesses: context.policy.guardrails.maxProcessesPerSession
         )
         return toolSuccess(tool: name, data: payload)

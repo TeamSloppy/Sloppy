@@ -25,7 +25,8 @@ actor ToolLoopGuard {
         sessionID: String,
         request: ToolInvocationRequest,
         policy: AgentToolsPolicy,
-        workspaceRootURL: URL
+        workspaceRootURL: URL,
+        currentDirectoryURL: URL? = nil
     ) -> Decision {
         let now = Date()
         cleanupExpiredRepeatedCallWindow(
@@ -37,7 +38,8 @@ actor ToolLoopGuard {
         guard let descriptor = signatureDescriptor(
             for: request,
             policy: policy,
-            workspaceRootURL: workspaceRootURL
+            workspaceRootURL: workspaceRootURL,
+            currentDirectoryURL: currentDirectoryURL
         ) else {
             return .allow(signature: "")
         }
@@ -83,12 +85,14 @@ actor ToolLoopGuard {
         request: ToolInvocationRequest,
         result: ToolInvocationResult,
         policy: AgentToolsPolicy,
-        workspaceRootURL: URL
+        workspaceRootURL: URL,
+        currentDirectoryURL: URL? = nil
     ) {
         guard let descriptor = signatureDescriptor(
             for: request,
             policy: policy,
-            workspaceRootURL: workspaceRootURL
+            workspaceRootURL: workspaceRootURL,
+            currentDirectoryURL: currentDirectoryURL
         ) else {
             return
         }
@@ -143,7 +147,8 @@ actor ToolLoopGuard {
     private func signatureDescriptor(
         for request: ToolInvocationRequest,
         policy: AgentToolsPolicy,
-        workspaceRootURL: URL
+        workspaceRootURL: URL,
+        currentDirectoryURL: URL?
     ) -> SignatureDescriptor? {
         let trimmedTool = request.tool.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedTool.isEmpty else {
@@ -155,7 +160,12 @@ actor ToolLoopGuard {
             return SignatureDescriptor(
                 signature: stableSignature(
                     tool: trimmedTool,
-                    payload: execPayload(arguments: request.arguments, policy: policy, workspaceRootURL: workspaceRootURL)
+                    payload: execPayload(
+                        arguments: request.arguments,
+                        policy: policy,
+                        workspaceRootURL: workspaceRootURL,
+                        currentDirectoryURL: currentDirectoryURL
+                    )
                 ),
                 enforcesRepeatedCallLimits: true
             )
@@ -167,7 +177,12 @@ actor ToolLoopGuard {
                 return SignatureDescriptor(
                     signature: stableSignature(
                         tool: trimmedTool,
-                        payload: processStartPayload(arguments: request.arguments, policy: policy, workspaceRootURL: workspaceRootURL)
+                        payload: processStartPayload(
+                            arguments: request.arguments,
+                            policy: policy,
+                            workspaceRootURL: workspaceRootURL,
+                            currentDirectoryURL: currentDirectoryURL
+                        )
                     ),
                     enforcesRepeatedCallLimits: true
                 )
@@ -199,21 +214,34 @@ actor ToolLoopGuard {
         return stableJSONString(signatureValue) ?? "\(tool)|\(String(describing: payload))"
     }
 
-    private func execPayload(arguments: [String: JSONValue], policy: AgentToolsPolicy, workspaceRootURL: URL) -> JSONValue {
-        .object([
+    private func execPayload(
+        arguments: [String: JSONValue],
+        policy: AgentToolsPolicy,
+        workspaceRootURL: URL,
+        currentDirectoryURL: URL?
+    ) -> JSONValue {
+        let defaultURL = currentDirectoryURL ?? workspaceRootURL
+        return .object([
             "arguments": .array(arguments["arguments"]?.asArray ?? []),
             "command": .string(arguments["command"]?.asString?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""),
             "cwd": normalizedExecCwd(
                 rawValue: arguments["cwd"]?.asString,
                 policy: policy,
                 workspaceRootURL: workspaceRootURL,
-                defaultPath: workspaceRootURL.standardizedFileURL.path
+                currentDirectoryURL: currentDirectoryURL,
+                defaultPath: defaultURL.standardizedFileURL.path
             )
         ])
     }
 
-    private func processStartPayload(arguments: [String: JSONValue], policy: AgentToolsPolicy, workspaceRootURL: URL) -> JSONValue {
-        .object([
+    private func processStartPayload(
+        arguments: [String: JSONValue],
+        policy: AgentToolsPolicy,
+        workspaceRootURL: URL,
+        currentDirectoryURL: URL?
+    ) -> JSONValue {
+        let defaultURL = currentDirectoryURL ?? workspaceRootURL
+        return .object([
             "action": .string("start"),
             "arguments": .array(arguments["arguments"]?.asArray ?? []),
             "command": .string(arguments["command"]?.asString?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""),
@@ -221,7 +249,8 @@ actor ToolLoopGuard {
                 rawValue: arguments["cwd"]?.asString,
                 policy: policy,
                 workspaceRootURL: workspaceRootURL,
-                defaultPath: workspaceRootURL.standardizedFileURL.path
+                currentDirectoryURL: currentDirectoryURL,
+                defaultPath: defaultURL.standardizedFileURL.path
             )
         ])
     }
@@ -230,13 +259,19 @@ actor ToolLoopGuard {
         rawValue: String?,
         policy: AgentToolsPolicy,
         workspaceRootURL: URL,
+        currentDirectoryURL: URL?,
         defaultPath: String
     ) -> JSONValue {
         let trimmed = rawValue?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         guard !trimmed.isEmpty else {
             return .string(defaultPath)
         }
-        if let resolved = resolveToolPath(trimmed, workspaceRootURL: workspaceRootURL, extraRoots: policy.guardrails.allowedExecRoots) {
+        if let resolved = resolveToolPath(
+            trimmed,
+            workspaceRootURL: workspaceRootURL,
+            currentDirectoryURL: currentDirectoryURL,
+            extraRoots: policy.guardrails.allowedExecRoots
+        ) {
             return .string(resolved.path)
         }
         return .string(trimmed)

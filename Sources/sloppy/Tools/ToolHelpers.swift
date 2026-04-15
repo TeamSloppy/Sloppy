@@ -7,15 +7,30 @@ import AgentRuntime
 
 extension ToolContext {
     func resolveReadablePath(_ path: String) -> URL? {
-        resolveToolPath(path, workspaceRootURL: workspaceRootURL, extraRoots: policy.guardrails.allowedWriteRoots)
+        resolveToolPath(
+            path,
+            workspaceRootURL: workspaceRootURL,
+            currentDirectoryURL: currentDirectoryURL,
+            extraRoots: policy.guardrails.allowedWriteRoots
+        )
     }
 
     func resolveWritablePath(_ path: String) -> URL? {
-        resolveToolPath(path, workspaceRootURL: workspaceRootURL, extraRoots: policy.guardrails.allowedWriteRoots)
+        resolveToolPath(
+            path,
+            workspaceRootURL: workspaceRootURL,
+            currentDirectoryURL: currentDirectoryURL,
+            extraRoots: policy.guardrails.allowedWriteRoots
+        )
     }
 
     func resolveExecCwd(_ path: String) -> URL? {
-        resolveToolPath(path, workspaceRootURL: workspaceRootURL, extraRoots: policy.guardrails.allowedExecRoots)
+        resolveToolPath(
+            path,
+            workspaceRootURL: workspaceRootURL,
+            currentDirectoryURL: currentDirectoryURL,
+            extraRoots: policy.guardrails.allowedExecRoots
+        )
     }
 
     /// True when the path targets an agent's `USER.md` or `MEMORY.md` under `/agents` (including `.system`).
@@ -33,27 +48,39 @@ extension ToolContext {
     }
 }
 
-func resolveToolPath(_ path: String, workspaceRootURL: URL, extraRoots: [String]) -> URL? {
+func resolveToolPath(
+    _ path: String,
+    workspaceRootURL: URL,
+    currentDirectoryURL: URL? = nil,
+    extraRoots: [String]
+) -> URL? {
     let trimmed = path.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !trimmed.isEmpty else { return nil }
 
-    let candidate: URL
-    if trimmed.hasPrefix("/") {
-        candidate = URL(fileURLWithPath: trimmed)
-    } else {
-        candidate = workspaceRootURL.appendingPathComponent(trimmed)
-    }
-
-    let resolved = candidate.resolvingSymlinksInPath().standardizedFileURL
     let roots = [workspaceRootURL] + extraRoots.map { raw -> URL in
         raw.hasPrefix("/") ? URL(fileURLWithPath: raw) : workspaceRootURL.appendingPathComponent(raw)
     }
 
-    for root in roots {
-        let rootResolved = root.resolvingSymlinksInPath().standardizedFileURL
-        let rootPath = rootResolved.path.hasSuffix("/") ? rootResolved.path : rootResolved.path + "/"
-        if resolved.path == rootResolved.path || resolved.path.hasPrefix(rootPath) {
-            return resolved
+    let candidates: [URL]
+    if trimmed.hasPrefix("/") {
+        candidates = [URL(fileURLWithPath: trimmed)]
+    } else {
+        let currentDirectoryURL = currentDirectoryURL ?? workspaceRootURL
+        var relativeCandidates = [currentDirectoryURL.appendingPathComponent(trimmed)]
+        if currentDirectoryURL.standardizedFileURL.path != workspaceRootURL.standardizedFileURL.path {
+            relativeCandidates.append(workspaceRootURL.appendingPathComponent(trimmed))
+        }
+        candidates = relativeCandidates
+    }
+
+    for candidate in candidates {
+        let resolved = candidate.resolvingSymlinksInPath().standardizedFileURL
+        for root in roots {
+            let rootResolved = root.resolvingSymlinksInPath().standardizedFileURL
+            let rootPath = rootResolved.path.hasSuffix("/") ? rootResolved.path : rootResolved.path + "/"
+            if resolved.path == rootResolved.path || resolved.path.hasPrefix(rootPath) {
+                return resolved
+            }
         }
     }
     return nil

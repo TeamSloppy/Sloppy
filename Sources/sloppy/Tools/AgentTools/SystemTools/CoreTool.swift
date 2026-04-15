@@ -37,6 +37,7 @@ struct ToolContext: @unchecked Sendable {
     let sessionID: String
     let policy: AgentToolsPolicy
     let workspaceRootURL: URL
+    let currentDirectoryURL: URL
     let runtime: RuntimeSystem
     let memoryStore: any MemoryStore
     let sessionStore: AgentSessionFileStore
@@ -56,6 +57,54 @@ struct ToolContext: @unchecked Sendable {
     let applyAgentMarkdown: ((AgentMarkdownDocumentField, String) async throws -> Void)?
     /// Runs an isolated subagent session; set by `CoreService.configureToolExecutionServices`.
     let delegateSubagent: (@Sendable (String, String, String, String?, [String]?, String?) async -> String?)?
+
+    init(
+        agentID: String,
+        sessionID: String,
+        policy: AgentToolsPolicy,
+        workspaceRootURL: URL,
+        currentDirectoryURL: URL? = nil,
+        runtime: RuntimeSystem,
+        memoryStore: any MemoryStore,
+        sessionStore: AgentSessionFileStore,
+        agentCatalogStore: AgentCatalogFileStore,
+        agentSkillsStore: AgentSkillsFileStore?,
+        processRegistry: SessionProcessRegistry,
+        channelSessionStore: ChannelSessionFileStore,
+        store: any PersistenceStore,
+        searchProviderService: SearchProviderService,
+        mcpRegistry: MCPClientRegistry,
+        logger: Logger,
+        projectService: (any ProjectToolService)?,
+        configService: (any RuntimeConfigToolService)?,
+        skillsService: (any SkillsToolService)?,
+        lspManager: LSPServerManager?,
+        applyAgentMarkdown: ((AgentMarkdownDocumentField, String) async throws -> Void)?,
+        delegateSubagent: (@Sendable (String, String, String, String?, [String]?, String?) async -> String?)?
+    ) {
+        self.agentID = agentID
+        self.sessionID = sessionID
+        self.policy = policy
+        self.workspaceRootURL = workspaceRootURL
+        self.currentDirectoryURL = currentDirectoryURL ?? workspaceRootURL
+        self.runtime = runtime
+        self.memoryStore = memoryStore
+        self.sessionStore = sessionStore
+        self.agentCatalogStore = agentCatalogStore
+        self.agentSkillsStore = agentSkillsStore
+        self.processRegistry = processRegistry
+        self.channelSessionStore = channelSessionStore
+        self.store = store
+        self.searchProviderService = searchProviderService
+        self.mcpRegistry = mcpRegistry
+        self.logger = logger
+        self.projectService = projectService
+        self.configService = configService
+        self.skillsService = skillsService
+        self.lspManager = lspManager
+        self.applyAgentMarkdown = applyAgentMarkdown
+        self.delegateSubagent = delegateSubagent
+    }
 }
 
 // MARK: - ProjectToolService

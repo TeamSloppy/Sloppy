@@ -38,10 +38,14 @@ public actor LocalNetworkScanner {
 
     private static func probe(host: String) async -> SavedServer? {
         let connected = await tcpConnect(host: host, port: sloppyPort, timeout: 1.5)
-        guard connected else { return nil }
+        guard connected else {
+            return nil
+        }
 
         let confirmed = await confirmSloppyServer(host: host, port: sloppyPort)
-        guard confirmed else { return nil }
+        guard confirmed else {
+            return nil
+        }
 
         return SavedServer(
             label: "Sloppy @ \(host)",
@@ -89,7 +93,7 @@ public actor LocalNetworkScanner {
     }
 
     private static func confirmSloppyServer(host: String, port: UInt16) async -> Bool {
-        guard let url = URL(string: "http://\(host):\(port)/v1/health") else { return false }
+        guard let url = URL(string: "http://\(host):\(port)/health") else { return false }
         var request = URLRequest(url: url)
         request.timeoutInterval = 3
 

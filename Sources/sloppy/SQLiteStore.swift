@@ -1081,6 +1081,7 @@ public actor SQLiteStore: PersistenceStore {
                 team_id,
                 claimed_actor_id,
                 claimed_agent_id,
+                parent_task_id,
                 swarm_id,
                 swarm_task_id,
                 swarm_parent_task_id,
@@ -1096,7 +1097,7 @@ public actor SQLiteStore: PersistenceStore {
                 origin_channel_id,
                 is_archived,
                 selected_model
-            ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+            ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
             """
 
         for task in project.tasks {
@@ -1117,25 +1118,26 @@ public actor SQLiteStore: PersistenceStore {
             bindOptionalText(task.teamId, at: 8, statement: taskStatement)
             bindOptionalText(task.claimedActorId, at: 9, statement: taskStatement)
             bindOptionalText(task.claimedAgentId, at: 10, statement: taskStatement)
-            bindOptionalText(task.swarmId, at: 11, statement: taskStatement)
-            bindOptionalText(task.swarmTaskId, at: 12, statement: taskStatement)
-            bindOptionalText(task.swarmParentTaskId, at: 13, statement: taskStatement)
-            bindText(dependencyIdsJSON, at: 14, statement: taskStatement)
+            bindOptionalText(task.parentTaskId, at: 11, statement: taskStatement)
+            bindOptionalText(task.swarmId, at: 12, statement: taskStatement)
+            bindOptionalText(task.swarmTaskId, at: 13, statement: taskStatement)
+            bindOptionalText(task.swarmParentTaskId, at: 14, statement: taskStatement)
+            bindText(dependencyIdsJSON, at: 15, statement: taskStatement)
             if let swarmDepth = task.swarmDepth {
-                sqlite3_bind_int(taskStatement, 15, Int32(swarmDepth))
+                sqlite3_bind_int(taskStatement, 16, Int32(swarmDepth))
             } else {
-                sqlite3_bind_null(taskStatement, 15)
+                sqlite3_bind_null(taskStatement, 16)
             }
-            bindText(actorPathJSON, at: 16, statement: taskStatement)
-            bindText(isoFormatter.string(from: task.createdAt), at: 17, statement: taskStatement)
-            bindText(isoFormatter.string(from: task.updatedAt), at: 18, statement: taskStatement)
-            bindOptionalText(task.worktreeBranch, at: 19, statement: taskStatement)
-            bindOptionalText(task.kind?.rawValue, at: 20, statement: taskStatement)
-            bindOptionalText(task.loopModeOverride?.rawValue, at: 21, statement: taskStatement)
-            bindOptionalText(task.originType?.rawValue, at: 22, statement: taskStatement)
-            bindOptionalText(task.originChannelId, at: 23, statement: taskStatement)
-            sqlite3_bind_int(taskStatement, 24, task.isArchived ? 1 : 0)
-            bindOptionalText(task.selectedModel, at: 25, statement: taskStatement)
+            bindText(actorPathJSON, at: 17, statement: taskStatement)
+            bindText(isoFormatter.string(from: task.createdAt), at: 18, statement: taskStatement)
+            bindText(isoFormatter.string(from: task.updatedAt), at: 19, statement: taskStatement)
+            bindOptionalText(task.worktreeBranch, at: 20, statement: taskStatement)
+            bindOptionalText(task.kind?.rawValue, at: 21, statement: taskStatement)
+            bindOptionalText(task.loopModeOverride?.rawValue, at: 22, statement: taskStatement)
+            bindOptionalText(task.originType?.rawValue, at: 23, statement: taskStatement)
+            bindOptionalText(task.originChannelId, at: 24, statement: taskStatement)
+            sqlite3_bind_int(taskStatement, 25, task.isArchived ? 1 : 0)
+            bindOptionalText(task.selectedModel, at: 26, statement: taskStatement)
             _ = sqlite3_step(taskStatement)
         }
 #endif
@@ -1527,6 +1529,7 @@ public actor SQLiteStore: PersistenceStore {
                 team_id,
                 claimed_actor_id,
                 claimed_agent_id,
+                parent_task_id,
                 swarm_id,
                 swarm_task_id,
                 swarm_parent_task_id,
@@ -1562,18 +1565,18 @@ public actor SQLiteStore: PersistenceStore {
                 let descriptionPtr = sqlite3_column_text(statement, 2),
                 let priorityPtr = sqlite3_column_text(statement, 3),
                 let statusPtr = sqlite3_column_text(statement, 4),
-                let createdAtPtr = sqlite3_column_text(statement, 15),
-                let updatedAtPtr = sqlite3_column_text(statement, 16)
+                let createdAtPtr = sqlite3_column_text(statement, 16),
+                let updatedAtPtr = sqlite3_column_text(statement, 17)
             else {
                 continue
             }
             let createdAt = isoFormatter.date(from: String(cString: createdAtPtr)) ?? Date()
             let updatedAt = isoFormatter.date(from: String(cString: updatedAtPtr)) ?? createdAt
-            let dependencyIds = decodeOptionalStringArray(optionalText(statement: statement, index: 12))
-            let actorPath = decodeOptionalStringArray(optionalText(statement: statement, index: 14))
-            let kindRaw = optionalText(statement: statement, index: 18)
-            let loopOverrideRaw = optionalText(statement: statement, index: 19)
-            let originTypeRaw = optionalText(statement: statement, index: 20)
+            let dependencyIds = decodeOptionalStringArray(optionalText(statement: statement, index: 13))
+            let actorPath = decodeOptionalStringArray(optionalText(statement: statement, index: 15))
+            let kindRaw = optionalText(statement: statement, index: 19)
+            let loopOverrideRaw = optionalText(statement: statement, index: 20)
+            let originTypeRaw = optionalText(statement: statement, index: 21)
             result.append(
                 ProjectTask(
                     id: String(cString: idPtr),
@@ -1584,20 +1587,21 @@ public actor SQLiteStore: PersistenceStore {
                     kind: kindRaw.flatMap { ProjectTaskKind(rawValue: $0) },
                     loopModeOverride: loopOverrideRaw.flatMap { ProjectLoopMode(rawValue: $0) },
                     originType: originTypeRaw.flatMap { TaskOriginType(rawValue: $0) },
-                    originChannelId: optionalText(statement: statement, index: 21),
+                    originChannelId: optionalText(statement: statement, index: 22),
                     actorId: optionalText(statement: statement, index: 5),
                     teamId: optionalText(statement: statement, index: 6),
                     claimedActorId: optionalText(statement: statement, index: 7),
                     claimedAgentId: optionalText(statement: statement, index: 8),
-                    swarmId: optionalText(statement: statement, index: 9),
-                    swarmTaskId: optionalText(statement: statement, index: 10),
-                    swarmParentTaskId: optionalText(statement: statement, index: 11),
+                    parentTaskId: optionalText(statement: statement, index: 9),
+                    swarmId: optionalText(statement: statement, index: 10),
+                    swarmTaskId: optionalText(statement: statement, index: 11),
+                    swarmParentTaskId: optionalText(statement: statement, index: 12),
                     swarmDependencyIds: dependencyIds,
-                    swarmDepth: optionalInt(statement: statement, index: 13),
+                    swarmDepth: optionalInt(statement: statement, index: 14),
                     swarmActorPath: actorPath,
-                    worktreeBranch: optionalText(statement: statement, index: 17),
-                    selectedModel: optionalText(statement: statement, index: 23),
-                    isArchived: sqlite3_column_int(statement, 22) != 0,
+                    worktreeBranch: optionalText(statement: statement, index: 18),
+                    selectedModel: optionalText(statement: statement, index: 24),
+                    isArchived: sqlite3_column_int(statement, 23) != 0,
                     createdAt: createdAt,
                     updatedAt: updatedAt
                 )
@@ -2048,7 +2052,8 @@ public actor SQLiteStore: PersistenceStore {
             "ALTER TABLE dashboard_project_tasks ADD COLUMN swarm_dependency_ids_json TEXT NOT NULL DEFAULT '[]';",
             "ALTER TABLE dashboard_project_tasks ADD COLUMN swarm_depth INTEGER;",
             "ALTER TABLE dashboard_project_tasks ADD COLUMN swarm_actor_path_json TEXT NOT NULL DEFAULT '[]';",
-            "ALTER TABLE dashboard_project_tasks ADD COLUMN is_archived INTEGER NOT NULL DEFAULT 0;"
+            "ALTER TABLE dashboard_project_tasks ADD COLUMN is_archived INTEGER NOT NULL DEFAULT 0;",
+            "ALTER TABLE dashboard_project_tasks ADD COLUMN parent_task_id TEXT;"
         ]
 
         for statement in statements {
