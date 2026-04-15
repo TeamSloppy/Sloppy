@@ -163,7 +163,8 @@ struct ConnectionSetupView: View {
                 .frame(width: 40)
             TextField(hint, text: text)
                 .font(.system(size: ty.body))
-                .foregroundColor(c.textPrimary)
+                .foregroundColor(.white)
+                .textFieldStyle(PlainTextFieldStyle())
         }
         .padding(.horizontal, sp.m)
         .padding(.vertical, sp.s)

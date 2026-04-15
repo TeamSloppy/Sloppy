@@ -1100,7 +1100,7 @@ body.agent-chat-no-page-scroll .page {
   font-size: 0.9rem;
   color: var(--text);
   min-width: 0;
-  overflow: hidden;
+  overflow: visible;
 }
 
 .agent-chat-mobile-menu-btn {
@@ -1129,6 +1129,27 @@ body.agent-chat-no-page-scroll .page {
   background: var(--surface-alt, rgba(255, 255, 255, 0.06));
   padding: 2px 8px;
   white-space: nowrap;
+}
+
+.agent-chat-model-picker {
+  position: relative;
+  min-width: 180px;
+  max-width: min(360px, 40vw);
+  width: min(360px, 40vw);
+}
+
+.agent-chat-model-picker .agent-chat-head-model {
+  width: 100%;
+  min-height: 30px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+}
+
+.agent-chat-model-dropdown {
+  z-index: 220;
+  right: auto;
+  left: 0;
+  width: max(320px, 100%);
 }
 
 .agent-chat-actions {
@@ -2059,12 +2080,13 @@ body.agent-chat-no-page-scroll .page {
 
 .agent-chat-compose-row {
   display: flex;
-  align-items: center;
+  align-items: flex-end;
 }
 
 .agent-chat-compose-input {
   flex: 1;
   width: auto;
+  display: block;
   border: 0;
   background: transparent;
   padding: 8px 2px;
@@ -2075,6 +2097,8 @@ body.agent-chat-no-page-scroll .page {
   box-sizing: border-box;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+  overflow-y: auto;
+  overflow-x: hidden;
 }
 
 .agent-chat-compose-input:focus {
@@ -2332,7 +2356,7 @@ body.agent-chat-no-page-scroll .page {
 .agent-chat-send-button:not(:disabled) {
   border-color: transparent;
   background: var(--accent);
-  color: #e8ebf5;
+  color: #0a0a0a;
 }
 
 .agent-chat-send-button.danger {
