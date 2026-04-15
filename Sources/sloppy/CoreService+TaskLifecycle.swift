@@ -35,42 +35,6 @@ func sessionToolRoots(forWorkingDirectory workingDirectory: String) -> [String] 
 // MARK: - Task Lifecycle
 
 extension CoreService {
-    private func appendAgentDebugLog(
-        runId: String,
-        hypothesisId: String,
-        location: String,
-        message: String,
-        data: [String: String]
-    ) {
-        let logPath = "/Users/vlad-prusakov/Developer/Sloppy/.cursor/debug-bbb3a9.log"
-        var payload: [String: Any] = [
-            "sessionId": "bbb3a9",
-            "runId": runId,
-            "hypothesisId": hypothesisId,
-            "location": location,
-            "message": message,
-            "data": data,
-            "timestamp": Int(Date().timeIntervalSince1970 * 1000)
-        ]
-        payload["id"] = "log_\(UUID().uuidString)"
-        guard let encoded = try? JSONSerialization.data(withJSONObject: payload, options: []),
-              let line = String(data: encoded, encoding: .utf8)
-        else {
-            return
-        }
-        let output = line + "\n"
-        let url = URL(fileURLWithPath: logPath)
-        if FileManager.default.fileExists(atPath: logPath) {
-            if let handle = try? FileHandle(forWritingTo: url) {
-                try? handle.seekToEnd()
-                try? handle.write(contentsOf: Data(output.utf8))
-                try? handle.close()
-                return
-            }
-        }
-        try? Data(output.utf8).write(to: url, options: .atomic)
-    }
-
     func handleTaskBecameReady(projectID: String, taskID: String) async {
         await waitForStartup()
 
@@ -177,22 +141,6 @@ extension CoreService {
         }
 
         let effectiveWorkingDirectory = worktreePath ?? project.repoPath
-        // #region agent log
-        appendAgentDebugLog(
-            runId: "pre-fix",
-            hypothesisId: "H2",
-            location: "CoreService+TaskLifecycle.swift:126",
-            message: "Resolved working directory for worker task",
-            data: [
-                "projectId": project.id,
-                "taskId": task.id,
-                "repoPath": project.repoPath ?? "nil",
-                "worktreePath": worktreePath ?? "nil",
-                "effectiveWorkingDirectory": effectiveWorkingDirectory ?? "nil",
-                "repoPathExists": project.repoPath.map { FileManager.default.fileExists(atPath: $0) ? "true" : "false" } ?? "nil"
-            ]
-        )
-        // #endregion
         let workerMode: WorkerMode = task.kind == .planning ? .interactive : .fireAndForget
         let workerObjective = buildWorkerObjective(task: task, project: project, worktreePath: worktreePath)
         let workerId = await runtime.createWorker(
@@ -717,22 +665,6 @@ extension CoreService {
             let roots = sessionToolRoots(forWorkingDirectory: workingDirectory)
             sessionExtraRoots[session.id] = roots
             sessionWorkingDirectories[session.id] = workingDirectory
-            // #region agent log
-            appendAgentDebugLog(
-                runId: "pre-fix",
-                hypothesisId: "H3",
-                location: "CoreService+TaskLifecycle.swift:655",
-                message: "Prepared session extra roots",
-                data: [
-                    "agentId": agentID,
-                    "taskId": taskID,
-                    "workingDirectory": workingDirectory,
-                    "roots": roots.joined(separator: "|"),
-                    "workingDirectoryExists": FileManager.default.fileExists(atPath: workingDirectory) ? "true" : "false",
-                    "rootCount": "\(roots.count)"
-                ]
-            )
-            // #endregion
         }
 
         let channelId = sessionChannelID(agentID: agentID, sessionID: session.id)
@@ -824,19 +756,6 @@ extension CoreService {
             workspaceLines.append("Commit changes to the worktree branch before completing the task.")
         } else if let repoPath = project.repoPath, !repoPath.isEmpty {
             workspaceLines.append("Working directory: \(repoPath)")
-            // #region agent log
-            appendAgentDebugLog(
-                runId: "pre-fix",
-                hypothesisId: "H1",
-                location: "CoreService+TaskLifecycle.swift:747",
-                message: "Injected repo path into worker objective",
-                data: [
-                    "projectId": project.id,
-                    "repoPath": repoPath,
-                    "repoPathExists": FileManager.default.fileExists(atPath: repoPath) ? "true" : "false"
-                ]
-            )
-            // #endregion
         }
         sections.append(workspaceLines.joined(separator: "\n"))
 
@@ -1097,19 +1016,6 @@ extension CoreService {
 
         let normalizedURL = candidateURL.standardizedFileURL
         let normalizedPath = normalizedURL.path
-        // #region agent log
-        appendAgentDebugLog(
-            runId: "pre-fix",
-            hypothesisId: "H4",
-            location: "CoreService+TaskLifecycle.swift:1007",
-            message: "Normalized external project path",
-            data: [
-                "rawPath": rawPath ?? "nil",
-                "trimmed": trimmed,
-                "normalizedPath": normalizedPath
-            ]
-        )
-        // #endregion
         guard normalizedPath.hasPrefix("/") else {
             throw ProjectError.invalidPayload
         }

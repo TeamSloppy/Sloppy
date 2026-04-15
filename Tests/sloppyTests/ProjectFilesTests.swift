@@ -144,6 +144,76 @@ func listProjectFilesReturns404ForUnknownProject() async throws {
 }
 
 @Test
+func listProjectFilesFallsBackToExistingProjectDirectory() async throws {
+    let config = CoreConfig.test
+    let service = CoreService(config: config, persistenceBuilder: InMemoryCorePersistenceBuilder())
+    let router = CoreRouter(service: service)
+    let projectID = "disk-only-\(UUID().uuidString.prefix(8).lowercased())"
+    let workspaceRoot = config.resolvedWorkspaceRootURL(currentDirectory: FileManager.default.currentDirectoryPath)
+    let projectDir = workspaceRoot
+        .appendingPathComponent("projects", isDirectory: true)
+        .appendingPathComponent(projectID, isDirectory: true)
+    try FileManager.default.createDirectory(at: projectDir, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: projectDir) }
+
+    try Data("hello".utf8).write(to: projectDir.appendingPathComponent("readme.txt"))
+
+    let resp = await router.handle(method: "GET", path: "/v1/projects/\(projectID)/files", body: nil)
+    #expect(resp.status == 200)
+
+    let entries = try JSONDecoder().decode([ProjectFileEntry].self, from: resp.body)
+    #expect(entries.contains(where: { $0.name == "readme.txt" && $0.type == .file }))
+}
+
+@Test
+func listProjectFilesResolvesSlashProjectsRepoPathAgainstWorkspace() async throws {
+    let config = CoreConfig.test
+    let service = CoreService(config: config, persistenceBuilder: InMemoryCorePersistenceBuilder())
+    let router = CoreRouter(service: service)
+    let (projectID, projectDir) = try await makeProjectAndDir(router: router, config: config)
+
+    try FileManager.default.createDirectory(at: projectDir, withIntermediateDirectories: true)
+    try Data("x".utf8).write(to: projectDir.appendingPathComponent("from-workspace.txt"))
+
+    let patchBody = try JSONEncoder().encode(ProjectUpdateRequest(repoPath: "/projects/\(projectID)"))
+    let patchResp = await router.handle(method: "PATCH", path: "/v1/projects/\(projectID)", body: patchBody)
+    #expect(patchResp.status == 200)
+
+    let resp = await router.handle(method: "GET", path: "/v1/projects/\(projectID)/files", body: nil)
+    #expect(resp.status == 200)
+
+    let entries = try JSONDecoder().decode([ProjectFileEntry].self, from: resp.body)
+    #expect(entries.contains(where: { $0.name == "from-workspace.txt" && $0.type == .file }))
+}
+
+@Test
+func readProjectFileFallsBackToExistingProjectDirectory() async throws {
+    let config = CoreConfig.test
+    let service = CoreService(config: config, persistenceBuilder: InMemoryCorePersistenceBuilder())
+    let router = CoreRouter(service: service)
+    let projectID = "disk-read-\(UUID().uuidString.prefix(8).lowercased())"
+    let workspaceRoot = config.resolvedWorkspaceRootURL(currentDirectory: FileManager.default.currentDirectoryPath)
+    let projectDir = workspaceRoot
+        .appendingPathComponent("projects", isDirectory: true)
+        .appendingPathComponent(projectID, isDirectory: true)
+    try FileManager.default.createDirectory(at: projectDir, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: projectDir) }
+
+    try Data("from disk".utf8).write(to: projectDir.appendingPathComponent("note.txt"))
+
+    let resp = await router.handle(
+        method: "GET",
+        path: "/v1/projects/\(projectID)/files/content?path=note.txt",
+        body: nil
+    )
+    #expect(resp.status == 200)
+
+    let result = try JSONDecoder().decode(ProjectFileContentResponse.self, from: resp.body)
+    #expect(result.content == "from disk")
+    #expect(result.path == "note.txt")
+}
+
+@Test
 func readProjectFileReturnsContent() async throws {
     let config = CoreConfig.test
     let service = CoreService(config: config, persistenceBuilder: InMemoryCorePersistenceBuilder())

@@ -146,15 +146,7 @@ extension CoreService {
     }
 
     public func listProjectFiles(projectID: String, path: String) async throws -> [ProjectFileEntry] {
-        guard let normalizedID = normalizedProjectID(projectID) else {
-            throw ProjectError.invalidProjectID
-        }
-        guard let project = await store.project(id: normalizedID) else {
-            throw ProjectError.notFound
-        }
-
-        let rootPath = project.repoPath ?? projectDirectoryURL(projectID: normalizedID).path
-        let rootURL = URL(fileURLWithPath: rootPath, isDirectory: true).standardized
+        let rootURL = try await resolveProjectWorkspaceRoot(projectID: projectID)
 
         let targetURL: URL
         let trimmedPath = path.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -164,7 +156,7 @@ extension CoreService {
             targetURL = rootURL.appendingPathComponent(trimmedPath).standardized
         }
 
-        guard targetURL.path.hasPrefix(rootURL.path) else {
+        guard isProjectURL(targetURL, inside: rootURL) else {
             throw ProjectError.invalidProjectID
         }
 
@@ -195,15 +187,7 @@ extension CoreService {
 
     /// Returns project-relative paths whose full path matches the search string (substring, case-insensitive), ranked for autocomplete.
     public func searchProjectFiles(projectID: String, query: String, limit: Int) async throws -> [ProjectFileSearchEntry] {
-        guard let normalizedID = normalizedProjectID(projectID) else {
-            throw ProjectError.invalidProjectID
-        }
-        guard let project = await store.project(id: normalizedID) else {
-            throw ProjectError.notFound
-        }
-
-        let rootPath = project.repoPath ?? projectDirectoryURL(projectID: normalizedID).path
-        let rootURL = URL(fileURLWithPath: rootPath, isDirectory: true).standardized
+        let rootURL = try await resolveProjectWorkspaceRoot(projectID: projectID)
 
         let fm = FileManager.default
         var isRootDir: ObjCBool = false
@@ -313,15 +297,7 @@ extension CoreService {
     }
 
     public func readProjectFile(projectID: String, path: String) async throws -> ProjectFileContentResponse {
-        guard let normalizedID = normalizedProjectID(projectID) else {
-            throw ProjectError.invalidProjectID
-        }
-        guard let project = await store.project(id: normalizedID) else {
-            throw ProjectError.notFound
-        }
-
-        let rootPath = project.repoPath ?? projectDirectoryURL(projectID: normalizedID).path
-        let rootURL = URL(fileURLWithPath: rootPath, isDirectory: true).standardized
+        let rootURL = try await resolveProjectWorkspaceRoot(projectID: projectID)
 
         let trimmedPath = path.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedPath.isEmpty else {
@@ -329,7 +305,7 @@ extension CoreService {
         }
 
         let targetURL = rootURL.appendingPathComponent(trimmedPath).standardized
-        guard targetURL.path.hasPrefix(rootURL.path) else {
+        guard isProjectURL(targetURL, inside: rootURL) else {
             throw ProjectError.invalidProjectID
         }
 
@@ -349,14 +325,7 @@ extension CoreService {
 
     /// Line stats and unified diff for the project workspace (must be a git checkout to return `isGitRepository: true`).
     public func projectWorkingTreeGit(projectID: String) async throws -> ProjectWorkingTreeGitResponse {
-        guard let normalizedID = normalizedProjectID(projectID) else {
-            throw ProjectError.invalidProjectID
-        }
-        guard let project = await store.project(id: normalizedID) else {
-            throw ProjectError.notFound
-        }
-
-        let rootPath = project.repoPath ?? projectDirectoryURL(projectID: normalizedID).path
+        let rootPath = try await resolveProjectWorkspaceRoot(projectID: projectID).path
 
         guard gitWorktreeService.isGitWorkingCopy(repoPath: rootPath) else {
             return ProjectWorkingTreeGitResponse(
@@ -398,14 +367,8 @@ extension CoreService {
 
     /// Reverts a tracked file under the project workspace to `HEAD` (index + working tree), same as `git restore --source=HEAD --staged --worktree`.
     public func restoreProjectWorkingTreeFile(projectID: String, path: String) async throws {
-        guard let normalizedID = normalizedProjectID(projectID) else {
-            throw ProjectError.invalidProjectID
-        }
-        guard let project = await store.project(id: normalizedID) else {
-            throw ProjectError.notFound
-        }
-
-        let rootPath = project.repoPath ?? projectDirectoryURL(projectID: normalizedID).path
+        let rootURL = try await resolveProjectWorkspaceRoot(projectID: projectID)
+        let rootPath = rootURL.path
         guard gitWorktreeService.isGitWorkingCopy(repoPath: rootPath) else {
             throw ProjectError.invalidPayload
         }
@@ -420,9 +383,8 @@ extension CoreService {
             throw ProjectError.invalidProjectID
         }
 
-        let rootURL = URL(fileURLWithPath: rootPath, isDirectory: true).standardized
         let targetURL = rootURL.appendingPathComponent(trimmed).standardized
-        guard targetURL.path.hasPrefix(rootURL.path) else {
+        guard isProjectURL(targetURL, inside: rootURL) else {
             throw ProjectError.invalidProjectID
         }
 
@@ -441,14 +403,14 @@ extension CoreService {
         guard let project = await store.project(id: normalizedID) else {
             throw ProjectError.notFound
         }
-        guard let repoPath = project.repoPath?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !repoPath.isEmpty
-        else {
+        let trimmedRepoPath = project.repoPath?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !trimmedRepoPath.isEmpty else {
             throw ProjectError.invalidPayload
         }
 
+        let resolvedRoot = resolvedProjectRootFromStored(repoPath: project.repoPath, normalizedProjectID: normalizedID)
         let loader = ProjectContextLoader()
-        let loaded = loader.load(repoPath: repoPath)
+        let loaded = loader.load(repoPath: resolvedRoot.path)
         let content = renderProjectContextBootstrap(projectID: normalizedID, projectName: project.name, loaded: loaded)
 
         let channelIDs = project.channels.map(\.channelId)
@@ -477,14 +439,14 @@ extension CoreService {
         guard let project = await store.project(id: normalizedID) else {
             return nil
         }
-        guard let repoPath = project.repoPath?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !repoPath.isEmpty
-        else {
+        let trimmedRepoPath = project.repoPath?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !trimmedRepoPath.isEmpty else {
             return nil
         }
 
+        let resolvedRoot = resolvedProjectRootFromStored(repoPath: project.repoPath, normalizedProjectID: normalizedID)
         let loader = ProjectContextLoader()
-        let loaded = loader.load(repoPath: repoPath)
+        let loaded = loader.load(repoPath: resolvedRoot.path)
         return renderProjectContextBootstrap(projectID: normalizedID, projectName: project.name, loaded: loaded)
     }
 
@@ -1244,6 +1206,59 @@ extension CoreService {
         workspaceRootURL
             .appendingPathComponent("projects", isDirectory: true)
             .appendingPathComponent(projectID, isDirectory: true)
+    }
+
+    /// Resolves persisted `repoPath` to a workspace directory URL.
+    /// Paths like `/projects/<id>` are stored as if absolute but are intended relative to the Sloppy workspace root.
+    private func resolvedProjectRootFromStored(repoPath: String?, normalizedProjectID: String) -> URL {
+        guard let raw = repoPath?.trimmingCharacters(in: .whitespacesAndNewlines), !raw.isEmpty else {
+            return projectDirectoryURL(projectID: normalizedProjectID).standardized
+        }
+        let direct = URL(fileURLWithPath: raw, isDirectory: true).standardized
+        var isDirectory: ObjCBool = false
+        if FileManager.default.fileExists(atPath: direct.path, isDirectory: &isDirectory), isDirectory.boolValue {
+            return direct
+        }
+        if raw.hasPrefix("/projects/") || raw.hasPrefix("projects/") {
+            let relative = raw.hasPrefix("/") ? String(raw.dropFirst()) : raw
+            let segments = relative.split(separator: "/").map(String.init)
+            if !segments.isEmpty {
+                let candidate = segments.reduce(workspaceRootURL) { base, segment in
+                    base.appendingPathComponent(segment, isDirectory: true)
+                }.standardized
+                isDirectory = false
+                if FileManager.default.fileExists(atPath: candidate.path, isDirectory: &isDirectory), isDirectory.boolValue {
+                    return candidate
+                }
+            }
+            return projectDirectoryURL(projectID: normalizedProjectID).standardized
+        }
+        return direct
+    }
+
+    func resolveProjectWorkspaceRoot(projectID: String) async throws -> URL {
+        guard let normalizedID = normalizedProjectID(projectID) else {
+            throw ProjectError.invalidProjectID
+        }
+
+        if let project = await store.project(id: normalizedID) {
+            return resolvedProjectRootFromStored(repoPath: project.repoPath, normalizedProjectID: normalizedID)
+        }
+
+        let diskProjectURL = projectDirectoryURL(projectID: normalizedID).standardized
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: diskProjectURL.path, isDirectory: &isDirectory),
+              isDirectory.boolValue
+        else {
+            throw ProjectError.notFound
+        }
+        return diskProjectURL
+    }
+
+    func isProjectURL(_ url: URL, inside rootURL: URL) -> Bool {
+        let rootPath = rootURL.standardizedFileURL.path
+        let targetPath = url.standardizedFileURL.path
+        return targetPath == rootPath || targetPath.hasPrefix(rootPath + "/")
     }
 
     func projectMetaDirectoryURL(projectID: String) -> URL {
