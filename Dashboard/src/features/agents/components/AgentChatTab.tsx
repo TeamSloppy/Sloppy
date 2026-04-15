@@ -24,6 +24,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { oneDark } from "react-syntax-highlighter/dist/esm/styles/prism";
+import { filterModelsByQuery } from "../utils/aggregateProviderModels";
 
 const INLINE_ATTACHMENT_MAX_BYTES = 2 * 1024 * 1024;
 const TASK_TAG_PATTERN = /#([A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?)/g;
@@ -2454,6 +2455,8 @@ export function AgentChatTab({
   const [gitBadge, setGitBadge] = useState(null);
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
   const [isDesktopSessionsCollapsed, setIsDesktopSessionsCollapsed] = useState(false);
+  const [isModelDropdownOpen, setIsModelDropdownOpen] = useState(false);
+  const [modelSearch, setModelSearch] = useState("");
   const [isNarrowChatViewport, setIsNarrowChatViewport] = useState(() =>
     typeof window !== "undefined" ? window.matchMedia(AGENT_CHAT_SIDEBAR_NARROW_MQ).matches : false
   );
@@ -2474,6 +2477,7 @@ export function AgentChatTab({
   const composeInputRef = useRef(null);
   const shareMenuRef = useRef(null);
   const debugMenuRef = useRef(null);
+  const modelPickerRef = useRef<HTMLDivElement | null>(null);
   const runStateRef = useRef({ sessionId: null, abortController: null });
   const streamCleanupRef = useRef(() => { });
   const subagentStreamCleanupRef = useRef(() => { });
@@ -2489,6 +2493,18 @@ export function AgentChatTab({
   const activeModelOption = useMemo(
     () => availableModels.find((model) => String(model?.id || "").trim() === selectedModel) || null,
     [availableModels, selectedModel]
+  );
+  const modelOptions = useMemo(() => {
+    const selected = String(selectedModel || "").trim();
+    const base = availableModels.slice();
+    if (selected && !base.some((m) => m.id === selected)) {
+      base.unshift({ id: selected, title: selected });
+    }
+    return base;
+  }, [availableModels, selectedModel]);
+  const filteredModelOptions = useMemo(
+    () => filterModelsByQuery(modelOptions, modelSearch),
+    [modelOptions, modelSearch]
   );
 
   const [slashCommands, setSlashCommands] = useState(() => mergeDashboardSlashCommands(null));
@@ -2637,6 +2653,19 @@ export function AgentChatTab({
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, [isDebugMenuOpen]);
+
+  useEffect(() => {
+    if (!isModelDropdownOpen) {
+      return;
+    }
+    function handleClickOutside(event) {
+      if (modelPickerRef.current && !modelPickerRef.current.contains(event.target)) {
+        setIsModelDropdownOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [isModelDropdownOpen]);
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -3145,6 +3174,87 @@ export function AgentChatTab({
     await openSession(response.id);
     setStatusText(`Session ${response.id} created`);
     return response;
+  }
+
+  async function handleModelSwitch(nextModelId) {
+    if (isSending) {
+      return;
+    }
+    const normalizedModelId = String(nextModelId || "").trim();
+    if (!normalizedModelId || normalizedModelId === selectedModel) {
+      setIsModelDropdownOpen(false);
+      setModelSearch(String(selectedModel || ""));
+      return;
+    }
+    const previousModelId = String(selectedModel || "").trim();
+    setSelectedModel(normalizedModelId);
+    setIsModelDropdownOpen(false);
+    setStatusText(`Switching model to ${normalizedModelId}...`);
+
+    const previousSessionId = activeSessionIdRef.current;
+    const scopedProject = projectId && String(projectId).trim() ? String(projectId).trim() : "";
+    const previousTitle = String(activeSession?.summary?.title || "").trim();
+    const payload: {
+      checkpointSessionId?: string;
+      projectId?: string;
+      title?: string;
+    } = {};
+    if (previousSessionId) {
+      payload.checkpointSessionId = previousSessionId;
+    }
+    if (scopedProject) {
+      payload.projectId = scopedProject;
+    }
+    if (previousTitle) {
+      payload.title = previousTitle;
+    }
+
+    try {
+      let replayEvents = [];
+      if (previousSessionId) {
+        const previousDetail = await fetchAgentSession(agentId, previousSessionId);
+        replayEvents = Array.isArray(previousDetail?.events) ? previousDetail.events : [];
+      }
+
+      const rebuilt = await createAgentSession(agentId, payload);
+      if (!rebuilt?.id) {
+        setSelectedModel(previousModelId);
+        setStatusText(`Model switched to ${normalizedModelId}, but session rebuild failed.`);
+        return;
+      }
+
+      let rebuiltSummary = rebuilt;
+      if (replayEvents.length > 0) {
+        const replayResponse = await postAgentSessionEvents(agentId, rebuilt.id, {
+          events: replayEvents
+        });
+        if (!replayResponse) {
+          setSelectedModel(previousModelId);
+          await deleteAgentSession(agentId, rebuilt.id).catch(() => false);
+          setStatusText("Failed to preserve chat history while switching model.");
+          return;
+        }
+        rebuiltSummary = replayResponse.summary || rebuilt;
+      }
+
+      if (previousSessionId && previousSessionId !== rebuilt.id) {
+        // Keep project chat visually in one "slot": swap old session with rebuilt one.
+        await deleteAgentSession(agentId, previousSessionId).catch(() => false);
+      }
+
+      setSessions((previous) =>
+        sortSessionsByUpdate([
+          rebuiltSummary,
+          ...previous.filter((item) => item.id !== rebuilt.id && item.id !== previousSessionId)
+        ])
+      );
+      setActiveSessionId(rebuilt.id);
+      await openSession(rebuilt.id);
+      setStatusText(`Model switched to ${normalizedModelId}. History and context preserved.`);
+    } catch {
+      setSelectedModel(previousModelId);
+      setStatusText("Failed to switch model and keep chat history.");
+    }
   }
 
   function mergeSessionSummary(summary) {
@@ -3729,7 +3839,8 @@ export function AgentChatTab({
           content: contentForSend,
           attachments: uploads,
           spawnSubSession: false,
-          reasoningEffort: supportsReasoningEffort ? reasoningEffort : undefined
+          reasoningEffort: supportsReasoningEffort ? reasoningEffort : undefined,
+          selectedModel: selectedModel || undefined
         },
         { signal: runStateRef.current.abortController.signal }
       );
@@ -4018,7 +4129,8 @@ export function AgentChatTab({
           content: ANALYSIS_PREP_AGENT_PROMPT,
           attachments: [],
           spawnSubSession: false,
-          reasoningEffort: supportsReasoningEffort ? reasoningEffort : undefined
+          reasoningEffort: supportsReasoningEffort ? reasoningEffort : undefined,
+          selectedModel: selectedModel || undefined
         },
         { signal: runStateRef.current.abortController.signal }
       );
@@ -4317,14 +4429,84 @@ export function AgentChatTab({
             </button>
             {activeSession ? getSessionDisplayLabel(activeSession) : "Select a session"}
             {isDebugSessionFlagOn ? <span className="agent-chat-debug-badge">Debug</span> : null}
-            {selectedModel ? (
-              <span className="agent-chat-head-model">
-                {activeModelOption?.title || selectedModel}
-              </span>
-            ) : null}
+            <div ref={modelPickerRef} className="agent-chat-model-picker">
+              <div className="provider-model-picker">
+                <input
+                  className="agent-chat-head-model"
+                  value={isModelDropdownOpen ? modelSearch : String(selectedModel || "")}
+                  onFocus={() => {
+                    if (!isModelDropdownOpen) {
+                      setModelSearch(String(selectedModel || ""));
+                    }
+                    setIsModelDropdownOpen(true);
+                  }}
+                  onClick={() => {
+                    if (!isModelDropdownOpen) {
+                      setModelSearch(String(selectedModel || ""));
+                    }
+                    setIsModelDropdownOpen(true);
+                  }}
+                  onChange={(event) => {
+                    setModelSearch(event.target.value);
+                    setIsModelDropdownOpen(true);
+                  }}
+                  placeholder="Select model id..."
+                  autoComplete="off"
+                  disabled={isSending || availableModels.length === 0}
+                  aria-label="Select chat model"
+                />
+                {isModelDropdownOpen ? (
+                  <div className="provider-model-picker-menu agent-chat-model-dropdown">
+                    <div className="provider-model-picker-group">Available models</div>
+                    <div className="provider-model-options">
+                      {filteredModelOptions.length === 0 ? (
+                        <div className="placeholder-text" style={{ padding: "10px 12px" }}>
+                          No matching models
+                        </div>
+                      ) : (
+                        filteredModelOptions.map((model) => {
+                          const modelId = String(model?.id || "").trim();
+                          if (!modelId) {
+                            return null;
+                          }
+                          const isSelected = selectedModel === modelId;
+                          return (
+                            <button
+                              key={modelId}
+                              type="button"
+                              className={`provider-model-option ${isSelected ? "active" : ""}`}
+                              onMouseDown={(event) => event.preventDefault()}
+                              onClick={() => {
+                                setModelSearch(modelId);
+                                void handleModelSwitch(modelId);
+                              }}
+                            >
+                              <div className="provider-model-option-main">
+                                <strong>{String(model?.title || modelId).trim() || modelId}</strong>
+                                {model?.contextWindow ? (
+                                  <span className="provider-model-context">{String(model.contextWindow)}</span>
+                                ) : null}
+                              </div>
+                              <span>{modelId}</span>
+                              {Array.isArray(model?.capabilities) && model.capabilities.length > 0 ? (
+                                <div className="provider-model-capabilities">
+                                  {model.capabilities.map((capability) => (
+                                    <span key={`${modelId}-${capability}`}>{String(capability)}</span>
+                                  ))}
+                                </div>
+                              ) : null}
+                            </button>
+                          );
+                        })
+                      )}
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+            </div>
           </div>
           <div className="agent-chat-actions">
-            {scopedProjectId ? (
+            {scopedProjectId && gitBadge?.isGit && (gitBadge.added > 0 || gitBadge.deleted > 0) ? (
               <button
                 type="button"
                 className="agent-chat-git-toolbar-btn"
@@ -4339,14 +4521,10 @@ export function AgentChatTab({
                 <span className="material-symbols-rounded" aria-hidden="true">
                   data_object
                 </span>
-                {gitBadge?.isGit ? (
-                  <span className="agent-chat-git-toolbar-stats">
-                    <span className="agent-chat-git-stat-add">+{gitBadge.added}</span>
-                    <span className="agent-chat-git-stat-del">−{gitBadge.deleted}</span>
-                  </span>
-                ) : (
-                  <span className="agent-chat-git-toolbar-muted">git</span>
-                )}
+                <span className="agent-chat-git-toolbar-stats">
+                  <span className="agent-chat-git-stat-add">+{gitBadge.added}</span>
+                  <span className="agent-chat-git-stat-del">−{gitBadge.deleted}</span>
+                </span>
               </button>
             ) : null}
             <div className="agent-chat-share-menu-container" ref={shareMenuRef}>
