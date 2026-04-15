@@ -390,6 +390,6 @@ extension LSPToolError: LocalizedError {
 private extension ToolContext {
     func resolveFilePath(_ raw: String) -> String {
         if raw.hasPrefix("/") { return raw }
-        return workspaceRootURL.appendingPathComponent(raw).path
+        return currentDirectoryURL.appendingPathComponent(raw).path
     }
 }

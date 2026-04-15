@@ -224,6 +224,7 @@ public struct ProjectTask: Codable, Sendable, Equatable {
     public var teamId: String?
     public var claimedActorId: String?
     public var claimedAgentId: String?
+    public var parentTaskId: String?
     public var swarmId: String?
     public var swarmTaskId: String?
     public var swarmParentTaskId: String?
@@ -251,6 +252,7 @@ public struct ProjectTask: Codable, Sendable, Equatable {
         teamId: String? = nil,
         claimedActorId: String? = nil,
         claimedAgentId: String? = nil,
+        parentTaskId: String? = nil,
         swarmId: String? = nil,
         swarmTaskId: String? = nil,
         swarmParentTaskId: String? = nil,
@@ -303,6 +305,27 @@ public struct ProjectHeartbeatSettings: Codable, Sendable, Equatable {
     public init(enabled: Bool = false, intervalMinutes: Int = 5) {
         self.enabled = enabled
         self.intervalMinutes = intervalMinutes
+    }
+}
+
+public struct KanbanEvent: Codable, Sendable {
+    public enum EventType: String, Codable, Sendable {
+        case taskCreated = "task_created"
+        case taskUpdated = "task_updated"
+        case taskDeleted = "task_deleted"
+        case projectUpdated = "project_updated"
+    }
+
+    public var type: EventType
+    public var projectId: String
+    public var task: ProjectTask?
+    public var taskId: String?
+
+    public init(type: EventType, projectId: String, task: ProjectTask? = nil, taskId: String? = nil) {
+        self.type = type
+        self.projectId = projectId
+        self.task = task
+        self.taskId = taskId
     }
 }
 
@@ -668,12 +691,13 @@ public struct ProjectTaskCreateRequest: Codable, Sendable {
     public var originChannelId: String?
     public var actorId: String?
     public var teamId: String?
+    public var parentTaskId: String?
     public var selectedModel: String?
 
     public init(
         title: String,
         description: String? = nil,
-        priority: String,
+        priority: String = "medium",
         status: String? = nil,
         kind: ProjectTaskKind? = nil,
         loopModeOverride: ProjectLoopMode? = nil,
@@ -681,6 +705,7 @@ public struct ProjectTaskCreateRequest: Codable, Sendable {
         originChannelId: String? = nil,
         actorId: String? = nil,
         teamId: String? = nil,
+        parentTaskId: String? = nil,
         selectedModel: String? = nil
     ) {
         self.title = title
@@ -693,6 +718,7 @@ public struct ProjectTaskCreateRequest: Codable, Sendable {
         self.originChannelId = originChannelId
         self.actorId = actorId
         self.teamId = teamId
+        self.parentTaskId = parentTaskId
         self.selectedModel = selectedModel
     }
 }
@@ -706,6 +732,7 @@ public struct ProjectTaskUpdateRequest: Codable, Sendable {
     public var loopModeOverride: ProjectLoopMode?
     public var actorId: String?
     public var teamId: String?
+    public var parentTaskId: String?
     public var selectedModel: String?
     public var changedBy: String?
 
@@ -718,6 +745,7 @@ public struct ProjectTaskUpdateRequest: Codable, Sendable {
         loopModeOverride: ProjectLoopMode? = nil,
         actorId: String? = nil,
         teamId: String? = nil,
+        parentTaskId: String? = nil,
         selectedModel: String? = nil,
         changedBy: String? = nil
     ) {
@@ -729,6 +757,7 @@ public struct ProjectTaskUpdateRequest: Codable, Sendable {
         self.loopModeOverride = loopModeOverride
         self.actorId = actorId
         self.teamId = teamId
+        self.parentTaskId = parentTaskId
         self.selectedModel = selectedModel
         self.changedBy = changedBy
     }
@@ -2887,13 +2916,38 @@ public enum ReviewApprovalMode: String, Codable, Sendable {
     case agent
 }
 
+public enum ProjectAutonomousMode: String, Codable, Sendable {
+    case off
+    case sequential
+    case parallel
+}
+
 public struct ProjectReviewSettings: Codable, Sendable, Equatable {
     public var enabled: Bool
     public var approvalMode: ReviewApprovalMode
+    public var autonomousMode: ProjectAutonomousMode
 
-    public init(enabled: Bool = true, approvalMode: ReviewApprovalMode = .human) {
+    public init(
+        enabled: Bool = true,
+        approvalMode: ReviewApprovalMode = .human,
+        autonomousMode: ProjectAutonomousMode = .off
+    ) {
         self.enabled = enabled
         self.approvalMode = approvalMode
+        self.autonomousMode = autonomousMode
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case enabled
+        case approvalMode
+        case autonomousMode
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        enabled = try container.decodeIfPresent(Bool.self, forKey: .enabled) ?? true
+        approvalMode = try container.decodeIfPresent(ReviewApprovalMode.self, forKey: .approvalMode) ?? .human
+        autonomousMode = try container.decodeIfPresent(ProjectAutonomousMode.self, forKey: .autonomousMode) ?? .off
     }
 }
 

@@ -229,11 +229,13 @@ public actor CoreService {
     var liveSessionStreamContinuations: [String: [UUID: AsyncStream<AgentSessionStreamUpdate>.Continuation]] = [:]
     var liveSessionStreamCursor: [String: Int] = [:]
     var sessionExtraRoots: [String: [String]] = [:]
+    var sessionWorkingDirectories: [String: String] = [:]
     /// When set, only these tool IDs may execute for the session (subagent isolation overlay).
     var sessionSubagentToolAllowList: [String: Set<String>] = [:]
     /// Prevents overlapping memory checkpoints per agent/session pair.
     var memoryCheckpointLocks: Set<String> = []
     public let notificationService: NotificationService
+    public let kanbanEventService: KanbanEventService
     public let pendingApprovalService: PendingApprovalService
     let channelStreamCancelRegistry: ChannelStreamCancelRegistry
     var inboundChannelPluginQueues: [String: InboundChannelPluginQueueSlot] = [:]
@@ -399,6 +401,7 @@ public actor CoreService {
         }
         self.recoveryManager = RecoveryManager(store: self.store, runtime: self.runtime, logger: self.logger)
         self.notificationService = NotificationService()
+        self.kanbanEventService = KanbanEventService()
         self.pendingApprovalService = PendingApprovalService(
             workspaceDirectory: config
                 .resolvedWorkspaceRootURL(currentDirectory: FileManager.default.currentDirectoryPath).path

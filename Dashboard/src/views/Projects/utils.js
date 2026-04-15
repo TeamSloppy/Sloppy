@@ -164,9 +164,10 @@ export function normalizeProject(project, index = 0) {
   const reviewSettings = reviewSettingsRaw && typeof reviewSettingsRaw === "object"
     ? {
       enabled: Boolean(reviewSettingsRaw.enabled),
-      approvalMode: String(reviewSettingsRaw.approvalMode || "human").trim() || "human"
+      approvalMode: String(reviewSettingsRaw.approvalMode || "human").trim() || "human",
+      autonomousMode: String(reviewSettingsRaw.autonomousMode || "off").trim() || "off"
     }
-    : { enabled: false, approvalMode: "human" };
+    : { enabled: false, approvalMode: "human", autonomousMode: "off" };
 
   return {
     id,

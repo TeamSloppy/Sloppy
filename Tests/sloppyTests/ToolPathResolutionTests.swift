@@ -149,6 +149,61 @@ struct ToolPathResolutionTests {
         #expect(resolved != nil)
     }
 
+    @Test("resolveReadablePath resolves relative paths from current session directory")
+    func resolveReadableRelativeFromCurrentDirectory() throws {
+        let tmp = FileManager.default.temporaryDirectory
+        let workspace = tmp.appendingPathComponent("sloppy-ws-\(UUID().uuidString)", isDirectory: true)
+        let repoRoot = tmp.appendingPathComponent("sloppy-repo-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: workspace, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: repoRoot, withIntermediateDirectories: true)
+        defer {
+            try? FileManager.default.removeItem(at: workspace)
+            try? FileManager.default.removeItem(at: repoRoot)
+        }
+
+        let context = ToolContext(
+            agentID: "test-agent",
+            sessionID: "session-test",
+            policy: AgentToolsPolicy(guardrails: AgentToolsGuardrails(allowedWriteRoots: [repoRoot.path])),
+            workspaceRootURL: workspace,
+            currentDirectoryURL: repoRoot,
+            runtime: RuntimeSystem(),
+            memoryStore: InMemoryMemoryStore(),
+            sessionStore: AgentSessionFileStore(agentsRootURL: tmp),
+            agentCatalogStore: AgentCatalogFileStore(agentsRootURL: tmp),
+            agentSkillsStore: nil,
+            processRegistry: SessionProcessRegistry(),
+            channelSessionStore: ChannelSessionFileStore(workspaceRootURL: tmp),
+            store: InMemoryCorePersistenceBuilder().makeStore(config: CoreConfig.test),
+            searchProviderService: SearchProviderService(config: CoreConfig.default.searchTools),
+            mcpRegistry: MCPClientRegistry(config: CoreConfig.default.mcp),
+            logger: Logger(label: "test"),
+            projectService: nil,
+            configService: nil,
+            skillsService: nil,
+            lspManager: nil,
+            applyAgentMarkdown: nil,
+            delegateSubagent: nil
+        )
+
+        let resolved = context.resolveReadablePath("package.json")
+        #expect(resolved?.path == repoRoot.appendingPathComponent("package.json").resolvingSymlinksInPath().path)
+    }
+
+    @Test("sessionToolRoots does not promote plain repo path to filesystem root")
+    func sessionToolRootsForRepoPath() {
+        let roots = sessionToolRoots(forWorkingDirectory: "/projects/adawebsite")
+        #expect(roots == ["/projects/adawebsite"])
+    }
+
+    @Test("sessionToolRoots includes repository root for managed worktree")
+    func sessionToolRootsForManagedWorktree() {
+        let roots = sessionToolRoots(forWorkingDirectory: "/repo/.sloppy-worktrees/task-123")
+        #expect(roots.first == "/repo/.sloppy-worktrees/task-123")
+        #expect(roots.contains("/repo"))
+        #expect(!roots.contains("/"))
+    }
+
     // MARK: - sessionExtraRoots integration via CoreService
 
     @Test("invokeToolFromRuntime rejects cwd outside workspace when no extra roots registered")
@@ -187,5 +242,56 @@ struct ToolPathResolutionTests {
         )
         #expect(result.ok == false)
         #expect(result.error?.code == "cwd_not_allowed")
+    }
+
+    @Test("invokeToolFromRuntime restores project roots for task sessions")
+    func invokeToolRestoresProjectRootsForTaskSession() async throws {
+        let tmp = FileManager.default.temporaryDirectory
+        let repoRoot = tmp.appendingPathComponent("sloppy-project-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: repoRoot, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: repoRoot) }
+
+        let packageURL = repoRoot.appendingPathComponent("package.json")
+        try #"{"name":"demo"}"#.write(to: packageURL, atomically: true, encoding: .utf8)
+
+        let config = CoreConfig.test
+        let service = CoreService(config: config, persistenceBuilder: InMemoryCorePersistenceBuilder())
+        let agentID = "test-task-roots-agent"
+        _ = try await service.createAgent(
+            AgentCreateRequest(id: agentID, displayName: "Task Roots Agent", role: "assistant")
+        )
+        _ = try await service.createProject(
+            ProjectCreateRequest(id: "task-roots", name: "Task Roots", repoPath: repoRoot.path)
+        )
+        let project = try await service.createProjectTask(
+            projectID: "task-roots",
+            request: ProjectTaskCreateRequest(title: "Read project", status: "in_progress")
+        )
+        let taskID = try #require(project.tasks.first?.id)
+        let session = try await service.createAgentSession(
+            agentID: agentID,
+            request: AgentSessionCreateRequest(title: "task-\(taskID)")
+        )
+
+        let absoluteResult = await service.invokeToolFromRuntime(
+            agentID: agentID,
+            sessionID: session.id,
+            request: ToolInvocationRequest(tool: "files.read", arguments: [
+                "path": .string(packageURL.path),
+            ]),
+            recordSessionEvents: false
+        )
+        #expect(absoluteResult.ok == true)
+
+        let relativeResult = await service.invokeToolFromRuntime(
+            agentID: agentID,
+            sessionID: session.id,
+            request: ToolInvocationRequest(tool: "files.read", arguments: [
+                "path": .string("package.json"),
+            ]),
+            recordSessionEvents: false
+        )
+        #expect(relativeResult.ok == true)
+        #expect(relativeResult.data?.asObject?["content"]?.asString == #"{"name":"demo"}"#)
     }
 }

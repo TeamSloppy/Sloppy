@@ -28,6 +28,27 @@ const APPROVAL_MODES = [
     }
 ];
 
+const AUTONOMOUS_MODES = [
+    {
+        id: "off",
+        label: "Off",
+        icon: "block",
+        description: "Manual task management only."
+    },
+    {
+        id: "sequential",
+        label: "Sequential",
+        icon: "view_agenda",
+        description: "Pick and execute one task from backlog at a time."
+    },
+    {
+        id: "parallel",
+        label: "Parallel",
+        icon: "view_quilt",
+        description: "Pick and execute multiple backlog tasks in parallel."
+    }
+];
+
 const PROJECT_ICONS = [
     "folder", "rocket_launch", "code", "terminal", "science",
     "deployed_code", "bug_report", "psychology", "smart_toy", "extension",
@@ -66,7 +87,8 @@ function cloneDraft(project) {
         repoPath: project?.repoPath ?? "",
         reviewSettings: {
             enabled: Boolean(project?.reviewSettings?.enabled),
-            approvalMode: project?.reviewSettings?.approvalMode ?? "human"
+            approvalMode: project?.reviewSettings?.approvalMode ?? "human",
+            autonomousMode: project?.reviewSettings?.autonomousMode ?? "off"
         },
         taskLoopMode: project?.taskLoopMode ?? "human",
         actors: Array.isArray(project?.actors) ? [...project.actors] : [],
@@ -677,6 +699,7 @@ export function ProjectSettingsTab({
     }
 
     function renderLoop() {
+        const isEnabled = draft.reviewSettings.enabled;
         return (
             <section className="entry-editor-card">
                 <h3>Task Loop Mode</h3>
@@ -703,6 +726,59 @@ export function ProjectSettingsTab({
                         );
                     })}
                 </div>
+
+                <div className="review-toggle-row" style={{ marginTop: 24 }}>
+                    <div className="review-toggle-label">
+                        <span className="material-symbols-rounded review-toggle-icon">robot</span>
+                        <div>
+                            <strong>Autonomous Execution (VISOR)</strong>
+                            <p className="review-toggle-desc">
+                                VISOR will automatically pick tasks from the backlog and execute them.
+                                Requires Git Worktree &amp; Review to be enabled in the Review tab.
+                            </p>
+                        </div>
+                    </div>
+                </div>
+
+                <div className={`review-approval-grid ${!isEnabled ? "disabled" : ""}`}>
+                    {AUTONOMOUS_MODES.map((mode) => {
+                        const active = draft.reviewSettings.autonomousMode === mode.id;
+                        return (
+                            <button
+                                key={mode.id}
+                                type="button"
+                                className={`review-approval-option ${active ? "active" : ""}`}
+                                onClick={() => mutateDraft((d) => {
+                                    d.reviewSettings.autonomousMode = mode.id;
+                                    if (mode.id !== "off" && !d.reviewSettings.enabled) {
+                                        d.reviewSettings.enabled = true;
+                                        if (!String(d.repoPath || "").trim()) {
+                                            d.repoPath = `/projects/${project.id}`;
+                                        }
+                                    }
+                                })}
+                            >
+                                <span className="material-symbols-rounded review-approval-icon">{mode.icon}</span>
+                                <strong className="review-approval-name">{mode.label}</strong>
+                                <span className="review-approval-desc">{mode.description}</span>
+                                {active && (
+                                    <span className="material-symbols-rounded review-approval-check">check_circle</span>
+                                )}
+                            </button>
+                        );
+                    })}
+                </div>
+                {!isEnabled ? (
+                    <div className="review-agent-hint" style={{ marginTop: 10 }}>
+                        <span className="material-symbols-rounded" style={{ fontSize: "1rem", color: "var(--warn)" }}>
+                            info
+                        </span>
+                        <span>
+                            Choosing <strong>Sequential</strong> or <strong>Parallel</strong> will automatically enable
+                            <strong> Git Worktree &amp; Review</strong> for this project.
+                        </span>
+                    </div>
+                ) : null}
             </section>
         );
     }

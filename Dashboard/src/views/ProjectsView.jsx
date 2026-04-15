@@ -13,6 +13,7 @@ import {
   deleteProjectTask as deleteProjectTaskRequest,
   fetchAgentSessions
 } from "../api";
+import { useKanbanSocket } from "./Projects/useKanbanSocket";
 import { Breadcrumbs } from "../components/Breadcrumbs/Breadcrumbs";
 
 import {
@@ -823,6 +824,59 @@ export function ProjectsView({
   const [availableChannels, setAvailableChannels] = useState([]);
   const [isTaskDetailFullscreen, setIsTaskDetailFullscreen] = useState(false);
   const [showArchived, setShowArchived] = useState(false);
+
+  useKanbanSocket(routeProjectId, (event) => {
+    setProjects((prev) => {
+      const projectIndex = prev.findIndex((p) => p.id === event.projectId);
+      if (projectIndex === -1) {
+        if (event.type === "project_updated" || event.type === "task_created") {
+          // If project not found, we might need to re-fetch all projects
+          // but for now, we only handle existing projects to avoid loops
+          return prev;
+        }
+        return prev;
+      }
+
+      const next = [...prev];
+      const project = { ...next[projectIndex] };
+      const tasks = [...project.tasks];
+
+      switch (event.type) {
+        case "task_created":
+          if (event.task && !tasks.some((t) => t.id === event.task.id)) {
+            tasks.push(event.task);
+          }
+          break;
+        case "task_updated":
+          if (event.task) {
+            const taskIndex = tasks.findIndex((t) => t.id === event.task.id);
+            if (taskIndex !== -1) {
+              tasks[taskIndex] = event.task;
+            } else {
+              tasks.push(event.task);
+            }
+          }
+          break;
+        case "task_deleted":
+          if (event.taskId) {
+            const taskIndex = tasks.findIndex((t) => t.id === event.taskId);
+            if (taskIndex !== -1) {
+              tasks.splice(taskIndex, 1);
+            }
+          }
+          break;
+        case "project_updated":
+          // For project updates, we might need a full re-fetch or just update meta
+          // Re-fetching specific project is safer
+          loadProjects();
+          return prev;
+      }
+
+      project.tasks = tasks;
+      next[projectIndex] = project;
+      return next;
+    });
+  });
 
   const activeProjects = useMemo(() => projects.filter((p) => !p.isArchived), [projects]);
   const archivedProjects = useMemo(() => projects.filter((p) => p.isArchived), [projects]);

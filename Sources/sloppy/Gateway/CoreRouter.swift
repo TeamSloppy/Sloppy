@@ -562,6 +562,37 @@ public actor CoreRouter {
             )
         )
 
+        routes.append(
+            .init(
+                path: "/v1/projects/:projectId/kanban/ws",
+                validator: { request in
+                    let projectId = request.pathParam("projectId") ?? ""
+                    return !projectId.isEmpty
+                },
+                callback: { request, connection in
+                    let projectId = request.pathParam("projectId") ?? ""
+                    let stream = await service.kanbanEventService.subscribe(projectId: projectId)
+                    let encoder = JSONEncoder()
+                    encoder.dateEncodingStrategy = .iso8601
+
+                    for await event in stream {
+                        guard let data = try? encoder.encode(event),
+                              let text = String(data: data, encoding: .utf8)
+                        else {
+                            continue
+                        }
+
+                        let sent = await connection.sendText(text)
+                        if !sent {
+                            break
+                        }
+                    }
+
+                    await connection.close()
+                }
+            )
+        )
+
         return routes
     }
 

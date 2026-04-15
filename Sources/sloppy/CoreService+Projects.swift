@@ -680,6 +680,7 @@ extension CoreService {
 
         project.updatedAt = Date()
         await store.saveProject(project)
+        await kanbanEventService.push(KanbanEvent(type: .projectUpdated, projectId: normalizedID))
         return project
     }
 
@@ -792,6 +793,7 @@ extension CoreService {
         project.tasks.append(task)
         project.updatedAt = now
         await store.saveProject(project)
+        await kanbanEventService.push(KanbanEvent(type: .taskCreated, projectId: normalizedID, task: task))
         if normalizedStatus == ProjectTaskStatus.ready.rawValue {
             await handleTaskBecameReady(projectID: normalizedID, taskID: task.id)
             if let updated = await store.project(id: normalizedID) {
@@ -863,6 +865,7 @@ extension CoreService {
         project.tasks[taskIndex] = task
         project.updatedAt = Date()
         await store.saveProject(project)
+        await kanbanEventService.push(KanbanEvent(type: .taskUpdated, projectId: normalizedProject, task: task))
 
         let changedBy = request.changedBy ?? "user"
         await recordTaskFieldChanges(
@@ -911,6 +914,7 @@ extension CoreService {
         project.tasks.removeAll(where: { $0.id.lowercased() == normalizedTaskLowercased })
         project.updatedAt = Date()
         await store.saveProject(project)
+        await kanbanEventService.push(KanbanEvent(type: .taskDeleted, projectId: normalizedProject, taskId: normalizedTask))
         return project
     }
 
@@ -945,6 +949,7 @@ extension CoreService {
         if changed {
             project.updatedAt = Date()
             await store.saveProject(project)
+            await kanbanEventService.push(KanbanEvent(type: .projectUpdated, projectId: normalizedID))
         }
         return project
     }

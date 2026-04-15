@@ -99,12 +99,24 @@ extension CoreService {
             )
         }
 
+        let sessionToolContext = await toolContextForSession(
+            sessionID: normalizedSessionID,
+            sessionTitle: sessionDetail.summary.title
+        )
+
         var effectivePolicy = authorization.policy
         if authorization.allowed,
+           !sessionToolContext.extraRoots.isEmpty {
+            effectivePolicy.guardrails.allowedExecRoots += sessionToolContext.extraRoots
+            effectivePolicy.guardrails.allowedWriteRoots += sessionToolContext.extraRoots
+        } else if authorization.allowed,
            let extraRoots = sessionExtraRoots[normalizedSessionID],
            !extraRoots.isEmpty {
             effectivePolicy.guardrails.allowedExecRoots += extraRoots
             effectivePolicy.guardrails.allowedWriteRoots += extraRoots
+        }
+        let currentDirectoryURL = sessionToolContext.workingDirectory.map {
+            URL(fileURLWithPath: $0, isDirectory: true)
         }
 
         let loopDecision: ToolLoopGuard.Decision
@@ -113,7 +125,8 @@ extension CoreService {
                 sessionID: normalizedSessionID,
                 request: request,
                 policy: effectivePolicy,
-                workspaceRootURL: workspaceRootURL
+                workspaceRootURL: workspaceRootURL,
+                currentDirectoryURL: currentDirectoryURL
             )
         } else {
             loopDecision = .allow(signature: "")
@@ -176,7 +189,8 @@ extension CoreService {
                         agentID: normalizedAgentID,
                         sessionID: normalizedSessionID,
                         request: request,
-                        policy: effectivePolicy
+                        policy: effectivePolicy,
+                        currentDirectoryURL: currentDirectoryURL
                     )
                 }
                 await toolLoopGuard.recordResult(
@@ -184,7 +198,8 @@ extension CoreService {
                     request: request,
                     result: result,
                     policy: effectivePolicy,
-                    workspaceRootURL: workspaceRootURL
+                    workspaceRootURL: workspaceRootURL,
+                    currentDirectoryURL: currentDirectoryURL
                 )
             }
         } else {
@@ -349,6 +364,52 @@ extension CoreService {
                 selectedModel: selectedModel
             )
         }
+    }
+
+    func toolContextForSession(
+        sessionID: String,
+        sessionTitle: String
+    ) async -> (workingDirectory: String?, extraRoots: [String]) {
+        if let roots = sessionExtraRoots[sessionID] {
+            return (sessionWorkingDirectories[sessionID], roots)
+        }
+
+        let trimmedTitle = sessionTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmedTitle.hasPrefix("task-") else {
+            return (nil, [])
+        }
+
+        let taskID = String(trimmedTitle.dropFirst("task-".count)).trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !taskID.isEmpty else {
+            return (nil, [])
+        }
+
+        let projects = await store.listProjects()
+        for project in projects {
+            guard let task = project.tasks.first(where: { $0.id == taskID }),
+                  let repoPath = project.repoPath?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !repoPath.isEmpty
+            else {
+                continue
+            }
+
+            let workingDirectory: String
+            if task.worktreeBranch != nil {
+                workingDirectory = gitWorktreeService.worktreePath(repoPath: repoPath, taskId: task.id)
+            } else {
+                workingDirectory = repoPath
+            }
+
+            var roots = sessionToolRoots(forWorkingDirectory: workingDirectory)
+            if !roots.contains(repoPath) {
+                roots.append(repoPath)
+            }
+            sessionExtraRoots[sessionID] = roots
+            sessionWorkingDirectories[sessionID] = workingDirectory
+            return (workingDirectory, roots)
+        }
+
+        return (nil, [])
     }
 
 }
