@@ -142,6 +142,8 @@ export interface CoreApi {
   ) => () => void;
   deleteAgentSession: (agentId: string, sessionId: string) => Promise<boolean>;
   fetchAgentConfig: (agentId: string) => Promise<AnyRecord | null>;
+  fetchAgentFiles: (agentId: string, path?: string) => Promise<AnyRecord[] | null>;
+  fetchAgentFileContent: (agentId: string, path: string) => Promise<AnyRecord | null>;
   updateAgentConfig: (agentId: string, payload: AnyRecord) => Promise<AnyRecord>;
   fetchAgentTokenUsage: (agentId: string) => Promise<AnyRecord | null>;
   fetchAgentToolsCatalog: (agentId: string) => Promise<AnyRecord[] | null>;
@@ -1128,6 +1130,33 @@ export function createCoreApi(): CoreApi {
     fetchAgentConfig: async (agentId) => {
       const response = await requestJson<AnyRecord>({
         path: `/v1/agents/${encodeURIComponent(agentId)}/config`
+      });
+      if (!response.ok) {
+        return null;
+      }
+      return response.data;
+    },
+
+    fetchAgentFiles: async (agentId, path = "") => {
+      const params = new URLSearchParams();
+      if (path) {
+        params.set("path", path);
+      }
+      const qs = params.toString();
+      const response = await requestJson<AnyRecord[]>({
+        path: `/v1/agents/${encodeURIComponent(agentId)}/files${qs ? `?${qs}` : ""}`
+      });
+      if (!response.ok || !Array.isArray(response.data)) {
+        return null;
+      }
+      return response.data;
+    },
+
+    fetchAgentFileContent: async (agentId, path) => {
+      const params = new URLSearchParams();
+      params.set("path", path);
+      const response = await requestJson<AnyRecord>({
+        path: `/v1/agents/${encodeURIComponent(agentId)}/files/content?${params.toString()}`
       });
       if (!response.ok) {
         return null;

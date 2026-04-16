@@ -30,6 +30,136 @@ extension CoreService {
         }
     }
 
+    public func listAgentFiles(agentID: String, path: String) throws -> [ProjectFileEntry] {
+        guard let normalizedID = normalizedAgentID(agentID) else {
+            throw AgentStorageError.invalidID
+        }
+        _ = try getAgent(id: normalizedID)
+
+        let rootURL: URL
+        do {
+            rootURL = try agentCatalogStore.directoryURL(agentID: normalizedID)
+        } catch {
+            throw mapAgentStorageError(error)
+        }
+
+        let trimmedPath = path.trimmingCharacters(in: .whitespacesAndNewlines)
+        let visibleTopLevelNames = Set(agentVisibleTopLevelNames)
+        let fm = FileManager.default
+
+        if trimmedPath.isEmpty || trimmedPath == "/" {
+            var entries: [ProjectFileEntry] = []
+            for name in agentVisibleTopLevelNames {
+                let url = rootURL.appendingPathComponent(name)
+                var isDirectory: ObjCBool = false
+                guard fm.fileExists(atPath: url.path, isDirectory: &isDirectory) else {
+                    continue
+                }
+                entries.append(
+                    ProjectFileEntry(
+                        name: name,
+                        type: isDirectory.boolValue ? .directory : .file,
+                        size: isDirectory.boolValue ? nil : ((try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? nil)
+                    )
+                )
+            }
+            return sortAgentEntries(entries)
+        }
+
+        let normalizedPath = trimmedPath.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        let pathComponents = normalizedPath.split(separator: "/").map(String.init)
+        guard !pathComponents.isEmpty else {
+            throw AgentStorageError.notFound
+        }
+
+        let firstComponent = pathComponents[0]
+        guard firstComponent == "skills" || visibleTopLevelNames.contains(firstComponent) else {
+            throw AgentStorageError.notFound
+        }
+
+        let targetURL = rootURL.appendingPathComponent(normalizedPath).standardizedFileURL
+        guard isAgentURL(targetURL, inside: rootURL) else {
+            throw AgentStorageError.invalidID
+        }
+
+        var isDirectory: ObjCBool = false
+        guard fm.fileExists(atPath: targetURL.path, isDirectory: &isDirectory), isDirectory.boolValue else {
+            throw AgentStorageError.notFound
+        }
+
+        let contents = try fm.contentsOfDirectory(
+            at: targetURL,
+            includingPropertiesForKeys: [.isDirectoryKey, .fileSizeKey],
+            options: [.skipsHiddenFiles]
+        )
+        let entries = contents.compactMap { url -> ProjectFileEntry? in
+            if normalizedPath == "skills" && url.lastPathComponent == "skills.json" {
+                return nil
+            }
+            let resourceValues = try? url.resourceValues(forKeys: [.isDirectoryKey, .fileSizeKey])
+            let isDir = resourceValues?.isDirectory ?? false
+            let size = resourceValues?.fileSize
+            return ProjectFileEntry(
+                name: url.lastPathComponent,
+                type: isDir ? .directory : .file,
+                size: isDir ? nil : size
+            )
+        }
+        return sortAgentEntries(entries)
+    }
+
+    public func readAgentFile(agentID: String, path: String) throws -> ProjectFileContentResponse {
+        guard let normalizedID = normalizedAgentID(agentID) else {
+            throw AgentStorageError.invalidID
+        }
+        _ = try getAgent(id: normalizedID)
+
+        let rootURL: URL
+        do {
+            rootURL = try agentCatalogStore.directoryURL(agentID: normalizedID)
+        } catch {
+            throw mapAgentStorageError(error)
+        }
+
+        let trimmedPath = path.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalizedPath = trimmedPath.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        guard !normalizedPath.isEmpty else {
+            throw AgentStorageError.invalidID
+        }
+
+        let pathComponents = normalizedPath.split(separator: "/").map(String.init)
+        guard let firstComponent = pathComponents.first else {
+            throw AgentStorageError.invalidID
+        }
+        guard agentVisibleTopLevelNames.contains(firstComponent) else {
+            throw AgentStorageError.notFound
+        }
+        if firstComponent == "skills" && normalizedPath == "skills/skills.json" {
+            throw AgentStorageError.notFound
+        }
+
+        let targetURL = rootURL.appendingPathComponent(normalizedPath).standardizedFileURL
+        guard isAgentURL(targetURL, inside: rootURL) else {
+            throw AgentStorageError.invalidID
+        }
+
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: targetURL.path, isDirectory: &isDirectory), !isDirectory.boolValue else {
+            throw AgentStorageError.notFound
+        }
+
+        let maxBytes = 2 * 1024 * 1024
+        let data = try Data(contentsOf: targetURL)
+        guard data.count <= maxBytes else {
+            throw AgentStorageError.invalidPayload
+        }
+        guard let text = String(data: data, encoding: .utf8) else {
+            throw AgentStorageError.invalidPayload
+        }
+
+        return ProjectFileContentResponse(path: normalizedPath, content: text, sizeBytes: data.count)
+    }
+
     /// Lists project tasks currently claimed by a specific agent.
     public func listAgentTasks(agentID: String) async throws -> [AgentTaskRecord] {
         guard let normalizedID = normalizedAgentID(agentID) else {
@@ -69,6 +199,25 @@ extension CoreService {
         return records.sorted { left, right in
             left.task.updatedAt > right.task.updatedAt
         }
+    }
+
+    private var agentVisibleTopLevelNames: [String] {
+        ["AGENTS.md", "USER.md", "SOUL.md", "IDENTITY.md", "HEARTBEAT.md", "MEMORY.md", "skills"]
+    }
+
+    private func sortAgentEntries(_ entries: [ProjectFileEntry]) -> [ProjectFileEntry] {
+        entries.sorted {
+            if $0.type == $1.type {
+                return $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending
+            }
+            return $0.type == .directory
+        }
+    }
+
+    private func isAgentURL(_ url: URL, inside rootURL: URL) -> Bool {
+        let rootPath = rootURL.standardizedFileURL.path
+        let targetPath = url.standardizedFileURL.path
+        return targetPath == rootPath || targetPath.hasPrefix(rootPath + "/")
     }
 
     public func listAgentMemories(

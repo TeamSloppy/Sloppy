@@ -140,6 +140,15 @@ extension CoreService {
             }
         }
 
+        let prevStatusForLog = task.status
+        task.status = ProjectTaskStatus.inProgress.rawValue
+        task.updatedAt = Date()
+        project.tasks[taskIndex] = task
+        project.updatedAt = Date()
+        await store.saveProject(project)
+        await kanbanEventService.push(KanbanEvent(type: .taskUpdated, projectId: project.id, task: task))
+        await recordSystemStatusChange(projectID: project.id, taskID: task.id, from: prevStatusForLog, to: task.status, source: "system")
+
         let effectiveWorkingDirectory = worktreePath ?? project.repoPath
         let workerMode: WorkerMode = task.kind == .planning ? .interactive : .fireAndForget
         let workerObjective = buildWorkerObjective(task: task, project: project, worktreePath: worktreePath)
@@ -160,14 +169,6 @@ extension CoreService {
             )
         )
 
-        let prevStatusForLog = task.status
-        task.status = ProjectTaskStatus.inProgress.rawValue
-        task.updatedAt = Date()
-        project.tasks[taskIndex] = task
-        project.updatedAt = Date()
-        await store.saveProject(project)
-        await kanbanEventService.push(KanbanEvent(type: .taskUpdated, projectId: project.id, task: task))
-        await recordSystemStatusChange(projectID: project.id, taskID: task.id, from: prevStatusForLog, to: task.status, source: "system")
         appendTaskLifecycleLog(
             projectID: project.id,
             taskID: task.id,
@@ -386,13 +387,34 @@ extension CoreService {
             throw ProjectError.notFound
         }
 
-        guard let repoPath = project.repoPath, let branchName = task.worktreeBranch else {
+        guard let repoPath = project.repoPath else {
             return TaskDiffResponse(diff: "", branchName: "", baseBranch: "", hasChanges: false)
         }
 
-        let baseBranch = (try? await gitWorktreeService.defaultBranch(repoPath: repoPath)) ?? "main"
-        let diff = (try? await gitWorktreeService.branchDiff(repoPath: repoPath, branchName: branchName, baseBranch: baseBranch)) ?? ""
-        return TaskDiffResponse(diff: diff, branchName: branchName, baseBranch: baseBranch, hasChanges: !diff.isEmpty)
+        if let branchName = task.worktreeBranch {
+            let baseBranch = (try? await gitWorktreeService.defaultBranch(repoPath: repoPath)) ?? "main"
+            let diff = (try? await gitWorktreeService.branchDiff(repoPath: repoPath, branchName: branchName, baseBranch: baseBranch)) ?? ""
+            return TaskDiffResponse(diff: diff, branchName: branchName, baseBranch: baseBranch, hasChanges: !diff.isEmpty)
+        }
+
+        // Fallback: when a task is in review but no dedicated worktree exists, surface the project's working-tree diff.
+        // This is less precise than a task-scoped worktree diff, but it prevents "no diff" when changes were made directly on the repo.
+        if task.status == ProjectTaskStatus.needsReview.rawValue, gitWorktreeService.isGitWorkingCopy(repoPath: repoPath) {
+            let worktreePath = gitWorktreeService.worktreePath(repoPath: repoPath, taskId: taskID)
+            if gitWorktreeService.isGitWorkingCopy(repoPath: worktreePath) {
+                let label = (try? await gitWorktreeService.currentBranchLabel(repoPath: worktreePath)) ?? ""
+                let patch = (try? await gitWorktreeService.workingTreePatch(repoPath: worktreePath, maxBytes: 512 * 1024)) ?? (text: "", truncated: false)
+                let branchName = label.isEmpty ? "worktree (working-tree)" : "\(label) (working-tree)"
+                return TaskDiffResponse(diff: patch.text, branchName: branchName, baseBranch: "HEAD", hasChanges: !patch.text.isEmpty)
+            }
+
+            let label = (try? await gitWorktreeService.currentBranchLabel(repoPath: repoPath)) ?? ""
+            let patch = (try? await gitWorktreeService.workingTreePatch(repoPath: repoPath, maxBytes: 512 * 1024)) ?? (text: "", truncated: false)
+            let branchName = label.isEmpty ? "working-tree" : "\(label) (working-tree)"
+            return TaskDiffResponse(diff: patch.text, branchName: branchName, baseBranch: "HEAD", hasChanges: !patch.text.isEmpty)
+        }
+
+        return TaskDiffResponse(diff: "", branchName: "", baseBranch: "", hasChanges: false)
     }
 
     public func listReviewComments(projectID: String, taskID: String) async -> [ReviewComment] {

@@ -2594,6 +2594,58 @@ body.agent-chat-no-page-scroll .page {
   width: 100%;
 }
 
+.agent-doc-files-shell {
+  margin-top: 12px;
+  min-height: 480px;
+}
+
+.agent-doc-files-tree-panel {
+  width: 260px;
+}
+
+.agent-doc-files-viewer-panel {
+  background: var(--bg);
+}
+
+.agent-doc-files-viewer-body {
+  background: var(--bg);
+  padding: 14px;
+}
+
+.agent-doc-files-editor-surface {
+  display: grid;
+  gap: 12px;
+  min-height: 100%;
+}
+
+.agent-doc-files-editor-meta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  font-size: 0.76rem;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.agent-doc-files-editor-label {
+  display: grid;
+  gap: 8px;
+  min-height: 0;
+  color: var(--text-main);
+  font-size: 0.88rem;
+}
+
+.agent-doc-files-shell .agent-doc-files-editor-label textarea,
+.agent-doc-files-viewer-body .agent-doc-files-editor-label textarea {
+  width: 100%;
+  min-height: 360px;
+  resize: vertical;
+  font-family: "Fira Code", monospace;
+  font-size: 0.84rem;
+}
+
 .agent-tools-toggle {
   display: flex;
   align-items: flex-start;

@@ -1,6 +1,14 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { fetchActorsBoard, fetchAgentConfig, fetchRuntimeConfig, updateAgentConfig, deleteAgent } from "../../../api";
+import {
+  fetchActorsBoard,
+  fetchAgentConfig,
+  fetchAgentFileContent,
+  fetchAgentFiles,
+  fetchRuntimeConfig,
+  updateAgentConfig,
+  deleteAgent
+} from "../../../api";
 import {
   coerceLegacySloppyModelId,
   collectAggregatedProviderModels,
@@ -130,8 +138,118 @@ const AGENT_DOC_FILES = [
   { id: "agentsMarkdown", name: "AGENTS.md", icon: "smart_toy" },
   { id: "soulMarkdown", name: "SOUL.md", icon: "psychology" },
   { id: "identityMarkdown", name: "IDENTITY.md", icon: "badge" },
+  { id: "heartbeatMarkdown", name: "HEARTBEAT.md", icon: "monitor_heart" },
   { id: "memoryMarkdown", name: "MEMORY.md", icon: "neurology", readOnly: true }
 ];
+
+const MOBILE_AGENT_FILES_BREAKPOINT_PX = 1000;
+
+function useNarrowAgentFilesLayout() {
+  const [narrow, setNarrow] = useState(
+    () => typeof window !== "undefined" && window.innerWidth <= MOBILE_AGENT_FILES_BREAKPOINT_PX
+  );
+
+  useEffect(() => {
+    const mq = window.matchMedia(`(max-width: ${MOBILE_AGENT_FILES_BREAKPOINT_PX}px)`);
+    const sync = () => setNarrow(mq.matches);
+    sync();
+    mq.addEventListener("change", sync);
+    return () => mq.removeEventListener("change", sync);
+  }, []);
+
+  return narrow;
+}
+
+function docIdForFilePath(path) {
+  const normalizedPath = String(path || "").trim();
+  const match = AGENT_DOC_FILES.find((file) => file.name === normalizedPath);
+  return match?.id || null;
+}
+
+function AgentFileTreeNode({ agentId, name, type, path, depth, selectedPath, onSelectFile, narrowLayout }) {
+  const [isExpanded, setIsExpanded] = useState(false);
+  const [children, setChildren] = useState(null);
+  const [isLoading, setIsLoading] = useState(false);
+
+  const isSelected = type === "file" && path === selectedPath;
+  const rowPadLeft = narrowLayout ? 12 + depth * 22 : 8 + depth * 16;
+
+  async function handleExpand() {
+    if (type !== "directory") return;
+    const next = !isExpanded;
+    setIsExpanded(next);
+    if (next && children === null) {
+      setIsLoading(true);
+      const entries = await fetchAgentFiles(agentId, path);
+      setChildren(entries || []);
+      setIsLoading(false);
+    }
+  }
+
+  function handleClick() {
+    if (type === "directory") {
+      handleExpand();
+    } else {
+      onSelectFile(path);
+    }
+  }
+
+  const icon = type === "directory"
+    ? (isExpanded ? "folder_open" : "folder")
+    : "description";
+
+  return (
+    <div className="pft-node">
+      <button
+        type="button"
+        className={`pft-node-row ${isSelected ? "selected" : ""} ${narrowLayout ? "pft-node-row--touch" : ""}`}
+        style={{ paddingLeft: `${rowPadLeft}px` }}
+        onClick={handleClick}
+        title={name}
+      >
+        <span className={`material-symbols-rounded pft-node-icon ${type === "directory" ? "pft-icon-dir" : "pft-icon-file"}`}>
+          {icon}
+        </span>
+        <span className="pft-node-name">{name}</span>
+        {isLoading && <span className="pft-node-spinner" />}
+        {narrowLayout && (
+          <span
+            className={`pft-node-chevron ${type === "directory" && isExpanded ? "pft-node-chevron--expanded" : ""}`}
+            aria-hidden
+          >
+            <span className="material-symbols-rounded">chevron_right</span>
+          </span>
+        )}
+      </button>
+      {isExpanded && children !== null && (
+        <div className="pft-children">
+          {children.length === 0 ? (
+            <div
+              className="pft-empty-dir"
+              style={{ paddingLeft: `${(narrowLayout ? 12 : 8) + (depth + 1) * (narrowLayout ? 22 : 16)}px` }}
+            >
+              Empty
+            </div>
+          ) : (
+            children.map((child) => (
+              <AgentFileTreeNode
+                key={child.name}
+                agentId={agentId}
+                name={child.name}
+                type={child.type}
+                path={path ? `${path}/${child.name}` : child.name}
+                depth={depth + 1}
+                selectedPath={selectedPath}
+                onSelectFile={onSelectFile}
+                narrowLayout={narrowLayout}
+              />
+            ))
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
 
 export function AgentConfigTab({ agentId, agentDisplayName = "", onDeleteAgent = null }) {
   const [draft, setDraft] = useState(() => emptyAgentConfigDraft(agentId));
@@ -142,7 +260,12 @@ export function AgentConfigTab({ agentId, agentDisplayName = "", onDeleteAgent =
   const [channelNodes, setChannelNodes] = useState([]);
   const [selectedSection, setSelectedSection] = useState("runtime");
   const [acpTargets, setAcpTargets] = useState([]);
-  const [selectedDocFile, setSelectedDocFile] = useState("userMarkdown");
+  const [selectedFilePath, setSelectedFilePath] = useState("");
+  const [agentRootEntries, setAgentRootEntries] = useState(null);
+  const [agentFilesLoading, setAgentFilesLoading] = useState(true);
+  const [agentFileContent, setAgentFileContent] = useState(null);
+  const [agentFileLoading, setAgentFileLoading] = useState(false);
+  const [agentFileError, setAgentFileError] = useState("");
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [deleteConfirmText, setDeleteConfirmText] = useState("");
   const [isDeleting, setIsDeleting] = useState(false);
@@ -151,8 +274,10 @@ export function AgentConfigTab({ agentId, agentDisplayName = "", onDeleteAgent =
   const [defaultModelMenuOpen, setDefaultModelMenuOpen] = useState(false);
   const [defaultModelMenuRect, setDefaultModelMenuRect] = useState(null);
   const [modelPickerQuery, setModelPickerQuery] = useState("");
+  const agentFileRequestRef = useRef(null);
   const defaultModelPickerRef = useRef(null);
   const defaultModelMenuRef = useRef(null);
+  const narrowAgentFilesLayout = useNarrowAgentFilesLayout();
 
   useEffect(() => {
     let isCancelled = false;
@@ -317,6 +442,12 @@ export function AgentConfigTab({ agentId, agentDisplayName = "", onDeleteAgent =
     [defaultModelOptions, modelPickerQuery]
   );
 
+  const activeDocFileId = useMemo(() => docIdForFilePath(selectedFilePath), [selectedFilePath]);
+  const activeDocFile = useMemo(
+    () => AGENT_DOC_FILES.find((file) => file.id === activeDocFileId) || null,
+    [activeDocFileId]
+  );
+
   function updateField(field, value) {
     setDraft((previous) => ({
       ...previous,
@@ -453,6 +584,82 @@ export function AgentConfigTab({ agentId, agentDisplayName = "", onDeleteAgent =
   }
 
   const isACP = draft.runtime?.type === "acp";
+
+  const closeMobileAgentFile = useCallback(() => {
+    setSelectedFilePath("");
+  }, []);
+
+  useEffect(() => {
+    if (!narrowAgentFilesLayout || !selectedFilePath) {
+      return undefined;
+    }
+
+    function onKeyDown(event) {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        closeMobileAgentFile();
+      }
+    }
+
+    window.addEventListener("keydown", onKeyDown);
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [closeMobileAgentFile, narrowAgentFilesLayout, selectedFilePath]);
+
+  useEffect(() => {
+    let isCancelled = false;
+
+    async function loadAgentFilesRoot() {
+      setAgentFilesLoading(true);
+      const entries = await fetchAgentFiles(agentId, "");
+      if (isCancelled) {
+        return;
+      }
+      setAgentRootEntries(entries);
+      setAgentFilesLoading(false);
+    }
+
+    loadAgentFilesRoot().catch(() => {
+      if (!isCancelled) {
+        setAgentRootEntries(null);
+        setAgentFilesLoading(false);
+      }
+    });
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [agentId]);
+
+  const handleSelectAgentFile = useCallback(async (path) => {
+    const token = { path };
+    agentFileRequestRef.current = token;
+    setSelectedFilePath(path);
+    setAgentFileContent(null);
+    setAgentFileError("");
+
+    if (docIdForFilePath(path)) {
+      setAgentFileLoading(false);
+      return;
+    }
+
+    setAgentFileLoading(true);
+    const response = await fetchAgentFileContent(agentId, path);
+    if (agentFileRequestRef.current !== token) {
+      return;
+    }
+    if (!response) {
+      setAgentFileError("Unable to load file. It may be binary or too large.");
+      setAgentFileLoading(false);
+      return;
+    }
+    setAgentFileContent(response);
+    setAgentFileLoading(false);
+  }, [agentId]);
 
   async function handleDeleteAgent() {
     if (isDeleting) return;
@@ -649,44 +856,167 @@ export function AgentConfigTab({ agentId, agentDisplayName = "", onDeleteAgent =
     }
 
     if (selectedSection === "files") {
-      const activeFile = AGENT_DOC_FILES.find((f) => f.id === selectedDocFile) || AGENT_DOC_FILES[0];
-      return (
-        <section className="entry-editor-card">
-          <h3>Agent Files</h3>
-          <div className="agent-doc-files">
-            <nav className="agent-doc-files-nav">
-              {AGENT_DOC_FILES.map((file) => {
-                const isActive = file.id === activeFile.id;
-                const hasContent = Boolean(draft.documents[file.id]?.trim());
-                return (
-                  <button
-                    key={file.id}
-                    type="button"
-                    className={`agent-doc-files-item ${isActive ? "active" : ""}`}
-                    onClick={() => setSelectedDocFile(file.id)}
-                  >
-                    <span className="material-symbols-rounded agent-doc-files-icon">{file.icon}</span>
-                    <span className="agent-doc-files-name">{file.name}</span>
-                    {!hasContent && <span className="agent-doc-files-empty">empty</span>}
-                  </button>
-                );
-              })}
-            </nav>
-            <div className="agent-doc-files-editor">
-              <label>
-                {activeFile.name}
-                {activeFile.readOnly && (
-                  <span className="agent-doc-files-readonly-badge"> [Read-Only]</span>
-                )}
+      const viewerPath = selectedFilePath ? `${agentDisplayName || agentId}/${selectedFilePath}` : "";
+      const hasSelectedContent = activeDocFileId
+        ? Boolean(draft.documents[activeDocFileId]?.trim())
+        : Boolean(agentFileContent?.content?.trim());
+      const showMobileFileOverlay = narrowAgentFilesLayout && Boolean(selectedFilePath);
+
+      const viewerPanel = !selectedFilePath ? (
+        <div className="pft-viewer-empty">
+          <span className="material-symbols-rounded pft-viewer-empty-icon">description</span>
+          <p>Select an agent file to view or edit its contents</p>
+        </div>
+      ) : activeDocFile && activeDocFileId ? (
+        <>
+          <div className="pft-viewer-head">
+            <span className="material-symbols-rounded pft-viewer-path-icon">description</span>
+            <span className="pft-viewer-path">{viewerPath}</span>
+          </div>
+          <div className="pft-viewer-body agent-doc-files-viewer-body">
+            <div className="agent-doc-files-editor-surface">
+              <div className="agent-doc-files-editor-meta">
+                <span>{activeDocFile.readOnly ? "Read-only" : "Editable"}</span>
+                <span>{hasSelectedContent ? "Has content" : "Empty file"}</span>
+              </div>
+              <label className="agent-doc-files-editor-label">
+                <span>
+                  {activeDocFile.name}
+                  {activeDocFile.readOnly && (
+                    <span className="agent-doc-files-readonly-badge"> [Read-Only]</span>
+                  )}
+                </span>
                 <textarea
                   rows={18}
-                  value={draft.documents[activeFile.id]}
-                  onChange={(event) => updateDocumentField(activeFile.id, event.target.value)}
-                  readOnly={activeFile.readOnly}
-                  className={activeFile.readOnly ? "readonly-textarea" : ""}
+                  value={draft.documents[activeDocFileId]}
+                  onChange={(event) => updateDocumentField(activeDocFileId, event.target.value)}
+                  readOnly={activeDocFile.readOnly}
+                  className={activeDocFile.readOnly ? "readonly-textarea" : ""}
                 />
               </label>
             </div>
+          </div>
+        </>
+      ) : (
+        <>
+          <div className="pft-viewer-head">
+            <span className="material-symbols-rounded pft-viewer-path-icon">description</span>
+            <span className="pft-viewer-path">{viewerPath}</span>
+          </div>
+          <div className="pft-viewer-body agent-doc-files-viewer-body">
+            <div className="agent-doc-files-editor-surface">
+              <div className="agent-doc-files-editor-meta">
+                <span>Read-only</span>
+                <span>{agentFileContent?.sizeBytes ? `${agentFileContent.sizeBytes} bytes` : "External file"}</span>
+              </div>
+              <label className="agent-doc-files-editor-label">
+                <span>{selectedFilePath.split("/").pop()}</span>
+                <textarea
+                  rows={18}
+                  value={agentFileLoading ? "Loading..." : (agentFileError || agentFileContent?.content || "")}
+                  readOnly
+                  className="readonly-textarea"
+                />
+              </label>
+            </div>
+          </div>
+        </>
+      );
+
+      return (
+        <section className="entry-editor-card">
+          <h3>Agent Files</h3>
+          <div className={`pft-shell agent-doc-files-shell${narrowAgentFilesLayout ? " pft-shell--narrow" : ""}`}>
+            <div className="pft-tree-panel agent-doc-files-tree-panel">
+              <div className="pft-tree-head">
+                <span className="material-symbols-rounded pft-tree-head-icon">folder</span>
+                <span className="pft-tree-head-label">{agentDisplayName || agentId}</span>
+              </div>
+              <div className="pft-tree-body">
+                {agentFilesLoading ? (
+                  <div className="pft-status">Loading…</div>
+                ) : agentRootEntries === null ? (
+                  <div className="pft-status pft-status-error">Failed to load files.</div>
+                ) : agentRootEntries.length === 0 ? (
+                  <div className="pft-status">No files found.</div>
+                ) : (
+                  agentRootEntries.map((entry) => (
+                    <AgentFileTreeNode
+                      key={entry.name}
+                      agentId={agentId}
+                      name={entry.name}
+                      type={entry.type}
+                      path={entry.name}
+                      depth={0}
+                      selectedPath={selectedFilePath}
+                      onSelectFile={handleSelectAgentFile}
+                      narrowLayout={narrowAgentFilesLayout}
+                    />
+                  ))
+                )}
+              </div>
+            </div>
+
+            {!narrowAgentFilesLayout && (
+              <div className="pft-viewer-panel agent-doc-files-viewer-panel">{viewerPanel}</div>
+            )}
+
+            {showMobileFileOverlay && (
+              <div
+                className="pft-mobile-file-overlay"
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="agent-files-mobile-file-title"
+              >
+                <div className="pft-mobile-file-overlay-inner">
+                  <div className="pft-viewer-head pft-mobile-file-head">
+                    <button
+                      type="button"
+                      className="pft-mobile-file-back"
+                      onClick={closeMobileAgentFile}
+                      aria-label="Close agent file"
+                    >
+                      <span className="material-symbols-rounded">arrow_back</span>
+                    </button>
+                    <span className="material-symbols-rounded pft-viewer-path-icon">description</span>
+                    <span className="pft-viewer-path" id="agent-files-mobile-file-title">
+                      {viewerPath}
+                    </span>
+                  </div>
+                  <div className="pft-viewer-body pft-mobile-file-body agent-doc-files-viewer-body">
+                    <div className="agent-doc-files-editor-surface">
+                      <div className="agent-doc-files-editor-meta">
+                        <span>{activeDocFile ? (activeDocFile.readOnly ? "Read-only" : "Editable") : "Read-only"}</span>
+                        <span>
+                          {activeDocFile
+                            ? (hasSelectedContent ? "Has content" : "Empty file")
+                            : (agentFileContent?.sizeBytes ? `${agentFileContent.sizeBytes} bytes` : "External file")}
+                        </span>
+                      </div>
+                      <label className="agent-doc-files-editor-label">
+                        <span>
+                          {activeDocFile?.name || selectedFilePath.split("/").pop()}
+                          {activeDocFile?.readOnly && (
+                            <span className="agent-doc-files-readonly-badge"> [Read-Only]</span>
+                          )}
+                        </span>
+                        <textarea
+                          rows={18}
+                          value={activeDocFile && activeDocFileId
+                            ? draft.documents[activeDocFileId]
+                            : (agentFileLoading ? "Loading..." : (agentFileError || agentFileContent?.content || ""))}
+                          onChange={activeDocFile && activeDocFileId
+                            ? (event) => updateDocumentField(activeDocFileId, event.target.value)
+                            : undefined}
+                          readOnly={!activeDocFile || activeDocFile.readOnly}
+                          className={!activeDocFile || activeDocFile.readOnly ? "readonly-textarea" : ""}
+                        />
+                      </label>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         </section>
       );

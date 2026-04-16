@@ -33,6 +33,38 @@ struct AgentsAPIRouter: APIRouter {
             }
         }
 
+        router.get("/v1/agents/:agentId/files", metadata: RouteMetadata(summary: "List agent files", description: "Returns the visible file tree entries for an agent directory", tags: ["Agents"])) { request in
+            let agentId = request.pathParam("agentId") ?? ""
+            let path = request.queryParam("path") ?? ""
+            do {
+                let entries = try await service.listAgentFiles(agentID: agentId, path: path)
+                return CoreRouter.encodable(status: HTTPStatus.ok, payload: entries)
+            } catch CoreService.AgentStorageError.invalidID {
+                return CoreRouter.json(status: HTTPStatus.badRequest, payload: ["error": ErrorCode.invalidAgentId])
+            } catch CoreService.AgentStorageError.notFound {
+                return CoreRouter.json(status: HTTPStatus.notFound, payload: ["error": ErrorCode.agentNotFound])
+            } catch {
+                return CoreRouter.json(status: HTTPStatus.internalServerError, payload: ["error": ErrorCode.agentNotFound])
+            }
+        }
+
+        router.get("/v1/agents/:agentId/files/content", metadata: RouteMetadata(summary: "Read agent file", description: "Returns the text content of a visible agent file", tags: ["Agents"])) { request in
+            let agentId = request.pathParam("agentId") ?? ""
+            let path = request.queryParam("path") ?? ""
+            do {
+                let response = try await service.readAgentFile(agentID: agentId, path: path)
+                return CoreRouter.encodable(status: HTTPStatus.ok, payload: response)
+            } catch CoreService.AgentStorageError.invalidID {
+                return CoreRouter.json(status: HTTPStatus.badRequest, payload: ["error": ErrorCode.invalidAgentId])
+            } catch CoreService.AgentStorageError.invalidPayload {
+                return CoreRouter.json(status: HTTPStatus.badRequest, payload: ["error": ErrorCode.invalidBody])
+            } catch CoreService.AgentStorageError.notFound {
+                return CoreRouter.json(status: HTTPStatus.notFound, payload: ["error": ErrorCode.agentNotFound])
+            } catch {
+                return CoreRouter.json(status: HTTPStatus.internalServerError, payload: ["error": ErrorCode.agentNotFound])
+            }
+        }
+
         router.get("/v1/agents/:agentId/chat-slash-commands", metadata: RouteMetadata(summary: "Agent chat slash commands", description: "Channel plugin commands plus user-invocable skill shortcuts for this agent (Dashboard / autocomplete)", tags: ["Agents"])) { request in
             let agentId = request.pathParam("agentId") ?? ""
             do {
