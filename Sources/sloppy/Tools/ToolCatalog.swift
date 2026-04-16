@@ -396,6 +396,8 @@ enum ToolCatalog {
                 "description": .object(["type": .string("string")]),
                 "priority": .object(["type": .string("string")]),
                 "status": .object(["type": .string("string")]),
+                "completionConfidence": .object(["type": .string("string")]),
+                "completionNote": .object(["type": .string("string")]),
                 "actorId": .object(["type": .string("string")]),
                 "teamId": .object(["type": .string("string")]),
                 "channelId": .object(["type": .string("string")]),

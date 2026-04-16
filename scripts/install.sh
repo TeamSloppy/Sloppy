@@ -97,6 +97,35 @@ command_exists() {
   command -v "$1" >/dev/null 2>&1
 }
 
+normalize_existing_dir() {
+  local path="$1"
+  if [[ -d "$path" ]]; then
+    (
+      cd "$path" >/dev/null 2>&1 && pwd -P
+    )
+  else
+    printf '%s\n' "$path"
+  fi
+}
+
+maybe_link_binary() {
+  local source_path="$1"
+  local target_path="$2"
+  local source_dir target_dir normalized_source_dir normalized_target_dir
+
+  source_dir="$(dirname "$source_path")"
+  target_dir="$(dirname "$target_path")"
+  normalized_source_dir="$(normalize_existing_dir "$source_dir")"
+  normalized_target_dir="$(normalize_existing_dir "$target_dir")"
+
+  if [[ "$normalized_source_dir" == "$normalized_target_dir" && "$(basename "$source_path")" == "$(basename "$target_path")" ]]; then
+    debug "Skipping self-link for $target_path"
+    return 0
+  fi
+
+  run_cmd ln -sf "$source_path" "$target_path"
+}
+
 is_truthy() {
   case "${1:-}" in
     1|true|TRUE|yes|YES|on|ON) return 0 ;;
@@ -394,8 +423,8 @@ install_from_github_release() {
     sloppy_node="$LOCAL_ROOT/bin/SloppyNode"
     log "Installing command symlinks into $BIN_DIR"
     run_cmd mkdir -p "$BIN_DIR"
-    run_cmd ln -sf "$sloppy_bin" "$BIN_DIR/sloppy"
-    run_cmd ln -sf "$sloppy_node" "$BIN_DIR/SloppyNode"
+    maybe_link_binary "$sloppy_bin" "$BIN_DIR/sloppy"
+    maybe_link_binary "$sloppy_node" "$BIN_DIR/SloppyNode"
   fi
 
   trap - EXIT
@@ -508,8 +537,8 @@ link_binaries() {
 
   log "Installing command symlinks into $BIN_DIR"
   run_cmd mkdir -p "$BIN_DIR"
-  run_cmd ln -sf "$bin_path/sloppy" "$BIN_DIR/sloppy"
-  run_cmd ln -sf "$bin_path/SloppyNode" "$BIN_DIR/SloppyNode"
+  maybe_link_binary "$bin_path/sloppy" "$BIN_DIR/sloppy"
+  maybe_link_binary "$bin_path/SloppyNode" "$BIN_DIR/SloppyNode"
 }
 
 print_summary() {

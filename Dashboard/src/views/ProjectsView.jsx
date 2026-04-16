@@ -840,20 +840,21 @@ export function ProjectsView({
       const next = [...prev];
       const project = { ...next[projectIndex] };
       const tasks = [...project.tasks];
+      const normalizedEventTask = event.task ? normalizeTask(event.task) : null;
 
       switch (event.type) {
         case "task_created":
-          if (event.task && !tasks.some((t) => t.id === event.task.id)) {
-            tasks.push(event.task);
+          if (normalizedEventTask && !tasks.some((t) => t.id === normalizedEventTask.id)) {
+            tasks.push(normalizedEventTask);
           }
           break;
         case "task_updated":
-          if (event.task) {
-            const taskIndex = tasks.findIndex((t) => t.id === event.task.id);
+          if (normalizedEventTask) {
+            const taskIndex = tasks.findIndex((t) => t.id === normalizedEventTask.id);
             if (taskIndex !== -1) {
-              tasks[taskIndex] = event.task;
+              tasks[taskIndex] = normalizedEventTask;
             } else {
-              tasks.push(event.task);
+              tasks.push(normalizedEventTask);
             }
           }
           break;
@@ -1474,6 +1475,9 @@ export function ProjectsView({
       return;
     }
 
+    const currentTask = Array.isArray(selectedProject.tasks)
+      ? selectedProject.tasks.find((task) => String(task?.id || "").trim() === String(taskId || "").trim())
+      : null;
     const updated = await updateProjectTaskRequest(selectedProject.id, taskId, { status: nextStatus, changedBy: "user" });
     if (!updated) {
       setStatusText("Failed to update task status.");

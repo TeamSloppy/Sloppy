@@ -765,7 +765,10 @@ extension CoreService {
         Tasks move through these statuses:
         backlog → ready → in_progress → done
         At any point a task can transition to: waiting_input, blocked, needs_review, cancelled.
-        - Your task is now in_progress. When you finish, the system marks it done automatically.
+        - Your task is now in_progress. The system will NOT mark it done automatically.
+        - When the task is truly complete, call `project.task_update` with status=`done`, completionConfidence=`done`, and a brief completionNote.
+        - If you are missing user input, use the clarification flow below so the task becomes waiting_input.
+        - If you are blocked by missing access, dependencies, or an external issue you cannot resolve, call `project.task_update` with status=`blocked`.
         - To update the task status or metadata, use tool `project.task_update`.
         - To create sub-tasks, use tool `project.task_create` with the same project ID.
         """)

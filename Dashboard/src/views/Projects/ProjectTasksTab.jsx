@@ -812,10 +812,17 @@ function TaskDetailView({
 }) {
     const [activeTab, setActiveTab] = useState("comments");
     const [sidebarOpen, setSidebarOpen] = useState(true);
+    const hasReviewDiff = Boolean(task.worktreeBranch);
 
     const activeWorker = workers.find(
         (w) => String(w.taskId || "") === String(task.id || "") && ACTIVE_WORKER_STATUSES.has(String(w.status || "").toLowerCase())
     );
+
+    useEffect(() => {
+        if (!hasReviewDiff && activeTab === "review") {
+            setActiveTab("comments");
+        }
+    }, [hasReviewDiff, activeTab]);
 
     const resolvedActorId = task.claimedActorId || task.actorId || "";
     const isDirty =
@@ -942,14 +949,16 @@ function TaskDetailView({
                             <span className="material-symbols-rounded td-tab-icon">history</span>
                             Activity
                         </button>
-                        <button
-                            type="button"
-                            className={`td-tab ${activeTab === "review" ? "active" : ""}`}
-                            onClick={() => setActiveTab("review")}
-                        >
-                            <span className="material-symbols-rounded td-tab-icon">rate_review</span>
-                            Review
-                        </button>
+                        {hasReviewDiff && (
+                            <button
+                                type="button"
+                                className={`td-tab ${activeTab === "review" ? "active" : ""}`}
+                                onClick={() => setActiveTab("review")}
+                            >
+                                <span className="material-symbols-rounded td-tab-icon">rate_review</span>
+                                Review
+                            </button>
+                        )}
                         <button
                             type="button"
                             className={`td-tab ${activeTab === "clarifications" ? "active" : ""}`}
@@ -995,7 +1004,7 @@ function TaskDetailView({
                                 createModalActors={createModalActors}
                             />
                         )}
-                        {activeTab === "review" && (
+                        {activeTab === "review" && hasReviewDiff && (
                             <ReviewTab
                                 project={project}
                                 task={task}
@@ -1249,6 +1258,8 @@ export function ProjectTasksTab({
     const [showArchive, setShowArchive] = useState(false);
     const [archivedTasks, setArchivedTasks] = useState([]);
     const [archiveLoading, setArchiveLoading] = useState(false);
+    const [dragGhostTask, setDragGhostTask] = useState(null);
+    const [dragOverColumnId, setDragOverColumnId] = useState(null);
 
     useEffect(() => {
         let cancelled = false;
@@ -1429,12 +1440,18 @@ export function ProjectTasksTab({
                             <section
                                 key={column.id}
                                 className="project-kanban-column"
-                                onDragOver={(event) => event.preventDefault()}
+                                onDragOver={(event) => {
+                                    event.preventDefault();
+                                    if (dragGhostTask) setDragOverColumnId(column.id);
+                                }}
                                 onDrop={(event) => {
                                     event.preventDefault();
                                     const taskId = event.dataTransfer.getData("text/project-task-id");
                                     if (taskId) {
-                                        moveTask(taskId, column.id);
+                                        moveTask(taskId, column.id).finally(() => {
+                                            setDragOverColumnId(null);
+                                            setDragGhostTask(null);
+                                        });
                                     }
                                 }}
                             >
@@ -1443,9 +1460,52 @@ export function ProjectTasksTab({
                                     <strong>{tasks.length}</strong>
                                 </header>
 
-                                <div className="project-kanban-column-body">
+                                <div
+                                    className={`project-kanban-column-body${dragOverColumnId === column.id ? " project-kanban-column-body--dragover" : ""}`}
+                                >
+                                    {dragOverColumnId === column.id && dragGhostTask ? (
+                                        <article className="project-kanban-task project-kanban-task--ghost" aria-hidden="true">
+                                            <div className="project-task-card-top">
+                                                <span className="project-task-id">#{dragGhostTask.id}</span>
+                                                <span className="project-task-card-open">
+                                                    <span className="material-symbols-rounded" aria-hidden="true">
+                                                        open_in_new
+                                                    </span>
+                                                    Open
+                                                </span>
+                                            </div>
+                                            <h5>{dragGhostTask.title}</h5>
+                                            {dragGhostTask.description ? <p>{dragGhostTask.description}</p> : null}
+                                            <div className="project-task-meta">
+                                                <span className={`project-priority-badge ${dragGhostTask.priority || "medium"}`}>
+                                                    <span className="material-symbols-rounded" aria-hidden="true">
+                                                        flag
+                                                    </span>
+                                                    {TASK_PRIORITY_LABELS[dragGhostTask.priority] || "Medium"}
+                                                </span>
+                                                {Array.isArray(dragGhostTask.swarmDependencyIds) && dragGhostTask.swarmDependencyIds.length > 0 ? (
+                                                    <span className="project-task-assignee-badge">
+                                                        <span className="material-symbols-rounded" aria-hidden="true">
+                                                            link
+                                                        </span>
+                                                        Deps: {dragGhostTask.swarmDependencyIds.join(", ")}
+                                                    </span>
+                                                ) : null}
+                                                {Array.isArray(dragGhostTask.swarmActorPath) && dragGhostTask.swarmActorPath.length > 0 ? (
+                                                    <span className="project-task-assignee-badge">
+                                                        <span className="material-symbols-rounded" aria-hidden="true">
+                                                            alt_route
+                                                        </span>
+                                                        Path: {dragGhostTask.swarmActorPath.join(" -> ")}
+                                                    </span>
+                                                ) : null}
+                                            </div>
+                                        </article>
+                                    ) : null}
                                     {tasks.length === 0 ? (
-                                        <p className="placeholder-text">No tasks</p>
+                                        dragOverColumnId === column.id && dragGhostTask ? null : (
+                                            <p className="placeholder-text">No tasks</p>
+                                        )
                                     ) : (
                                         tasks.map((task, index) => {
                                             const previous = index > 0 ? tasks[index - 1] : null;
@@ -1471,6 +1531,12 @@ export function ProjectTasksTab({
                                                         onDragStart={(event) => {
                                                             event.dataTransfer.setData("text/project-task-id", task.id);
                                                             event.dataTransfer.effectAllowed = "move";
+                                                            setDragGhostTask(task);
+                                                            setDragOverColumnId(null);
+                                                        }}
+                                                        onDragEnd={() => {
+                                                            setDragOverColumnId(null);
+                                                            setDragGhostTask(null);
                                                         }}
                                                     >
                                                         <div className="project-task-card-top">

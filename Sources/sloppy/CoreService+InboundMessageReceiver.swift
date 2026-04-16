@@ -195,7 +195,8 @@ extension CoreService {
                         priority: updateIntent.priority,
                         status: updateIntent.status?.rawValue,
                         actorId: updateIntent.actorId,
-                        teamId: updateIntent.teamId
+                        teamId: updateIntent.teamId,
+                        changedBy: "visor"
                     )
                 )
                 updatedTaskIDs.append(task.id)

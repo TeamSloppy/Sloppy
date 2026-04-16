@@ -210,6 +210,13 @@ public enum ProjectTaskStatus: String, Codable, Sendable, Equatable, CaseIterabl
     }
 }
 
+public enum ProjectTaskCompletionConfidence: String, Codable, Sendable, Equatable, CaseIterable {
+    case done
+    case blocked
+    case waitingInput = "waiting_input"
+    case unsure
+}
+
 public struct ProjectTask: Codable, Sendable, Equatable {
     public var id: String
     public var title: String
@@ -728,6 +735,8 @@ public struct ProjectTaskUpdateRequest: Codable, Sendable {
     public var description: String?
     public var priority: String?
     public var status: String?
+    public var completionConfidence: ProjectTaskCompletionConfidence?
+    public var completionNote: String?
     public var kind: ProjectTaskKind?
     public var loopModeOverride: ProjectLoopMode?
     public var actorId: String?
@@ -741,6 +750,8 @@ public struct ProjectTaskUpdateRequest: Codable, Sendable {
         description: String? = nil,
         priority: String? = nil,
         status: String? = nil,
+        completionConfidence: ProjectTaskCompletionConfidence? = nil,
+        completionNote: String? = nil,
         kind: ProjectTaskKind? = nil,
         loopModeOverride: ProjectLoopMode? = nil,
         actorId: String? = nil,
@@ -753,6 +764,8 @@ public struct ProjectTaskUpdateRequest: Codable, Sendable {
         self.description = description
         self.priority = priority
         self.status = status
+        self.completionConfidence = completionConfidence
+        self.completionNote = completionNote
         self.kind = kind
         self.loopModeOverride = loopModeOverride
         self.actorId = actorId
