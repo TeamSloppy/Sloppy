@@ -25,6 +25,14 @@ private struct UpdateStatusResponse: Encodable {
     var publishedAt: Date?
     var lastCheckedAt: Date?
     var isReleaseBuild: Bool
+    var deploymentKind: DeploymentKind
+    var currentCommit: String?
+    var currentBranch: String?
+    var currentCommitDate: Date?
+    var latestCommit: String?
+    var latestCommitDate: Date?
+    var latestBranch: String?
+    var updateKind: UpdateKind
 }
 
 private struct SelectDirectoryResponse: Encodable {
@@ -40,6 +48,14 @@ private extension UpdateStatusResponse {
         self.publishedAt = status.publishedAt
         self.lastCheckedAt = status.lastCheckedAt
         self.isReleaseBuild = status.isReleaseBuild
+        self.deploymentKind = status.deploymentKind
+        self.currentCommit = status.currentCommit
+        self.currentBranch = status.currentBranch
+        self.currentCommitDate = status.currentCommitDate
+        self.latestCommit = status.latestCommit
+        self.latestCommitDate = status.latestCommitDate
+        self.latestBranch = status.latestBranch
+        self.updateKind = status.updateKind
     }
 }
 

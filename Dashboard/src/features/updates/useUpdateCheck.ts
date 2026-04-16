@@ -9,6 +9,14 @@ export interface UpdateStatus {
   publishedAt: string | null;
   lastCheckedAt: string | null;
   isReleaseBuild: boolean;
+  deploymentKind: "docker" | "local";
+  currentCommit: string | null;
+  currentBranch: string | null;
+  currentCommitDate: string | null;
+  latestCommit: string | null;
+  latestCommitDate: string | null;
+  latestBranch: string | null;
+  updateKind: "release" | "git";
 }
 
 interface UseUpdateCheckResult {
@@ -28,6 +36,14 @@ function parseStatus(raw: Record<string, unknown>): UpdateStatus {
     publishedAt: raw.publishedAt != null ? String(raw.publishedAt) : null,
     lastCheckedAt: raw.lastCheckedAt != null ? String(raw.lastCheckedAt) : null,
     isReleaseBuild: Boolean(raw.isReleaseBuild),
+    deploymentKind: raw.deploymentKind === "docker" ? "docker" : "local",
+    currentCommit: raw.currentCommit != null ? String(raw.currentCommit) : null,
+    currentBranch: raw.currentBranch != null ? String(raw.currentBranch) : null,
+    currentCommitDate: raw.currentCommitDate != null ? String(raw.currentCommitDate) : null,
+    latestCommit: raw.latestCommit != null ? String(raw.latestCommit) : null,
+    latestCommitDate: raw.latestCommitDate != null ? String(raw.latestCommitDate) : null,
+    latestBranch: raw.latestBranch != null ? String(raw.latestBranch) : null,
+    updateKind: raw.updateKind === "release" ? "release" : "git",
   };
 }
 

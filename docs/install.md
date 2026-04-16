@@ -50,6 +50,7 @@ Useful modes:
 ```bash
 bash scripts/install.sh --server-only
 bash scripts/install.sh --bundle --no-prompt
+bash scripts/install.sh --release
 bash scripts/install.sh --dry-run
 curl -fsSL https://sloppy.team/install.sh | bash -s -- --server-only
 ```
@@ -75,6 +76,26 @@ sloppy status
 ```
 
 If `sloppy` is not in `PATH`, add `~/.local/bin` to your shell profile.
+
+### Uninstall
+
+To remove installed binaries and dashboard assets:
+
+```bash
+bash scripts/uninstall.sh
+```
+
+To also remove the source checkout used for source installs:
+
+```bash
+bash scripts/uninstall.sh --remove-source-checkout
+```
+
+Preview removals without deleting anything:
+
+```bash
+bash scripts/uninstall.sh --dry-run
+```
 
 For details see [Build From Terminal](/guides/build-from-terminal) and the [CLI Reference](/guides/cli).
 
