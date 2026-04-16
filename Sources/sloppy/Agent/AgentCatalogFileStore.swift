@@ -382,6 +382,14 @@ final class AgentCatalogFileStore {
         )
     }
 
+    func directoryURL(agentID: String) throws -> URL {
+        guard let normalizedID = self.normalizedAgentID(agentID) else {
+            throw StoreError.invalidID
+        }
+        let summary = try getAgent(id: normalizedID)
+        return agentDirectoryURL(for: normalizedID, isSystem: summary.isSystem)
+    }
+
     func getHeartbeatStatus(agentID: String) throws -> AgentHeartbeatStatus {
         guard let normalizedAgentID = normalizedAgentID(agentID) else {
             throw StoreError.invalidID

@@ -593,6 +593,8 @@ function ReviewTab({ project, task, createModalActors }) {
             ) : (
                 <ReviewDiffPanel
                     rawDiff={rawDiff}
+                    hasChanges={Boolean(diffData?.hasChanges)}
+                    branchName={String(diffData?.branchName || "")}
                     comments={comments}
                     onAddComment={handleAddComment}
                     onResolveComment={handleResolveComment}
@@ -813,16 +815,17 @@ function TaskDetailView({
     const [activeTab, setActiveTab] = useState("comments");
     const [sidebarOpen, setSidebarOpen] = useState(true);
     const hasReviewDiff = Boolean(task.worktreeBranch);
+    const canShowReviewTab = hasReviewDiff || task.status === "needs_review";
 
     const activeWorker = workers.find(
         (w) => String(w.taskId || "") === String(task.id || "") && ACTIVE_WORKER_STATUSES.has(String(w.status || "").toLowerCase())
     );
 
     useEffect(() => {
-        if (!hasReviewDiff && activeTab === "review") {
+        if (!canShowReviewTab && activeTab === "review") {
             setActiveTab("comments");
         }
-    }, [hasReviewDiff, activeTab]);
+    }, [canShowReviewTab, activeTab]);
 
     const resolvedActorId = task.claimedActorId || task.actorId || "";
     const isDirty =
@@ -874,7 +877,7 @@ function TaskDetailView({
                                 Watch session
                             </button>
                         )}
-                        {task.status === "needs_review" && task.worktreeBranch && onOpenReview && (
+                        {task.status === "needs_review" && onOpenReview && (
                             <button
                                 type="button"
                                 className="task-review-open-btn"
@@ -949,7 +952,7 @@ function TaskDetailView({
                             <span className="material-symbols-rounded td-tab-icon">history</span>
                             Activity
                         </button>
-                        {hasReviewDiff && (
+                        {canShowReviewTab && (
                             <button
                                 type="button"
                                 className={`td-tab ${activeTab === "review" ? "active" : ""}`}
@@ -1004,7 +1007,7 @@ function TaskDetailView({
                                 createModalActors={createModalActors}
                             />
                         )}
-                        {activeTab === "review" && hasReviewDiff && (
+                        {activeTab === "review" && canShowReviewTab && (
                             <ReviewTab
                                 project={project}
                                 task={task}

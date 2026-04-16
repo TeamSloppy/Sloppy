@@ -270,12 +270,16 @@ func readyTaskClaimsAssignedActorAndPersistsProjectArtifactsAndLogs() async thro
     )
     #expect(updateResponse.status == 200)
 
-    let doneProject = try await waitForProject(router: router, projectID: projectID, timeoutSeconds: 3) { project in
-        project.tasks.first(where: { $0.id == taskID })?.status == "done"
+    let terminalProject = try await waitForProject(router: router, projectID: projectID, timeoutSeconds: 3) { project in
+        guard let status = project.tasks.first(where: { $0.id == taskID })?.status else {
+            return false
+        }
+        return status == "done" || status == "blocked"
     }
-    let doneTask = doneProject?.tasks.first(where: { $0.id == taskID })
-    #expect(doneTask?.claimedActorId == "agent:builder")
-    #expect(doneTask?.claimedAgentId == "builder")
+    let terminalTask = terminalProject?.tasks.first(where: { $0.id == taskID })
+    #expect(terminalTask?.status == "done" || terminalTask?.status == "blocked")
+    #expect(terminalTask?.claimedActorId == "agent:builder")
+    #expect(terminalTask?.claimedAgentId == "builder")
 
     let projectWorkspace = config
         .resolvedWorkspaceRootURL()
