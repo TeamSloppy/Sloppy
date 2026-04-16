@@ -28,6 +28,7 @@ RUN set -eux; \
 
 FROM ubuntu:22.04
 ENV DEBIAN_FRONTEND=noninteractive
+ENV SLOPPY_DEPLOYMENT_KIND=docker
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     tzdata \

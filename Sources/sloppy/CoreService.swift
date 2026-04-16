@@ -262,7 +262,8 @@ public actor CoreService {
         persistenceBuilder: any CorePersistenceBuilding = DefaultCorePersistenceBuilder(),
         searchProviderService: SearchProviderService? = nil,
         providerProbeService: ProviderProbeService? = nil,
-        builtInGatewayPluginFactory: BuiltInGatewayPluginFactory
+        builtInGatewayPluginFactory: BuiltInGatewayPluginFactory,
+        updateChecker: UpdateCheckerService? = nil
     ) {
         let workspaceRootURL = config.resolvedWorkspaceRootURL(currentDirectory: FileManager.default.currentDirectoryPath)
         self.openAIOAuthService = OpenAIOAuthService(workspaceRootURL: workspaceRootURL)
@@ -348,7 +349,7 @@ public actor CoreService {
         self.skillsRegistryService = SkillsRegistryService()
         let githubAuth = self.githubAuthService
         self.skillsGitHubClient = SkillsGitHubClient(tokenProvider: { githubAuth.currentToken() })
-        self.updateChecker = UpdateCheckerService()
+        self.updateChecker = updateChecker ?? UpdateCheckerService()
         self.swarmPlanner = SwarmPlanner { prompt, maxTokens in
             await runtime.complete(prompt: prompt, maxTokens: maxTokens)
         }

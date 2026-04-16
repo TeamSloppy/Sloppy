@@ -9,7 +9,7 @@ class Sloppy < Formula
   def install
     bin.install "bin/sloppy" => "sloppy"
     bin.install "bin/SloppyNode" => "SloppyNode"
-    (share/"sloppy/dashboard").install Dir["share/sloppy/dashboard/*"]
+    (share/"sloppy").install Dir["share/sloppy/*"]
   end
 
   test do
