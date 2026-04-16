@@ -95,3 +95,35 @@ func parseSkillsFromHTMLExtractsInstallsFromCardMarkup() throws {
 
     #expect(skill?.installs == 111_900)
 }
+
+@Test
+func decodeSkillsResponseParsesSearchPayload() throws {
+    let payload = """
+    {
+      "query": "ios",
+      "searchType": "fuzzy",
+      "skills": [
+        {
+          "id": "wshobson/agents/mobile-ios-design",
+          "skillId": "mobile-ios-design",
+          "name": "mobile-ios-design",
+          "installs": 12206,
+          "source": "wshobson/agents"
+        }
+      ],
+      "count": 1,
+      "duration_ms": 6
+    }
+    """.data(using: .utf8)!
+
+    let decoded = SkillsRegistryService.decodeSkillsResponse(from: payload)
+
+    #expect(decoded?.total == 1)
+    #expect(decoded?.skills.count == 1)
+    #expect(decoded?.skills.first?.id == "wshobson/agents/mobile-ios-design")
+    #expect(decoded?.skills.first?.owner == "wshobson")
+    #expect(decoded?.skills.first?.repo == "agents")
+    #expect(decoded?.skills.first?.name == "mobile-ios-design")
+    #expect(decoded?.skills.first?.installs == 12_206)
+    #expect(decoded?.skills.first?.githubUrl == "https://github.com/wshobson/agents")
+}

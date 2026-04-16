@@ -37,58 +37,38 @@ actor SkillsRegistryService {
         limit: Int = 50,
         offset: Int = 0
     ) async throws -> SkillsRegistryResponse {
-        let endpointPaths = ["/api/skills", "/api/v1/skills"]
-        var lastError: Error?
-
-        for endpointPath in endpointPaths {
-            guard var components = URLComponents(string: "\(baseURL)\(endpointPath)") else {
-                continue
+        let trimmedSearch = search?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let trimmedSearch, !trimmedSearch.isEmpty {
+            guard var components = URLComponents(string: "\(baseURL)/api/search") else {
+                throw ServiceError.invalidURL
             }
 
-            var queryItems: [URLQueryItem] = [
-                URLQueryItem(name: "limit", value: String(limit)),
-                URLQueryItem(name: "offset", value: String(offset)),
-                URLQueryItem(name: "per_page", value: String(limit)),
-                URLQueryItem(name: "page", value: String((max(0, offset) / max(1, limit)) + 1))
+            // /api/search does not appear to support offset/page params publicly.
+            // To keep dashboard pagination functional, we request (offset + limit) and slice locally.
+            let requestLimit = min(200, max(1, max(0, offset) + max(1, limit)))
+            components.queryItems = [
+                URLQueryItem(name: "q", value: trimmedSearch),
+                URLQueryItem(name: "limit", value: String(requestLimit))
             ]
 
-            if let search = search, !search.isEmpty {
-                queryItems.append(URLQueryItem(name: "search", value: search))
-                queryItems.append(URLQueryItem(name: "q", value: search))
-            }
-
-            switch sort {
-            case .installs:
-                queryItems.append(URLQueryItem(name: "sort", value: "installs"))
-            case .trending:
-                queryItems.append(URLQueryItem(name: "sort", value: "trending"))
-            case .recent:
-                queryItems.append(URLQueryItem(name: "sort", value: "recent"))
-            }
-
-            components.queryItems = queryItems
             guard let url = components.url else {
-                continue
+                throw ServiceError.invalidURL
             }
 
-            do {
-                return try await fetchSkills(from: url)
-            } catch {
-                lastError = error
-                continue
+            let response = try await fetchSkills(from: url)
+            if offset <= 0 {
+                return SkillsRegistryResponse(skills: Array(response.skills.prefix(max(1, limit))), total: response.total)
             }
+            let page = Array(response.skills.dropFirst(max(0, offset)).prefix(max(1, limit)))
+            return SkillsRegistryResponse(skills: page, total: response.total)
         }
 
         do {
             return try await fetchSkillsFromHTML(search: search, sort: sort, limit: limit, offset: offset)
         } catch {
-            lastError = error
-        }
-
-        if let lastError {
+            let lastError = error
             throw lastError
         }
-        throw ServiceError.invalidURL
     }
 
     /// Fetch trending skills

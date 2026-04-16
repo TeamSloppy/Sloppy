@@ -10,7 +10,7 @@ struct SkillsAPIRouter: APIRouter {
 
     func configure(on router: CoreRouterRegistrar) {
         router.get("/v1/skills/registry", metadata: RouteMetadata(summary: "List skills registry", description: "Returns a list of skills available in the registry", tags: ["Skills"])) { request in
-            let search = request.queryParam("search")
+            let search = request.queryParam("search") ?? request.queryParam("q") ?? request.queryParam("query")
             let sort = request.queryParam("sort") ?? "installs"
             let limit = Int(request.queryParam("limit") ?? "") ?? 20
             let offset = Int(request.queryParam("offset") ?? "") ?? 0
