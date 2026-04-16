@@ -161,6 +161,7 @@ export function ProjectSettingsTab({
     }
 
     function renderGeneral() {
+        const workspacePath = draft.repoPath.trim();
         return (
             <>
                 <section className="entry-editor-card">
@@ -201,6 +202,26 @@ export function ProjectSettingsTab({
                                 <span>{draft.icon}</span>
                             </div>
                         )}
+                    </div>
+                </section>
+
+                <section className="entry-editor-card">
+                    <h3>Workspace Path</h3>
+                    <div className="entry-form-grid">
+                        <label style={{ gridColumn: "1 / -1" }}>
+                            Project workspace / repository path
+                            <input
+                                type="text"
+                                placeholder="e.g. /Users/me/Developer/my-project"
+                                value={draft.repoPath}
+                                onChange={(e) => mutateDraft((d) => { d.repoPath = e.target.value; })}
+                            />
+                            <span className="entry-form-hint">
+                                {workspacePath
+                                    ? <>Agents, file tools, and review worktrees will use <code>{workspacePath}</code>.</>
+                                    : "Set the absolute path to the project workspace so agents use the correct directory."}
+                            </span>
+                        </label>
                     </div>
                 </section>
 
@@ -817,7 +838,7 @@ export function ProjectSettingsTab({
 
                 <div className="entry-form-grid" style={{ marginTop: 16 }}>
                     <label style={{ gridColumn: "1 / -1" }}>
-                        Repository path
+                        Review repository path
                         <input
                             type="text"
                             placeholder="e.g. /home/user/my-project"
@@ -826,8 +847,8 @@ export function ProjectSettingsTab({
                         />
                         <span className="entry-form-hint">
                             {repoPath
-                                ? <>Worktrees will be created at <code>{repoPath}/.sloppy-worktrees/</code></>
-                                : "Absolute path to the local git repository. Leave empty to disable worktree isolation."}
+                                ? <>Worktrees will be created at <code>{repoPath}/.sloppy-worktrees/</code>.</>
+                                : "Uses the workspace path above. Leave empty to disable worktree isolation."}
                         </span>
                     </label>
                 </div>
