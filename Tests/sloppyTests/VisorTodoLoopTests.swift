@@ -347,11 +347,18 @@ func fireAndForgetWorkerPersistsObjectiveArtifact() async throws {
     )
     #expect(updateResponse.status == 200)
 
-    let doneProject = try await waitForProject(router: router, projectID: projectID, timeoutSeconds: 5) { project in
-        project.tasks.first(where: { $0.id == taskID })?.status == "done"
+    // DefaultWorkerExecutor completes fire-and-forget workers immediately, but CoreService only
+    // marks the task `done` after explicit `project.task_update` confirmation. Until then the
+    // task is `blocked` while the worker summary is still persisted as a system task comment.
+    let terminalProject = try await waitForProject(router: router, projectID: projectID, timeoutSeconds: 5) { project in
+        guard let status = project.tasks.first(where: { $0.id == taskID })?.status else {
+            return false
+        }
+        return status == "done" || status == "blocked"
     }
-    let doneTask = doneProject?.tasks.first(where: { $0.id == taskID })
-    #expect(doneTask != nil)
+    let terminalTask = terminalProject?.tasks.first(where: { $0.id == taskID })
+    #expect(terminalTask != nil)
+    #expect(terminalTask?.status == "blocked")
 
     let commentsResponse = await router.handle(
         method: "GET",
