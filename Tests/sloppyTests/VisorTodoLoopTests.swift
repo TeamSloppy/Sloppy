@@ -113,7 +113,7 @@ func readyStatusAutoSpawnsWorkerAndMovesTaskToInProgress() async throws {
 }
 
 @Test
-func workerCompletedEventMarksTaskDone() async throws {
+func workerCompletedEventWithoutConfirmationBlocksTask() async throws {
     let router = try makeRouter()
     let projectID = "visor-complete-\(UUID().uuidString)"
     try await createProject(router: router, projectID: projectID, channelId: "general")
@@ -133,10 +133,10 @@ func workerCompletedEventMarksTaskDone() async throws {
     )
 
     let project = try await waitForProject(router: router, projectID: projectID, timeoutSeconds: 3) { project in
-        project.tasks.first(where: { $0.id == taskID })?.status == "done"
+        project.tasks.first(where: { $0.id == taskID })?.status == "blocked"
     }
     let finalTask = project?.tasks.first(where: { $0.id == taskID })
-    #expect(finalTask?.status == "done")
+    #expect(finalTask?.status == "blocked")
 }
 
 @Test

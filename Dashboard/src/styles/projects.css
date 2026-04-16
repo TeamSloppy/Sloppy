@@ -1822,6 +1822,20 @@
   box-shadow: 0 0 0 1px var(--accent);
 }
 
+.project-kanban-task--ghost {
+  opacity: 0.65;
+  border-style: dashed;
+  background: rgba(148, 163, 184, 0.08);
+  box-shadow: none;
+  transform: none;
+  pointer-events: none;
+}
+
+.project-kanban-column-body--dragover {
+  outline: 1px solid rgba(127, 255, 0, 0.55);
+  outline-offset: -1px;
+}
+
 .project-task-card-top {
   display: flex;
   align-items: center;

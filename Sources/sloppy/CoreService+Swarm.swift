@@ -1045,17 +1045,18 @@ extension CoreService {
             }
 
             var task = project.tasks[taskIndex]
+            var effectiveFailureNote = failureNote
             appendTaskLifecycleLog(
                 projectID: project.id,
                 taskID: task.id,
                 stage: event.messageType.rawValue,
                 channelID: event.channelId,
                 workerID: event.workerId,
-                message: failureNote ?? "Worker event received.",
+                message: effectiveFailureNote ?? "Worker event received.",
                 actorID: task.claimedActorId,
                 agentID: task.claimedAgentId
             )
-            let isModelError = failureNote.map { isModelProviderError($0) } ?? false
+            let isModelError = effectiveFailureNote.map { isModelProviderError($0) } ?? false
             let maxModelRetries = 3
             let modelRetryCount = isModelError
                 ? task.description.components(separatedBy: "Model provider error").count - 1
@@ -1065,9 +1066,10 @@ extension CoreService {
                 let prevRetryStatus = task.status
                 task.status = ProjectTaskStatus.ready.rawValue
                 task.updatedAt = Date()
-                if let failureNote {
+                if let effectiveFailureNote {
                     let timestamp = ISO8601DateFormatter().string(from: event.ts)
-                    let note = "Worker failed at \(timestamp): \(failureNote)"
+                    let notePrefix = event.messageType == .workerCompleted ? "Worker completed at \(timestamp) without confirmation" : "Worker failed at \(timestamp)"
+                    let note = "\(notePrefix): \(effectiveFailureNote)"
                     if task.description.isEmpty {
                         task.description = note
                     } else {
@@ -1105,9 +1107,9 @@ extension CoreService {
                 task.claimedAgentId = retryDelegate.agentID
                 task.actorId = retryDelegate.actorID
                 task.updatedAt = Date()
-                if let failureNote {
+                if let effectiveFailureNote {
                     let timestamp = ISO8601DateFormatter().string(from: event.ts)
-                    let note = "Worker failed at \(timestamp): \(failureNote)"
+                    let note = "Worker failed at \(timestamp): \(effectiveFailureNote)"
                     if task.description.isEmpty {
                         task.description = note
                     } else {
@@ -1139,7 +1141,7 @@ extension CoreService {
                 return
             }
 
-            let resolvedStatus = nextStatus
+            var resolvedStatus = nextStatus
             var completionArtifactPath: String?
             if event.messageType == .workerCompleted {
                 if let claimedActorID = task.claimedActorId {
@@ -1150,6 +1152,16 @@ extension CoreService {
                     taskID: task.id,
                     event: event
                 )
+
+                if task.status == ProjectTaskStatus.done.rawValue {
+                    resolvedStatus = ProjectTaskStatus.done.rawValue
+                } else if let currentStatus = task.statusValue,
+                          currentStatus == .waitingInput || currentStatus == .blocked || currentStatus == .needsReview || currentStatus == .cancelled {
+                    resolvedStatus = currentStatus.rawValue
+                } else {
+                    resolvedStatus = ProjectTaskStatus.blocked.rawValue
+                    effectiveFailureNote = "Worker exited without explicit completion confirmation. Mark the task done only after calling project.task_update with completion evidence."
+                }
 
                 if resolvedStatus == ProjectTaskStatus.done.rawValue,
                    let handoffDelegate = await nextTeamHandoffDelegate(project: project, task: task) {
@@ -1215,9 +1227,9 @@ extension CoreService {
             let prevSyncStatus = task.status
             task.status = resolvedStatus
             task.updatedAt = Date()
-            if let failureNote {
+            if let effectiveFailureNote {
                 let timestamp = ISO8601DateFormatter().string(from: event.ts)
-                let note = "Worker failed at \(timestamp): \(failureNote)"
+                let note = "Worker failed at \(timestamp): \(effectiveFailureNote)"
                 if task.description.isEmpty {
                     task.description = note
                 } else {
@@ -1261,12 +1273,16 @@ extension CoreService {
             }
 
             let statusMessage: String
-            if nextStatus == ProjectTaskStatus.done.rawValue {
+            if resolvedStatus == ProjectTaskStatus.done.rawValue {
                 statusMessage = "Task \(task.id) completed."
-            } else if failureNote != nil {
+            } else if resolvedStatus == ProjectTaskStatus.blocked.rawValue,
+                      event.messageType == .workerCompleted,
+                      effectiveFailureNote != nil {
+                statusMessage = "Task \(task.id) blocked: worker exited without explicit completion confirmation."
+            } else if effectiveFailureNote != nil {
                 statusMessage = "Task \(task.id) failed; moved back to backlog."
             } else {
-                statusMessage = "Task \(task.id) status changed to \(nextStatus)."
+                statusMessage = "Task \(task.id) status changed to \(resolvedStatus)."
             }
             await runtime.appendSystemMessage(channelId: event.channelId, content: statusMessage)
             await deliverToChannelPlugin(channelId: event.channelId, content: statusMessage)

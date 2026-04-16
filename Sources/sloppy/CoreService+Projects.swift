@@ -11,6 +11,23 @@ import Logging
 extension CoreService {
     private static let projectContextBootstrapMarker = "[project_context_bootstrap_v1]"
 
+    private func requiresCompletionConfirmation(changedBy: String) -> Bool {
+        let normalized = changedBy.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !normalized.isEmpty else {
+            return false
+        }
+        return normalized != "user"
+    }
+
+    private func normalizedCompletionNote(_ note: String?) -> String? {
+        guard let trimmed = note?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !trimmed.isEmpty
+        else {
+            return nil
+        }
+        return trimmed
+    }
+
     public func listProjects() async -> [ProjectRecord] {
         await store.listProjects()
     }
@@ -785,9 +802,20 @@ extension CoreService {
             throw ProjectError.notFound
         }
 
+        let changedBy = request.changedBy ?? "user"
         let previousStatus = project.tasks[taskIndex].status
         let oldTask = project.tasks[taskIndex]
         var task = oldTask
+        let requestedCompletionNote = normalizedCompletionNote(request.completionNote)
+        if let status = request.status,
+           try normalizeTaskStatus(status) == ProjectTaskStatus.done.rawValue,
+           requiresCompletionConfirmation(changedBy: changedBy) {
+            guard request.completionConfidence == .done,
+                  requestedCompletionNote != nil
+            else {
+                throw ProjectError.invalidPayload
+            }
+        }
         if let title = request.title {
             task.title = try normalizeTaskTitle(title)
         }
@@ -829,7 +857,6 @@ extension CoreService {
         await store.saveProject(project)
         await kanbanEventService.push(KanbanEvent(type: .taskUpdated, projectId: normalizedProject, task: task))
 
-        let changedBy = request.changedBy ?? "user"
         await recordTaskFieldChanges(
             projectID: normalizedProject,
             taskID: task.id,
@@ -837,6 +864,20 @@ extension CoreService {
             newTask: task,
             changedBy: changedBy
         )
+        if task.status == ProjectTaskStatus.done.rawValue,
+           previousStatus != ProjectTaskStatus.done.rawValue,
+           let completionNote = requestedCompletionNote {
+            appendTaskLifecycleLog(
+                projectID: normalizedProject,
+                taskID: task.id,
+                stage: "completion_confirmed",
+                channelID: resolveExecutionChannelID(project: project, task: task),
+                workerID: nil,
+                message: completionNote,
+                actorID: task.claimedActorId,
+                agentID: task.claimedAgentId
+            )
+        }
 
         let actorChanged = request.actorId != nil && oldTask.actorId != task.actorId
         let teamChanged = request.teamId != nil && oldTask.teamId != task.teamId

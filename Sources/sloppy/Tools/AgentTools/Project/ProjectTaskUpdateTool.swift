@@ -17,6 +17,8 @@ struct ProjectTaskUpdateTool: CoreTool {
             .init(name: "description", description: "New description", schema: DynamicGenerationSchema(type: String.self), isOptional: true),
             .init(name: "priority", description: "New priority", schema: DynamicGenerationSchema(type: String.self), isOptional: true),
             .init(name: "status", description: "New status", schema: DynamicGenerationSchema(type: String.self), isOptional: true),
+            .init(name: "completionConfidence", description: "Required when setting status to done. Use done only if you verified the task is complete; otherwise use blocked, waiting_input, or unsure.", schema: DynamicGenerationSchema(type: String.self), isOptional: true),
+            .init(name: "completionNote", description: "Required when setting status to done. Brief evidence for why the task is complete.", schema: DynamicGenerationSchema(type: String.self), isOptional: true),
             .init(name: "kind", description: "Task kind: planning, execution, bugfix", schema: DynamicGenerationSchema(type: String.self), isOptional: true),
             .init(name: "loopModeOverride", description: "Override loop mode: human or agent", schema: DynamicGenerationSchema(type: String.self), isOptional: true),
             .init(name: "actorId", description: "New assigned actor ID", schema: DynamicGenerationSchema(type: String.self), isOptional: true),
@@ -54,6 +56,38 @@ struct ProjectTaskUpdateTool: CoreTool {
 
         do {
             let task = try findTask(reference: normalizedReference, in: project)
+            let completionConfidenceRaw = arguments["completionConfidence"]?.asString?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .lowercased()
+            let completionNote = arguments["completionNote"]?.asString?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            let requestedStatus = arguments["status"]?.asString?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .lowercased()
+            if requestedStatus == ProjectTaskStatus.done.rawValue {
+                guard let completionConfidenceRaw,
+                      let completionConfidence = ProjectTaskCompletionConfidence(rawValue: completionConfidenceRaw),
+                      let completionNote,
+                      !completionNote.isEmpty
+                else {
+                    return toolFailure(
+                        tool: name,
+                        code: "completion_confirmation_required",
+                        message: "Setting status to done requires `completionConfidence` and `completionNote`.",
+                        retryable: true,
+                        hint: "If the task is not actually complete, call this tool again with status `blocked` or `waiting_input` instead."
+                    )
+                }
+                guard completionConfidence == .done else {
+                    return toolFailure(
+                        tool: name,
+                        code: "completion_confirmation_mismatch",
+                        message: "Use status `done` only when `completionConfidence` is `done`.",
+                        retryable: true,
+                        hint: "If completionConfidence is `blocked`, `waiting_input`, or `unsure`, call the tool again with that task status instead of `done`."
+                    )
+                }
+            }
             let kind = arguments["kind"]?.asString.flatMap { ProjectTaskKind(rawValue: $0) }
             let loopMode = arguments["loopModeOverride"]?.asString.flatMap { ProjectLoopMode(rawValue: $0) }
             let updatedProject = try await svc.updateTask(
@@ -64,10 +98,13 @@ struct ProjectTaskUpdateTool: CoreTool {
                     description: arguments["description"]?.asString,
                     priority: arguments["priority"]?.asString,
                     status: arguments["status"]?.asString,
+                    completionConfidence: completionConfidenceRaw.flatMap { ProjectTaskCompletionConfidence(rawValue: $0) },
+                    completionNote: completionNote,
                     kind: kind,
                     loopModeOverride: loopMode,
                     actorId: arguments["actorId"]?.asString,
-                    teamId: arguments["teamId"]?.asString
+                    teamId: arguments["teamId"]?.asString,
+                    changedBy: context.agentID.isEmpty ? "agent" : "agent:\(context.agentID)"
                 )
             )
             let updatedTask = updatedProject.tasks.first(where: { $0.id == task.id }) ?? task
