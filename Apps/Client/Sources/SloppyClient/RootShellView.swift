@@ -20,6 +20,7 @@ struct RootShellView: View {
     @State private var bannerDismissTask: Task<Void, Never>?
     @State private var notificationManager: NotificationSocketManager?
     @State private var notificationListenerStarted = false
+    @State private var showDebug = false
 
     @Environment(\.theme) private var theme
 
