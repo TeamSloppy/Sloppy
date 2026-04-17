@@ -116,32 +116,49 @@ export function filterModelsByQuery<T extends { id?: string; title?: string }>(
     .map((item) => item.model);
 }
 
+export type ProviderProbeOutcome = {
+  providerId: string;
+  title: string;
+  ok: boolean;
+  message: string;
+  modelCount: number;
+};
+
+export type AggregatedProviderCatalog = {
+  models: AggregatedModelOption[];
+  probes: ProviderProbeOutcome[];
+};
+
 export async function collectAggregatedProviderModels(
   config: Record<string, unknown> | null | undefined
-): Promise<AggregatedModelOption[]> {
+): Promise<AggregatedProviderCatalog> {
   if (!config || !Array.isArray(config.models) || config.models.length === 0) {
-    return [];
+    return { models: [], probes: [] };
   }
 
   const allModels: AggregatedModelOption[] = [];
+  const probes: ProviderProbeOutcome[] = [];
 
   for (const entry of config.models as Record<string, unknown>[]) {
     const providerId = inferProviderId(entry);
+    const title = String(entry.title || providerId);
     const result = await probeProvider({
       providerId,
       apiKey: String(entry.apiKey || ""),
       apiUrl: String(entry.apiUrl || "")
     });
 
-    if (result?.ok && Array.isArray(result.models)) {
-      for (const model of result.models as Record<string, unknown>[]) {
+    const ok = Boolean(result?.ok);
+    const rawModels = Array.isArray(result?.models) ? (result!.models as Record<string, unknown>[]) : [];
+    if (ok) {
+      for (const model of rawModels) {
         const rawId = String(model.id || "");
         const id = prefixedRuntimeModelId(providerId, rawId);
-        const title = String(model.title || rawId);
+        const modelTitle = String(model.title || rawId);
         if (!id || allModels.some((m) => m.id === id)) {
           continue;
         }
-        const next: AggregatedModelOption = { id, title };
+        const next: AggregatedModelOption = { id, title: modelTitle };
         if (model.contextWindow != null) {
           next.contextWindow = String(model.contextWindow);
         }
@@ -151,7 +168,15 @@ export async function collectAggregatedProviderModels(
         allModels.push(next);
       }
     }
+
+    probes.push({
+      providerId,
+      title,
+      ok,
+      message: String(result?.message || (ok ? "" : "Probe failed.")),
+      modelCount: rawModels.length
+    });
   }
 
-  return allModels;
+  return { models: allModels, probes };
 }

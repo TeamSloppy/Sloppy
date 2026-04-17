@@ -151,7 +151,7 @@ const PROVIDER_CATALOG = [
     modelHint: "qwen3",
     authMethod: "none",
     requiresApiKey: false,
-    supportsModelCatalog: false,
+    supportsModelCatalog: true,
     defaultEntry: {
       title: "ollama-local",
       apiKey: "",
@@ -668,6 +668,7 @@ export function ConfigView({ sectionId = "providers", onSectionChange = null }) 
   const [pendingOAuthDisconnect, setPendingOAuthDisconnect] = useState(false);
   const [providerModelOptions, setProviderModelOptions] = useState({});
   const [providerModelStatus, setProviderModelStatus] = useState({});
+  const [providerProbeTesting, setProviderProbeTesting] = useState({});
   const [providerModelMenuOpen, setProviderModelMenuOpen] = useState(false);
   const [providerModelMenuRect, setProviderModelMenuRect] = useState(null);
   const [openAIProviderStatus, setOpenAIProviderStatus] = useState({
@@ -719,8 +720,8 @@ export function ConfigView({ sectionId = "providers", onSectionChange = null }) 
         if (cancelled) {
           return;
         }
-        setModelRoutingCatalog(catalog);
-        if (catalog.length === 0) {
+        setModelRoutingCatalog(catalog.models);
+        if (catalog.models.length === 0) {
           const hasModelEntries = Array.isArray(draftConfig.models) && draftConfig.models.length > 0;
           setModelRoutingCatalogStatus(
             hasModelEntries
@@ -1119,9 +1120,9 @@ export function ConfigView({ sectionId = "providers", onSectionChange = null }) 
     setProviderStatus(provider.id, "Loading provider models...");
 
     let payload;
-    if (provider.id === "openrouter") {
+    if (provider.id === "openrouter" || provider.id === "ollama") {
       const probe = await probeProvider({
-        providerId: "openrouter",
+        providerId: provider.id,
         apiKey: String(entry.apiKey || "").trim() || undefined,
         apiUrl: entry.apiUrl || provider.defaultEntry.apiUrl
       });
@@ -1160,7 +1161,12 @@ export function ConfigView({ sectionId = "providers", onSectionChange = null }) 
     if (payload.warning) {
       setProviderStatus(provider.id, payload.warning);
     } else if (payload.source === "remote") {
-      const label = provider.id === "openrouter" ? "OpenRouter" : "OpenAI";
+      const label =
+        provider.id === "openrouter"
+          ? "OpenRouter"
+          : provider.id === "ollama"
+            ? "Ollama"
+            : "OpenAI";
       setProviderStatus(provider.id, `Loaded ${models.length} models from ${label}`);
     } else {
       setProviderStatus(provider.id, `Loaded fallback catalog (${models.length} models)`);
@@ -1176,6 +1182,32 @@ export function ConfigView({ sectionId = "providers", onSectionChange = null }) 
           }
           : previous
       ));
+    }
+  }
+
+  async function testProviderConnection(providerId) {
+    const provider = getProviderDefinition(providerId);
+    if (!provider) {
+      return;
+    }
+
+    if (providerModelLoadTimerRef.current) {
+      clearTimeout(providerModelLoadTimerRef.current);
+      providerModelLoadTimerRef.current = null;
+    }
+    providerModelLoadTokenRef.current += 1;
+
+    setProviderProbeTesting((previous) => ({ ...previous, [provider.id]: true }));
+    try {
+      if (provider.supportsModelCatalog) {
+        await loadProviderModels(provider.id, providerForm);
+      } else {
+        setProviderStatus(provider.id, "This provider does not support a connection test.");
+      }
+    } catch {
+      setProviderStatus(provider.id, "Failed to reach provider.");
+    } finally {
+      setProviderProbeTesting((previous) => ({ ...previous, [provider.id]: false }));
     }
   }
 
@@ -1380,6 +1412,8 @@ export function ConfigView({ sectionId = "providers", onSectionChange = null }) 
             isDeviceCodePolling={configDeviceCodePolling}
             onRemoveProvider={removeProviderFromModal}
             onSaveProvider={saveProviderFromModal}
+            onTestProviderConnection={testProviderConnection}
+            providerProbeTesting={providerProbeTesting}
             onSetProviderModelMenuOpen={setProviderModelMenuOpen}
             onSetProviderModelMenuRect={setProviderModelMenuRect}
             getProviderEntry={getProviderEntry}

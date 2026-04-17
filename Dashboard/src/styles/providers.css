@@ -236,6 +236,24 @@
   flex-wrap: wrap;
 }
 
+.provider-modal-probe-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.provider-modal-probe-status {
+  color: var(--text-muted, #888);
+  font-size: 0.88rem;
+  line-height: 1.3;
+  flex: 1 1 200px;
+}
+
+.provider-modal-probe-status.ok {
+  color: var(--color-success, #22c55e);
+}
+
 .provider-device-code-card {
   display: flex;
   flex-direction: column;
