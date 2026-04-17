@@ -5,7 +5,51 @@ title: Install
 
 # Install
 
-Two ways to get Sloppy running: from the source installer or with Docker Compose.
+Three ways to get Sloppy running: with Homebrew, from the source installer, or with Docker Compose.
+
+## Homebrew
+
+[Install Homebrew](https://brew.sh) if you do not already have it. The Sloppy tap files live in this repository ([`Casks/sloppy.rb`](https://github.com/TeamSloppy/Sloppy/blob/main/Casks/sloppy.rb) and [`Formula/sloppy.rb`](https://github.com/TeamSloppy/Sloppy/blob/main/Formula/sloppy.rb)); add the tap once, then install the cask or formula below.
+
+### macOS (Cask)
+
+```bash
+brew tap teamsloppy/sloppy https://github.com/TeamSloppy/Sloppy
+brew install --cask teamsloppy/sloppy/sloppy
+```
+
+This installs the `sloppy` and `SloppyNode` binaries and copies the Dashboard bundle to `~/.local/share/sloppy/dashboard`, matching the layout used by the source installer.
+
+::: tip macOS architecture
+
+Each release updates the cask to a single macOS tarball from [GitHub Releases](https://github.com/TeamSloppy/Sloppy/releases). If that build does not match your Mac, use the [source installer](#source-installer) or download the matching `Sloppy-macos-*.tar.gz` asset manually.
+
+:::
+
+### Linux (Formula)
+
+The Homebrew formula ships a **Linux x86_64** tarball.
+
+```bash
+brew tap teamsloppy/sloppy https://github.com/TeamSloppy/Sloppy
+brew install teamsloppy/sloppy/sloppy
+```
+
+### Verify, upgrade, and uninstall
+
+```bash
+sloppy --version
+```
+
+```bash
+brew upgrade --cask teamsloppy/sloppy/sloppy   # macOS
+brew upgrade teamsloppy/sloppy/sloppy           # Linux
+```
+
+```bash
+brew uninstall --cask teamsloppy/sloppy/sloppy   # macOS
+brew uninstall teamsloppy/sloppy/sloppy         # Linux
+```
 
 ## Terminal
 
