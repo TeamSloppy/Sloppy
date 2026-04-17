@@ -304,7 +304,7 @@ export function AgentConfigTab({ agentId, agentDisplayName = "", onDeleteAgent =
         setAcpTargets((runtimeCfg as any).acp.targets.filter((t) => t.enabled !== false));
       }
 
-      let catalog = [];
+      let catalog: { models: any[]; probes: any[] } = { models: [], probes: [] };
       let catalogLoadError = false;
       if (runtimeCfg) {
         try {
@@ -317,20 +317,32 @@ export function AgentConfigTab({ agentId, agentDisplayName = "", onDeleteAgent =
         return;
       }
 
-      setAggregatedModels(catalog);
+      setAggregatedModels(catalog.models);
       if (catalogLoadError) {
         setModelCatalogStatus("Failed to load provider model catalogs.");
-      } else if (catalog.length === 0) {
+      } else {
+        const failed = (catalog.probes || []).filter((p) => !p.ok);
         const modelsField = runtimeCfg ? (runtimeCfg as Record<string, unknown>).models : undefined;
         const hasModelEntries =
           runtimeCfg && Array.isArray(modelsField) && modelsField.length > 0;
-        setModelCatalogStatus(
-          hasModelEntries
-            ? "Could not list models from configured providers. Check API keys in Settings."
-            : "No models found. Configure providers in Settings."
-        );
-      } else {
-        setModelCatalogStatus("");
+
+        if (catalog.models.length === 0 && !hasModelEntries) {
+          setModelCatalogStatus("No models found. Configure providers in Settings.");
+        } else if (failed.length > 0) {
+          const summary = failed
+            .map((p) => {
+              const reason = p.message ? ` — ${p.message}` : "";
+              return `${p.title || p.providerId}${reason}`;
+            })
+            .join("; ");
+          setModelCatalogStatus(
+            catalog.models.length === 0
+              ? `Providers failed probe: ${summary}. Check Settings > Providers.`
+              : `Some providers failed probe: ${summary}.`
+          );
+        } else {
+          setModelCatalogStatus("");
+        }
       }
 
       if (!response) {

@@ -42,6 +42,8 @@ export function ProviderEditor({
   isDeviceCodePolling,
   onRemoveProvider,
   onSaveProvider,
+  onTestProviderConnection,
+  providerProbeTesting,
   onSetProviderModelMenuOpen,
   onSetProviderModelMenuRect,
   getProviderEntry,
@@ -52,6 +54,15 @@ export function ProviderEditor({
   const activeProviderModels = providerModalMeta ? providerModelOptions[providerModalMeta.id] || [] : [];
   const activeProviderEntry = providerModalMeta ? getProviderEntry(draftConfig.models, providerModalMeta.id) : null;
   const filteredProviderModels = filterProviderModels(activeProviderModels, providerForm?.model);
+  const isTestingActiveProvider = providerModalMeta
+    ? Boolean(providerProbeTesting?.[providerModalMeta.id])
+    : false;
+  const canTestActiveProvider = Boolean(
+    providerModalMeta &&
+      providerModalMeta.id !== "openai-oauth" &&
+      providerModalMeta.supportsModelCatalog &&
+      onTestProviderConnection
+  );
 
   return (
     <div className="providers-shell">
@@ -173,7 +184,25 @@ export function ProviderEditor({
 
             {providerModalMeta.supportsModelCatalog ? (
               <div className="provider-modal-catalog">
-                <p className="placeholder-text">{activeProviderStatus || "Model catalog is loading automatically."}</p>
+                {canTestActiveProvider ? (
+                  <div className="provider-modal-probe-row">
+                    <button
+                      type="button"
+                      className="hover-levitate"
+                      disabled={isTestingActiveProvider}
+                      onClick={() => onTestProviderConnection(providerModalMeta.id)}
+                    >
+                      {isTestingActiveProvider ? "Testing..." : "Test connection"}
+                    </button>
+                    <span
+                      className={`provider-modal-probe-status ${activeProviderModels.length > 0 ? "ok" : ""}`}
+                    >
+                      {activeProviderStatus || "Press Test connection to probe the provider."}
+                    </span>
+                  </div>
+                ) : (
+                  <p className="placeholder-text">{activeProviderStatus || "Model catalog is loading automatically."}</p>
+                )}
                 {providerModalMeta.id === "openai-oauth" && deviceCode ? (
                   <div className="provider-device-code-card">
                     <div className="provider-device-code-step">

@@ -277,9 +277,9 @@ export function AgentsView({
       return;
     }
 
-    const allModels = await collectAggregatedProviderModels(config as Record<string, unknown>);
-    setAvailableModels(allModels);
-    setProviderConfigured(allModels.length > 0);
+    const catalog = await collectAggregatedProviderModels(config as Record<string, unknown>);
+    setAvailableModels(catalog.models);
+    setProviderConfigured(catalog.models.length > 0);
   }
 
   async function refreshAgents() {
