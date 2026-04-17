@@ -100,6 +100,10 @@ struct ConnectionSetupView: View {
                         .font(.system(size: ty.caption))
                         .foregroundColor(c.textMuted)
 
+                    Text("On a physical iPhone or iPad, “localhost” is the device itself, not your Mac. Use your computer’s LAN address (for example 192.168.x.x) or run Sloppy Core on the same device.")
+                        .font(.system(size: ty.caption))
+                        .foregroundColor(c.textMuted)
+
                     VStack(alignment: .leading, spacing: 0) {
                         manualField("Host", hint: "192.168.1.50 or hostname", text: $hostDraft)
                         Color.clear.frame(height: bo.thin).background(c.border)

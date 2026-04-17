@@ -101,6 +101,9 @@ targets:
           - CFBundleURLName: team.sloppy.client
             CFBundleURLSchemes:
               - sloppy
+        NSLocalNetworkUsageDescription: Sloppy discovers Sloppy Core on your Wi-Fi and connects over the local network.
+        NSAppTransportSecurity:
+          NSAllowsLocalNetworking: true
     entitlements:
       path: SupportingFiles/iOS/SloppyClient-iOS.entitlements
       properties:
@@ -156,6 +159,9 @@ targets:
           - CFBundleURLName: team.sloppy.client
             CFBundleURLSchemes:
               - sloppy
+        NSLocalNetworkUsageDescription: Sloppy discovers Sloppy Core on your Wi-Fi and connects over the local network.
+        NSAppTransportSecurity:
+          NSAllowsLocalNetworking: true
     entitlements:
       path: SupportingFiles/iOS/SloppyClient-iPadOS.entitlements
       properties:
@@ -200,6 +206,9 @@ targets:
           - CFBundleURLName: team.sloppy.client
             CFBundleURLSchemes:
               - sloppy
+        NSLocalNetworkUsageDescription: Sloppy discovers Sloppy Core on your Wi-Fi and connects over the local network.
+        NSAppTransportSecurity:
+          NSAllowsLocalNetworking: true
     entitlements:
       path: SupportingFiles/visionOS/SloppyClient-visionOS.entitlements
       properties:
