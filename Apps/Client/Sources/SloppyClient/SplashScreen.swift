@@ -55,14 +55,12 @@ struct SplashScreen: View {
 
     private func attemptConnection() {
         Task { @MainActor in
-            // 1. Try saved server address
-            if !settings.savedServers.isEmpty || settings.serverHost != "localhost" {
-                status = "Trying saved server..."
-                let url = settings.baseURL
-                if await checkHealth(url: url) {
-                    onResult(.connected(url))
-                    return
-                }
+            // 1. Try configured host:port (includes default localhost:25101 on first launch).
+            status = "Trying \(settings.serverHost):\(settings.serverPort)..."
+            let url = settings.baseURL
+            if await checkHealth(url: url) {
+                onResult(.connected(url))
+                return
             }
 
             // 2. Scan local network

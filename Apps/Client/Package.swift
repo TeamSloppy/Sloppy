@@ -1,5 +1,13 @@
 // swift-tools-version: 6.2
 import PackageDescription
+import Foundation
+
+let adaEnginePath: String
+if ProcessInfo.processInfo.environment["ADAENGINE_LOCAL"] == "1" {
+    adaEnginePath = "/Users/vlad-prusakov/Developer/AdaEngine"
+} else {
+    adaEnginePath = "../../Vendor/AdaEngine"
+}
 
 let package = Package(
     name: "SloppyClient",
@@ -20,7 +28,7 @@ let package = Package(
     ],
     dependencies: [
         .package(url: "https://github.com/apple/swift-log.git", from: "1.6.0"),
-        .package(name: "AdaEngine", path: "../../Vendor/AdaEngine"),
+        .package(name: "AdaEngine", path: adaEnginePath),
         .package(name: "AdaMCP", path: "../../Vendor/AdaMCP")
     ],
     targets: [
