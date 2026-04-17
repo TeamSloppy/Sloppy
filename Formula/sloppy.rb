@@ -1,9 +1,9 @@
 class Sloppy < Formula
   desc "Agent runtime and dashboard for Sloppy"
   homepage "https://github.com/TeamSloppy/Sloppy"
-  version "1.1.2"
-  url "https://github.com/TeamSloppy/Sloppy/releases/download/v1.1.2/Sloppy-linux-x86_64.tar.gz"
-  sha256 "89c44dc7e3f9954c5be3df64bb4b1e83636bcb35d8f02cde132b72ec7708fd64"
+  version "1.1.3"
+  url "https://github.com/TeamSloppy/Sloppy/releases/download/v1.1.3/Sloppy-linux-x86_64.tar.gz"
+  sha256 "c7df9a9b2e14422284efe25db5a7b08d88f6763f6b62bc65ec1cefe82f823999"
   license "MIT"
 
   def install
