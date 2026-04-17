@@ -84,6 +84,7 @@ jobs:
           cp -R Dashboard/dist "$STAGE/share/sloppy/dashboard/"
           cp Dashboard/config.json "$STAGE/share/sloppy/dashboard/"
           cp Sources/sloppy/Resources/sloppy-version.json "$STAGE/share/sloppy/sloppy-version.json"
+          cp -R Sources/sloppy/Resources/Prompts "$STAGE/share/sloppy/Prompts"
           OUT="Sloppy-linux-x86_64.tar.gz"
           tar -C "$STAGE" -czvf "${{ runner.temp }}/$OUT" bin share
           echo "tarball_path=${{ runner.temp }}/$OUT" >> "$GITHUB_OUTPUT"
@@ -166,6 +167,7 @@ jobs:
           cp -R Dashboard/dist "$STAGE/share/sloppy/dashboard/"
           cp Dashboard/config.json "$STAGE/share/sloppy/dashboard/"
           cp Sources/sloppy/Resources/sloppy-version.json "$STAGE/share/sloppy/sloppy-version.json"
+          cp -R Sources/sloppy/Resources/Prompts "$STAGE/share/sloppy/Prompts"
           OUT="Sloppy-macos-${ASSET_ARCH}.tar.gz"
           tar -C "$STAGE" -czvf "${{ runner.temp }}/$OUT" bin share
           echo "tarball_path=${{ runner.temp }}/$OUT" >> "$GITHUB_OUTPUT"
@@ -356,11 +358,11 @@ jobs:
           VERSION: ${{ needs.publish.outputs.version }}
         run: |
           set -euo pipefail
-          git pull --rebase origin "${{ github.event.repository.default_branch }}"
           git add Casks/sloppy.rb Formula/sloppy.rb
           if git diff --staged --quiet; then
             echo "No Homebrew file changes."
             exit 0
           fi
           git commit -m "chore(release): bump Homebrew cask and formula to v${VERSION}"
+          git pull --rebase origin "${{ github.event.repository.default_branch }}"
           git push origin "${{ github.event.repository.default_branch }}"
