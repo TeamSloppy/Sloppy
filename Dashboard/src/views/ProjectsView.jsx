@@ -1157,23 +1157,28 @@ export function ProjectsView({
   }
 
   async function watchAgentTaskSession(project, task, channelId) {
-    const parsed = parseAgentWorkerChannelId(channelId);
-    if (!parsed?.agentId) {
-      setStatusText("Cannot resolve agent session from this worker.");
+    const channel = String(channelId || "").trim();
+    const parsed = channel ? parseAgentWorkerChannelId(channel) : null;
+    let agentId = parsed?.agentId ? String(parsed.agentId).trim() : "";
+    if (!agentId) {
+      agentId = String(task.claimedAgentId || "").trim();
+    }
+    if (!agentId) {
+      setStatusText("Cannot resolve agent for this task.");
       return;
     }
-    let sessionId = parsed.sessionId;
+    let sessionId = parsed?.sessionId ? String(parsed.sessionId).trim() : "";
     if (!sessionId) {
       try {
-        const sessions = await fetchAgentSessions(parsed.agentId);
+        const sessions = await fetchAgentSessions(agentId);
         const workerTitle = `task-${task.id}`;
         const commentTitle = `task-comment:${project.id}:${task.id}`;
         const match = Array.isArray(sessions)
           ? sessions.find((s) => { const t = String(s.title || ""); return t === workerTitle || t === commentTitle; })
           : null;
-        sessionId = match?.id ? String(match.id) : null;
+        sessionId = match?.id ? String(match.id) : "";
       } catch {
-        sessionId = null;
+        sessionId = "";
       }
     }
     if (!sessionId) {
@@ -1181,7 +1186,7 @@ export function ProjectsView({
       return;
     }
     if (typeof onNavigateToAgentChatSession === "function") {
-      onNavigateToAgentChatSession(parsed.agentId, sessionId);
+      onNavigateToAgentChatSession(agentId, sessionId);
     } else {
       setStatusText("Navigation to agent session is not available.");
     }
