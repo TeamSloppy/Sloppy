@@ -59,6 +59,8 @@ actor SessionProcessRegistry {
             process.currentDirectoryURL = URL(fileURLWithPath: cwd, isDirectory: true)
         }
 
+        process.environment = childProcessEnvironment()
+
         do {
             try process.run()
         } catch {

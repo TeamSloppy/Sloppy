@@ -70,11 +70,11 @@ public extension InboundMessageReceiver {
         .allowed
     }
 
-    public func skillSlashCommandTokens(forChannelID: String) async -> [String] {
+    func skillSlashCommandTokens(forChannelID: String) async -> [String] {
         []
     }
 
-    public func skillSlashMenuEntriesUnion(forChannelIDs: [String]) async -> [ChannelSlashCommandItem] {
+    func skillSlashMenuEntriesUnion(forChannelIDs: [String]) async -> [ChannelSlashCommandItem] {
         []
     }
 }

@@ -99,6 +99,8 @@ actor ManagedMCPStdioTransport: Transport {
             process.currentDirectoryURL = URL(fileURLWithPath: cwd, isDirectory: true)
         }
 
+        process.environment = childProcessEnvironment()
+
         try process.run()
 
         let transport = StdioTransport(
