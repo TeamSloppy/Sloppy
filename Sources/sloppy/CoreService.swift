@@ -190,6 +190,7 @@ public actor CoreService {
     var store: any PersistenceStore
     let openAIProviderCatalog: OpenAIProviderCatalogService
     let openAIOAuthService: OpenAIOAuthService
+    let anthropicOAuthService: AnthropicOAuthService
     let githubAuthService: GitHubAuthService
     let providerProbeService: ProviderProbeService
     let searchProviderService: SearchProviderService
@@ -267,12 +268,14 @@ public actor CoreService {
     ) {
         let workspaceRootURL = config.resolvedWorkspaceRootURL(currentDirectory: FileManager.default.currentDirectoryPath)
         self.openAIOAuthService = OpenAIOAuthService(workspaceRootURL: workspaceRootURL)
+        self.anthropicOAuthService = AnthropicOAuthService(workspaceRootURL: workspaceRootURL)
         self.githubAuthService = GitHubAuthService(workspaceRootURL: workspaceRootURL)
         self.mcpRegistry = MCPClientRegistry(
             config: config.mcp,
             logger: Logger(label: "sloppy.mcp")
         )
         let oauthService = self.openAIOAuthService
+        let anthropicOAuthService = self.anthropicOAuthService
         let hasOAuth = oauthService.currentAccessToken() != nil
         let resolvedModels = CoreModelProviderFactory.resolveModelIdentifiers(
             config: config,
@@ -285,6 +288,8 @@ public actor CoreService {
             oauthTokenProvider: { oauthService.currentAccessToken() },
             oauthAccountId: oauthService.currentAccountId(),
             oauthTokenRefresh: { try await oauthService.ensureValidToken() },
+            anthropicOAuthTokenProvider: { anthropicOAuthService.currentAccessToken() },
+            anthropicOAuthTokenRefresh: { try await anthropicOAuthService.ensureValidToken() },
             systemInstructions: "You are Sloppy core channel assistant.",
             proxySession: ProxySessionFactory.makeSession(proxy: config.proxy)
         )

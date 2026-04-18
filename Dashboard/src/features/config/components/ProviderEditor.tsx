@@ -22,6 +22,7 @@ export function ProviderEditor({
   configuredProviderRows,
   customModelsCount,
   openAIProviderStatus,
+  anthropicProviderStatus,
   providerModalMeta,
   providerForm,
   providerModelStatus,
@@ -37,6 +38,9 @@ export function ProviderEditor({
   onCloseProviderModal,
   onUpdateProviderForm,
   onOpenOAuth,
+  onOpenAnthropicOAuth,
+  onImportAnthropicClaudeCredentials,
+  onDisconnectAnthropicOAuth,
   onCancelDeviceCode,
   onCopyDeviceCode,
   onOpenDeviceCodeLoginPage,
@@ -191,14 +195,19 @@ export function ProviderEditor({
                 openAIProviderStatus.hasOAuthCredentials &&
                 Boolean(String(entry?.model || "").trim()) &&
                 Boolean(String(entry?.apiUrl || "").trim());
+              const configuredViaAnthropicOAuth =
+                catalogId === "anthropic-oauth" &&
+                (anthropicProviderStatus.hasOAuthCredentials || Boolean(String(entry?.apiKey || "").trim())) &&
+                Boolean(String(entry?.model || "").trim()) &&
+                Boolean(String(entry?.apiUrl || "").trim());
               let configured = false;
-              if (configuredViaEnvironment || configuredViaOAuth) {
+              if (configuredViaEnvironment || configuredViaOAuth || configuredViaAnthropicOAuth) {
                 configured = true;
               } else if (meta && catalogId !== "openai-oauth") {
                 configured = providerIsConfigured(meta, entry);
               }
               const configuredBadgeText =
-                configuredViaEnvironment ? "env" : configuredViaOAuth ? "oauth" : configured ? "configured" : "not set";
+                configuredViaEnvironment ? "env" : configuredViaOAuth || configuredViaAnthropicOAuth ? "oauth" : configured ? "configured" : "not set";
 
               return (
                 <div
@@ -297,19 +306,30 @@ export function ProviderEditor({
                 <span>Enabled (runtime)</span>
               </label>
               {providerModalMeta.requiresApiKey ? (
-                <label>
-                  API Key
-                  <input
-                    type="password"
-                    value={providerForm.apiKey}
-                    onChange={(event) => onUpdateProviderForm("apiKey", event.target.value)}
-                    placeholder="sk-..."
-                  />
-                  {providerModalMeta.id === "openai-api" && openAIProviderStatus.hasEnvironmentKey ? (
-                    <span className="placeholder-text">Using OPENAI_API_KEY from Sloppy environment.</span>
-                  ) : null}
-                </label>
-              ) : null}
+              <label>
+                API Key
+                <input
+                  type="password"
+                  value={providerForm.apiKey}
+                  onChange={(event) => onUpdateProviderForm("apiKey", event.target.value)}
+                  placeholder={
+                    providerModalMeta.id === "anthropic-oauth"
+                      ? "Manual setup token fallback (sk-ant-oat…)"
+                      : providerModalMeta.id === "anthropic"
+                        ? "Console API key (sk-ant-api…)"
+                        : "sk-..."
+                  }
+                />
+                {providerModalMeta.id === "openai-api" && openAIProviderStatus.hasEnvironmentKey ? (
+                  <span className="placeholder-text">Using OPENAI_API_KEY from Sloppy environment.</span>
+                ) : null}
+                {providerModalMeta.id === "anthropic-oauth" ? (
+                  <span className="placeholder-text">
+                    Primary path: Anthropic OAuth or imported Claude Code credentials. Manual token is a fallback.
+                  </span>
+                ) : null}
+              </label>
+            ) : null}
 
               <label>
                 API URL
@@ -330,7 +350,7 @@ export function ProviderEditor({
               </label>
             </div>
 
-            {providerModalMeta.supportsModelCatalog ? (
+            {providerModalMeta.supportsModelCatalog || providerModalMeta.id === "anthropic-oauth" ? (
               <div className="provider-modal-catalog">
                 {canTestActiveProvider ? (
                   <div className="provider-modal-probe-row">
@@ -402,6 +422,28 @@ export function ProviderEditor({
                     {openAIProviderStatus.oauthPlanType ? ` as ${openAIProviderStatus.oauthPlanType}` : ""}
                     {openAIProviderStatus.oauthAccountId ? ` (${openAIProviderStatus.oauthAccountId})` : ""}.
                   </p>
+                ) : null}
+                {providerModalMeta.id === "anthropic-oauth" ? (
+                  <>
+                    <div className="provider-modal-actions">
+                      <button type="button" onClick={onOpenAnthropicOAuth}>
+                        {anthropicProviderStatus.hasOAuthCredentials ? "Reconnect Anthropic" : "Connect Anthropic"}
+                      </button>
+                      <button type="button" onClick={onImportAnthropicClaudeCredentials}>
+                        Import Claude Code credentials
+                      </button>
+                      {anthropicProviderStatus.hasOAuthCredentials ? (
+                        <button type="button" onClick={onDisconnectAnthropicOAuth}>
+                          Disconnect
+                        </button>
+                      ) : null}
+                    </div>
+                    <p className="placeholder-text">
+                      {anthropicProviderStatus.hasOAuthCredentials
+                        ? `Connected via ${anthropicProviderStatus.oauthSource || "anthropic_oauth"}${anthropicProviderStatus.oauthRefreshable ? " (refreshable)" : ""}${anthropicProviderStatus.oauthExpiresAt ? `, expires ${anthropicProviderStatus.oauthExpiresAt}` : ""}.`
+                        : "Connect Anthropic OAuth or import Claude Code credentials. You can still paste a setup token manually if needed."}
+                    </p>
+                  </>
                 ) : null}
               </div>
             ) : null}

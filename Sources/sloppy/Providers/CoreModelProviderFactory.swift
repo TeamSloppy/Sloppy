@@ -12,6 +12,8 @@ struct ModelProviderBuildConfig: @unchecked Sendable {
     var oauthTokenProvider: (@Sendable () -> String?)?
     var oauthAccountId: String?
     var oauthTokenRefresh: (@Sendable () async throws -> Void)?
+    var anthropicOAuthTokenProvider: (@Sendable () -> String?)?
+    var anthropicOAuthTokenRefresh: (@Sendable () async throws -> Void)?
     var systemInstructions: String?
     var proxySession: URLSession?
 }
@@ -36,6 +38,8 @@ enum CoreModelProviderFactory {
         oauthTokenProvider: (@Sendable () -> String?)? = nil,
         oauthAccountId: String? = nil,
         oauthTokenRefresh: (@Sendable () async throws -> Void)? = nil,
+        anthropicOAuthTokenProvider: (@Sendable () -> String?)? = nil,
+        anthropicOAuthTokenRefresh: (@Sendable () async throws -> Void)? = nil,
         systemInstructions: String? = nil,
         proxySession: URLSession? = nil
     ) -> (any ModelProvider)? {
@@ -46,6 +50,8 @@ enum CoreModelProviderFactory {
             oauthTokenProvider: oauthTokenProvider,
             oauthAccountId: oauthAccountId,
             oauthTokenRefresh: oauthTokenRefresh,
+            anthropicOAuthTokenProvider: anthropicOAuthTokenProvider,
+            anthropicOAuthTokenRefresh: anthropicOAuthTokenRefresh,
             systemInstructions: systemInstructions,
             proxySession: proxySession
         )
@@ -119,6 +125,8 @@ enum CoreModelProviderFactory {
             case "gemini":
                 return "gemini"
             case "anthropic":
+                return "anthropic"
+            case "anthropic-oauth":
                 return "anthropic"
             default:
                 break

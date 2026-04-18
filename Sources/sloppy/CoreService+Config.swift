@@ -46,6 +46,7 @@ extension CoreService {
         await recoveryManager.updateStore(refreshedStore)
         await searchProviderService.updateConfig(config.searchTools)
         let oauthSvc = self.openAIOAuthService
+        let anthropicOAuthSvc = self.anthropicOAuthService
         let hasOAuth = oauthSvc.currentAccessToken() != nil
         let resolvedModels = CoreModelProviderFactory.resolveModelIdentifiers(
             config: config,
@@ -58,6 +59,8 @@ extension CoreService {
             oauthTokenProvider: { oauthSvc.currentAccessToken() },
             oauthAccountId: oauthSvc.currentAccountId(),
             oauthTokenRefresh: { try await oauthSvc.ensureValidToken() },
+            anthropicOAuthTokenProvider: { anthropicOAuthSvc.currentAccessToken() },
+            anthropicOAuthTokenRefresh: { try await anthropicOAuthSvc.ensureValidToken() },
             systemInstructions: "You are Sloppy core channel assistant.",
             proxySession: ProxySessionFactory.makeSession(proxy: config.proxy)
         )

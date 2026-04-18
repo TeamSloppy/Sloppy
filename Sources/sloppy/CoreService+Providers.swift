@@ -56,6 +56,31 @@ extension CoreService {
         )
     }
 
+    public func anthropicProviderStatus() -> AnthropicProviderStatusResponse {
+        let primaryConfig = currentConfig.models.first {
+            CoreModelProviderFactory.resolvedIdentifier(for: $0)?.hasPrefix("anthropic:") == true
+                && isAnthropicOAuthEntry($0)
+        }
+        let configuredKey = (primaryConfig?.apiKey ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let envOAuthKey = ProcessInfo.processInfo.environment["ANTHROPIC_TOKEN"]?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let envClaudeCodeKey = ProcessInfo.processInfo.environment["CLAUDE_CODE_OAUTH_TOKEN"]?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let oauthStatus = anthropicOAuthService.status()
+        let hasEnvironmentKey = !envOAuthKey.isEmpty || !envClaudeCodeKey.isEmpty
+
+        return AnthropicProviderStatusResponse(
+            provider: "anthropic",
+            hasEnvironmentKey: hasEnvironmentKey,
+            hasConfiguredKey: !configuredKey.isEmpty,
+            hasAnyKey: !configuredKey.isEmpty || hasEnvironmentKey,
+            hasOAuthCredentials: oauthStatus.hasCredentials,
+            oauthSource: oauthStatus.source,
+            oauthExpiresAt: oauthStatus.expiresAt,
+            oauthRefreshable: oauthStatus.refreshable
+        )
+    }
+
     /// Probes provider connectivity and returns remote model options on success.
     public func probeProvider(request: ProviderProbeRequest) async -> ProviderProbeResponse {
         if request.providerId == .openAIOAuth {
@@ -65,6 +90,28 @@ extension CoreService {
             }
             return result
         }
+        if request.providerId == .anthropicOAuth {
+            let primaryConfig = currentConfig.models.first {
+                CoreModelProviderFactory.resolvedIdentifier(for: $0)?.hasPrefix("anthropic:") == true
+                    && isAnthropicOAuthEntry($0)
+            }
+            let baseURL = CoreModelProviderFactory.parseURL(request.apiUrl)
+                ?? CoreModelProviderFactory.parseURL(primaryConfig?.apiUrl)
+                ?? URL(string: "https://api.anthropic.com")
+            guard let baseURL else {
+                return ProviderProbeResponse(
+                    providerId: .anthropicOAuth,
+                    ok: false,
+                    usedEnvironmentKey: false,
+                    message: "Anthropic API URL is invalid.",
+                    models: []
+                )
+            }
+            return await anthropicOAuthService.probe(
+                apiURL: baseURL,
+                manualToken: request.apiKey
+            )
+        }
         return await providerProbeService.probe(config: currentConfig, request: request)
     }
 
@@ -72,6 +119,7 @@ extension CoreService {
     public func generateText(request: GenerateTextRequest) async throws -> GenerateTextResponse {
         let config = currentConfig
         let oauthService = openAIOAuthService
+        let anthropicOAuthService = self.anthropicOAuthService
         let hasOAuth = oauthService.currentAccessToken() != nil
         let resolvedModels = CoreModelProviderFactory.resolveModelIdentifiers(
             config: config,
@@ -83,6 +131,8 @@ extension CoreService {
             oauthTokenProvider: { oauthService.currentAccessToken() },
             oauthAccountId: oauthService.currentAccountId(),
             oauthTokenRefresh: { try await oauthService.ensureValidToken() },
+            anthropicOAuthTokenProvider: { anthropicOAuthService.currentAccessToken() },
+            anthropicOAuthTokenRefresh: { try await anthropicOAuthService.ensureValidToken() },
             proxySession: ProxySessionFactory.makeSession(proxy: config.proxy)
         ) else {
             throw GenerateError.noModelProvider
@@ -118,6 +168,22 @@ extension CoreService {
 
     public func disconnectOpenAIOAuth() throws {
         try openAIOAuthService.disconnect()
+    }
+
+    public func startAnthropicOAuth(request: AnthropicOAuthStartRequest) throws -> AnthropicOAuthStartResponse {
+        try anthropicOAuthService.startLogin(redirectURI: request.redirectURI)
+    }
+
+    public func completeAnthropicOAuth(request: AnthropicOAuthCompleteRequest) async throws -> AnthropicOAuthCompleteResponse {
+        try await anthropicOAuthService.completeLogin(request: request)
+    }
+
+    public func importAnthropicClaudeCredentials() async throws -> AnthropicOAuthImportClaudeResponse {
+        try await anthropicOAuthService.importClaudeCodeCredentials()
+    }
+
+    public func disconnectAnthropicOAuth() throws {
+        try anthropicOAuthService.disconnect()
     }
 
     public func gitHubAuthStatus() -> GitHubAuthStatusResponse {
@@ -199,6 +265,14 @@ extension CoreService {
                 metadata: ["error": "\(error.localizedDescription)"]
             )
         }
+    }
+
+    private func isAnthropicOAuthEntry(_ model: CoreConfig.ModelConfig) -> Bool {
+        let catalog = model.providerCatalogId?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if catalog == "anthropic-oauth" {
+            return true
+        }
+        return model.title.lowercased().contains("anthropic-oauth")
     }
 
     static func availableAgentModels(config: CoreConfig, hasOAuthCredentials: Bool = false) -> [ProviderModelOption] {

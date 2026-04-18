@@ -2558,6 +2558,7 @@ public enum ProviderProbeID: String, Codable, Sendable {
     case ollama
     case gemini
     case anthropic
+    case anthropicOAuth = "anthropic-oauth"
 }
 
 public struct ProviderProbeRequest: Codable, Sendable {
@@ -2659,6 +2660,37 @@ public struct OpenAIProviderStatusResponse: Codable, Sendable {
     }
 }
 
+public struct AnthropicProviderStatusResponse: Codable, Sendable {
+    public var provider: String
+    public var hasEnvironmentKey: Bool
+    public var hasConfiguredKey: Bool
+    public var hasAnyKey: Bool
+    public var hasOAuthCredentials: Bool
+    public var oauthSource: String?
+    public var oauthExpiresAt: String?
+    public var oauthRefreshable: Bool
+
+    public init(
+        provider: String,
+        hasEnvironmentKey: Bool,
+        hasConfiguredKey: Bool,
+        hasAnyKey: Bool,
+        hasOAuthCredentials: Bool = false,
+        oauthSource: String? = nil,
+        oauthExpiresAt: String? = nil,
+        oauthRefreshable: Bool = false
+    ) {
+        self.provider = provider
+        self.hasEnvironmentKey = hasEnvironmentKey
+        self.hasConfiguredKey = hasConfiguredKey
+        self.hasAnyKey = hasAnyKey
+        self.hasOAuthCredentials = hasOAuthCredentials
+        self.oauthSource = oauthSource
+        self.oauthExpiresAt = oauthExpiresAt
+        self.oauthRefreshable = oauthRefreshable
+    }
+}
+
 public struct OpenAIOAuthStartRequest: Codable, Sendable {
     public var redirectURI: String
 
@@ -2702,6 +2734,82 @@ public struct OpenAIOAuthCompleteResponse: Codable, Sendable {
         self.message = message
         self.accountId = accountId
         self.planType = planType
+    }
+}
+
+public struct AnthropicOAuthStartRequest: Codable, Sendable {
+    public var redirectURI: String
+
+    public init(redirectURI: String) {
+        self.redirectURI = redirectURI
+    }
+}
+
+public struct AnthropicOAuthStartResponse: Codable, Sendable {
+    public var authorizationURL: String
+    public var redirectURI: String
+    public var state: String
+
+    public init(authorizationURL: String, redirectURI: String, state: String) {
+        self.authorizationURL = authorizationURL
+        self.redirectURI = redirectURI
+        self.state = state
+    }
+}
+
+public struct AnthropicOAuthCompleteRequest: Codable, Sendable {
+    public var callbackURL: String?
+    public var code: String?
+    public var state: String?
+
+    public init(callbackURL: String? = nil, code: String? = nil, state: String? = nil) {
+        self.callbackURL = callbackURL
+        self.code = code
+        self.state = state
+    }
+}
+
+public struct AnthropicOAuthCompleteResponse: Codable, Sendable {
+    public var ok: Bool
+    public var message: String
+    public var source: String?
+    public var expiresAt: String?
+    public var refreshable: Bool
+
+    public init(
+        ok: Bool,
+        message: String,
+        source: String? = nil,
+        expiresAt: String? = nil,
+        refreshable: Bool = false
+    ) {
+        self.ok = ok
+        self.message = message
+        self.source = source
+        self.expiresAt = expiresAt
+        self.refreshable = refreshable
+    }
+}
+
+public struct AnthropicOAuthImportClaudeResponse: Codable, Sendable {
+    public var ok: Bool
+    public var message: String
+    public var source: String?
+    public var expiresAt: String?
+    public var refreshable: Bool
+
+    public init(
+        ok: Bool,
+        message: String,
+        source: String? = nil,
+        expiresAt: String? = nil,
+        refreshable: Bool = false
+    ) {
+        self.ok = ok
+        self.message = message
+        self.source = source
+        self.expiresAt = expiresAt
+        self.refreshable = refreshable
     }
 }
 

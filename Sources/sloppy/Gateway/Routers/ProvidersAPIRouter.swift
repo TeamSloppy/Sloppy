@@ -14,6 +14,11 @@ struct ProvidersAPIRouter: APIRouter {
             return CoreRouter.encodable(status: HTTPStatus.ok, payload: status)
         }
 
+        router.get("/v1/providers/anthropic/status", metadata: RouteMetadata(summary: "Anthropic status", description: "Returns the current status of the Anthropic provider", tags: ["Providers"])) { _ in
+            let status = await service.anthropicProviderStatus()
+            return CoreRouter.encodable(status: HTTPStatus.ok, payload: status)
+        }
+
         router.post("/v1/providers/openai/oauth/start", metadata: RouteMetadata(summary: "Start OpenAI OAuth", description: "Creates an OpenAI OAuth authorization URL", tags: ["Providers"])) { request in
             guard let body = request.body,
                   let payload = CoreRouter.decode(body, as: OpenAIOAuthStartRequest.self)
@@ -84,6 +89,66 @@ struct ProvidersAPIRouter: APIRouter {
         router.post("/v1/providers/openai/oauth/disconnect", metadata: RouteMetadata(summary: "Disconnect OpenAI OAuth", description: "Removes stored OpenAI OAuth credentials", tags: ["Providers"])) { _ in
             do {
                 try await service.disconnectOpenAIOAuth()
+                return CoreRouter.json(status: HTTPStatus.ok, payload: ["ok": "true"])
+            } catch {
+                return CoreRouter.json(status: HTTPStatus.badRequest, payload: ["error": error.localizedDescription])
+            }
+        }
+
+        router.post("/v1/providers/anthropic/oauth/start", metadata: RouteMetadata(summary: "Start Anthropic OAuth", description: "Creates an Anthropic OAuth authorization URL", tags: ["Providers"])) { request in
+            guard let body = request.body,
+                  let payload = CoreRouter.decode(body, as: AnthropicOAuthStartRequest.self)
+            else {
+                return CoreRouter.json(status: HTTPStatus.badRequest, payload: ["error": ErrorCode.invalidBody])
+            }
+
+            do {
+                let response = try await service.startAnthropicOAuth(request: payload)
+                return CoreRouter.encodable(status: HTTPStatus.ok, payload: response)
+            } catch {
+                return CoreRouter.json(status: HTTPStatus.badRequest, payload: ["error": error.localizedDescription])
+            }
+        }
+
+        router.post("/v1/providers/anthropic/oauth/complete", metadata: RouteMetadata(summary: "Complete Anthropic OAuth", description: "Exchanges the Anthropic OAuth authorization code for tokens", tags: ["Providers"])) { request in
+            guard let body = request.body,
+                  let payload = CoreRouter.decode(body, as: AnthropicOAuthCompleteRequest.self)
+            else {
+                return CoreRouter.json(status: HTTPStatus.badRequest, payload: ["error": ErrorCode.invalidBody])
+            }
+
+            do {
+                let response = try await service.completeAnthropicOAuth(request: payload)
+                return CoreRouter.encodable(status: HTTPStatus.ok, payload: response)
+            } catch {
+                return CoreRouter.encodable(
+                    status: HTTPStatus.ok,
+                    payload: AnthropicOAuthCompleteResponse(
+                        ok: false,
+                        message: error.localizedDescription
+                    )
+                )
+            }
+        }
+
+        router.post("/v1/providers/anthropic/oauth/import-claude", metadata: RouteMetadata(summary: "Import Claude Code credentials", description: "Imports refreshable Claude Code credentials into Sloppy", tags: ["Providers"])) { _ in
+            do {
+                let response = try await service.importAnthropicClaudeCredentials()
+                return CoreRouter.encodable(status: HTTPStatus.ok, payload: response)
+            } catch {
+                return CoreRouter.encodable(
+                    status: HTTPStatus.ok,
+                    payload: AnthropicOAuthImportClaudeResponse(
+                        ok: false,
+                        message: error.localizedDescription
+                    )
+                )
+            }
+        }
+
+        router.post("/v1/providers/anthropic/oauth/disconnect", metadata: RouteMetadata(summary: "Disconnect Anthropic OAuth", description: "Removes stored Anthropic OAuth credentials", tags: ["Providers"])) { _ in
+            do {
+                try await service.disconnectAnthropicOAuth()
                 return CoreRouter.json(status: HTTPStatus.ok, payload: ["ok": "true"])
             } catch {
                 return CoreRouter.json(status: HTTPStatus.badRequest, payload: ["error": error.localizedDescription])

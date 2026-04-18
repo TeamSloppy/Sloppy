@@ -57,6 +57,14 @@ struct ProviderProbeService {
             return await probeGemini(config: config, request: request)
         case .anthropic:
             return await probeAnthropic(config: config, request: request)
+        case .anthropicOAuth:
+            return ProviderProbeResponse(
+                providerId: .anthropicOAuth,
+                ok: true,
+                usedEnvironmentKey: false,
+                message: "Anthropic (OAuth) uses sign-in; showing built-in model catalog.",
+                models: Self.anthropicModelCatalog
+            )
         }
     }
 
@@ -506,7 +514,7 @@ struct ProviderProbeService {
         return caps
     }
 
-    private static let anthropicModelCatalog: [ProviderModelOption] = [
+    static let anthropicModelCatalog: [ProviderModelOption] = [
         ProviderModelOption(id: "claude-sonnet-4-20250514", title: "Claude Sonnet 4", contextWindow: "200K", capabilities: ["tools", "reasoning"]),
         ProviderModelOption(id: "claude-3-7-sonnet-20250219", title: "Claude 3.7 Sonnet", contextWindow: "200K", capabilities: ["tools", "reasoning"]),
         ProviderModelOption(id: "claude-3-5-sonnet-20241022", title: "Claude 3.5 Sonnet", contextWindow: "200K", capabilities: ["tools"]),
@@ -587,8 +595,14 @@ struct ProviderProbeService {
         var urlRequest = URLRequest(url: endpoint)
         urlRequest.httpMethod = "POST"
         urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        urlRequest.setValue(apiKey, forHTTPHeaderField: "x-api-key")
-        urlRequest.setValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
+        let authHeaders = OAuthAnthropicAuthHeaders.authenticationHeaders(
+            apiKey: apiKey,
+            baseURL: baseURL,
+            additionalBetas: nil
+        )
+        for (field, value) in authHeaders {
+            urlRequest.setValue(value, forHTTPHeaderField: field)
+        }
         let body: [String: Any] = [
             "model": "claude-3-5-haiku-20241022",
             "max_tokens": 1,

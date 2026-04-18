@@ -433,6 +433,10 @@ public actor CoreRouter {
             "/v1/providers/openai/oauth/complete",
             "/v1/providers/openai/oauth/device-code/start",
             "/v1/providers/openai/oauth/device-code/poll",
+            "/v1/providers/anthropic/status",
+            "/v1/providers/anthropic/oauth/start",
+            "/v1/providers/anthropic/oauth/complete",
+            "/v1/providers/anthropic/oauth/import-claude",
             "/v1/agents",
             "/v1/generate"
         ])

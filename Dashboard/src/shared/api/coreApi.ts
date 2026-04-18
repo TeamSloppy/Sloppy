@@ -59,11 +59,16 @@ export interface CoreApi {
   selectDirectory: () => Promise<AnyRecord | null>;
   fetchOpenAIModels: (payload: AnyRecord) => Promise<AnyRecord | null>;
   fetchOpenAIProviderStatus: () => Promise<AnyRecord | null>;
+  fetchAnthropicProviderStatus: () => Promise<AnyRecord | null>;
   startOpenAIOAuth: (payload: AnyRecord) => Promise<AnyRecord | null>;
   completeOpenAIOAuth: (payload: AnyRecord) => Promise<AnyRecord | null>;
   startOpenAIDeviceCode: () => Promise<AnyRecord | null>;
   pollOpenAIDeviceCode: (payload: AnyRecord) => Promise<AnyRecord | null>;
   disconnectOpenAIOAuth: () => Promise<boolean>;
+  startAnthropicOAuth: (payload: AnyRecord) => Promise<AnyRecord | null>;
+  completeAnthropicOAuth: (payload: AnyRecord) => Promise<AnyRecord | null>;
+  importAnthropicClaudeCredentials: () => Promise<AnyRecord | null>;
+  disconnectAnthropicOAuth: () => Promise<boolean>;
   fetchGitHubAuthStatus: () => Promise<AnyRecord | null>;
   connectGitHub: (payload: AnyRecord) => Promise<AnyRecord | null>;
   disconnectGitHub: () => Promise<boolean>;
@@ -415,6 +420,16 @@ export function createCoreApi(): CoreApi {
       return response.data;
     },
 
+    fetchAnthropicProviderStatus: async () => {
+      const response = await requestJson<AnyRecord>({
+        path: "/v1/providers/anthropic/status"
+      });
+      if (!response.ok) {
+        return null;
+      }
+      return response.data;
+    },
+
     startOpenAIOAuth: async (payload) => {
       const response = await requestJson<AnyRecord, AnyRecord>({
         path: "/v1/providers/openai/oauth/start",
@@ -459,6 +474,43 @@ export function createCoreApi(): CoreApi {
     disconnectOpenAIOAuth: async () => {
       const response = await requestJson<AnyRecord>({
         path: "/v1/providers/openai/oauth/disconnect",
+        method: "POST"
+      });
+      return response.ok;
+    },
+
+    startAnthropicOAuth: async (payload) => {
+      const response = await requestJson<AnyRecord, AnyRecord>({
+        path: "/v1/providers/anthropic/oauth/start",
+        method: "POST",
+        body: payload
+      });
+      if (!response.ok) {
+        return null;
+      }
+      return response.data;
+    },
+
+    completeAnthropicOAuth: async (payload) => {
+      const response = await requestJson<AnyRecord, AnyRecord>({
+        path: "/v1/providers/anthropic/oauth/complete",
+        method: "POST",
+        body: payload
+      });
+      return response.data;
+    },
+
+    importAnthropicClaudeCredentials: async () => {
+      const response = await requestJson<AnyRecord>({
+        path: "/v1/providers/anthropic/oauth/import-claude",
+        method: "POST"
+      });
+      return response.data;
+    },
+
+    disconnectAnthropicOAuth: async () => {
+      const response = await requestJson<AnyRecord>({
+        path: "/v1/providers/anthropic/oauth/disconnect",
         method: "POST"
       });
       return response.ok;
