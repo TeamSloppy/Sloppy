@@ -28,6 +28,10 @@ import { filterModelsByQuery } from "../utils/aggregateProviderModels";
 
 const INLINE_ATTACHMENT_MAX_BYTES = 2 * 1024 * 1024;
 const TASK_TAG_PATTERN = /#([A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?)/g;
+/** e.g. `ID: ADAWEBSITE-5` */
+const TASK_ID_LABEL_PATTERN = /\bID\s*:\s*([A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?)/gi;
+/** e.g. session title `task-ADAWEBSITE-5` */
+const TASK_TITLE_PREFIX_PATTERN = /\btask-([A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?)\b/gi;
 const TASK_TAG_REMOVE_PATTERN = /(^|\s)#([A-Za-z0-9][A-Za-z0-9._-]*)(\s?)$/;
 const TASK_TAG_QUERY_VALUE_PATTERN = /^[A-Za-z0-9._-]*$/;
 const DEFAULT_REASONING_EFFORT = "medium";
@@ -61,6 +65,9 @@ function mergeDashboardSlashCommands(
 const SLASH_CMD_INLINE_PATTERN = /\/([a-z][a-z0-9_-]*)/g;
 const SLASH_CMD_REMOVE_PATTERN = /(^|\s)(\/[a-z][a-z0-9_-]*)(\s?)$/;
 const PATH_AT_QUERY_VALUE_PATTERN = /^[A-Za-z0-9._/-]*$/;
+
+/** Must match `CoreService.sloppyProjectsDirectoryScopeID` — file search under workspace `projects/` when the chat is not project-scoped. */
+const SLOPPY_PROJECTS_DIRECTORY_SCOPE_ID = "_sloppyProjectsRoot";
 
 const AGENT_CHAT_COMPOSE_DRAFT_PREFIX = "sloppy.agentChat.composeDraft";
 
@@ -235,39 +242,86 @@ function mergeTaskRecords(previous, incoming) {
   });
 }
 
+function collectTaskLinkSpans(text) {
+  const spans = [];
+
+  TASK_TAG_PATTERN.lastIndex = 0;
+  let match = TASK_TAG_PATTERN.exec(text);
+  while (match) {
+    const full = match[0];
+    const start = match.index;
+    const end = start + full.length;
+    const previousChar = start > 0 ? text[start - 1] : "";
+    if (!previousChar || !/[A-Za-z0-9_-]/.test(previousChar)) {
+      spans.push({
+        start,
+        end,
+        reference: normalizeTaskReference(match[1]),
+        value: full
+      });
+    }
+    match = TASK_TAG_PATTERN.exec(text);
+  }
+
+  TASK_ID_LABEL_PATTERN.lastIndex = 0;
+  match = TASK_ID_LABEL_PATTERN.exec(text);
+  while (match) {
+    spans.push({
+      start: match.index,
+      end: match.index + match[0].length,
+      reference: normalizeTaskReference(match[1]),
+      value: match[0]
+    });
+    match = TASK_ID_LABEL_PATTERN.exec(text);
+  }
+
+  TASK_TITLE_PREFIX_PATTERN.lastIndex = 0;
+  match = TASK_TITLE_PREFIX_PATTERN.exec(text);
+  while (match) {
+    spans.push({
+      start: match.index,
+      end: match.index + match[0].length,
+      reference: normalizeTaskReference(match[1]),
+      value: match[0]
+    });
+    match = TASK_TITLE_PREFIX_PATTERN.exec(text);
+  }
+
+  spans.sort((a, b) => a.start - b.start || b.end - b.start - (a.end - a.start));
+  const merged = [];
+  let coverUntil = -1;
+  for (let i = 0; i < spans.length; i += 1) {
+    const s = spans[i];
+    if (s.start < coverUntil) {
+      continue;
+    }
+    merged.push(s);
+    coverUntil = s.end;
+  }
+  return merged;
+}
+
 function splitTextByTaskTags(value) {
   const text = String(value || "");
   if (!text) {
     return [{ kind: "text", value: "" }];
   }
 
-  const parts = [];
-  let cursor = 0;
-  let match;
-
-  TASK_TAG_PATTERN.lastIndex = 0;
-  match = TASK_TAG_PATTERN.exec(text);
-  while (match) {
-    const full = match[0];
-    const reference = normalizeTaskReference(match[1]);
-    const start = match.index;
-    const end = start + full.length;
-    const previousChar = start > 0 ? text[start - 1] : "";
-
-    if (previousChar && /[A-Za-z0-9_-]/.test(previousChar)) {
-      match = TASK_TAG_PATTERN.exec(text);
-      continue;
-    }
-
-    if (start > cursor) {
-      parts.push({ kind: "text", value: text.slice(cursor, start) });
-    }
-
-    parts.push({ kind: "task", reference, value: full });
-    cursor = end;
-    match = TASK_TAG_PATTERN.exec(text);
+  const spans = collectTaskLinkSpans(text);
+  if (spans.length === 0) {
+    return [{ kind: "text", value: text }];
   }
 
+  const parts = [];
+  let cursor = 0;
+  for (let i = 0; i < spans.length; i += 1) {
+    const s = spans[i];
+    if (s.start > cursor) {
+      parts.push({ kind: "text", value: text.slice(cursor, s.start) });
+    }
+    parts.push({ kind: "task", reference: s.reference, value: s.value });
+    cursor = s.end;
+  }
   if (cursor < text.length) {
     parts.push({ kind: "text", value: text.slice(cursor) });
   }
@@ -979,6 +1033,70 @@ function TaskTaggedText({ text, onTaskTagClick, onTaskTagHoverStart, onTaskTagHo
   );
 }
 
+function wrapMarkdownChildrenWithTaskTags(children, handlers) {
+  return React.Children.map(children, (child, index) => {
+    if (typeof child === "string") {
+      return (
+        <TaskTaggedText
+          key={`mt-${index}`}
+          text={child}
+          onTaskTagClick={handlers.onTaskTagClick}
+          onTaskTagHoverStart={handlers.onTaskTagHoverStart}
+          onTaskTagHoverEnd={handlers.onTaskTagHoverEnd}
+        />
+      );
+    }
+    if (typeof child === "number" && !Number.isNaN(child)) {
+      return (
+        <TaskTaggedText
+          key={`mtn-${index}`}
+          text={String(child)}
+          onTaskTagClick={handlers.onTaskTagClick}
+          onTaskTagHoverStart={handlers.onTaskTagHoverStart}
+          onTaskTagHoverEnd={handlers.onTaskTagHoverEnd}
+        />
+      );
+    }
+    if (React.isValidElement(child)) {
+      const elType = child.type;
+      const typeName = typeof elType === "string" ? elType.toLowerCase() : "";
+      if (typeName === "code" || typeName === "pre") {
+        return child;
+      }
+      const nextChildren = child.props?.children;
+      if (nextChildren != null && nextChildren !== false) {
+        return React.cloneElement(child, {
+          ...child.props,
+          key: child.key ?? `mw-${index}`,
+          children: wrapMarkdownChildrenWithTaskTags(nextChildren, handlers)
+        });
+      }
+    }
+    return child;
+  });
+}
+
+function buildAgentChatMarkdownComponents(handlers) {
+  return {
+    code(props: any) {
+      const { inline, className, children, ...rest } = props;
+      const match = /language-(\w+)/.exec(className || "");
+      return !inline && match ? (
+        <SyntaxHighlighter style={oneDark as any} language={match[1]} PreTag="div" {...rest}>
+          {String(children).replace(/\n$/, "")}
+        </SyntaxHighlighter>
+      ) : (
+        <code className={className} {...rest}>
+          {children}
+        </code>
+      );
+    },
+    p({ children }) {
+      return <p>{wrapMarkdownChildrenWithTaskTags(children, handlers)}</p>;
+    }
+  };
+}
+
 const INLINE_TASK_TAG_SELECTOR = ".agent-chat-inline-task-tag";
 const INLINE_SLASH_COMMAND_SELECTOR = ".agent-chat-inline-slash-command";
 
@@ -1561,42 +1679,11 @@ function AgentChatEvents({
                               <div className="markdown-body">
                                 <ReactMarkdown
                                   remarkPlugins={[remarkGfm]}
-                                  components={{
-                                    code(props: any) {
-                                      const { inline, className, children, ...rest } = props;
-                                      const match = /language-(\w+)/.exec(className || "");
-                                      return !inline && match ? (
-                                        <SyntaxHighlighter
-                                          style={oneDark as any}
-                                          language={match[1]}
-                                          PreTag="div"
-                                          {...rest}
-                                        >
-                                          {String(children).replace(/\n$/, "")}
-                                        </SyntaxHighlighter>
-                                      ) : (
-                                        <code className={className} {...rest}>
-                                          {children}
-                                        </code>
-                                      );
-                                    },
-                                    p: ({ children }) => (
-                                      <p>
-                                        {React.Children.map(children, (child) =>
-                                          typeof child === "string" ? (
-                                            <TaskTaggedText
-                                              text={child}
-                                              onTaskTagClick={onTaskTagClick}
-                                              onTaskTagHoverStart={onTaskTagHoverStart}
-                                              onTaskTagHoverEnd={onTaskTagHoverEnd}
-                                            />
-                                          ) : (
-                                            child
-                                          )
-                                        )}
-                                      </p>
-                                    )
-                                  }}
+                                  components={buildAgentChatMarkdownComponents({
+                                    onTaskTagClick,
+                                    onTaskTagHoverStart,
+                                    onTaskTagHoverEnd
+                                  })}
                                 >
                                   {thoughtText || "No details."}
                                 </ReactMarkdown>
@@ -1623,42 +1710,11 @@ function AgentChatEvents({
                       <div key={key} className="markdown-body">
                         <ReactMarkdown
                           remarkPlugins={[remarkGfm]}
-                          components={{
-                            code(props: any) {
-                              const { inline, className, children, ...rest } = props;
-                              const match = /language-(\w+)/.exec(className || "");
-                              return !inline && match ? (
-                                <SyntaxHighlighter
-                                  style={oneDark as any}
-                                  language={match[1]}
-                                  PreTag="div"
-                                  {...rest}
-                                >
-                                  {String(children).replace(/\n$/, "")}
-                                </SyntaxHighlighter>
-                              ) : (
-                                <code className={className} {...rest}>
-                                  {children}
-                                </code>
-                              );
-                            },
-                            p: ({ children }) => (
-                              <p>
-                                {React.Children.map(children, (child) =>
-                                  typeof child === "string" ? (
-                                    <TaskTaggedText
-                                      text={child}
-                                      onTaskTagClick={onTaskTagClick}
-                                      onTaskTagHoverStart={onTaskTagHoverStart}
-                                      onTaskTagHoverEnd={onTaskTagHoverEnd}
-                                    />
-                                  ) : (
-                                    child
-                                  )
-                                )}
-                              </p>
-                            )
-                          }}
+                          components={buildAgentChatMarkdownComponents({
+                            onTaskTagClick,
+                            onTaskTagHoverStart,
+                            onTaskTagHoverEnd
+                          })}
                         >
                           {segment.text || ""}
                         </ReactMarkdown>
@@ -1762,6 +1818,7 @@ function AgentChatComposer({
   const pathSearchRequestIdRef = useRef(0);
   const pendingCaretOffsetRef = useRef(null);
   const scopedProjectId = projectId && String(projectId).trim() ? String(projectId).trim() : "";
+  const pathSearchProjectId = scopedProjectId || SLOPPY_PROJECTS_DIRECTORY_SCOPE_ID;
 
   const slashCommandNameSet = useMemo(
     () =>
@@ -1780,12 +1837,7 @@ function AgentChatComposer({
   );
   const isTaskDropdownOpen = isInputFocused && Boolean(taskQuery);
 
-  const pathQuery = useMemo(() => {
-    if (!scopedProjectId) {
-      return null;
-    }
-    return getPathQueryAtCursor(inputText, caretIndex);
-  }, [scopedProjectId, inputText, caretIndex]);
+  const pathQuery = useMemo(() => getPathQueryAtCursor(inputText, caretIndex), [inputText, caretIndex]);
 
   const slashQuery = useMemo(() => getSlashCommandAtCursor(inputText, caretIndex), [inputText, caretIndex]);
   const slashSuggestions = useMemo(
@@ -1793,7 +1845,7 @@ function AgentChatComposer({
     [slashCommands, slashQuery?.query]
   );
 
-  const isPathDropdownOpen = isInputFocused && Boolean(pathQuery) && Boolean(scopedProjectId) && !isTaskDropdownOpen;
+  const isPathDropdownOpen = isInputFocused && Boolean(pathQuery) && !isTaskDropdownOpen;
   const isSlashDropdownOpen =
     isInputFocused && Boolean(slashQuery) && !isTaskDropdownOpen && !isPathDropdownOpen;
   const editorRef = textareaRef;
@@ -1811,7 +1863,7 @@ function AgentChatComposer({
   }, [pathQuery?.start, pathQuery?.query, pathSuggestions.length]);
 
   useEffect(() => {
-    if (!isPathDropdownOpen || !scopedProjectId || !pathQuery) {
+    if (!isPathDropdownOpen || !pathQuery) {
       return;
     }
     const q = pathQuery.query ?? "";
@@ -1822,7 +1874,7 @@ function AgentChatComposer({
 
     const timer = window.setTimeout(async () => {
       try {
-        const rows = await searchProjectFiles(scopedProjectId, q, 50);
+        const rows = await searchProjectFiles(pathSearchProjectId, q, 50);
         if (pathSearchRequestIdRef.current !== requestId) {
           return;
         }
@@ -1831,7 +1883,7 @@ function AgentChatComposer({
         if (pathSearchRequestIdRef.current !== requestId) {
           return;
         }
-        setPathSearchError("Could not search project files");
+        setPathSearchError("Could not search files");
         setPathSuggestions([]);
       } finally {
         if (pathSearchRequestIdRef.current === requestId) {
@@ -1843,7 +1895,7 @@ function AgentChatComposer({
     return () => {
       window.clearTimeout(timer);
     };
-  }, [isPathDropdownOpen, scopedProjectId, pathQuery?.start, pathQuery?.query]);
+  }, [isPathDropdownOpen, pathSearchProjectId, pathQuery?.start, pathQuery?.query]);
 
   useEffect(() => {
     const editor = editorRef.current;
@@ -2152,11 +2204,9 @@ function AgentChatComposer({
               contentEditable={!isBusy}
               suppressContentEditableWarning
               data-placeholder={
-                scopedProjectId && agentId
-                  ? `Message ${agentId}… Type @ to search project files`
-                  : agentId
-                    ? `Message ${agentId}...`
-                    : "Message..."
+                agentId
+                  ? `Message ${agentId}… Type @ to search ${scopedProjectId ? "project files" : "files under projects"}`
+                  : "Message..."
               }
               role="textbox"
               aria-multiline="true"
@@ -4898,11 +4948,18 @@ export function AgentChatTab({
                   onTaskTagHoverEnd={handleTaskTagHoverEnd}
                 />
 
-                {projectId && String(projectId).trim() ? (
-                  <p className="agent-chat-project-path-hint placeholder-text">
-                    Type <kbd className="agent-chat-path-hint-kbd">@</kbd> to search files and folders in this project.
-                  </p>
-                ) : null}
+                <p className="agent-chat-project-path-hint placeholder-text">
+                  {projectId && String(projectId).trim() ? (
+                    <>
+                      Type <kbd className="agent-chat-path-hint-kbd">@</kbd> to search files and folders in this project.
+                    </>
+                  ) : (
+                    <>
+                      Type <kbd className="agent-chat-path-hint-kbd">@</kbd> to search files and folders under the workspace{" "}
+                      <code className="agent-chat-path-hint-kbd">projects</code> directory.
+                    </>
+                  )}
+                </p>
 
                 <p className="agent-chat-status-line placeholder-text">{statusText}</p>
               </div>

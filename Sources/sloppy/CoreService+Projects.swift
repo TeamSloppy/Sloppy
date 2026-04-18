@@ -9,6 +9,9 @@ import Logging
 // MARK: - Projects
 
 extension CoreService {
+    /// Synthetic `projectId` for `/v1/projects/:id/files/...` when the UI should search the workspace `projects/` directory (all project folders) rather than one project root.
+    static let sloppyProjectsDirectoryScopeID = "_sloppyProjectsRoot"
+
     private static let projectContextBootstrapMarker = "[project_context_bootstrap_v1]"
 
     private func requiresCompletionConfirmation(changedBy: String) -> Bool {
@@ -1280,6 +1283,15 @@ extension CoreService {
     func resolveProjectWorkspaceRoot(projectID: String) async throws -> URL {
         guard let normalizedID = normalizedProjectID(projectID) else {
             throw ProjectError.invalidProjectID
+        }
+
+        if normalizedID == Self.sloppyProjectsDirectoryScopeID {
+            let projectsRootURL = workspaceRootURL.appendingPathComponent("projects", isDirectory: true).standardized
+            var isDirectory: ObjCBool = false
+            guard FileManager.default.fileExists(atPath: projectsRootURL.path, isDirectory: &isDirectory), isDirectory.boolValue else {
+                throw ProjectError.notFound
+            }
+            return projectsRootURL
         }
 
         if let project = await store.project(id: normalizedID) {

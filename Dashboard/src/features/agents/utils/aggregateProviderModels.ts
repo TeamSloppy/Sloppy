@@ -12,7 +12,7 @@ export function inferProviderId(entry: Record<string, unknown>): string {
   if (catalog === "openai-api") return "openai-api";
   if (catalog === "openai-oauth") return "openai-oauth";
   if (catalog === "openrouter") return "openrouter";
-  if (catalog === "anthropic") return "anthropic";
+  if (catalog === "anthropic" || catalog === "anthropic-oauth") return "anthropic";
   if (catalog === "gemini") return "gemini";
   if (catalog === "ollama") return "ollama";
 
@@ -30,7 +30,9 @@ export function inferProviderId(entry: Record<string, unknown>): string {
     return title.includes("oauth") || title.includes("deeplink") ? "openai-oauth" : "openai-api";
   }
 
-  if (title.includes("oauth")) return "openai-oauth";
+  if (title.includes("oauth") && !title.includes("anthropic") && !apiUrl.includes("anthropic")) {
+    return "openai-oauth";
+  }
   // LM Studio and other local OpenAI-compatible servers (default port 1234) use /v1/models, not Ollama /api/tags.
   if (/:1234(\/|$)/.test(apiUrl)) return "openai-api";
   if (title.includes("ollama") || apiUrl.includes("11434") || apiUrl.includes("ollama")) return "ollama";
@@ -73,7 +75,7 @@ export function prefixedRuntimeModelId(providerCatalogId: string, rawId: string)
     route = "ollama";
   } else if (providerCatalogId === "gemini") {
     route = "gemini";
-  } else if (providerCatalogId === "anthropic") {
+  } else if (providerCatalogId === "anthropic" || providerCatalogId === "anthropic-oauth") {
     route = "anthropic";
   } else {
     route = "openai";

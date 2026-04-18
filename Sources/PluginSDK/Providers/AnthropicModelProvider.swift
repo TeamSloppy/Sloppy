@@ -10,26 +10,29 @@ public struct AnthropicModelProvider: ModelProvider {
     public let supportedModels: [String]
     public let systemInstructions: String?
     public let tools: [any Tool]
-    private let apiKey: @Sendable () -> String
+    private let tokenProvider: @Sendable () -> String
     private let baseURL: URL
     private let session: URLSession?
+    private let refreshTokenIfNeeded: (@Sendable () async throws -> Void)?
 
     public init(
         id: String = "anthropic",
         supportedModels: [String],
         apiKey: @escaping @Sendable () -> String,
-        baseURL: URL = AnthropicLanguageModel.defaultBaseURL,
+        baseURL: URL = OAuthAnthropicLanguageModel.defaultBaseURL,
         tools: [any Tool] = [],
         systemInstructions: String? = nil,
-        session: URLSession? = nil
+        session: URLSession? = nil,
+        refreshTokenIfNeeded: (@Sendable () async throws -> Void)? = nil
     ) {
         self.id = id
         self.supportedModels = supportedModels
-        self.apiKey = apiKey
+        self.tokenProvider = apiKey
         self.baseURL = baseURL
         self.tools = tools
         self.systemInstructions = systemInstructions
         self.session = session
+        self.refreshTokenIfNeeded = refreshTokenIfNeeded
     }
 
     public func supports(modelName: String) -> Bool {
@@ -41,18 +44,18 @@ public struct AnthropicModelProvider: ModelProvider {
 
     public func createLanguageModel(for modelName: String) async throws -> any LanguageModel {
         let resolved = modelName.hasPrefix("anthropic:") ? String(modelName.dropFirst(10)) : modelName
+        try? await refreshTokenIfNeeded?()
+        let httpSession: HTTPSession
         if let session {
-            return AnthropicLanguageModel(
-                baseURL: baseURL,
-                apiKey: apiKey(),
-                model: resolved,
-                session: session
-            )
+            httpSession = session
+        } else {
+            httpSession = OAuthAnthropicURLSession.makeSessionRewritingAnthropicAuth()
         }
-        return AnthropicLanguageModel(
+        return OAuthAnthropicLanguageModel(
             baseURL: baseURL,
-            apiKey: apiKey(),
-            model: resolved
+            apiKey: tokenProvider(),
+            model: resolved,
+            session: httpSession
         )
     }
 }

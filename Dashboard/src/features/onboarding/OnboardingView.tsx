@@ -83,6 +83,19 @@ const PROVIDERS: ProviderDefinition[] = [
     }
   },
   {
+    id: "anthropic-oauth",
+    title: "Anthropic (OAuth)",
+    description: "Claude via Anthropic OAuth or Claude Code token.",
+    requiresApiKey: true,
+    authHint: "Paste an OAuth or setup token (not sk-ant-api Console keys).",
+    defaultEntry: {
+      title: "anthropic-oauth",
+      apiKey: "",
+      apiUrl: "https://api.anthropic.com",
+      model: "claude-sonnet-4-20250514"
+    }
+  },
+  {
     id: "openai-oauth",
     title: "OpenAI Codex",
     description: "ChatGPT/Codex login via OpenAI OAuth.",
@@ -233,10 +246,20 @@ function toSlug(value: string) {
 function inferProviderId(config: AnyRecord) {
   const models = Array.isArray(config.models) ? config.models : [];
   const first = models.find((item) => item && typeof item === "object") as AnyRecord | undefined;
+  const catalogId = String(first?.providerCatalogId || "").trim();
+  if (catalogId === "anthropic-oauth") {
+    return "anthropic-oauth";
+  }
+  if (catalogId === "openai-oauth") {
+    return "openai-oauth";
+  }
   const title = String(first?.title || "").toLowerCase();
   const apiUrl = String(first?.apiUrl || "").toLowerCase();
 
-  if (title.includes("oauth")) {
+  if (title.includes("anthropic-oauth")) {
+    return "anthropic-oauth";
+  }
+  if (title.includes("oauth") && !title.includes("anthropic") && !apiUrl.includes("anthropic")) {
     return "openai-oauth";
   }
   if (title.includes("ollama") || apiUrl.includes("11434") || apiUrl.includes("ollama")) {
@@ -281,7 +304,7 @@ function runtimeModelId(providerId: string, modelId: string) {
   if (providerId === "gemini") {
     return `gemini:${modelId}`;
   }
-  if (providerId === "anthropic") {
+  if (providerId === "anthropic" || providerId === "anthropic-oauth") {
     return `anthropic:${modelId}`;
   }
   return modelId;
@@ -307,7 +330,8 @@ function createConfigWithProvider(
       title: provider.defaultEntry.title,
       apiKey: provider.requiresApiKey ? apiKey.trim() : "",
       apiUrl: apiUrl.trim() || provider.defaultEntry.apiUrl,
-      model: modelId.trim() || provider.defaultEntry.model
+      model: modelId.trim() || provider.defaultEntry.model,
+      providerCatalogId: provider.id
     }
   ];
   return next;
@@ -337,7 +361,7 @@ function providerCardIcon(providerId: string) {
   if (providerId === "gemini") {
     return "diamond";
   }
-  if (providerId === "anthropic") {
+  if (providerId === "anthropic" || providerId === "anthropic-oauth") {
     return "psychology";
   }
   return "deployed_code";
@@ -575,9 +599,11 @@ export function OnboardingView({ coreApi, initialConfig, onCompleted }: Onboardi
       nextProviderId === "openai-api" ||
       nextProviderId === "openrouter" ||
       nextProviderId === "gemini" ||
-      nextProviderId === "anthropic";
+      nextProviderId === "anthropic" ||
+      nextProviderId === "anthropic-oauth";
+    const probeProviderId = nextProviderId === "anthropic-oauth" ? "anthropic" : nextProviderId;
     const response = await coreApi.probeProvider({
-      providerId: nextProviderId,
+      providerId: probeProviderId,
       apiKey: requiresKey ? nextApiKey : undefined,
       apiUrl: nextApiUrl
     });

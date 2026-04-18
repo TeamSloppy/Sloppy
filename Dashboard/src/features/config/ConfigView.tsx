@@ -1,11 +1,16 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
+  completeAnthropicOAuth,
+  disconnectAnthropicOAuth,
   disconnectOpenAIOAuth,
+  fetchAnthropicProviderStatus,
   fetchOpenAIModels,
   fetchOpenAIProviderStatus,
   fetchRuntimeConfig,
   fetchSearchProviderStatus,
+  importAnthropicClaudeCredentials,
   probeProvider,
+  startAnthropicOAuth,
   startOpenAIDeviceCode,
   pollOpenAIDeviceCode,
   updateRuntimeConfig,
@@ -133,6 +138,24 @@ const PROVIDER_CATALOG = [
       model: "claude-sonnet-4-20250514",
       disabled: false,
       providerCatalogId: "anthropic"
+    }
+  },
+  {
+    id: "anthropic-oauth",
+    brandProviderKey: "anthropic",
+    title: "Anthropic (OAuth)",
+    description: "Claude via Anthropic OAuth or Claude Code token (setup tokens, not Console API keys).",
+    modelHint: "claude-sonnet-4-20250514",
+    authMethod: "api_key",
+    requiresApiKey: true,
+    supportsModelCatalog: true,
+    defaultEntry: {
+      title: "anthropic-oauth",
+      apiKey: "",
+      apiUrl: "https://api.anthropic.com",
+      model: "claude-sonnet-4-20250514",
+      disabled: false,
+      providerCatalogId: "anthropic-oauth"
     }
   },
   {
@@ -389,11 +412,13 @@ function inferCatalogIdForEntry(entry) {
   if (p === "openai") {
     return isOpenAIOAuthEntry(entry) ? "openai-oauth" : "openai-api";
   }
+  if (p === "anthropic") {
+    return isAnthropicOAuthCatalogEntry(entry) ? "anthropic-oauth" : "anthropic";
+  }
   const map = {
     openrouter: "openrouter",
     ollama: "ollama",
-    gemini: "gemini",
-    anthropic: "anthropic"
+    gemini: "gemini"
   };
   return map[p] || null;
 }
@@ -401,6 +426,15 @@ function inferCatalogIdForEntry(entry) {
 function isOpenAIOAuthEntry(model) {
   const title = String(model?.title || "").toLowerCase();
   return title.includes("oauth") || title.includes("deeplink");
+}
+
+function isAnthropicOAuthCatalogEntry(entry) {
+  const id = String(entry?.providerCatalogId || "").trim();
+  if (id === "anthropic-oauth") {
+    return true;
+  }
+  const title = String(entry?.title || "").toLowerCase();
+  return title.includes("anthropic-oauth");
 }
 
 function findProviderModelIndex(models, providerId) {
@@ -425,7 +459,10 @@ function findProviderModelIndex(models, providerId) {
       return inferModelProvider(item) === "gemini";
     }
     if (providerId === "anthropic") {
-      return inferModelProvider(item) === "anthropic";
+      return inferModelProvider(item) === "anthropic" && !isAnthropicOAuthCatalogEntry(item);
+    }
+    if (providerId === "anthropic-oauth") {
+      return inferModelProvider(item) === "anthropic" && isAnthropicOAuthCatalogEntry(item);
     }
     if (providerId === "openrouter") {
       return inferModelProvider(item) === "openrouter";
@@ -723,6 +760,7 @@ export function ConfigView({ sectionId = "providers", onSectionChange = null }) 
   const [configDeviceCodeCopied, setConfigDeviceCodeCopied] = useState(false);
   const configDeviceCodePollingRef = useRef(false);
   const [pendingOAuthDisconnect, setPendingOAuthDisconnect] = useState(false);
+  const [pendingAnthropicOAuthDisconnect, setPendingAnthropicOAuthDisconnect] = useState(false);
   const [providerModelOptions, setProviderModelOptions] = useState({});
   const [providerModelStatus, setProviderModelStatus] = useState({});
   const [providerProbeTesting, setProviderProbeTesting] = useState({});
@@ -736,6 +774,15 @@ export function ConfigView({ sectionId = "providers", onSectionChange = null }) 
     oauthAccountId: "",
     oauthPlanType: "",
     oauthExpiresAt: ""
+  });
+  const [anthropicProviderStatus, setAnthropicProviderStatus] = useState({
+    hasEnvironmentKey: false,
+    hasConfiguredKey: false,
+    hasAnyKey: false,
+    hasOAuthCredentials: false,
+    oauthSource: "",
+    oauthExpiresAt: "",
+    oauthRefreshable: false
   });
   const [gitHubAuthStatus, setGitHubAuthStatus] = useState({ connected: false, username: null, connectedAt: null });
   const [gitHubToken, setGitHubToken] = useState("");
@@ -753,6 +800,7 @@ export function ConfigView({ sectionId = "providers", onSectionChange = null }) 
   const providerModelLoadTokenRef = useRef(0);
   const providerModelPickerRef = useRef(null);
   const providerModelMenuRef = useRef(null);
+  const anthropicOAuthPopupRef = useRef(null);
 
   useEffect(() => {
     loadConfig().catch(() => {
@@ -911,6 +959,7 @@ export function ConfigView({ sectionId = "providers", onSectionChange = null }) 
     setProviderModelOptions({});
     setProviderModelStatus({});
     await loadOpenAIProviderStatus();
+    await loadAnthropicProviderStatus();
     await loadSearchProviderStatus();
     await loadGitHubAuthStatus();
   }
@@ -921,6 +970,7 @@ export function ConfigView({ sectionId = "providers", onSectionChange = null }) 
     setDraftConfig(normalized);
     setRawConfig(JSON.stringify(normalized, null, 2));
     setPendingOAuthDisconnect(false);
+    setPendingAnthropicOAuthDisconnect(false);
     setStatusText("Changes cancelled");
   }
 
@@ -932,6 +982,10 @@ export function ConfigView({ sectionId = "providers", onSectionChange = null }) 
         await disconnectOpenAIOAuth();
         setPendingOAuthDisconnect(false);
       }
+      if (pendingAnthropicOAuthDisconnect) {
+        await disconnectAnthropicOAuth();
+        setPendingAnthropicOAuthDisconnect(false);
+      }
 
       localStorage.removeItem(DRAFT_CONFIG_KEY);
       const normalized = normalizeConfig(response);
@@ -940,6 +994,7 @@ export function ConfigView({ sectionId = "providers", onSectionChange = null }) 
       setSavedConfig(normalized);
       setRawConfig(JSON.stringify(normalized, null, 2));
       await loadOpenAIProviderStatus();
+      await loadAnthropicProviderStatus();
       await loadSearchProviderStatus();
       await loadGitHubAuthStatus();
       setStatusText("Config saved");
@@ -975,6 +1030,24 @@ export function ConfigView({ sectionId = "providers", onSectionChange = null }) 
       oauthAccountId: String(payload.oauthAccountId || ""),
       oauthPlanType: String(payload.oauthPlanType || ""),
       oauthExpiresAt: String(payload.oauthExpiresAt || "")
+    });
+  }
+
+  async function loadAnthropicProviderStatus() {
+    const response = await fetchAnthropicProviderStatus();
+    if (!response) {
+      return;
+    }
+
+    const payload = response as any;
+    setAnthropicProviderStatus({
+      hasEnvironmentKey: Boolean(payload.hasEnvironmentKey),
+      hasConfiguredKey: Boolean(payload.hasConfiguredKey),
+      hasAnyKey: Boolean(payload.hasAnyKey),
+      hasOAuthCredentials: Boolean(payload.hasOAuthCredentials),
+      oauthSource: String(payload.oauthSource || ""),
+      oauthExpiresAt: String(payload.oauthExpiresAt || ""),
+      oauthRefreshable: Boolean(payload.oauthRefreshable)
     });
   }
 
@@ -1131,6 +1204,122 @@ export function ConfigView({ sectionId = "providers", onSectionChange = null }) 
     setProviderStatus("openai-oauth", "Device code authorization cancelled.");
   }
 
+  function waitForAnthropicOAuthCallback(popup, redirectURI) {
+    return new Promise((resolve, reject) => {
+      const startedAt = Date.now();
+      const interval = window.setInterval(() => {
+        if (!popup || popup.closed) {
+          window.clearInterval(interval);
+          reject(new Error("Anthropic OAuth window was closed."));
+          return;
+        }
+
+        if (Date.now() - startedAt > 5 * 60 * 1000) {
+          window.clearInterval(interval);
+          try {
+            popup.close();
+          } catch {
+            // ignore
+          }
+          reject(new Error("Anthropic OAuth timed out. Try again."));
+          return;
+        }
+
+        try {
+          const href = popup.location.href;
+          if (href && href.startsWith(redirectURI)) {
+            window.clearInterval(interval);
+            try {
+              popup.close();
+            } catch {
+              // ignore
+            }
+            resolve(href);
+          }
+        } catch {
+          // Cross-origin until the popup returns to our redirect URI.
+        }
+      }, 500);
+    });
+  }
+
+  async function openAnthropicOAuthPopup() {
+    const redirectURI = `${window.location.origin}${window.location.pathname}`;
+    setProviderStatus("anthropic-oauth", "Requesting Anthropic OAuth URL...");
+
+    const response = await startAnthropicOAuth({ redirectURI });
+    if (!response || typeof response.authorizationURL !== "string") {
+      setProviderStatus("anthropic-oauth", "Failed to start Anthropic OAuth.");
+      return;
+    }
+
+    const width = 640;
+    const height = 860;
+    const left = Math.max(0, Math.round(window.screenX + (window.outerWidth - width) / 2));
+    const top = Math.max(0, Math.round(window.screenY + (window.outerHeight - height) / 2));
+    const popup = window.open(
+      String(response.authorizationURL),
+      "sloppy-anthropic-oauth",
+      `popup=yes,width=${width},height=${height},left=${left},top=${top}`
+    );
+    anthropicOAuthPopupRef.current = popup;
+    if (!popup) {
+      setProviderStatus("anthropic-oauth", "Popup was blocked. Allow popups and try again.");
+      return;
+    }
+
+    setProviderStatus("anthropic-oauth", "Waiting for Anthropic sign-in confirmation...");
+
+    try {
+      const callbackURL = await waitForAnthropicOAuthCallback(popup, redirectURI);
+      const completion = await completeAnthropicOAuth({ callbackURL });
+      if (!completion?.ok) {
+        setProviderStatus("anthropic-oauth", String(completion?.message || "Anthropic OAuth failed."));
+        return;
+      }
+
+      setProviderStatus("anthropic-oauth", String(completion.message || "Anthropic OAuth connected."));
+      setStatusText("Anthropic OAuth connected");
+      await loadAnthropicProviderStatus();
+      await loadProviderModels("anthropic-oauth", providerForm || getProviderDefinition("anthropic-oauth").defaultEntry);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Anthropic OAuth failed.";
+      setProviderStatus("anthropic-oauth", message);
+    } finally {
+      anthropicOAuthPopupRef.current = null;
+    }
+  }
+
+  async function importClaudeCredentialsForAnthropic() {
+    setProviderStatus("anthropic-oauth", "Importing Claude Code credentials...");
+    const response = await importAnthropicClaudeCredentials();
+    if (!response?.ok) {
+      setProviderStatus("anthropic-oauth", String(response?.message || "Failed to import Claude Code credentials."));
+      return;
+    }
+
+    setProviderStatus("anthropic-oauth", String(response.message || "Claude Code credentials imported."));
+    setStatusText("Anthropic OAuth imported");
+    await loadAnthropicProviderStatus();
+    await loadProviderModels("anthropic-oauth", providerForm || getProviderDefinition("anthropic-oauth").defaultEntry);
+  }
+
+  async function handleAnthropicOAuthDisconnect() {
+    const ok = await disconnectAnthropicOAuth();
+    if (!ok) {
+      setProviderStatus("anthropic-oauth", "Failed to disconnect Anthropic OAuth.");
+      return;
+    }
+
+    setProviderStatus("anthropic-oauth", "Anthropic OAuth disconnected.");
+    setStatusText("Anthropic OAuth disconnected");
+    setProviderModelOptions((previous) => ({
+      ...previous,
+      ["anthropic-oauth"]: []
+    }));
+    await loadAnthropicProviderStatus();
+  }
+
   function setProviderStatus(providerId, message) {
     setProviderModelStatus((previous) => ({
       ...previous,
@@ -1239,7 +1428,7 @@ export function ConfigView({ sectionId = "providers", onSectionChange = null }) 
     setProviderStatus(provider.id, "Loading provider models...");
 
     let payload;
-    if (provider.id === "openrouter" || provider.id === "ollama") {
+    if (provider.id === "openrouter" || provider.id === "ollama" || provider.id === "anthropic-oauth") {
       const probe = await probeProvider({
         providerId: provider.id,
         apiKey: String(entry.apiKey || "").trim() || undefined,
@@ -1285,6 +1474,8 @@ export function ConfigView({ sectionId = "providers", onSectionChange = null }) 
           ? "OpenRouter"
           : provider.id === "ollama"
             ? "Ollama"
+            : provider.id === "anthropic-oauth"
+              ? "Anthropic OAuth"
             : "OpenAI";
       setProviderStatus(provider.id, `Loaded ${models.length} models from ${label}`);
     } else {
@@ -1301,6 +1492,9 @@ export function ConfigView({ sectionId = "providers", onSectionChange = null }) 
           }
           : previous
       ));
+    }
+    if (provider.id === "anthropic-oauth") {
+      await loadAnthropicProviderStatus();
     }
   }
 
@@ -1338,11 +1532,23 @@ export function ConfigView({ sectionId = "providers", onSectionChange = null }) 
     const provider = providerModalMeta;
     const hasEnvironmentKeyForOpenAI = provider.id === "openai-api" && openAIProviderStatus.hasEnvironmentKey;
     const hasOAuthCredentialsForOpenAI = provider.id === "openai-oauth" && openAIProviderStatus.hasOAuthCredentials;
+    const hasOAuthCredentialsForAnthropic = provider.id === "anthropic-oauth" && anthropicProviderStatus.hasOAuthCredentials;
     const requiresApiKey = provider.authMethod === "api_key";
-    const hasKey = Boolean(String(providerForm.apiKey || "").trim()) || hasEnvironmentKeyForOpenAI;
+    const hasKey = Boolean(String(providerForm.apiKey || "").trim())
+      || hasEnvironmentKeyForOpenAI
+      || (provider.id === "anthropic-oauth" && anthropicProviderStatus.hasEnvironmentKey);
 
     if (requiresApiKey && !hasKey) {
       setProviderStatus(provider.id, "Set API Key to load models.");
+      setProviderModelOptions((previous) => ({
+        ...previous,
+        [provider.id]: []
+      }));
+      return;
+    }
+
+    if (provider.id === "anthropic-oauth" && !hasOAuthCredentialsForAnthropic && !String(providerForm.apiKey || "").trim()) {
+      setProviderStatus(provider.id, "Connect Anthropic OAuth, import Claude Code credentials, or paste a setup token.");
       setProviderModelOptions((previous) => ({
         ...previous,
         [provider.id]: []
@@ -1387,7 +1593,9 @@ export function ConfigView({ sectionId = "providers", onSectionChange = null }) 
     providerForm?.apiKey,
     providerForm?.apiUrl,
     openAIProviderStatus.hasEnvironmentKey,
-    openAIProviderStatus.hasOAuthCredentials
+    openAIProviderStatus.hasOAuthCredentials,
+    anthropicProviderStatus.hasEnvironmentKey,
+    anthropicProviderStatus.hasOAuthCredentials
   ]);
 
   useEffect(() => {
@@ -1492,6 +1700,9 @@ export function ConfigView({ sectionId = "providers", onSectionChange = null }) 
     if (provider.id === "openai-oauth") {
       setPendingOAuthDisconnect(true);
     }
+    if (provider.id === "anthropic-oauth") {
+      setPendingAnthropicOAuthDisconnect(true);
+    }
 
     const nextConfig = clone(draftConfig);
     const index =
@@ -1526,6 +1737,7 @@ export function ConfigView({ sectionId = "providers", onSectionChange = null }) 
             configuredProviderRows={configuredProviderRows}
             customModelsCount={customModelsCount}
             openAIProviderStatus={openAIProviderStatus}
+            anthropicProviderStatus={anthropicProviderStatus}
             providerModalMeta={providerModalMeta}
             providerForm={providerForm}
             providerModelStatus={providerModelStatus}
@@ -1541,6 +1753,9 @@ export function ConfigView({ sectionId = "providers", onSectionChange = null }) 
             onCloseProviderModal={closeProviderModal}
             onUpdateProviderForm={updateProviderForm}
             onOpenOAuth={openOpenAIPlatform}
+            onOpenAnthropicOAuth={openAnthropicOAuthPopup}
+            onImportAnthropicClaudeCredentials={importClaudeCredentialsForAnthropic}
+            onDisconnectAnthropicOAuth={handleAnthropicOAuthDisconnect}
             onCancelDeviceCode={cancelConfigDeviceCodePolling}
             onCopyDeviceCode={copyConfigDeviceCode}
             onOpenDeviceCodeLoginPage={openConfigDeviceCodeLoginPage}

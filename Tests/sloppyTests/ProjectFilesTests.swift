@@ -90,6 +90,29 @@ func searchProjectFilesReturnsRankedPaths() async throws {
 }
 
 @Test
+func searchProjectFilesProjectsDirectoryScopeFindsPathsAcrossProjectFolders() async throws {
+    let config = CoreConfig.test
+    let service = CoreService(config: config, persistenceBuilder: InMemoryCorePersistenceBuilder())
+    let router = CoreRouter(service: service)
+    let (projectID, projectDir) = try await makeProjectAndDir(router: router, config: config)
+
+    try FileManager.default.createDirectory(at: projectDir, withIntermediateDirectories: true)
+    try Data("x".utf8).write(to: projectDir.appendingPathComponent("cross-scope.txt"))
+
+    let scopeID = CoreService.sloppyProjectsDirectoryScopeID
+    let encodedQuery = "cross-scope".addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? "cross-scope"
+    let resp = await router.handle(
+        method: "GET",
+        path: "/v1/projects/\(scopeID)/files/search?q=\(encodedQuery)&limit=50",
+        body: nil
+    )
+    #expect(resp.status == 200)
+
+    let hits = try JSONDecoder().decode([ProjectFileSearchEntry].self, from: resp.body)
+    #expect(hits.contains(where: { $0.path == "\(projectID)/cross-scope.txt" && $0.type == .file }))
+}
+
+@Test
 func searchProjectFilesEmptyQueryListsRoot() async throws {
     let config = CoreConfig.test
     let service = CoreService(config: config, persistenceBuilder: InMemoryCorePersistenceBuilder())
