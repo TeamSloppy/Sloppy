@@ -274,6 +274,7 @@ struct GitWorktreeService: Sendable {
             let errorPipe = Pipe()
             process.standardOutput = pipe
             process.standardError = errorPipe
+            process.environment = childProcessEnvironment()
 
             do {
                 try process.run()

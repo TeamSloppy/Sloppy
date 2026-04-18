@@ -101,6 +101,21 @@ func isCommandAllowed(_ command: String, deniedPrefixes: [String]) -> Bool {
     return true
 }
 
+// MARK: - Process environment
+
+/// Full environment for spawned processes: the current process environment (shell, launchd `EnvironmentVariables`, CI, etc.) plus optional per-spawn overrides. Overrides replace or add keys; the base dict is never dropped.
+func childProcessEnvironment(
+    overrides: [String: String] = [:],
+    base: [String: String] = ProcessInfo.processInfo.environment
+) -> [String: String] {
+    guard !overrides.isEmpty else { return base }
+    var env = base
+    for (key, value) in overrides {
+        env[key] = value
+    }
+    return env
+}
+
 // MARK: - Process execution
 
 func runForegroundProcess(
@@ -108,7 +123,8 @@ func runForegroundProcess(
     arguments: [String],
     cwd: URL?,
     timeoutMs: Int,
-    maxOutputBytes: Int
+    maxOutputBytes: Int,
+    environmentOverrides: [String: String] = [:]
 ) async throws -> JSONValue {
     let process = Process()
     let stdout = Pipe()
@@ -122,6 +138,7 @@ func runForegroundProcess(
         process.arguments = [command] + arguments
     }
 
+    process.environment = childProcessEnvironment(overrides: environmentOverrides)
     process.standardOutput = stdout
     process.standardError = stderr
     process.currentDirectoryURL = cwd

@@ -218,6 +218,8 @@ actor LSPServerInstance {
             proc.currentDirectoryURL = cwd
         }
 
+        proc.environment = childProcessEnvironment()
+
         let serverID = config.id
         proc.terminationHandler = { [weak self] process in
             let reason: JSONRPCConnection.TerminationReason = process.terminationReason == .exit

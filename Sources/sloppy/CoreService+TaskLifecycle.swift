@@ -1096,9 +1096,7 @@ extension CoreService {
         process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
         process.arguments = ["git", "clone", "--recurse-submodules", cloneUrl, projectDir.path]
         process.currentDirectoryURL = parentDir
-        var env = ProcessInfo.processInfo.environment
-        env["GIT_TERMINAL_PROMPT"] = "0"
-        process.environment = env
+        process.environment = childProcessEnvironment(overrides: ["GIT_TERMINAL_PROMPT": "0"])
 
         let stderr = Pipe()
         process.standardOutput = Pipe()

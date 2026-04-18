@@ -131,6 +131,7 @@ struct GitRepositoryInspector: Sendable {
         let stderr = Pipe()
         process.standardOutput = stdout
         process.standardError = stderr
+        process.environment = childProcessEnvironment()
 
         do {
             try process.run()
