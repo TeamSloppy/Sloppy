@@ -91,6 +91,9 @@ enum CoreModelProviderFactory {
     /// Returns the prefixed model identifier (e.g. "openai:gpt-4o") or `nil` if the
     /// provider cannot be inferred, rejecting unprefixed models.
     static func resolvedIdentifier(for model: CoreConfig.ModelConfig) -> String? {
+        if model.disabled {
+            return nil
+        }
         let modelValue = model.model.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !modelValue.isEmpty else { return nil }
 
@@ -105,6 +108,23 @@ enum CoreModelProviderFactory {
     }
 
     private static func inferredProvider(model: CoreConfig.ModelConfig) -> String? {
+        if let catalog = model.providerCatalogId?.trimmingCharacters(in: .whitespacesAndNewlines), !catalog.isEmpty {
+            switch catalog {
+            case "openai-api", "openai-oauth":
+                return "openai"
+            case "openrouter":
+                return "openrouter"
+            case "ollama":
+                return "ollama"
+            case "gemini":
+                return "gemini"
+            case "anthropic":
+                return "anthropic"
+            default:
+                break
+            }
+        }
+
         let title = model.title.lowercased()
         let apiURL = model.apiUrl.lowercased()
 
@@ -114,6 +134,11 @@ enum CoreModelProviderFactory {
 
         if title.contains("openrouter") || apiURL.contains("openrouter") {
             return "openrouter"
+        }
+
+        // LM Studio and many local OpenAI-compatible servers default to port 1234 (not Ollama /api/tags).
+        if apiURL.contains(":1234") {
+            return "openai"
         }
 
         if title.contains("ollama") || apiURL.contains("ollama") || apiURL.contains("11434") {

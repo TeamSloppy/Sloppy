@@ -4,80 +4,75 @@ import SloppyClientUI
 
 @MainActor
 public struct ChatScreen: View {
-    let apiClient: SloppyAPIClient
-    let settings: ClientSettings
-    let connectionMonitor: ConnectionMonitor
-    let onOpenSettings: () -> Void
-    
-    @State private var agents: [APIAgentRecord] = []
-    @State private var selectedAgent: APIAgentRecord?
-    @State private var sessions: [ChatSessionSummary] = []
-    @State private var selectedSessionId: String?
-    @State private var messages: [ChatMessage] = []
-    @State private var isLoadingSessions = false
-    @State private var isSending = false
-    @State private var showAgentPicker = false
-    @State private var showSessionPicker = false
-    @State private var socketManager: SessionSocketManager?
-    @State private var streamTask: Task<Void, Never>?
-    
-    @Environment(\.theme) private var theme
-    
+    @State private var viewModel: ChatScreenViewModel
+
     public init(
         apiClient: SloppyAPIClient,
         settings: ClientSettings,
         connectionMonitor: ConnectionMonitor,
         onOpenSettings: @escaping () -> Void
     ) {
-        self.apiClient = apiClient
-        self.settings = settings
-        self.connectionMonitor = connectionMonitor
-        self.onOpenSettings = onOpenSettings
+        _viewModel = State(
+            initialValue: ChatScreenViewModel(
+                apiClient: apiClient,
+                settings: settings,
+                connectionMonitor: connectionMonitor,
+                onOpenSettings: onOpenSettings
+            )
+        )
     }
-    
+
     public var body: some View {
+        ChatScreenContent()
+            .environment(viewModel)
+    }
+}
+
+@MainActor
+private struct ChatScreenContent: View {
+    @Environment(ChatScreenViewModel.self) private var viewModel
+    @Environment(\.theme) private var theme
+
+    var body: some View {
         ZStack(anchor: .topLeading) {
             VStack(alignment: .leading, spacing: 0) {
                 topBar
                 connectionBar
-                
+
                 contentArea
                     .frame(maxWidth: 600)
             }
             .frame(minWidth: 0, maxWidth: .infinity, minHeight: 0, maxHeight: .infinity)
-            
-            if showAgentPicker {
+
+            if viewModel.showAgentPicker {
                 overlayDim
                     .overlay(anchor: .topLeading) {
                         AgentPickerView(
-                            agents: agents,
-                            selectedAgent: selectedAgent,
+                            agents: viewModel.agents,
+                            selectedAgent: viewModel.selectedAgent,
                             onSelect: { agent in
-                                showAgentPicker = false
-                                switchAgent(agent)
+                                viewModel.pickAgent(agent)
                             },
-                            onDismiss: { showAgentPicker = false }
+                            onDismiss: { viewModel.showAgentPicker = false }
                         )
                         .frame(width: 320)
                     }
             }
-            
-            if showSessionPicker {
+
+            if viewModel.showSessionPicker {
                 overlayDim
                     .overlay(anchor: .topLeading) {
                         SessionPickerView(
-                            sessions: sessions,
-                            selectedSessionId: selectedSessionId,
-                            isLoading: isLoadingSessions,
+                            sessions: viewModel.sessions,
+                            selectedSessionId: viewModel.selectedSessionId,
+                            isLoading: viewModel.isLoadingSessions,
                             onSelect: { session in
-                                showSessionPicker = false
-                                selectSession(session.id)
+                                viewModel.pickSession(session)
                             },
                             onNewSession: {
-                                showSessionPicker = false
-                                startNewSession()
+                                viewModel.pickNewSession()
                             },
-                            onDismiss: { showSessionPicker = false }
+                            onDismiss: { viewModel.showSessionPicker = false }
                         )
                         .frame(width: 320)
                     }
@@ -87,23 +82,23 @@ public struct ChatScreen: View {
             composerBar
                 .frame(maxWidth: 600)
                 .padding(.bottom, theme.spacing.l)
-            
+
         })
-        .onAppear { loadInitialData() }
+        .onAppear { viewModel.loadInitialData() }
     }
-    
+
     // MARK: - Top Bar
-    
+
     private var topBar: some View {
         let c = theme.colors
         let sp = theme.spacing
         let bo = theme.borders
         let ty = theme.typography
-        
+
         return HStack(spacing: sp.m) {
-            Button(action: { showAgentPicker = true }) {
+            Button(action: { viewModel.showAgentPicker = true }) {
                 HStack(spacing: sp.s) {
-                    Text(selectedAgent?.displayName ?? "Select Agent")
+                    Text(viewModel.selectedAgent?.displayName ?? "Select Agent")
                         .font(.system(size: ty.body))
                         .foregroundColor(c.accent)
                     Text("▾")
@@ -115,11 +110,11 @@ public struct ChatScreen: View {
                 .background(c.surface)
                 .border(c.border, lineWidth: bo.thin)
             }
-            
+
             Spacer()
-            
-            if selectedSessionId != nil {
-                Button(action: { showSessionPicker = true }) {
+
+            if viewModel.selectedSessionId != nil {
+                Button(action: { viewModel.showSessionPicker = true }) {
                     Text("Sessions")
                         .font(.system(size: ty.caption))
                         .foregroundColor(c.textMuted)
@@ -127,8 +122,8 @@ public struct ChatScreen: View {
                 .padding(.horizontal, sp.s)
                 .padding(.vertical, sp.xs)
             }
-            
-            Button(action: onOpenSettings) {
+
+            Button(action: { viewModel.openSettings() }) {
                 Text("···")
                     .font(.system(size: ty.heading))
                     .foregroundColor(c.textMuted)
@@ -140,35 +135,35 @@ public struct ChatScreen: View {
         .background(c.background)
         .border(c.border, lineWidth: bo.thin)
     }
-    
+
     // MARK: - Connection Bar
-    
+
     @ViewBuilder
     private var connectionBar: some View {
-        if connectionMonitor.state != .connected {
+        if viewModel.connectionMonitor.state != .connected {
             HStack {
                 Spacer()
-                ConnectionBanner(state: connectionMonitor.state)
+                ConnectionBanner(state: viewModel.connectionMonitor.state)
                 Spacer()
             }
         }
     }
-    
+
     // MARK: - Content Area
-    
+
     @ViewBuilder
     private var contentArea: some View {
-        if messages.isEmpty {
+        if viewModel.messages.isEmpty {
             VStack(alignment: .leading, spacing: 0) {
                 Spacer()
-                ChatGreetingView(agentName: selectedAgent?.displayName ?? "Agent")
+                ChatGreetingView(agentName: viewModel.selectedAgent?.displayName ?? "Agent")
                 Spacer()
             }
         } else {
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
                     let sp = theme.spacing
-                    ForEach(messages) { msg in
+                    ForEach(viewModel.messages) { msg in
                         ChatBubbleView(message: msg)
                             .padding(.horizontal, sp.m)
                             .padding(.vertical, sp.xs)
@@ -179,179 +174,28 @@ public struct ChatScreen: View {
             .frame(minHeight: 0, maxHeight: .infinity)
         }
     }
-    
+
     // MARK: - Composer
-    
+
     @ViewBuilder
     private var composerBar: some View {
-        if let agent = selectedAgent {
+        if let agent = viewModel.selectedAgent {
             ChatComposerView(agentName: agent.displayName) { content in
-                sendMessage(content: content)
+                viewModel.sendMessage(content: content)
             }
         } else {
             ChatComposerView(agentName: "Agent") { _ in }
                 .disabled(true)
         }
     }
-    
+
     // MARK: - Overlay dim
-    
+
     private var overlayDim: some View {
         Color.black.opacity(0.4 as Float)
             .ignoresSafeArea()
             .onTap {
-                showAgentPicker = false
-                showSessionPicker = false
+                viewModel.dismissOverlays()
             }
-    }
-    
-    // MARK: - Data Loading
-    
-    private func loadInitialData() {
-        Task { @MainActor in
-            let fetched = (try? await apiClient.fetchAgents()) ?? []
-            agents = fetched
-            
-            let lastId = settings.lastAgentId
-            let agent = fetched.first(where: { $0.id == lastId }) ?? fetched.first
-            if let agent {
-                selectedAgent = agent
-                await loadSessions(for: agent)
-                
-                if let lastSessionId = settings.lastSessionId,
-                   sessions.contains(where: { $0.id == lastSessionId }) {
-                    selectSession(lastSessionId)
-                }
-            }
-        }
-    }
-    
-    private func loadSessions(for agent: APIAgentRecord) async {
-        isLoadingSessions = true
-        sessions = (try? await apiClient.fetchAgentSessions(agentId: agent.id)) ?? []
-        isLoadingSessions = false
-    }
-    
-    // MARK: - Actions
-    
-    private func switchAgent(_ agent: APIAgentRecord) {
-        disconnectCurrentSession()
-        selectedAgent = agent
-        selectedSessionId = nil
-        messages = []
-        settings.lastAgentId = agent.id
-        settings.lastSessionId = nil
-        Task { @MainActor in
-            await loadSessions(for: agent)
-        }
-    }
-    
-    private func startNewSession() {
-        guard let agent = selectedAgent else { return }
-        disconnectCurrentSession()
-        messages = []
-        selectedSessionId = nil
-        Task { @MainActor in
-            guard let summary = try? await apiClient.createAgentSession(
-                agentId: agent.id,
-                title: "Chat with \(agent.displayName)"
-            ) else { return }
-            sessions.insert(summary, at: 0)
-            selectedSessionId = summary.id
-            settings.lastSessionId = summary.id
-            connectToSession(agentId: agent.id, sessionId: summary.id)
-        }
-    }
-    
-    private func selectSession(_ sessionId: String) {
-        guard let agent = selectedAgent else { return }
-        disconnectCurrentSession()
-        messages = []
-        selectedSessionId = sessionId
-        settings.lastSessionId = sessionId
-        connectToSession(agentId: agent.id, sessionId: sessionId)
-    }
-    
-    private func disconnectCurrentSession() {
-        streamTask?.cancel()
-        streamTask = nil
-        socketManager = nil
-    }
-    
-    private func connectToSession(agentId: String, sessionId: String) {
-        Task { @MainActor in
-            if let detail = try? await apiClient.fetchAgentSession(agentId: agentId, sessionId: sessionId) {
-                messages = detail.messages
-            }
-            
-            let manager = SessionSocketManager(baseURL: apiClient.baseURL, agentId: agentId, sessionId: sessionId)
-            socketManager = manager
-            let stream = await manager.connect()
-            
-            streamTask = Task { @MainActor in
-                for await update in stream {
-                    await handleStreamUpdate(update, agentId: agentId, sessionId: sessionId)
-                }
-            }
-        }
-    }
-    
-    private func handleStreamUpdate(
-        _ update: ChatStreamUpdate,
-        agentId: String,
-        sessionId: String
-    ) async {
-        switch update.kind {
-        case .sessionReady:
-            if let detail = try? await apiClient.fetchAgentSession(agentId: agentId, sessionId: sessionId) {
-                messages = detail.messages
-            }
-        case .sessionEvent, .sessionDelta:
-            if let msg = update.message {
-                if let idx = messages.firstIndex(where: { $0.id == msg.id }) {
-                    messages[idx] = msg
-                } else {
-                    messages.append(msg)
-                }
-            }
-        case .sessionClosed, .sessionError, .heartbeat:
-            break
-        }
-    }
-    
-    private func sendMessage(content: String) {
-        guard let agent = selectedAgent, !isSending else { return }
-        
-        if selectedSessionId == nil {
-            Task { @MainActor in
-                guard let summary = try? await apiClient.createAgentSession(
-                    agentId: agent.id,
-                    title: "Chat with \(agent.displayName)"
-                ) else { return }
-                sessions.insert(summary, at: 0)
-                selectedSessionId = summary.id
-                settings.lastSessionId = summary.id
-                connectToSession(agentId: agent.id, sessionId: summary.id)
-                await postMessage(content: content, agentId: agent.id, sessionId: summary.id)
-            }
-            return
-        }
-        
-        guard let sessionId = selectedSessionId else { return }
-        Task { @MainActor in
-            await postMessage(content: content, agentId: agent.id, sessionId: sessionId)
-        }
-    }
-    
-    private func postMessage(content: String, agentId: String, sessionId: String) async {
-        isSending = true
-        let optimistic = ChatMessage(
-            id: UUID().uuidString,
-            role: .user,
-            segments: [ChatMessageSegment(kind: .text, text: content)]
-        )
-        messages.append(optimistic)
-        _ = try? await apiClient.postSessionMessage(agentId: agentId, sessionId: sessionId, content: content)
-        isSending = false
     }
 }

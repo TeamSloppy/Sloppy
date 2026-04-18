@@ -33,6 +33,19 @@ struct OpenAIProviderCatalogService {
             ?? CoreModelProviderFactory.parseURL(configuredURL)
             ?? URL(string: "https://api.openai.com/v1")
 
+        guard let baseURL else {
+            return OpenAIProviderModelsResponse(
+                provider: "openai",
+                authMethod: request.authMethod,
+                usedEnvironmentKey: false,
+                source: "fallback",
+                warning: "OpenAI API URL is invalid.",
+                models: Self.fallbackOpenAIModels
+            )
+        }
+
+        let allowKeylessLAN = OpenAICompatibleCatalogEndpoint.hostAllowsKeylessOpenAIProbe(host: baseURL.host)
+
         let configuredKey = (primaryOpenAIConfig?.apiKey ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         let envKey = ProcessInfo.processInfo.environment["OPENAI_API_KEY"]?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let requestKey = request.apiKey?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
@@ -61,7 +74,16 @@ struct OpenAIProviderCatalogService {
             }
         }()
 
-        guard let apiKey = resolvedKey, !apiKey.isEmpty, let baseURL else {
+        let keyForFetch: String?
+        if let k = resolvedKey, !k.isEmpty {
+            keyForFetch = k
+        } else if request.authMethod == .apiKey, resolvedKey == nil, allowKeylessLAN {
+            keyForFetch = ""
+        } else {
+            keyForFetch = nil
+        }
+
+        guard let apiKey = keyForFetch else {
             let warning: String
             switch request.authMethod {
             case .apiKey:
@@ -131,11 +153,13 @@ struct OpenAIProviderCatalogService {
     }
 
     private func fetchOpenAIModels(apiKey: String, baseURL: URL) async throws -> [ProviderModelOption] {
-        let endpoint = openAIModelsURL(baseURL: baseURL)
+        let endpoint = OpenAICompatibleCatalogEndpoint.modelsListURL(baseURL: baseURL)
         var request = URLRequest(url: endpoint)
         request.httpMethod = "GET"
         request.setValue("application/json", forHTTPHeaderField: "Accept")
-        request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+        if !apiKey.isEmpty {
+            request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+        }
 
         let (data, response) = try await URLSession.shared.data(for: request)
         guard let http = response as? HTTPURLResponse else {
@@ -152,19 +176,6 @@ struct OpenAIProviderCatalogService {
             .filter { !$0.isEmpty }
             .sorted()
             .map(Self.enrichedOpenAIModelOption)
-    }
-
-    private func openAIModelsURL(baseURL: URL) -> URL {
-        if baseURL.path.isEmpty || baseURL.path == "/" {
-            return baseURL.appendingPathComponent("models")
-        }
-
-        let normalizedPath = baseURL.path.hasSuffix("/") ? String(baseURL.path.dropLast()) : baseURL.path
-        if normalizedPath.hasSuffix("/models") {
-            return baseURL
-        }
-
-        return baseURL.appendingPathComponent("models")
     }
 
     private static func enrichedOpenAIModelOption(id: String) -> ProviderModelOption {

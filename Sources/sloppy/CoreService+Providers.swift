@@ -208,7 +208,7 @@ extension CoreService {
         let candidates = CoreModelProviderFactory.resolveModelIdentifiers(
             config: config,
             hasOAuthCredentials: hasOAuthCredentials
-        ) + config.models.map(\.model)
+        ) + config.models.filter { !$0.disabled }.map(\.model)
         for raw in candidates {
             let value = raw.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !value.isEmpty else {

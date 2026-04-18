@@ -14,12 +14,54 @@ public struct CoreConfig: Codable, Sendable {
         public var apiKey: String
         public var apiUrl: String
         public var model: String
+        /// When `true`, this row is ignored for inference and routing (Dashboard).
+        public var disabled: Bool
+        /// Dashboard catalog id (e.g. `openai-api`, `openrouter`) to disambiguate multiple rows of the same kind.
+        public var providerCatalogId: String?
 
-        public init(title: String, apiKey: String, apiUrl: String, model: String) {
+        enum CodingKeys: String, CodingKey {
+            case title
+            case apiKey
+            case apiUrl
+            case model
+            case disabled
+            case providerCatalogId
+        }
+
+        public init(
+            title: String,
+            apiKey: String,
+            apiUrl: String,
+            model: String,
+            disabled: Bool = false,
+            providerCatalogId: String? = nil
+        ) {
             self.title = title
             self.apiKey = apiKey
             self.apiUrl = apiUrl
             self.model = model
+            self.disabled = disabled
+            self.providerCatalogId = providerCatalogId
+        }
+
+        public init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            title = try container.decode(String.self, forKey: .title)
+            apiKey = try container.decode(String.self, forKey: .apiKey)
+            apiUrl = try container.decode(String.self, forKey: .apiUrl)
+            model = try container.decode(String.self, forKey: .model)
+            disabled = try container.decodeIfPresent(Bool.self, forKey: .disabled) ?? false
+            providerCatalogId = try container.decodeIfPresent(String.self, forKey: .providerCatalogId)
+        }
+
+        public func encode(to encoder: Encoder) throws {
+            var container = encoder.container(keyedBy: CodingKeys.self)
+            try container.encode(title, forKey: .title)
+            try container.encode(apiKey, forKey: .apiKey)
+            try container.encode(apiUrl, forKey: .apiUrl)
+            try container.encode(model, forKey: .model)
+            try container.encode(disabled, forKey: .disabled)
+            try container.encodeIfPresent(providerCatalogId, forKey: .providerCatalogId)
         }
     }
 

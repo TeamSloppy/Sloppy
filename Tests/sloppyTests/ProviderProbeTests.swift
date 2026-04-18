@@ -118,3 +118,37 @@ func providerProbeEndpointRejectsInvalidProviderID() async throws {
 
     #expect(response.status == 400)
 }
+
+@Test
+func providerProbeOpenAIListsModelsWithoutKeyOnPrivateLAN() async throws {
+    let config = CoreConfig.test
+    let service = CoreService(
+        config: config,
+        providerProbeService: ProviderProbeService(
+            environmentLookup: { _ in nil },
+            transport: { request in
+                let path = request.url?.path ?? ""
+                #expect(path.hasSuffix("/v1/models"))
+                #expect(request.value(forHTTPHeaderField: "Authorization") == nil)
+                let payload = #"{"data":[{"id":"lm-studio-model"}]}"#
+                return (Data(payload.utf8), makeProbeHTTPResponse(url: request.url!))
+            }
+        ),
+        builtInGatewayPluginFactory: .live
+    )
+    let router = CoreRouter(service: service)
+
+    let body = try JSONEncoder().encode(
+        ProviderProbeRequest(
+            providerId: .openAIAPI,
+            apiUrl: "http://192.168.3.43:1234"
+        )
+    )
+    let response = await router.handle(method: "POST", path: "/v1/providers/probe", body: body)
+
+    #expect(response.status == 200)
+    let payload = try JSONDecoder().decode(ProviderProbeResponse.self, from: response.body)
+    #expect(payload.providerId == ProviderProbeID.openAIAPI)
+    #expect(payload.ok == true)
+    #expect(payload.models.map(\.id) == ["lm-studio-model"])
+}
