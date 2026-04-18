@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Gemini, ProviderIcon } from "@lobehub/icons";
 
@@ -19,7 +19,7 @@ function ProviderBrandMark({ brandProviderKey, size }) {
 
 export function ProviderEditor({
   providerCatalog,
-  draftConfig,
+  configuredProviderRows,
   customModelsCount,
   openAIProviderStatus,
   providerModalMeta,
@@ -30,7 +30,10 @@ export function ProviderEditor({
   providerModelMenuRect,
   providerModelPickerRef,
   providerModelMenuRef,
-  onOpenProviderModal,
+  modalActiveEntry,
+  onOpenProviderAtIndex,
+  onAppendProvider,
+  onSetProviderRowDisabled,
   onCloseProviderModal,
   onUpdateProviderForm,
   onOpenOAuth,
@@ -46,13 +49,27 @@ export function ProviderEditor({
   providerProbeTesting,
   onSetProviderModelMenuOpen,
   onSetProviderModelMenuRect,
-  getProviderEntry,
   providerIsConfigured,
   filterProviderModels
 }) {
+  const [addMenuOpen, setAddMenuOpen] = useState(false);
+  const addMenuRef = useRef(null);
+
+  useEffect(() => {
+    if (!addMenuOpen) {
+      return undefined;
+    }
+    function handlePointerDown(event) {
+      if (addMenuRef.current && !addMenuRef.current.contains(event.target)) {
+        setAddMenuOpen(false);
+      }
+    }
+    window.addEventListener("pointerdown", handlePointerDown);
+    return () => window.removeEventListener("pointerdown", handlePointerDown);
+  }, [addMenuOpen]);
+
   const activeProviderStatus = providerModalMeta ? providerModelStatus[providerModalMeta.id] : "";
   const activeProviderModels = providerModalMeta ? providerModelOptions[providerModalMeta.id] || [] : [];
-  const activeProviderEntry = providerModalMeta ? getProviderEntry(draftConfig.models, providerModalMeta.id) : null;
   const filteredProviderModels = filterProviderModels(activeProviderModels, providerForm?.model);
   const isTestingActiveProvider = providerModalMeta
     ? Boolean(providerProbeTesting?.[providerModalMeta.id])
@@ -69,7 +86,8 @@ export function ProviderEditor({
       <section className="entry-editor-card providers-intro-card">
         <h3>LLM Providers</h3>
         <p className="placeholder-text">
-          Configure credentials and endpoints for providers. At least one provider is required for agents.
+          Configure credentials and endpoints for providers. At least one enabled provider is required for agents.
+          Disabled providers stay in config but are ignored at runtime.
         </p>
         <div className="providers-note">
           When you add a provider, choose a model and run a completion test before saving.
@@ -81,52 +99,163 @@ export function ProviderEditor({
         ) : null}
       </section>
 
-      <section className="providers-list">
-        {providerCatalog.map((provider) => {
-          const providerEntry = getProviderEntry(draftConfig.models, provider.id)?.entry;
-          const entryModel = String(providerEntry?.model || provider.defaultEntry.model || "").trim();
-          const entryURL = String(providerEntry?.apiUrl || provider.defaultEntry.apiUrl || "").trim();
-          const configuredViaEnvironment =
-            provider.id === "openai-api" &&
-            openAIProviderStatus.hasEnvironmentKey &&
-            !Boolean(String(providerEntry?.apiKey || "").trim()) &&
-            Boolean(entryModel && entryURL);
-          const configuredViaOAuth =
-            provider.id === "openai-oauth" &&
-            openAIProviderStatus.hasOAuthCredentials &&
-            Boolean(entryModel && entryURL);
-          const configured =
-            configuredViaEnvironment ||
-            configuredViaOAuth ||
-            (provider.id === "openai-oauth" ? false : providerIsConfigured(provider, providerEntry));
-          const actionText = configured ? "Manage" : provider.id === "openai-oauth" ? "Connect" : provider.requiresApiKey ? "Add key" : "Setup";
-          const configuredBadgeText =
-            configuredViaEnvironment ? "env" : configuredViaOAuth ? "oauth" : configured ? "configured" : "not set";
+      <div className="providers-section-toolbar">
+        <div className="providers-section-toolbar-spacer" />
+        <div className="providers-toolbar-actions" ref={addMenuRef}>
+          <button
+            type="button"
+            className="provider-card-action providers-toolbar-btn"
+            onClick={() => setAddMenuOpen((o) => !o)}
+            aria-expanded={addMenuOpen}
+            aria-haspopup="listbox"
+          >
+            Add provider
+            <span className="material-symbols-rounded" style={{ fontSize: "1.1rem", marginLeft: 4 }} aria-hidden>
+              expand_more
+            </span>
+          </button>
+          {addMenuOpen ? (
+            <div className="providers-dropdown" role="listbox">
+              {providerCatalog.map((p) => (
+                <button
+                  key={p.id}
+                  type="button"
+                  role="option"
+                  className="providers-dropdown-item"
+                  onClick={() => {
+                    onAppendProvider(p.id);
+                    setAddMenuOpen(false);
+                  }}
+                >
+                  <span className="providers-dropdown-item-title">{p.title}</span>
+                  <span className="providers-dropdown-item-desc">{p.description}</span>
+                </button>
+              ))}
+            </div>
+          ) : null}
+        </div>
+      </div>
 
-          return (
-            <button
-              key={provider.id}
-              type="button"
-              className={`provider-card provider-list-item hover-levitate ${configured ? "configured" : ""}`}
-              onClick={() => onOpenProviderModal(provider.id)}
-            >
+      <details className="providers-presets-details">
+        <summary className="providers-presets-summary">
+          <span className="material-symbols-rounded providers-presets-icon" aria-hidden>
+            apps
+          </span>
+          Standard provider presets
+        </summary>
+        <p className="placeholder-text providers-presets-hint">
+          Quick reference — use <strong>Add provider</strong> above to create a new row. Click a preset to add that type.
+        </p>
+        <section className="providers-list providers-presets-grid">
+          {providerCatalog.map((provider) => (
+            <div key={provider.id} className="provider-card provider-preset-card">
               <span className="provider-list-icon" aria-hidden="true">
                 <ProviderBrandMark brandProviderKey={provider.brandProviderKey} size={30} />
               </span>
               <div className="provider-list-main">
                 <div className="provider-card-head">
                   <h4>{provider.title}</h4>
-                  <span className={`provider-state ${configured ? "on" : "off"}`}>{configuredBadgeText}</span>
                 </div>
                 <p>{provider.description}</p>
-                <span className="provider-model-line">
-                  Default model: {providerEntry?.model || provider.modelHint}
-                </span>
+                <span className="provider-model-line">Default: {provider.modelHint}</span>
               </div>
-              <span className="provider-card-action">{actionText}</span>
-            </button>
-          );
-        })}
+              <button
+                type="button"
+                className="provider-card-action"
+                onClick={() => onAppendProvider(provider.id)}
+              >
+                Add
+              </button>
+            </div>
+          ))}
+        </section>
+      </details>
+
+      <section className="providers-configured-block">
+        <h4 className="providers-configured-heading">Configured providers</h4>
+        <div className="providers-list">
+          {configuredProviderRows.length === 0 ? (
+            <p className="placeholder-text">No provider rows yet. Use Add provider or a preset.</p>
+          ) : (
+            configuredProviderRows.map((row) => {
+              const { index, entry, catalogId, meta } = row;
+              const label = meta?.title || catalogId || "Custom";
+              const configuredViaEnvironment =
+                catalogId === "openai-api" &&
+                openAIProviderStatus.hasEnvironmentKey &&
+                !Boolean(String(entry?.apiKey || "").trim()) &&
+                Boolean(String(entry?.model || "").trim()) &&
+                Boolean(String(entry?.apiUrl || "").trim());
+              const configuredViaOAuth =
+                catalogId === "openai-oauth" &&
+                openAIProviderStatus.hasOAuthCredentials &&
+                Boolean(String(entry?.model || "").trim()) &&
+                Boolean(String(entry?.apiUrl || "").trim());
+              let configured = false;
+              if (configuredViaEnvironment || configuredViaOAuth) {
+                configured = true;
+              } else if (meta && catalogId !== "openai-oauth") {
+                configured = providerIsConfigured(meta, entry);
+              }
+              const configuredBadgeText =
+                configuredViaEnvironment ? "env" : configuredViaOAuth ? "oauth" : configured ? "configured" : "not set";
+
+              return (
+                <div
+                  key={`${index}-${catalogId || "custom"}`}
+                  className={`provider-instance-row ${entry.disabled ? "provider-instance-row--disabled" : ""}`}
+                >
+                  <div className="provider-instance-row-main">
+                    <span className="provider-list-icon" aria-hidden="true">
+                      {meta?.brandProviderKey ? (
+                        <ProviderBrandMark brandProviderKey={meta.brandProviderKey} size={28} />
+                      ) : (
+                        <span className="material-symbols-rounded" style={{ fontSize: 28 }}>
+                          hub
+                        </span>
+                      )}
+                    </span>
+                    <div className="provider-list-main">
+                      <div className="provider-card-head">
+                        <h4>{entry.title || label}</h4>
+                        <span className={`provider-state ${configured ? "on" : "off"}`}>{configuredBadgeText}</span>
+                        {entry.disabled ? (
+                          <span className="provider-disabled-badge">disabled</span>
+                        ) : null}
+                      </div>
+                      <span className="provider-model-line">
+                        {label}
+                        {catalogId ? ` · ${catalogId}` : ""}
+                      </span>
+                      <span className="provider-model-line">
+                        Model: {entry.model || "—"} · {String(entry.apiUrl || "").slice(0, 56)}
+                        {String(entry.apiUrl || "").length > 56 ? "…" : ""}
+                      </span>
+                    </div>
+                  </div>
+                  <label className="provider-instance-toggle">
+                    <span className="agent-tools-switch">
+                      <input
+                        type="checkbox"
+                        aria-label="Provider enabled"
+                        checked={!entry.disabled}
+                        onChange={(e) => onSetProviderRowDisabled(index, !e.target.checked)}
+                      />
+                      <span className="agent-tools-switch-track" />
+                    </span>
+                  </label>
+                  <button
+                    type="button"
+                    className="provider-card-action"
+                    onClick={() => onOpenProviderAtIndex(index)}
+                  >
+                    Manage
+                  </button>
+                </div>
+              );
+            })
+          )}
+        </div>
       </section>
 
       {providerModalMeta && providerForm ? (
@@ -148,6 +277,25 @@ export function ProviderEditor({
             <p className="placeholder-text">{providerModalMeta.description}</p>
 
             <div className="provider-modal-form">
+              <label>
+                Label
+                <input
+                  value={providerForm.title ?? ""}
+                  onChange={(event) => onUpdateProviderForm("title", event.target.value)}
+                  placeholder="Display name in list"
+                />
+              </label>
+              <label className="provider-modal-disabled-row">
+                <span className="agent-tools-switch">
+                  <input
+                    type="checkbox"
+                    checked={!providerForm.disabled}
+                    onChange={(e) => onUpdateProviderForm("disabled", !e.target.checked)}
+                  />
+                  <span className="agent-tools-switch-track" />
+                </span>
+                <span>Enabled (runtime)</span>
+              </label>
               {providerModalMeta.requiresApiKey ? (
                 <label>
                   API Key
@@ -258,7 +406,7 @@ export function ProviderEditor({
               </div>
             ) : null}
             <div className="provider-modal-footer">
-              {activeProviderEntry ? (
+              {modalActiveEntry ? (
                 <button type="button" className="danger" onClick={onRemoveProvider}>
                   Remove Provider
                 </button>

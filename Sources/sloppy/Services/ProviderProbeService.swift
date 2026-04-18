@@ -129,7 +129,7 @@ struct ProviderProbeService {
     }
 
     private func fetchOpenRouterModels(apiKey: String, baseURL: URL) async throws -> [ProviderModelOption] {
-        let endpoint = openAIModelsURL(baseURL: baseURL)
+        let endpoint = OpenAICompatibleCatalogEndpoint.modelsListURL(baseURL: baseURL)
         var urlRequest = URLRequest(url: endpoint)
         urlRequest.httpMethod = "GET"
         urlRequest.setValue("application/json", forHTTPHeaderField: "Accept")
@@ -171,6 +171,18 @@ struct ProviderProbeService {
             ?? CoreModelProviderFactory.parseURL(primaryOpenAIConfig?.apiUrl)
             ?? URL(string: "https://api.openai.com/v1")
 
+        guard let apiURL else {
+            return ProviderProbeResponse(
+                providerId: request.providerId,
+                ok: false,
+                usedEnvironmentKey: false,
+                message: "OpenAI API URL is invalid.",
+                models: []
+            )
+        }
+
+        let allowKeylessLAN = OpenAICompatibleCatalogEndpoint.hostAllowsKeylessOpenAIProbe(host: apiURL.host)
+
         let configuredKey = (primaryOpenAIConfig?.apiKey ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         let environmentKey = environmentLookup("OPENAI_API_KEY")?
             .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
@@ -189,6 +201,9 @@ struct ProviderProbeService {
             } else if !environmentKey.isEmpty {
                 resolvedKey = environmentKey
                 usedEnvironmentKey = true
+            } else if allowKeylessLAN {
+                resolvedKey = ""
+                usedEnvironmentKey = false
             } else {
                 return ProviderProbeResponse(
                     providerId: request.providerId,
@@ -210,16 +225,6 @@ struct ProviderProbeService {
             }
             resolvedKey = environmentKey
             usedEnvironmentKey = true
-        }
-
-        guard let apiURL else {
-            return ProviderProbeResponse(
-                providerId: request.providerId,
-                ok: false,
-                usedEnvironmentKey: usedEnvironmentKey,
-                message: "OpenAI API URL is invalid.",
-                models: []
-            )
         }
 
         do {
@@ -297,18 +302,23 @@ struct ProviderProbeService {
                 providerId: .ollama,
                 ok: false,
                 usedEnvironmentKey: false,
-                message: "Failed to connect to Ollama: \(error.localizedDescription)",
+                message: """
+                Failed to connect to Ollama: \(error.localizedDescription). \
+                LM Studio and many local servers use OpenAI-compatible HTTP (GET /v1/models), not Ollama’s /api/tags — add an OpenAI API provider with base URL http://…:port/v1 (API key can be empty on local networks).
+                """,
                 models: []
             )
         }
     }
 
     private func fetchOpenAIModels(apiKey: String, baseURL: URL) async throws -> [ProviderModelOption] {
-        let endpoint = openAIModelsURL(baseURL: baseURL)
+        let endpoint = OpenAICompatibleCatalogEndpoint.modelsListURL(baseURL: baseURL)
         var urlRequest = URLRequest(url: endpoint)
         urlRequest.httpMethod = "GET"
         urlRequest.setValue("application/json", forHTTPHeaderField: "Accept")
-        urlRequest.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+        if !apiKey.isEmpty {
+            urlRequest.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+        }
 
         let (data, response) = try await transport(urlRequest)
         guard (200..<300).contains(response.statusCode) else {
@@ -345,19 +355,6 @@ struct ProviderProbeService {
                     title: humanReadableOllamaModelTitle(name: name)
                 )
             }
-    }
-
-    private func openAIModelsURL(baseURL: URL) -> URL {
-        if baseURL.path.isEmpty || baseURL.path == "/" {
-            return baseURL.appendingPathComponent("models")
-        }
-
-        let normalizedPath = baseURL.path.hasSuffix("/") ? String(baseURL.path.dropLast()) : baseURL.path
-        if normalizedPath.hasSuffix("/models") {
-            return baseURL
-        }
-
-        return baseURL.appendingPathComponent("models")
     }
 
     private func ollamaTagsURL(baseURL: URL) -> URL {

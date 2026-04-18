@@ -76,7 +76,9 @@ const PROVIDER_CATALOG = [
       title: "openai-api",
       apiKey: "",
       apiUrl: "https://api.openai.com/v1",
-      model: "gpt-5.4-mini"
+      model: "gpt-5.4-mini",
+      disabled: false,
+      providerCatalogId: "openai-api"
     }
   },
   {
@@ -92,7 +94,9 @@ const PROVIDER_CATALOG = [
       title: "openai-oauth",
       apiKey: "",
       apiUrl: "https://chatgpt.com/backend-api",
-      model: "gpt-5.3-codex"
+      model: "gpt-5.3-codex",
+      disabled: false,
+      providerCatalogId: "openai-oauth"
     }
   },
   {
@@ -108,7 +112,9 @@ const PROVIDER_CATALOG = [
       title: "openrouter",
       apiKey: "",
       apiUrl: "https://openrouter.ai/api/v1",
-      model: "openai/gpt-4o-mini"
+      model: "openai/gpt-4o-mini",
+      disabled: false,
+      providerCatalogId: "openrouter"
     }
   },
   {
@@ -124,7 +130,9 @@ const PROVIDER_CATALOG = [
       title: "anthropic",
       apiKey: "",
       apiUrl: "https://api.anthropic.com",
-      model: "claude-sonnet-4-20250514"
+      model: "claude-sonnet-4-20250514",
+      disabled: false,
+      providerCatalogId: "anthropic"
     }
   },
   {
@@ -140,14 +148,16 @@ const PROVIDER_CATALOG = [
       title: "gemini",
       apiKey: "",
       apiUrl: "https://generativelanguage.googleapis.com",
-      model: "gemini-2.5-flash"
+      model: "gemini-2.5-flash",
+      disabled: false,
+      providerCatalogId: "gemini"
     }
   },
   {
     id: "ollama",
     brandProviderKey: "ollama",
     title: "Ollama",
-    description: "Local provider served by Ollama.",
+    description: "Local provider using Ollama’s HTTP API (/api/tags). LM Studio and similar tools speak OpenAI-compatible /v1 — use OpenAI API with base URL http://host:port/v1 instead.",
     modelHint: "qwen3",
     authMethod: "none",
     requiresApiKey: false,
@@ -156,7 +166,9 @@ const PROVIDER_CATALOG = [
       title: "ollama-local",
       apiKey: "",
       apiUrl: "http://127.0.0.1:11434",
-      model: "qwen3"
+      model: "qwen3",
+      disabled: false,
+      providerCatalogId: "ollama"
     }
   }
 ];
@@ -166,7 +178,9 @@ function emptyModel() {
     title: "openai-api",
     apiKey: "",
     apiUrl: "https://api.openai.com/v1",
-    model: "gpt-5.4-mini"
+    model: "gpt-5.4-mini",
+    disabled: false,
+    providerCatalogId: "openai-api"
   };
 }
 
@@ -306,15 +320,23 @@ function normalizeModel(item, index) {
       title: provider ? `${provider}-${name}` : name || `model-${index + 1}`,
       apiKey: "",
       apiUrl: apiUrlMap[provider] || "",
-      model: name || item
+      model: name || item,
+      disabled: false,
+      providerCatalogId: null
     };
   }
+
+  const catalogRaw = item?.providerCatalogId;
+  const providerCatalogId =
+    typeof catalogRaw === "string" && catalogRaw.trim() ? catalogRaw.trim() : null;
 
   return {
     title: item?.title || `model-${index + 1}`,
     apiKey: item?.apiKey || "",
     apiUrl: item?.apiUrl || "",
-    model: item?.model || ""
+    model: item?.model || "",
+    disabled: Boolean(item?.disabled),
+    providerCatalogId
   };
 }
 
@@ -336,6 +358,10 @@ function inferModelProvider(model) {
     return "openrouter";
   }
 
+  if (/:1234(\/|$)/i.test(apiUrl)) {
+    return "openai";
+  }
+
   if (apiUrl.includes("ollama") || apiUrl.includes("11434") || title.includes("ollama")) {
     return "ollama";
   }
@@ -351,31 +377,61 @@ function inferModelProvider(model) {
   return "custom";
 }
 
+function inferCatalogIdForEntry(entry) {
+  const raw = entry?.providerCatalogId;
+  if (typeof raw === "string" && raw.trim()) {
+    const id = raw.trim();
+    if (PROVIDER_CATALOG.some((p) => p.id === id)) {
+      return id;
+    }
+  }
+  const p = inferModelProvider(entry);
+  if (p === "openai") {
+    return isOpenAIOAuthEntry(entry) ? "openai-oauth" : "openai-api";
+  }
+  const map = {
+    openrouter: "openrouter",
+    ollama: "ollama",
+    gemini: "gemini",
+    anthropic: "anthropic"
+  };
+  return map[p] || null;
+}
+
 function isOpenAIOAuthEntry(model) {
   const title = String(model?.title || "").toLowerCase();
   return title.includes("oauth") || title.includes("deeplink");
 }
 
 function findProviderModelIndex(models, providerId) {
-  if (providerId === "openai-api") {
-    return models.findIndex((item) => inferModelProvider(item) === "openai" && !isOpenAIOAuthEntry(item));
+  const direct = models.findIndex((m) => m.providerCatalogId === providerId);
+  if (direct >= 0) {
+    return direct;
   }
-  if (providerId === "openai-oauth") {
-    return models.findIndex((item) => inferModelProvider(item) === "openai" && isOpenAIOAuthEntry(item));
-  }
-  if (providerId === "ollama") {
-    return models.findIndex((item) => inferModelProvider(item) === "ollama");
-  }
-  if (providerId === "gemini") {
-    return models.findIndex((item) => inferModelProvider(item) === "gemini");
-  }
-  if (providerId === "anthropic") {
-    return models.findIndex((item) => inferModelProvider(item) === "anthropic");
-  }
-  if (providerId === "openrouter") {
-    return models.findIndex((item) => inferModelProvider(item) === "openrouter");
-  }
-  return -1;
+  return models.findIndex((item) => {
+    if (item.providerCatalogId) {
+      return false;
+    }
+    if (providerId === "openai-api") {
+      return inferModelProvider(item) === "openai" && !isOpenAIOAuthEntry(item);
+    }
+    if (providerId === "openai-oauth") {
+      return inferModelProvider(item) === "openai" && isOpenAIOAuthEntry(item);
+    }
+    if (providerId === "ollama") {
+      return inferModelProvider(item) === "ollama";
+    }
+    if (providerId === "gemini") {
+      return inferModelProvider(item) === "gemini";
+    }
+    if (providerId === "anthropic") {
+      return inferModelProvider(item) === "anthropic";
+    }
+    if (providerId === "openrouter") {
+      return inferModelProvider(item) === "openrouter";
+    }
+    return false;
+  });
 }
 
 function getProviderDefinition(providerId) {
@@ -660,6 +716,7 @@ export function ConfigView({ sectionId = "providers", onSectionChange = null }) 
   const [statusText, setStatusText] = useState("Loading config...");
   const [selectedPluginIndex, setSelectedPluginIndex] = useState(0);
   const [providerModalId, setProviderModalId] = useState(null);
+  const [providerModalIndex, setProviderModalIndex] = useState(null);
   const [providerForm, setProviderForm] = useState(null);
   const [configDeviceCode, setConfigDeviceCode] = useState(null);
   const [configDeviceCodePolling, setConfigDeviceCodePolling] = useState(false);
@@ -801,12 +858,24 @@ export function ConfigView({ sectionId = "providers", onSectionChange = null }) 
     return getProviderDefinition(providerModalId);
   }, [providerModalId]);
 
-  const customModelsCount = useMemo(() => {
-    const providerIndexes = new Set(
-      PROVIDER_CATALOG.map((provider) => findProviderModelIndex(draftConfig.models, provider.id)).filter((index) => index >= 0)
-    );
-    return draftConfig.models.filter((_, index) => !providerIndexes.has(index)).length;
-  }, [draftConfig.models]);
+  const customModelsCount = useMemo(
+    () => draftConfig.models.filter((entry) => !inferCatalogIdForEntry(entry)).length,
+    [draftConfig.models]
+  );
+
+  const configuredProviderRows = useMemo(
+    () =>
+      draftConfig.models.map((entry, index) => {
+        const catalogId = inferCatalogIdForEntry(entry);
+        return {
+          index,
+          entry,
+          catalogId,
+          meta: catalogId ? getProviderDefinition(catalogId) : null
+        };
+      }),
+    [draftConfig.models]
+  );
 
   async function loadConfig() {
     const config = await fetchRuntimeConfig();
@@ -837,6 +906,7 @@ export function ConfigView({ sectionId = "providers", onSectionChange = null }) 
     }
 
     setProviderModalId(null);
+    setProviderModalIndex(null);
     setProviderForm(null);
     setProviderModelOptions({});
     setProviderModelStatus({});
@@ -1068,18 +1138,63 @@ export function ConfigView({ sectionId = "providers", onSectionChange = null }) 
     }));
   }
 
-  function openProviderModal(providerId) {
-    const provider = getProviderDefinition(providerId);
-    const existing = getProviderEntry(draftConfig.models, provider.id)?.entry;
-    const initial = existing ? clone(existing) : clone(provider.defaultEntry);
-
-    setProviderModalId(provider.id);
+  function openProviderModalAtIndex(index) {
+    const entry = draftConfig.models[index];
+    if (!entry) {
+      return;
+    }
+    const catalogId = inferCatalogIdForEntry(entry) || "openai-api";
+    const provider = getProviderDefinition(catalogId);
+    setProviderModalIndex(index);
+    setProviderModalId(catalogId);
     setProviderForm({
-      apiKey: initial.apiKey,
-      apiUrl: initial.apiUrl,
-      model: initial.model
+      apiKey: entry.apiKey ?? "",
+      apiUrl: entry.apiUrl ?? "",
+      model: entry.model ?? "",
+      title: entry.title || provider.defaultEntry.title,
+      disabled: Boolean(entry.disabled)
     });
     setProviderModelMenuOpen(false);
+  }
+
+  function appendProviderAndOpenModal(catalogId) {
+    const provider = getProviderDefinition(catalogId);
+    const base = clone(provider.defaultEntry);
+    setDraftConfig((prev) => {
+      const next = clone(prev);
+      next.models.push({
+        ...base,
+        title: base.title,
+        disabled: false,
+        providerCatalogId: catalogId
+      });
+      const idx = next.models.length - 1;
+      const json = JSON.stringify(next, null, 2);
+      setRawConfig(json);
+      localStorage.setItem(DRAFT_CONFIG_KEY, json);
+      const entry = next.models[idx];
+      setProviderModalIndex(idx);
+      setProviderModalId(catalogId);
+      setProviderForm({
+        apiKey: entry.apiKey ?? "",
+        apiUrl: entry.apiUrl ?? "",
+        model: entry.model ?? "",
+        title: entry.title || provider.defaultEntry.title,
+        disabled: false
+      });
+      setProviderModelMenuOpen(false);
+      return next;
+    });
+  }
+
+  /** @deprecated prefer appendProviderAndOpenModal / openProviderModalAtIndex */
+  function openProviderModal(catalogId) {
+    const idx = findProviderModelIndex(draftConfig.models, catalogId);
+    if (idx >= 0) {
+      openProviderModalAtIndex(idx);
+    } else {
+      appendProviderAndOpenModal(catalogId);
+    }
   }
 
   function closeProviderModal() {
@@ -1088,6 +1203,7 @@ export function ConfigView({ sectionId = "providers", onSectionChange = null }) 
       providerModelLoadTimerRef.current = null;
     }
     setProviderModalId(null);
+    setProviderModalIndex(null);
     setProviderForm(null);
     setProviderModelMenuOpen(false);
     setProviderModelMenuRect(null);
@@ -1115,7 +1231,10 @@ export function ConfigView({ sectionId = "providers", onSectionChange = null }) 
       return;
     }
 
-    const entryFromConfig = getProviderEntry(draftConfig.models, provider.id)?.entry || provider.defaultEntry;
+    const entryFromConfig =
+      providerModalIndex != null
+        ? draftConfig.models[providerModalIndex]
+        : getProviderEntry(draftConfig.models, provider.id)?.entry || provider.defaultEntry;
     const entry = entryOverride || entryFromConfig;
     setProviderStatus(provider.id, "Loading provider models...");
 
@@ -1264,6 +1383,7 @@ export function ConfigView({ sectionId = "providers", onSectionChange = null }) 
     };
   }, [
     providerModalMeta,
+    providerModalIndex,
     providerForm?.apiKey,
     providerForm?.apiUrl,
     openAIProviderStatus.hasEnvironmentKey,
@@ -1339,14 +1459,17 @@ export function ConfigView({ sectionId = "providers", onSectionChange = null }) 
 
     const provider = providerModalMeta;
     const nextEntry = {
-      title: provider.defaultEntry.title,
+      title: String(providerForm.title || "").trim() || provider.defaultEntry.title,
       apiKey: provider.requiresApiKey ? providerForm.apiKey.trim() : "",
       apiUrl: providerForm.apiUrl.trim() || provider.defaultEntry.apiUrl,
-      model: providerForm.model.trim() || provider.defaultEntry.model
+      model: providerForm.model.trim() || provider.defaultEntry.model,
+      disabled: Boolean(providerForm.disabled),
+      providerCatalogId: provider.id
     };
 
     const nextConfig = clone(draftConfig);
-    const index = findProviderModelIndex(nextConfig.models, provider.id);
+    const index =
+      providerModalIndex != null ? providerModalIndex : findProviderModelIndex(nextConfig.models, provider.id);
     if (index >= 0) {
       nextConfig.models[index] = nextEntry;
     } else {
@@ -1371,7 +1494,8 @@ export function ConfigView({ sectionId = "providers", onSectionChange = null }) 
     }
 
     const nextConfig = clone(draftConfig);
-    const index = findProviderModelIndex(nextConfig.models, provider.id);
+    const index =
+      providerModalIndex != null ? providerModalIndex : findProviderModelIndex(nextConfig.models, provider.id);
     if (index >= 0) {
       nextConfig.models.splice(index, 1);
     }
@@ -1383,6 +1507,15 @@ export function ConfigView({ sectionId = "providers", onSectionChange = null }) 
     await persistConfig(nextConfig);
   }
 
+  function setProviderRowDisabled(index, disabled) {
+    mutateDraft((draft) => {
+      if (!draft.models[index]) {
+        return;
+      }
+      draft.models[index].disabled = disabled;
+    });
+  }
+
   function renderSettingsContent() {
     if (selectedSettings === "providers") {
       return (
@@ -1390,6 +1523,7 @@ export function ConfigView({ sectionId = "providers", onSectionChange = null }) 
           <ProviderEditor
             providerCatalog={PROVIDER_CATALOG}
             draftConfig={draftConfig}
+            configuredProviderRows={configuredProviderRows}
             customModelsCount={customModelsCount}
             openAIProviderStatus={openAIProviderStatus}
             providerModalMeta={providerModalMeta}
@@ -1400,7 +1534,10 @@ export function ConfigView({ sectionId = "providers", onSectionChange = null }) 
             providerModelMenuRect={providerModelMenuRect}
             providerModelPickerRef={providerModelPickerRef}
             providerModelMenuRef={providerModelMenuRef}
-            onOpenProviderModal={openProviderModal}
+            modalActiveEntry={providerModalIndex != null ? draftConfig.models[providerModalIndex] : null}
+            onOpenProviderAtIndex={openProviderModalAtIndex}
+            onAppendProvider={appendProviderAndOpenModal}
+            onSetProviderRowDisabled={setProviderRowDisabled}
             onCloseProviderModal={closeProviderModal}
             onUpdateProviderForm={updateProviderForm}
             onOpenOAuth={openOpenAIPlatform}
@@ -1416,7 +1553,6 @@ export function ConfigView({ sectionId = "providers", onSectionChange = null }) 
             providerProbeTesting={providerProbeTesting}
             onSetProviderModelMenuOpen={setProviderModelMenuOpen}
             onSetProviderModelMenuRect={setProviderModelMenuRect}
-            getProviderEntry={getProviderEntry}
             providerIsConfigured={providerIsConfigured}
             filterProviderModels={filterModelsByQuery}
           />

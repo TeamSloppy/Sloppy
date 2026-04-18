@@ -8,13 +8,40 @@ export type AggregatedModelOption = {
 };
 
 export function inferProviderId(entry: Record<string, unknown>): string {
+  const catalog = String((entry as { providerCatalogId?: string }).providerCatalogId || "").trim();
+  if (catalog === "openai-api") return "openai-api";
+  if (catalog === "openai-oauth") return "openai-oauth";
+  if (catalog === "openrouter") return "openrouter";
+  if (catalog === "anthropic") return "anthropic";
+  if (catalog === "gemini") return "gemini";
+  if (catalog === "ollama") return "ollama";
+
   const title = String(entry.title || "").toLowerCase();
   const apiUrl = String(entry.apiUrl || "").toLowerCase();
+  const modelVal = String((entry as { model?: unknown }).model || "").trim();
+  const lowerModel = modelVal.toLowerCase();
+
+  // Routed ids already stored on the row — must win over URL/title heuristics (Chat tab uses server list; config tab probes here).
+  if (lowerModel.startsWith("openrouter:")) return "openrouter";
+  if (lowerModel.startsWith("ollama:")) return "ollama";
+  if (lowerModel.startsWith("gemini:")) return "gemini";
+  if (lowerModel.startsWith("anthropic:")) return "anthropic";
+  if (lowerModel.startsWith("openai:")) {
+    return title.includes("oauth") || title.includes("deeplink") ? "openai-oauth" : "openai-api";
+  }
+
   if (title.includes("oauth")) return "openai-oauth";
+  // LM Studio and other local OpenAI-compatible servers (default port 1234) use /v1/models, not Ollama /api/tags.
+  if (/:1234(\/|$)/.test(apiUrl)) return "openai-api";
   if (title.includes("ollama") || apiUrl.includes("11434") || apiUrl.includes("ollama")) return "ollama";
   if (title.includes("gemini") || apiUrl.includes("generativelanguage.googleapis.com")) return "gemini";
   if (title.includes("anthropic") || apiUrl.includes("anthropic")) return "anthropic";
   if (title.includes("openrouter") || apiUrl.includes("openrouter")) return "openrouter";
+
+  // Default OpenRouter preset stores a bare vendor/model slug; without this we fall through to openai-api and prefix wrong.
+  if (modelVal.includes("/") && !modelVal.includes("://")) {
+    return "openrouter";
+  }
   return "openai-api";
 }
 
@@ -140,6 +167,9 @@ export async function collectAggregatedProviderModels(
   const probes: ProviderProbeOutcome[] = [];
 
   for (const entry of config.models as Record<string, unknown>[]) {
+    if (Boolean(entry.disabled)) {
+      continue;
+    }
     const providerId = inferProviderId(entry);
     const title = String(entry.title || providerId);
     const result = await probeProvider({

@@ -16,10 +16,16 @@ struct OpenAIModelProviderFactory: ModelProviderFactory {
         let configuredKey = (primaryConfig?.apiKey ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         let resolvedStaticKey = configuredKey.isEmpty ? apiKey : configuredKey
 
+        let parsedPrimaryURL = CoreModelProviderFactory.parseURL(primaryConfig?.apiUrl)
+        let allowKeylessLAN = parsedPrimaryURL.map { OpenAICompatibleCatalogEndpoint.hostAllowsKeylessOpenAIProbe(host: $0.host) } ?? false
+
         let keyProvider: (@Sendable () -> String)?
         let isOAuth: Bool
         if !resolvedStaticKey.isEmpty {
             keyProvider = { resolvedStaticKey }
+            isOAuth = false
+        } else if allowKeylessLAN {
+            keyProvider = { "" }
             isOAuth = false
         } else if let oauthProvider = config.oauthTokenProvider, oauthProvider() != nil {
             keyProvider = { config.oauthTokenProvider?() ?? "" }
