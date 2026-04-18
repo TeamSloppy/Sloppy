@@ -327,6 +327,7 @@ export function ActorsView() {
   const [linkMenu, setLinkMenu] = useState(null);
   const [showNewActorPopup, setShowNewActorPopup] = useState(false);
   const [showNewTeamPopup, setShowNewTeamPopup] = useState(false);
+  const [showHowItWorksPopup, setShowHowItWorksPopup] = useState(false);
 
   const [viewTransform, setViewTransform] = useState({ x: 0, y: 0, scale: 1 });
   const [panState, setPanState] = useState(null);
@@ -1532,6 +1533,7 @@ export function ActorsView() {
                   return !previous;
                 });
                 setShowNewTeamPopup(false);
+                setShowHowItWorksPopup(false);
               }}
             >
               + New Actor
@@ -1542,9 +1544,21 @@ export function ActorsView() {
               onClick={() => {
                 setShowNewTeamPopup((previous) => !previous);
                 setShowNewActorPopup(false);
+                setShowHowItWorksPopup(false);
               }}
             >
               + New Team
+            </button>
+            <button
+              type="button"
+              className={showHowItWorksPopup ? "active" : ""}
+              onClick={() => {
+                setShowHowItWorksPopup((previous) => !previous);
+                setShowNewActorPopup(false);
+                setShowNewTeamPopup(false);
+              }}
+            >
+              How it works
             </button>
           </div>
 
@@ -1904,6 +1918,55 @@ export function ActorsView() {
                     ) : null}
                   </div>
                 </form>
+              </div>
+            </div>
+          ) : null}
+
+          {showHowItWorksPopup ? (
+            <div
+              className="actor-modal-backdrop"
+              onPointerDown={(event) => {
+                if (event.target === event.currentTarget) {
+                  setShowHowItWorksPopup(false);
+                }
+              }}
+            >
+              <div className="actor-modal-card actor-modal-card--wide" style={{ maxHeight: "80vh", overflowY: "auto" }} onPointerDown={(event) => event.stopPropagation()}>
+                <header>
+                  <strong>How the Actors Board works</strong>
+                  <button
+                    type="button"
+                    className="actor-link-menu-close"
+                    onClick={() => setShowHowItWorksPopup(false)}
+                  >
+                    ×
+                  </button>
+                </header>
+                <div style={{ padding: "16px", lineHeight: "1.5" }}>
+                  <p>The Actors Board defines <strong>who can do what</strong>. Tasks are routed based on the connections (links) you draw between actors.</p>
+                  
+                  <h3 style={{ marginTop: "16px", marginBottom: "8px" }}>Teams & the Pipeline</h3>
+                  <p>Teams group actors together. A team provides several benefits:</p>
+                  <ul style={{ paddingLeft: "20px", marginBottom: "16px" }}>
+                    <li><strong>Task Scoping:</strong> Assigning a task to a team limits execution exclusively to that team's members.</li>
+                    <li><strong>Handoff:</strong> When a team member completes a task, the system automatically follows <code>task</code> links to pass it to the next team member.</li>
+                    <li><strong>Retry/Failover:</strong> If an agent fails, the task is given to the next available agent in the team.</li>
+                  </ul>
+
+                  <h3 style={{ marginTop: "16px", marginBottom: "8px" }}>Typical Flow (Dev → Reviewer → QA)</h3>
+                  <p>Create a Team with your developers, reviewers, and QA agents. Draw <strong>Task</strong> links between them:</p>
+                  <p style={{ background: "rgba(0,0,0,0.1)", padding: "8px", borderRadius: "4px", fontFamily: "monospace" }}>[Dev] → (Task Link) → [Reviewer] → (Task Link) → [QA]</p>
+                  <p style={{ marginTop: "8px" }}>If a reviewer rejects a task, the system automatically finds a <code>developer</code> role in the same team and reassigns it back to them, moving the task status to <code>ready</code>.</p>
+
+                  <h3 style={{ marginTop: "16px", marginBottom: "8px" }}>Link Sockets</h3>
+                  <ul style={{ paddingLeft: "20px", marginBottom: "16px" }}>
+                    <li><strong>Peer (Left/Right sockets):</strong> For equal-level collaboration. Used to pass tasks back and forth without decomposition.</li>
+                    <li><strong>Hierarchical (Top/Bottom sockets):</strong> Triggers Swarm mode. A task assigned to a manager with hierarchical links to subordinates will be automatically broken into subtasks and delegated in parallel.</li>
+                  </ul>
+
+                  <h3 style={{ marginTop: "16px", marginBottom: "8px" }}>Swarm: Parallel Task Decomposition</h3>
+                  <p>Swarm mode is activated when a task is assigned to an actor that has <strong>hierarchical task links</strong> to subordinate actors. The LLM planner will read the parent task, create child tasks, and execute them in parallel based on the depth levels of the hierarchy.</p>
+                </div>
               </div>
             </div>
           ) : null}

@@ -1410,6 +1410,7 @@ public struct AgentChannelSessionSettings: Codable, Sendable, Equatable {
 
 public struct AgentConfigDetail: Codable, Sendable, Equatable {
     public var agentId: String
+    public var role: String
     public var selectedModel: String?
     public var availableModels: [ProviderModelOption]
     public var documents: AgentDocumentBundle
@@ -1420,6 +1421,7 @@ public struct AgentConfigDetail: Codable, Sendable, Equatable {
 
     public init(
         agentId: String,
+        role: String,
         selectedModel: String?,
         availableModels: [ProviderModelOption],
         documents: AgentDocumentBundle,
@@ -1429,6 +1431,7 @@ public struct AgentConfigDetail: Codable, Sendable, Equatable {
         runtime: AgentRuntimeConfig = AgentRuntimeConfig()
     ) {
         self.agentId = agentId
+        self.role = role
         self.selectedModel = selectedModel
         self.availableModels = availableModels
         self.documents = documents
@@ -1439,19 +1442,13 @@ public struct AgentConfigDetail: Codable, Sendable, Equatable {
     }
 
     enum CodingKeys: String, CodingKey {
-        case agentId
-        case selectedModel
-        case availableModels
-        case documents
-        case heartbeat
-        case channelSessions
-        case heartbeatStatus
-        case runtime
+        case agentId, role, selectedModel, availableModels, documents, heartbeat, channelSessions, heartbeatStatus, runtime
     }
 
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         agentId = try container.decode(String.self, forKey: .agentId)
+        role = try container.decodeIfPresent(String.self, forKey: .role) ?? ""
         selectedModel = try container.decodeIfPresent(String.self, forKey: .selectedModel)
         availableModels = try container.decode([ProviderModelOption].self, forKey: .availableModels)
         documents = try container.decode(AgentDocumentBundle.self, forKey: .documents)
@@ -1463,6 +1460,7 @@ public struct AgentConfigDetail: Codable, Sendable, Equatable {
 }
 
 public struct AgentConfigUpdateRequest: Codable, Sendable {
+    public var role: String?
     public var selectedModel: String?
     public var documents: AgentDocumentBundle
     public var heartbeat: AgentHeartbeatSettings
@@ -1470,12 +1468,14 @@ public struct AgentConfigUpdateRequest: Codable, Sendable {
     public var runtime: AgentRuntimeConfig
 
     public init(
+        role: String?,
         selectedModel: String?,
         documents: AgentDocumentBundle,
         heartbeat: AgentHeartbeatSettings = AgentHeartbeatSettings(),
         channelSessions: AgentChannelSessionSettings = AgentChannelSessionSettings(),
         runtime: AgentRuntimeConfig = AgentRuntimeConfig()
     ) {
+        self.role = role
         self.selectedModel = selectedModel
         self.documents = documents
         self.heartbeat = heartbeat
@@ -1484,15 +1484,12 @@ public struct AgentConfigUpdateRequest: Codable, Sendable {
     }
 
     enum CodingKeys: String, CodingKey {
-        case selectedModel
-        case documents
-        case heartbeat
-        case channelSessions
-        case runtime
+        case role, selectedModel, documents, heartbeat, channelSessions, runtime
     }
 
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
+        role = try container.decodeIfPresent(String.self, forKey: .role)
         selectedModel = try container.decodeIfPresent(String.self, forKey: .selectedModel)
         documents = try container.decode(AgentDocumentBundle.self, forKey: .documents)
         heartbeat = try container.decodeIfPresent(AgentHeartbeatSettings.self, forKey: .heartbeat) ?? AgentHeartbeatSettings()

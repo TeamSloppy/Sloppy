@@ -192,6 +192,7 @@ final class AgentCatalogFileStore {
 
         return AgentConfigDetail(
             agentId: normalizedAgentID,
+            role: summary.role,
             selectedModel: configFile.selectedModel,
             availableModels: availableModels,
             documents: documents,
@@ -212,6 +213,11 @@ final class AgentCatalogFileStore {
         }
 
         let summary = try getAgent(id: normalizedAgentID)
+
+        let newRole = request.role?.trimmingCharacters(in: .whitespacesAndNewlines) ?? summary.role
+        guard !newRole.isEmpty else {
+            throw StoreError.invalidPayload
+        }
 
         let runtime = request.runtime
         let normalizedSelectedModel = request.selectedModel?.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -275,7 +281,7 @@ final class AgentCatalogFileStore {
                 AgentConfigFile(
                     id: summary.id,
                     displayName: summary.displayName,
-                    role: summary.role,
+                    role: newRole,
                     createdAt: summary.createdAt,
                     selectedModel: selectedModel,
                     heartbeat: heartbeat,
@@ -284,6 +290,12 @@ final class AgentCatalogFileStore {
                 ),
                 isSystem: summary.isSystem
             )
+
+            if newRole != summary.role {
+                var updatedSummary = summary
+                updatedSummary.role = newRole
+                try writeAgentSummary(updatedSummary)
+            }
 
             let agentDirectory = agentDirectoryURL(for: normalizedAgentID, isSystem: summary.isSystem)
             try writeTextFile(contents: normalizedDocuments.agentsMarkdown, at: agentDirectory.appendingPathComponent("AGENTS.md"))
@@ -299,6 +311,7 @@ final class AgentCatalogFileStore {
 
         return AgentConfigDetail(
             agentId: normalizedAgentID,
+            role: newRole,
             selectedModel: selectedModel,
             availableModels: availableModels,
             documents: normalizedDocuments,

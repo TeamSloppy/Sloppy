@@ -913,18 +913,37 @@ extension CoreService {
             return nil
         }
 
-        let nextIndex = currentIndex + 1
-        guard nextIndex < team.memberActorIds.count else {
-            return nil
+        let nodesByID = Dictionary(uniqueKeysWithValues: (board?.nodes ?? []).map { ($0.id, $0) })
+        let links = board?.links ?? []
+        
+        var nextActorID: String?
+        
+        for link in links {
+            guard link.communicationType == .task else { continue }
+            if link.sourceActorId == currentActorID, team.memberActorIds.contains(link.targetActorId) {
+                nextActorID = link.targetActorId
+                break
+            }
+            if link.direction == .twoWay, link.targetActorId == currentActorID, team.memberActorIds.contains(link.sourceActorId) {
+                nextActorID = link.sourceActorId
+                break
+            }
+        }
+        
+        if nextActorID == nil {
+            let nextIndex = currentIndex + 1
+            guard nextIndex < team.memberActorIds.count else {
+                return nil
+            }
+            nextActorID = team.memberActorIds[nextIndex]
         }
 
-        let nodesByID = Dictionary(uniqueKeysWithValues: (board?.nodes ?? []).map { ($0.id, $0) })
-        let nextActorID = team.memberActorIds[nextIndex]
-        guard let node = nodesByID[nextActorID],
+        guard let targetActorID = nextActorID,
+              let node = nodesByID[targetActorID],
               node.linkedAgentId != nil else {
             return nil
         }
-        return TeamRetryDelegate(actorID: nextActorID, agentID: node.linkedAgentId)
+        return TeamRetryDelegate(actorID: targetActorID, agentID: node.linkedAgentId)
     }
 
     func extractOriginChannelID(from description: String) -> String? {

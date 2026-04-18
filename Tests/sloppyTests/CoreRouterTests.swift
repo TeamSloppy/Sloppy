@@ -1336,6 +1336,7 @@ func agentConfigEndpointsReadAndUpdate() async throws {
 
     let nextModel = fetched.availableModels.last?.id ?? fetched.selectedModel ?? ""
     let updateRequest = AgentConfigUpdateRequest(
+        role: nil,
         selectedModel: nextModel,
         documents: AgentDocumentBundle(
             userMarkdown: "# User\nUpdated user profile\n",
@@ -1418,6 +1419,7 @@ func agentConfigHeartbeatValidationAndBackfill() async throws {
     #expect(FileManager.default.fileExists(atPath: heartbeatPath.path))
 
     let invalidUpdate = AgentConfigUpdateRequest(
+        role: nil,
         selectedModel: "openai:gpt-5.4-mini",
         documents: AgentDocumentBundle(
             userMarkdown: "# User\nA\n",
@@ -1437,6 +1439,7 @@ func agentConfigHeartbeatValidationAndBackfill() async throws {
     #expect(invalidResponse.status == 400)
 
     let invalidChannelSessionUpdate = AgentConfigUpdateRequest(
+        role: nil,
         selectedModel: "openai:gpt-5.4-mini",
         documents: AgentDocumentBundle(
             userMarkdown: "# User\nA\n",
@@ -1537,6 +1540,7 @@ func channelSessionEndpointsFilterByAgentAndExpireStaleSessions() async throws {
     _ = try await service.updateAgentConfig(
         agentID: "agent-channel-owner",
         request: AgentConfigUpdateRequest(
+            role: nil,
             selectedModel: ownerConfig.selectedModel,
             documents: ownerConfig.documents,
             heartbeat: ownerConfig.heartbeat,

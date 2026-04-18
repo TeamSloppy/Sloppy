@@ -120,6 +120,7 @@ private func makeAgentSessionFixture(
     _ = try catalogStore.updateAgentConfig(
         agentID: agentID,
         request: AgentConfigUpdateRequest(
+            role: nil,
             selectedModel: selectedModel,
             documents: AgentDocumentBundle(
                 userMarkdown: "# User\nTest user\n",
@@ -596,6 +597,7 @@ func agentSessionBootstrapIncludesConversationHistoryAfterRestart() async throws
     _ = try catalogStore1.updateAgentConfig(
         agentID: agentID,
         request: AgentConfigUpdateRequest(
+            role: nil,
             selectedModel: "openai:gpt-5.4-mini",
             documents: AgentDocumentBundle(
                 userMarkdown: "# User\nTest\n",

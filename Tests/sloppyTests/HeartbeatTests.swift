@@ -92,6 +92,7 @@ private func configureHeartbeatAgent(
     return try await service.updateAgentConfig(
         agentID: agentID,
         request: AgentConfigUpdateRequest(
+            role: current.role,
             selectedModel: current.selectedModel,
             documents: documents,
             heartbeat: AgentHeartbeatSettings(
