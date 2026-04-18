@@ -652,6 +652,49 @@ function getSessionDisplayLabel(session) {
   return title || preview || "Session";
 }
 
+function sessionMatchesSidebarSearch(session, queryLower) {
+  const q = typeof queryLower === "string" ? queryLower.trim().toLowerCase() : "";
+  if (!q) {
+    return true;
+  }
+  const label = getSessionDisplayLabel(session);
+  const haystack = `${label} ${String(session?.id || "")} ${String(session?.title || "")} ${String(session?.lastMessagePreview || "")}`
+    .toLowerCase()
+    .replace(/\s+/g, " ");
+  const tokens = q.split(/\s+/).filter(Boolean);
+  return tokens.every((t) => haystack.includes(t));
+}
+
+const SESSION_SIDEBAR_RECENT_DAYS = 3;
+const SESSION_SIDEBAR_RECENT_MS = SESSION_SIDEBAR_RECENT_DAYS * 24 * 60 * 60 * 1000;
+
+function getSessionListActivityTime(session) {
+  const raw = session?.updatedAt ?? session?.createdAt;
+  const ms = new Date(raw || 0).getTime();
+  return Number.isFinite(ms) ? ms : 0;
+}
+
+function isSessionSidebarRecent(session) {
+  const ms = getSessionListActivityTime(session);
+  if (!ms) {
+    return true;
+  }
+  return Date.now() - ms < SESSION_SIDEBAR_RECENT_MS;
+}
+
+function splitSessionsRecentAndPast(sessions) {
+  const recent = [];
+  const past = [];
+  for (const s of sessions) {
+    if (isSessionSidebarRecent(s)) {
+      recent.push(s);
+    } else {
+      past.push(s);
+    }
+  }
+  return { recent, past };
+}
+
 function isActiveRunStage(stage) {
   const value = String(stage || "").trim().toLowerCase();
   return value === "thinking" || value === "searching" || value === "responding";
@@ -2455,6 +2498,9 @@ export function AgentChatTab({
   const [gitBadge, setGitBadge] = useState(null);
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
   const [isDesktopSessionsCollapsed, setIsDesktopSessionsCollapsed] = useState(false);
+  const [sessionSidebarSearch, setSessionSidebarSearch] = useState("");
+  const [sessionPastTasksOpen, setSessionPastTasksOpen] = useState(false);
+  const [sessionPastRegularOpen, setSessionPastRegularOpen] = useState(false);
   const [isModelDropdownOpen, setIsModelDropdownOpen] = useState(false);
   const [modelSearch, setModelSearch] = useState("");
   const [isNarrowChatViewport, setIsNarrowChatViewport] = useState(() =>
@@ -2488,6 +2534,8 @@ export function AgentChatTab({
   const prevAgentIdForDraftRef = useRef(agentId);
   const subagentSessionIdRef = useRef("");
   const sessionSyncRef = useRef({ sessionId: null, timerId: null, inflight: false, queued: false });
+  /** Tracks last seen `initialSessionId` from the route so we only follow URL when it actually changes (not on sidebar clicks). */
+  const prevRouteInitialSessionIdRef = useRef(undefined);
   const taskRecordCacheRef = useRef(new Map());
   const taskRecordInflightRef = useRef(new Map());
   const activeModelOption = useMemo(
@@ -2556,6 +2604,29 @@ export function AgentChatTab({
 
   const taskSessions = useMemo(() => sessions.filter(isTaskSession), [sessions]);
   const regularSessions = useMemo(() => sessions.filter((s) => !isTaskSession(s)), [sessions]);
+
+  const sessionSearchLower = useMemo(() => String(sessionSidebarSearch || "").trim().toLowerCase(), [sessionSidebarSearch]);
+
+  const filteredTaskSessions = useMemo(
+    () => taskSessions.filter((s) => sessionMatchesSidebarSearch(s, sessionSearchLower)),
+    [taskSessions, sessionSearchLower]
+  );
+  const filteredRegularSessions = useMemo(
+    () => regularSessions.filter((s) => sessionMatchesSidebarSearch(s, sessionSearchLower)),
+    [regularSessions, sessionSearchLower]
+  );
+
+  const { recent: recentFilteredTaskSessions, past: pastFilteredTaskSessions } = useMemo(
+    () => splitSessionsRecentAndPast(filteredTaskSessions),
+    [filteredTaskSessions]
+  );
+  const { recent: recentFilteredRegularSessions, past: pastFilteredRegularSessions } = useMemo(
+    () => splitSessionsRecentAndPast(filteredRegularSessions),
+    [filteredRegularSessions]
+  );
+
+  const hasSidebarPastSessions =
+    pastFilteredTaskSessions.length > 0 || pastFilteredRegularSessions.length > 0;
 
   /** Boolean only — avoids re-running the URL-sync effect on every session list merge (stream/SSE). */
   const urlSessionPresentInList = useMemo(() => {
@@ -2683,7 +2754,25 @@ export function AgentChatTab({
   useEffect(() => {
     setIsDesktopSessionsCollapsed(false);
     setIsMobileSidebarOpen(false);
+    setSessionSidebarSearch("");
+    setSessionPastTasksOpen(false);
+    setSessionPastRegularOpen(false);
   }, [agentId]);
+
+  useEffect(() => {
+    if (sessionSearchLower && filteredTaskSessions.length > 0) {
+      setTasksDirectoryOpen(true);
+    }
+  }, [sessionSearchLower, filteredTaskSessions.length]);
+
+  useEffect(() => {
+    if (pastFilteredTaskSessions.some((s) => s.id === activeSessionId)) {
+      setSessionPastTasksOpen(true);
+    }
+    if (pastFilteredRegularSessions.some((s) => s.id === activeSessionId)) {
+      setSessionPastRegularOpen(true);
+    }
+  }, [activeSessionId, pastFilteredTaskSessions, pastFilteredRegularSessions]);
 
   useEffect(() => {
     if (!agentId || !activeSessionId) {
@@ -2991,7 +3080,15 @@ export function AgentChatTab({
     };
   }, [agentId, projectId]);
 
-  /** When the session id in the URL changes (e.g. browser back/forward) without agent/project change, follow it. */
+  useEffect(() => {
+    prevRouteInitialSessionIdRef.current = undefined;
+  }, [agentId, projectId]);
+
+  /**
+   * When the route-provided session id changes (deep link, Watch session, browser history), follow it.
+   * Do not depend on `activeSessionId` or re-sync when only the merged session list changes — that used to
+   * reset the sidebar selection back to the stale route id after every click.
+   */
   useEffect(() => {
     if (isLoadingSessions) {
       return;
@@ -3004,25 +3101,31 @@ export function AgentChatTab({
         ? String(initialSessionId).trim()
         : "";
     if (!urlRaw) {
-      return;
-    }
-    const current = String(activeSessionId ?? "").trim();
-    if (current === urlRaw) {
+      prevRouteInitialSessionIdRef.current = initialSessionId;
       return;
     }
     if (!urlSessionPresentInList) {
       return;
     }
+
+    const previous = prevRouteInitialSessionIdRef.current;
+    prevRouteInitialSessionIdRef.current = initialSessionId;
+
+    // First run after bootstrap: list is ready; bootstrap already picked `initialSessionId` when present.
+    if (previous === undefined) {
+      return;
+    }
+    if (previous === initialSessionId) {
+      return;
+    }
+
+    const current = String(activeSessionIdRef.current ?? "").trim();
+    if (current === urlRaw) {
+      return;
+    }
     setActiveSessionId(urlRaw);
     void openSession(urlRaw);
-  }, [
-    agentId,
-    projectId,
-    initialSessionId,
-    isLoadingSessions,
-    activeSessionId,
-    urlSessionPresentInList
-  ]);
+  }, [agentId, projectId, initialSessionId, isLoadingSessions, urlSessionPresentInList]);
 
   async function openSession(sessionId, isCancelled = false) {
     if (!sessionId) {
@@ -4228,6 +4331,54 @@ export function AgentChatTab({
     return next;
   }, [activeSessionId, isActiveSessionBusy, subagentPanel.sessionId, isSubagentBusy]);
 
+  const sessionSearchNoMatches =
+    Boolean(sessionSearchLower) &&
+    filteredTaskSessions.length === 0 &&
+    filteredRegularSessions.length === 0 &&
+    sessions.length > 0;
+  const sessionSearchTasksEmptyButOthersMatch =
+    Boolean(sessionSearchLower) &&
+    taskSessions.length > 0 &&
+    filteredTaskSessions.length === 0 &&
+    filteredRegularSessions.length > 0;
+
+  const anyPastSidebarSectionOpen = sessionPastTasksOpen || sessionPastRegularOpen;
+
+  function togglePastSessionsShortcut() {
+    const anyOpen = sessionPastTasksOpen || sessionPastRegularOpen;
+    const expand = !anyOpen;
+    setSessionPastTasksOpen(expand && pastFilteredTaskSessions.length > 0);
+    setSessionPastRegularOpen(expand && pastFilteredRegularSessions.length > 0);
+  }
+
+  function renderSessionSidebarRow(session) {
+    return (
+      <button
+        key={session.id}
+        type="button"
+        className={`agent-chat-session-item ${session.id === activeSessionId ? "active" : ""}`}
+        data-testid={`agent-chat-session-${session.id}`}
+        onClick={() => openSessionFromSidebar(session.id)}
+        disabled={isLoadingSessions || isSending}
+      >
+        <div className="agent-chat-session-title">
+          {busySessionIds.has(session.id) ? <span className="agent-chat-session-active-dot" aria-hidden="true" /> : null}
+          {getSessionDisplayLabel(session)}
+        </div>
+        <div className="agent-chat-session-meta">
+          {session.updatedAt
+            ? new Date(session.updatedAt).toLocaleDateString([], {
+                month: "short",
+                day: "numeric",
+                hour: "2-digit",
+                minute: "2-digit"
+              })
+            : "No date"}
+        </div>
+      </button>
+    );
+  }
+
   function toggleExpandedRecord(recordId) {
     if (!recordId) {
       return;
@@ -4326,10 +4477,55 @@ export function AgentChatTab({
             </button>
           </div>
         </div>
+        <div className="agent-chat-session-search">
+          <span className="material-symbols-rounded agent-chat-session-search-icon" aria-hidden="true">
+            search
+          </span>
+          <input
+            type="search"
+            className="agent-chat-session-search-input"
+            data-testid="agent-chat-session-search"
+            value={sessionSidebarSearch}
+            onChange={(e) => setSessionSidebarSearch(e.target.value)}
+            placeholder="Filter sessions…"
+            autoComplete="off"
+            aria-label="Filter sessions"
+            disabled={isLoadingSessions || sessions.length === 0}
+          />
+          {hasSidebarPastSessions ? (
+            <button
+              type="button"
+              className={`agent-chat-session-filter-btn agent-chat-icon-button ${anyPastSidebarSectionOpen ? "active" : ""}`}
+              data-testid="agent-chat-session-past-toggle"
+              title={
+                anyPastSidebarSectionOpen
+                  ? "Collapse “Past” (older than 3 days)"
+                  : "Expand “Past” (older than 3 days)"
+              }
+              aria-label={
+                anyPastSidebarSectionOpen
+                  ? "Collapse sessions older than three days"
+                  : "Expand sessions older than three days"
+              }
+              aria-pressed={anyPastSidebarSectionOpen}
+              disabled={isLoadingSessions}
+              onClick={togglePastSessionsShortcut}
+            >
+              <span className="material-symbols-rounded" aria-hidden="true">
+                history
+              </span>
+            </button>
+          ) : null}
+        </div>
         <div className="agent-chat-session-list" data-testid="agent-chat-session-list">
           {sessions.length === 0 ? (
             <p className="placeholder-text" style={{ padding: "0 12px" }}>
               {isLoadingSessions ? "Loading sessions..." : "No sessions"}
+            </p>
+          ) : null}
+          {sessionSearchNoMatches ? (
+            <p className="placeholder-text" style={{ padding: "0 12px" }}>
+              No sessions match your search.
             </p>
           ) : null}
           {taskSessions.length > 0 ? (
@@ -4343,53 +4539,78 @@ export function AgentChatTab({
                   {tasksDirectoryOpen ? "folder_open" : "folder"}
                 </span>
                 <span className="agent-chat-session-directory-label">Tasks</span>
-                <span className="agent-chat-session-directory-count">{taskSessions.length}</span>
+                <span className="agent-chat-session-directory-count">
+                  {sessionSearchLower ? `${filteredTaskSessions.length}/${taskSessions.length}` : taskSessions.length}
+                </span>
                 <span className={`material-symbols-rounded agent-chat-session-directory-chevron ${tasksDirectoryOpen ? "open" : ""}`} aria-hidden="true">
                   expand_more
                 </span>
               </button>
               {tasksDirectoryOpen ? (
                 <div className="agent-chat-session-directory-children">
-                  {taskSessions.map((session) => (
-                    <button
-                      key={session.id}
-                      type="button"
-                      className={`agent-chat-session-item ${session.id === activeSessionId ? "active" : ""}`}
-                      data-testid={`agent-chat-session-${session.id}`}
-                      onClick={() => openSessionFromSidebar(session.id)}
-                      disabled={isLoadingSessions || isSending}
-                    >
-                      <div className="agent-chat-session-title">
-                        {busySessionIds.has(session.id) ? <span className="agent-chat-session-active-dot" aria-hidden="true" /> : null}
-                        {getSessionDisplayLabel(session)}
-                      </div>
-                      <div className="agent-chat-session-meta">
-                        {session.updatedAt ? new Date(session.updatedAt).toLocaleDateString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }) : "No date"}
-                      </div>
-                    </button>
-                  ))}
+                  {filteredTaskSessions.length === 0 && sessionSearchTasksEmptyButOthersMatch ? (
+                    <p className="placeholder-text agent-chat-session-directory-empty">No matching task sessions.</p>
+                  ) : null}
+                  {recentFilteredTaskSessions.map((session) => renderSessionSidebarRow(session))}
+                  {pastFilteredTaskSessions.length > 0 ? (
+                    <div className="agent-chat-session-past">
+                      <button
+                        type="button"
+                        className={`agent-chat-session-past-toggle ${sessionPastTasksOpen ? "open" : ""}`}
+                        onClick={() => setSessionPastTasksOpen((o) => !o)}
+                      >
+                        <span className="material-symbols-rounded agent-chat-session-past-icon" aria-hidden="true">
+                          history
+                        </span>
+                        <span className="agent-chat-session-past-label">Past</span>
+                        <span className="agent-chat-session-past-hint">3d+</span>
+                        <span className="agent-chat-session-directory-count">{pastFilteredTaskSessions.length}</span>
+                        <span
+                          className={`material-symbols-rounded agent-chat-session-directory-chevron ${sessionPastTasksOpen ? "open" : ""}`}
+                          aria-hidden="true"
+                        >
+                          expand_more
+                        </span>
+                      </button>
+                      {sessionPastTasksOpen ? (
+                        <div className="agent-chat-session-past-children">
+                          {pastFilteredTaskSessions.map((session) => renderSessionSidebarRow(session))}
+                        </div>
+                      ) : null}
+                    </div>
+                  ) : null}
                 </div>
               ) : null}
             </div>
           ) : null}
-          {regularSessions.map((session) => (
-            <button
-              key={session.id}
-              type="button"
-              className={`agent-chat-session-item ${session.id === activeSessionId ? "active" : ""}`}
-              data-testid={`agent-chat-session-${session.id}`}
-              onClick={() => openSessionFromSidebar(session.id)}
-              disabled={isLoadingSessions || isSending}
-            >
-              <div className="agent-chat-session-title">
-                {busySessionIds.has(session.id) ? <span className="agent-chat-session-active-dot" aria-hidden="true" /> : null}
-                {getSessionDisplayLabel(session)}
-              </div>
-              <div className="agent-chat-session-meta">
-                {session.updatedAt ? new Date(session.updatedAt).toLocaleDateString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }) : "No date"}
-              </div>
-            </button>
-          ))}
+          {recentFilteredRegularSessions.map((session) => renderSessionSidebarRow(session))}
+          {pastFilteredRegularSessions.length > 0 ? (
+            <div className="agent-chat-session-past agent-chat-session-past--root">
+              <button
+                type="button"
+                className={`agent-chat-session-past-toggle ${sessionPastRegularOpen ? "open" : ""}`}
+                onClick={() => setSessionPastRegularOpen((o) => !o)}
+              >
+                <span className="material-symbols-rounded agent-chat-session-past-icon" aria-hidden="true">
+                  history
+                </span>
+                <span className="agent-chat-session-past-label">Past</span>
+                <span className="agent-chat-session-past-hint">3d+</span>
+                <span className="agent-chat-session-directory-count">{pastFilteredRegularSessions.length}</span>
+                <span
+                  className={`material-symbols-rounded agent-chat-session-directory-chevron ${sessionPastRegularOpen ? "open" : ""}`}
+                  aria-hidden="true"
+                >
+                  expand_more
+                </span>
+              </button>
+              {sessionPastRegularOpen ? (
+                <div className="agent-chat-session-past-children">
+                  {pastFilteredRegularSessions.map((session) => renderSessionSidebarRow(session))}
+                </div>
+              ) : null}
+            </div>
+          ) : null}
         </div>
         <button
           type="button"

@@ -11,7 +11,8 @@ import {
     buildTaskCounts,
     buildSwarmGroups,
     formatRelativeTime,
-    sortTasksByDate
+    sortTasksByDate,
+    workersForProject
 } from "./utils";
 import {
     fetchTaskComments,
@@ -817,9 +818,28 @@ function TaskDetailView({
     const hasReviewDiff = Boolean(task.worktreeBranch);
     const canShowReviewTab = hasReviewDiff || task.status === "needs_review";
 
-    const activeWorker = workers.find(
-        (w) => String(w.taskId || "") === String(task.id || "") && ACTIVE_WORKER_STATUSES.has(String(w.status || "").toLowerCase())
+    const projectWorkers = useMemo(() => workersForProject(project, workers), [project, workers]);
+    const workersForTask = useMemo(
+        () => projectWorkers.filter((w) => String(w.taskId || "") === String(task.id || "")),
+        [projectWorkers, task.id]
     );
+
+    const activeWorker = workersForTask.find((w) =>
+        ACTIVE_WORKER_STATUSES.has(String(w.status || "").toLowerCase())
+    );
+
+    const stalledSessionWorker =
+        task.status === "blocked" || task.status === "waiting_input"
+            ? workersForTask.find((w) => String(w?.channelId || "").trim())
+            : null;
+
+    const watchChannelId = String(activeWorker?.channelId || stalledSessionWorker?.channelId || "").trim();
+
+    const showWatchSession =
+        Boolean(onWatchAgentTaskSession) &&
+        (Boolean(activeWorker) ||
+            ((task.status === "blocked" || task.status === "waiting_input") &&
+                (Boolean(stalledSessionWorker) || Boolean(String(task.claimedAgentId || "").trim()))));
 
     useEffect(() => {
         if (!canShowReviewTab && activeTab === "review") {
@@ -867,11 +887,11 @@ function TaskDetailView({
                         <span className="td-breadcrumb-current">{task.title || "Untitled"}</span>
                     </div>
                     <div className="td-header-actions">
-                        {activeWorker && onWatchAgentTaskSession && (
+                        {showWatchSession && (
                             <button
                                 type="button"
                                 className="task-review-open-btn"
-                                onClick={() => onWatchAgentTaskSession(project, task, activeWorker.channelId)}
+                                onClick={() => onWatchAgentTaskSession(project, task, watchChannelId)}
                             >
                                 <span className="material-symbols-rounded" aria-hidden="true">visibility</span>
                                 Watch session
