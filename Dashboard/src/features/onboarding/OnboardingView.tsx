@@ -70,21 +70,8 @@ const PROVIDERS: ProviderDefinition[] = [
     }
   },
   {
-    id: "anthropic",
-    title: "Anthropic",
-    description: "Claude models via Anthropic API key.",
-    requiresApiKey: true,
-    authHint: "Uses payload key, saved config key, or ANTHROPIC_API_KEY.",
-    defaultEntry: {
-      title: "anthropic",
-      apiKey: "",
-      apiUrl: "https://api.anthropic.com",
-      model: "claude-sonnet-4-20250514"
-    }
-  },
-  {
     id: "anthropic-oauth",
-    title: "Anthropic (OAuth)",
+    title: "Anthropic",
     description: "Claude via Anthropic OAuth or Claude Code token.",
     requiresApiKey: true,
     authHint: "Paste an OAuth or setup token (not sk-ant-api Console keys).",

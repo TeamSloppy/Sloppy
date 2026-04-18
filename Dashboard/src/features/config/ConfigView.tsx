@@ -143,7 +143,7 @@ const PROVIDER_CATALOG = [
   {
     id: "anthropic-oauth",
     brandProviderKey: "anthropic",
-    title: "Anthropic (OAuth)",
+    title: "Anthropic",
     description: "Claude via Anthropic OAuth or Claude Code token (setup tokens, not Console API keys).",
     modelHint: "claude-sonnet-4-20250514",
     authMethod: "api_key",
@@ -195,6 +195,9 @@ const PROVIDER_CATALOG = [
     }
   }
 ];
+
+/** UI presets only: hide Anthropic Console API key; OAuth preset remains. Full `PROVIDER_CATALOG` is still used for metadata and existing `anthropic` rows. */
+const PROVIDER_CATALOG_UI = PROVIDER_CATALOG.filter((p) => p.id !== "anthropic");
 
 function emptyModel() {
   return {
@@ -1732,7 +1735,7 @@ export function ConfigView({ sectionId = "providers", onSectionChange = null }) 
       return (
         <>
           <ProviderEditor
-            providerCatalog={PROVIDER_CATALOG}
+            providerCatalog={PROVIDER_CATALOG_UI}
             draftConfig={draftConfig}
             configuredProviderRows={configuredProviderRows}
             customModelsCount={customModelsCount}

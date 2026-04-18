@@ -14,8 +14,7 @@ Sloppy supports multiple LLM providers. Each provider is configured as an entry 
 | OpenAI API | `openai:` | `https://api.openai.com/v1` | `OPENAI_API_KEY` | API key |
 | OpenAI Codex (OAuth) | `openai:` | `https://chatgpt.com/backend-api` | — | OAuth device code |
 | Google Gemini | `gemini:` | `https://generativelanguage.googleapis.com` | `GEMINI_API_KEY` | API key |
-| Anthropic | `anthropic:` | `https://api.anthropic.com` | `ANTHROPIC_API_KEY` | Console API key (`sk-ant-api…`) |
-| Anthropic (OAuth) | `anthropic:` | `https://api.anthropic.com` | `ANTHROPIC_API_KEY` | OAuth / setup token (see below) |
+| Anthropic | `anthropic:` | `https://api.anthropic.com` | `ANTHROPIC_API_KEY` | OAuth / setup token (see below) |
 | Ollama | `ollama:` | `http://127.0.0.1:11434` | — | None |
 
 ## Environment variables
@@ -119,7 +118,7 @@ Example entry (same fields as above; the difference is the token you paste):
 
 The optional `providerCatalogId` field is set automatically when you use the Dashboard preset; you can omit it if you edit JSON by hand.
 
-**Dashboard:** open **Settings → Providers**, then add the **Anthropic (OAuth)** preset (or paste an OAuth/setup token into the API key field for an Anthropic row). The OAuth preset uses placeholder text that matches setup-style tokens.
+**Dashboard:** open **Settings → Providers**, then add the **Anthropic** preset (or paste an OAuth/setup token into the API key field for an Anthropic row). The OAuth preset uses placeholder text that matches setup-style tokens.
 
 **Third-party proxies** (Bedrock bridges, self-hosted gateways, etc.): point `apiUrl` at your proxy and use the **proxy’s** API key. Do not rely on OAuth-style heuristics for non-Anthropic hosts—Sloppy treats those endpoints as third-party and uses `x-api-key` with whatever secret you configure.
 
@@ -229,7 +228,7 @@ The first-run onboarding wizard (step 2) shows all providers as cards. Select a 
 
 ### Settings
 
-Open **Settings → Providers** in the Dashboard. Use **Add provider** or a preset card. For Anthropic, choose **Anthropic** (Console API key) or **Anthropic (OAuth)** (OAuth / Claude Code–style token). Click **Manage** on a row to open the configuration modal. Enter the API key and API URL, select a model, and click **Save Provider**. The config is saved to `sloppy.json` immediately.
+Open **Settings → Providers** in the Dashboard. Use **Add provider** or a preset card. For Anthropic, choose **Anthropic** (Console API key) or **Anthropic** (OAuth / Claude Code–style token). Click **Manage** on a row to open the configuration modal. Enter the API key and API URL, select a model, and click **Save Provider**. The config is saved to `sloppy.json` immediately.
 
 ## Provider probe API
 
