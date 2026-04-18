@@ -15,6 +15,7 @@ import {
   filterModelsByQuery
 } from "../utils/aggregateProviderModels";
 import { ChannelModelSelector } from "./ChannelModelSelector";
+import { resolveSystemRole, SYSTEM_ROLES } from "./AgentCreateForm";
 
 const AGENT_CONFIG_SECTIONS = [
   { id: "runtime", title: "Runtime", icon: "smart_toy" },
@@ -28,6 +29,7 @@ const AGENT_CONFIG_SECTIONS = [
 function emptyAgentConfigDraft(agentId) {
   return {
     agentId,
+    role: "",
     selectedModel: "",
     availableModels: [],
     documents: {
@@ -65,6 +67,7 @@ function emptyAgentConfigDraft(agentId) {
 function normalizeConfigDraft(agentId, config) {
   return {
     agentId: config.agentId || agentId,
+    role: String(config.role || ""),
     selectedModel: coerceLegacySloppyModelId(String(config.selectedModel || "")),
     availableModels: Array.isArray(config.availableModels) ? config.availableModels : [],
     documents: {
@@ -274,6 +277,7 @@ export function AgentConfigTab({ agentId, agentDisplayName = "", onDeleteAgent =
   const [defaultModelMenuOpen, setDefaultModelMenuOpen] = useState(false);
   const [defaultModelMenuRect, setDefaultModelMenuRect] = useState(null);
   const [modelPickerQuery, setModelPickerQuery] = useState("");
+  const [roleDropdownOpen, setRoleDropdownOpen] = useState(false);
   const agentFileRequestRef = useRef(null);
   const defaultModelPickerRef = useRef(null);
   const defaultModelMenuRef = useRef(null);
@@ -561,6 +565,7 @@ export function AgentConfigTab({ agentId, agentDisplayName = "", onDeleteAgent =
     }
 
     const payload = {
+      role: String(draft.role || "").trim(),
       selectedModel: runtimeType === "native" ? selectedModel : null,
       documents: {
         userMarkdown: String(draft.documents.userMarkdown || ""),
@@ -762,6 +767,55 @@ export function AgentConfigTab({ agentId, agentDisplayName = "", onDeleteAgent =
             <strong>ACP</strong> delegates to an external agent (e.g. Claude Code) via the Agent Client Protocol.
           </p>
           <div className="entry-form-grid">
+            <label style={{ gridColumn: "1 / -1" }}>
+              Agent Role
+              <div className="actor-team-search-wrap">
+                <input
+                  className="actor-team-search"
+                  placeholder="e.g. Senior Backend Developer"
+                  value={draft.role}
+                  onChange={(e) => {
+                    updateField("role", e.target.value);
+                    setRoleDropdownOpen(true);
+                  }}
+                  onFocus={() => setRoleDropdownOpen(true)}
+                  onBlur={() => setTimeout(() => setRoleDropdownOpen(false), 150)}
+                  autoComplete="off"
+                />
+                {roleDropdownOpen && (
+                  <ul className="actor-team-dropdown">
+                    {SYSTEM_ROLES.filter((r) =>
+                      r.label.toLowerCase().includes(draft.role.toLowerCase())
+                    ).map((r) => {
+                      const isSelected = resolveSystemRole(draft.role) === r.value;
+                      return (
+                        <li
+                          key={r.value}
+                          className={`actor-team-dropdown-item ${isSelected ? "selected" : ""}`}
+                          onMouseDown={(event) => {
+                            event.preventDefault();
+                            updateField("role", r.label);
+                            setRoleDropdownOpen(false);
+                          }}
+                        >
+                          <span className="actor-team-dropdown-name">{r.label}</span>
+                          {isSelected && <span className="actor-team-dropdown-check material-symbols-rounded">check</span>}
+                        </li>
+                      );
+                    })}
+                    {SYSTEM_ROLES.filter((r) =>
+                      r.label.toLowerCase().includes(draft.role.toLowerCase())
+                    ).length === 0 && (
+                      <li className="actor-team-dropdown-empty">Custom role</li>
+                    )}
+                  </ul>
+                )}
+              </div>
+              <span className="entry-form-hint">
+                This describes the agent's persona and expertise. It is included in the system prompt.
+              </span>
+            </label>
+
             <label style={{ gridColumn: "1 / -1" }}>
               Runtime Type
               <select

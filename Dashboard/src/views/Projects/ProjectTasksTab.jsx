@@ -798,12 +798,16 @@ function ClarificationsTab({ project, task }) {
     );
 }
 
+/** Same breakpoint as `.td-page` rules in `projects.css` (mobile task detail layout). */
+const TASK_DETAIL_MOBILE_MAX_PX = 860;
+
 function TaskDetailView({
     project,
     task,
     editDraft,
     updateEditDraft,
     saveTaskEdit,
+    revertTaskEdit,
     closeTaskDetails,
     updateDetailAssignee,
     deleteTaskFromModal,
@@ -814,7 +818,16 @@ function TaskDetailView({
     onWatchAgentTaskSession
 }) {
     const [activeTab, setActiveTab] = useState("comments");
-    const [sidebarOpen, setSidebarOpen] = useState(true);
+    const [isMobileTaskDetail, setIsMobileTaskDetail] = useState(() =>
+        typeof window !== "undefined"
+            ? window.matchMedia(`(max-width: ${TASK_DETAIL_MOBILE_MAX_PX}px)`).matches
+            : false
+    );
+    const [sidebarOpen, setSidebarOpen] = useState(() =>
+        typeof window !== "undefined"
+            ? !window.matchMedia(`(max-width: ${TASK_DETAIL_MOBILE_MAX_PX}px)`).matches
+            : true
+    );
     const hasReviewDiff = Boolean(task.worktreeBranch);
     const canShowReviewTab = hasReviewDiff || task.status === "needs_review";
 
@@ -847,6 +860,42 @@ function TaskDetailView({
         }
     }, [canShowReviewTab, activeTab]);
 
+    useEffect(() => {
+        const mq = window.matchMedia(`(max-width: ${TASK_DETAIL_MOBILE_MAX_PX}px)`);
+        function syncLayout() {
+            const mobile = mq.matches;
+            setIsMobileTaskDetail(mobile);
+            setSidebarOpen(mobile ? false : true);
+        }
+        syncLayout();
+        mq.addEventListener("change", syncLayout);
+        return () => mq.removeEventListener("change", syncLayout);
+    }, []);
+
+    useEffect(() => {
+        if (!isMobileTaskDetail || !sidebarOpen) {
+            return;
+        }
+        const previousOverflow = document.body.style.overflow;
+        document.body.style.overflow = "hidden";
+        return () => {
+            document.body.style.overflow = previousOverflow;
+        };
+    }, [isMobileTaskDetail, sidebarOpen]);
+
+    useEffect(() => {
+        if (!isMobileTaskDetail || !sidebarOpen) {
+            return;
+        }
+        function onKeyDown(e) {
+            if (e.key === "Escape") {
+                setSidebarOpen(false);
+            }
+        }
+        window.addEventListener("keydown", onKeyDown);
+        return () => window.removeEventListener("keydown", onKeyDown);
+    }, [isMobileTaskDetail, sidebarOpen]);
+
     const resolvedActorId = task.claimedActorId || task.actorId || "";
     const isDirty =
         editDraft.title !== task.title ||
@@ -876,8 +925,18 @@ function TaskDetailView({
             : "";
 
     return (
-        <div className={`td-page ${sidebarOpen ? "" : "td-page--sidebar-closed"}`}>
+        <div
+            className={`td-page ${sidebarOpen ? "" : "td-page--sidebar-closed"} ${isMobileTaskDetail ? "td-page--mobile-props" : ""}`}
+        >
             <div className="td-main">
+                {isMobileTaskDetail && sidebarOpen ? (
+                    <button
+                        type="button"
+                        className="td-sidebar-backdrop"
+                        aria-label="Close properties"
+                        onClick={() => setSidebarOpen(false)}
+                    />
+                ) : null}
                 <header className="td-header">
                     <div className="td-breadcrumbs">
                         <button type="button" className="td-breadcrumb-link" onClick={closeTaskDetails}>
@@ -907,12 +966,20 @@ function TaskDetailView({
                                 Review
                             </button>
                         )}
-                        {isDirty && (
-                            <button type="button" className="td-save-btn" onClick={saveTaskEdit} disabled={!String(editDraft.title || "").trim()}>
-                                Save
+                        {isMobileTaskDetail && (
+                            <button
+                                type="button"
+                                className="task-review-open-btn"
+                                onClick={() => setSidebarOpen((open) => !open)}
+                                aria-expanded={sidebarOpen}
+                                aria-controls="td-task-properties"
+                                title="Properties"
+                            >
+                                <span className="material-symbols-rounded" aria-hidden="true">tune</span>
+                                Properties
                             </button>
                         )}
-                        {!sidebarOpen && (
+                        {!isMobileTaskDetail && !sidebarOpen && (
                             <button
                                 type="button"
                                 className="project-task-detail-icon-button"
@@ -1044,7 +1111,10 @@ function TaskDetailView({
                 </div>
             </div>
 
-            <aside className={`td-sidebar ${sidebarOpen ? "" : "td-sidebar--closed"}`}>
+            <aside
+                id="td-task-properties"
+                className={`td-sidebar ${sidebarOpen ? "" : "td-sidebar--closed"}`}
+            >
                 <div className="td-sidebar-header">
                     <h4>Properties</h4>
                     <button type="button" className="project-task-detail-icon-button" onClick={() => setSidebarOpen(false)} aria-label="Hide properties">
@@ -1253,6 +1323,23 @@ function TaskDetailView({
                     </button>
                 </div>
             </aside>
+
+            <div className={`settings-toast ${isDirty ? "settings-toast--visible" : ""}`}>
+                <span className="settings-toast-label">Unsaved changes</span>
+                <div className="settings-toast-actions">
+                    <button type="button" className="danger hover-levitate" onClick={revertTaskEdit}>
+                        Cancel
+                    </button>
+                    <button
+                        type="button"
+                        className="hover-levitate"
+                        onClick={saveTaskEdit}
+                        disabled={!String(editDraft.title || "").trim()}
+                    >
+                        Apply
+                    </button>
+                </div>
+            </div>
         </div>
     );
 }
@@ -1264,6 +1351,7 @@ export function ProjectTasksTab({
     isTaskDetailFullscreen,
     updateEditDraft,
     saveTaskEdit,
+    revertTaskEdit,
     setIsTaskDetailFullscreen,
     closeTaskDetails,
     updateDetailAssignee,
@@ -1335,6 +1423,7 @@ export function ProjectTasksTab({
                 editDraft={editDraft}
                 updateEditDraft={updateEditDraft}
                 saveTaskEdit={saveTaskEdit}
+                revertTaskEdit={revertTaskEdit}
                 closeTaskDetails={closeTaskDetails}
                 updateDetailAssignee={updateDetailAssignee}
                 deleteTaskFromModal={deleteTaskFromModal}

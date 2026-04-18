@@ -127,18 +127,34 @@ agent:carol fails  →  escalate (no more members)
 
 The failed task's status is reset to `ready` and `claimedActorId` is updated to the next member. This retry is automatic and requires no operator intervention. Without a team, a single agent failure terminates the task with an error.
 
-### 3. Sequential Handoff
+### 3. Sequential & Graph-Based Handoff
 
-`nextTeamHandoffDelegate` operates similarly but is called on task completion rather than failure. When a completed task's workflow requires review or a follow-on phase, the work is passed to the next team member in sequence. This supports multi-stage pipelines:
+`nextTeamHandoffDelegate` handles passing a task to the next participant after completion. It uses a **Graph-First** approach:
 
+1.  **Link Traversal:** It first looks for outgoing `task`-type links from the current actor to any other member of the same team. If a link exists, the task is handed off to that specific actor, regardless of their position in the team's member list.
+2.  **Fallback to Sequence:** If no specific `task` links are found between team members, it falls back to a simple sequential handoff (the next actor in the `memberActorIds` array).
+
+This enables complex pipelines while maintaining a predictable default behavior:
 ```
-agent:developer completes  →  handoff to agent:reviewer
-agent:reviewer completes   →  handoff to agent:qa
+Team members: [agent:dev, agent:qa, agent:reviewer]
+Link: [agent:dev] --(task)--> [agent:reviewer]
+
+Handoff flow: agent:dev completes → follows link → agent:reviewer
 ```
 
-### 4. Project Association
+### 4. Iterative Flows & Rejection
 
-In Project Settings (Actors tab), you associate specific actors and teams with a project. This controls which actors are eligible to interact with a project's tasks and channels. An actor or team not associated with a project is ignored by the routing engine for tasks belonging to that project.
+The system uses `systemRole` to handle iterative "ping-pong" flows, such as a developer fixing bugs found by QA or a reviewer.
+
+*   **Review Rejection:** When a task is rejected (via `rejectTask`), the system automatically searches the current team for an actor with `systemRole: developer`.
+*   **Automatic Reassignment:** If found, the task is reassigned to that developer and its status is reset to `ready`, allowing the iterative cycle to continue until the task is eventually approved and handed off forward.
+
+### 5. Project Association & Multi-Team Routing
+
+In Project Settings (Actors tab), you associate specific actors and teams with a project.
+
+*   **Initial Assignment:** If a project has multiple teams and a new task is set to `ready` without an explicit assignee, the runtime chooses the first available actor from the first team associated with the project.
+*   **Planner Trigger:** To trigger automated decomposition (Swarm), the task must be assigned to an actor (usually with `systemRole: manager`) who has outgoing **Hierarchical** links. Peer-linked teams will execute tasks sequentially or round-robin without decomposition.
 
 ---
 

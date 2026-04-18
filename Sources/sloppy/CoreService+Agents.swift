@@ -612,6 +612,7 @@ extension CoreService {
             throw AgentConfigError.invalidPayload
         }
         let updateRequest = AgentConfigUpdateRequest(
+            role: config.role,
             selectedModel: config.selectedModel,
             documents: documents,
             heartbeat: config.heartbeat,

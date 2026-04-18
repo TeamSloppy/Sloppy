@@ -3047,6 +3047,44 @@
     border-left: 0;
     border-top: 1px solid var(--line);
   }
+
+  /* Task detail: Properties opens from header (see `td-page--mobile-props` in TaskDetailView). */
+  .td-page.td-page--mobile-props .td-sidebar--closed {
+    display: none;
+  }
+
+  .td-page.td-page--mobile-props .td-sidebar:not(.td-sidebar--closed) {
+    position: fixed;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    left: auto;
+    width: min(420px, 100%);
+    max-width: 100vw;
+    z-index: 200;
+    border-top: 0;
+    border-left: 1px solid var(--line);
+    opacity: 1;
+    pointer-events: auto;
+    padding: 16px;
+    padding-bottom: calc(16px + env(safe-area-inset-bottom, 0px));
+    padding-right: calc(16px + env(safe-area-inset-right, 0px));
+    overflow-x: hidden;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    box-shadow: -16px 0 48px rgba(0, 0, 0, 0.55);
+  }
+
+  .td-sidebar-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 199;
+    margin: 0;
+    padding: 0;
+    border: 0;
+    background: rgba(0, 0, 0, 0.55);
+    cursor: pointer;
+  }
 }
 
 /* ── Task Create Modal (Linear-style) ─────────────────────── */

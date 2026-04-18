@@ -1365,6 +1365,24 @@ export function ProjectsView({
     setEditDraft((prev) => ({ ...prev, [field]: value }));
   }
 
+  function revertTaskEdit() {
+    const task = editingTask || selectedTask;
+    if (!task) {
+      return;
+    }
+    const resolvedActorId = task.claimedActorId || task.actorId || "";
+    setEditDraft({
+      title: task.title,
+      description: task.description || "",
+      priority: task.priority,
+      status: task.status,
+      kind: task.kind || "",
+      loopModeOverride: task.loopModeOverride || "",
+      actorId: resolvedActorId,
+      teamId: task.teamId || ""
+    });
+  }
+
   function updateDetailAssignee(nextValue) {
     const token = String(nextValue || "").trim();
     if (!token) {
@@ -1698,6 +1716,7 @@ export function ProjectsView({
           isTaskDetailFullscreen={isTaskDetailFullscreen}
           updateEditDraft={updateEditDraft}
           saveTaskEdit={saveTaskEdit}
+          revertTaskEdit={revertTaskEdit}
           setIsTaskDetailFullscreen={setIsTaskDetailFullscreen}
           closeTaskDetails={closeTaskDetails}
           updateDetailAssignee={updateDetailAssignee}
