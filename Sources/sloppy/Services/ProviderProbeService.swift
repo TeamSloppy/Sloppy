@@ -62,7 +62,7 @@ struct ProviderProbeService {
                 providerId: .anthropicOAuth,
                 ok: true,
                 usedEnvironmentKey: false,
-                message: "Anthropic (OAuth) uses sign-in; showing built-in model catalog.",
+                message: "Anthropic uses sign-in; showing built-in model catalog.",
                 models: Self.anthropicModelCatalog
             )
         }
