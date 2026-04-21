@@ -3,7 +3,7 @@ import SloppyClientUI
 
 public struct ChatComposerView: View {
     private static let panelRadius: Float = 22
-    private static let sendSize: Float = 44
+    private static let sendSize: Float = 32
 
     @State private var text: String = ""
     @Environment(\.theme) private var theme
@@ -23,7 +23,7 @@ public struct ChatComposerView: View {
         let ty = theme.typography
         let fieldInk = Color.fromHex(0xEAEAEA)
         let sendInk = Color.fromHex(0x0C0C0C)
-        let sendFill = Color.fromHex(0xF6F6F6)
+        let sendFill = Color.white.opacity(0.3)
 
         return VStack(alignment: .leading, spacing: sp.m) {
             TextField("Message \(agentName)...", text: $text)
@@ -38,15 +38,13 @@ public struct ChatComposerView: View {
                         .foregroundColor(c.textSecondary)
                 }
                 .frame(width: 36, height: 36)
-                .background(Color.white.opacity(0.07 as Float))
-                .border(c.border.opacity(0.45 as Float), lineWidth: bo.thin)
 
                 Spacer(minLength: 0)
 
                 Button(action: submit) {
                     ZStack {
                         CircleShape()
-                            .foregroundColor(sendFill)
+                            .fill(sendFill)
                         Text("↑")
                             .font(.system(size: 17))
                             .foregroundColor(sendInk)

@@ -50,5 +50,53 @@
 			<integer>7</integer>
 		</dict>
 	</dict>
+	<key>SuppressBuildableAutocreation</key>
+	<dict>
+		<key>SloppyClient</key>
+		<dict>
+			<key>primary</key>
+			<true/>
+		</dict>
+		<key>SloppyClientCore</key>
+		<dict>
+			<key>primary</key>
+			<true/>
+		</dict>
+		<key>SloppyClientCoreTests</key>
+		<dict>
+			<key>primary</key>
+			<true/>
+		</dict>
+		<key>SloppyClientUI</key>
+		<dict>
+			<key>primary</key>
+			<true/>
+		</dict>
+		<key>SloppyFeatureAgents</key>
+		<dict>
+			<key>primary</key>
+			<true/>
+		</dict>
+		<key>SloppyFeatureChat</key>
+		<dict>
+			<key>primary</key>
+			<true/>
+		</dict>
+		<key>SloppyFeatureOverview</key>
+		<dict>
+			<key>primary</key>
+			<true/>
+		</dict>
+		<key>SloppyFeatureProjects</key>
+		<dict>
+			<key>primary</key>
+			<true/>
+		</dict>
+		<key>SloppyFeatureSettings</key>
+		<dict>
+			<key>primary</key>
+			<true/>
+		</dict>
+	</dict>
 </dict>
 </plist>
