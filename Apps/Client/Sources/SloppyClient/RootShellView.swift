@@ -9,62 +9,66 @@ struct RootShellView: View {
     @State private var viewModel = RootShellViewModel()
 
     var body: some View {
-        RootShellContent()
+        RootShellContent(viewModel: viewModel)
             .environment(viewModel)
     }
 }
 
 @MainActor
 private struct RootShellContent: View {
-    @Environment(RootShellViewModel.self) private var viewModel
+    @State var viewModel: RootShellViewModel
     @Environment(\.theme) private var theme
 
     var body: some View {
+        let rootViewModel = viewModel
         let c = theme.colors
 
         return ZStack(anchor: .topLeading) {
             c.background.ignoresSafeArea()
 
-            switch viewModel.appState {
-
+            switch rootViewModel.appState {
             case .splash:
-                SplashScreen(settings: viewModel.settings) { result in
+                SplashScreen(settings: rootViewModel.settings) { result in
                     switch result {
                     case .connected(let url):
-                        viewModel.startConnected(url: url)
+                        rootViewModel.startConnected(url: url)
                     case .needsSetup:
-                        viewModel.appState = .connectionSetup
+                        rootViewModel.appState = .connectionSetup
                     }
                 }
 
             case .connectionSetup:
-                ConnectionSetupView(settings: viewModel.settings) { url in
-                    viewModel.startConnected(url: url)
+                ConnectionSetupView(settings: rootViewModel.settings) { url in
+                    rootViewModel.startConnected(url: url)
                 }
 
             case .chat(let url):
                 ChatScreen(
                     apiClient: SloppyAPIClient(baseURL: url),
-                    settings: viewModel.settings,
-                    connectionMonitor: viewModel.connectionMonitor,
-                    onOpenSettings: { viewModel.appState = .settings }
+                    settings: rootViewModel.settings,
+                    connectionMonitor: rootViewModel.connectionMonitor,
+                    onOpenSettings: {
+                        rootViewModel.appState = .settings
+                    }
                 )
 
             case .settings:
                 SettingsScreen(
-                    settings: viewModel.settings,
-                    onDismiss: { viewModel.appState = .chat(viewModel.settings.baseURL) }
+                    settings: rootViewModel.settings,
+                    onDismiss: {
+                        rootViewModel.appState = .chat(rootViewModel.settings.baseURL)
+                    }
                 )
             }
 
-            if let banner = viewModel.activeBanner {
+            if let banner = rootViewModel.activeBanner {
                 NotificationBanner(item: banner)
                     .frame(width: Float(320))
                     .padding(theme.spacing.m)
             }
         }
         .onAppear {
-            viewModel.startDeepLinkListener()
+            rootViewModel.startDeepLinkListener()
         }
         .background {
             theme.colors.background.ignoresSafeArea()

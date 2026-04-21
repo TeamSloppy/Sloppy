@@ -18,7 +18,7 @@ public final class ChatScreenViewModel {
     private let apiClient: SloppyAPIClient
     private let settings: ClientSettings
     public let connectionMonitor: ConnectionMonitor
-    private let onOpenSettings: () -> Void
+    private let onOpenSettings: @MainActor () -> Void
 
     private var socketManager: SessionSocketManager?
     private var streamTask: Task<Void, Never>?
@@ -27,7 +27,7 @@ public final class ChatScreenViewModel {
         apiClient: SloppyAPIClient,
         settings: ClientSettings,
         connectionMonitor: ConnectionMonitor,
-        onOpenSettings: @escaping () -> Void
+        onOpenSettings: @escaping @MainActor () -> Void
     ) {
         self.apiClient = apiClient
         self.settings = settings

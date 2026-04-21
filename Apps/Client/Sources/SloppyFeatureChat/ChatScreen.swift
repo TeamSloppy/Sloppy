@@ -10,7 +10,7 @@ public struct ChatScreen: View {
         apiClient: SloppyAPIClient,
         settings: ClientSettings,
         connectionMonitor: ConnectionMonitor,
-        onOpenSettings: @escaping () -> Void
+        onOpenSettings: @escaping @MainActor () -> Void
     ) {
         _viewModel = State(
             initialValue: ChatScreenViewModel(
@@ -123,7 +123,7 @@ private struct ChatScreenContent: View {
                 .padding(.vertical, sp.xs)
             }
 
-            Button(action: { viewModel.openSettings() }) {
+            Button(action: viewModel.openSettings) {
                 Text("···")
                     .font(.system(size: ty.heading))
                     .foregroundColor(c.textMuted)
