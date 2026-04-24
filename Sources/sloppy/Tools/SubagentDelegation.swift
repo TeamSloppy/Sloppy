@@ -23,7 +23,7 @@ enum SubagentDelegation {
     /// Maps high-level toolset names to concrete tool IDs (Sloppy).
     private static let toolsetToToolIDs: [String: Set<String>] = [
         "terminal": ["runtime.exec", "runtime.process"],
-        "file": ["files.read", "files.write", "files.edit"],
+        "file": ["files.list", "files.read", "files.write", "files.edit"],
         "web": ["web.search", "web.fetch"],
         "skills": ["skills.search", "skills.list", "skills.install", "skills.uninstall"],
         "lsp": ["lsp.query"],
