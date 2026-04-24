@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
@@ -6,6 +6,8 @@ import { oneDark } from "react-syntax-highlighter/dist/esm/styles/prism";
 import { fetchActorsBoard, fetchAgents, fetchChannelEvents, fetchChannelModel, fetchChannelSession, fetchProjects, fetchTokenUsage, postChannelControl } from "../api";
 import { Breadcrumbs } from "../components/Breadcrumbs/Breadcrumbs";
 import { AgentPetIcon } from "../features/agents/components/AgentPetSprite";
+
+const SHOW_DEBUG_ACTIONS = Boolean(import.meta.env.DEV);
 
 function formatRelativeTime(value) {
   const date = new Date(value);
@@ -420,6 +422,8 @@ export function ChannelSessionView({ sessionId, onNavigateBack }) {
   const [controlBusy, setControlBusy] = useState(false);
   const [tokenUsage, setTokenUsage] = useState(null);
   const [channelModelInfo, setChannelModelInfo] = useState(null);
+  const [isShareMenuOpen, setIsShareMenuOpen] = useState(false);
+  const shareMenuRef = useRef(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -600,6 +604,50 @@ export function ChannelSessionView({ sessionId, onNavigateBack }) {
 
   const isSessionOpen = summary?.status === "open" || !summary?.status;
 
+  useEffect(() => {
+    if (!isShareMenuOpen) return;
+    function handlePointerDown(event) {
+      if (shareMenuRef.current && !shareMenuRef.current.contains(event.target)) {
+        setIsShareMenuOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handlePointerDown);
+    return () => document.removeEventListener("mousedown", handlePointerDown);
+  }, [isShareMenuOpen]);
+
+  function downloadChannelSessionSnapshot() {
+    if (!summary) return;
+    const payload = {
+      summary,
+      events,
+      runtimeEvents,
+      exportedAt: new Date().toISOString()
+    };
+    const pretty = `${JSON.stringify(payload, null, 2)}\n`;
+    const blob = new Blob([pretty], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    const safeSessionId = String(summary.sessionId || "channel-session").replace(/[^a-zA-Z0-9._-]+/g, "_");
+    anchor.href = url;
+    anchor.download = `${safeSessionId}.json`;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    URL.revokeObjectURL(url);
+    setIsShareMenuOpen(false);
+  }
+
+  async function copyChannelSessionLink() {
+    if (!summary?.sessionId) return;
+    const deepLink = `${window.location.origin}/channels/sessions/${encodeURIComponent(summary.sessionId)}`;
+    try {
+      await navigator.clipboard.writeText(deepLink);
+    } catch {
+      // ignore clipboard failures in restricted contexts
+    }
+    setIsShareMenuOpen(false);
+  }
+
   async function handleChannelControl(action) {
     if (controlBusy || !channelMeta.channelId) {
       return;
@@ -677,6 +725,31 @@ export function ChannelSessionView({ sessionId, onNavigateBack }) {
           </div>
         </div>
         <div className="channel-session-badges">
+          {SHOW_DEBUG_ACTIONS ? (
+            <div className="agent-chat-share-menu-container" ref={shareMenuRef}>
+              <button
+                type="button"
+                className="agent-chat-icon-button"
+                onClick={() => setIsShareMenuOpen((prev) => !prev)}
+                title={summary?.sessionId ? "Share session" : "Session is unavailable"}
+                disabled={!summary?.sessionId}
+              >
+                <span className="material-symbols-rounded" aria-hidden="true">share</span>
+              </button>
+              {summary?.sessionId && isShareMenuOpen ? (
+                <div className="agent-chat-share-dropdown">
+                  <button type="button" onClick={copyChannelSessionLink}>
+                    <span className="material-symbols-rounded" aria-hidden="true">link</span>
+                    Copy session link
+                  </button>
+                  <button type="button" onClick={downloadChannelSessionSnapshot}>
+                    <span className="material-symbols-rounded" aria-hidden="true">download</span>
+                    Download session JSON
+                  </button>
+                </div>
+              ) : null}
+            </div>
+          ) : null}
           {isSessionOpen ? (
             <>
               <button
