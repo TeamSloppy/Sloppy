@@ -61,6 +61,24 @@ Options for `run`:
 | `--config-path <path>` | Load config from a custom path |
 | `--generate-openapi <path>` | Write OpenAPI spec to file and exit |
 
+## Background service
+
+Install and manage Sloppy as a persistent background service (starts on login, restarts on crash).
+
+```bash
+sloppy service install                              # register + start (macOS LaunchAgent / Linux systemd)
+sloppy service install --config-path /path/to/sloppy.json
+sloppy service uninstall                            # stop + remove
+sloppy service start                                # start now
+sloppy service stop                                 # stop now (stays registered)
+sloppy service restart                              # stop then start
+sloppy service status                               # show launchctl / systemctl output
+sloppy service logs                                 # tail -f log (macOS) or journalctl (Linux)
+sloppy service logs --lines 100                     # show last 100 lines before following
+```
+
+See [Install — Run as a background service](/install#run-as-a-background-service) for a full walkthrough.
+
 ## System commands
 
 ```bash

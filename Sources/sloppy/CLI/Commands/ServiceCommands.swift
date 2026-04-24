@@ -8,6 +8,29 @@ import Glibc
 
 // MARK: - Service command group
 
+/// Top-level `sloppy service` group.
+///
+/// Manages the Sloppy server as a persistent background service that starts
+/// automatically on user login.
+///
+/// - On **macOS** a LaunchAgent plist is written to
+///   `~/Library/LaunchAgents/com.sloppy.server.plist` and loaded via
+///   `launchctl`. `KeepAlive` is enabled so the OS restarts the process if it
+///   exits unexpectedly.
+/// - On **Linux** a systemd user unit is written to
+///   `~/.config/systemd/user/sloppy.service` and enabled via
+///   `systemctl --user`. The unit targets `default.target` so it starts after
+///   login.
+///
+/// Usage:
+/// ```
+/// sloppy service install            # register + start
+/// sloppy service install --config-path /path/to/sloppy.json
+/// sloppy service uninstall          # stop + remove
+/// sloppy service start | stop | restart
+/// sloppy service status             # show launchctl / systemctl output
+/// sloppy service logs               # tail -f log (macOS) or journalctl (Linux)
+/// ```
 struct ServiceCommand: AsyncParsableCommand, SloppyGroupCommand {
     static let configuration = CommandConfiguration(
         commandName: "service",
@@ -26,6 +49,7 @@ struct ServiceCommand: AsyncParsableCommand, SloppyGroupCommand {
 
 // MARK: - Platform helpers
 
+/// Compile-time platform tag used to dispatch service management calls.
 private enum ServicePlatform {
     case macOS
     case linux
@@ -42,7 +66,10 @@ private enum ServicePlatform {
     }
 }
 
+/// Shared constants and helpers for interacting with the host service manager
+/// (launchctl on macOS, systemctl on Linux).
 private enum ServiceManager {
+    /// Reverse-DNS label used as the LaunchAgent label and systemd unit base name.
     static let label = "com.sloppy.server"
 
     // MARK: macOS
@@ -155,6 +182,14 @@ private enum ServiceManager {
 
 // MARK: - install
 
+/// Writes the platform service file and registers it with the host service
+/// manager so the Sloppy server starts on user login and auto-restarts on
+/// unexpected exits.
+///
+/// macOS: writes `~/Library/LaunchAgents/com.sloppy.server.plist` then calls
+/// `launchctl load -w`.
+/// Linux: writes `~/.config/systemd/user/sloppy.service` then calls
+/// `systemctl --user enable --now`.
 struct ServiceInstallCommand: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "install",
@@ -252,6 +287,9 @@ struct ServiceInstallCommand: AsyncParsableCommand {
 
 // MARK: - uninstall
 
+/// Unloads the service from the host service manager and removes the service
+/// file. On macOS calls `launchctl unload -w` before deleting the plist; on
+/// Linux calls `systemctl --user disable --now` before deleting the unit.
 struct ServiceUninstallCommand: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "uninstall",
@@ -298,6 +336,11 @@ struct ServiceUninstallCommand: AsyncParsableCommand {
 
 // MARK: - start
 
+/// Starts the already-installed service immediately without waiting for the
+/// next login. Equivalent to `launchctl start com.sloppy.server` (macOS) or
+/// `systemctl --user start sloppy.service` (Linux).
+///
+/// The service must be installed first (`sloppy service install`).
 struct ServiceStartCommand: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "start",
@@ -331,6 +374,9 @@ struct ServiceStartCommand: AsyncParsableCommand {
 
 // MARK: - stop
 
+/// Stops the running service process. The service remains registered and will
+/// start again on the next login (or when `sloppy service start` is called).
+/// To prevent it from restarting at all, use `sloppy service uninstall`.
 struct ServiceStopCommand: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "stop",
@@ -364,6 +410,8 @@ struct ServiceStopCommand: AsyncParsableCommand {
 
 // MARK: - restart
 
+/// Stops and then immediately starts the service. Useful after changing
+/// `sloppy.json` when no config reload API call is needed.
 struct ServiceRestartCommand: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "restart",
@@ -380,6 +428,10 @@ struct ServiceRestartCommand: AsyncParsableCommand {
 
 // MARK: - status
 
+/// Prints whether the service file is installed and forwards the raw output of
+/// `launchctl list com.sloppy.server` (macOS) or
+/// `systemctl --user status sloppy.service` (Linux) so you can see the current
+/// PID, last exit code, and run state at a glance.
 struct ServiceStatusCommand: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "status",
@@ -447,6 +499,13 @@ struct ServiceStatusCommand: AsyncParsableCommand {
 
 // MARK: - logs
 
+/// Follows the live service log. On macOS this tails
+/// `~/.sloppy/logs/service.log` (the file the LaunchAgent writes stdout/stderr
+/// to). On Linux it runs `journalctl --user -u sloppy.service -f`.
+///
+/// The command replaces the current process via `execvp` so that Ctrl-C
+/// terminates `tail` / `journalctl` directly rather than leaving them
+/// orphaned.
 struct ServiceLogsCommand: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "logs",
