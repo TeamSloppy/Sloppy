@@ -30,7 +30,7 @@ struct AgentListCommand: AsyncParsableCommand {
     @Option(name: .long) var token: String?
     @Option(name: .long) var format: String = "json"
     @Flag(name: .long) var verbose: Bool = false
-    @Flag(name: .long, help: "Include system agents") var system: Bool = true
+    @Flag(name: .long, inversion: .prefixedNo, help: "Include system agents") var system: Bool = true
 
     mutating func run() async throws {
         let client = SloppyCLIClient.resolve(url: url, token: token, verbose: verbose)

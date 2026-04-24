@@ -50,7 +50,13 @@ struct PromptTemplateLoader {
     }
 
     func loadPartial(named name: String) throws -> String {
-        try resolver("partials/\(name).md")
+        do {
+            return try resolver("partials/\(name).md")
+        } catch LoaderError.templateNotFound {
+            // SwiftPM bundles can flatten processed resources in release/debug
+            // artifacts, so keep a compatibility fallback to the root filename.
+            return try resolver("\(name).md")
+        }
     }
 }
 

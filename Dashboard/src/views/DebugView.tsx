@@ -15,6 +15,7 @@ interface Agent {
 interface Session {
   id: string;
   title: string;
+  source: "agent" | "channel";
 }
 
 interface DocumentSizes {
@@ -124,10 +125,53 @@ function SessionContextPanel({ coreApi }: { coreApi: CoreApi }) {
       setData(null);
       return;
     }
-    coreApi.fetchAgentSessions(selectedAgent).then((result) => {
-      if (!Array.isArray(result)) return;
-      setSessions(result.map((s) => ({ id: String(s.id ?? ""), title: String(s.title ?? s.id ?? "") })));
+    let cancelled = false;
+    Promise.all([
+      coreApi.fetchAgentSessions(selectedAgent).catch(() => null),
+      coreApi.fetchChannelSessions({ agentId: selectedAgent }).catch(() => null)
+    ]).then(([agentSessionsResult, channelSessionsResult]) => {
+      if (cancelled) return;
+      const dedup = new Map<string, Session>();
+
+      if (Array.isArray(agentSessionsResult)) {
+        for (const session of agentSessionsResult) {
+          const id = String(session?.id ?? "").trim();
+          if (!id) continue;
+          dedup.set(id, {
+            id,
+            title: String(session?.title ?? id),
+            source: "agent"
+          });
+        }
+      }
+
+      if (Array.isArray(channelSessionsResult)) {
+        for (const channelSession of channelSessionsResult) {
+          const id = String(channelSession?.sessionId ?? "").trim();
+          if (!id) continue;
+          const channelId = String(channelSession?.channelId ?? "").trim();
+          const preview = String(channelSession?.lastMessagePreview ?? "").trim();
+          const labelParts = [channelId ? `[channel] ${channelId}` : "[channel]", preview].filter(Boolean);
+          const title = labelParts.join(" · ") || id;
+          const existing = dedup.get(id);
+          if (!existing) {
+            dedup.set(id, { id, title, source: "channel" });
+          } else if (existing.source !== "channel") {
+            dedup.set(id, {
+              id,
+              title: `${existing.title} [channel]`,
+              source: existing.source
+            });
+          }
+        }
+      }
+
+      const merged = Array.from(dedup.values()).sort((a, b) => a.title.localeCompare(b.title));
+      setSessions(merged);
     });
+    return () => {
+      cancelled = true;
+    };
   }, [coreApi, selectedAgent]);
 
   const load = useCallback(async () => {
@@ -270,9 +314,30 @@ function SessionContextPanel({ coreApi }: { coreApi: CoreApi }) {
 function ChannelsPanel({ coreApi }: { coreApi: CoreApi }) {
   const [channels, setChannels] = useState<ChannelInfo[]>([]);
   const [loading, setLoading] = useState(false);
+  const [selectedChannelId, setSelectedChannelId] = useState("");
+  const [statusText, setStatusText] = useState("");
+
+  function parseSessionScopedChannel(channelId: string): { agentId: string; sessionId: string } | null {
+    const normalized = String(channelId || "").trim();
+    const marker = ":session:";
+    if (!normalized.startsWith("agent:") || !normalized.includes(marker)) {
+      return null;
+    }
+    const markerIndex = normalized.indexOf(marker);
+    if (markerIndex <= "agent:".length) {
+      return null;
+    }
+    const agentId = normalized.slice("agent:".length, markerIndex).trim();
+    const sessionId = normalized.slice(markerIndex + marker.length).trim();
+    if (!agentId || !sessionId) {
+      return null;
+    }
+    return { agentId, sessionId };
+  }
 
   const load = useCallback(async () => {
     setLoading(true);
+    setStatusText("");
     const result = await coreApi.fetchDebugChannels();
     setLoading(false);
     if (!result || !Array.isArray((result as AnyRecord).channels)) return;
@@ -283,13 +348,38 @@ function ChannelsPanel({ coreApi }: { coreApi: CoreApi }) {
     load();
   }, [load]);
 
+  async function deleteSelectedChannel() {
+    if (!selectedChannelId) {
+      setStatusText("Select a channel first.");
+      return;
+    }
+    const scoped = parseSessionScopedChannel(selectedChannelId);
+    if (!scoped) {
+      setStatusText("Only session-scoped channels can be deleted from this panel.");
+      return;
+    }
+    const ok = await coreApi.deleteAgentSession(scoped.agentId, scoped.sessionId);
+    if (!ok) {
+      setStatusText("Failed to delete channel session.");
+      return;
+    }
+    setStatusText(`Deleted session channel ${selectedChannelId}.`);
+    setSelectedChannelId("");
+    await load();
+  }
+
   return (
     <Panel
       title="Active Channels"
       action={
-        <button type="button" className="hover-levitate" onClick={load} disabled={loading}>
-          {loading ? "Loading..." : "Refresh"}
-        </button>
+        <div className="debug-panel-actions">
+          <button type="button" className="hover-levitate" onClick={deleteSelectedChannel} disabled={!selectedChannelId || loading}>
+            Delete selected
+          </button>
+          <button type="button" className="hover-levitate" onClick={load} disabled={loading}>
+            {loading ? "Loading..." : "Refresh"}
+          </button>
+        </div>
       }
     >
       {channels.length === 0 ? (
@@ -302,18 +392,45 @@ function ChannelsPanel({ coreApi }: { coreApi: CoreApi }) {
             <span>Utilization</span>
             <span>Bootstrap</span>
             <span>Workers</span>
+            <span>Actions</span>
           </div>
           {channels.map((ch) => (
-            <div key={ch.channelId} className="debug-table-row">
+            <div
+              key={ch.channelId}
+              className={`debug-table-row ${selectedChannelId === ch.channelId ? "selected" : ""}`}
+              onClick={() => setSelectedChannelId(ch.channelId)}
+              role="button"
+              tabIndex={0}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" || event.key === " ") {
+                  event.preventDefault();
+                  setSelectedChannelId(ch.channelId);
+                }
+              }}
+            >
               <code className="debug-channel-id">{ch.channelId}</code>
               <span>{ch.messageCount}</span>
               <UtilBar value={ch.contextUtilization} />
               <span>{kilo(ch.bootstrapChars)}c</span>
               <span>{ch.activeWorkerIds.length > 0 ? ch.activeWorkerIds.join(", ") : "—"}</span>
+              <div className="debug-row-actions">
+                <button
+                  type="button"
+                  className="hover-levitate"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    setSelectedChannelId(ch.channelId);
+                  }}
+                >
+                  {selectedChannelId === ch.channelId ? "Selected" : "Select"}
+                </button>
+              </div>
             </div>
           ))}
         </div>
       )}
+      {statusText ? <p className="placeholder-text">{statusText}</p> : null}
+      {selectedChannelId ? <p className="placeholder-text">Selected channel: <code>{selectedChannelId}</code></p> : null}
     </Panel>
   );
 }
