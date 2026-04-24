@@ -18,7 +18,7 @@ usage() {
 Usage: $(basename "$0") <command>
 
 Commands:
-  setup          Build sloppy + SloppyNode + Dashboard (debug) and create PATH symlinks.
+  setup          Build sloppy + Dashboard (debug) and create PATH symlinks.
   start          Start the sloppy server in the background.
   stop           Stop the background sloppy server.
   restart        Restart the sloppy server.
@@ -53,7 +53,7 @@ build_dashboard_bundle() {
     [[ -f "$dashboard_entry" ]] || die "Dashboard build tool is missing at $dashboard_entry after npm install."
 
     log "Building Dashboard bundle..."
-    node "$dashboard_entry" build --config "$dashboard_source/vite.config.js"
+    npm --prefix "$dashboard_source" run build
 
     log "Installing Dashboard bundle in $DASHBOARD_DIR..."
     mkdir -p "$DASHBOARD_DIR"
@@ -73,9 +73,6 @@ cmd_setup() {
     log "Building sloppy (debug)..."
     swift build -c debug --package-path "$REPO_ROOT" --product sloppy
 
-    log "Building SloppyNode (debug)..."
-    swift build -c debug --package-path "$REPO_ROOT" --product SloppyNode
-
     build_dashboard_bundle
 
     local bin_path
@@ -83,12 +80,11 @@ cmd_setup() {
 
     log "Creating symlinks in $BIN_DIR..."
     mkdir -p "$BIN_DIR"
-    ln -sf "$bin_path/sloppy"    "$BIN_DIR/sloppy"
-    ln -sf "$bin_path/SloppyNode" "$BIN_DIR/SloppyNode"
+    ln -sf "$bin_path/sloppy" "$BIN_DIR/sloppy"
+    rm -f "$BIN_DIR/SloppyNode"
 
     ok "Setup complete."
     ok "  sloppy    -> $BIN_DIR/sloppy"
-    ok "  SloppyNode -> $BIN_DIR/SloppyNode"
     ok "  Dashboard -> $DASHBOARD_DIR"
 
     if [[ ":$PATH:" != *":$BIN_DIR:"* ]]; then
