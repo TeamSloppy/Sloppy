@@ -521,7 +521,7 @@ extension CoreService {
     }
 
     /// Creates a new dashboard project.
-    public func createProject(_ request: ProjectCreateRequest) async throws -> ProjectRecord {
+    public func createProject(_ request: ProjectCreateRequest) async throws -> ProjectCreateResult {
         let now = Date()
         let normalizedName = try normalizeProjectName(request.name)
         let normalizedDescription = normalizeProjectDescription(request.description)
@@ -563,10 +563,16 @@ extension CoreService {
         }
 
         await store.saveProject(project)
+        let repoCloneSucceeded: Bool?
         if hasRepoUrl {
-            await cloneProjectRepository(repoUrl: trimmedRepoUrl, projectID: normalizedID)
+            repoCloneSucceeded = await cloneProjectRepository(
+                repoUrl: trimmedRepoUrl,
+                projectID: normalizedID,
+                projectDisplayName: normalizedName
+            )
         } else {
             ensureProjectWorkspaceDirectory(projectID: normalizedID)
+            repoCloneSucceeded = nil
         }
         if !currentConfig.onboarding.completed {
             logger.info(
@@ -577,7 +583,7 @@ extension CoreService {
                 ]
             )
         }
-        return project
+        return ProjectCreateResult(project: project, repoCloneSucceeded: repoCloneSucceeded)
     }
 
     public func selectDirectory() async -> String? {

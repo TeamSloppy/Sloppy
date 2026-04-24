@@ -96,7 +96,9 @@ func projectCrudEndpoints() async throws {
     let decoder = JSONDecoder()
     decoder.dateDecodingStrategy = .iso8601
 
-    let created = try decoder.decode(ProjectRecord.self, from: createResponse.body)
+    let createOutcome = try decoder.decode(ProjectCreateResult.self, from: createResponse.body)
+    #expect(createOutcome.repoCloneSucceeded == nil)
+    let created = createOutcome.project
     #expect(created.id == "platform-board")
     #expect(created.name == "Platform Board")
     #expect(created.channels.count == 1)
@@ -233,7 +235,9 @@ func projectCreateRequestWithRepoUrlIsAccepted() async throws {
 
     let decoder = JSONDecoder()
     decoder.dateDecodingStrategy = .iso8601
-    let created = try decoder.decode(ProjectRecord.self, from: response.body)
+    let outcome = try decoder.decode(ProjectCreateResult.self, from: response.body)
+    #expect(outcome.repoCloneSucceeded == false)
+    let created = outcome.project
     #expect(created.id == "cloned-project")
     #expect(created.name == "Cloned Project")
 }
@@ -256,7 +260,9 @@ func projectCreateRequestWithoutRepoUrlCreatesEmptyProject() async throws {
 
     let decoder = JSONDecoder()
     decoder.dateDecodingStrategy = .iso8601
-    let created = try decoder.decode(ProjectRecord.self, from: response.body)
+    let outcome = try decoder.decode(ProjectCreateResult.self, from: response.body)
+    #expect(outcome.repoCloneSucceeded == nil)
+    let created = outcome.project
     #expect(created.id == "empty-project")
     #expect(created.name == "Empty Project")
 }
@@ -281,7 +287,9 @@ func projectCreateEndpointAcceptsPayloadWithoutChannels() async throws {
     let decoder = JSONDecoder()
     decoder.dateDecodingStrategy = .iso8601
 
-    let created = try decoder.decode(ProjectRecord.self, from: createResponse.body)
+    let createOutcome = try decoder.decode(ProjectCreateResult.self, from: createResponse.body)
+    #expect(createOutcome.repoCloneSucceeded == nil)
+    let created = createOutcome.project
     #expect(created.id == "onboarding-project")
     #expect(created.channels.count == 1)
     #expect(created.channels.first?.channelId == "onboarding-project-main")

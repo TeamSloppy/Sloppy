@@ -3,7 +3,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { oneDark } from "react-syntax-highlighter/dist/esm/styles/prism";
-import { fetchActorsBoard, fetchAgents, fetchChannelEvents, fetchChannelModel, fetchChannelSession, fetchProjects, fetchTokenUsage, postChannelControl } from "../api";
+import { deleteChannelSession, fetchActorsBoard, fetchAgents, fetchChannelEvents, fetchChannelModel, fetchChannelSession, fetchProjects, fetchTokenUsage, postChannelControl } from "../api";
 import { Breadcrumbs } from "../components/Breadcrumbs/Breadcrumbs";
 import { AgentPetIcon } from "../features/agents/components/AgentPetSprite";
 
@@ -423,6 +423,7 @@ export function ChannelSessionView({ sessionId, onNavigateBack }) {
   const [tokenUsage, setTokenUsage] = useState(null);
   const [channelModelInfo, setChannelModelInfo] = useState(null);
   const [isShareMenuOpen, setIsShareMenuOpen] = useState(false);
+  const [isDeleteBusy, setIsDeleteBusy] = useState(false);
   const shareMenuRef = useRef(null);
 
   useEffect(() => {
@@ -665,6 +666,24 @@ export function ChannelSessionView({ sessionId, onNavigateBack }) {
     }
   }
 
+  async function handleDeleteSession() {
+    if (!summary?.sessionId || isDeleteBusy) return;
+    if (!window.confirm("Delete this channel session permanently? This cannot be undone.")) return;
+    setIsDeleteBusy(true);
+    try {
+      const ok = await deleteChannelSession(summary.sessionId);
+      if (ok) {
+        onNavigateBack?.();
+      } else {
+        setErrorText("Failed to delete channel session.");
+      }
+    } catch {
+      setErrorText("Failed to delete channel session.");
+    } finally {
+      setIsDeleteBusy(false);
+    }
+  }
+
   const breadcrumbItems = [
     { id: "overview", label: "Overview", onClick: onNavigateBack },
     { id: "session", label: channelMeta.channelTitle || "Channel Session" }
@@ -750,6 +769,15 @@ export function ChannelSessionView({ sessionId, onNavigateBack }) {
               ) : null}
             </div>
           ) : null}
+          <button
+            className="channel-session-control-btn channel-session-control-btn--danger"
+            disabled={isDeleteBusy || !summary?.sessionId}
+            onClick={handleDeleteSession}
+            title="Permanently delete this session"
+          >
+            <span className="material-symbols-rounded">delete</span>
+            Delete
+          </button>
           {isSessionOpen ? (
             <>
               <button

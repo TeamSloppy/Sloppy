@@ -63,6 +63,7 @@ public struct HTTPRequest: Sendable {
     public var params: [String: String]
     public var query: [String: String]
     public var body: Data?
+    public var remoteAddress: String?
 
     public init(
         method: HTTPRouteMethod,
@@ -70,7 +71,8 @@ public struct HTTPRequest: Sendable {
         segments: [String],
         params: [String: String] = [:],
         query: [String: String] = [:],
-        body: Data? = nil
+        body: Data? = nil,
+        remoteAddress: String? = nil
     ) {
         self.method = method
         self.path = path
@@ -78,6 +80,7 @@ public struct HTTPRequest: Sendable {
         self.params = params
         self.query = query
         self.body = body
+        self.remoteAddress = remoteAddress
     }
 
     public func pathParam(_ key: String) -> String? {
@@ -103,13 +106,16 @@ public struct HTTPRequest: Sendable {
 public struct WebSocketConnectionContext: Sendable {
     private let sendTextBody: @Sendable (String) async -> Bool
     private let closeBody: @Sendable () async -> Void
+    private let incomingMessagesBody: @Sendable () -> AsyncStream<String>
 
     public init(
         sendText: @escaping @Sendable (String) async -> Bool,
-        close: @escaping @Sendable () async -> Void
+        close: @escaping @Sendable () async -> Void,
+        incomingMessages: @escaping @Sendable () -> AsyncStream<String>
     ) {
         self.sendTextBody = sendText
         self.closeBody = close
+        self.incomingMessagesBody = incomingMessages
     }
 
     public func sendText(_ text: String) async -> Bool {
@@ -118,6 +124,10 @@ public struct WebSocketConnectionContext: Sendable {
 
     public func close() async {
         await closeBody()
+    }
+
+    public func incomingMessages() -> AsyncStream<String> {
+        incomingMessagesBody()
     }
 }
 
@@ -339,15 +349,15 @@ public actor CoreRouter {
         webSocketRoutes.append(.init(path: path, validator: validator, callback: callback))
     }
 
-    public func canHandleWebSocket(path: String) async -> Bool {
-        if let route = matchedWebSocketRoute(for: path) {
+    public func canHandleWebSocket(path: String, remoteAddress: String? = nil) async -> Bool {
+        if let route = matchedWebSocketRoute(for: path, remoteAddress: remoteAddress) {
             return await route.definition.validator(route.request)
         }
         return false
     }
 
-    public func handleWebSocket(path: String, connection: WebSocketConnectionContext) async -> Bool {
-        guard let route = matchedWebSocketRoute(for: path) else {
+    public func handleWebSocket(path: String, connection: WebSocketConnectionContext, remoteAddress: String? = nil) async -> Bool {
+        guard let route = matchedWebSocketRoute(for: path, remoteAddress: remoteAddress) else {
             return false
         }
         guard await route.definition.validator(route.request) else {
@@ -366,7 +376,7 @@ public actor CoreRouter {
     }
 
     /// Routes incoming HTTP-like request into registered sloppy handlers.
-    public func handle(method: String, path: String, body: Data?) async -> CoreRouterResponse {
+    public func handle(method: String, path: String, body: Data?, remoteAddress: String? = nil) async -> CoreRouterResponse {
         guard let httpMethod = HTTPRouteMethod(rawValue: method.uppercased()) else {
             return Self.json(status: HTTPStatus.notFound, payload: ["error": ErrorCode.notFound])
         }
@@ -384,7 +394,8 @@ public actor CoreRouter {
                 segments: pathSegments,
                 params: params,
                 query: queryParams,
-                body: body
+                body: body,
+                remoteAddress: remoteAddress
             )
             let isOnboardingFlow = Self.shouldLogOnboardingFlow(httpMethod: httpMethod, pathSegments: pathSegments, body: body)
             if isOnboardingFlow {
@@ -558,6 +569,169 @@ public actor CoreRouter {
                         let sent = await connection.sendText(text)
                         if !sent {
                             break
+                        }
+                    }
+
+                    await connection.close()
+                }
+            )
+        )
+
+        routes.append(
+            .init(
+                path: "/v1/dashboard/terminal/ws",
+                validator: { _ in true },
+                callback: { request, connection in
+                    let encoder = JSONEncoder()
+                    let decoder = JSONDecoder()
+                    var activeSessionID: String?
+                    var forwardTask: Task<Void, Never>?
+
+                    func send(_ payload: DashboardTerminalServerMessage) async -> Bool {
+                        guard let data = try? encoder.encode(payload),
+                              let text = String(data: data, encoding: .utf8)
+                        else {
+                            return false
+                        }
+                        return await connection.sendText(text)
+                    }
+
+                    func sendError(code: String, message: String) async {
+                        _ = await send(
+                            DashboardTerminalServerMessage(
+                                type: "error",
+                                sessionId: activeSessionID,
+                                code: code,
+                                message: message
+                            )
+                        )
+                    }
+
+                    defer {
+                        forwardTask?.cancel()
+                        if let activeSessionID {
+                            Task {
+                                await service.closeDashboardTerminalSession(sessionID: activeSessionID)
+                            }
+                        }
+                    }
+
+                    for await rawMessage in connection.incomingMessages() {
+                        guard let payload = rawMessage.data(using: .utf8),
+                              let message = try? decoder.decode(DashboardTerminalClientMessage.self, from: payload)
+                        else {
+                            await sendError(code: "invalid_message", message: "Malformed terminal message.")
+                            continue
+                        }
+
+                        switch message.type.lowercased() {
+                        case "start":
+                            guard activeSessionID == nil else {
+                                await sendError(code: "session_already_started", message: "Terminal session already started.")
+                                continue
+                            }
+                            guard let cols = message.cols, let rows = message.rows else {
+                                await sendError(code: "invalid_message", message: "Missing terminal dimensions.")
+                                continue
+                            }
+
+                            do {
+                                let started = try await service.startDashboardTerminalSession(
+                                    projectID: message.projectId,
+                                    cwd: message.cwd,
+                                    cols: cols,
+                                    rows: rows,
+                                    remoteAddress: request.remoteAddress
+                                )
+                                activeSessionID = started.sessionID
+                                let readySent = await send(
+                                    DashboardTerminalServerMessage(
+                                        type: "ready",
+                                        sessionId: started.sessionID,
+                                        cwd: started.cwd,
+                                        shell: started.shell,
+                                        pid: started.pid
+                                    )
+                                )
+                                guard readySent else {
+                                    break
+                                }
+
+                                forwardTask = Task {
+                                    for await event in started.events {
+                                        let outbound: DashboardTerminalServerMessage
+                                        switch event {
+                                        case .output(let data):
+                                            outbound = DashboardTerminalServerMessage(type: "output", sessionId: started.sessionID, data: data)
+                                        case .exit(let exitCode):
+                                            outbound = DashboardTerminalServerMessage(type: "exit", sessionId: started.sessionID, exitCode: exitCode)
+                                        case .error(let code, let message):
+                                            outbound = DashboardTerminalServerMessage(type: "error", sessionId: started.sessionID, code: code, message: message)
+                                        case .closed:
+                                            outbound = DashboardTerminalServerMessage(type: "closed", sessionId: started.sessionID)
+                                        }
+
+                                        guard await send(outbound) else {
+                                            break
+                                        }
+                                    }
+                                }
+                            } catch CoreService.DashboardTerminalError.disabled {
+                                await sendError(code: "disabled", message: "Dashboard terminal is disabled.")
+                            } catch CoreService.DashboardTerminalError.remoteAccessDenied {
+                                await sendError(code: "remote_access_denied", message: "Dashboard terminal is only available locally.")
+                            } catch CoreService.DashboardTerminalError.invalidProjectID {
+                                await sendError(code: "invalid_project_id", message: "Invalid project id.")
+                            } catch CoreService.DashboardTerminalError.projectNotFound {
+                                await sendError(code: "project_not_found", message: "Project workspace not found.")
+                            } catch CoreService.DashboardTerminalError.invalidCwd {
+                                await sendError(code: "invalid_cwd", message: "Terminal cwd must stay inside the workspace or project root.")
+                            } catch CoreService.DashboardTerminalError.invalidPayload {
+                                await sendError(code: "invalid_message", message: "Invalid terminal payload.")
+                            } catch {
+                                await sendError(code: "launch_failed", message: "Failed to start terminal session.")
+                            }
+
+                        case "input":
+                            guard let activeSessionID else {
+                                await sendError(code: "session_not_started", message: "Start a terminal session first.")
+                                continue
+                            }
+                            do {
+                                try await service.writeDashboardTerminalInput(sessionID: activeSessionID, data: message.data ?? "")
+                            } catch {
+                                await sendError(code: "write_failed", message: "Failed to write to terminal session.")
+                            }
+
+                        case "resize":
+                            guard let activeSessionID else {
+                                await sendError(code: "session_not_started", message: "Start a terminal session first.")
+                                continue
+                            }
+                            guard let cols = message.cols, let rows = message.rows else {
+                                await sendError(code: "invalid_message", message: "Missing terminal dimensions.")
+                                continue
+                            }
+                            do {
+                                try await service.resizeDashboardTerminalSession(sessionID: activeSessionID, cols: cols, rows: rows)
+                            } catch {
+                                await sendError(code: "resize_failed", message: "Failed to resize terminal session.")
+                            }
+
+                        case "close":
+                            guard let sessionID = activeSessionID else {
+                                break
+                            }
+                            await service.closeDashboardTerminalSession(sessionID: sessionID)
+                            forwardTask?.cancel()
+                            forwardTask = nil
+                            activeSessionID = nil
+
+                        case "ping":
+                            _ = await send(DashboardTerminalServerMessage(type: "pong", sessionId: activeSessionID))
+
+                        default:
+                            await sendError(code: "invalid_message", message: "Unsupported terminal message type.")
                         }
                     }
 
@@ -829,7 +1003,8 @@ public actor CoreRouter {
     }
 
     private func matchedWebSocketRoute(
-        for path: String
+        for path: String,
+        remoteAddress: String?
     ) -> (definition: WebSocketRouteDefinition, request: HTTPRequest)? {
         let queryParams = parseQueryString(from: path)
         let pathSegments = splitPath(path)
@@ -845,7 +1020,8 @@ public actor CoreRouter {
                 segments: pathSegments,
                 params: params,
                 query: queryParams,
-                body: nil
+                body: nil,
+                remoteAddress: remoteAddress
             )
             return (route, request)
         }

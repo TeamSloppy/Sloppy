@@ -324,6 +324,12 @@ const EMPTY_CONFIG = {
     mergeSimilarityThreshold: 0.80,
     mergeMaxPerRun: 10
   },
+  ui: {
+    dashboardTerminal: {
+      enabled: false,
+      localOnly: true
+    }
+  },
   modelRouting: {},
   sqlitePath: "core.sqlite"
 };
@@ -577,6 +583,9 @@ function normalizeConfig(config) {
   normalized.memory.embedding.endpoint = String(config?.memory?.embedding?.endpoint || "");
   normalized.memory.embedding.apiKeyEnv = String(config?.memory?.embedding?.apiKeyEnv || "");
   normalized.sqlitePath = config?.sqlitePath || normalized.sqlitePath;
+  normalized.ui.dashboardTerminal.enabled = Boolean(config?.ui?.dashboardTerminal?.enabled);
+  normalized.ui.dashboardTerminal.localOnly =
+    config?.ui?.dashboardTerminal?.localOnly == null ? true : Boolean(config?.ui?.dashboardTerminal?.localOnly);
 
   const mr = config?.modelRouting;
   normalized.modelRouting = {};
@@ -2007,7 +2016,7 @@ export function ConfigView({ sectionId = "providers", onSectionChange = null }) 
     }
 
     if (selectedSettings === "ui") {
-      return <UIEditor />;
+      return <UIEditor draftConfig={draftConfig} mutateDraft={mutateDraft} />;
     }
 
     if (selectedSettings === "proxy") {

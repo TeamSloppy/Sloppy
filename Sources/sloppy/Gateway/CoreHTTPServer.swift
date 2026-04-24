@@ -34,14 +34,22 @@ public final class CoreHTTPServer {
                 let webSocketUpgrader = NIOWebSocketServerUpgrader(
                     shouldUpgrade: { channel, head in
                         channel.eventLoop.makeFutureWithTask {
-                            guard await router.canHandleWebSocket(path: head.uri) else {
+                            guard await router.canHandleWebSocket(
+                                path: head.uri,
+                                remoteAddress: channel.remoteAddress?.ipAddress
+                            ) else {
                                 throw WebSocketUpgradeRejected()
                             }
                             return HTTPHeaders()
                         }
                     },
                     upgradePipelineHandler: { channel, head in
-                        let handler = CoreWebSocketHandler(router: router, logger: logger, path: head.uri)
+                        let handler = CoreWebSocketHandler(
+                            router: router,
+                            logger: logger,
+                            path: head.uri,
+                            remoteAddress: channel.remoteAddress?.ipAddress
+                        )
                         return channel.pipeline.addHandler(handler)
                     }
                 )
@@ -140,7 +148,12 @@ private final class CoreHTTPHandler: ChannelInboundHandler, RemovableChannelHand
 
             let loopBoundContext = NIOLoopBound(context, eventLoop: context.eventLoop)
             let responseFuture = context.eventLoop.makeFutureWithTask {
-                await router.handle(method: method, path: path, body: bodyData)
+                await router.handle(
+                    method: method,
+                    path: path,
+                    body: bodyData,
+                    remoteAddress: context.channel.remoteAddress?.ipAddress
+                )
             }
 
             responseFuture.whenSuccess { [weak self] response in
@@ -396,14 +409,23 @@ private final class CoreWebSocketHandler: ChannelDuplexHandler, @unchecked Senda
     private let router: CoreRouter
     private let logger: Logger
     private let path: String
+    private let remoteAddress: String?
     private var context: ChannelHandlerContext?
     private var routeTask: Task<Void, Never>?
     private var closeRequested = false
+    private let inboundMessages: AsyncStream<String>
+    private let inboundMessagesContinuation: AsyncStream<String>.Continuation
 
-    init(router: CoreRouter, logger: Logger, path: String) {
+    init(router: CoreRouter, logger: Logger, path: String, remoteAddress: String?) {
         self.router = router
         self.logger = logger
         self.path = path
+        self.remoteAddress = remoteAddress
+        var continuation: AsyncStream<String>.Continuation?
+        self.inboundMessages = AsyncStream<String> { next in
+            continuation = next
+        }
+        self.inboundMessagesContinuation = continuation!
     }
 
     func handlerAdded(context: ChannelHandlerContext) {
@@ -414,11 +436,14 @@ private final class CoreWebSocketHandler: ChannelDuplexHandler, @unchecked Senda
             },
             close: { [weak self] in
                 await self?.close()
+            },
+            incomingMessages: { [inboundMessages] in
+                inboundMessages
             }
         )
 
-        routeTask = Task { [router, path, logger] in
-            let handled = await router.handleWebSocket(path: path, connection: connection)
+        routeTask = Task { [router, path, logger, remoteAddress] in
+            let handled = await router.handleWebSocket(path: path, connection: connection, remoteAddress: remoteAddress)
             if !handled {
                 logger.warning("Rejected websocket request", metadata: ["path": .string(path)])
                 await connection.close()
@@ -433,8 +458,14 @@ private final class CoreWebSocketHandler: ChannelDuplexHandler, @unchecked Senda
             let data = frame.unmaskedData
             let pong = WebSocketFrame(fin: true, opcode: .pong, data: data)
             context.writeAndFlush(wrapOutboundOut(pong), promise: nil)
+        case .text:
+            var data = frame.unmaskedData
+            if let text = data.readString(length: data.readableBytes) {
+                inboundMessagesContinuation.yield(text)
+            }
         case .connectionClose:
             closeRequested = true
+            inboundMessagesContinuation.finish()
             context.close(promise: nil)
         default:
             break
@@ -444,6 +475,7 @@ private final class CoreWebSocketHandler: ChannelDuplexHandler, @unchecked Senda
     func channelInactive(context: ChannelHandlerContext) {
         routeTask?.cancel()
         routeTask = nil
+        inboundMessagesContinuation.finish()
         self.context = nil
         context.fireChannelInactive()
     }

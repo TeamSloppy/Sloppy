@@ -420,6 +420,18 @@ public struct ProjectRecord: Codable, Sendable, Equatable {
     }
 }
 
+/// Payload returned when creating a project via HTTP; includes Git clone outcome when `repoUrl` was used.
+public struct ProjectCreateResult: Codable, Sendable, Equatable {
+    public var project: ProjectRecord
+    /// When the project was created with a `repoUrl`, whether `git clone` finished successfully. `nil` when no remote clone was attempted.
+    public var repoCloneSucceeded: Bool?
+
+    public init(project: ProjectRecord, repoCloneSucceeded: Bool? = nil) {
+        self.project = project
+        self.repoCloneSucceeded = repoCloneSucceeded
+    }
+}
+
 // MARK: - Project Analytics
 
 public enum ProjectAnalyticsWindow: String, Codable, Sendable, Equatable, CaseIterable {

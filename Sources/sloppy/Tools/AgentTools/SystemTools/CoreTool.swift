@@ -123,7 +123,7 @@ protocol ProjectToolService: Sendable {
     func actorBoard() async throws -> ActorBoardSnapshot
 
     func listAllProjects() async -> [ProjectRecord]
-    func createProject(_ request: ProjectCreateRequest) async throws -> ProjectRecord
+    func createProject(_ request: ProjectCreateRequest) async throws -> ProjectCreateResult
     func updateProject(projectID: String, request: ProjectUpdateRequest) async throws -> ProjectRecord
     func deleteProject(projectID: String) async throws
 }
