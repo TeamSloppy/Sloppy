@@ -119,7 +119,8 @@ export function formatHttpError(status: number, data: unknown): string {
     invalid_agent_config_payload: "Agent config payload was rejected (validation or decode).",
     invalid_agent_id: "Invalid agent id.",
     agent_not_found: "Agent was not found.",
-    agent_config_write_failed: "Agent config could not be saved."
+    agent_config_write_failed: "Agent config could not be saved.",
+    agent_document_too_long: "One of agent markdown files exceeded size limits (USER.md <= 2000 chars, MEMORY.md <= 3000 chars). Shorten content and retry."
   };
   const hint = code && hints[code] ? ` — ${hints[code]}` : "";
   const suffix = code ? `: ${code}` : "";
