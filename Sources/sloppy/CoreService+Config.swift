@@ -22,7 +22,7 @@ extension CoreService {
         let refreshedStore = persistenceBuilder.makeStore(config: config)
         store = refreshedStore
         workspaceRootURL = config
-            .resolvedWorkspaceRootURL(currentDirectory: FileManager.default.currentDirectoryPath)
+            .resolvedWorkspaceRootURL(currentDirectory: workspaceCurrentDirectory)
         agentsRootURL = workspaceRootURL
             .appendingPathComponent("agents", isDirectory: true)
         agentCatalogStore.updateAgentsRootURL(agentsRootURL)
