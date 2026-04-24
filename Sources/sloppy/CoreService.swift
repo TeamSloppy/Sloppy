@@ -218,6 +218,7 @@ public actor CoreService {
     let channelModelStore: ChannelModelStore
     var workspaceRootURL: URL
     var agentsRootURL: URL
+    let workspaceCurrentDirectory: String
     var currentConfig: CoreConfig
     var eventTask: Task<Void, Never>?
     var activeGatewayPlugins: [any GatewayPlugin] = []
@@ -245,12 +246,14 @@ public actor CoreService {
     public init(
         config: CoreConfig,
         configPath: String = CoreConfig.defaultConfigPath,
+        currentDirectory: String = FileManager.default.currentDirectoryPath,
         persistenceBuilder: any CorePersistenceBuilding = DefaultCorePersistenceBuilder(),
         searchProviderService: SearchProviderService? = nil
     ) {
         self.init(
             config: config,
             configPath: configPath,
+            currentDirectory: currentDirectory,
             persistenceBuilder: persistenceBuilder,
             searchProviderService: searchProviderService,
             builtInGatewayPluginFactory: .live
@@ -260,13 +263,15 @@ public actor CoreService {
     init(
         config: CoreConfig,
         configPath: String = CoreConfig.defaultConfigPath,
+        currentDirectory: String = FileManager.default.currentDirectoryPath,
         persistenceBuilder: any CorePersistenceBuilding = DefaultCorePersistenceBuilder(),
         searchProviderService: SearchProviderService? = nil,
         providerProbeService: ProviderProbeService? = nil,
         builtInGatewayPluginFactory: BuiltInGatewayPluginFactory,
         updateChecker: UpdateCheckerService? = nil
     ) {
-        let workspaceRootURL = config.resolvedWorkspaceRootURL(currentDirectory: FileManager.default.currentDirectoryPath)
+        self.workspaceCurrentDirectory = currentDirectory
+        let workspaceRootURL = config.resolvedWorkspaceRootURL(currentDirectory: currentDirectory)
         self.openAIOAuthService = OpenAIOAuthService(workspaceRootURL: workspaceRootURL)
         self.anthropicOAuthService = AnthropicOAuthService(workspaceRootURL: workspaceRootURL)
         self.githubAuthService = GitHubAuthService(workspaceRootURL: workspaceRootURL)
@@ -336,7 +341,7 @@ public actor CoreService {
         self.persistenceBuilder = persistenceBuilder
         self.store = persistenceBuilder.makeStore(config: config)
         self.workspaceRootURL = config
-            .resolvedWorkspaceRootURL(currentDirectory: FileManager.default.currentDirectoryPath)
+            .resolvedWorkspaceRootURL(currentDirectory: currentDirectory)
         self.openAIProviderCatalog = OpenAIProviderCatalogService()
         self.providerProbeService = providerProbeService ?? ProviderProbeService()
         self.searchProviderService = searchProviderService ?? SearchProviderService(config: config.searchTools)
@@ -410,7 +415,7 @@ public actor CoreService {
         self.kanbanEventService = KanbanEventService()
         self.pendingApprovalService = PendingApprovalService(
             workspaceDirectory: config
-                .resolvedWorkspaceRootURL(currentDirectory: FileManager.default.currentDirectoryPath).path
+                .resolvedWorkspaceRootURL(currentDirectory: currentDirectory).path
         )
         self.channelStreamCancelRegistry = ChannelStreamCancelRegistry()
         self.currentConfig = config

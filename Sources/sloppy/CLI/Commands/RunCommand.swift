@@ -88,7 +88,7 @@ struct RunCommand: AsyncParsableCommand {
                 logger.warning("SQLite initialization failed at \(config.sqlitePath): \(error); runtime will use fallback persistence if needed")
             }
 
-            let service = CoreService(config: config, configPath: resolvedConfigPath)
+            let service = CoreService(config: config, configPath: resolvedConfigPath, currentDirectory: homeDirectory)
             let router = CoreRouter(service: service)
             let server = CoreHTTPServer(
                 host: config.listen.host,
