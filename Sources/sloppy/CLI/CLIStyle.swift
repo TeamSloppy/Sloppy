@@ -74,6 +74,7 @@ enum CLIStyle {
 
         let cmds: [(String, String)] = [
             ("run",         "Start the Sloppy server"),
+            ("service",     "Manage the background service (install/uninstall/start/stop)"),
             ("status",      "Check server health"),
             ("update",      "Check for updates"),
             ("agent",       "Manage agents, sessions, memories, cron, skills"),

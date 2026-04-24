@@ -8,6 +8,7 @@ struct SloppyApp: AsyncParsableCommand {
         abstract: "AI agent runtime and CLI.",
         subcommands: [
             RunCommand.self,
+            ServiceCommand.self,
             AgentCommand.self,
             ProjectCommand.self,
             ChannelCommand.self,
