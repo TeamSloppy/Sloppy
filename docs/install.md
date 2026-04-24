@@ -121,6 +121,56 @@ sloppy status
 
 If `sloppy` is not in `PATH`, add `~/.local/bin` to your shell profile.
 
+## Run as a background service
+
+Once `sloppy` is in your `PATH`, you can install it as a persistent background service that starts automatically on login and restarts if it crashes.
+
+```bash
+sloppy service install
+```
+
+That's it. The server is now running in the background and will start again on every login.
+
+To verify:
+
+```bash
+sloppy service status
+sloppy status
+```
+
+To follow the live log:
+
+```bash
+sloppy service logs
+```
+
+To stop or remove the service:
+
+```bash
+sloppy service stop        # stop now, keep registered
+sloppy service uninstall   # stop + remove entirely
+```
+
+::: tip Custom config path
+
+If your `sloppy.json` is not in the default location (`~/.sloppy/sloppy.json`), pass it at install time:
+
+```bash
+sloppy service install --config-path /path/to/sloppy.json
+```
+
+The path is embedded in the service definition so every restart picks it up automatically.
+
+:::
+
+::: details Platform notes
+
+**macOS** — registers a LaunchAgent at `~/Library/LaunchAgents/com.sloppy.server.plist`. The OS uses `KeepAlive` to restart the process if it exits. Logs go to `~/.sloppy/logs/service.log`.
+
+**Linux** — creates a systemd user unit at `~/.config/systemd/user/sloppy.service` and enables it with `systemctl --user`. Logs are available via `journalctl --user -u sloppy.service`.
+
+:::
+
 ### Uninstall
 
 To remove installed binaries and dashboard assets:
