@@ -46,6 +46,7 @@ export default defineConfig({
     host: true
   },
   build: {
+    outDir: distDir,
     rollupOptions: {
       onwarn(warning, defaultHandler) {
         if (
