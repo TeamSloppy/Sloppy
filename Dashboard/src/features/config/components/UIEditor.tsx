@@ -39,9 +39,17 @@ function loadStoredAccent(): string {
   return DEFAULT_ACCENT;
 }
 
-export function UIEditor() {
+interface UIEditorProps {
+  draftConfig: Record<string, any>;
+  mutateDraft: (mutator: (draft: Record<string, any>) => void) => void;
+}
+
+export function UIEditor({ draftConfig, mutateDraft }: UIEditorProps) {
   const [accentColor, setAccentColor] = useState(loadStoredAccent);
   const [hexInput, setHexInput] = useState(loadStoredAccent);
+  const terminalEnabled = Boolean(draftConfig?.ui?.dashboardTerminal?.enabled);
+  const terminalLocalOnly =
+    draftConfig?.ui?.dashboardTerminal?.localOnly == null ? true : Boolean(draftConfig?.ui?.dashboardTerminal?.localOnly);
 
   const commitColor = useCallback((color: string) => {
     const normalized = color.trim().toLowerCase();
@@ -140,6 +148,49 @@ export function UIEditor() {
             Reset to Default
           </button>
         </div>
+
+        <label style={{ gridColumn: "1 / -1", marginTop: "20px" }}>
+          Dashboard Terminal
+          <div className="settings-toggle-row">
+            <label className="settings-checkbox">
+              <input
+                type="checkbox"
+                checked={terminalEnabled}
+                onChange={(event) => {
+                  const checked = event.target.checked;
+                  mutateDraft((draft) => {
+                    if (!draft.ui) draft.ui = {};
+                    if (!draft.ui.dashboardTerminal) {
+                      draft.ui.dashboardTerminal = { enabled: false, localOnly: true };
+                    }
+                    draft.ui.dashboardTerminal.enabled = checked;
+                  });
+                }}
+              />
+              <span>Enable bottom terminal drawer (`Cmd+J`)</span>
+            </label>
+            <label className="settings-checkbox">
+              <input
+                type="checkbox"
+                checked={terminalLocalOnly}
+                onChange={(event) => {
+                  const checked = event.target.checked;
+                  mutateDraft((draft) => {
+                    if (!draft.ui) draft.ui = {};
+                    if (!draft.ui.dashboardTerminal) {
+                      draft.ui.dashboardTerminal = { enabled: false, localOnly: true };
+                    }
+                    draft.ui.dashboardTerminal.localOnly = checked;
+                  });
+                }}
+              />
+              <span>Restrict terminal access to local dashboard sessions only</span>
+            </label>
+          </div>
+          <span className="entry-form-hint">
+            The terminal runs as a real shell inside the current project repo path when one is open, otherwise in the workspace root.
+          </span>
+        </label>
       </div>
     </section>
   );

@@ -1067,15 +1067,27 @@ extension CoreService {
         )
     }
 
-    func cloneProjectRepository(repoUrl: String, projectID: String) async {
+    /// Clones `repoUrl` into the project workspace directory. Returns `true` only when `git clone` exits successfully.
+    func cloneProjectRepository(repoUrl: String, projectID: String, projectDisplayName: String) async -> Bool {
         let trimmedUrl = repoUrl.trimmingCharacters(in: .whitespacesAndNewlines)
+        let stderrLogMax = 12_000
+
+        func clipStderr(_ raw: String) -> String {
+            if raw.count <= stderrLogMax { return raw }
+            return String(raw.prefix(stderrLogMax)) + "…(truncated)"
+        }
+
         guard trimmedUrl.hasPrefix("https://") || trimmedUrl.hasPrefix("git@") || trimmedUrl.hasPrefix("http://") else {
-            logger.warning(
+            logger.error(
                 "project.clone.invalid_url",
                 metadata: ["project_id": .string(projectID), "repo_url": .string(trimmedUrl)]
             )
             ensureProjectWorkspaceDirectory(projectID: projectID)
-            return
+            await notificationService.pushSystemError(
+                title: "Git repository not copied",
+                message: "Project \"\(projectDisplayName)\" was saved, but the URL is not supported for cloning (use https://, http://, or git@)."
+            )
+            return false
         }
 
         let cloneUrl = authorizedCloneURL(for: trimmedUrl)
@@ -1086,9 +1098,13 @@ extension CoreService {
         do {
             try FileManager.default.createDirectory(at: parentDir, withIntermediateDirectories: true)
         } catch {
-            logger.warning(
+            logger.error(
                 "project.clone.parent_dir_failed",
-                metadata: ["project_id": .string(projectID), "path": .string(parentDir.path)]
+                metadata: [
+                    "project_id": .string(projectID),
+                    "path": .string(parentDir.path),
+                    "error": .string(error.localizedDescription)
+                ]
             )
         }
 
@@ -1105,12 +1121,16 @@ extension CoreService {
         do {
             try process.run()
         } catch {
-            logger.warning(
+            logger.error(
                 "project.clone.launch_failed",
                 metadata: ["project_id": .string(projectID), "error": .string(error.localizedDescription)]
             )
             ensureProjectWorkspaceDirectory(projectID: projectID)
-            return
+            await notificationService.pushSystemError(
+                title: "Git repository not copied",
+                message: "Project \"\(projectDisplayName)\" was saved, but git could not be started: \(error.localizedDescription)"
+            )
+            return false
         }
 
         let didTimeout = await withTaskGroup(of: Bool.self) { group in
@@ -1127,27 +1147,47 @@ extension CoreService {
         if didTimeout, process.isRunning {
             process.terminate()
             process.waitUntilExit()
-            logger.warning(
-                "project.clone.timeout",
-                metadata: ["project_id": .string(projectID), "repo_url": .string(trimmedUrl)]
-            )
-        } else if process.terminationStatus != 0 {
             let stderrOutput = String(decoding: stderr.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
-            logger.warning(
+            logger.error(
+                "project.clone.timeout",
+                metadata: [
+                    "project_id": .string(projectID),
+                    "repo_url": .string(trimmedUrl),
+                    "stderr": .string(clipStderr(stderrOutput))
+                ]
+            )
+            await notificationService.pushSystemError(
+                title: "Git repository not copied",
+                message: "Project \"\(projectDisplayName)\" was saved, but git clone timed out after 120s. See server logs (project.clone.timeout)."
+            )
+            return false
+        }
+
+        if process.terminationStatus != 0 {
+            let stderrOutput = String(decoding: stderr.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+            logger.error(
                 "project.clone.failed",
                 metadata: [
                     "project_id": .string(projectID),
+                    "repo_url": .string(trimmedUrl),
                     "exit_code": .string(String(process.terminationStatus)),
-                    "stderr": .string(stderrOutput)
+                    "stderr": .string(clipStderr(stderrOutput))
                 ]
             )
-        } else {
-            logger.info(
-                "project.clone.success",
-                metadata: ["project_id": .string(projectID), "repo_url": .string(trimmedUrl)]
+            let hint = stderrOutput.trimmingCharacters(in: .whitespacesAndNewlines).prefix(400)
+            let suffix = hint.isEmpty ? "" : " Output: \(hint)"
+            await notificationService.pushSystemError(
+                title: "Git repository not copied",
+                message: "Project \"\(projectDisplayName)\" was saved, but git clone failed (exit \(process.terminationStatus)).\(suffix)"
             )
+            return false
         }
 
+        logger.info(
+            "project.clone.success",
+            metadata: ["project_id": .string(projectID), "repo_url": .string(trimmedUrl)]
+        )
+        return true
     }
 
     func authorizedCloneURL(for url: String) -> String {

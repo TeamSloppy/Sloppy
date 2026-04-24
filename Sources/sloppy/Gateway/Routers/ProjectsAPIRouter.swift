@@ -121,8 +121,8 @@ struct ProjectsAPIRouter: APIRouter {
             }
 
             do {
-                let project = try await service.createProject(payload)
-                return CoreRouter.encodable(status: HTTPStatus.created, payload: project)
+                let result = try await service.createProject(payload)
+                return CoreRouter.encodable(status: HTTPStatus.created, payload: result)
             } catch let error as CoreService.ProjectError {
                 return CoreRouter.projectErrorResponse(error, fallback: ErrorCode.projectCreateFailed)
             } catch {

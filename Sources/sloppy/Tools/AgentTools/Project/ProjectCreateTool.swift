@@ -34,7 +34,7 @@ struct ProjectCreateTool: CoreTool {
         let teams = arguments["teams"]?.asArray?.compactMap(\.asString)
 
         do {
-            let project = try await svc.createProject(
+            let outcome = try await svc.createProject(
                 ProjectCreateRequest(
                     name: projectName,
                     description: arguments["description"]?.asString,
@@ -44,12 +44,17 @@ struct ProjectCreateTool: CoreTool {
                     repoPath: arguments["repoPath"]?.asString
                 )
             )
-            return toolSuccess(tool: name, data: .object([
+            let project = outcome.project
+            var fields: [String: JSONValue] = [
                 "projectId": .string(project.id),
                 "name": .string(project.name),
                 "description": .string(project.description),
                 "createdAt": .string(ISO8601DateFormatter().string(from: project.createdAt))
-            ]))
+            ]
+            if let ok = outcome.repoCloneSucceeded {
+                fields["repoCloneSucceeded"] = .bool(ok)
+            }
+            return toolSuccess(tool: name, data: .object(fields))
         } catch {
             return toolFailure(tool: name, code: "create_failed", message: "Failed to create project: \(error.localizedDescription)", retryable: true)
         }

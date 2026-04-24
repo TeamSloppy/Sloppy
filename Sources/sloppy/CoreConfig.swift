@@ -984,6 +984,49 @@ public struct CoreConfig: Codable, Sendable {
         }
     }
 
+    public struct UI: Codable, Sendable, Equatable {
+        public struct DashboardTerminal: Codable, Sendable, Equatable {
+            public var enabled: Bool
+            public var localOnly: Bool
+
+            private enum CodingKeys: String, CodingKey {
+                case enabled
+                case localOnly
+            }
+
+            public init(
+                enabled: Bool = false,
+                localOnly: Bool = true
+            ) {
+                self.enabled = enabled
+                self.localOnly = localOnly
+            }
+
+            public init(from decoder: Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                enabled = try container.decodeIfPresent(Bool.self, forKey: .enabled) ?? false
+                localOnly = try container.decodeIfPresent(Bool.self, forKey: .localOnly) ?? true
+            }
+        }
+
+        public var dashboardTerminal: DashboardTerminal
+
+        private enum CodingKeys: String, CodingKey {
+            case dashboardTerminal
+        }
+
+        public init(
+            dashboardTerminal: DashboardTerminal = DashboardTerminal()
+        ) {
+            self.dashboardTerminal = dashboardTerminal
+        }
+
+        public init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            dashboardTerminal = try container.decodeIfPresent(DashboardTerminal.self, forKey: .dashboardTerminal) ?? .init()
+        }
+    }
+
     public var listen: Listen
     public var workspace: Workspace
     public var auth: Auth
@@ -1001,6 +1044,7 @@ public struct CoreConfig: Codable, Sendable {
     public var searchTools: SearchTools
     public var proxy: Proxy
     public var visor: Visor
+    public var ui: UI
     public var sqlitePath: String
     /// Optional aliases for model ids (e.g. `"fast"` → `"openai:gpt-5.4-mini"`) used when resolving `model` from SKILL.md or tools.
     public var modelRouting: [String: String]
@@ -1023,6 +1067,7 @@ public struct CoreConfig: Codable, Sendable {
         searchTools: SearchTools = SearchTools(),
         proxy: Proxy = Proxy(),
         visor: Visor = Visor(),
+        ui: UI = UI(),
         sqlitePath: String,
         modelRouting: [String: String] = [:]
     ) {
@@ -1043,6 +1088,7 @@ public struct CoreConfig: Codable, Sendable {
         self.searchTools = searchTools
         self.proxy = proxy
         self.visor = visor
+        self.ui = ui
         self.sqlitePath = sqlitePath
         self.modelRouting = modelRouting
     }
@@ -1078,6 +1124,7 @@ public struct CoreConfig: Codable, Sendable {
             searchTools: .init(),
             proxy: .init(),
             visor: .init(),
+            ui: .init(),
             sqlitePath: CoreConfig.defaultSQLiteFileName,
             modelRouting: [:]
         )
@@ -1143,6 +1190,7 @@ public struct CoreConfig: Codable, Sendable {
         case searchTools
         case proxy
         case visor
+        case ui
         case sqlitePath
         case modelRouting
     }
@@ -1165,6 +1213,7 @@ public struct CoreConfig: Codable, Sendable {
         searchTools = try container.decodeIfPresent(SearchTools.self, forKey: .searchTools) ?? .init()
         proxy = try container.decodeIfPresent(Proxy.self, forKey: .proxy) ?? .init()
         visor = try container.decodeIfPresent(Visor.self, forKey: .visor) ?? .init()
+        ui = try container.decodeIfPresent(UI.self, forKey: .ui) ?? .init()
         sqlitePath = try container.decode(String.self, forKey: .sqlitePath)
         models = try container.decodeIfPresent([ModelConfig].self, forKey: .models) ?? []
         plugins = try container.decodeIfPresent([PluginConfig].self, forKey: .plugins) ?? []
@@ -1190,6 +1239,7 @@ public struct CoreConfig: Codable, Sendable {
         try container.encode(searchTools, forKey: .searchTools)
         try container.encode(proxy, forKey: .proxy)
         try container.encode(visor, forKey: .visor)
+        try container.encode(ui, forKey: .ui)
         try container.encode(sqlitePath, forKey: .sqlitePath)
         if !modelRouting.isEmpty {
             try container.encode(modelRouting, forKey: .modelRouting)

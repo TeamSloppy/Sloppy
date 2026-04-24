@@ -48,5 +48,20 @@ struct SessionsAPIRouter: APIRouter {
                 return CoreRouter.json(status: HTTPStatus.internalServerError, payload: ["error": ErrorCode.sessionLoadFailed])
             }
         }
+
+        router.delete("/v1/channel-sessions/:sessionId", metadata: RouteMetadata(summary: "Delete channel session", description: "Permanently deletes a channel session and all its events", tags: ["Sessions"])) { request in
+            let sessionId = request.pathParam("sessionId") ?? ""
+
+            do {
+                try await service.deleteChannelSession(sessionID: sessionId)
+                return CoreRouter.json(status: HTTPStatus.ok, payload: ["status": "deleted"])
+            } catch ChannelSessionFileStore.StoreError.invalidSessionID {
+                return CoreRouter.json(status: HTTPStatus.badRequest, payload: ["error": ErrorCode.invalidBody])
+            } catch ChannelSessionFileStore.StoreError.sessionNotFound {
+                return CoreRouter.json(status: HTTPStatus.notFound, payload: ["error": ErrorCode.sessionNotFound])
+            } catch {
+                return CoreRouter.json(status: HTTPStatus.internalServerError, payload: ["error": ErrorCode.sessionDeleteFailed])
+            }
+        }
     }
 }

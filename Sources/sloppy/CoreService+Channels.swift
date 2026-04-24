@@ -172,6 +172,10 @@ extension CoreService {
         return try await channelSessionStore.loadSessionDetail(sessionID: sessionID)
     }
 
+    public func deleteChannelSession(sessionID: String) async throws {
+        await waitForStartup()
+        try await channelSessionStore.deleteSession(sessionID: sessionID)
+    }
 
     /// Returns one dashboard project by identifier.
     func prepareChannelSession(channelId: String) async throws {

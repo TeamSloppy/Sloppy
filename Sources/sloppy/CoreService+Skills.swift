@@ -112,9 +112,27 @@ extension CoreService {
             return installedSkill
         } catch let error as AgentSkillsFileStore.StoreError {
             throw mapAgentSkillsError(error)
-        } catch is SkillsGitHubClient.ClientError {
+        } catch let clientError as SkillsGitHubClient.ClientError {
+            logger.error(
+                "skills.install.download_failed",
+                metadata: [
+                    "agent_id": .string(normalizedAgentID),
+                    "owner": .string(owner),
+                    "repo": .string(repo),
+                    "github_error": .string(clientError.logDescription)
+                ]
+            )
             throw AgentSkillsError.downloadFailure
         } catch {
+            logger.error(
+                "skills.install.unexpected_error",
+                metadata: [
+                    "agent_id": .string(normalizedAgentID),
+                    "owner": .string(owner),
+                    "repo": .string(repo),
+                    "error": .string(String(describing: error))
+                ]
+            )
             throw AgentSkillsError.storageFailure
         }
     }

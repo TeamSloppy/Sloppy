@@ -18,7 +18,7 @@ func createProjectWithRepoPathCreatesWorkspaceLinkAndKeepsArtifactsLocal() async
     defer { try? FileManager.default.removeItem(at: externalDirectory) }
 
     let projectID = "open-project-\(UUID().uuidString.prefix(8).lowercased())"
-    let project = try await service.createProject(
+    let outcome = try await service.createProject(
         ProjectCreateRequest(
             id: projectID,
             name: "Open Project",
@@ -27,6 +27,7 @@ func createProjectWithRepoPathCreatesWorkspaceLinkAndKeepsArtifactsLocal() async
             repoPath: externalDirectory.path
         )
     )
+    let project = outcome.project
 
     #expect(project.repoPath == externalDirectory.path)
 

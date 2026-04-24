@@ -76,6 +76,16 @@ actor ChannelSessionFileStore {
         }
     }
 
+    func deleteSession(sessionID: String) throws {
+        let normalizedSessionID = try normalizedSessionID(sessionID)
+        let fileURL = try existingSessionFileURL(sessionID: normalizedSessionID)
+        do {
+            try fileManager.removeItem(at: fileURL)
+        } catch {
+            throw StoreError.storageFailure
+        }
+    }
+
     func loadSession(sessionID: String) throws -> [ChannelSessionEvent] {
         let normalizedSessionID = try normalizedSessionID(sessionID)
         let fileURL = sessionFileURL(sessionId: normalizedSessionID)

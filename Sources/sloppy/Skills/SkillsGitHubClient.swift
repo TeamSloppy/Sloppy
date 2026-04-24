@@ -414,3 +414,29 @@ extension SkillsGitHubClient {
         return fm
     }
 }
+
+extension SkillsGitHubClient.ClientError {
+    /// Stable, log-friendly description (no PII beyond repo-related HTTP messages).
+    var logDescription: String {
+        switch self {
+        case .invalidURL:
+            return "invalid_url"
+        case .invalidRepository:
+            return "invalid_repository"
+        case .networkError(let err):
+            return "network_error: \(err.localizedDescription)"
+        case .httpError(let code, let body):
+            let raw = body?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            let snippet = raw.count > 500 ? String(raw.prefix(500)) + "…" : raw
+            return snippet.isEmpty ? "http_\(code)" : "http_\(code): \(snippet)"
+        case .decodeError:
+            return "decode_error"
+        case .fileWriteError(let err):
+            return "file_write: \(err.localizedDescription)"
+        case .invalidResponse:
+            return "invalid_response"
+        case .contentNotFound:
+            return "content_not_found"
+        }
+    }
+}

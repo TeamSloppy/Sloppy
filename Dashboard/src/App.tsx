@@ -9,6 +9,7 @@ import { NotificationToastContainer } from "./features/notifications/Notificatio
 import { useNotificationSocket } from "./features/notifications/useNotificationSocket";
 import { OnboardingView } from "./features/onboarding/OnboardingView";
 import { useRuntimeOverview } from "./features/runtime-overview/model/useRuntimeOverview";
+import { TerminalDrawer } from "./features/terminal/TerminalDrawer";
 import { UpdateBanner } from "./features/updates/UpdateBanner";
 import { useUpdateCheck } from "./features/updates/useUpdateCheck";
 import { AgentsView } from "./views/AgentsView";
@@ -230,6 +231,17 @@ function DashboardShell({ dependencies, debugEnabled }: { dependencies: ReturnTy
   ];
 
   const isNotFound = route.section === "not_found";
+  const activeProjectId =
+    route.section === "chats"
+      ? route.chatProjectId
+      : (typeof route.projectId === "string" && route.projectId.trim().length > 0 ? route.projectId : null);
+  const activeProjectRecord =
+    activeProjectId != null
+      ? sidebarProjects.find((project) => String((project as AnyRecord)?.id || "").trim() === activeProjectId)
+      : null;
+  const activeProjectRepoPath = activeProjectRecord
+    ? String((activeProjectRecord as AnyRecord)?.repoPath || "").trim() || null
+    : null;
   /** Project chat lives under /chats — do not mark a main nav tab active; the project rail shows context. */
   const sidebarActiveItemId =
     route.section === "chats"
@@ -344,6 +356,11 @@ function DashboardShell({ dependencies, debugEnabled }: { dependencies: ReturnTy
         </button>
         {updateStatus && <UpdateBanner status={updateStatus} />}
         {pageContent}
+        <TerminalDrawer
+          coreApi={dependencies.coreApi}
+          currentProjectId={activeProjectId}
+          currentProjectRepoPath={activeProjectRepoPath}
+        />
       </div>
       <NotificationToastContainer />
     </div>

@@ -239,6 +239,7 @@ public actor CoreService {
     public let notificationService: NotificationService
     public let kanbanEventService: KanbanEventService
     public let pendingApprovalService: PendingApprovalService
+    let dashboardTerminalService: DashboardTerminalService
     let channelStreamCancelRegistry: ChannelStreamCancelRegistry
     var inboundChannelPluginQueues: [String: InboundChannelPluginQueueSlot] = [:]
 
@@ -417,6 +418,7 @@ public actor CoreService {
             workspaceDirectory: config
                 .resolvedWorkspaceRootURL(currentDirectory: currentDirectory).path
         )
+        self.dashboardTerminalService = DashboardTerminalService()
         self.channelStreamCancelRegistry = ChannelStreamCancelRegistry()
         self.currentConfig = config
         Task { [weak self] in

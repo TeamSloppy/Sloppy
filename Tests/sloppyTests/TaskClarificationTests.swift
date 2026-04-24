@@ -209,7 +209,7 @@ func projectTaskLoopModeDefaultsToHuman() async throws {
         ProjectCreateRequest(id: projectID, name: "Loop Test", description: "", channels: [])
     )
     let createResp = await router.handle(method: "POST", path: "/v1/projects", body: createBody)
-    let project = try decoder.decode(ProjectRecord.self, from: createResp.body)
+    let project = try decoder.decode(ProjectCreateResult.self, from: createResp.body).project
     #expect(project.taskLoopMode == .human)
 }
 

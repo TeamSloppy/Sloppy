@@ -128,7 +128,7 @@ func projectDefaultReviewSettingsAreEnabled() async throws {
     )
     let createResp = await router.handle(method: "POST", path: "/v1/projects", body: createBody)
     #expect(createResp.status == 201)
-    let created = try decoder.decode(ProjectRecord.self, from: createResp.body)
+    let created = try decoder.decode(ProjectCreateResult.self, from: createResp.body).project
     #expect(created.reviewSettings.enabled == true)
     #expect(created.repoPath == nil)
 }

@@ -1234,7 +1234,7 @@ export function ProjectsView({
       (id) => createModalTeams.find((t) => t.id === id)?.name ?? id
     );
 
-    const created = await createProjectRequest({
+    const outcome = await createProjectRequest({
       id: projectId,
       name: displayName,
       description: String(projectDraft.description || "").trim(),
@@ -1249,15 +1249,20 @@ export function ProjectsView({
         : {})
     });
 
-    if (!created) {
+    if (!outcome?.project) {
       setStatusText("Failed to create project in Sloppy.");
       return;
     }
 
+    const created = outcome.project;
     replaceProjectInState(created, true);
     onRouteProjectChange(String(created.id || ""), "overview");
     closeCreateProjectModal();
-    setStatusText(`Project ${displayName} created.`);
+    if (outcome.repoCloneSucceeded === false) {
+      setStatusText(`Project ${displayName} was created, but the Git repository could not be copied into the workspace. Check the notification bell or server logs.`);
+    } else {
+      setStatusText(`Project ${displayName} created.`);
+    }
   }
 
   async function renameProject(projectId, explicitName = null) {

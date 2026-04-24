@@ -31,12 +31,25 @@ interface AgentSessionStreamHandlers {
   onError?: () => void;
 }
 
+interface DashboardTerminalHandlers {
+  onMessage?: (payload: AnyRecord) => void;
+  onOpen?: () => void;
+  onClose?: () => void;
+  onError?: () => void;
+}
+
+export interface DashboardTerminalConnection {
+  send: (payload: AnyRecord) => boolean;
+  close: () => void;
+}
+
 export interface CoreApi {
   sendChannelMessage: (channelId: string, payload: AnyRecord) => Promise<AnyRecord | null>;
   fetchChannelState: (channelId: string) => Promise<AnyRecord | null>;
   fetchChannelEvents: (channelId: string, query?: ChannelEventsQuery) => Promise<AnyRecord | null>;
   fetchChannelSessions: (query?: ChannelSessionsQuery) => Promise<AnyRecord[] | null>;
   fetchChannelSession: (sessionId: string) => Promise<AnyRecord | null>;
+  deleteChannelSession: (sessionId: string) => Promise<boolean>;
   postChannelControl: (channelId: string, payload: AnyRecord) => Promise<AnyRecord | null>;
   fetchBulletins: () => Promise<AnyRecord[]>;
   fetchChannelSlashCommands: () => Promise<{
@@ -78,7 +91,7 @@ export interface CoreApi {
   fetchProjects: () => Promise<AnyRecord[] | null>;
   fetchProject: (projectId: string) => Promise<AnyRecord | null>;
   fetchTaskByReference: (taskReference: string) => Promise<AnyRecord | null>;
-  createProject: (payload: AnyRecord) => Promise<AnyRecord | null>;
+  createProject: (payload: AnyRecord) => Promise<{ project: AnyRecord; repoCloneSucceeded: boolean | null } | null>;
   updateProject: (projectId: string, payload: AnyRecord) => Promise<AnyRecord | null>;
   refreshProjectContext: (projectId: string) => Promise<AnyRecord | null>;
   deleteProject: (projectId: string) => Promise<boolean>;
@@ -145,6 +158,7 @@ export interface CoreApi {
     sessionId: string,
     handlers?: AgentSessionStreamHandlers
   ) => () => void;
+  subscribeDashboardTerminal: (handlers?: DashboardTerminalHandlers) => DashboardTerminalConnection;
   deleteAgentSession: (agentId: string, sessionId: string) => Promise<boolean>;
   fetchAgentConfig: (agentId: string) => Promise<AnyRecord | null>;
   fetchAgentFiles: (agentId: string, path?: string) => Promise<AnyRecord[] | null>;
@@ -281,6 +295,14 @@ export function createCoreApi(): CoreApi {
         return null;
       }
       return response.data;
+    },
+
+    deleteChannelSession: async (sessionId) => {
+      const response = await requestJson({
+        path: `/v1/channel-sessions/${encodeURIComponent(sessionId)}`,
+        method: "DELETE"
+      });
+      return response.ok;
     },
 
     postChannelControl: async (channelId, payload) => {
@@ -619,7 +641,18 @@ export function createCoreApi(): CoreApi {
       if (!response.ok) {
         return null;
       }
-      return response.data;
+      const data = response.data;
+      if (!data || typeof data !== "object") {
+        return null;
+      }
+      const record = data as AnyRecord;
+      if (record.project && typeof record.project === "object") {
+        return {
+          project: record.project as AnyRecord,
+          repoCloneSucceeded: typeof record.repoCloneSucceeded === "boolean" ? record.repoCloneSucceeded : null
+        };
+      }
+      return { project: record, repoCloneSucceeded: null };
     },
 
     updateProject: async (projectId, payload) => {
@@ -1167,6 +1200,66 @@ export function createCoreApi(): CoreApi {
         if (socket) {
           socket.close();
           socket = null;
+        }
+      };
+    },
+
+    subscribeDashboardTerminal: (handlers = {}) => {
+      let socket: WebSocket | null = null;
+      let closedExplicitly = false;
+
+      socket = new WebSocket(buildWebSocketURL("/v1/dashboard/terminal/ws"));
+
+      socket.onopen = () => {
+        handlers.onOpen?.();
+      };
+
+      socket.onmessage = (event) => {
+        if (!event?.data || typeof handlers.onMessage !== "function") {
+          return;
+        }
+
+        try {
+          const payload = JSON.parse(String(event.data));
+          if (payload && typeof payload === "object") {
+            handlers.onMessage(payload as AnyRecord);
+          }
+        } catch {
+          // Ignore malformed terminal frames and keep the socket open.
+        }
+      };
+
+      socket.onerror = () => {
+        handlers.onError?.();
+      };
+
+      socket.onclose = () => {
+        const shouldNotifyClose = !closedExplicitly;
+        socket = null;
+        if (shouldNotifyClose) {
+          handlers.onClose?.();
+        }
+      };
+
+      return {
+        send: (payload) => {
+          if (!socket || socket.readyState !== WebSocket.OPEN) {
+            return false;
+          }
+          try {
+            socket.send(JSON.stringify(payload));
+            return true;
+          } catch {
+            return false;
+          }
+        },
+        close: () => {
+          closedExplicitly = true;
+          if (socket) {
+            socket.close();
+            socket = null;
+          }
+          handlers.onClose?.();
         }
       };
     },
