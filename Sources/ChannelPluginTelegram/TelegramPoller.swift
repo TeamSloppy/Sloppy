@@ -68,7 +68,15 @@ actor TelegramPoller {
             } catch is CancellationError {
                 break
             } catch {
-                logger.warning("Polling error: \(error). Retrying in 5s...")
+                if let api = error as? TelegramAPIError,
+                   case .httpError(let status, _) = api,
+                   status == 401 {
+                    logger.error(
+                        "Telegram polling unauthorized (401). Bot token is missing, revoked, or wrong. Fix `telegram` config and restart; polling will keep retrying every 5s."
+                    )
+                } else {
+                    logger.warning("Polling error: \(error). Retrying in 5s...")
+                }
                 try? await Task.sleep(for: .seconds(5))
             }
         }
