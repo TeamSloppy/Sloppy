@@ -146,7 +146,6 @@ private final class CoreHTTPHandler: ChannelInboundHandler, RemovableChannelHand
             let bodyData = readData(from: &bodyBuffer)
             let router = self.router
 
-            let loopBoundContext = NIOLoopBound(context, eventLoop: context.eventLoop)
             let responseFuture = context.eventLoop.makeFutureWithTask {
                 await router.handle(
                     method: method,
@@ -156,15 +155,21 @@ private final class CoreHTTPHandler: ChannelInboundHandler, RemovableChannelHand
                 )
             }
 
-            responseFuture.whenSuccess { [weak self] response in
-                let context = loopBoundContext.value
-                self?.writeResponse(context: context, requestHead: head, response: response)
-            }
-
-            responseFuture.whenFailure { [weak self] error in
-                let context = loopBoundContext.value
-                self?.logger.error("Failed to handle request: \(String(describing: error))")
-                self?.writeServerError(context: context, requestHead: head)
+            // `makeFutureWithTask` completion may not run on the channel event loop; all pipeline
+            // writes (and `NIOLoopBound.value`) must happen on `context.eventLoop` or NIO traps.
+            responseFuture.whenComplete { [weak self] result in
+                context.eventLoop.execute {
+                    guard let self else {
+                        return
+                    }
+                    switch result {
+                    case .success(let response):
+                        self.writeResponse(context: context, requestHead: head, response: response)
+                    case .failure(let error):
+                        self.logger.error("Failed to handle request: \(String(describing: error))")
+                        self.writeServerError(context: context, requestHead: head)
+                    }
+                }
             }
         }
     }
@@ -199,10 +204,12 @@ private final class CoreHTTPHandler: ChannelInboundHandler, RemovableChannelHand
         var buffer = context.channel.allocator.buffer(capacity: response.body.count)
         buffer.writeBytes(response.body)
         context.write(wrapOutboundOut(.body(.byteBuffer(buffer))), promise: nil)
-        let loopBoundContext = NIOLoopBound(context, eventLoop: context.eventLoop)
         context.writeAndFlush(wrapOutboundOut(.end(nil))).whenComplete { _ in
-            if !keepAlive {
-                loopBoundContext.value.close(promise: nil)
+            guard !keepAlive else {
+                return
+            }
+            context.eventLoop.execute {
+                context.close(promise: nil)
             }
         }
     }
@@ -276,10 +283,12 @@ private final class CoreHTTPHandler: ChannelInboundHandler, RemovableChannelHand
         )
 
         context.write(wrapOutboundOut(.head(responseHead)), promise: nil)
-        let loopBoundContext = NIOLoopBound(context, eventLoop: context.eventLoop)
         context.writeAndFlush(wrapOutboundOut(.end(nil))).whenComplete { _ in
-            if !requestHead.isKeepAlive {
-                loopBoundContext.value.close(promise: nil)
+            guard !requestHead.isKeepAlive else {
+                return
+            }
+            context.eventLoop.execute {
+                context.close(promise: nil)
             }
         }
     }

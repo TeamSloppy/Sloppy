@@ -276,10 +276,12 @@ private final class DashboardHTTPHandler: ChannelInboundHandler, RemovableChanne
         var buffer = context.channel.allocator.buffer(capacity: response.body.count)
         buffer.writeBytes(response.body)
         context.write(wrapOutboundOut(.body(.byteBuffer(buffer))), promise: nil)
-        let loopBoundContext = NIOLoopBound(context, eventLoop: context.eventLoop)
         context.writeAndFlush(wrapOutboundOut(.end(nil))).whenComplete { _ in
-            if !keepAlive {
-                loopBoundContext.value.close(promise: nil)
+            guard !keepAlive else {
+                return
+            }
+            context.eventLoop.execute {
+                context.close(promise: nil)
             }
         }
     }
@@ -295,10 +297,12 @@ private final class DashboardHTTPHandler: ChannelInboundHandler, RemovableChanne
         )
 
         context.write(wrapOutboundOut(.head(responseHead)), promise: nil)
-        let loopBoundContext = NIOLoopBound(context, eventLoop: context.eventLoop)
         context.writeAndFlush(wrapOutboundOut(.end(nil))).whenComplete { _ in
-            if !requestHead.isKeepAlive {
-                loopBoundContext.value.close(promise: nil)
+            guard !requestHead.isKeepAlive else {
+                return
+            }
+            context.eventLoop.execute {
+                context.close(promise: nil)
             }
         }
     }
