@@ -62,6 +62,7 @@ struct ToolRegistry: Sendable {
     static func makeDefault() -> ToolRegistry {
         ToolRegistry(tools: [
             FilesReadTool(),
+            FilesListTool(),
             FilesEditTool(),
             FilesWriteTool(),
             RuntimeExecTool(),
