@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import {
   createAgent as createAgentRequest,
+  deleteAgent as deleteAgentRequest,
   fetchAgent,
   fetchAgents,
   fetchRuntimeConfig,
@@ -47,6 +48,7 @@ const EMPTY_GENERATED_FILES: GeneratedAgentFiles = {
   soulMarkdown: "",
   userMarkdown: ""
 };
+const USER_MARKDOWN_MAX_CHARS = 2000;
 
 function agentInitials(name) {
   const parts = String(name || "?")
@@ -89,13 +91,22 @@ Display Name: ${form.displayName || form.id || "Agent"}
 Role: ${form.role || "General-purpose assistant"}
 Agent responsibility: ${form.generateDescription}
 
-Output exactly 4 files using the markers below. Include only the file content between markers — no extra text outside the markers.
+Hard requirements:
+- Output exactly 4 files using the markers below.
+- Include only file content between markers (no extra text before/after markers).
+- Keep files concise and practical. Avoid long essays and repetition.
+- USER.md MUST be at most 2000 characters.
+- Preferred targets for readability:
+  - AGENTS.md: 800-1800 chars
+  - IDENTITY.md: 400-900 chars
+  - SOUL.md: 400-900 chars
+  - USER.md: 600-1600 chars (hard max 2000)
 
 --- AGENTS.md ---
 (Write main behavior instructions, responsibilities, operating rules, and capabilities for this agent)
 --- IDENTITY.md ---
 (Write personality, communication style, tone, and character traits)
---- SOULD.md ---
+--- SOUL.md ---
 (Write core values, principles, and decision-making framework)
 --- USER.md ---
 (Write how to interact with users, preferred response format, and user interaction guidelines)`;
@@ -125,6 +136,17 @@ function parseGeneratedFiles(text: string): GeneratedAgentFiles {
   }
 
   return result;
+}
+
+function validateGeneratedFiles(files: GeneratedAgentFiles): string | null {
+  if (!files.agentsMarkdown.trim()) return "Generation is missing AGENTS.md content.";
+  if (!files.identityMarkdown.trim()) return "Generation is missing IDENTITY.md content.";
+  if (!files.soulMarkdown.trim()) return "Generation is missing SOUL.md content.";
+  if (!files.userMarkdown.trim()) return "Generation is missing USER.md content.";
+  if (files.userMarkdown.length > USER_MARKDOWN_MAX_CHARS) {
+    return `Generated USER.md is too long (${files.userMarkdown.length}/${USER_MARKDOWN_MAX_CHARS}). Try a shorter responsibility description or regenerate.`;
+  }
+  return null;
 }
 
 function AgentCreateModal({ isOpen, form, createError, onFormChange, onClose, onSubmit, availableModels, providerConfigured, isGenerating }) {
@@ -383,6 +405,12 @@ export function AgentsView({
     }
 
     const parsed = parseGeneratedFiles(result.text);
+    const validationError = validateGeneratedFiles(parsed);
+    if (validationError) {
+      setGenerationPhase("form");
+      setCreateError(validationError);
+      return;
+    }
     setGeneratedFiles(parsed);
     setGenerationPhase("preview");
   }
@@ -447,7 +475,10 @@ export function AgentsView({
           channelSessions: agentConfig.channelSessions
         });
       } catch (err) {
-        setCreateError(err instanceof Error ? err.message : "Failed to update agent config after creation.");
+        await deleteAgentRequest(normalizedId);
+        setCreateError(
+          `${err instanceof Error ? err.message : "Failed to update agent config after creation."} Agent creation was rolled back.`
+        );
         setIsSubmittingAgent(false);
         setGenerationPhase("form");
         return;
