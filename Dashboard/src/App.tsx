@@ -670,6 +670,7 @@ export function App() {
                 id="sloppy-dashboard-token-onboarding"
                 className="onboarding-loading-input"
                 type="password"
+                placeholder="Paste dashboard operator token"
                 autoCapitalize="off"
                 autoCorrect="off"
                 spellCheck={false}
@@ -690,13 +691,18 @@ export function App() {
                   }
                 }}
               />
-              <label style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-                <input
-                  type="checkbox"
-                  checked={rememberDashboardToken}
-                  onChange={(event) => setRememberDashboardToken(event.target.checked)}
-                />
-                <span>Remember this token in this browser</span>
+              <label className="agent-tools-guardrail agent-tools-guardrail-toggle">
+                <span className="agent-tools-guardrail-copy">
+                  <span className="agent-tools-guardrail-title">Remember this token in this browser</span>
+                </span>
+                <span className="agent-tools-switch">
+                  <input
+                    type="checkbox"
+                    checked={rememberDashboardToken}
+                    onChange={(event) => setRememberDashboardToken(event.target.checked)}
+                  />
+                  <span className="agent-tools-switch-track" />
+                </span>
               </label>
               <span className="onboarding-loading-hint">
                 This is a convenience-first local operator mode. Stored tokens use `localStorage`.
@@ -769,6 +775,7 @@ export function App() {
               id="sloppy-dashboard-token"
               className="onboarding-loading-input"
               type="password"
+              placeholder="Paste dashboard operator token"
               autoCapitalize="off"
               autoCorrect="off"
               spellCheck={false}
@@ -789,13 +796,18 @@ export function App() {
                 }
               }}
             />
-              <label style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-              <input
-                type="checkbox"
-                checked={rememberDashboardToken}
-                onChange={(event) => setRememberDashboardToken(event.target.checked)}
-              />
-              <span>Remember this token in this browser</span>
+            <label className="agent-tools-guardrail agent-tools-guardrail-toggle">
+              <span className="agent-tools-guardrail-copy">
+                <span className="agent-tools-guardrail-title">Remember this token in this browser</span>
+              </span>
+              <span className="agent-tools-switch">
+                <input
+                  type="checkbox"
+                  checked={rememberDashboardToken}
+                  onChange={(event) => setRememberDashboardToken(event.target.checked)}
+                />
+                <span className="agent-tools-switch-track" />
+              </span>
             </label>
             <span className="onboarding-loading-hint">
               This is a convenience-first local operator mode. Stored tokens use `localStorage`.
