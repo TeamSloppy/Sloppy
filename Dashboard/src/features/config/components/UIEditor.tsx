@@ -47,6 +47,8 @@ interface UIEditorProps {
 export function UIEditor({ draftConfig, mutateDraft }: UIEditorProps) {
   const [accentColor, setAccentColor] = useState(loadStoredAccent);
   const [hexInput, setHexInput] = useState(loadStoredAccent);
+  const dashboardAuthEnabled = Boolean(draftConfig?.ui?.dashboardAuth?.enabled);
+  const dashboardAuthToken = String(draftConfig?.ui?.dashboardAuth?.token || "");
   const terminalEnabled = Boolean(draftConfig?.ui?.dashboardTerminal?.enabled);
   const terminalLocalOnly =
     draftConfig?.ui?.dashboardTerminal?.localOnly == null ? true : Boolean(draftConfig?.ui?.dashboardTerminal?.localOnly);
@@ -147,6 +149,56 @@ export function UIEditor({ draftConfig, mutateDraft }: UIEditorProps) {
           <button type="button" onClick={handleReset}>
             Reset to Default
           </button>
+        </div>
+
+        <div style={{ gridColumn: "1 / -1", marginTop: "20px" }}>
+          <span style={{ fontSize: "0.85rem", color: "var(--muted)", display: "block", marginBottom: "8px" }}>
+            Dashboard Auth
+          </span>
+          <div className="settings-toggle-row">
+            <label className="agent-tools-guardrail agent-tools-guardrail-toggle">
+              <span className="agent-tools-guardrail-copy">
+                <span className="agent-tools-guardrail-title">Require a separate operator token for dashboard mutations</span>
+              </span>
+              <span className="agent-tools-switch">
+                <input
+                  type="checkbox"
+                  checked={dashboardAuthEnabled}
+                  onChange={(event) => {
+                    const checked = event.target.checked;
+                    mutateDraft((draft) => {
+                      if (!draft.ui) draft.ui = {};
+                      if (!draft.ui.dashboardAuth) {
+                        draft.ui.dashboardAuth = { enabled: false, token: "" };
+                      }
+                      draft.ui.dashboardAuth.enabled = checked;
+                    });
+                  }}
+                />
+                <span className="agent-tools-switch-track" />
+              </span>
+            </label>
+          </div>
+          <label style={{ gridColumn: "1 / -1", marginTop: "12px" }}>
+            Dashboard Token
+            <input
+              type="password"
+              value={dashboardAuthToken}
+              placeholder="operator-token"
+              onChange={(event) => {
+                mutateDraft((draft) => {
+                  if (!draft.ui) draft.ui = {};
+                  if (!draft.ui.dashboardAuth) {
+                    draft.ui.dashboardAuth = { enabled: false, token: "" };
+                  }
+                  draft.ui.dashboardAuth.token = event.target.value;
+                });
+              }}
+            />
+            <span className="entry-form-hint">
+              When enabled with a non-empty token, dashboard `POST`/`PUT`/`PATCH`/`DELETE` routes and the dashboard terminal require bearer auth. The legacy `auth.token` still works for CLI compatibility.
+            </span>
+          </label>
         </div>
 
         <div style={{ gridColumn: "1 / -1", marginTop: "20px" }}>

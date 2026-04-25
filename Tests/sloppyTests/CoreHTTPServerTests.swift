@@ -11,6 +11,7 @@ private struct SSEMalformedResponseError: Error {}
 private struct WebSocketMalformedResponseError: Error {}
 private struct DashboardTerminalClientFrame: Encodable {
     let type: String
+    let token: String?
     let projectId: String?
     let cwd: String?
     let cols: Int?
@@ -270,6 +271,8 @@ func webSocketSessionStreamPublishesToolEventsOverHTTPServer() async throws {
 @Test
 func dashboardTerminalWebSocketAcceptsInputAndAllowsReconnect() async throws {
     var config = CoreConfig.test
+    config.ui.dashboardAuth.enabled = true
+    config.ui.dashboardAuth.token = "dashboard-secret"
     config.ui.dashboardTerminal.enabled = true
     config.ui.dashboardTerminal.localOnly = true
 
@@ -287,12 +290,43 @@ func dashboardTerminalWebSocketAcceptsInputAndAllowsReconnect() async throws {
     let port = try #require(server.boundPort)
     let wsURL = try #require(URL(string: "ws://127.0.0.1:\(port)/v1/dashboard/terminal/ws"))
 
+    let unauthenticatedSocket = URLSession.shared.webSocketTask(with: wsURL)
+    unauthenticatedSocket.resume()
+    defer { unauthenticatedSocket.cancel(with: .normalClosure, reason: nil) }
+
+    try await sendDashboardTerminalMessage(
+        DashboardTerminalClientFrame(type: "start", token: nil, projectId: nil, cwd: nil, cols: 80, rows: 24, data: nil),
+        over: unauthenticatedSocket
+    )
+    let unauthorized = try await receiveDashboardTerminalMessage(over: unauthenticatedSocket)
+    #expect(unauthorized.type == "error")
+    #expect(unauthorized.code == "unauthorized")
+
+    let badAuthSocket = URLSession.shared.webSocketTask(with: wsURL)
+    badAuthSocket.resume()
+    defer { badAuthSocket.cancel(with: .normalClosure, reason: nil) }
+
+    try await sendDashboardTerminalMessage(
+        DashboardTerminalClientFrame(type: "auth", token: "wrong-token", projectId: nil, cwd: nil, cols: nil, rows: nil, data: nil),
+        over: badAuthSocket
+    )
+    let badAuth = try await receiveDashboardTerminalMessage(over: badAuthSocket)
+    #expect(badAuth.type == "error")
+    #expect(badAuth.code == "unauthorized")
+
     let firstSocket = URLSession.shared.webSocketTask(with: wsURL)
     firstSocket.resume()
     defer { firstSocket.cancel(with: .normalClosure, reason: nil) }
 
     try await sendDashboardTerminalMessage(
-        DashboardTerminalClientFrame(type: "start", projectId: nil, cwd: nil, cols: 80, rows: 24, data: nil),
+        DashboardTerminalClientFrame(type: "auth", token: "dashboard-secret", projectId: nil, cwd: nil, cols: nil, rows: nil, data: nil),
+        over: firstSocket
+    )
+    let authenticated = try await receiveDashboardTerminalMessage(over: firstSocket)
+    #expect(authenticated.type == "authenticated")
+
+    try await sendDashboardTerminalMessage(
+        DashboardTerminalClientFrame(type: "start", token: nil, projectId: nil, cwd: nil, cols: 80, rows: 24, data: nil),
         over: firstSocket
     )
     let ready = try await receiveDashboardTerminalMessage(over: firstSocket)
@@ -301,7 +335,7 @@ func dashboardTerminalWebSocketAcceptsInputAndAllowsReconnect() async throws {
 
     let marker = "__sloppy_terminal_input_ok_\(UUID().uuidString.replacingOccurrences(of: "-", with: ""))__"
     try await sendDashboardTerminalMessage(
-        DashboardTerminalClientFrame(type: "input", projectId: nil, cwd: nil, cols: nil, rows: nil, data: "printf '\(marker)\\n'\r"),
+        DashboardTerminalClientFrame(type: "input", token: nil, projectId: nil, cwd: nil, cols: nil, rows: nil, data: "printf '\(marker)\\n'\r"),
         over: firstSocket
     )
 
@@ -309,14 +343,14 @@ func dashboardTerminalWebSocketAcceptsInputAndAllowsReconnect() async throws {
     #expect(combinedOutput.contains(marker))
 
     try await sendDashboardTerminalMessage(
-        DashboardTerminalClientFrame(type: "close", projectId: nil, cwd: nil, cols: nil, rows: nil, data: nil),
+        DashboardTerminalClientFrame(type: "close", token: nil, projectId: nil, cwd: nil, cols: nil, rows: nil, data: nil),
         over: firstSocket
     )
     let closed = try await receiveDashboardTerminalMessage(over: firstSocket)
     #expect(closed.type == "closed")
 
     try await sendDashboardTerminalMessage(
-        DashboardTerminalClientFrame(type: "start", projectId: nil, cwd: nil, cols: 100, rows: 30, data: nil),
+        DashboardTerminalClientFrame(type: "start", token: nil, projectId: nil, cwd: nil, cols: 100, rows: 30, data: nil),
         over: firstSocket
     )
     let restarted = try await receiveDashboardTerminalMessage(over: firstSocket)
@@ -331,7 +365,14 @@ func dashboardTerminalWebSocketAcceptsInputAndAllowsReconnect() async throws {
     defer { secondSocket.cancel(with: .normalClosure, reason: nil) }
 
     try await sendDashboardTerminalMessage(
-        DashboardTerminalClientFrame(type: "start", projectId: nil, cwd: nil, cols: 90, rows: 28, data: nil),
+        DashboardTerminalClientFrame(type: "auth", token: "dashboard-secret", projectId: nil, cwd: nil, cols: nil, rows: nil, data: nil),
+        over: secondSocket
+    )
+    let reauthenticated = try await receiveDashboardTerminalMessage(over: secondSocket)
+    #expect(reauthenticated.type == "authenticated")
+
+    try await sendDashboardTerminalMessage(
+        DashboardTerminalClientFrame(type: "start", token: nil, projectId: nil, cwd: nil, cols: 90, rows: 28, data: nil),
         over: secondSocket
     )
     let reconnected = try await receiveDashboardTerminalMessage(over: secondSocket)

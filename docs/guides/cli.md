@@ -61,6 +61,22 @@ Options for `run`:
 | `--config-path <path>` | Load config from a custom path |
 | `--generate-openapi <path>` | Write OpenAPI spec to file and exit |
 
+### Server auth via environment
+
+You can start the server without committing an auth token into `sloppy.json`:
+
+```bash
+export SLOPPY_TOKEN="replace-me"
+sloppy run
+```
+
+When the server starts, `SLOPPY_TOKEN` is used as:
+
+1. the runtime value for legacy `auth.token` when `core.auth.token` is not set explicitly via environment
+2. the runtime value for `ui.dashboardAuth.token` when dashboard auth is enabled but no dashboard token is configured
+
+This is useful for local runs, launch agents, CI, or container deployments where secrets should come from the environment instead of the checked-in config file.
+
 ## Background service
 
 Install and manage Sloppy as a persistent background service (starts on login, restarts on crash).

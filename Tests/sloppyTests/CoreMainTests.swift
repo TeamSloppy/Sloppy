@@ -1,6 +1,7 @@
 import Foundation
 import Testing
 @testable import sloppy
+import Configuration
 #if canImport(CSQLite3)
 import CSQLite3
 #endif
@@ -23,6 +24,25 @@ func bootstrapBulletinCliOverrideWinsOverConfig() {
 
     config.visor.bootstrapBulletin = true
     #expect(!shouldBootstrapVisorBulletin(cliOverride: false, config: config))
+}
+
+@available(macOS 15.0, *)
+@Test
+func serverEnvironmentOverridesUseSloppyTokenForLegacyAndDashboardAuth() {
+    var config = CoreConfig.default
+    config.auth.token = ""
+    config.ui.dashboardAuth.enabled = true
+    config.ui.dashboardAuth.token = ""
+
+    let envConfig = ConfigReader(providers: [EnvironmentVariablesProvider()])
+    applyServerEnvironmentOverrides(
+        config: &config,
+        envConfig: envConfig,
+        environment: ["SLOPPY_TOKEN": "env-secret-token"]
+    )
+
+    #expect(config.auth.token == "env-secret-token")
+    #expect(config.ui.dashboardAuth.token == "env-secret-token")
 }
 
 #if canImport(CSQLite3)

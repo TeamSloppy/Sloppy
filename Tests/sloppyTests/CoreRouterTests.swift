@@ -8,6 +8,21 @@ import Testing
 import CSQLite3
 #endif
 
+private struct ErrorResponse: Decodable {
+    let error: String
+}
+
+private struct DashboardAuthValidateResponsePayload: Decodable {
+    struct Capabilities: Decodable {
+        let acceptsLegacyToken: Bool
+        let mutatingRoutesProtected: Bool
+        let terminalWebSocketProtected: Bool
+    }
+
+    let ok: Bool
+    let capabilities: Capabilities
+}
+
 @Test
 func postChannelMessageEndpoint() async throws {
     let service = CoreService(config: .test)
@@ -647,6 +662,75 @@ func getConfigEndpoint() async throws {
 
     let config = try JSONDecoder().decode(CoreConfig.self, from: response.body)
     #expect(config.listen.port == 25101)
+}
+
+@Test
+func dashboardAuthProtectsMutatingRoutesWhenEnabled() async throws {
+    var config = CoreConfig.test
+    config.ui.dashboardAuth.enabled = true
+    config.ui.dashboardAuth.token = "dashboard-secret"
+
+    let service = CoreService(config: config)
+    let router = CoreRouter(service: service)
+
+    let missingAuth = await router.handle(method: "POST", path: "/v1/updates/check", body: nil)
+    #expect(missingAuth.status == 401)
+    let missingPayload = try JSONDecoder().decode(ErrorResponse.self, from: missingAuth.body)
+    #expect(missingPayload.error == ErrorCode.unauthorized)
+
+    let wrongAuth = await router.handle(
+        method: "POST",
+        path: "/v1/updates/check",
+        body: nil,
+        headers: ["Authorization": "Bearer wrong-token"]
+    )
+    #expect(wrongAuth.status == 401)
+
+    let dashboardAuth = await router.handle(
+        method: "POST",
+        path: "/v1/updates/check",
+        body: nil,
+        headers: ["Authorization": "Bearer dashboard-secret"]
+    )
+    #expect(dashboardAuth.status == 200)
+
+    let legacyAuth = await router.handle(
+        method: "POST",
+        path: "/v1/updates/check",
+        body: nil,
+        headers: ["Authorization": "Bearer \(config.auth.token)"]
+    )
+    #expect(legacyAuth.status == 200)
+
+    let readOnly = await router.handle(method: "GET", path: "/v1/config", body: nil)
+    #expect(readOnly.status == 200)
+}
+
+@Test
+func dashboardAuthValidateEndpointReturnsCapabilities() async throws {
+    var config = CoreConfig.test
+    config.ui.dashboardAuth.enabled = true
+    config.ui.dashboardAuth.token = "dashboard-secret"
+
+    let service = CoreService(config: config)
+    let router = CoreRouter(service: service)
+
+    let unauthorized = await router.handle(method: "POST", path: "/v1/dashboard/auth/validate", body: nil)
+    #expect(unauthorized.status == 401)
+
+    let authorized = await router.handle(
+        method: "POST",
+        path: "/v1/dashboard/auth/validate",
+        body: nil,
+        headers: ["Authorization": "Bearer dashboard-secret"]
+    )
+    #expect(authorized.status == 200)
+
+    let payload = try JSONDecoder().decode(DashboardAuthValidateResponsePayload.self, from: authorized.body)
+    #expect(payload.ok == true)
+    #expect(payload.capabilities.acceptsLegacyToken == true)
+    #expect(payload.capabilities.mutatingRoutesProtected == true)
+    #expect(payload.capabilities.terminalWebSocketProtected == true)
 }
 
 @Test

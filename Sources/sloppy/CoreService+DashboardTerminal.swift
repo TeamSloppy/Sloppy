@@ -2,6 +2,7 @@ import Foundation
 
 struct DashboardTerminalClientMessage: Decodable {
     let type: String
+    let token: String?
     let projectId: String?
     let cwd: String?
     let cols: Int?

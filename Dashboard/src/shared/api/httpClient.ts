@@ -1,4 +1,8 @@
 import { emitNotification } from "../../features/notifications/notificationBus";
+import {
+  getDashboardAuthToken,
+  invalidateDashboardAuthToken
+} from "./dashboardAuth";
 
 type HttpMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
 
@@ -95,6 +99,13 @@ export function buildWebSocketURL(path: string) {
   return apiURL.toString();
 }
 
+function isProtectedDashboardRequest(path: string, method: HttpMethod) {
+  if (!path.startsWith("/v1/")) {
+    return false;
+  }
+  return method === "POST" || method === "PUT" || method === "PATCH" || method === "DELETE";
+}
+
 async function parseJSONSafely<TData>(response: Response): Promise<TData | null> {
   try {
     return (await response.json()) as TData;
@@ -113,6 +124,7 @@ export function formatHttpError(status: number, data: unknown): string {
     code = String((data as Record<string, unknown>).error);
   }
   const hints: Record<string, string> = {
+    unauthorized: "Dashboard auth is missing or invalid. Re-enter the dashboard token and try again.",
     invalid_body: "The server rejected the JSON body (wrong shape or types). Try reloading settings or editing in Raw config.",
     config_write_failed: "Could not write sloppy.json on the server (path or permissions).",
     invalid_agent_model: "This model id is not accepted for the agent. Pick another model or fix provider config.",
@@ -138,6 +150,14 @@ export async function requestJson<TResponse, TBody = unknown>(
     headers.set("content-type", "application/json");
   }
 
+  const protectedRequest = isProtectedDashboardRequest(options.path, method);
+  if (protectedRequest && !headers.has("authorization")) {
+    const dashboardToken = getDashboardAuthToken();
+    if (dashboardToken) {
+      headers.set("authorization", `Bearer ${dashboardToken}`);
+    }
+  }
+
   const requestInit: RequestInit = {
     method,
     signal: options.signal
@@ -152,6 +172,9 @@ export async function requestJson<TResponse, TBody = unknown>(
   try {
     const response = await fetch(buildApiURL(options.path), requestInit);
     const data = await parseJSONSafely<TResponse>(response);
+    if (response.status === 401 && (protectedRequest || headers.has("authorization"))) {
+      invalidateDashboardAuthToken();
+    }
     return { ok: response.ok, status: response.status, data };
   } catch {
     emitNetworkError();

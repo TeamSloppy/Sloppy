@@ -49,7 +49,11 @@ struct RunCommand: AsyncParsableCommand {
                     config = CoreConfig.load(from: explicitConfigPath, currentDirectory: homeDirectory)
                 }
 
-                applyServerEnvironmentOverrides(config: &config, envConfig: envConfig)
+                applyServerEnvironmentOverrides(
+                    config: &config,
+                    envConfig: envConfig,
+                    environment: ProcessInfo.processInfo.environment
+                )
 
                 if explicitConfigPath == nil {
                     let workspaceConfigPath = CoreConfig.defaultConfigPath(
@@ -58,7 +62,11 @@ struct RunCommand: AsyncParsableCommand {
                     )
                     if FileManager.default.fileExists(atPath: workspaceConfigPath) {
                         config = CoreConfig.load(from: workspaceConfigPath, currentDirectory: homeDirectory)
-                        applyServerEnvironmentOverrides(config: &config, envConfig: envConfig)
+                        applyServerEnvironmentOverrides(
+                            config: &config,
+                            envConfig: envConfig,
+                            environment: ProcessInfo.processInfo.environment
+                        )
                     }
                 }
             } else if explicitConfigPath == nil {
@@ -185,7 +193,11 @@ func shouldBootstrapVisorBulletin(cliOverride: Bool?, config: CoreConfig) -> Boo
 }
 
 @available(macOS 15.0, *)
-func applyServerEnvironmentOverrides(config: inout CoreConfig, envConfig: ConfigReader) {
+func applyServerEnvironmentOverrides(
+    config: inout CoreConfig,
+    envConfig: ConfigReader,
+    environment: [String: String] = ProcessInfo.processInfo.environment
+) {
     config.listen.host = envConfig.string(forKey: "core.listen.host", default: config.listen.host)
     config.listen.port = envConfig.int(forKey: "core.listen.port", default: config.listen.port)
     config.workspace.name = envConfig.string(forKey: "core.workspace.name", default: config.workspace.name)
@@ -197,7 +209,33 @@ func applyServerEnvironmentOverrides(config: inout CoreConfig, envConfig: Config
         forKey: "core.workspace.basePath",
         default: workspaceBasePath
     )
-    config.auth.token = envConfig.string(forKey: "core.auth.token", default: config.auth.token)
+    let explicitAuthToken = envConfig
+        .string(forKey: "core.auth.token", default: "")
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+    let sloppyToken = environment["SLOPPY_TOKEN"]?
+        .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    if !explicitAuthToken.isEmpty {
+        config.auth.token = explicitAuthToken
+    } else if !sloppyToken.isEmpty {
+        config.auth.token = sloppyToken
+    }
+
+    let explicitDashboardAuthToken = envConfig
+        .string(forKey: "core.ui.dashboard_auth.token", default: "")
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+    let explicitDashboardAuthTokenCamel = envConfig
+        .string(forKey: "core.ui.dashboardAuth.token", default: "")
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+    let dashboardAuthTokenOverride = !explicitDashboardAuthToken.isEmpty
+        ? explicitDashboardAuthToken
+        : explicitDashboardAuthTokenCamel
+    if !dashboardAuthTokenOverride.isEmpty {
+        config.ui.dashboardAuth.token = dashboardAuthTokenOverride
+    } else if config.ui.dashboardAuth.enabled,
+              config.ui.dashboardAuth.token.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              !sloppyToken.isEmpty {
+        config.ui.dashboardAuth.token = sloppyToken
+    }
     config.sqlitePath = envConfig.string(forKey: "core.sqlite.path", default: config.sqlitePath)
 }
 

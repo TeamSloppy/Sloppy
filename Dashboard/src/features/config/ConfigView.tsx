@@ -325,6 +325,10 @@ const EMPTY_CONFIG = {
     mergeMaxPerRun: 10
   },
   ui: {
+    dashboardAuth: {
+      enabled: false,
+      token: ""
+    },
     dashboardTerminal: {
       enabled: false,
       localOnly: true
@@ -583,6 +587,8 @@ function normalizeConfig(config) {
   normalized.memory.embedding.endpoint = String(config?.memory?.embedding?.endpoint || "");
   normalized.memory.embedding.apiKeyEnv = String(config?.memory?.embedding?.apiKeyEnv || "");
   normalized.sqlitePath = config?.sqlitePath || normalized.sqlitePath;
+  normalized.ui.dashboardAuth.enabled = Boolean(config?.ui?.dashboardAuth?.enabled);
+  normalized.ui.dashboardAuth.token = String(config?.ui?.dashboardAuth?.token || "");
   normalized.ui.dashboardTerminal.enabled = Boolean(config?.ui?.dashboardTerminal?.enabled);
   normalized.ui.dashboardTerminal.localOnly =
     config?.ui?.dashboardTerminal?.localOnly == null ? true : Boolean(config?.ui?.dashboardTerminal?.localOnly);

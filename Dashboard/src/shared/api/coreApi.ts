@@ -1,4 +1,11 @@
 import { buildApiURL, buildWebSocketURL, formatHttpError, requestJson } from "./httpClient";
+import {
+  clearDashboardAuthToken,
+  getDashboardAuthToken,
+  invalidateDashboardAuthToken,
+  isDashboardAuthTokenPersisted,
+  setDashboardAuthToken
+} from "./dashboardAuth";
 
 type AnyRecord = Record<string, unknown>;
 
@@ -67,6 +74,7 @@ export interface CoreApi {
   fetchWorkers: () => Promise<AnyRecord[]>;
   fetchArtifact: (id: string) => Promise<AnyRecord | null>;
   fetchRuntimeConfig: () => Promise<AnyRecord | null>;
+  validateDashboardAuthToken: (token: string) => Promise<AnyRecord | null>;
   updateRuntimeConfig: (config: AnyRecord) => Promise<AnyRecord>;
   fetchSystemLogs: () => Promise<AnyRecord | null>;
   selectDirectory: () => Promise<AnyRecord | null>;
@@ -387,6 +395,20 @@ export function createCoreApi(): CoreApi {
       return response.data;
     },
 
+    validateDashboardAuthToken: async (token) => {
+      const response = await requestJson<AnyRecord>({
+        path: "/v1/dashboard/auth/validate",
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token.trim()}`
+        }
+      });
+      if (!response.ok) {
+        return null;
+      }
+      return response.data;
+    },
+
     updateRuntimeConfig: async (config) => {
       const response = await requestJson<AnyRecord, AnyRecord>({
         path: "/v1/config",
@@ -395,6 +417,15 @@ export function createCoreApi(): CoreApi {
       });
       if (!response.ok || response.data == null) {
         throw new Error(formatHttpError(response.status, response.data));
+      }
+      const nextUI = (config.ui as AnyRecord | undefined) ?? null;
+      const nextDashboardAuth = (nextUI?.dashboardAuth as AnyRecord | undefined) ?? null;
+      const nextDashboardAuthEnabled = Boolean(nextDashboardAuth?.enabled);
+      const nextDashboardAuthToken = String(nextDashboardAuth?.token || "").trim();
+      if (nextDashboardAuthEnabled && nextDashboardAuthToken) {
+        setDashboardAuthToken(nextDashboardAuthToken, { persist: isDashboardAuthTokenPersisted() });
+      } else if (!nextDashboardAuthEnabled || !nextDashboardAuthToken) {
+        clearDashboardAuthToken();
       }
       return response.data;
     },
@@ -1206,23 +1237,41 @@ export function createCoreApi(): CoreApi {
 
     subscribeDashboardTerminal: (handlers = {}) => {
       let socket: WebSocket | null = null;
+      let authenticated = false;
       let closedExplicitly = false;
 
       socket = new WebSocket(buildWebSocketURL("/v1/dashboard/terminal/ws"));
 
       socket.onopen = () => {
-        handlers.onOpen?.();
+        try {
+          socket?.send(JSON.stringify({
+            type: "auth",
+            token: getDashboardAuthToken() || undefined
+          }));
+        } catch {
+          handlers.onError?.();
+        }
       };
 
       socket.onmessage = (event) => {
-        if (!event?.data || typeof handlers.onMessage !== "function") {
+        if (!event?.data) {
           return;
         }
 
         try {
           const payload = JSON.parse(String(event.data));
           if (payload && typeof payload === "object") {
-            handlers.onMessage(payload as AnyRecord);
+            const normalized = payload as AnyRecord;
+            const type = String(normalized.type || "").toLowerCase();
+            if (type === "authenticated") {
+              authenticated = true;
+              handlers.onOpen?.();
+              return;
+            }
+            if (type === "error" && String(normalized.code || "").toLowerCase() === "unauthorized") {
+              invalidateDashboardAuthToken();
+            }
+            handlers.onMessage?.(normalized);
           }
         } catch {
           // Ignore malformed terminal frames and keep the socket open.
@@ -1247,7 +1296,7 @@ export function createCoreApi(): CoreApi {
 
       return {
         send: (payload) => {
-          if (!socket || socket.readyState !== WebSocket.OPEN) {
+          if (!socket || socket.readyState !== WebSocket.OPEN || !authenticated) {
             return false;
           }
           try {
