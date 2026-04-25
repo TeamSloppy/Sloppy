@@ -33,15 +33,28 @@ public final class CoreHTTPServer {
                 let httpHandler = CoreHTTPHandler(router: router, logger: logger)
                 let webSocketUpgrader = NIOWebSocketServerUpgrader(
                     shouldUpgrade: { channel, head in
-                        channel.eventLoop.makeFutureWithTask {
-                            guard await router.canHandleWebSocket(
-                                path: head.uri,
-                                remoteAddress: channel.remoteAddress?.ipAddress
-                            ) else {
-                                throw WebSocketUpgradeRejected()
+                        // `makeFutureWithTask` / `completeWithTask` complete the promise on Swift's
+                        // concurrent executor, not on `channel.eventLoop`. The upgrade handler then
+                        // touches the pipeline off-loop and hits `ChannelPipeline` preconditions.
+                        let loop = channel.eventLoop
+                        let promise = loop.makePromise(of: HTTPHeaders?.self)
+                        let remote = channel.remoteAddress?.ipAddress
+                        Task {
+                            do {
+                                guard await router.canHandleWebSocket(path: head.uri, remoteAddress: remote) else {
+                                    throw WebSocketUpgradeRejected()
+                                }
+                                loop.execute {
+                                    promise.succeed(HTTPHeaders())
+                                }
+                            } catch {
+                                let err = error
+                                loop.execute {
+                                    promise.fail(err)
+                                }
                             }
-                            return HTTPHeaders()
                         }
+                        return promise.futureResult
                     },
                     upgradePipelineHandler: { channel, head in
                         let handler = CoreWebSocketHandler(
@@ -56,7 +69,10 @@ public final class CoreHTTPServer {
                 let upgradeConfig = NIOHTTPServerUpgradeConfiguration(
                     upgraders: [webSocketUpgrader],
                     completionHandler: { context in
-                        try? context.pipeline.syncOperations.removeHandler(httpHandler)
+                        // Upgrade completion is not guaranteed to run on the channel loop.
+                        context.eventLoop.execute {
+                            try? context.pipeline.syncOperations.removeHandler(httpHandler)
+                        }
                     }
                 )
 
@@ -145,30 +161,33 @@ private final class CoreHTTPHandler: ChannelInboundHandler, RemovableChannelHand
             let path = head.uri
             let bodyData = readData(from: &bodyBuffer)
             let router = self.router
+            let loop = context.eventLoop
+            let remoteAddress = context.channel.remoteAddress?.ipAddress
 
-            let responseFuture = context.eventLoop.makeFutureWithTask {
-                await router.handle(
+            let promise = loop.makePromise(of: CoreRouterResponse.self)
+            Task {
+                let response = await router.handle(
                     method: method,
                     path: path,
                     body: bodyData,
-                    remoteAddress: context.channel.remoteAddress?.ipAddress
+                    remoteAddress: remoteAddress
                 )
+                loop.execute {
+                    promise.succeed(response)
+                }
             }
+            let responseFuture = promise.futureResult
 
-            // `makeFutureWithTask` completion may not run on the channel event loop; all pipeline
-            // writes (and `NIOLoopBound.value`) must happen on `context.eventLoop` or NIO traps.
             responseFuture.whenComplete { [weak self] result in
-                context.eventLoop.execute {
-                    guard let self else {
-                        return
-                    }
-                    switch result {
-                    case .success(let response):
-                        self.writeResponse(context: context, requestHead: head, response: response)
-                    case .failure(let error):
-                        self.logger.error("Failed to handle request: \(String(describing: error))")
-                        self.writeServerError(context: context, requestHead: head)
-                    }
+                guard let self else {
+                    return
+                }
+                switch result {
+                case .success(let response):
+                    self.writeResponse(context: context, requestHead: head, response: response)
+                case .failure(let error):
+                    self.logger.error("Failed to handle request: \(String(describing: error))")
+                    self.writeServerError(context: context, requestHead: head)
                 }
             }
         }
@@ -370,10 +389,12 @@ private final class CoreHTTPHandler: ChannelInboundHandler, RemovableChannelHand
                     continuation.resume()
                     return
                 }
-                let innerLoopBoundContext = NIOLoopBound(context, eventLoop: context.eventLoop)
+                let el = context.eventLoop
                 context.writeAndFlush(self.wrapOutboundOut(.end(nil))).whenComplete { _ in
                     if !keepAlive {
-                        innerLoopBoundContext.value.close(promise: nil)
+                        el.execute {
+                            context.close(promise: nil)
+                        }
                     }
                     continuation.resume()
                 }
@@ -545,7 +566,9 @@ private final class CoreWebSocketHandler: ChannelDuplexHandler, @unchecked Senda
                 let data = context.channel.allocator.buffer(capacity: 0)
                 let frame = WebSocketFrame(fin: true, opcode: .connectionClose, data: data)
                 context.writeAndFlush(self.wrapOutboundOut(frame)).whenComplete { _ in
-                    context.close(promise: nil)
+                    context.eventLoop.execute {
+                        context.close(promise: nil)
+                    }
                     continuation.resume()
                 }
             }

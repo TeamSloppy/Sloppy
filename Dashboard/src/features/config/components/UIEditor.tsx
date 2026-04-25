@@ -149,48 +149,60 @@ export function UIEditor({ draftConfig, mutateDraft }: UIEditorProps) {
           </button>
         </div>
 
-        <label style={{ gridColumn: "1 / -1", marginTop: "20px" }}>
-          Dashboard Terminal
+        <div style={{ gridColumn: "1 / -1", marginTop: "20px" }}>
+          <span style={{ fontSize: "0.85rem", color: "var(--muted)", display: "block", marginBottom: "8px" }}>
+            Dashboard Terminal
+          </span>
           <div className="settings-toggle-row">
-            <label className="settings-checkbox">
-              <input
-                type="checkbox"
-                checked={terminalEnabled}
-                onChange={(event) => {
-                  const checked = event.target.checked;
-                  mutateDraft((draft) => {
-                    if (!draft.ui) draft.ui = {};
-                    if (!draft.ui.dashboardTerminal) {
-                      draft.ui.dashboardTerminal = { enabled: false, localOnly: true };
-                    }
-                    draft.ui.dashboardTerminal.enabled = checked;
-                  });
-                }}
-              />
-              <span>Enable bottom terminal drawer (`Cmd+J`)</span>
+            <label className="agent-tools-guardrail agent-tools-guardrail-toggle">
+              <span className="agent-tools-guardrail-copy">
+                <span className="agent-tools-guardrail-title">Enable bottom terminal drawer (`Cmd+J`)</span>
+              </span>
+              <span className="agent-tools-switch">
+                <input
+                  type="checkbox"
+                  checked={terminalEnabled}
+                  onChange={(event) => {
+                    const checked = event.target.checked;
+                    mutateDraft((draft) => {
+                      if (!draft.ui) draft.ui = {};
+                      if (!draft.ui.dashboardTerminal) {
+                        draft.ui.dashboardTerminal = { enabled: false, localOnly: true };
+                      }
+                      draft.ui.dashboardTerminal.enabled = checked;
+                    });
+                  }}
+                />
+                <span className="agent-tools-switch-track" />
+              </span>
             </label>
-            <label className="settings-checkbox">
-              <input
-                type="checkbox"
-                checked={terminalLocalOnly}
-                onChange={(event) => {
-                  const checked = event.target.checked;
-                  mutateDraft((draft) => {
-                    if (!draft.ui) draft.ui = {};
-                    if (!draft.ui.dashboardTerminal) {
-                      draft.ui.dashboardTerminal = { enabled: false, localOnly: true };
-                    }
-                    draft.ui.dashboardTerminal.localOnly = checked;
-                  });
-                }}
-              />
-              <span>Restrict terminal access to local dashboard sessions only</span>
+            <label className="agent-tools-guardrail agent-tools-guardrail-toggle">
+              <span className="agent-tools-guardrail-copy">
+                <span className="agent-tools-guardrail-title">Restrict terminal access to local dashboard sessions only</span>
+              </span>
+              <span className="agent-tools-switch">
+                <input
+                  type="checkbox"
+                  checked={terminalLocalOnly}
+                  onChange={(event) => {
+                    const checked = event.target.checked;
+                    mutateDraft((draft) => {
+                      if (!draft.ui) draft.ui = {};
+                      if (!draft.ui.dashboardTerminal) {
+                        draft.ui.dashboardTerminal = { enabled: false, localOnly: true };
+                      }
+                      draft.ui.dashboardTerminal.localOnly = checked;
+                    });
+                  }}
+                />
+                <span className="agent-tools-switch-track" />
+              </span>
             </label>
           </div>
           <span className="entry-form-hint">
             The terminal runs as a real shell inside the current project repo path when one is open, otherwise in the workspace root.
           </span>
-        </label>
+        </div>
       </div>
     </section>
   );

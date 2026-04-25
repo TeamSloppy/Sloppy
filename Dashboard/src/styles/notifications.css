@@ -6,6 +6,55 @@
   border-top: 1px solid var(--line);
 }
 
+/* Terminal dock + notification bell: row in full sidebar, column in compact */
+.sidebar-footer-tray {
+  display: flex;
+  flex-direction: row;
+  align-items: stretch;
+  gap: 6px;
+}
+
+.sidebar-footer-tray .notif-bell-container {
+  flex: 1;
+  min-width: 0;
+}
+
+/* Host node for the portaled closed-terminal control */
+.sidebar-footer-terminal-host {
+  flex: 0 0 auto;
+  min-width: 0;
+  display: flex;
+}
+
+.sidebar.compact .sidebar-footer {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0;
+  padding: 6px 4px 8px;
+}
+
+.sidebar.compact .sidebar-footer-tray {
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+}
+
+.sidebar.compact .sidebar-footer-tray .notif-bell-container {
+  flex: 0 0 auto;
+  width: 100%;
+  max-width: 44px;
+  align-self: center;
+}
+
+.sidebar.compact .sidebar-footer-terminal-host {
+  width: 100%;
+  max-width: 44px;
+  align-self: center;
+  justify-content: center;
+}
+
 /* ── Docs Link ── */
 
 .sidebar-docs-link {
@@ -36,6 +85,13 @@
 .sidebar.compact .sidebar-docs-link {
   justify-content: center;
   padding: 6px;
+  width: 100%;
+  max-width: 44px;
+  min-height: 40px;
+  margin-left: auto;
+  margin-right: auto;
+  margin-bottom: 4px;
+  box-sizing: border-box;
 }
 
 /* ── Notification Bell ── */
