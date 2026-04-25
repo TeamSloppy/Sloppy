@@ -47,7 +47,8 @@ actor SkillsGitHubClient {
             throw ClientError.invalidRepository
         }
 
-        let ref = version ?? "main"
+        let trimmedVersion = version?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let ref = (trimmedVersion?.isEmpty == false) ? trimmedVersion : nil
 
         // First, try to get the repository contents
         let contents = try await fetchRepositoryContents(
@@ -137,7 +138,7 @@ actor SkillsGitHubClient {
             repo: normalizedRepo,
             name: skillName,
             description: skillDescription,
-            version: ref,
+            version: ref ?? "default",
             files: downloadedFiles,
             localPath: destination.path,
             frontmatter: skillFrontmatter
@@ -161,13 +162,15 @@ actor SkillsGitHubClient {
         owner: String,
         repo: String,
         path: String,
-        ref: String
+        ref: String?
     ) async throws -> [GitHubContentItem] {
         var urlString = "https://api.github.com/repos/\(owner)/\(repo)/contents"
         if !path.isEmpty {
             urlString += "/\(path)"
         }
-        urlString += "?ref=\(ref)"
+        if let ref, !ref.isEmpty {
+            urlString += "?ref=\(ref)"
+        }
 
         guard let url = URL(string: urlString) else {
             throw ClientError.invalidURL
@@ -217,7 +220,7 @@ actor SkillsGitHubClient {
         owner: String,
         repo: String,
         path: String,
-        ref: String,
+        ref: String?,
         destination: URL
     ) async throws -> [String] {
         let contents = try await fetchRepositoryContents(
