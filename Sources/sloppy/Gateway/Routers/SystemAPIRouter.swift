@@ -39,6 +39,17 @@ private struct SelectDirectoryResponse: Encodable {
     var path: String?
 }
 
+private struct DashboardAuthValidateResponse: Encodable {
+    struct Capabilities: Encodable {
+        var acceptsLegacyToken: Bool
+        var mutatingRoutesProtected: Bool
+        var terminalWebSocketProtected: Bool
+    }
+
+    var ok: Bool
+    var capabilities: Capabilities
+}
+
 private extension UpdateStatusResponse {
     init(_ status: UpdateStatus) {
         self.currentVersion = status.currentVersion
@@ -117,6 +128,21 @@ struct SystemAPIRouter: APIRouter {
             let config = await service.getConfig()
             let response = RuntimeConfigResponse(config: config, debugEnabled: !SloppyVersion.isReleaseBuild)
             return CoreRouter.encodable(status: HTTPStatus.ok, payload: response)
+        }
+
+        router.post("/v1/dashboard/auth/validate", metadata: RouteMetadata(summary: "Validate dashboard token", description: "Validates dashboard operator auth and returns current capability flags", tags: ["System"])) { _ in
+            let status = await service.dashboardAuthStatus()
+            return CoreRouter.encodable(
+                status: HTTPStatus.ok,
+                payload: DashboardAuthValidateResponse(
+                    ok: true,
+                    capabilities: .init(
+                        acceptsLegacyToken: status.acceptsLegacyToken,
+                        mutatingRoutesProtected: status.protectsMutatingRoutes,
+                        terminalWebSocketProtected: status.protectsTerminalWebSocket
+                    )
+                )
+            )
         }
 
         router.get("/v1/logs", metadata: RouteMetadata(summary: "Get logs", description: "Returns the system logs", tags: ["System"])) { _ in

@@ -94,6 +94,18 @@ func resolvedWorkspaceAndSQLiteURLsForRelativePath() {
 }
 
 @Test
+func dashboardAuthConfigRoundTripsThroughJSON() throws {
+    var config = CoreConfig.default
+    config.ui.dashboardAuth = .init(enabled: true, token: "dashboard-secret")
+
+    let encoded = try JSONEncoder().encode(config)
+    let decoded = try JSONDecoder().decode(CoreConfig.self, from: encoded)
+
+    #expect(decoded.ui.dashboardAuth.enabled == true)
+    #expect(decoded.ui.dashboardAuth.token == "dashboard-secret")
+}
+
+@Test
 func resolvedSQLiteURLKeepsAbsolutePath() {
     var config = CoreConfig.default
     config.sqlitePath = "/var/lib/slop/core.sqlite"

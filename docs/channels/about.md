@@ -51,6 +51,8 @@ Authorization: Bearer <token>
 }
 ```
 
+For local scripts or deployments, the bearer token can come from `sloppy.json` or from the `SLOPPY_TOKEN` environment variable at server startup.
+
 ## Bindings
 
 A **binding** connects a platform-specific chat identifier to a Sloppy channel ID. Without a binding, the plugin cannot route an incoming message to a channel and will drop it.

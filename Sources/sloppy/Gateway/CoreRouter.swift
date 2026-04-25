@@ -62,6 +62,7 @@ public struct HTTPRequest: Sendable {
     public var segments: [String]
     public var params: [String: String]
     public var query: [String: String]
+    public var headers: [String: String]
     public var body: Data?
     public var remoteAddress: String?
 
@@ -71,6 +72,7 @@ public struct HTTPRequest: Sendable {
         segments: [String],
         params: [String: String] = [:],
         query: [String: String] = [:],
+        headers: [String: String] = [:],
         body: Data? = nil,
         remoteAddress: String? = nil
     ) {
@@ -79,6 +81,9 @@ public struct HTTPRequest: Sendable {
         self.segments = segments
         self.params = params
         self.query = query
+        self.headers = headers.reduce(into: [:]) { partialResult, item in
+            partialResult[item.key.lowercased()] = item.value
+        }
         self.body = body
         self.remoteAddress = remoteAddress
     }
@@ -89,6 +94,10 @@ public struct HTTPRequest: Sendable {
 
     public func queryParam(_ key: String) -> String? {
         query[key]
+    }
+
+    public func header(_ key: String) -> String? {
+        headers[key.lowercased()]
     }
 
     public func decode<T: Decodable>(_ type: T.Type) -> T? {
@@ -139,6 +148,7 @@ enum HTTPStatus {
     static let ok = 200
     static let created = 201
     static let badRequest = 400
+    static let unauthorized = 401
     static let forbidden = 403
     static let conflict = 409
     static let notFound = 404
@@ -147,6 +157,7 @@ enum HTTPStatus {
 
 enum ErrorCode {
     static let invalidBody = "invalid_body"
+    static let unauthorized = "unauthorized"
     static let notFound = "not_found"
     static let artifactNotFound = "artifact_not_found"
     static let configWriteFailed = "config_write_failed"
@@ -349,15 +360,20 @@ public actor CoreRouter {
         webSocketRoutes.append(.init(path: path, validator: validator, callback: callback))
     }
 
-    public func canHandleWebSocket(path: String, remoteAddress: String? = nil) async -> Bool {
-        if let route = matchedWebSocketRoute(for: path, remoteAddress: remoteAddress) {
+    public func canHandleWebSocket(path: String, headers: [String: String] = [:], remoteAddress: String? = nil) async -> Bool {
+        if let route = matchedWebSocketRoute(for: path, headers: headers, remoteAddress: remoteAddress) {
             return await route.definition.validator(route.request)
         }
         return false
     }
 
-    public func handleWebSocket(path: String, connection: WebSocketConnectionContext, remoteAddress: String? = nil) async -> Bool {
-        guard let route = matchedWebSocketRoute(for: path, remoteAddress: remoteAddress) else {
+    public func handleWebSocket(
+        path: String,
+        headers: [String: String] = [:],
+        connection: WebSocketConnectionContext,
+        remoteAddress: String? = nil
+    ) async -> Bool {
+        guard let route = matchedWebSocketRoute(for: path, headers: headers, remoteAddress: remoteAddress) else {
             return false
         }
         guard await route.definition.validator(route.request) else {
@@ -376,7 +392,13 @@ public actor CoreRouter {
     }
 
     /// Routes incoming HTTP-like request into registered sloppy handlers.
-    public func handle(method: String, path: String, body: Data?, remoteAddress: String? = nil) async -> CoreRouterResponse {
+    public func handle(
+        method: String,
+        path: String,
+        body: Data?,
+        headers: [String: String] = [:],
+        remoteAddress: String? = nil
+    ) async -> CoreRouterResponse {
         guard let httpMethod = HTTPRouteMethod(rawValue: method.uppercased()) else {
             return Self.json(status: HTTPStatus.notFound, payload: ["error": ErrorCode.notFound])
         }
@@ -394,9 +416,16 @@ public actor CoreRouter {
                 segments: pathSegments,
                 params: params,
                 query: queryParams,
+                headers: headers,
                 body: body,
                 remoteAddress: remoteAddress
             )
+            let requiresDashboardAuthorization = await shouldRequireDashboardAuthorization(for: request)
+            let hasValidDashboardAuthorization = await service
+                .validateDashboardAuthorizationHeader(request.header("authorization"))
+            if requiresDashboardAuthorization && !hasValidDashboardAuthorization {
+                return Self.json(status: HTTPStatus.unauthorized, payload: ["error": ErrorCode.unauthorized])
+            }
             let isOnboardingFlow = Self.shouldLogOnboardingFlow(httpMethod: httpMethod, pathSegments: pathSegments, body: body)
             if isOnboardingFlow {
                 Self.logger.info(
@@ -584,6 +613,8 @@ public actor CoreRouter {
                 callback: { request, connection in
                     let encoder = JSONEncoder()
                     let decoder = JSONDecoder()
+                    var isAuthenticated = false
+                    var authFailureCount = 0
                     var activeSessionID: String?
                     var forwardTask: Task<Void, Never>?
 
@@ -616,6 +647,10 @@ public actor CoreRouter {
                         )
                     }
 
+                    func sendAuthError(message: String) async {
+                        await sendError(code: ErrorCode.unauthorized, message: message)
+                    }
+
                     defer {
                         forwardTask?.cancel()
                         if let activeSessionID {
@@ -625,7 +660,7 @@ public actor CoreRouter {
                         }
                     }
 
-                    for await rawMessage in connection.incomingMessages() {
+                    messageLoop: for await rawMessage in connection.incomingMessages() {
                         guard let payload = rawMessage.data(using: .utf8),
                               let message = try? decoder.decode(DashboardTerminalClientMessage.self, from: payload)
                         else {
@@ -651,7 +686,34 @@ public actor CoreRouter {
                             ]
                         )
 
+                        if !isAuthenticated {
+                            if message.type.lowercased() == "auth" {
+                                if await service.validateDashboardAuthToken(message.token) {
+                                    isAuthenticated = true
+                                    authFailureCount = 0
+                                    _ = await send(DashboardTerminalServerMessage(type: "authenticated"))
+                                } else {
+                                    authFailureCount += 1
+                                    await sendAuthError(message: "Invalid dashboard token.")
+                                    if authFailureCount >= 2 {
+                                        break messageLoop
+                                    }
+                                }
+                                continue
+                            }
+
+                            authFailureCount += 1
+                            await sendAuthError(message: "Authenticate with a dashboard token before using the terminal.")
+                            if authFailureCount >= 2 {
+                                break messageLoop
+                            }
+                            continue
+                        }
+
                         switch message.type.lowercased() {
+                        case "auth":
+                            _ = await send(DashboardTerminalServerMessage(type: "authenticated", sessionId: activeSessionID))
+
                         case "start":
                             guard activeSessionID == nil else {
                                 await sendError(code: "session_already_started", message: "Terminal session already started.")
@@ -1047,6 +1109,7 @@ public actor CoreRouter {
 
     private func matchedWebSocketRoute(
         for path: String,
+        headers: [String: String],
         remoteAddress: String?
     ) -> (definition: WebSocketRouteDefinition, request: HTTPRequest)? {
         let queryParams = parseQueryString(from: path)
@@ -1063,6 +1126,7 @@ public actor CoreRouter {
                 segments: pathSegments,
                 params: params,
                 query: queryParams,
+                headers: headers,
                 body: nil,
                 remoteAddress: remoteAddress
             )
@@ -1070,6 +1134,20 @@ public actor CoreRouter {
         }
 
         return nil
+    }
+
+    private func shouldRequireDashboardAuthorization(for request: HTTPRequest) async -> Bool {
+        guard request.segments.first == "v1" else {
+            return false
+        }
+        switch request.method {
+        case .post, .put, .patch, .delete:
+            break
+        case .get:
+            return false
+        }
+        let status = await service.dashboardAuthStatus()
+        return status.protectsMutatingRoutes
     }
 }
 

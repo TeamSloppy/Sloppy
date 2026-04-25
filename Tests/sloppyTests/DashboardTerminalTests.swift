@@ -5,6 +5,8 @@ import Testing
 @Test
 func dashboardTerminalDefaultsToDisabledLocalOnly() {
     let config = CoreConfig.default
+    #expect(config.ui.dashboardAuth.enabled == false)
+    #expect(config.ui.dashboardAuth.token.isEmpty)
     #expect(config.ui.dashboardTerminal.enabled == false)
     #expect(config.ui.dashboardTerminal.localOnly)
 }
@@ -26,6 +28,8 @@ func missingDashboardTerminalConfigFallsBackToDefaults() throws {
         """
 
     let decoded = try JSONDecoder().decode(CoreConfig.self, from: Data(json.utf8))
+    #expect(decoded.ui.dashboardAuth.enabled == false)
+    #expect(decoded.ui.dashboardAuth.token.isEmpty)
     #expect(decoded.ui.dashboardTerminal.enabled == false)
     #expect(decoded.ui.dashboardTerminal.localOnly)
 }

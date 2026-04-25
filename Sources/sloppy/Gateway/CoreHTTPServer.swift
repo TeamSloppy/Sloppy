@@ -7,6 +7,14 @@ import NIOWebSocket
 
 private struct WebSocketUpgradeRejected: Error {}
 
+private func normalizeHTTPHeaders(_ headers: HTTPHeaders) -> [String: String] {
+    var normalized: [String: String] = [:]
+    for header in headers {
+        normalized[header.name.lowercased()] = header.value
+    }
+    return normalized
+}
+
 /// Runs HTTP transport for CoreRouter using SwiftNIO HTTP/1.1.
 public final class CoreHTTPServer {
     private let host: String
@@ -41,7 +49,11 @@ public final class CoreHTTPServer {
                         let remote = channel.remoteAddress?.ipAddress
                         Task {
                             do {
-                                guard await router.canHandleWebSocket(path: head.uri, remoteAddress: remote) else {
+                                guard await router.canHandleWebSocket(
+                                    path: head.uri,
+                                    headers: normalizeHTTPHeaders(head.headers),
+                                    remoteAddress: remote
+                                ) else {
                                     throw WebSocketUpgradeRejected()
                                 }
                                 loop.execute {
@@ -61,6 +73,7 @@ public final class CoreHTTPServer {
                             router: router,
                             logger: logger,
                             path: head.uri,
+                            headers: normalizeHTTPHeaders(head.headers),
                             remoteAddress: channel.remoteAddress?.ipAddress
                         )
                         return channel.pipeline.addHandler(handler)
@@ -170,6 +183,7 @@ private final class CoreHTTPHandler: ChannelInboundHandler, RemovableChannelHand
                     method: method,
                     path: path,
                     body: bodyData,
+                    headers: normalizeHTTPHeaders(head.headers),
                     remoteAddress: remoteAddress
                 )
                 loop.execute {
@@ -439,6 +453,7 @@ private final class CoreWebSocketHandler: ChannelDuplexHandler, @unchecked Senda
     private let router: CoreRouter
     private let logger: Logger
     private let path: String
+    private let headers: [String: String]
     private let remoteAddress: String?
     private var context: ChannelHandlerContext?
     private var routeTask: Task<Void, Never>?
@@ -446,10 +461,11 @@ private final class CoreWebSocketHandler: ChannelDuplexHandler, @unchecked Senda
     private let inboundMessages: AsyncStream<String>
     private let inboundMessagesContinuation: AsyncStream<String>.Continuation
 
-    init(router: CoreRouter, logger: Logger, path: String, remoteAddress: String?) {
+    init(router: CoreRouter, logger: Logger, path: String, headers: [String: String], remoteAddress: String?) {
         self.router = router
         self.logger = logger
         self.path = path
+        self.headers = headers
         self.remoteAddress = remoteAddress
         var continuation: AsyncStream<String>.Continuation?
         self.inboundMessages = AsyncStream<String> { next in
@@ -472,8 +488,13 @@ private final class CoreWebSocketHandler: ChannelDuplexHandler, @unchecked Senda
             }
         )
 
-        routeTask = Task { [router, path, logger, remoteAddress] in
-            let handled = await router.handleWebSocket(path: path, connection: connection, remoteAddress: remoteAddress)
+        routeTask = Task { [router, path, headers, logger, remoteAddress] in
+            let handled = await router.handleWebSocket(
+                path: path,
+                headers: headers,
+                connection: connection,
+                remoteAddress: remoteAddress
+            )
             if !handled {
                 logger.warning("Rejected websocket request", metadata: ["path": .string(path)])
                 await connection.close()

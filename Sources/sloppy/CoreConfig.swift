@@ -985,6 +985,30 @@ public struct CoreConfig: Codable, Sendable {
     }
 
     public struct UI: Codable, Sendable, Equatable {
+        public struct DashboardAuth: Codable, Sendable, Equatable {
+            public var enabled: Bool
+            public var token: String
+
+            private enum CodingKeys: String, CodingKey {
+                case enabled
+                case token
+            }
+
+            public init(
+                enabled: Bool = false,
+                token: String = ""
+            ) {
+                self.enabled = enabled
+                self.token = token
+            }
+
+            public init(from decoder: Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                enabled = try container.decodeIfPresent(Bool.self, forKey: .enabled) ?? false
+                token = try container.decodeIfPresent(String.self, forKey: .token) ?? ""
+            }
+        }
+
         public struct DashboardTerminal: Codable, Sendable, Equatable {
             public var enabled: Bool
             public var localOnly: Bool
@@ -1009,20 +1033,25 @@ public struct CoreConfig: Codable, Sendable {
             }
         }
 
+        public var dashboardAuth: DashboardAuth
         public var dashboardTerminal: DashboardTerminal
 
         private enum CodingKeys: String, CodingKey {
+            case dashboardAuth
             case dashboardTerminal
         }
 
         public init(
+            dashboardAuth: DashboardAuth = DashboardAuth(),
             dashboardTerminal: DashboardTerminal = DashboardTerminal()
         ) {
+            self.dashboardAuth = dashboardAuth
             self.dashboardTerminal = dashboardTerminal
         }
 
         public init(from decoder: Decoder) throws {
             let container = try decoder.container(keyedBy: CodingKeys.self)
+            dashboardAuth = try container.decodeIfPresent(DashboardAuth.self, forKey: .dashboardAuth) ?? .init()
             dashboardTerminal = try container.decodeIfPresent(DashboardTerminal.self, forKey: .dashboardTerminal) ?? .init()
         }
     }

@@ -23,6 +23,13 @@ import { ProjectsView } from "./views/ProjectsView";
 import { ChannelSessionView } from "./views/ChannelSessionView";
 import { RuntimeOverviewView } from "./views/RuntimeOverviewView";
 import {
+  DASHBOARD_AUTH_INVALIDATED_EVENT,
+  getDashboardAuthToken,
+  hasStoredDashboardAuthToken,
+  isDashboardAuthTokenPersisted,
+  setDashboardAuthToken
+} from "./shared/api/dashboardAuth";
+import {
   getStoredApiBaseOverride,
   normalizeApiBaseInput,
   resolveApiBase,
@@ -41,6 +48,12 @@ interface SidebarItem {
 }
 
 type AnyRecord = Record<string, unknown>;
+
+function isDashboardAuthRequired(config: AnyRecord | null) {
+  const uiConfig = (config?.ui as AnyRecord | undefined) ?? null;
+  const dashboardAuth = (uiConfig?.dashboardAuth as AnyRecord | undefined) ?? null;
+  return Boolean(dashboardAuth?.enabled) && String(dashboardAuth?.token || "").trim().length > 0;
+}
 
 function DashboardShell({
   dependencies,
@@ -405,6 +418,15 @@ export function App() {
   const [apiBaseInput, setApiBaseInput] = useState(() => getStoredApiBaseOverride() || resolveApiBase());
   const [apiBaseError, setApiBaseError] = useState("");
   const [bootAttempt, setBootAttempt] = useState(0);
+  const [dashboardTokenInput, setDashboardTokenInput] = useState("");
+  const [rememberDashboardToken, setRememberDashboardToken] = useState(() => hasStoredDashboardAuthToken());
+  const [authState, setAuthState] = useState<{
+    status: "checking" | "required" | "authenticated";
+    error: string;
+  }>({
+    status: "checking",
+    error: ""
+  });
 
   useEffect(() => {
     let isCancelled = false;
@@ -431,6 +453,32 @@ export function App() {
           return;
         }
 
+        const requiresDashboardAuth = isDashboardAuthRequired(config);
+        if (requiresDashboardAuth) {
+          const existingToken = getDashboardAuthToken();
+          if (existingToken) {
+            setAuthState({ status: "checking", error: "" });
+            const validation = await dependencies.coreApi.validateDashboardAuthToken(existingToken);
+            if (isCancelled) {
+              return;
+            }
+            if (validation) {
+              setRememberDashboardToken(isDashboardAuthTokenPersisted());
+              setAuthState({ status: "authenticated", error: "" });
+            } else {
+              setRememberDashboardToken(isDashboardAuthTokenPersisted());
+              setAuthState({
+                status: "required",
+                error: "Saved dashboard token is no longer valid."
+              });
+            }
+          } else {
+            setAuthState({ status: "required", error: "" });
+          }
+        } else {
+          setAuthState({ status: "authenticated", error: "" });
+        }
+
         setBootState({
           isLoading: false,
           config,
@@ -454,6 +502,25 @@ export function App() {
       isCancelled = true;
     };
   }, [dependencies, bootAttempt]);
+
+  useEffect(() => {
+    function handleDashboardAuthInvalidated() {
+      if (!isDashboardAuthRequired(bootState.config as AnyRecord | null)) {
+        return;
+      }
+      setRememberDashboardToken(isDashboardAuthTokenPersisted());
+      setAuthState({
+        status: "required",
+        error: "Dashboard token is invalid or expired."
+      });
+      setDashboardTokenInput("");
+    }
+
+    window.addEventListener(DASHBOARD_AUTH_INVALIDATED_EVENT, handleDashboardAuthInvalidated);
+    return () => {
+      window.removeEventListener(DASHBOARD_AUTH_INVALIDATED_EVENT, handleDashboardAuthInvalidated);
+    };
+  }, [bootState.config]);
 
   function retryBootstrap() {
     setApiBaseError("");
@@ -480,6 +547,31 @@ export function App() {
     setApiBaseInput(normalized);
     setApiBaseError("");
     retryBootstrap();
+  }
+
+  async function handleDashboardAuthSubmit() {
+    const token = dashboardTokenInput.trim();
+    if (!token) {
+      setAuthState({
+        status: "required",
+        error: "Enter the dashboard token."
+      });
+      return;
+    }
+
+    setAuthState({ status: "checking", error: "" });
+    const validation = await dependencies.coreApi.validateDashboardAuthToken(token);
+    if (!validation) {
+      setAuthState({
+        status: "required",
+        error: "Token invalid. Check the value and try again."
+      });
+      return;
+    }
+
+    setDashboardAuthToken(token, { persist: rememberDashboardToken });
+    setAuthState({ status: "authenticated", error: "" });
+    setDashboardTokenInput("");
   }
 
   if (bootState.isLoading) {
@@ -553,6 +645,85 @@ export function App() {
   }
 
   if (!Boolean((bootState.config.onboarding as AnyRecord | undefined)?.completed)) {
+    if (isDashboardAuthRequired(bootState.config) && authState.status !== "authenticated") {
+      if (authState.status === "checking") {
+        return (
+          <div className="onboarding-loading-shell">
+            <div className="onboarding-loading-card">
+              <span className="onboarding-loading-kicker">Dashboard auth</span>
+              <strong>Validating dashboard token...</strong>
+            </div>
+          </div>
+        );
+      }
+
+      return (
+        <div className="onboarding-loading-shell">
+          <div className="onboarding-loading-card onboarding-loading-card-error">
+            <span className="onboarding-loading-kicker">Dashboard auth</span>
+            <strong>Enter the dashboard operator token</strong>
+            <div className="onboarding-loading-form">
+              <label className="onboarding-loading-label" htmlFor="sloppy-dashboard-token-onboarding">
+                Token
+              </label>
+              <input
+                id="sloppy-dashboard-token-onboarding"
+                className="onboarding-loading-input"
+                type="password"
+                autoCapitalize="off"
+                autoCorrect="off"
+                spellCheck={false}
+                value={dashboardTokenInput}
+                onChange={(event) => {
+                  setDashboardTokenInput(event.target.value);
+                  if (authState.error) {
+                    setAuthState((current) => ({
+                      ...current,
+                      error: ""
+                    }));
+                  }
+                }}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") {
+                    event.preventDefault();
+                    void handleDashboardAuthSubmit();
+                  }
+                }}
+              />
+              <label style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                <input
+                  type="checkbox"
+                  checked={rememberDashboardToken}
+                  onChange={(event) => setRememberDashboardToken(event.target.checked)}
+                />
+                <span>Remember this token in this browser</span>
+              </label>
+              <span className="onboarding-loading-hint">
+                This is a convenience-first local operator mode. Stored tokens use `localStorage`.
+              </span>
+              {authState.error ? <span className="onboarding-loading-error">{authState.error}</span> : null}
+            </div>
+            <div className="onboarding-loading-actions">
+              <button
+                type="button"
+                className="onboarding-ghost-button"
+                onClick={retryBootstrap}
+              >
+                Retry
+              </button>
+              <button
+                type="button"
+                className="onboarding-primary-button"
+                onClick={() => void handleDashboardAuthSubmit()}
+              >
+                Unlock
+              </button>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
     return (
       <OnboardingView
         coreApi={dependencies.coreApi}
@@ -571,6 +742,86 @@ export function App() {
   const runtimeConfig = bootState.config as Record<string, unknown> | null;
   const uiConfig = (runtimeConfig?.ui as AnyRecord | undefined) ?? null;
   const terminalConfig = (uiConfig?.dashboardTerminal as AnyRecord | undefined) ?? null;
+  const dashboardAuthRequired = isDashboardAuthRequired(runtimeConfig);
+
+  if (dashboardAuthRequired && authState.status !== "authenticated") {
+    if (authState.status === "checking") {
+      return (
+        <div className="onboarding-loading-shell">
+          <div className="onboarding-loading-card">
+            <span className="onboarding-loading-kicker">Dashboard auth</span>
+            <strong>Validating dashboard token...</strong>
+          </div>
+        </div>
+      );
+    }
+
+    return (
+      <div className="onboarding-loading-shell">
+        <div className="onboarding-loading-card onboarding-loading-card-error">
+          <span className="onboarding-loading-kicker">Dashboard auth</span>
+          <strong>Enter the dashboard operator token</strong>
+          <div className="onboarding-loading-form">
+            <label className="onboarding-loading-label" htmlFor="sloppy-dashboard-token">
+              Token
+            </label>
+            <input
+              id="sloppy-dashboard-token"
+              className="onboarding-loading-input"
+              type="password"
+              autoCapitalize="off"
+              autoCorrect="off"
+              spellCheck={false}
+              value={dashboardTokenInput}
+              onChange={(event) => {
+                setDashboardTokenInput(event.target.value);
+                if (authState.error) {
+                  setAuthState((current) => ({
+                    ...current,
+                    error: ""
+                  }));
+                }
+              }}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  event.preventDefault();
+                  void handleDashboardAuthSubmit();
+                }
+              }}
+            />
+              <label style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+              <input
+                type="checkbox"
+                checked={rememberDashboardToken}
+                onChange={(event) => setRememberDashboardToken(event.target.checked)}
+              />
+              <span>Remember this token in this browser</span>
+            </label>
+            <span className="onboarding-loading-hint">
+              This is a convenience-first local operator mode. Stored tokens use `localStorage`.
+            </span>
+            {authState.error ? <span className="onboarding-loading-error">{authState.error}</span> : null}
+          </div>
+          <div className="onboarding-loading-actions">
+            <button
+              type="button"
+              className="onboarding-ghost-button"
+              onClick={retryBootstrap}
+            >
+              Retry
+            </button>
+            <button
+              type="button"
+              className="onboarding-primary-button"
+              onClick={() => void handleDashboardAuthSubmit()}
+            >
+              Unlock
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <NotificationProvider>
@@ -579,6 +830,15 @@ export function App() {
         debugEnabled={Boolean(runtimeConfig?.debugEnabled)}
         terminalEnabled={Boolean(terminalConfig?.enabled)}
         onRuntimeConfigUpdated={(nextConfig) => {
+          if (isDashboardAuthRequired(nextConfig as AnyRecord)) {
+            setRememberDashboardToken(isDashboardAuthTokenPersisted());
+            setAuthState({
+              status: getDashboardAuthToken() ? "authenticated" : "required",
+              error: ""
+            });
+          } else {
+            setAuthState({ status: "authenticated", error: "" });
+          }
           setBootState((current) => ({
             ...current,
             config: nextConfig
