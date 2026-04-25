@@ -754,7 +754,15 @@ function isSettingsSection(id) {
 
 const DRAFT_CONFIG_KEY = "sloppy_draft_config";
 
-export function ConfigView({ sectionId = "providers", onSectionChange = null }) {
+export function ConfigView({
+  sectionId = "providers",
+  onSectionChange = null,
+  onRuntimeConfigUpdated = null
+}: {
+  sectionId?: string;
+  onSectionChange?: ((nextSectionId: string) => void) | null;
+  onRuntimeConfigUpdated?: ((nextConfig: Record<string, unknown>) => void) | null;
+}) {
   const initialSectionId = isSettingsSection(sectionId) ? sectionId : "providers";
   const [query, setQuery] = useState("");
   const [selectedSettings, setSelectedSettings] = useState(initialSectionId);
@@ -1005,6 +1013,9 @@ export function ConfigView({ sectionId = "providers", onSectionChange = null }) 
       setDraftConfig(normalized);
       setSavedConfig(normalized);
       setRawConfig(JSON.stringify(normalized, null, 2));
+      if (typeof onRuntimeConfigUpdated === "function") {
+        onRuntimeConfigUpdated(response as Record<string, unknown>);
+      }
       await loadOpenAIProviderStatus();
       await loadAnthropicProviderStatus();
       await loadSearchProviderStatus();

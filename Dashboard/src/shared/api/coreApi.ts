@@ -34,7 +34,7 @@ interface AgentSessionStreamHandlers {
 interface DashboardTerminalHandlers {
   onMessage?: (payload: AnyRecord) => void;
   onOpen?: () => void;
-  onClose?: () => void;
+  onClose?: (details?: { code: number; reason: string; wasClean: boolean }) => void;
   onError?: () => void;
 }
 
@@ -1233,11 +1233,15 @@ export function createCoreApi(): CoreApi {
         handlers.onError?.();
       };
 
-      socket.onclose = () => {
+      socket.onclose = (event) => {
         const shouldNotifyClose = !closedExplicitly;
         socket = null;
         if (shouldNotifyClose) {
-          handlers.onClose?.();
+          handlers.onClose?.({
+            code: event.code,
+            reason: event.reason || "",
+            wasClean: event.wasClean
+          });
         }
       };
 
@@ -1259,7 +1263,6 @@ export function createCoreApi(): CoreApi {
             socket.close();
             socket = null;
           }
-          handlers.onClose?.();
         }
       };
     },

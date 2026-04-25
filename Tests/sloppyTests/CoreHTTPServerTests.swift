@@ -9,6 +9,25 @@ import Testing
 
 private struct SSEMalformedResponseError: Error {}
 private struct WebSocketMalformedResponseError: Error {}
+private struct DashboardTerminalClientFrame: Encodable {
+    let type: String
+    let projectId: String?
+    let cwd: String?
+    let cols: Int?
+    let rows: Int?
+    let data: String?
+}
+private struct DashboardTerminalServerFrame: Decodable {
+    let type: String
+    let sessionId: String?
+    let cwd: String?
+    let shell: String?
+    let pid: Int32?
+    let data: String?
+    let exitCode: Int32?
+    let code: String?
+    let message: String?
+}
 private struct AsyncTestTimeoutError: Error {
     let operation: String
 }
@@ -248,6 +267,78 @@ func webSocketSessionStreamPublishesToolEventsOverHTTPServer() async throws {
     #expect(secondUpdate.cursor > firstUpdate.cursor)
 }
 
+@Test
+func dashboardTerminalWebSocketAcceptsInputAndAllowsReconnect() async throws {
+    var config = CoreConfig.test
+    config.ui.dashboardTerminal.enabled = true
+    config.ui.dashboardTerminal.localOnly = true
+
+    let service = CoreService(config: config)
+    let router = CoreRouter(service: service)
+    let server = CoreHTTPServer(
+        host: "127.0.0.1",
+        port: 0,
+        router: router,
+        logger: Logger(label: "sloppy.dashboard.terminal.httpserver.tests")
+    )
+    try server.start()
+    defer { try? server.shutdown() }
+
+    let port = try #require(server.boundPort)
+    let wsURL = try #require(URL(string: "ws://127.0.0.1:\(port)/v1/dashboard/terminal/ws"))
+
+    let firstSocket = URLSession.shared.webSocketTask(with: wsURL)
+    firstSocket.resume()
+    defer { firstSocket.cancel(with: .normalClosure, reason: nil) }
+
+    try await sendDashboardTerminalMessage(
+        DashboardTerminalClientFrame(type: "start", projectId: nil, cwd: nil, cols: 80, rows: 24, data: nil),
+        over: firstSocket
+    )
+    let ready = try await receiveDashboardTerminalMessage(over: firstSocket)
+    #expect(ready.type == "ready")
+    #expect((ready.sessionId ?? "").isEmpty == false)
+
+    let marker = "__sloppy_terminal_input_ok_\(UUID().uuidString.replacingOccurrences(of: "-", with: ""))__"
+    try await sendDashboardTerminalMessage(
+        DashboardTerminalClientFrame(type: "input", projectId: nil, cwd: nil, cols: nil, rows: nil, data: "printf '\(marker)\\n'\r"),
+        over: firstSocket
+    )
+
+    let combinedOutput = try await collectDashboardTerminalOutput(untilContains: marker, over: firstSocket)
+    #expect(combinedOutput.contains(marker))
+
+    try await sendDashboardTerminalMessage(
+        DashboardTerminalClientFrame(type: "close", projectId: nil, cwd: nil, cols: nil, rows: nil, data: nil),
+        over: firstSocket
+    )
+    let closed = try await receiveDashboardTerminalMessage(over: firstSocket)
+    #expect(closed.type == "closed")
+
+    try await sendDashboardTerminalMessage(
+        DashboardTerminalClientFrame(type: "start", projectId: nil, cwd: nil, cols: 100, rows: 30, data: nil),
+        over: firstSocket
+    )
+    let restarted = try await receiveDashboardTerminalMessage(over: firstSocket)
+    #expect(restarted.type == "ready")
+    #expect((restarted.sessionId ?? "").isEmpty == false)
+    #expect(restarted.sessionId != ready.sessionId)
+
+    firstSocket.cancel(with: .normalClosure, reason: nil)
+
+    let secondSocket = URLSession.shared.webSocketTask(with: wsURL)
+    secondSocket.resume()
+    defer { secondSocket.cancel(with: .normalClosure, reason: nil) }
+
+    try await sendDashboardTerminalMessage(
+        DashboardTerminalClientFrame(type: "start", projectId: nil, cwd: nil, cols: 90, rows: 28, data: nil),
+        over: secondSocket
+    )
+    let reconnected = try await receiveDashboardTerminalMessage(over: secondSocket)
+    #expect(reconnected.type == "ready")
+    #expect((reconnected.sessionId ?? "").isEmpty == false)
+}
+
 private func messagePayload(_ message: URLSessionWebSocketTask.Message) -> String? {
     switch message {
     case .string(let payload):
@@ -257,6 +348,57 @@ private func messagePayload(_ message: URLSessionWebSocketTask.Message) -> Strin
     @unknown default:
         return nil
     }
+}
+
+private func sendDashboardTerminalMessage(
+    _ message: DashboardTerminalClientFrame,
+    over socket: URLSessionWebSocketTask
+) async throws {
+    let payload = try JSONEncoder().encode(message)
+    let text = try #require(String(data: payload, encoding: .utf8))
+    try await socket.send(.string(text))
+}
+
+private func receiveDashboardTerminalMessage(
+    over socket: URLSessionWebSocketTask
+) async throws -> DashboardTerminalServerFrame {
+    try await withThrowingTaskGroup(of: DashboardTerminalServerFrame.self) { group in
+        group.addTask {
+            let message = try await socket.receive()
+            let payload = try #require(messagePayload(message))
+            return try JSONDecoder().decode(DashboardTerminalServerFrame.self, from: Data(payload.utf8))
+        }
+        group.addTask {
+            try await Task.sleep(nanoseconds: 10_000_000_000)
+            socket.cancel(with: .goingAway, reason: nil)
+            throw AsyncTestTimeoutError(operation: "dashboard terminal websocket message")
+        }
+
+        let result = try await group.next()
+        group.cancelAll()
+        return try #require(result)
+    }
+}
+
+private func collectDashboardTerminalOutput(
+    untilContains needle: String,
+    over socket: URLSessionWebSocketTask
+) async throws -> String {
+    var combined = ""
+
+    while !combined.contains(needle) {
+        let message = try await receiveDashboardTerminalMessage(over: socket)
+        if message.type == "output" {
+            combined += message.data ?? ""
+            continue
+        }
+        if message.type == "error" {
+            Issue.record("Terminal error while waiting for output: \(message.message ?? "(unknown)")")
+            break
+        }
+    }
+
+    return combined
 }
 #endif
 

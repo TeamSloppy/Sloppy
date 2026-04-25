@@ -16,6 +16,8 @@
     "@git-diff-view/react": "^0.1.2",
     "@lobehub/icons": "^5.4.0",
     "@types/prismjs": "^1.26.6",
+    "@xterm/addon-fit": "^0.11.0",
+    "@xterm/xterm": "^6.0.0",
     "prismjs": "^1.30.0",
     "qrcode.react": "^4.2.0",
     "react": "^19.2.0",

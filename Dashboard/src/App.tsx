@@ -42,13 +42,24 @@ interface SidebarItem {
 
 type AnyRecord = Record<string, unknown>;
 
-function DashboardShell({ dependencies, debugEnabled }: { dependencies: ReturnType<typeof createDependencies>; debugEnabled: boolean }) {
+function DashboardShell({
+  dependencies,
+  debugEnabled,
+  terminalEnabled,
+  onRuntimeConfigUpdated
+}: {
+  dependencies: ReturnType<typeof createDependencies>;
+  debugEnabled: boolean;
+  terminalEnabled: boolean;
+  onRuntimeConfigUpdated: (nextConfig: AnyRecord) => void;
+}) {
   const runtime = useRuntimeOverview(dependencies.coreApi);
   const { route, setSection, setConfigSection, setProjectRoute, setAgentRoute, setSessionRoute, setChatsRoute } =
     useDashboardRoute();
   const [sidebarCompact, setSidebarCompact] = useState(true);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [sidebarProjects, setSidebarProjects] = useState<AnyRecord[]>([]);
+  const [terminalClosedHost, setTerminalClosedHost] = useState<HTMLDivElement | null>(null);
   const sidebarChatRepairRef = useRef<string | null>(null);
   const { status: updateStatus } = useUpdateCheck();
   useNotificationSocket();
@@ -214,7 +225,13 @@ function DashboardShell({ dependencies, debugEnabled }: { dependencies: ReturnTy
     {
       id: "config",
       label: { icon: "settings", title: "Settings" },
-      content: <ConfigView sectionId={route.configSection} onSectionChange={setConfigSection} />
+      content: (
+        <ConfigView
+          sectionId={route.configSection}
+          onSectionChange={setConfigSection}
+          onRuntimeConfigUpdated={onRuntimeConfigUpdated}
+        />
+      )
     },
     {
       id: "logs",
@@ -289,12 +306,15 @@ function DashboardShell({ dependencies, debugEnabled }: { dependencies: ReturnTy
               </span>
               {!sidebarCompact && <span className="sidebar-docs-label">[ DOCS ]</span>}
             </a>
-            <NotificationBell
-              isCompact={sidebarCompact}
-              onNavigateToAgent={(agentId: string, sessionId?: string) => {
-                onAgentRouteChange(agentId, "chat", sessionId ?? null);
-              }}
-            />
+            <div className="sidebar-footer-tray">
+              <NotificationBell
+                isCompact={sidebarCompact}
+                onNavigateToAgent={(agentId: string, sessionId?: string) => {
+                  onAgentRouteChange(agentId, "chat", sessionId ?? null);
+                }}
+              />
+              {terminalEnabled ? <div className="sidebar-footer-terminal-host" ref={setTerminalClosedHost} /> : null}
+            </div>
           </>
         }
       />
@@ -356,11 +376,15 @@ function DashboardShell({ dependencies, debugEnabled }: { dependencies: ReturnTy
         </button>
         {updateStatus && <UpdateBanner status={updateStatus} />}
         {pageContent}
-        <TerminalDrawer
-          coreApi={dependencies.coreApi}
-          currentProjectId={activeProjectId}
-          currentProjectRepoPath={activeProjectRepoPath}
-        />
+        {terminalEnabled ? (
+          <TerminalDrawer
+            coreApi={dependencies.coreApi}
+            currentProjectId={activeProjectId}
+            currentProjectRepoPath={activeProjectRepoPath}
+            closedHostElement={terminalClosedHost}
+            isSidebarCompact={sidebarCompact}
+          />
+        ) : null}
       </div>
       <NotificationToastContainer />
     </div>
@@ -544,11 +568,22 @@ export function App() {
     );
   }
 
+  const runtimeConfig = bootState.config as Record<string, unknown> | null;
+  const uiConfig = (runtimeConfig?.ui as AnyRecord | undefined) ?? null;
+  const terminalConfig = (uiConfig?.dashboardTerminal as AnyRecord | undefined) ?? null;
+
   return (
     <NotificationProvider>
       <DashboardShell
         dependencies={dependencies}
-        debugEnabled={Boolean((bootState.config as Record<string, unknown> | null)?.debugEnabled)}
+        debugEnabled={Boolean(runtimeConfig?.debugEnabled)}
+        terminalEnabled={Boolean(terminalConfig?.enabled)}
+        onRuntimeConfigUpdated={(nextConfig) => {
+          setBootState((current) => ({
+            ...current,
+            config: nextConfig
+          }));
+        }}
       />
     </NotificationProvider>
   );

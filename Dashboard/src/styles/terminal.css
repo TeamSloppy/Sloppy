@@ -30,6 +30,18 @@
   backdrop-filter: blur(10px);
 }
 
+/* Collapsed: UI lives in sidebar via portal; keep drawer in DOM (hidden) so xterm + session stay mounted. */
+.terminal-drawer--docked-collapsed {
+  min-height: 0;
+  height: 0 !important;
+  border: none;
+  box-shadow: none;
+  overflow: hidden;
+  background: transparent;
+  backdrop-filter: none;
+  pointer-events: none;
+}
+
 .terminal-drawer.closed .terminal-drawer-body {
   display: none;
 }
@@ -55,29 +67,132 @@
 .terminal-drawer-header {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
   padding: 0 16px 12px;
-  min-height: 34px;
+  min-height: 42px;
 }
 
-.terminal-drawer-toggle {
+.terminal-drawer-window-action,
+.terminal-drawer-plus {
+  width: 34px;
+  height: 34px;
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  border: 1px solid var(--line);
-  background: rgba(255, 255, 255, 0.03);
-  color: var(--text);
-  padding: 6px 10px;
-  min-width: 180px;
+  justify-content: center;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.02);
+  color: var(--muted);
+  flex: 0 0 auto;
 }
 
-.terminal-drawer-toggle:hover {
-  border-color: var(--accent);
+.terminal-drawer-window-action:hover,
+.terminal-drawer-plus:hover {
+  color: var(--text);
+  border-color: rgba(255, 255, 255, 0.18);
   background: rgba(255, 255, 255, 0.05);
 }
 
-.terminal-drawer-title {
-  font-weight: 600;
+.terminal-drawer-window-action .material-symbols-rounded,
+.terminal-drawer-plus .material-symbols-rounded {
+  font-size: 18px;
+}
+
+.terminal-tab-strip {
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  align-items: stretch;
+  gap: 8px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.terminal-tab-strip::-webkit-scrollbar {
+  display: none;
+}
+
+.terminal-tab {
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  flex: 0 0 auto;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--muted);
+}
+
+.terminal-tab.active {
+  border-color: rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text);
+}
+
+.terminal-tab-select {
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 12px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font-family: "SF Mono", "Fira Code", monospace;
+  font-size: 0.82rem;
+  line-height: 1;
+}
+
+.terminal-tab-label {
+  min-width: 0;
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.terminal-tab-close {
+  width: 28px;
+  height: 28px;
+  margin-right: 4px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  flex: 0 0 auto;
+}
+
+.terminal-tab-close:hover {
+  color: var(--text);
+}
+
+.terminal-tab-close .material-symbols-rounded {
+  font-size: 16px;
+}
+
+.terminal-tab-indicator {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--muted);
+  flex: 0 0 auto;
+}
+
+.terminal-tab-indicator-ready {
+  background: #83f28f;
+}
+
+.terminal-tab-indicator-connecting {
+  background: #ffd166;
+}
+
+.terminal-tab-indicator-error {
+  background: #ff8f8f;
+}
+
+.terminal-tab-indicator-exited,
+.terminal-tab-indicator-closed {
+  background: #616d78;
 }
 
 .terminal-drawer-status {
@@ -127,11 +242,6 @@
   font-family: "SF Mono", "Fira Code", monospace;
 }
 
-.terminal-drawer-actions {
-  display: inline-flex;
-  gap: 8px;
-}
-
 .terminal-drawer-body {
   min-height: 0;
   display: flex;
@@ -144,9 +254,25 @@
 .terminal-drawer-info {
   display: flex;
   justify-content: space-between;
+  align-items: center;
   gap: 12px;
   color: var(--muted);
   font-size: 0.78rem;
+}
+
+.terminal-drawer-status-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.terminal-drawer-info-trail {
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
 }
 
 .terminal-drawer-info code {
@@ -155,9 +281,25 @@
   padding: 0;
 }
 
-.terminal-drawer-screen {
+.terminal-drawer-stage {
   min-height: 0;
   flex: 1;
+  position: relative;
+}
+
+.terminal-pane {
+  position: absolute;
+  inset: 0;
+}
+
+.terminal-pane.inactive {
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.terminal-drawer-screen {
+  min-height: 0;
+  height: 100%;
   border: 1px solid rgba(255, 255, 255, 0.08);
   background: #0a0d10;
   overflow: hidden;
@@ -182,23 +324,112 @@
   }
 
   .terminal-drawer-header {
-    flex-wrap: wrap;
-    align-items: flex-start;
-  }
-
-  .terminal-drawer-toggle {
-    min-width: 0;
-    width: 100%;
-    justify-content: space-between;
+    gap: 8px;
   }
 
   .terminal-drawer-meta,
-  .terminal-drawer-actions,
   .terminal-drawer-info {
+    width: 100%;
+  }
+
+  .terminal-tab-strip {
+    order: 3;
     width: 100%;
   }
 
   .terminal-drawer-info {
     flex-direction: column;
+    align-items: flex-start;
   }
+
+  .terminal-drawer-info-trail {
+    width: 100%;
+    justify-content: flex-start;
+    flex-wrap: wrap;
+  }
+}
+
+/* Compact terminal entry beside notification bell (rendered into .sidebar-footer-terminal-host) */
+.sidebar-terminal-dock {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 100%;
+  width: 100%;
+  min-width: 0;
+  padding: 6px 8px;
+  border: 1px solid var(--line);
+  background: none;
+  color: var(--muted);
+  cursor: pointer;
+  font-family: "Fira Code", monospace;
+  font-size: 10px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  transition: color 0.15s, border-color 0.15s, background 0.15s;
+  box-sizing: border-box;
+}
+
+.sidebar-terminal-dock:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.sidebar-terminal-dock .material-symbols-rounded {
+  font-size: 20px;
+  flex-shrink: 0;
+}
+
+.sidebar-terminal-dock-label {
+  flex: 0 0 auto;
+  text-transform: uppercase;
+}
+
+.sidebar-terminal-dock-status {
+  margin-left: auto;
+  font-size: 9px;
+  letter-spacing: 0.06em;
+  max-width: 72px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sidebar.compact .sidebar-terminal-dock {
+  width: 100%;
+  max-width: 44px;
+  min-width: 0;
+  min-height: 0;
+  flex: 0 0 auto;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 6px 2px 8px;
+  gap: 2px;
+}
+
+.sidebar.compact .sidebar-terminal-dock .sidebar-terminal-dock-status {
+  position: static;
+  margin: 0;
+  max-width: 100%;
+  width: 100%;
+  font-size: 6px;
+  line-height: 1.1;
+  padding: 0;
+  text-align: center;
+  letter-spacing: 0.02em;
+  background: none;
+  border: none;
+  text-transform: uppercase;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sidebar.compact .sidebar-footer-terminal-host {
+  flex: 0 0 auto;
+  width: 100%;
+  max-width: 44px;
 }

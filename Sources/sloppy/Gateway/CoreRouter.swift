@@ -597,6 +597,15 @@ public actor CoreRouter {
                     }
 
                     func sendError(code: String, message: String) async {
+                        Self.logger.warning(
+                            "dashboard.terminal.error",
+                            metadata: [
+                                "code": .string(code),
+                                "message": .string(message),
+                                "session_id": .string(activeSessionID ?? "(none)"),
+                                "remote_address": .string(request.remoteAddress ?? "(unknown)")
+                            ]
+                        )
                         _ = await send(
                             DashboardTerminalServerMessage(
                                 type: "error",
@@ -620,9 +629,27 @@ public actor CoreRouter {
                         guard let payload = rawMessage.data(using: .utf8),
                               let message = try? decoder.decode(DashboardTerminalClientMessage.self, from: payload)
                         else {
+                            Self.logger.warning(
+                                "dashboard.terminal.message.malformed",
+                                metadata: [
+                                    "raw_prefix": .string(String(rawMessage.prefix(180))),
+                                    "remote_address": .string(request.remoteAddress ?? "(unknown)")
+                                ]
+                            )
                             await sendError(code: "invalid_message", message: "Malformed terminal message.")
                             continue
                         }
+                        Self.logger.debug(
+                            "dashboard.terminal.message.received",
+                            metadata: [
+                                "type": .string(message.type.lowercased()),
+                                "session_id": .string(activeSessionID ?? "(none)"),
+                                "project_id": .string(message.projectId ?? ""),
+                                "cols": .stringConvertible(message.cols ?? -1),
+                                "rows": .stringConvertible(message.rows ?? -1),
+                                "input_bytes": .stringConvertible(message.data?.utf8.count ?? 0)
+                            ]
+                        )
 
                         switch message.type.lowercased() {
                         case "start":
@@ -644,6 +671,15 @@ public actor CoreRouter {
                                     remoteAddress: request.remoteAddress
                                 )
                                 activeSessionID = started.sessionID
+                                Self.logger.info(
+                                    "dashboard.terminal.started",
+                                    metadata: [
+                                        "session_id": .string(started.sessionID),
+                                        "pid": .stringConvertible(started.pid),
+                                        "cwd": .string(started.cwd),
+                                        "remote_address": .string(request.remoteAddress ?? "(unknown)")
+                                    ]
+                                )
                                 let readySent = await send(
                                     DashboardTerminalServerMessage(
                                         type: "ready",
@@ -722,6 +758,13 @@ public actor CoreRouter {
                             guard let sessionID = activeSessionID else {
                                 break
                             }
+                            Self.logger.info(
+                                "dashboard.terminal.closed",
+                                metadata: [
+                                    "session_id": .string(sessionID),
+                                    "remote_address": .string(request.remoteAddress ?? "(unknown)")
+                                ]
+                            )
                             await service.closeDashboardTerminalSession(sessionID: sessionID)
                             forwardTask?.cancel()
                             forwardTask = nil
