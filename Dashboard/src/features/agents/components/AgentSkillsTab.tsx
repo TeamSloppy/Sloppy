@@ -46,6 +46,52 @@ function formatInstalls(count: number): string {
   return String(count);
 }
 
+function parseGitHubSkillInput(value: string): { owner: string; repo: string } | null {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return null;
+  }
+
+  const normalizedURLInput = trimmed
+    .replace(/^https:\/github\.com\//i, "https://github.com/")
+    .replace(/^http:\/github\.com\//i, "http://github.com/")
+    .replace(/^git@github\.com:/i, "https://github.com/")
+    .replace(/^ssh:\/\/git@github\.com\//i, "https://github.com/");
+
+  if (/^https?:\/\//i.test(normalizedURLInput)) {
+    try {
+      const url = new URL(normalizedURLInput);
+      const hostname = url.hostname.toLowerCase();
+      if (hostname !== "github.com" && hostname !== "www.github.com") {
+        return null;
+      }
+      const segments = url.pathname.split("/").filter(Boolean);
+      if (segments.length < 2) {
+        return null;
+      }
+
+      const owner = segments[0];
+      const repo = segments[1].replace(/\.git$/i, "");
+      return owner && repo ? { owner, repo } : null;
+    } catch {
+      return null;
+    }
+  }
+
+  const segments = trimmed
+    .replace(/^\/+/, "")
+    .split("/")
+    .filter(Boolean);
+
+  if (segments.length < 2) {
+    return null;
+  }
+
+  const owner = segments[0];
+  const repo = segments[1].replace(/\.git$/i, "");
+  return owner && repo ? { owner, repo } : null;
+}
+
 function SkillCard({
   skill,
   isInstalled,
@@ -328,14 +374,13 @@ export function AgentSkillsTab({ agentId }: AgentSkillsTabProps) {
     const trimmed = githubInput.trim();
     if (!trimmed) return;
 
-    // Parse owner/repo format
-    const parts = trimmed.split("/").filter(Boolean);
-    if (parts.length < 2) {
-      setError("Please use format: owner/repo");
+    const parsed = parseGitHubSkillInput(trimmed);
+    if (!parsed) {
+      setError("Please use owner/repo or a GitHub repository URL");
       return;
     }
 
-    const [owner, repo] = parts;
+    const { owner, repo } = parsed;
     setIsInstallingFromGithub(true);
     setError(null);
 
@@ -434,7 +479,7 @@ export function AgentSkillsTab({ agentId }: AgentSkillsTabProps) {
             <div className="skills-github-input-group">
               <input
                 type="text"
-                placeholder="owner/repo or owner/repo/skill-name"
+                placeholder="owner/repo or https://github.com/owner/repo"
                 value={githubInput}
                 onChange={(e) => setGithubInput(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && handleInstallFromGithub()}
