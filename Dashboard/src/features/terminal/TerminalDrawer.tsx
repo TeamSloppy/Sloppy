@@ -595,6 +595,14 @@ export function TerminalDrawer({
   const dockedToSidebarCollapsed = Boolean(closedHostElement && !isOpen);
   const closedChromeHeight = dockedToSidebarCollapsed ? 0 : 44;
 
+  useEffect(() => {
+    const reservedBottom = dockedToSidebarCollapsed ? 0 : isOpen ? drawerHeight : closedChromeHeight;
+    document.documentElement.style.setProperty("--terminal-drawer-reserved-bottom", `${reservedBottom}px`);
+    return () => {
+      document.documentElement.style.removeProperty("--terminal-drawer-reserved-bottom");
+    };
+  }, [closedChromeHeight, dockedToSidebarCollapsed, drawerHeight, isOpen]);
+
   const compactTerminalDock = dockedToSidebarCollapsed ? (
     <button
       type="button"

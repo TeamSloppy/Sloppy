@@ -6,22 +6,24 @@
   border-top: 1px solid var(--line);
 }
 
-/* Terminal dock + notification bell: row in full sidebar, column in compact */
+/* Terminal dock under notification bell (full + compact sidebar) */
 .sidebar-footer-tray {
   display: flex;
-  flex-direction: row;
+  flex-direction: column;
   align-items: stretch;
   gap: 6px;
 }
 
 .sidebar-footer-tray .notif-bell-container {
-  flex: 1;
+  flex: 0 0 auto;
+  width: 100%;
   min-width: 0;
 }
 
 /* Host node for the portaled closed-terminal control */
 .sidebar-footer-terminal-host {
   flex: 0 0 auto;
+  width: 100%;
   min-width: 0;
   display: flex;
 }

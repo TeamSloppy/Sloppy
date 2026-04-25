@@ -129,11 +129,11 @@
   }
 
   .page {
-    padding: 0 12px 12px;
+    padding: 0 12px calc(12px + var(--terminal-drawer-reserved-bottom, 0px));
   }
 
   .page.page-config {
-    padding: 0 10px 10px;
+    padding: 0 10px calc(10px + var(--terminal-drawer-reserved-bottom, 0px));
   }
 
   .mobile-page-menu-button {
