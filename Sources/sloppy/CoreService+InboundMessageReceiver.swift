@@ -479,6 +479,8 @@ extension CoreService {
         await channelStreamCancelRegistry.clearCancel(channelId: channelId)
 
         let bindingChannelId = ChannelGatewayScope.parse(channelId).baseChannelId
+        let board = try? getActorBoard()
+        let linkedAgentID = linkedAgentID(forChannelID: bindingChannelId, board: board)
         let modelOverride = await channelModelStore.get(channelId: bindingChannelId)
         let request = ChannelMessageRequest(
             userId: userId,
@@ -504,11 +506,35 @@ extension CoreService {
             }
             return true
         }
+        let toolInvoker: (@Sendable (ToolInvocationRequest) async -> ToolInvocationResult)?
+        if let agentID = linkedAgentID {
+            toolInvoker = { [weak self] toolRequest in
+                guard let self else {
+                    return ToolInvocationResult(
+                        tool: toolRequest.tool,
+                        ok: false,
+                        error: ToolErrorPayload(
+                            code: "tool_invoker_unavailable",
+                            message: "Tool invoker is unavailable.",
+                            retryable: true
+                        )
+                    )
+                }
+                return await self.invokeToolFromChannelRuntime(
+                    agentID: agentID,
+                    channelID: channelId,
+                    request: toolRequest
+                )
+            }
+        } else {
+            toolInvoker = nil
+        }
 
         _ = await runtime.postMessage(
             channelId: channelId,
             request: request,
             onResponseChunk: onChunk,
+            toolInvoker: toolInvoker,
             observationHandler: { [weak self] observation in
                 guard let self else {
                     return
@@ -945,4 +971,3 @@ extension CoreService: InboundMessageReceiver {
         return rest.isEmpty ? nil : rest
     }
 }
-

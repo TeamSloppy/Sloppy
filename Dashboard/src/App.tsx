@@ -291,7 +291,14 @@ function DashboardShell({
   );
 
   return (
-    <div className="layout">
+    <div
+      className="layout"
+      style={
+        {
+          "--terminal-drawer-inset-left": sidebarCompact ? "76px" : "228px"
+        } as React.CSSProperties
+      }
+    >
       <SidebarView
         items={sidebarItems}
         activeItemId={sidebarActiveItemId}

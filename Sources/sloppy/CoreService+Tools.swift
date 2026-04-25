@@ -273,6 +273,132 @@ extension CoreService {
         return result
     }
 
+    /// Internal runtime path used by gateway/channel sessions linked to an agent.
+    public func invokeToolFromChannelRuntime(
+        agentID: String,
+        channelID: String,
+        request: ToolInvocationRequest
+    ) async -> ToolInvocationResult {
+        guard let normalizedAgentID = normalizedAgentID(agentID) else {
+            return .init(
+                tool: request.tool,
+                ok: false,
+                error: .init(code: "invalid_agent_id", message: "Invalid agent id.", retryable: false)
+            )
+        }
+        guard !request.tool.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return .init(
+                tool: request.tool,
+                ok: false,
+                error: .init(code: "invalid_tool", message: "Tool id is required.", retryable: false)
+            )
+        }
+
+        do {
+            _ = try getAgent(id: normalizedAgentID)
+        } catch let error as AgentStorageError {
+            if case .notFound = error {
+                return .init(
+                    tool: request.tool,
+                    ok: false,
+                    error: .init(code: "agent_not_found", message: "Agent not found.", retryable: false)
+                )
+            }
+            return .init(
+                tool: request.tool,
+                ok: false,
+                error: .init(code: "invalid_agent_id", message: "Invalid agent id.", retryable: false)
+            )
+        } catch {
+            return .init(
+                tool: request.tool,
+                ok: false,
+                error: .init(code: "agent_not_found", message: "Agent not found.", retryable: false)
+            )
+        }
+
+        let authorization: ToolAuthorizationDecision
+        do {
+            authorization = try await toolsAuthorization.authorize(agentID: normalizedAgentID, toolID: request.tool)
+        } catch {
+            return .init(
+                tool: request.tool,
+                ok: false,
+                error: .init(code: "authorization_failed", message: "Failed to authorize tool call.", retryable: true)
+            )
+        }
+
+        var effectivePolicy = authorization.policy
+        let channelToolContext = await toolContextForChannel(channelID: channelID)
+        if authorization.allowed, !channelToolContext.extraRoots.isEmpty {
+            effectivePolicy.guardrails.allowedExecRoots += channelToolContext.extraRoots
+            effectivePolicy.guardrails.allowedWriteRoots += channelToolContext.extraRoots
+        }
+        let currentDirectoryURL = channelToolContext.workingDirectory.map {
+            URL(fileURLWithPath: $0, isDirectory: true)
+        }
+
+        let loopDecision: ToolLoopGuard.Decision
+        if authorization.allowed {
+            loopDecision = await toolLoopGuard.evaluate(
+                sessionID: channelID,
+                request: request,
+                policy: effectivePolicy,
+                workspaceRootURL: workspaceRootURL,
+                currentDirectoryURL: currentDirectoryURL
+            )
+        } else {
+            loopDecision = .allow(signature: "")
+        }
+
+        let result: ToolInvocationResult
+        if authorization.allowed {
+            switch loopDecision {
+            case .block(let message):
+                result = .init(
+                    tool: request.tool,
+                    ok: false,
+                    error: .init(
+                        code: "tool_loop_detected",
+                        message: message,
+                        retryable: false,
+                        hint: "Change the command or arguments, or summarize the blocker instead of retrying the same tool call."
+                    )
+                )
+
+            case .allow:
+                result = await withSpan("tool.invoke.channel", ofKind: .internal) { span in
+                    span.attributes["agent_id"] = "\(normalizedAgentID)"
+                    span.attributes["channel_id"] = "\(channelID)"
+                    span.attributes["tool_id"] = "\(request.tool)"
+                    return await toolExecution.invoke(
+                        agentID: normalizedAgentID,
+                        sessionID: channelID,
+                        request: request,
+                        policy: effectivePolicy,
+                        currentDirectoryURL: currentDirectoryURL
+                    )
+                }
+                await toolLoopGuard.recordResult(
+                    sessionID: channelID,
+                    request: request,
+                    result: result,
+                    policy: effectivePolicy,
+                    workspaceRootURL: workspaceRootURL,
+                    currentDirectoryURL: currentDirectoryURL
+                )
+            }
+        } else {
+            result = .init(
+                tool: request.tool,
+                ok: false,
+                error: authorization.error ?? .init(code: "tool_forbidden", message: "Tool is forbidden.", retryable: false)
+            )
+        }
+
+        return result
+    }
+
     func persistToolInvocationAnalytics(
         agentId: String,
         sessionId: String,
@@ -410,6 +536,24 @@ extension CoreService {
         }
 
         return (nil, [])
+    }
+
+    func toolContextForChannel(
+        channelID: String
+    ) async -> (workingDirectory: String?, extraRoots: [String]) {
+        guard let project = await projectForChannel(channelId: channelID) else {
+            return (nil, [])
+        }
+        guard let workingDirectoryURL = try? await resolveProjectWorkspaceRoot(projectID: project.id) else {
+            return (nil, [])
+        }
+
+        let workingDirectory = workingDirectoryURL.path
+        var roots = sessionToolRoots(forWorkingDirectory: workingDirectory)
+        if !roots.contains(workingDirectory) {
+            roots.append(workingDirectory)
+        }
+        return (workingDirectory, roots)
     }
 
 }
