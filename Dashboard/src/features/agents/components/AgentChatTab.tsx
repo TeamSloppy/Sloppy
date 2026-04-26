@@ -754,6 +754,11 @@ function isActiveRunStage(stage) {
   return value === "thinking" || value === "searching" || value === "responding";
 }
 
+function isTerminalRunStage(stage) {
+  const value = String(stage || "").trim().toLowerCase();
+  return value === "done" || value === "interrupted";
+}
+
 function extractEventKey(event, index) {
   return event?.id || `${event?.type || "event"}-${index}`;
 }
@@ -809,6 +814,12 @@ function findPendingToolCallRecordIds(events) {
 
   for (let index = 0; index < (Array.isArray(events) ? events.length : 0); index += 1) {
     const eventItem = events[index];
+
+    if (eventItem?.type === "run_status" && isTerminalRunStage(eventItem.runStatus?.stage)) {
+      openCallsByTool.clear();
+      pendingRecordIds.clear();
+      continue;
+    }
 
     if (eventItem?.type === "tool_call" && eventItem.toolCall) {
       const toolName = String(eventItem.toolCall.tool || "").trim();
@@ -1785,6 +1796,7 @@ function AgentChatComposer({
   inputText,
   onInputTextChange,
   isBusy,
+  isStopPending = false,
   onSend,
   onStop,
   pendingFiles,
@@ -2463,7 +2475,13 @@ function AgentChatComposer({
               </button>
 
               {isBusy ? (
-                <button type="button" className="agent-chat-icon-button agent-chat-send-button danger" onClick={onStop}>
+                <button
+                  type="button"
+                  className="agent-chat-icon-button agent-chat-send-button danger"
+                  onClick={onStop}
+                  disabled={isStopPending}
+                  title={isStopPending ? "Stopping..." : "Stop"}
+                >
                   <span className="material-symbols-rounded" aria-hidden="true">
                     stop
                   </span>
@@ -2530,6 +2548,7 @@ export function AgentChatTab({
   const [isLoadingSessions, setIsLoadingSessions] = useState(true);
   const [isLoadingSession, setIsLoadingSession] = useState(false);
   const [isSending, setIsSending] = useState(false);
+  const [isStopping, setIsStopping] = useState(false);
   const [isDragOver, setIsDragOver] = useState(false);
   const [inputText, setInputText] = useState("");
   const [pendingFiles, setPendingFiles] = useState([]);
@@ -3030,6 +3049,7 @@ export function AgentChatTab({
       setAvailableModels([]);
       setReasoningEffort(DEFAULT_REASONING_EFFORT);
       setIsSending(false);
+      setIsStopping(false);
       setSubagentPanel({
         isOpen: false,
         sessionId: "",
@@ -3550,8 +3570,9 @@ export function AgentChatTab({
         if (streamEvent.runStatus.stage === "responding" && streamEvent.runStatus.expandedText) {
           setOptimisticAssistantText(String(streamEvent.runStatus.expandedText));
         }
-        if (streamEvent.runStatus.stage === "done" || streamEvent.runStatus.stage === "interrupted") {
+        if (isTerminalRunStage(streamEvent.runStatus.stage)) {
           setOptimisticAssistantText("");
+          setIsStopping(false);
         }
       }
 
@@ -3578,8 +3599,10 @@ export function AgentChatTab({
     }
 
     if (kind === "session_closed") {
+      setIsStopping(false);
       setStatusText(String(update.message || "Session stream closed."));
     } else if (kind === "session_error") {
+      setIsStopping(false);
       setStatusText(String(update.message || "Session stream error."));
     }
   }
@@ -4025,7 +4048,11 @@ export function AgentChatTab({
   }
 
   async function handleStop() {
-    const sessionId = runStateRef.current.sessionId || activeSessionId;
+    if (isStopping) {
+      return;
+    }
+
+    const sessionId = runStateRef.current.sessionId || activeSessionIdRef.current || activeSessionId;
     if (!sessionId) {
       setStatusText("Nothing to abort.");
       return;
@@ -4034,21 +4061,26 @@ export function AgentChatTab({
     runStateRef.current.abortController?.abort();
     runStateRef.current.abortController = null;
     runStateRef.current.sessionId = null;
+    setIsStopping(true);
     setStatusText("Stopping...");
 
-    if (sessionId) {
-      await postAgentMemoryCheckpoint(agentId, sessionId, { reason: "stop_command" });
+    try {
+      await postAgentMemoryCheckpoint(agentId, sessionId, { reason: "stop_command" }).catch(() => null);
       const response = await postAgentSessionControl(agentId, sessionId, {
         action: "interruptTree",
         requestedBy: "dashboard",
         reason: "Stopped by user"
       });
-      await refreshSessions(sessionId);
       if (response) {
-        setStatusText("Interrupted.");
+        setStatusText("Interrupt requested.");
+        void refreshSessions(sessionId);
       } else {
         setStatusText("Failed to interrupt.");
+        setIsStopping(false);
       }
+    } catch {
+      setStatusText("Failed to interrupt.");
+      setIsStopping(false);
     }
 
     setOptimisticUserEvent(null);
@@ -4364,12 +4396,22 @@ export function AgentChatTab({
       }),
     [subagentEvents, subagentActiveToolCallRecordIds, subagentOptimisticAssistantText, subagentPanel.status]
   );
-  const isActiveSessionBusy = isSending || isActiveRunStage(latestRunStatus?.stage) || activeToolCallRecordIds.size > 0;
+  const hasActiveSessionWork =
+    isSending || isActiveRunStage(latestRunStatus?.stage) || activeToolCallRecordIds.size > 0;
+  const isActiveSessionBusy = isStopping || hasActiveSessionWork;
   const isSubagentBusy =
     subagentPanel.loading ||
     subagentPanel.status === "live" ||
     isActiveRunStage(subagentLatestRunStatus?.stage) ||
     subagentActiveToolCallRecordIds.size > 0;
+  useEffect(() => {
+    if (!isStopping) {
+      return;
+    }
+    if (isTerminalRunStage(latestRunStatus?.stage) || !hasActiveSessionWork) {
+      setIsStopping(false);
+    }
+  }, [hasActiveSessionWork, isStopping, latestRunStatus?.stage]);
   const busySessionIds = useMemo(() => {
     const next = new Set();
     if (activeSessionId && isActiveSessionBusy) {
@@ -4925,6 +4967,7 @@ export function AgentChatTab({
                   inputText={inputText}
                   onInputTextChange={setInputText}
                   isBusy={isActiveSessionBusy}
+                  isStopPending={isStopping}
                   onSend={handleSend}
                   onStop={handleStop}
                   pendingFiles={pendingFiles}
