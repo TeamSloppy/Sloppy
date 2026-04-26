@@ -12,7 +12,10 @@ extension CoreConfig {
         config.sqlitePath = FileManager.default.temporaryDirectory
             .appendingPathComponent("core-test-\(id).sqlite")
             .path
-        config.models = []
+        config.models = [
+            .init(title: "Mock Model", apiKey: "", apiUrl: "", model: "mock:test-model")
+        ]
+        config.disableModelInference = true
         return config
     }
 }
