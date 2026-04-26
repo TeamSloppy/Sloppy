@@ -4,6 +4,7 @@ import Foundation
 import FoundationNetworking
 #endif
 import PluginSDK
+import Protocols
 
 struct ModelProviderBuildConfig: @unchecked Sendable {
     var coreConfig: CoreConfig
@@ -24,6 +25,7 @@ protocol ModelProviderFactory: Sendable {
 
 enum CoreModelProviderFactory {
     private static let factories: [any ModelProviderFactory] = [
+        MockModelProviderFactory(),
         OpenAIModelProviderFactory(),
         OpenRouterModelProviderFactory(),
         OllamaModelProviderFactory(),
@@ -81,14 +83,16 @@ enum CoreModelProviderFactory {
         let openRouterEnvKey = ProcessInfo.processInfo.environment["OPENROUTER_API_KEY"]?
             .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
 
-        if !hasOpenAI, !environmentKey.isEmpty {
-            identifiers.append("openai:gpt-5.4-mini")
-        }
-        if !hasOpenAI, environmentKey.isEmpty, hasOAuthCredentials {
-            identifiers.append("openai:gpt-5-codex-mini")
-        }
-        if !hasOpenRouter, !openRouterEnvKey.isEmpty {
-            identifiers.append("openrouter:openai/gpt-4o-mini")
+        if !config.disableModelInference {
+            if !hasOpenAI, !environmentKey.isEmpty {
+                identifiers.append("openai:gpt-5.4-mini")
+            }
+            if !hasOpenAI, environmentKey.isEmpty, hasOAuthCredentials {
+                identifiers.append("openai:gpt-5-codex-mini")
+            }
+            if !hasOpenRouter, !openRouterEnvKey.isEmpty {
+                identifiers.append("openrouter:openai/gpt-4o-mini")
+            }
         }
 
         return identifiers
@@ -105,7 +109,8 @@ enum CoreModelProviderFactory {
 
         if modelValue.hasPrefix("openai:") || modelValue.hasPrefix("openrouter:")
             || modelValue.hasPrefix("ollama:")
-            || modelValue.hasPrefix("gemini:") || modelValue.hasPrefix("anthropic:") {
+            || modelValue.hasPrefix("gemini:") || modelValue.hasPrefix("anthropic:")
+            || modelValue.hasPrefix("mock:") {
             return modelValue
         }
 
@@ -169,5 +174,70 @@ enum CoreModelProviderFactory {
             return nil
         }
         return URL(string: raw)
+    }
+}
+
+// MARK: - Mock Provider
+
+struct MockModelProviderFactory: ModelProviderFactory {
+    func buildProvider(from config: ModelProviderBuildConfig) -> (any ModelProvider)? {
+        let mockModels = config.resolvedModels.filter { $0.hasPrefix("mock:") }
+        guard !mockModels.isEmpty else { return nil }
+        return MockModelProvider(supportedModels: mockModels)
+    }
+}
+
+private actor MockModelProvider: ModelProvider {
+    nonisolated let id: String = "mock"
+    nonisolated let supportedModels: [String]
+
+    init(supportedModels: [String]) {
+        self.supportedModels = supportedModels
+    }
+
+    func createLanguageModel(for modelName: String) async throws -> any LanguageModel {
+        MockLanguageModel()
+    }
+
+    nonisolated func generationOptions(for modelName: String, maxTokens: Int, reasoningEffort: ReasoningEffort?) -> GenerationOptions {
+        GenerationOptions(maximumResponseTokens: maxTokens)
+    }
+}
+
+private struct MockLanguageModel: LanguageModel {
+    typealias UnavailableReason = Never
+
+    func respond<Content>(
+        within session: LanguageModelSession,
+        to prompt: Prompt,
+        generating type: Content.Type,
+        includeSchemaInPrompt: Bool,
+        options: GenerationOptions
+    ) async throws -> LanguageModelSession.Response<Content> where Content: Generable {
+        print("--- MockLanguageModel.respond called ---")
+        let text = "Mock response for prompt: \(prompt.description)"
+        return LanguageModelSession.Response(
+            content: text as! Content,
+            rawContent: GeneratedContent(text),
+            transcriptEntries: []
+        )
+    }
+
+    func streamResponse<Content>(
+        within session: LanguageModelSession,
+        to prompt: Prompt,
+        generating type: Content.Type,
+        includeSchemaInPrompt: Bool,
+        options: GenerationOptions
+    ) -> sending LanguageModelSession.ResponseStream<Content> where Content: Generable {
+        print("--- MockLanguageModel.streamResponse called ---")
+        let text = "Mock response for prompt: \(prompt.description)"
+        let stream = AsyncThrowingStream<LanguageModelSession.ResponseStream<Content>.Snapshot, any Error> { continuation in
+            Task {
+                continuation.yield(.init(content: text as! Content.PartiallyGenerated, rawContent: GeneratedContent(text)))
+                continuation.finish()
+            }
+        }
+        return LanguageModelSession.ResponseStream(stream: stream)
     }
 }

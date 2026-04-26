@@ -1061,6 +1061,7 @@ public struct CoreConfig: Codable, Sendable {
     public var auth: Auth
     public var onboarding: Onboarding
     public var models: [ModelConfig]
+    public var disableModelInference: Bool
     public var memory: Memory
     public var nodes: [String]
     public var gateways: [String]
@@ -1098,7 +1099,8 @@ public struct CoreConfig: Codable, Sendable {
         visor: Visor = Visor(),
         ui: UI = UI(),
         sqlitePath: String,
-        modelRouting: [String: String] = [:]
+        modelRouting: [String: String] = [:],
+        disableModelInference: Bool = false
     ) {
         self.listen = listen
         self.workspace = workspace
@@ -1120,6 +1122,7 @@ public struct CoreConfig: Codable, Sendable {
         self.ui = ui
         self.sqlitePath = sqlitePath
         self.modelRouting = modelRouting
+        self.disableModelInference = disableModelInference
     }
 
     public static var `default`: CoreConfig {
@@ -1222,6 +1225,7 @@ public struct CoreConfig: Codable, Sendable {
         case ui
         case sqlitePath
         case modelRouting
+        case disableModelInference
     }
 
     public init(from decoder: Decoder) throws {
@@ -1247,6 +1251,7 @@ public struct CoreConfig: Codable, Sendable {
         models = try container.decodeIfPresent([ModelConfig].self, forKey: .models) ?? []
         plugins = try container.decodeIfPresent([PluginConfig].self, forKey: .plugins) ?? []
         modelRouting = try container.decodeIfPresent([String: String].self, forKey: .modelRouting) ?? [:]
+        disableModelInference = try container.decodeIfPresent(Bool.self, forKey: .disableModelInference) ?? false
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -1273,6 +1278,7 @@ public struct CoreConfig: Codable, Sendable {
         if !modelRouting.isEmpty {
             try container.encode(modelRouting, forKey: .modelRouting)
         }
+        try container.encode(disableModelInference, forKey: .disableModelInference)
     }
 
     public func resolvedWorkspaceRootURL(currentDirectory: String = FileManager.default.currentDirectoryPath) -> URL {
