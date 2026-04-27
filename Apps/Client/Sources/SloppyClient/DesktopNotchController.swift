@@ -129,8 +129,7 @@ private struct DesktopNotchView: View {
     let onActivate: @MainActor () -> Void
 
     @Environment(\.theme) private var theme
-    @State private var expansion: Float = 0
-    @State private var expansionTask: Task<Void, Never>?
+    @State private var isExpanded = false
 
     private enum Metrics {
         static let collapsedWidth: Float = 196
@@ -139,7 +138,11 @@ private struct DesktopNotchView: View {
         static let expandedHeight: Float = 104
         static let collapsedRadius: Float = 18
         static let expandedRadius: Float = 34
-        static let duration = 0.16
+        static let duration: Float = 0.8
+    }
+
+    private var expansion: Float {
+        isExpanded ? 1 : 0
     }
 
     private var islandWidth: Float {
@@ -159,32 +162,28 @@ private struct DesktopNotchView: View {
     }
 
     var body: some View {
-        return ZStack(anchor: .topLeading) {
+        return ZStack(anchor: .top) {
             Color.clear.ignoresSafeArea()
-            HStack(spacing: 0) {
-                Spacer()
-                island
-                    .frame(width: islandWidth, height: islandHeight)
-                    .onHover { isHovered in
-                        animateExpansion(to: isHovered ? 1 : 0)
-                    }
-                Spacer()
-            }
-            .frame(width: windowSize.width, height: windowSize.height, alignment: .top)
+            island
+                .animation(.easeOutCubic(duration: Metrics.duration), value: isExpanded)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .frame(width: windowSize.width, height: windowSize.height, alignment: .top)
     }
 
     private var island: some View {
         let c = theme.colors
         let ty = theme.typography
 
-        return Button(action: onActivate) {
-            ZStack {
-                NotchIslandShape(radius: bottomRadius)
-                    .fill(Color.black.opacity(0.97 as Float))
-                    .frame(width: islandWidth, height: islandHeight)
+        return ZStack(anchor: .top) {
+            NotchIslandShape(
+                width: islandWidth,
+                height: islandHeight,
+                radius: bottomRadius
+            )
+                .fill(Color.black.opacity(0.97 as Float))
+                .frame(width: Metrics.expandedWidth, height: Metrics.expandedHeight)
 
+            ZStack {
                 VStack(spacing: 12) {
                     Text("Sloppy minimized")
                         .font(.system(size: ty.caption))
@@ -192,9 +191,6 @@ private struct DesktopNotchView: View {
                     HStack(spacing: 14) {
                         ActivityGlyph()
                             .frame(width: glyphSize, height: glyphSize)
-//                        Text("Restore Sloppy")
-//                            .font(.system(size: 15))
-//                            .foregroundColor(c.textPrimary)
                     }
                 }
                 .opacity(expansion)
@@ -209,69 +205,59 @@ private struct DesktopNotchView: View {
                 .padding(.top, 8)
                 .opacity(1 - expansion)
             }
-        }
-    }
-
-    private func animateExpansion(to target: Float) {
-        expansionTask?.cancel()
-
-        let start = expansion
-        guard start != target else {
-            return
-        }
-
-        expansionTask = Task { @MainActor in
-            let frameDuration: UInt64 = 16_000_000
-            let frameSeconds = 0.016
-            var elapsed = 0.0
-
-            while elapsed < Metrics.duration && !Task.isCancelled {
-                try? await Task.sleep(nanoseconds: frameDuration)
-                elapsed += frameSeconds
-
-                let t = min(Float(elapsed / Metrics.duration), 1)
-                expansion = lerp(start, target, easeOutCubic(t))
+            .frame(width: islandWidth, height: islandHeight)
+            .onHover { isHovered in
+                isExpanded = isHovered
             }
-
-            if !Task.isCancelled {
-                expansion = target
-                expansionTask = nil
+            .onTap {
+                onActivate()
             }
         }
+        .frame(width: Metrics.expandedWidth, height: Metrics.expandedHeight, alignment: .top)
     }
 
     private func lerp(_ start: Float, _ end: Float, _ progress: Float) -> Float {
         start + (end - start) * progress
     }
-
-    private func easeOutCubic(_ value: Float) -> Float {
-        let inverse = 1 - value
-        return 1 - inverse * inverse * inverse
-    }
 }
 
 private struct NotchIslandShape: Shape {
-    let radius: Float
+    typealias AnimatableData = Vector3
+
+    var width: Float
+    var height: Float
+    var radius: Float
+
+    var animatableData: Vector3 {
+        get { Vector3(width, height, radius) }
+        set {
+            width = newValue.x
+            height = newValue.y
+            radius = newValue.z
+        }
+    }
 
     func path(in rect: Rect) -> Path {
-        let r = min(radius, min(rect.width, rect.height) * 0.5)
+        let x = rect.midX - width * 0.5
+        let notchRect = Rect(x: x, y: rect.minY, width: width, height: height)
+        let r = min(radius, min(notchRect.width, notchRect.height) * 0.5)
         let k: Float = r * 0.5522847498
         return Path { path in
-            path.move(to: Vector2(rect.minX, rect.minY))
-            path.addLine(to: Vector2(rect.maxX, rect.minY))
-            path.addLine(to: Vector2(rect.maxX, rect.maxY - r))
+            path.move(to: Vector2(notchRect.minX, notchRect.minY))
+            path.addLine(to: Vector2(notchRect.maxX, notchRect.minY))
+            path.addLine(to: Vector2(notchRect.maxX, notchRect.maxY - r))
             path.addCurve(
-                to: Point(rect.maxX - r, rect.maxY),
-                control1: Point(rect.maxX, rect.maxY - r + k),
-                control2: Point(rect.maxX - r + k, rect.maxY)
+                to: Point(notchRect.maxX - r, notchRect.maxY),
+                control1: Point(notchRect.maxX, notchRect.maxY - r + k),
+                control2: Point(notchRect.maxX - r + k, notchRect.maxY)
             )
-            path.addLine(to: Vector2(rect.minX + r, rect.maxY))
+            path.addLine(to: Vector2(notchRect.minX + r, notchRect.maxY))
             path.addCurve(
-                to: Point(rect.minX, rect.maxY - r),
-                control1: Point(rect.minX + r - k, rect.maxY),
-                control2: Point(rect.minX, rect.maxY - r + k)
+                to: Point(notchRect.minX, notchRect.maxY - r),
+                control1: Point(notchRect.minX + r - k, notchRect.maxY),
+                control2: Point(notchRect.minX, notchRect.maxY - r + k)
             )
-            path.addLine(to: Vector2(rect.minX, rect.minY))
+            path.addLine(to: Vector2(notchRect.minX, notchRect.minY))
             path.closeSubpath()
         }
     }
@@ -290,6 +276,27 @@ private struct ActivityGlyph: View {
                 .frame(width: 7, height: 7)
                 .offset(x: -4, y: -4)
         }
+    }
+}
+
+private struct EaseOutCubicAnimation: CustomAnimation {
+    let duration: Float
+
+    func animate<V: VectorArithmetic>(_ value: V, time: Float, context: inout AnimationContext<V>) -> V? {
+        guard duration > 0, time < duration else {
+            return nil
+        }
+
+        let progress = time / duration
+        let inverse = 1 - progress
+        let eased = 1 - inverse * inverse * inverse
+        return value.scaled(by: Double(eased))
+    }
+}
+
+private extension Animation {
+    static func easeOutCubic(duration: Float) -> Animation {
+        Animation(EaseOutCubicAnimation(duration: duration))
     }
 }
 #endif
