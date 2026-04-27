@@ -214,7 +214,6 @@ private struct MockLanguageModel: LanguageModel {
         includeSchemaInPrompt: Bool,
         options: GenerationOptions
     ) async throws -> LanguageModelSession.Response<Content> where Content: Generable {
-        print("--- MockLanguageModel.respond called ---")
         let text = "Mock response for prompt: \(prompt.description)"
         return LanguageModelSession.Response(
             content: text as! Content,
@@ -230,7 +229,6 @@ private struct MockLanguageModel: LanguageModel {
         includeSchemaInPrompt: Bool,
         options: GenerationOptions
     ) -> sending LanguageModelSession.ResponseStream<Content> where Content: Generable {
-        print("--- MockLanguageModel.streamResponse called ---")
         let text = "Mock response for prompt: \(prompt.description)"
         let stream = AsyncThrowingStream<LanguageModelSession.ResponseStream<Content>.Snapshot, any Error> { continuation in
             Task {

@@ -21,6 +21,9 @@ final class RootShellViewModel {
     private var bannerDismissTask: Task<Void, Never>?
     private var notificationManager: NotificationSocketManager?
     private var notificationListenerStarted = false
+    #if os(macOS)
+    private let desktopNotchController = DesktopNotchController()
+    #endif
 
     init() {
         connectionMonitor = ConnectionMonitor(baseURL: URL(string: "http://localhost:25101")!)
@@ -37,6 +40,18 @@ final class RootShellViewModel {
                 startConnected(url: serverURL)
             }
         }
+    }
+
+    func startDesktopWindowIntegration() {
+        #if os(macOS)
+        desktopNotchController.start(settings: settings)
+        #endif
+    }
+
+    func applyDesktopWindowCloseBehavior() {
+        #if os(macOS)
+        desktopNotchController.applyCloseBehavior(settings.windowCloseBehavior)
+        #endif
     }
 
     func startConnected(url: URL) {

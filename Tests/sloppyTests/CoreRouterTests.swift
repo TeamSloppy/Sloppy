@@ -3208,7 +3208,8 @@ func generateTextEndpointReturnsBadRequestWithInvalidBody() async throws {
 
 @Test
 func generateTextEndpointFailsGracefullyWithNoProvider() async throws {
-    let config = CoreConfig.test
+    var config = CoreConfig.test
+    config.models = []
     let service = CoreService(config: config)
     let router = CoreRouter(service: service)
 
