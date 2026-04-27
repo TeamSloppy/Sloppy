@@ -8,6 +8,7 @@ public final class ClientSettings {
         static let serverHost = "client_server_host"
         static let serverPort = "client_server_port"
         static let accentColorHex = "client_accent_color_hex"
+        static let windowCloseBehavior = "client_window_close_behavior"
         static let lastAgentId = "client_last_agent_id"
         static let lastSessionId = "client_last_session_id"
         static let savedServers = "client_saved_servers"
@@ -23,6 +24,10 @@ public final class ClientSettings {
 
     public var accentColorHex: String {
         didSet { UserDefaults.standard.set(accentColorHex, forKey: Keys.accentColorHex) }
+    }
+
+    public var windowCloseBehavior: ClientWindowCloseBehavior {
+        didSet { UserDefaults.standard.set(windowCloseBehavior.rawValue, forKey: Keys.windowCloseBehavior) }
     }
 
     public var lastAgentId: String? {
@@ -54,6 +59,9 @@ public final class ClientSettings {
         serverHost = defaults.string(forKey: Keys.serverHost) ?? "localhost"
         serverPort = defaults.integer(forKey: Keys.serverPort).nonZero ?? 25101
         accentColorHex = defaults.string(forKey: Keys.accentColorHex) ?? "#FF2D6F"
+        windowCloseBehavior = defaults
+            .string(forKey: Keys.windowCloseBehavior)
+            .flatMap(ClientWindowCloseBehavior.init(rawValue:)) ?? .keepProcess
         lastAgentId = defaults.string(forKey: Keys.lastAgentId)
         lastSessionId = defaults.string(forKey: Keys.lastSessionId)
 
@@ -72,6 +80,11 @@ public final class ClientSettings {
             savedServers.append(server)
         }
     }
+}
+
+public enum ClientWindowCloseBehavior: String, Codable, Sendable, Equatable, CaseIterable {
+    case keepProcess = "keep_process"
+    case quitOnLastWindow = "quit_on_last_window"
 }
 
 private extension Int {

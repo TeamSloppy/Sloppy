@@ -13,6 +13,7 @@ struct AgentChatView: View {
     @State private var messages: [ChatMessage] = []
     @State private var isLoadingSessions = false
     @State private var isSending = false
+    @State private var composerDraft = ChatComposerDraft()
     @State private var socketManager: SessionSocketManager?
     @State private var streamTask: Task<Void, Never>?
     @Environment(\.theme) private var theme
@@ -25,6 +26,7 @@ struct AgentChatView: View {
                         sessionId: sessionId,
                         agentId: agent.id,
                         messages: $messages,
+                        composerDraft: composerDraft,
                         isSending: isSending,
                         onSend: { content in
                             sendMessage(agentId: agent.id, sessionId: sessionId, content: content)
@@ -192,6 +194,7 @@ struct ChatTranscriptView: View {
     let sessionId: String
     let agentId: String
     @Binding var messages: [ChatMessage]
+    let composerDraft: ChatComposerDraft
     let isSending: Bool
     let onSend: (String) -> Void
 
@@ -224,7 +227,7 @@ struct ChatTranscriptView: View {
                 .padding(sp.m)
             }
 
-            ChatComposerView(agentName: agentId) { content in
+            ChatComposerView(draft: composerDraft, agentName: agentId) { content in
                 onSend(content)
             }
         }

@@ -14,6 +14,7 @@ public final class ChatScreenViewModel {
     public private(set) var isSending = false
     public var showAgentPicker = false
     public var showSessionPicker = false
+    public let composerDraft = ChatComposerDraft()
 
     private let apiClient: SloppyAPIClient
     private let settings: ClientSettings

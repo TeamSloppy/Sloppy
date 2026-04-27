@@ -110,17 +110,39 @@ struct ClientSettingsSection: View {
 
         return SettingsSectionCard("Desktop") {
             VStack(alignment: .leading, spacing: 0) {
-                HStack {
-                    Text("DESKTOP-SPECIFIC SETTINGS")
-                        .font(.system(size: ty.caption))
-                        .foregroundColor(c.textMuted)
-                    Spacer()
+                Text("WINDOW CLOSE")
+                    .font(.system(size: ty.micro))
+                    .foregroundColor(c.textSecondary)
+                    .padding(.horizontal, sp.m)
+                    .padding(.top, sp.s)
+
+                HStack(spacing: sp.s) {
+                    desktopCloseButton("KEEP PROCESS", behavior: .keepProcess)
+                    desktopCloseButton("QUIT WHEN LAST WINDOW CLOSES", behavior: .quitOnLastWindow)
                 }
                 .padding(.horizontal, sp.m)
                 .padding(.vertical, sp.s)
             }
         }
         .padding(.horizontal, sp.m)
+    }
+
+    private func desktopCloseButton(_ title: String, behavior: ClientWindowCloseBehavior) -> some View {
+        let c = theme.colors
+        let sp = theme.spacing
+        let bo = theme.borders
+        let ty = theme.typography
+        let selected = settings.windowCloseBehavior == behavior
+
+        return Button(title) {
+            settings.windowCloseBehavior = behavior
+        }
+        .font(.system(size: ty.caption))
+        .foregroundColor(selected ? c.textPrimary : c.textMuted)
+        .padding(.vertical, sp.xs)
+        .padding(.horizontal, sp.s)
+        .background(selected ? c.surfaceRaised : Color.clear)
+        .border(selected ? c.borderBold : c.border, lineWidth: bo.thin)
     }
     #endif
 }

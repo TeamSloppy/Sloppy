@@ -28,6 +28,7 @@ struct SloppyClientApp: App {
             #endif
         }
         .windowMode(.windowed)
+        .minimumSize(width: 1280, height: 800)
         .windowTitle("Sloppy")
     }
 

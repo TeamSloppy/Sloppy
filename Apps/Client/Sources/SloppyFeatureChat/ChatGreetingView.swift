@@ -15,19 +15,19 @@ public struct ChatGreetingView: View {
         let sp = theme.spacing
         let ty = theme.typography
 
-        return VStack(alignment: .leading, spacing: sp.l) {
-            Text("✦")
-                .font(.system(size: ty.hero))
-                .foregroundColor(c.accent)
+        return VStack(alignment: .center, spacing: sp.m) {
+            Text("Hi, UserName")
+                .font(.system(size: ty.heading))
+                .foregroundColor(c.textSecondary)
 
-            Text("How can I\nhelp you?")
+            Text("What should we build today?")
                 .font(.system(size: ty.hero))
-                .foregroundColor(c.accent)
+                .foregroundColor(c.textPrimary)
 
-            Text("Chatting with \(agentName). Type a message below to start a new session.")
-                .font(.system(size: ty.caption))
+            Text("Chatting with \(agentName). Start with a prompt below or pick a project from the sidebar.")
+                .font(.system(size: ty.body))
                 .foregroundColor(c.textMuted)
         }
-        .padding(sp.xxl)
+        .padding(.horizontal, sp.xxl)
     }
 }

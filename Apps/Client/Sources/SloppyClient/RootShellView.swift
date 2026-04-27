@@ -43,12 +43,15 @@ private struct RootShellContent: View {
                 }
 
             case .chat(let url):
-                ChatScreen(
-                    apiClient: SloppyAPIClient(baseURL: url),
+                MainView(
+                    baseURL: url,
                     settings: rootViewModel.settings,
                     connectionMonitor: rootViewModel.connectionMonitor,
                     onOpenSettings: {
                         rootViewModel.appState = .settings
+                    },
+                    onOpenWorkspace: {
+                        rootViewModel.appState = .connectionSetup
                     }
                 )
 
@@ -69,6 +72,10 @@ private struct RootShellContent: View {
         }
         .onAppear {
             rootViewModel.startDeepLinkListener()
+            rootViewModel.startDesktopWindowIntegration()
+        }
+        .onChange(of: rootViewModel.settings.windowCloseBehavior) { _, _ in
+            rootViewModel.applyDesktopWindowCloseBehavior()
         }
         .background {
             theme.colors.background.ignoresSafeArea()
