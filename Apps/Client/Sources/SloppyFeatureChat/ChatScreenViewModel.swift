@@ -29,6 +29,7 @@ public final class ChatScreenViewModel {
     private var sessionStatusTask: Task<Void, Never>?
     private var pendingNavigationRequest: ChatNavigationRequest?
     private var lastAppliedNavigationRequestId: Int?
+    private var activeProjectId: String?
 
     public init(
         apiClient: SloppyAPIClient,
@@ -74,9 +75,12 @@ public final class ChatScreenViewModel {
         }
     }
 
-    public func loadSessions(for agent: APIAgentRecord) async {
+    public func loadSessions(for agent: APIAgentRecord, projectId: String? = nil) async {
         isLoadingSessions = true
-        sessions = (try? await apiClient.fetchAgentSessions(agentId: agent.id)) ?? []
+        let fetched = (try? await apiClient.fetchAgentSessions(agentId: agent.id, projectId: projectId)) ?? []
+        sessions = fetched
+            .filter { $0.kind != "heartbeat" }
+            .sorted { $0.updatedAt > $1.updatedAt }
         isLoadingSessions = false
     }
 
@@ -87,7 +91,7 @@ public final class ChatScreenViewModel {
 
     public func pickSession(_ session: ChatSessionSummary) {
         showSessionPicker = false
-        selectSession(session.id)
+        selectSession(session.id, projectId: session.projectId)
     }
 
     public func pickNewSession() {
@@ -108,6 +112,7 @@ public final class ChatScreenViewModel {
                     settings.lastSessionId = nil
                     messages = []
                     activeContextTitle = nil
+                    activeProjectId = nil
                 }
 
                 showSessionStatus("Deleted \(displayTitle(for: session))")
@@ -148,10 +153,10 @@ public final class ChatScreenViewModel {
         switch request.context {
         case .blank:
             routeToBlankChat()
-        case .project(_, let projectName, _):
-            routeToContext(request, title: "Project: \(projectName)")
-        case .task(_, let projectName, _, let taskTitle, _):
-            routeToContext(request, title: "\(projectName) / \(taskTitle)")
+        case .project(let projectId, let projectName, _):
+            routeToContext(request, projectId: projectId, title: "Project: \(projectName)")
+        case .task(let projectId, let projectName, _, let taskTitle, _):
+            routeToContext(request, projectId: projectId, title: "\(projectName) / \(taskTitle)", preferredSessionTitle: taskTitle)
         }
     }
 
@@ -161,6 +166,7 @@ public final class ChatScreenViewModel {
         selectedSessionId = nil
         messages = []
         activeContextTitle = nil
+        activeProjectId = nil
         settings.lastAgentId = agent.id
         settings.lastSessionId = nil
         Task { @MainActor in
@@ -171,13 +177,17 @@ public final class ChatScreenViewModel {
     private func startNewSession() {
         guard let agent = selectedAgent else { return }
         disconnectCurrentSession()
+        let contextTitle = activeContextTitle
+        let projectId = activeProjectId
         messages = []
-        activeContextTitle = nil
         selectedSessionId = nil
+        activeContextTitle = contextTitle
+        activeProjectId = projectId
         Task { @MainActor in
             guard let summary = try? await apiClient.createAgentSession(
                 agentId: agent.id,
-                title: "Chat with \(agent.displayName)"
+                title: contextTitle ?? "Chat with \(agent.displayName)",
+                projectId: projectId
             ) else { return }
             sessions.insert(summary, at: 0)
             selectedSessionId = summary.id
@@ -186,12 +196,19 @@ public final class ChatScreenViewModel {
         }
     }
 
-    private func selectSession(_ sessionId: String) {
+    private func selectSession(
+        _ sessionId: String,
+        contextTitle: String? = nil,
+        projectId: String? = nil
+    ) {
         guard let agent = selectedAgent else { return }
+        let retainedContextTitle = contextTitle ?? activeContextTitle
+        let retainedProjectId = projectId ?? activeProjectId
         disconnectCurrentSession()
         messages = []
-        activeContextTitle = nil
         selectedSessionId = sessionId
+        activeContextTitle = retainedContextTitle
+        activeProjectId = retainedProjectId
         settings.lastSessionId = sessionId
         connectToSession(agentId: agent.id, sessionId: sessionId)
     }
@@ -203,23 +220,35 @@ public final class ChatScreenViewModel {
             selectedSessionId = nil
             messages = []
             activeContextTitle = nil
+            activeProjectId = nil
             return
         }
 
         activateDraft(agent: agent, contextTitle: nil)
     }
 
-    private func routeToContext(_ request: ChatNavigationRequest, title: String) {
+    private func routeToContext(
+        _ request: ChatNavigationRequest,
+        projectId: String,
+        title: String,
+        preferredSessionTitle: String? = nil
+    ) {
         let agent = agentForNavigation(request) ?? selectedAgent ?? agents.first
         guard let agent else {
             selectedAgent = nil
             selectedSessionId = nil
             messages = []
             activeContextTitle = title
+            activeProjectId = projectId
             return
         }
 
-        activateDraft(agent: agent, contextTitle: title)
+        activateProjectContext(
+            agent: agent,
+            projectId: projectId,
+            contextTitle: title,
+            preferredSessionTitle: preferredSessionTitle
+        )
     }
 
     private func agentForNavigation(_ request: ChatNavigationRequest) -> APIAgentRecord? {
@@ -233,11 +262,43 @@ public final class ChatScreenViewModel {
         selectedSessionId = nil
         messages = []
         activeContextTitle = contextTitle
+        activeProjectId = nil
         settings.lastAgentId = agent.id
         settings.lastSessionId = nil
 
         Task { @MainActor in
             await loadSessions(for: agent)
+        }
+    }
+
+    private func activateProjectContext(
+        agent: APIAgentRecord,
+        projectId: String,
+        contextTitle: String,
+        preferredSessionTitle: String?
+    ) {
+        disconnectCurrentSession()
+        selectedAgent = agent
+        selectedSessionId = nil
+        messages = []
+        activeContextTitle = contextTitle
+        activeProjectId = projectId
+        settings.lastAgentId = agent.id
+        settings.lastSessionId = nil
+
+        Task { @MainActor in
+            await loadSessions(for: agent, projectId: projectId)
+            guard selectedAgent?.id == agent.id,
+                  activeProjectId == projectId,
+                  selectedSessionId == nil else {
+                return
+            }
+
+            guard let session = preferredSession(in: sessions, title: preferredSessionTitle) else {
+                return
+            }
+
+            selectSession(session.id, contextTitle: contextTitle, projectId: projectId)
         }
     }
 
@@ -338,6 +399,22 @@ public final class ChatScreenViewModel {
         session.title.isEmpty ? "Chat" : session.title
     }
 
+    private func preferredSession(in sessions: [ChatSessionSummary], title: String?) -> ChatSessionSummary? {
+        let candidates = sessions
+            .filter { $0.kind != "heartbeat" }
+            .sorted { $0.updatedAt > $1.updatedAt }
+
+        guard let title = title?.trimmingCharacters(in: .whitespacesAndNewlines), !title.isEmpty else {
+            return candidates.first
+        }
+
+        let normalizedTitle = title.lowercased()
+        return candidates.first {
+            let sessionTitle = $0.title.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            return sessionTitle == normalizedTitle || sessionTitle.contains(normalizedTitle)
+        } ?? candidates.first
+    }
+
     private func showSessionStatus(_ status: String) {
         sessionStatusTask?.cancel()
         sessionActionStatus = status
@@ -397,7 +474,8 @@ public final class ChatScreenViewModel {
             Task { @MainActor in
                 guard let summary = try? await apiClient.createAgentSession(
                     agentId: agent.id,
-                    title: "Chat with \(agent.displayName)"
+                    title: activeContextTitle ?? "Chat with \(agent.displayName)",
+                    projectId: activeProjectId
                 ) else { return }
                 sessions.insert(summary, at: 0)
                 selectedSessionId = summary.id

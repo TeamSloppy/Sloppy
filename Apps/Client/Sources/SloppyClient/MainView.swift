@@ -103,15 +103,18 @@ struct MainView: View {
             projectsHeader(c: c, sp: sp)
 
             ScrollView {
-                projectsSection(c: c, sp: sp)
+                VStack(alignment: .leading, spacing: 0) {
+                    projectsSection(c: c, sp: sp)
+
+                    Color.clear
+                        .frame(height: theme.borders.thin)
+                        .background(c.border.opacity(0.45 as Float))
+                        .padding(.top, sp.m)
+
+                    chatsSection(c: c, sp: sp)
+                }
             }
             .frame(minHeight: 0, maxHeight: .infinity)
-
-            Color.clear
-                .frame(height: theme.borders.thin)
-                .background(c.border.opacity(0.45 as Float))
-
-            chatsSection(c: c, sp: sp)
         }
         .padding(sp.m)
         .glassEffect(.regular, in: RoundedRectangleShape(cornerRadius: 18))
@@ -122,7 +125,7 @@ struct MainView: View {
         let sp = theme.spacing
 
         return VStack(alignment: .center, spacing: sp.m) {
-            sidebarIconButton("Op", isActive: false, c: c) {
+            sidebarIconButton(.collapseContent, isActive: false, c: c) {
                 isSidebarCollapsed = false
             }
 
@@ -139,11 +142,11 @@ struct MainView: View {
 
             Spacer(minLength: 0)
 
-            sidebarIconButton("New", isActive: selectedSidebarItem == .chats, c: c) {
+            sidebarIconButton(.chatAddOn, isActive: selectedSidebarItem == .chats, c: c) {
                 selectNewChat()
             }
 
-            sidebarIconButton("Set", isActive: false, c: c, action: onOpenSettings)
+            sidebarIconButton(.settings, isActive: false, c: c, action: onOpenSettings)
         }
         .frame(width: Self.sidebarCollapsedWidth)
         .frame(maxHeight: .infinity)
@@ -160,12 +163,12 @@ struct MainView: View {
 
             Spacer(minLength: 0)
 
-            headerIconButton("Col", c: c) {
+            headerIconButton(.collapseContent, c: c) {
                 isSidebarCollapsed = true
             }
 
-            headerIconButton("Men", c: c, action: {})
-            headerIconButton("OW", c: c, action: onOpenWorkspace)
+            headerIconButton(.moreHoriz, c: c, action: {})
+            headerIconButton(.openInNew, c: c, action: onOpenWorkspace)
         }
     }
 
@@ -180,15 +183,15 @@ struct MainView: View {
 
                 Spacer(minLength: 0)
 
-                headerIconButton("Men", c: c, action: {})
-                headerIconButton("New", c: c) {
+                headerIconButton(.moreHoriz, c: c, action: {})
+                headerIconButton(.chatAddOn, c: c) {
                     selectNewChat()
                 }
             }
             .padding(.horizontal, sp.m)
 
             sidebarPlainRow(
-                icon: "New",
+                icon: .chatAddOn,
                 title: "New chat",
                 trailing: nil,
                 isSelected: selectedSidebarItem == .chats,
@@ -260,7 +263,7 @@ struct MainView: View {
         let ty = theme.typography
 
         return sidebarPlainRow(
-            icon: "-",
+            icon: .folder,
             title: project.name,
             trailing: nil,
             isSelected: selectedSidebarItem == .project(project.id),
@@ -329,7 +332,7 @@ struct MainView: View {
 
     @ViewBuilder
     private func sidebarPlainRow(
-        icon: String,
+        icon: MaterialSymbol?,
         title: String,
         trailing: String?,
         isSelected: Bool,
@@ -355,17 +358,33 @@ struct MainView: View {
     }
 
     private func headerIconButton(
-        _ icon: String,
+        _ icon: MaterialSymbol,
         c: AppColors,
         action: @escaping @MainActor () -> Void
     ) -> some View {
         let ty = theme.typography
 
         return Button(action: action) {
-            Text(icon)
-                .font(.system(size: ty.body))
+            Icons.symbol(icon, size: ty.body)
                 .foregroundColor(c.textMuted)
                 .frame(width: 30, height: 30)
+        }
+    }
+
+    private func sidebarIconButton(
+        _ icon: MaterialSymbol,
+        isActive: Bool,
+        c: AppColors,
+        action: @escaping @MainActor () -> Void
+    ) -> some View {
+        let ty = theme.typography
+
+        return Button(action: action) {
+            Icons.symbol(icon, size: ty.body)
+                .foregroundColor(isActive ? c.textPrimary : c.textMuted)
+                .frame(width: 40, height: 40)
+                .background(isActive ? c.surfaceRaised.opacity(0.92 as Float) : Color.clear)
+                .glassEffect(.regular, in: .rect(cornerRadius: 14))
         }
     }
 
@@ -387,18 +406,18 @@ struct MainView: View {
         }
     }
 
-    private func statusGlyph(_ status: String) -> String {
+    private func statusGlyph(_ status: String) -> MaterialSymbol? {
         switch status {
         case "in_progress":
-            return "◌"
+            return .radioButtonPartial
         case "ready", "needs_review":
-            return "•"
+            return .fiberManualRecord
         case "done":
-            return "✓"
+            return .check
         case "blocked":
-            return "!"
+            return .warning
         default:
-            return ""
+            return nil
         }
     }
 
@@ -484,7 +503,7 @@ struct MainView: View {
 
 @MainActor
 private struct HoverableSidebarRow: View {
-    let icon: String
+    let icon: MaterialSymbol?
     let title: String
     let trailing: String?
     let isSelected: Bool
@@ -510,10 +529,14 @@ private struct HoverableSidebarRow: View {
 
         let row = Button(action: action) {
             HStack(spacing: spacing.s) {
-                Text(icon)
-                    .font(.system(size: typography.body))
-                    .foregroundColor(isSelected ? colors.accentCyan : colors.textMuted)
-                    .frame(width: 22)
+                if let icon {
+                    Icons.symbol(icon, size: typography.body)
+                        .foregroundColor(isSelected ? colors.accentCyan : colors.textMuted)
+                        .frame(width: 22)
+                } else {
+                    Color.clear
+                        .frame(width: 22)
+                }
 
                 Text(title)
                     .font(.system(size: typography.body))

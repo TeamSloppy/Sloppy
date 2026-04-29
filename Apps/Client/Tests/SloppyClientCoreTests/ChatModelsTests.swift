@@ -66,7 +66,8 @@ struct ChatModelsTests {
             "title": "My Chat",
             "messageCount": 5,
             "updatedAt": "2026-01-01T00:00:00Z",
-            "kind": "chat"
+            "kind": "chat",
+            "projectId": "project-1"
         }
         """.data(using: .utf8)!
 
@@ -77,6 +78,7 @@ struct ChatModelsTests {
         #expect(summary.title == "My Chat")
         #expect(summary.messageCount == 5)
         #expect(summary.kind == "chat")
+        #expect(summary.projectId == "project-1")
     }
 
     @Test("ChatStreamUpdate sessionReady kind decodes")

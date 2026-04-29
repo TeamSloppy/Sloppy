@@ -169,8 +169,7 @@ private struct SessionPickerRow: View {
                 Spacer()
 
                 if isSelected {
-                    Text("●")
-                        .font(.system(size: typography.caption))
+                    Icons.symbol(.radioButtonChecked, size: typography.caption)
                         .foregroundColor(colors.accentCyan)
                 }
             }

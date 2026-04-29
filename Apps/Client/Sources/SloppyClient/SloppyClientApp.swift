@@ -43,7 +43,8 @@ struct SloppyClientApp: App {
                 endpoint: "/mcp",
                 serverName: "sloppy-client",
                 serverVersion: "0.1.0",
-                instructions: "Inspect the live Sloppy client AdaEngine runtime."
+                instructions: "Inspect the live Sloppy client AdaEngine runtime.",
+                traceRecorder: nil
             )),
             RuntimeDebugPlugin()
         )
@@ -57,7 +58,8 @@ struct SloppyClientApp: App {
                 endpoint: "/mcp",
                 serverName: "sloppy-client",
                 serverVersion: "0.1.0",
-                instructions: "Inspect the live Sloppy client AdaEngine runtime."
+                instructions: "Inspect the live Sloppy client AdaEngine runtime.",
+                traceRecorder: nil
             ))
         )
         #else

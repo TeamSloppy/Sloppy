@@ -60,8 +60,7 @@ public struct AgentPickerView: View {
                                 }
                                 Spacer()
                                 if isSelected {
-                                    Text("●")
-                                        .font(.system(size: ty.caption))
+                                    Icons.symbol(.radioButtonChecked, size: ty.caption)
                                         .foregroundColor(c.accentCyan)
                                 }
                             }

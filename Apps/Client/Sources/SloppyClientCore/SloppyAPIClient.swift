@@ -81,24 +81,40 @@ public actor SloppyAPIClient {
 
     // MARK: - Session REST API
 
-    public func fetchAgentSessions(agentId: String) async throws -> [ChatSessionSummary] {
-        try await get("/v1/agents/\(agentId)/sessions")
+    public func fetchAgentSessions(agentId: String, projectId: String? = nil) async throws -> [ChatSessionSummary] {
+        var path = "/v1/agents/\(Self.encodePathSegment(agentId))/sessions"
+        if let projectId = projectId?.trimmingCharacters(in: .whitespacesAndNewlines), !projectId.isEmpty {
+            path += "?projectId=\(Self.encodeQueryValue(projectId))"
+        }
+        return try await get(path)
     }
 
     public func fetchAgentSession(agentId: String, sessionId: String) async throws -> ChatSessionDetail {
-        try await get("/v1/agents/\(agentId)/sessions/\(sessionId)")
+        try await get("/v1/agents/\(Self.encodePathSegment(agentId))/sessions/\(Self.encodePathSegment(sessionId))")
     }
 
     public func fetchAgentSessionData(agentId: String, sessionId: String) async throws -> Data {
-        try await getData("/v1/agents/\(agentId)/sessions/\(sessionId)")
+        try await getData("/v1/agents/\(Self.encodePathSegment(agentId))/sessions/\(Self.encodePathSegment(sessionId))")
     }
 
-    public func createAgentSession(agentId: String, title: String? = nil) async throws -> ChatSessionSummary {
+    public func createAgentSession(
+        agentId: String,
+        title: String? = nil,
+        projectId: String? = nil
+    ) async throws -> ChatSessionSummary {
         struct Payload: Encodable {
             var title: String?
             var kind: String = "chat"
+            var projectId: String?
         }
-        return try await post("/v1/agents/\(agentId)/sessions", body: Payload(title: title))
+        let normalizedProjectId = projectId?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return try await post(
+            "/v1/agents/\(Self.encodePathSegment(agentId))/sessions",
+            body: Payload(
+                title: title,
+                projectId: normalizedProjectId?.isEmpty == false ? normalizedProjectId : nil
+            )
+        )
     }
 
     public func postSessionMessage(
@@ -117,14 +133,14 @@ public actor SloppyAPIClient {
             var summary: ChatSessionSummary
         }
         let response: Response = try await post(
-            "/v1/agents/\(agentId)/sessions/\(sessionId)/messages",
+            "/v1/agents/\(Self.encodePathSegment(agentId))/sessions/\(Self.encodePathSegment(sessionId))/messages",
             body: Payload(userId: userId, content: content)
         )
         return response.summary
     }
 
     public func deleteAgentSession(agentId: String, sessionId: String) async throws {
-        try await delete("/v1/agents/\(agentId)/sessions/\(sessionId)")
+        try await delete("/v1/agents/\(Self.encodePathSegment(agentId))/sessions/\(Self.encodePathSegment(sessionId))")
     }
 
     // MARK: - Config API
@@ -145,7 +161,7 @@ public actor SloppyAPIClient {
     }
 
     private func getData(_ path: String) async throws -> Data {
-        let url = baseURL.appendingPathComponent(path)
+        let url = url(for: path)
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
         request.setValue("application/json", forHTTPHeaderField: "Accept")
@@ -164,7 +180,7 @@ public actor SloppyAPIClient {
     }
 
     private func put<Body: Encodable, T: Decodable>(_ path: String, body: Body) async throws -> T {
-        let url = baseURL.appendingPathComponent(path)
+        let url = url(for: path)
         var request = URLRequest(url: url)
         request.httpMethod = "PUT"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -185,7 +201,7 @@ public actor SloppyAPIClient {
     }
 
     private func post<Body: Encodable, T: Decodable>(_ path: String, body: Body) async throws -> T {
-        let url = baseURL.appendingPathComponent(path)
+        let url = url(for: path)
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -206,7 +222,7 @@ public actor SloppyAPIClient {
     }
 
     private func delete(_ path: String) async throws {
-        let url = baseURL.appendingPathComponent(path)
+        let url = url(for: path)
         var request = URLRequest(url: url)
         request.httpMethod = "DELETE"
         request.setValue("application/json", forHTTPHeaderField: "Accept")
@@ -220,6 +236,22 @@ public actor SloppyAPIClient {
         guard (200..<300).contains(http.statusCode) else {
             throw APIError.httpError(statusCode: http.statusCode)
         }
+    }
+
+    private nonisolated func url(for path: String) -> URL {
+        URL(string: path, relativeTo: baseURL)?.absoluteURL ?? baseURL.appendingPathComponent(path)
+    }
+
+    private nonisolated static func encodePathSegment(_ segment: String) -> String {
+        var allowed = CharacterSet.urlPathAllowed
+        allowed.remove(charactersIn: "/?#[]@!$&'()*+,;=")
+        return segment.addingPercentEncoding(withAllowedCharacters: allowed) ?? segment
+    }
+
+    private nonisolated static func encodeQueryValue(_ value: String) -> String {
+        var allowed = CharacterSet.urlQueryAllowed
+        allowed.remove(charactersIn: ":#[]@!$&'()*+,;=")
+        return value.addingPercentEncoding(withAllowedCharacters: allowed) ?? value
     }
 }
 

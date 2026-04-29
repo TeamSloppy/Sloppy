@@ -86,8 +86,7 @@ struct GitSyncSection: View {
                                     .foregroundColor(conflictStrategy == strategy ? c.textPrimary : c.textSecondary)
                                 Spacer()
                                 if conflictStrategy == strategy {
-                                    Text("✓")
-                                        .font(.system(size: ty.caption))
+                                    Icons.symbol(.check, size: ty.caption)
                                         .foregroundColor(c.statusDone)
                                 }
                             }

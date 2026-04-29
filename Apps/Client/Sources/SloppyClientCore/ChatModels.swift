@@ -61,6 +61,7 @@ public struct ChatSessionSummary: Codable, Sendable, Equatable, Identifiable {
     public var messageCount: Int
     public var updatedAt: Date
     public var kind: String
+    public var projectId: String?
 
     public init(
         id: String,
@@ -68,7 +69,8 @@ public struct ChatSessionSummary: Codable, Sendable, Equatable, Identifiable {
         title: String,
         messageCount: Int = 0,
         updatedAt: Date = Date(),
-        kind: String = "chat"
+        kind: String = "chat",
+        projectId: String? = nil
     ) {
         self.id = id
         self.agentId = agentId
@@ -76,6 +78,7 @@ public struct ChatSessionSummary: Codable, Sendable, Equatable, Identifiable {
         self.messageCount = messageCount
         self.updatedAt = updatedAt
         self.kind = kind
+        self.projectId = projectId
     }
 }
 

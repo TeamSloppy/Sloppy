@@ -24,8 +24,7 @@ struct SplashScreen: View {
             Spacer()
 
             VStack(alignment: .leading, spacing: sp.m) {
-                Text("✦")
-                    .font(.system(size: Double(64)))
+                Icons.symbol(.autoAwesome, size: Double(64))
                     .foregroundColor(c.accent)
 
                 Text("Sloppy")

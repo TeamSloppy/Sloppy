@@ -26,8 +26,7 @@ struct ConnectionSetupView: View {
 
                 // Header
                 VStack(alignment: .leading, spacing: sp.s) {
-                    Text("✦")
-                        .font(.system(size: 32))
+                    Icons.symbol(.autoAwesome, size: 32)
                         .foregroundColor(c.accent)
                     Text("Connect to Sloppy")
                         .font(.system(size: ty.title))
@@ -39,8 +38,7 @@ struct ConnectionSetupView: View {
 
                 // Warning banner
                 HStack(spacing: sp.s) {
-                    Text("⚠")
-                        .font(.system(size: ty.caption))
+                    Icons.symbol(.warning, size: ty.caption)
                         .foregroundColor(c.statusWarning)
                     Text("Local network scan only works on your current Wi-Fi.\nFor remote access, enter the address manually.")
                         .font(.system(size: ty.caption))
@@ -83,9 +81,12 @@ struct ConnectionSetupView: View {
                                         .foregroundColor(c.textMuted)
                                 }
                                 Spacer()
-                                Text("CONNECT →")
-                                    .font(.system(size: ty.caption))
-                                    .foregroundColor(c.accentCyan)
+                                HStack(spacing: sp.xs) {
+                                    Text("CONNECT")
+                                        .font(.system(size: ty.caption))
+                                    Icons.symbol(.arrowForward, size: ty.caption)
+                                }
+                                .foregroundColor(c.accentCyan)
                             }
                             .padding(sp.m)
                             .background(c.surface)
@@ -137,7 +138,7 @@ struct ConnectionSetupView: View {
                     Text("QR CODE")
                         .font(.system(size: ty.caption))
                         .foregroundColor(c.textMuted)
-                    Text("Open the Sloppy Dashboard in a browser and navigate to \nSettings → Connect Client to display a QR code. Scan it with your device camera to connect automatically.")
+                    Text("Open the Sloppy Dashboard in a browser and navigate to \nSettings > Connect Client to display a QR code. Scan it with your device camera to connect automatically.")
                         .font(.system(size: ty.caption))
                         .foregroundColor(c.textSecondary)
                 }

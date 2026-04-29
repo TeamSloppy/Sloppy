@@ -15,16 +15,16 @@ public struct ChatGreetingView: View {
         let sp = theme.spacing
         let ty = theme.typography
 
-        return VStack(alignment: .center, spacing: sp.m) {
-            Text("Hi, UserName")
-                .font(.system(size: ty.heading))
+        return VStack(alignment: .center, spacing: sp.s) {
+            Text(agentName.uppercased())
+                .font(.system(size: ty.caption))
                 .foregroundColor(c.textSecondary)
 
             Text("What should we build today?")
-                .font(.system(size: ty.hero))
+                .font(.system(size: ty.title))
                 .foregroundColor(c.textPrimary)
 
-            Text("Chatting with \(agentName). Start with a prompt below or pick a project from the sidebar.")
+            Text("Start with a prompt below or pick a project from the sidebar.")
                 .font(.system(size: ty.body))
                 .foregroundColor(c.textMuted)
         }

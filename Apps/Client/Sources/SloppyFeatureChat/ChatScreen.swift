@@ -2,9 +2,8 @@ import AdaEngine
 import SloppyClientCore
 import SloppyClientUI
 
-fileprivate let chatHeroWidth: Float = 760
-fileprivate let chatContentWidth: Float = 860
-fileprivate let chatPanelRadius: Float = 28
+fileprivate let chatHeroWidth: Float = 720
+fileprivate let chatContentWidth: Float = 840
 
 @MainActor
 public struct ChatScreen: View {
@@ -56,7 +55,7 @@ private struct ChatScreenContent: View {
                         .frame(width: chatContentWidth)
                     Spacer(minLength: 0)
                 }
-                .padding(.bottom, theme.spacing.l)
+                .padding(.bottom, theme.spacing.m)
 //                    quickActionRow
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -122,8 +121,7 @@ private struct ChatScreenContent: View {
                         Text(viewModel.selectedAgent?.displayName ?? "Select Agent")
                             .font(.system(size: ty.body))
                             .foregroundColor(c.textPrimary)
-                        Text("▾")
-                            .font(.system(size: ty.caption))
+                        Icons.symbol(.expandMore, size: ty.caption)
                             .foregroundColor(c.textMuted)
                     }
 
@@ -146,8 +144,7 @@ private struct ChatScreenContent: View {
                         Text("Sessions")
                             .font(.system(size: ty.caption))
                             .foregroundColor(c.textSecondary)
-                        Text("▾")
-                            .font(.system(size: ty.micro))
+                        Icons.symbol(.expandMore, size: ty.micro)
                             .foregroundColor(c.textMuted)
                     }
                 }
@@ -187,28 +184,29 @@ private struct ChatScreenContent: View {
     @ViewBuilder
     private var contentArea: some View {
         if viewModel.messages.isEmpty {
-            VStack(spacing: 0) {
+            VStack(spacing: theme.spacing.xl) {
                 Spacer()
-                    ChatGreetingView(agentName: viewModel.selectedAgent?.displayName ?? "Agent")
-                        .frame(width: chatHeroWidth)
+                ChatGreetingView(agentName: viewModel.selectedAgent?.displayName ?? "Agent")
+                    .frame(width: chatHeroWidth)
                 Spacer()
             }
             .frame(minWidth: 0, maxWidth: .infinity, minHeight: 0, maxHeight: .infinity)
         } else {
-            VStack(spacing: theme.spacing.m) {
+            VStack(spacing: 0) {
                 ScrollViewReader { proxy in
                     ScrollView {
                         LazyVStack(
                             viewModel.messages,
                             alignment: .leading,
-                            spacing: theme.spacing.s,
-                            estimatedRowHeight: 96,
+                            spacing: theme.spacing.xl,
+                            estimatedRowHeight: 124,
                             overscan: 10
                         ) { msg in
                             ChatBubbleView(message: msg)
-                                .padding(.horizontal, theme.spacing.m)
+                                .frame(minWidth: 0, maxWidth: .infinity)
                         }
-                        .padding(.vertical, theme.spacing.m)
+                        .padding(.top, theme.spacing.xl)
+                        .padding(.bottom, theme.spacing.xxl)
                     }
                     .onChange(of: viewModel.messages.count) { oldCount, newCount in
                         guard newCount > oldCount,
@@ -224,7 +222,6 @@ private struct ChatScreenContent: View {
                 }
                 .frame(width: chatContentWidth)
                 .frame(minHeight: 0, maxHeight: .infinity)
-                .glassEffect(.regular, in: .rect(cornerRadius: chatPanelRadius))
             }
             .frame(minWidth: 0, maxWidth: .infinity, minHeight: 0, maxHeight: .infinity)
         }
@@ -249,8 +246,7 @@ private struct ChatScreenContent: View {
             viewModel.sendMessage(content: title)
         }) {
             HStack(spacing: sp.s) {
-                Text("↗")
-                    .font(.system(size: ty.caption))
+                Icons.symbol(.openInNew, size: ty.caption)
                     .foregroundColor(c.accentCyan)
 
                 Text(title)
