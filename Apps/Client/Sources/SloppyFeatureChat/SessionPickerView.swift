@@ -79,8 +79,13 @@ public struct SessionPickerView: View {
                 .padding(sp.xl)
             } else {
                 ScrollView {
-                    VStack(spacing: 0) {
-                        ForEach(sessions) { session in
+                    LazyVStack(
+                        sessions,
+                        alignment: .leading,
+                        spacing: 0,
+                        estimatedRowHeight: 64,
+                        overscan: 14
+                    ) { session in
                             let isSelected = session.id == selectedSessionId
                             SessionPickerRow(
                                 session: session,
@@ -96,7 +101,6 @@ public struct SessionPickerView: View {
                                 },
                                 onDownloadDebug: onDownloadDebug
                             )
-                        }
                     }
                 }
             }

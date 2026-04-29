@@ -19,6 +19,7 @@ struct MainView: View {
 
     @State private var projects: [APIProjectRecord] = []
     @State private var isLoadingProjects = false
+    @State private var didLoadProjects = false
     @State private var expandedTaskLists: Set<String> = []
     @State private var selectedSidebarItem: SidebarSelection? = nil
     @State private var isSidebarCollapsed = false
@@ -216,7 +217,13 @@ struct MainView: View {
                     .padding(.horizontal, sp.m)
                     .padding(.vertical, sp.s)
             } else {
-                ForEach(projects) { project in
+                LazyVStack(
+                    projects,
+                    alignment: .leading,
+                    spacing: sp.s,
+                    estimatedRowHeight: 212,
+                    overscan: 6
+                ) { project in
                     projectGroup(project: project, c: c, sp: sp)
                 }
             }
@@ -488,8 +495,16 @@ struct MainView: View {
         )
     }
 
-    private func loadProjects() async {
+    private func loadProjects(force: Bool = false) async {
+        guard force || !didLoadProjects else { return }
+        guard !isLoadingProjects else { return }
+
         isLoadingProjects = true
+        defer {
+            didLoadProjects = true
+            isLoadingProjects = false
+        }
+
         let client = SloppyAPIClient(baseURL: baseURL)
         let list = (try? await client.fetchProjects()) ?? []
         projects = list
@@ -497,7 +512,6 @@ struct MainView: View {
         if selectedSidebarItem == nil {
             selectedSidebarItem = .chats
         }
-        isLoadingProjects = false
     }
 }
 

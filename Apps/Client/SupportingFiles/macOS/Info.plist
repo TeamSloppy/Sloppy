@@ -33,6 +33,8 @@
 	<string>1</string>
 	<key>NSHighResolutionCapable</key>
 	<true/>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>To communicate with AI agent</string>
 	<key>NSPrincipalClass</key>
 	<string>NSApplication</string>
 </dict>

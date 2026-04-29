@@ -19,17 +19,20 @@ public final class ChatScreenViewModel {
     public var showSessionPicker = false
     public let composerDraft = ChatComposerDraft()
 
-    private let apiClient: SloppyAPIClient
-    private let settings: ClientSettings
+    @ObservationIgnored private let apiClient: SloppyAPIClient
+    @ObservationIgnored private let settings: ClientSettings
     public let connectionMonitor: ConnectionMonitor
-    private let onOpenSettings: @MainActor () -> Void
+    @ObservationIgnored private let onOpenSettings: @MainActor () -> Void
 
-    private var socketManager: SessionSocketManager?
-    private var streamTask: Task<Void, Never>?
-    private var sessionStatusTask: Task<Void, Never>?
-    private var pendingNavigationRequest: ChatNavigationRequest?
-    private var lastAppliedNavigationRequestId: Int?
-    private var activeProjectId: String?
+    @ObservationIgnored private var socketManager: SessionSocketManager?
+    @ObservationIgnored private var streamTask: Task<Void, Never>?
+    @ObservationIgnored private var sessionStatusTask: Task<Void, Never>?
+    @ObservationIgnored private var pendingNavigationRequest: ChatNavigationRequest?
+    @ObservationIgnored private var lastAppliedNavigationRequestId: Int?
+    @ObservationIgnored private var activeProjectId: String?
+    @ObservationIgnored private var didLoadInitialData = false
+    @ObservationIgnored private var isLoadingInitialData = false
+    @ObservationIgnored private var sessionLoadGeneration = 0
 
     public init(
         apiClient: SloppyAPIClient,
@@ -53,7 +56,15 @@ public final class ChatScreenViewModel {
     }
 
     public func loadInitialData() {
+        guard !didLoadInitialData, !isLoadingInitialData else { return }
+
+        isLoadingInitialData = true
         Task { @MainActor in
+            defer {
+                didLoadInitialData = true
+                isLoadingInitialData = false
+            }
+
             let fetched = (try? await apiClient.fetchAgents()) ?? []
             agents = fetched
 
@@ -76,8 +87,11 @@ public final class ChatScreenViewModel {
     }
 
     public func loadSessions(for agent: APIAgentRecord, projectId: String? = nil) async {
+        sessionLoadGeneration += 1
+        let generation = sessionLoadGeneration
         isLoadingSessions = true
         let fetched = (try? await apiClient.fetchAgentSessions(agentId: agent.id, projectId: projectId)) ?? []
+        guard generation == sessionLoadGeneration else { return }
         sessions = fetched
             .filter { $0.kind != "heartbeat" }
             .sorted { $0.updatedAt > $1.updatedAt }

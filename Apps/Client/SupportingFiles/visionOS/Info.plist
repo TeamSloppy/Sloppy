@@ -38,6 +38,8 @@
 	</dict>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>Sloppy discovers Sloppy Core on your Wi-Fi and connects over the local network.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Sloppy uses the microphone to record audio for voice input.</string>
 	<key>UILaunchScreen</key>
 	<dict/>
 </dict>

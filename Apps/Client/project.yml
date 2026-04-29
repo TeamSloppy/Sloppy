@@ -45,6 +45,7 @@ targets:
         CFBundleVersion: "1"
         NSPrincipalClass: NSApplication
         NSHighResolutionCapable: true
+        NSMicrophoneUsageDescription: Sloppy uses the microphone to record audio for voice input.
         CFBundleURLTypes:
           - CFBundleURLName: team.sloppy.client
             CFBundleURLSchemes:
@@ -53,6 +54,7 @@ targets:
       path: SupportingFiles/macOS/SloppyClient.entitlements
       properties:
         com.apple.security.app-sandbox: true
+        com.apple.security.device.audio-input: true
         com.apple.security.network.client: true
         com.apple.security.network.server: true
         aps-environment: development
@@ -102,6 +104,7 @@ targets:
             CFBundleURLSchemes:
               - sloppy
         NSLocalNetworkUsageDescription: Sloppy discovers Sloppy Core on your Wi-Fi and connects over the local network.
+        NSMicrophoneUsageDescription: Sloppy uses the microphone to record audio for voice input.
         NSAppTransportSecurity:
           NSAllowsLocalNetworking: true
     entitlements:
@@ -160,6 +163,7 @@ targets:
             CFBundleURLSchemes:
               - sloppy
         NSLocalNetworkUsageDescription: Sloppy discovers Sloppy Core on your Wi-Fi and connects over the local network.
+        NSMicrophoneUsageDescription: Sloppy uses the microphone to record audio for voice input.
         NSAppTransportSecurity:
           NSAllowsLocalNetworking: true
     entitlements:
@@ -207,6 +211,7 @@ targets:
             CFBundleURLSchemes:
               - sloppy
         NSLocalNetworkUsageDescription: Sloppy discovers Sloppy Core on your Wi-Fi and connects over the local network.
+        NSMicrophoneUsageDescription: Sloppy uses the microphone to record audio for voice input.
         NSAppTransportSecurity:
           NSAllowsLocalNetworking: true
     entitlements:

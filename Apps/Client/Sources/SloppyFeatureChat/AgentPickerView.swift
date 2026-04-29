@@ -43,8 +43,13 @@ public struct AgentPickerView: View {
             .border(c.border, lineWidth: bo.thin)
 
             ScrollView {
-                VStack(spacing: 0) {
-                    ForEach(agents) { agent in
+                LazyVStack(
+                    agents,
+                    alignment: .leading,
+                    spacing: 0,
+                    estimatedRowHeight: 62,
+                    overscan: 12
+                ) { agent in
                         let isSelected = agent.id == selectedAgent?.id
                         Button(action: { onSelect(agent) }) {
                             HStack(spacing: sp.m) {
@@ -69,7 +74,6 @@ public struct AgentPickerView: View {
                             .background(isSelected ? c.accentCyan.opacity(0.05 as Float) : Color.clear)
                         }
                         .border(c.border, lineWidth: bo.thin)
-                    }
                 }
             }
         }

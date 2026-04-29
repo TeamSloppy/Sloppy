@@ -13,6 +13,7 @@ struct AgentChatView: View {
     @State private var showTranscript = false
     @State private var messages: [ChatMessage] = []
     @State private var isLoadingSessions = false
+    @State private var didLoadSessions = false
     @State private var isSending = false
     @State private var composerDraft = ChatComposerDraft()
     @State private var socketManager: SessionSocketManager?
@@ -46,7 +47,7 @@ struct AgentChatView: View {
             HStack {
                 SectionHeader("Chat Sessions", accentColor: c.accentCyan)
                 Spacer()
-                Button("REFRESH") { loadSessions() }
+                Button("REFRESH") { loadSessions(force: true) }
                     .foregroundColor(c.accentCyan)
                     .font(.system(size: ty.caption))
                 Button("NEW CHAT") { createSession() }
@@ -109,11 +110,17 @@ struct AgentChatView: View {
 
     // MARK: - Actions
 
-    private func loadSessions() {
+    private func loadSessions(force: Bool = false) {
+        guard force || !didLoadSessions else { return }
+        guard !isLoadingSessions else { return }
+
+        isLoadingSessions = true
         Task { @MainActor in
-            isLoadingSessions = true
+            defer {
+                didLoadSessions = true
+                isLoadingSessions = false
+            }
             sessions = (try? await apiClient.fetchAgentSessions(agentId: agent.id)) ?? []
-            isLoadingSessions = false
         }
     }
 

@@ -2,9 +2,11 @@ import AdaEngine
 import SloppyClientCore
 import SloppyClientUI
 
+@MainActor
 public struct ProjectsScreen: View {
     @State private var projects: [APIProjectRecord] = []
     @State private var isLoading = false
+    @State private var didLoadProjects = false
 
     private let apiClient: SloppyAPIClient
 
@@ -17,7 +19,7 @@ public struct ProjectsScreen: View {
             ProjectListView(
                 projects: projects,
                 isLoading: isLoading,
-                onRefresh: { loadProjects() }
+                onRefresh: { loadProjects(force: true) }
             )
             .onAppear { loadProjects() }
             .navigate(for: String.self) { projectId in
@@ -28,12 +30,18 @@ public struct ProjectsScreen: View {
         }
     }
 
-    private func loadProjects() {
+    private func loadProjects(force: Bool = false) {
+        guard force || !didLoadProjects else { return }
+        guard !isLoading else { return }
+
+        isLoading = true
         Task { @MainActor in
-            isLoading = true
+            defer {
+                didLoadProjects = true
+                isLoading = false
+            }
             let fetched = (try? await apiClient.fetchProjects()) ?? []
             projects = fetched
-            isLoading = false
         }
     }
 }
