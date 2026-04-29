@@ -12,6 +12,7 @@ public final class ChatComposerDraft {
 
 public struct ChatComposerView: View {
     private static let panelRadius: Float = 22
+    private static let fieldHeight: Float = 36
     private static let sendSize: Float = 32
 
     @Environment(\.theme) private var theme
@@ -56,6 +57,7 @@ public struct ChatComposerView: View {
                 .font(.system(size: ty.body))
                 .foregroundColor(fieldInk)
                 .textFieldStyle(PlainTextFieldStyle())
+                .frame(minWidth: 0, maxWidth: .infinity, minHeight: Self.fieldHeight, alignment: .leading)
 
             HStack(spacing: sp.m) {
                 Button(action: {}) {
@@ -80,9 +82,11 @@ public struct ChatComposerView: View {
                         .background(sendFill)
                 }
             }
+            .frame(minWidth: 0, maxWidth: .infinity)
         }
         .padding(.horizontal, sp.l)
         .padding(.vertical, sp.l)
+        .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
         .glassEffect(.regular, in: .rect(cornerRadius: Self.panelRadius))
     }
 

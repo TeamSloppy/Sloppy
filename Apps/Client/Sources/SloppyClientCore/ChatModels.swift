@@ -110,6 +110,7 @@ public struct ChatStreamUpdate: Sendable {
     public var cursor: Int
     public var summary: ChatSessionSummary?
     public var message: ChatMessage?
+    public var messageText: String?
     public var errorText: String?
     public var createdAt: Date
 
@@ -118,6 +119,7 @@ public struct ChatStreamUpdate: Sendable {
         cursor: Int,
         summary: ChatSessionSummary? = nil,
         message: ChatMessage? = nil,
+        messageText: String? = nil,
         errorText: String? = nil,
         createdAt: Date = Date()
     ) {
@@ -125,6 +127,7 @@ public struct ChatStreamUpdate: Sendable {
         self.cursor = cursor
         self.summary = summary
         self.message = message
+        self.messageText = messageText
         self.errorText = errorText
         self.createdAt = createdAt
     }
@@ -145,7 +148,9 @@ extension ChatStreamUpdate: Decodable {
         cursor = try container.decodeIfPresent(Int.self, forKey: .cursor) ?? 0
         summary = try container.decodeIfPresent(ChatSessionSummary.self, forKey: .summary)
         createdAt = (try? container.decodeIfPresent(Date.self, forKey: .createdAt)) ?? Date()
-        errorText = try container.decodeIfPresent(String.self, forKey: .message)
+        let text = try container.decodeIfPresent(String.self, forKey: .message)
+        messageText = kind == .sessionDelta ? text : nil
+        errorText = kind == .sessionError || kind == .sessionClosed ? text : nil
         let embedded = try container.decodeIfPresent(EmbeddedEvent.self, forKey: .event)
         message = embedded?.message
     }

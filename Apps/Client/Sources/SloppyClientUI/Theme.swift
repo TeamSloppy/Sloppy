@@ -2,7 +2,7 @@ import AdaEngine
 
 // MARK: - AppColors
 
-public struct AppColors: Sendable {
+public struct AppColors: Sendable, Hashable {
     public var background: Color
     public var surface: Color
     public var surfaceRaised: Color
@@ -52,7 +52,7 @@ public struct AppColorsKey: ThemeKey {
 
 // MARK: - AppTypography
 
-public struct AppTypography: Sendable {
+public struct AppTypography: Sendable, Hashable {
     public var hero: Double
     public var title: Double
     public var heading: Double
@@ -76,7 +76,7 @@ public struct AppTypographyKey: ThemeKey {
 
 // MARK: - AppSpacing
 
-public struct AppSpacing: Sendable {
+public struct AppSpacing: Sendable, Hashable {
     public var xs: Float
     public var s: Float
     public var m: Float
@@ -100,7 +100,7 @@ public struct AppSpacingKey: ThemeKey {
 
 // MARK: - AppBorders
 
-public struct AppBorders: Sendable {
+public struct AppBorders: Sendable, Hashable {
     public var thin: Float
     public var medium: Float
     public var thick: Float

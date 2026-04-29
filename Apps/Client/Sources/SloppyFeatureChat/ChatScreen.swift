@@ -26,6 +26,10 @@ public struct ChatScreen: View {
         )
     }
 
+    public init(viewModel: ChatScreenViewModel) {
+        _viewModel = State(initialValue: viewModel)
+    }
+
     public var body: some View {
         ChatScreenContent()
             .environment(viewModel)
@@ -79,11 +83,20 @@ private struct ChatScreenContent: View {
                             sessions: viewModel.sessions,
                             selectedSessionId: viewModel.selectedSessionId,
                             isLoading: viewModel.isLoadingSessions,
+                            actionStatus: viewModel.sessionActionStatus,
                             onSelect: { session in
                                 viewModel.pickSession(session)
                             },
                             onNewSession: {
                                 viewModel.pickNewSession()
+                            },
+                            onDelete: { session in
+                                viewModel.deleteSession(session)
+                            },
+                            onDownloadDebug: { session in
+                                #if DEBUG
+                                viewModel.downloadSession(session)
+                                #endif
                             },
                             onDismiss: { viewModel.showSessionPicker = false }
                         )
@@ -104,13 +117,22 @@ private struct ChatScreenContent: View {
 
         return HStack(spacing: sp.m) {
             Button(action: { viewModel.showAgentPicker = true }) {
-                HStack(spacing: sp.s) {
-                    Text(viewModel.selectedAgent?.displayName ?? "Select Agent")
-                        .font(.system(size: ty.body))
-                        .foregroundColor(c.textPrimary)
-                    Text("▾")
-                        .font(.system(size: ty.caption))
-                        .foregroundColor(c.textMuted)
+                VStack(alignment: .leading, spacing: sp.xs) {
+                    HStack(spacing: sp.s) {
+                        Text(viewModel.selectedAgent?.displayName ?? "Select Agent")
+                            .font(.system(size: ty.body))
+                            .foregroundColor(c.textPrimary)
+                        Text("▾")
+                            .font(.system(size: ty.caption))
+                            .foregroundColor(c.textMuted)
+                    }
+
+                    if let title = viewModel.activeContextTitle {
+                        Text(title)
+                            .font(.system(size: ty.caption))
+                            .foregroundColor(c.textMuted)
+                            .lineLimit(1)
+                    }
                 }
                 .padding(.horizontal, sp.m)
                 .padding(.vertical, sp.m)
@@ -174,15 +196,31 @@ private struct ChatScreenContent: View {
             .frame(minWidth: 0, maxWidth: .infinity, minHeight: 0, maxHeight: .infinity)
         } else {
             VStack(spacing: theme.spacing.m) {
-                ScrollView {
-                    VStack(alignment: .leading, spacing: theme.spacing.s) {
-                        let sp = theme.spacing
-                        ForEach(viewModel.messages) { msg in
+                ScrollViewReader { proxy in
+                    ScrollView {
+                        LazyVStack(
+                            viewModel.messages,
+                            alignment: .leading,
+                            spacing: theme.spacing.s,
+                            estimatedRowHeight: 96,
+                            overscan: 10
+                        ) { msg in
                             ChatBubbleView(message: msg)
-                                .padding(.horizontal, sp.m)
+                                .padding(.horizontal, theme.spacing.m)
+                        }
+                        .padding(.vertical, theme.spacing.m)
+                    }
+                    .onChange(of: viewModel.messages.count) { oldCount, newCount in
+                        guard newCount > oldCount,
+                              oldCount == 0 || proxy.isNearBottom(threshold: 160),
+                              let lastMessageId = viewModel.messages.last?.id else {
+                            return
+                        }
+
+                        Task { @MainActor in
+                            proxy.scrollTo(lastMessageId, anchor: .bottom)
                         }
                     }
-                    .padding(.vertical, theme.spacing.m)
                 }
                 .frame(width: chatContentWidth)
                 .frame(minHeight: 0, maxHeight: .infinity)

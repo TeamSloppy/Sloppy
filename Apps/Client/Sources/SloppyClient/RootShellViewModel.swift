@@ -22,7 +22,7 @@ final class RootShellViewModel {
     private var notificationManager: NotificationSocketManager?
     private var notificationListenerStarted = false
     #if os(macOS)
-    private let desktopNotchController = DesktopNotchController()
+    private let desktopOverlay = SloppyDesktopOverlay()
     #endif
 
     init() {
@@ -44,13 +44,13 @@ final class RootShellViewModel {
 
     func startDesktopWindowIntegration() {
         #if os(macOS)
-        desktopNotchController.start(settings: settings)
+        desktopOverlay.start(settings: settings)
         #endif
     }
 
     func applyDesktopWindowCloseBehavior() {
         #if os(macOS)
-        desktopNotchController.applyCloseBehavior(settings.windowCloseBehavior)
+        desktopOverlay.applyCloseBehavior(settings.windowCloseBehavior)
         #endif
     }
 

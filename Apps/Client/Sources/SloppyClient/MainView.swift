@@ -5,10 +5,11 @@ import SloppyFeatureChat
 
 @MainActor
 struct MainView: View {
-    private static let shellRadius: Float = 34
-    private static let panelRadius: Float = 28
-    private static let rowRadius: Float = 22
-    private static let sidebarWidth: Float = 292
+    private static let rowRadius: Float = 18
+    private static let sidebarExpandedWidth: Float = 332
+    private static let sidebarCollapsedWidth: Float = 64
+    private static let sidebarMinimumWidth: Float = 240
+    private static let sidebarMaximumWidth: Float = 520
 
     let baseURL: URL
     let settings: ClientSettings
@@ -19,317 +20,403 @@ struct MainView: View {
     @State private var projects: [APIProjectRecord] = []
     @State private var isLoadingProjects = false
     @State private var expandedTaskLists: Set<String> = []
+    @State private var selectedSidebarItem: SidebarSelection? = nil
+    @State private var isSidebarCollapsed = false
+    @State private var chatViewModel: ChatScreenViewModel
+    @State private var chatNavigationSerial = 0
 
     @Environment(\.theme) private var theme
 
+    init(
+        baseURL: URL,
+        settings: ClientSettings,
+        connectionMonitor: ConnectionMonitor,
+        onOpenSettings: @escaping @MainActor () -> Void,
+        onOpenWorkspace: @escaping @MainActor () -> Void
+    ) {
+        self.baseURL = baseURL
+        self.settings = settings
+        self.connectionMonitor = connectionMonitor
+        self.onOpenSettings = onOpenSettings
+        self.onOpenWorkspace = onOpenWorkspace
+        _chatViewModel = State(
+            initialValue: ChatScreenViewModel(
+                apiClient: SloppyAPIClient(baseURL: baseURL),
+                settings: settings,
+                connectionMonitor: connectionMonitor,
+                onOpenSettings: onOpenSettings
+            )
+        )
+    }
+
+    private var sidebarWidth: Float {
+        isSidebarCollapsed ? Self.sidebarCollapsedWidth : Self.sidebarExpandedWidth
+    }
+
+    private var sidebarMinimumWidth: Float {
+        isSidebarCollapsed ? Self.sidebarCollapsedWidth : Self.sidebarMinimumWidth
+    }
+
+    private var sidebarMaximumWidth: Float {
+        isSidebarCollapsed ? Self.sidebarCollapsedWidth : Self.sidebarMaximumWidth
+    }
+
     var body: some View {
         let c = theme.colors
-        let sp = theme.spacing
 
         ZStack {
-            c.background.ignoresSafeArea()
+            c.background
+                .ignoresSafeArea()
 
-            HStack(spacing: sp.l) {
-                sidebarContent(c: c, sp: sp)
-                    .frame(width: Self.sidebarWidth)
+            NavigationSplitView {
+                sidebarPane(c: c)
                     .frame(maxHeight: .infinity, alignment: .topLeading)
-                    .padding(sp.l)
-                    .glassEffect(.regular, in: .rect(cornerRadius: Self.panelRadius))
-
-                ChatScreen(
-                    apiClient: SloppyAPIClient(baseURL: baseURL),
-                    settings: settings,
-                    connectionMonitor: connectionMonitor,
-                    onOpenSettings: onOpenSettings
-                )
-                .frame(minWidth: 0, maxWidth: .infinity, minHeight: 0, maxHeight: .infinity)
-                .padding(sp.l)
+                    .navigationSplitViewColumnWidth(
+                        min: sidebarMinimumWidth,
+                        ideal: sidebarWidth,
+                        max: sidebarMaximumWidth
+                    )
+            } detail: {
+                ChatScreen(viewModel: chatViewModel)
+                    .frame(minWidth: 0, maxWidth: .infinity, minHeight: 0, maxHeight: .infinity)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .glassEffect(.regular, in: .rect(cornerRadius: Self.shellRadius))
-        .padding(8)
         .onAppear {
             Task { await loadProjects() }
         }
     }
 
     @ViewBuilder
-    private func sidebarContent(c: AppColors, sp: AppSpacing) -> some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: sp.l) {
-                sidebarHeader(c: c, sp: sp)
-                topActions(c: c, sp: sp)
-                projectsSection(c: c, sp: sp)
-                pinnedSection(c: c, sp: sp)
-                sidebarFooter(c: c, sp: sp)
-            }
+    private func sidebarPane(c: AppColors) -> some View {
+        if isSidebarCollapsed {
+            collapsedSidebar(c: c)
+        } else {
+            expandedSidebar(c: c)
         }
     }
 
-    private func sidebarHeader(c: AppColors, sp: AppSpacing) -> some View {
+    private func expandedSidebar(c: AppColors) -> some View {
+        let sp = theme.spacing
+
+        return VStack(alignment: .leading, spacing: 0) {
+            projectsHeader(c: c, sp: sp)
+
+            ScrollView {
+                projectsSection(c: c, sp: sp)
+            }
+            .frame(minHeight: 0, maxHeight: .infinity)
+
+            Color.clear
+                .frame(height: theme.borders.thin)
+                .background(c.border.opacity(0.45 as Float))
+
+            chatsSection(c: c, sp: sp)
+        }
+        .padding(sp.m)
+        .glassEffect(.regular, in: RoundedRectangleShape(cornerRadius: 18))
+        .padding(6)
+    }
+
+    private func collapsedSidebar(c: AppColors) -> some View {
+        let sp = theme.spacing
+
+        return VStack(alignment: .center, spacing: sp.m) {
+            sidebarIconButton("Op", isActive: false, c: c) {
+                isSidebarCollapsed = false
+            }
+
+            Color.clear
+                .frame(height: theme.borders.thin)
+                .background(c.border.opacity(0.45 as Float))
+                .padding(.horizontal, sp.m)
+
+            ForEach(projects.prefix(5)) { project in
+                sidebarIconButton(projectMonogram(project.name), isActive: isProjectSelected(project.id), c: c) {
+                    selectProject(project)
+                }
+            }
+
+            Spacer(minLength: 0)
+
+            sidebarIconButton("New", isActive: selectedSidebarItem == .chats, c: c) {
+                selectNewChat()
+            }
+
+            sidebarIconButton("Set", isActive: false, c: c, action: onOpenSettings)
+        }
+        .frame(width: Self.sidebarCollapsedWidth)
+        .frame(maxHeight: .infinity)
+        .padding(.vertical, sp.l)
+    }
+
+    private func projectsHeader(c: AppColors, sp: AppSpacing) -> some View {
         let ty = theme.typography
 
-        return VStack(alignment: .leading, spacing: sp.m) {
-            HStack(spacing: sp.m) {
-                Text("◈")
-                    .font(.system(size: ty.heading))
-                    .foregroundColor(c.accentCyan)
-                    .frame(width: 44, height: 44)
-                    .glassEffect(.regular, in: .rect(cornerRadius: 14))
+        return HStack(spacing: sp.s) {
+            Text("Projects")
+                .font(.system(size: ty.heading))
+                .foregroundColor(c.textMuted)
 
-                VStack(alignment: .leading, spacing: sp.xs) {
-                    Text("Sloppy")
-                        .font(.system(size: ty.heading))
-                        .foregroundColor(c.textPrimary)
-                    Text("Desktop Workspace")
-                        .font(.system(size: ty.caption))
-                        .foregroundColor(c.textMuted)
-                }
+            Spacer(minLength: 0)
 
-                Spacer(minLength: 0)
+            headerIconButton("Col", c: c) {
+                isSidebarCollapsed = true
             }
+
+            headerIconButton("Men", c: c, action: {})
+            headerIconButton("OW", c: c, action: onOpenWorkspace)
         }
     }
 
-    private func topActions(c: AppColors, sp: AppSpacing) -> some View {
+    private func chatsSection(c: AppColors, sp: AppSpacing) -> some View {
         let ty = theme.typography
 
         return VStack(alignment: .leading, spacing: sp.s) {
-            Button(action: {}) {
-                HStack(spacing: sp.s) {
-                    Text("✦")
-                        .font(.system(size: ty.body))
-                        .foregroundColor(c.accentCyan)
-                        .frame(width: 20)
-                    Text("New Chat")
-                        .font(.system(size: ty.body))
-                        .foregroundColor(c.textPrimary)
-                    Spacer()
-                    Text("⌘N")
-                        .font(.system(size: ty.caption))
-                        .foregroundColor(c.textMuted)
-                }
-                .padding(.horizontal, sp.m)
-                .padding(.vertical, sp.m)
-                .glassEffect(.regular, in: .rect(cornerRadius: Self.rowRadius))
-            }
+            HStack(spacing: sp.s) {
+                Text("Chats")
+                    .font(.system(size: ty.heading))
+                    .foregroundColor(c.textMuted)
 
-            sidebarRow(
-                icon: "⌘",
-                title: "Search Projects",
-                trailing: "K",
+                Spacer(minLength: 0)
+
+                headerIconButton("Men", c: c, action: {})
+                headerIconButton("New", c: c) {
+                    selectNewChat()
+                }
+            }
+            .padding(.horizontal, sp.m)
+
+            sidebarPlainRow(
+                icon: "New",
+                title: "New chat",
+                trailing: nil,
+                isSelected: selectedSidebarItem == .chats,
                 c: c,
-                sp: sp,
-                action: {}
-            )
+                sp: sp
+            ) {
+                selectNewChat()
+            }
         }
+        .padding(.top, sp.l)
+        .padding(.horizontal, sp.s)
     }
 
     private func projectsSection(c: AppColors, sp: AppSpacing) -> some View {
         let ty = theme.typography
 
         return VStack(alignment: .leading, spacing: sp.s) {
-            sidebarSectionHeader("Projects", c: c)
-
             if projects.isEmpty {
                 Text(isLoadingProjects ? "Loading…" : "No projects yet")
                     .font(.system(size: ty.caption))
                     .foregroundColor(c.textMuted)
-                    .padding(.leading, sp.xs)
+                    .padding(.horizontal, sp.m)
+                    .padding(.vertical, sp.s)
             } else {
-                ForEach(Array(projects.enumerated()), id: \.element.id) { index, project in
-                    projectCard(
-                        project: project,
-                        isActive: index == 0,
-                        c: c,
-                        sp: sp
-                    )
+                ForEach(projects) { project in
+                    projectGroup(project: project, c: c, sp: sp)
                 }
             }
         }
     }
 
-    private func pinnedSection(c: AppColors, sp: AppSpacing) -> some View {
-        let ty = theme.typography
-        let pinned = pinnedTasks()
-
-        return VStack(alignment: .leading, spacing: sp.s) {
-            sidebarSectionHeader("Recent Tasks", c: c)
-
-            if pinned.isEmpty {
-                Text(isLoadingProjects ? "Loading…" : "No active tasks yet")
-                    .font(.system(size: ty.caption))
-                    .foregroundColor(c.textMuted)
-                    .padding(.leading, sp.xs)
-            } else {
-                ForEach(pinned, id: \.id) { item in
-                    taskRow(title: item.task.title, status: item.task.status, c: c, sp: sp)
-                }
-            }
-        }
-    }
-
-    private func sidebarFooter(c: AppColors, sp: AppSpacing) -> some View {
-        VStack(alignment: .leading, spacing: sp.s) {
-            sidebarRow(
-                icon: "⌂",
-                title: "Open Workspace",
-                trailing: nil,
-                c: c,
-                sp: sp,
-                action: onOpenWorkspace
-            )
-
-            sidebarRow(
-                icon: "⋯",
-                title: "Settings",
-                trailing: nil,
-                c: c,
-                sp: sp,
-                action: onOpenSettings
-            )
-        }
-        .padding(.top, sp.m)
-    }
-
-    private func sidebarSectionHeader(_ title: String, c: AppColors) -> some View {
-        let ty = theme.typography
-
-        return Text(title)
-            .font(.system(size: ty.caption))
-            .foregroundColor(c.textMuted)
-    }
-
-    private func projectCard(
+    private func projectGroup(
         project: APIProjectRecord,
-        isActive: Bool,
+        c: AppColors,
+        sp: AppSpacing
+    ) -> some View {
+        let tasks = project.tasks ?? []
+
+        return VStack(alignment: .leading, spacing: sp.xs) {
+            projectHeader(project: project, c: c, sp: sp)
+
+            let expanded = expandedTaskLists.contains(project.id)
+            let visibleLimit = expanded ? tasks.count : min(tasks.count, 5)
+            let visible = Array(tasks.prefix(visibleLimit))
+
+            ForEach(visible) { task in
+                taskRow(
+                    projectId: project.id,
+                    projectName: project.name,
+                    task: task,
+                    fallbackAgentId: project.actors?.first,
+                    trailing: nil,
+                    c: c,
+                    sp: sp
+                )
+            }
+
+            if tasks.count > 5 {
+                showMoreButton(projectId: project.id, isExpanded: expanded, c: c, sp: sp)
+            }
+        }
+    }
+
+    private func projectHeader(
+        project: APIProjectRecord,
         c: AppColors,
         sp: AppSpacing
     ) -> some View {
         let ty = theme.typography
-        let tasks = project.tasks ?? []
-        let expanded = expandedTaskLists.contains(project.id)
-        let visibleLimit = expanded ? tasks.count : min(tasks.count, 3)
-        let visible = Array(tasks.prefix(visibleLimit))
-        let activeTasks = tasks.filter { ["in_progress", "ready", "needs_review"].contains($0.status) }.count
 
-        return VStack(alignment: .leading, spacing: sp.s) {
-            HStack(spacing: sp.s) {
-                Text(projectMonogram(project.name))
-                    .font(.system(size: ty.caption))
-                    .foregroundColor(isActive ? c.background : c.textPrimary)
-                    .frame(width: 30, height: 30)
-                    .background(isActive ? c.accentCyan.opacity(0.85 as Float) : c.surfaceRaised.opacity(0.85 as Float))
-                    .glassEffect(.regular, in: .rect(cornerRadius: 10))
-
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(project.name)
-                        .font(.system(size: ty.body))
-                        .foregroundColor(c.textPrimary)
-                        .lineLimit(1)
-
-                    Text("\(activeTasks) active · \(tasks.count) tasks")
-                        .font(.system(size: ty.caption))
-                        .foregroundColor(c.textMuted)
-                }
-
-                Spacer(minLength: 0)
-
-                if isActive {
-                    Text("LIVE")
-                        .font(.system(size: ty.micro))
-                        .foregroundColor(c.accentCyan)
-                }
-            }
-
-            if !visible.isEmpty {
-                VStack(alignment: .leading, spacing: sp.xs) {
-                    ForEach(visible) { task in
-                        Text(task.title)
-                            .font(.system(size: ty.caption))
-                            .foregroundColor(c.textSecondary)
-                            .lineLimit(1)
-                    }
-                }
-                .padding(.leading, sp.xs)
-            }
-
-            if tasks.count > 3 {
-                Button {
-                    if expanded {
-                        expandedTaskLists.remove(project.id)
-                    } else {
-                        expandedTaskLists.insert(project.id)
-                    }
-                } label: {
-                    Text(expanded ? "Show less" : "Show more")
-                        .font(.system(size: ty.caption))
-                        .foregroundColor(c.accentCyan)
-                }
-            }
+        return sidebarPlainRow(
+            icon: "-",
+            title: project.name,
+            trailing: nil,
+            isSelected: selectedSidebarItem == .project(project.id),
+            c: c,
+            sp: sp
+        ) {
+            selectProject(project)
         }
-        .padding(sp.m)
-        .background(isActive ? c.surfaceRaised.opacity(0.65 as Float) : c.surface.opacity(0.7 as Float))
-        .glassEffect(.regular, in: .rect(cornerRadius: Self.rowRadius))
+        .font(.system(size: ty.body))
     }
 
-    private func sidebarRow(
+    private func taskRow(
+        projectId: String,
+        projectName: String,
+        task: APIProjectTask,
+        fallbackAgentId: String?,
+        trailing: String?,
+        c: AppColors,
+        sp: AppSpacing
+    ) -> some View {
+        let isSelected = selectedSidebarItem == .task(projectId: projectId, taskId: task.id)
+
+        return sidebarPlainRow(
+            icon: statusGlyph(task.status),
+            title: task.title,
+            trailing: trailing,
+            isSelected: isSelected,
+            c: c,
+            sp: sp,
+            titleColor: isSelected ? c.textPrimary : c.textSecondary,
+            leadingInset: 12
+        ) {
+            selectTask(
+                projectId: projectId,
+                projectName: projectName,
+                task: task,
+                fallbackAgentId: fallbackAgentId
+            )
+        }
+    }
+
+    private func showMoreButton(
+        projectId: String,
+        isExpanded: Bool,
+        c: AppColors,
+        sp: AppSpacing
+    ) -> some View {
+        let ty = theme.typography
+
+        return Button {
+            if isExpanded {
+                expandedTaskLists.remove(projectId)
+            } else {
+                expandedTaskLists.insert(projectId)
+            }
+        } label: {
+            Text(isExpanded ? "Show less" : "Show more")
+                .font(.system(size: ty.body))
+                .foregroundColor(c.textMuted)
+                .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(.leading, 48)
+        .padding(.horizontal, sp.m)
+        .padding(.vertical, sp.s)
+    }
+
+    @ViewBuilder
+    private func sidebarPlainRow(
         icon: String,
         title: String,
         trailing: String?,
+        isSelected: Bool,
         c: AppColors,
         sp: AppSpacing,
+        titleColor: Color? = nil,
+        leadingInset: Float = 0,
+        action: @escaping @MainActor () -> Void
+    ) -> some View {
+        HoverableSidebarRow(
+            icon: icon,
+            title: title,
+            trailing: trailing,
+            isSelected: isSelected,
+            colors: c,
+            spacing: sp,
+            typography: theme.typography,
+            titleColor: titleColor,
+            leadingInset: leadingInset,
+            rowRadius: Self.rowRadius,
+            action: action
+        )
+    }
+
+    private func headerIconButton(
+        _ icon: String,
+        c: AppColors,
         action: @escaping @MainActor () -> Void
     ) -> some View {
         let ty = theme.typography
 
         return Button(action: action) {
-            HStack(spacing: sp.s) {
-                Text(icon)
-                    .font(.system(size: ty.caption))
-                    .foregroundColor(c.textSecondary)
-                    .frame(width: 20)
-                Text(title)
-                    .font(.system(size: ty.body))
-                    .foregroundColor(c.textPrimary)
-                Spacer(minLength: 0)
-                if let trailing {
-                    Text(trailing)
-                        .font(.system(size: ty.caption))
-                        .foregroundColor(c.textMuted)
-                }
-            }
-            .padding(.horizontal, sp.m)
-            .padding(.vertical, sp.m)
-            .glassEffect(.regular, in: .rect(cornerRadius: Self.rowRadius))
+            Text(icon)
+                .font(.system(size: ty.body))
+                .foregroundColor(c.textMuted)
+                .frame(width: 30, height: 30)
         }
     }
 
-    private func taskRow(
-        title: String,
-        status: String,
+    private func sidebarIconButton(
+        _ title: String,
+        isActive: Bool,
         c: AppColors,
-        sp: AppSpacing
+        action: @escaping @MainActor () -> Void
     ) -> some View {
         let ty = theme.typography
 
-        return HStack(spacing: sp.s) {
-            Color.clear
-                .frame(width: 8, height: 8)
-                .background(colorForStatus(status, c: c))
-                .glassEffect(.regular, in: .rect(cornerRadius: 4))
-
+        return Button(action: action) {
             Text(title)
-                .font(.system(size: ty.body))
-                .foregroundColor(c.textSecondary)
-                .lineLimit(2)
-
-            Spacer(minLength: 0)
+                .font(.system(size: title.count <= 2 ? ty.caption : ty.micro))
+                .foregroundColor(isActive ? c.textPrimary : c.textMuted)
+                .frame(width: 40, height: 40)
+                .background(isActive ? c.surfaceRaised.opacity(0.92 as Float) : Color.clear)
+                .glassEffect(.regular, in: .rect(cornerRadius: 14))
         }
-        .padding(.horizontal, sp.m)
-        .padding(.vertical, sp.m)
-        .glassEffect(.regular, in: .rect(cornerRadius: Self.rowRadius))
+    }
+
+    private func statusGlyph(_ status: String) -> String {
+        switch status {
+        case "in_progress":
+            return "◌"
+        case "ready", "needs_review":
+            return "•"
+        case "done":
+            return "✓"
+        case "blocked":
+            return "!"
+        default:
+            return ""
+        }
+    }
+
+    private enum SidebarSelection: Hashable {
+        case project(String)
+        case task(projectId: String, taskId: String)
+        case chats
+    }
+
+    private func isProjectSelected(_ projectId: String) -> Bool {
+        switch selectedSidebarItem {
+        case .project(let selectedProjectId):
+            return selectedProjectId == projectId
+        case .task(let selectedProjectId, _):
+            return selectedProjectId == projectId
+        case .chats, nil:
+            return false
+        }
     }
 
     private func projectMonogram(_ value: String) -> String {
@@ -341,33 +428,45 @@ struct MainView: View {
         return monogram.isEmpty ? "SL" : monogram.uppercased()
     }
 
-    private func colorForStatus(_ status: String, c: AppColors) -> Color {
-        switch status {
-        case "in_progress":
-            return c.statusActive
-        case "ready", "needs_review":
-            return c.statusWarning
-        case "done":
-            return c.statusDone
-        case "blocked":
-            return c.statusBlocked
-        default:
-            return c.statusNeutral
-        }
+    private func selectNewChat() {
+        selectedSidebarItem = .chats
+        navigateChat(.blank)
     }
 
-    /// Recent / active tasks shown under Pinned (no separate API yet).
-    private func pinnedTasks() -> [(id: String, task: APIProjectTask)] {
-        var out: [(String, APIProjectTask)] = []
-        let active: Set<String> = ["in_progress", "ready", "needs_review"]
-        for project in projects {
-            guard let tasks = project.tasks else { continue }
-            for task in tasks where active.contains(task.status) {
-                out.append(("\(project.id)/\(task.id)", task))
-                if out.count >= 6 { return out }
-            }
-        }
-        return out
+    private func selectProject(_ project: APIProjectRecord) {
+        selectedSidebarItem = .project(project.id)
+        navigateChat(
+            .project(
+                projectId: project.id,
+                projectName: project.name,
+                agentId: project.actors?.first
+            )
+        )
+    }
+
+    private func selectTask(
+        projectId: String,
+        projectName: String,
+        task: APIProjectTask,
+        fallbackAgentId: String?
+    ) {
+        selectedSidebarItem = .task(projectId: projectId, taskId: task.id)
+        navigateChat(
+            .task(
+                projectId: projectId,
+                projectName: projectName,
+                taskId: task.id,
+                taskTitle: task.title,
+                agentId: task.actorId ?? fallbackAgentId
+            )
+        )
+    }
+
+    private func navigateChat(_ context: ChatNavigationRequest.Context) {
+        chatNavigationSerial += 1
+        chatViewModel.applyNavigationRequest(
+            ChatNavigationRequest(id: chatNavigationSerial, context: context)
+        )
     }
 
     private func loadProjects() async {
@@ -375,6 +474,72 @@ struct MainView: View {
         let client = SloppyAPIClient(baseURL: baseURL)
         let list = (try? await client.fetchProjects()) ?? []
         projects = list
+
+        if selectedSidebarItem == nil {
+            selectedSidebarItem = .chats
+        }
         isLoadingProjects = false
+    }
+}
+
+@MainActor
+private struct HoverableSidebarRow: View {
+    let icon: String
+    let title: String
+    let trailing: String?
+    let isSelected: Bool
+    let colors: AppColors
+    let spacing: AppSpacing
+    let typography: AppTypography
+    let titleColor: Color?
+    let leadingInset: Float
+    let rowRadius: Float
+    let action: @MainActor () -> Void
+
+    @State private var isHovered = false
+
+    var body: some View {
+        let isActive = isSelected || isHovered
+        let background = if isSelected {
+            colors.surfaceRaised.opacity(0.92 as Float)
+        } else if isHovered {
+            colors.surfaceRaised.opacity(0.52 as Float)
+        } else {
+            Color.clear
+        }
+
+        let row = Button(action: action) {
+            HStack(spacing: spacing.s) {
+                Text(icon)
+                    .font(.system(size: typography.body))
+                    .foregroundColor(isSelected ? colors.accentCyan : colors.textMuted)
+                    .frame(width: 22)
+
+                Text(title)
+                    .font(.system(size: typography.body))
+                    .foregroundColor(titleColor ?? (isSelected ? colors.textPrimary : colors.textSecondary))
+                    .lineLimit(1)
+
+                Spacer(minLength: 0)
+
+                if let trailing {
+                    Text(trailing)
+                        .font(.system(size: typography.body))
+                        .foregroundColor(colors.textMuted)
+                }
+            }
+            .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
+            .padding(.leading, leadingInset)
+            .padding(.trailing, spacing.m)
+            .padding(.vertical, spacing.s)
+            .background(background)
+        }
+        .onHover { isHovered = $0 }
+
+        if isActive {
+            row.glassEffect(.regular, in: .rect(cornerRadius: rowRadius))
+        } else {
+            row
+        }
     }
 }

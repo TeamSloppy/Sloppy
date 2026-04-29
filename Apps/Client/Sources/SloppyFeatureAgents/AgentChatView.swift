@@ -1,4 +1,5 @@
 import AdaEngine
+import Foundation
 import SloppyClientCore
 import SloppyClientUI
 import SloppyFeatureChat
@@ -82,9 +83,7 @@ struct AgentChatView: View {
     // MARK: - Session management
 
     private func selectSession(_ sessionId: String) {
-        streamTask?.cancel()
-        streamTask = nil
-        socketManager = nil
+        disconnectSocket()
         messages = []
         selectedSessionId = sessionId
         showTranscript = true
@@ -92,12 +91,20 @@ struct AgentChatView: View {
     }
 
     private func disconnectAndClearSession() {
-        streamTask?.cancel()
-        streamTask = nil
-        socketManager = nil
+        disconnectSocket()
         messages = []
         selectedSessionId = nil
         showTranscript = false
+    }
+
+    private func disconnectSocket() {
+        let manager = socketManager
+        streamTask?.cancel()
+        streamTask = nil
+        socketManager = nil
+        if let manager {
+            Task { await manager.disconnect() }
+        }
     }
 
     // MARK: - Actions
@@ -122,21 +129,25 @@ struct AgentChatView: View {
     }
 
     private func loadSessionAndConnect(sessionId: String) {
-        Task { @MainActor in
+        let manager = SessionSocketManager(baseURL: apiClient.baseURL, agentId: agent.id, sessionId: sessionId)
+        socketManager = manager
+
+        streamTask = Task { @MainActor in
+            defer {
+                Task { await manager.disconnect() }
+            }
+
             if let detail = try? await apiClient.fetchAgentSession(agentId: agent.id, sessionId: sessionId) {
+                guard selectedSessionId == sessionId else { return }
                 messages = detail.messages
             }
 
-            let manager = SessionSocketManager(baseURL: apiClient.baseURL, agentId: agent.id, sessionId: sessionId)
-            socketManager = manager
             let stream = await manager.connect()
 
-            let task = Task { @MainActor in
-                for await update in stream {
-                    await handleStreamUpdate(update, agentId: agent.id, sessionId: sessionId)
-                }
+            for await update in stream {
+                guard selectedSessionId == sessionId else { return }
+                await handleStreamUpdate(update, agentId: agent.id, sessionId: sessionId)
             }
-            streamTask = task
         }
     }
 
@@ -151,12 +162,10 @@ struct AgentChatView: View {
                 messages = detail.messages
             }
         case .sessionEvent, .sessionDelta:
-            if let msg = update.message {
-                if let idx = messages.firstIndex(where: { $0.id == msg.id }) {
-                    messages[idx] = msg
-                } else {
-                    messages.append(msg)
-                }
+            if update.kind == .sessionDelta, let text = update.messageText {
+                applyStreamingAssistantText(text, sessionId: sessionId)
+            } else if let msg = update.message {
+                upsertMessage(msg, sessionId: sessionId)
             }
         case .sessionClosed:
             break
@@ -167,11 +176,46 @@ struct AgentChatView: View {
         }
     }
 
+    private func upsertMessage(_ message: ChatMessage, sessionId: String) {
+        if message.role == .assistant {
+            messages.removeAll { $0.id == streamingAssistantMessageId(for: sessionId) }
+        } else if message.role == .user {
+            messages.removeAll { $0.id.hasPrefix("optimistic-user-") }
+        }
+
+        if let idx = messages.firstIndex(where: { $0.id == message.id }) {
+            messages[idx] = message
+        } else {
+            messages.append(message)
+        }
+    }
+
+    private func applyStreamingAssistantText(_ text: String, sessionId: String) {
+        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+
+        let id = streamingAssistantMessageId(for: sessionId)
+        let message = ChatMessage(
+            id: id,
+            role: .assistant,
+            segments: [ChatMessageSegment(kind: .text, text: text)]
+        )
+
+        if let idx = messages.firstIndex(where: { $0.id == id }) {
+            messages[idx] = message
+        } else {
+            messages.append(message)
+        }
+    }
+
+    private func streamingAssistantMessageId(for sessionId: String) -> String {
+        "streaming-assistant-\(sessionId)"
+    }
+
     private func sendMessage(agentId: String, sessionId: String, content: String) {
         guard !isSending else { return }
         isSending = true
 
-        let optimisticId = UUID().uuidString
+        let optimisticId = "optimistic-user-\(UUID().uuidString)"
         let optimistic = ChatMessage(
             id: optimisticId,
             role: .user,
@@ -214,17 +258,22 @@ struct ChatTranscriptView: View {
             .padding(.vertical, sp.m)
 
             ScrollView {
-                VStack(alignment: .leading, spacing: sp.s) {
-                    if messages.isEmpty {
-                        EmptyStateView("No messages yet")
-                            .padding(.vertical, sp.xl)
-                    } else {
-                        ForEach(messages) { msg in
-                            ChatBubbleView(message: msg)
-                        }
+                if messages.isEmpty {
+                    EmptyStateView("No messages yet")
+                        .padding(.vertical, sp.xl)
+                        .padding(sp.m)
+                } else {
+                    LazyVStack(
+                        messages,
+                        alignment: .leading,
+                        spacing: sp.s,
+                        estimatedRowHeight: 96,
+                        overscan: 10
+                    ) { msg in
+                        ChatBubbleView(message: msg)
                     }
+                    .padding(sp.m)
                 }
-                .padding(sp.m)
             }
 
             ChatComposerView(draft: composerDraft, agentName: agentId) { content in

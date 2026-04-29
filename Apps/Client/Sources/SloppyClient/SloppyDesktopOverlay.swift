@@ -6,18 +6,19 @@ import SloppyClientUI
 import AppKit
 
 @MainActor
-final class DesktopNotchController {
+final class SloppyDesktopOverlay {
     private enum Metrics {
-        static let windowSize = Size(width: 640, height: 124)
+        static let windowSize = Size(width: 440, height: 104)
     }
 
     private var primaryWindow: UIWindow?
-    private var notchWindow: UIWindow?
+    private var overlayWindow: UIWindow?
     private var miniaturizeTask: Task<Void, Never>?
     private var deminiaturizeTask: Task<Void, Never>?
 
     func start(settings: ClientSettings) {
         applyCloseBehavior(settings.windowCloseBehavior)
+
         guard miniaturizeTask == nil, deminiaturizeTask == nil else {
             return
         }
@@ -26,7 +27,7 @@ final class DesktopNotchController {
             let notifications = NotificationCenter.default.notifications(named: .adaEngineWindowDidMiniaturize)
             for await notification in notifications {
                 guard let window = notification.object as? UIWindow else { continue }
-                showNotch(for: window)
+                showOverlay(for: window)
             }
         }
 
@@ -35,7 +36,7 @@ final class DesktopNotchController {
             for await notification in notifications {
                 guard let window = notification.object as? UIWindow else { continue }
                 if window === primaryWindow {
-                    hideNotch()
+                    hideOverlay()
                 }
             }
         }
@@ -51,32 +52,29 @@ final class DesktopNotchController {
         Application.shared?.setLastWindowCloseBehavior(engineBehavior)
     }
 
-    private func showNotch(for window: UIWindow) {
-        guard window !== notchWindow else {
+    private func showOverlay(for window: UIWindow) {
+        guard window !== overlayWindow else {
             return
         }
         primaryWindow = window
-        if let notchWindow {
-            notchWindow.canDraw = true
-            if let nsWindow = notchWindow.systemWindow as? NSWindow {
-                nsWindow.setFrame(makeNotchFrame().toNSRect, display: true)
-                nsWindow.orderFrontRegardless()
-            } else {
-                notchWindow.showWindow(makeFocused: false)
-            }
+
+        let overlayFrame = makeOverlayFrame(for: window)
+        if let overlayWindow {
+            overlayWindow.canDraw = true
+            orderOverlayFront(overlayWindow, frame: overlayFrame)
             return
         }
 
-        guard notchWindow == nil else {
+        guard overlayWindow == nil else {
             return
         }
 
-        let frame = makeNotchFrame()
-        notchWindow = Application.shared.windowManager.spawnWindow(
+        let frame = overlayFrame
+        overlayWindow = Application.shared.windowManager.spawnWindow(
             configuration: UIWindow.Configuration(
-                title: "Sloppy Notch",
+                title: "Sloppy Desktop Overlay",
                 frame: frame,
-                minimumSize: frame.size,
+                minimumSize: Metrics.windowSize,
                 chrome: .borderless,
                 background: .transparent,
                 level: .statusBar,
@@ -85,25 +83,39 @@ final class DesktopNotchController {
                 makeKey: false
             )
         ) { [weak self] in
-            DesktopNotchView(windowSize: Metrics.windowSize) {
-                self?.restorePrimaryWindow()
+            SloppyDesktopOverlayView {
+                self?.activatePrimaryWindow()
             }
             .theme(.sloppyDark)
         }
+        if let overlayWindow {
+            orderOverlayFront(overlayWindow, frame: frame)
+        }
     }
 
-    private func restorePrimaryWindow() {
+    private func activatePrimaryWindow() {
         primaryWindow?.showWindow(makeFocused: true)
-        hideNotch()
+        hideOverlay()
     }
 
-    private func hideNotch() {
-        notchWindow?.canDraw = false
-        (notchWindow?.systemWindow as? NSWindow)?.orderOut(nil)
+    private func hideOverlay() {
+        overlayWindow?.canDraw = false
+        (overlayWindow?.systemWindow as? NSWindow)?.orderOut(nil)
     }
 
-    private func makeNotchFrame() -> Rect {
-        let screenFrame = NSScreen.main?.frame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
+    private func orderOverlayFront(_ window: UIWindow, frame: Rect) {
+        guard let nsWindow = window.systemWindow as? NSWindow else {
+            return
+        }
+        nsWindow.setFrame(frame.toNSRect, display: true)
+        nsWindow.orderFrontRegardless()
+    }
+
+    private func makeOverlayFrame(for window: UIWindow) -> Rect {
+        let screen = (window.systemWindow as? NSWindow)?.screen
+            ?? NSScreen.main
+        let screenFrame = screen?.frame
+            ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
         return Rect(
             x: Float(screenFrame.midX) - Metrics.windowSize.width / 2,
             y: Float(screenFrame.maxY) - Metrics.windowSize.height,
@@ -124,8 +136,7 @@ private extension Rect {
     }
 }
 
-private struct DesktopNotchView: View {
-    let windowSize: Size
+private struct SloppyDesktopOverlayView: View {
     let onActivate: @MainActor () -> Void
 
     @Environment(\.theme) private var theme
@@ -164,10 +175,12 @@ private struct DesktopNotchView: View {
     var body: some View {
         return ZStack(anchor: .top) {
             Color.clear.ignoresSafeArea()
+            
             island
                 .animation(.easeOutCubic(duration: Metrics.duration), value: isExpanded)
         }
-        .frame(width: windowSize.width, height: windowSize.height, alignment: .top)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .ignoresSafeArea()
     }
 
     private var island: some View {
@@ -185,7 +198,7 @@ private struct DesktopNotchView: View {
 
             ZStack {
                 VStack(spacing: 12) {
-                    Text("Sloppy minimized")
+                    Text("Sloppy")
                         .font(.system(size: ty.caption))
                         .foregroundColor(c.textMuted)
                     HStack(spacing: 14) {

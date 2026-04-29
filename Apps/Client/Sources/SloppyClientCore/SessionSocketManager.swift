@@ -47,7 +47,7 @@ public actor SessionSocketManager {
                 Task { await self?.disconnect() }
             }
         }
-        Task { await openSocket() }
+        openSocket()
         return stream
     }
 
@@ -64,7 +64,15 @@ public actor SessionSocketManager {
 
         var components = URLComponents(url: baseURL, resolvingAgainstBaseURL: false)
         components?.scheme = baseURL.scheme == "https" ? "wss" : "ws"
-        components?.path = "/v1/agents/\(agentId)/sessions/\(sessionId)/ws"
+        components?.percentEncodedPath = [
+            "",
+            "v1",
+            "agents",
+            Self.encodePathSegment(agentId),
+            "sessions",
+            Self.encodePathSegment(sessionId),
+            "ws"
+        ].joined(separator: "/")
         guard let wsURL = components?.url else { return }
 
         let wsTask = URLSession.shared.webSocketTask(with: wsURL)
@@ -84,10 +92,14 @@ public actor SessionSocketManager {
                     if let data = text.data(using: .utf8),
                        let update = try? decoder.decode(ChatStreamUpdate.self, from: data) {
                         continuation?.yield(update)
+                    } else {
+                        logger.warning("Failed to decode session socket text payload.")
                     }
                 case .data(let data):
                     if let update = try? decoder.decode(ChatStreamUpdate.self, from: data) {
                         continuation?.yield(update)
+                    } else {
+                        logger.warning("Failed to decode session socket binary payload.")
                     }
                 @unknown default:
                     break
@@ -107,5 +119,11 @@ public actor SessionSocketManager {
                 return
             }
         }
+    }
+
+    private static func encodePathSegment(_ segment: String) -> String {
+        var allowed = CharacterSet.urlPathAllowed
+        allowed.remove(charactersIn: "/?#[]@!$&'()*+,;=")
+        return segment.addingPercentEncoding(withAllowedCharacters: allowed) ?? segment
     }
 }

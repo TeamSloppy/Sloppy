@@ -89,6 +89,10 @@ public actor SloppyAPIClient {
         try await get("/v1/agents/\(agentId)/sessions/\(sessionId)")
     }
 
+    public func fetchAgentSessionData(agentId: String, sessionId: String) async throws -> Data {
+        try await getData("/v1/agents/\(agentId)/sessions/\(sessionId)")
+    }
+
     public func createAgentSession(agentId: String, title: String? = nil) async throws -> ChatSessionSummary {
         struct Payload: Encodable {
             var title: String?
@@ -119,6 +123,10 @@ public actor SloppyAPIClient {
         return response.summary
     }
 
+    public func deleteAgentSession(agentId: String, sessionId: String) async throws {
+        try await delete("/v1/agents/\(agentId)/sessions/\(sessionId)")
+    }
+
     // MARK: - Config API
 
     public func fetchConfig() async throws -> SloppyConfig {
@@ -132,6 +140,11 @@ public actor SloppyAPIClient {
     // MARK: - Private helpers
 
     private func get<T: Decodable>(_ path: String) async throws -> T {
+        let data = try await getData(path)
+        return try decoder.decode(T.self, from: data)
+    }
+
+    private func getData(_ path: String) async throws -> Data {
         let url = baseURL.appendingPathComponent(path)
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
@@ -147,7 +160,7 @@ public actor SloppyAPIClient {
             throw APIError.httpError(statusCode: http.statusCode)
         }
 
-        return try decoder.decode(T.self, from: data)
+        return data
     }
 
     private func put<Body: Encodable, T: Decodable>(_ path: String, body: Body) async throws -> T {
@@ -190,6 +203,23 @@ public actor SloppyAPIClient {
         }
 
         return try decoder.decode(T.self, from: data)
+    }
+
+    private func delete(_ path: String) async throws {
+        let url = baseURL.appendingPathComponent(path)
+        var request = URLRequest(url: url)
+        request.httpMethod = "DELETE"
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+
+        logger.debug("DELETE \(url.absoluteString)")
+        let (_, response) = try await session.data(for: request)
+
+        guard let http = response as? HTTPURLResponse else {
+            throw APIError.invalidResponse
+        }
+        guard (200..<300).contains(http.statusCode) else {
+            throw APIError.httpError(statusCode: http.statusCode)
+        }
     }
 }
 

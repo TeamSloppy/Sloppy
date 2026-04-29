@@ -139,6 +139,25 @@ struct ChatModelsTests {
         #expect(update.message?.textContent == "Hi there")
     }
 
+    @Test("ChatStreamUpdate sessionDelta extracts streaming text")
+    func chatStreamUpdateSessionDelta() throws {
+        let json = """
+        {
+            "kind": "session_delta",
+            "cursor": 2,
+            "message": "Partial assistant response"
+        }
+        """.data(using: .utf8)!
+
+        let update = try isoDecoder.decode(ChatStreamUpdate.self, from: json)
+
+        #expect(update.kind == .sessionDelta)
+        #expect(update.cursor == 2)
+        #expect(update.messageText == "Partial assistant response")
+        #expect(update.errorText == nil)
+        #expect(update.message == nil)
+    }
+
     @Test("AppNotification decodes type and fields")
     func appNotificationDecoding() throws {
         let json = """
