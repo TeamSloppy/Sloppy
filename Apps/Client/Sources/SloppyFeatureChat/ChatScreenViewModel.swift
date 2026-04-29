@@ -27,6 +27,9 @@ public final class ChatScreenViewModel {
     @ObservationIgnored private var socketManager: SessionSocketManager?
     @ObservationIgnored private var streamTask: Task<Void, Never>?
     @ObservationIgnored private var sessionStatusTask: Task<Void, Never>?
+    @ObservationIgnored private var streamingFlushTask: Task<Void, Never>?
+    @ObservationIgnored private var pendingStreamingSessionId: String?
+    @ObservationIgnored private var pendingStreamingAssistantText: String?
     @ObservationIgnored private var pendingNavigationRequest: ChatNavigationRequest?
     @ObservationIgnored private var lastAppliedNavigationRequestId: Int?
     @ObservationIgnored private var activeProjectId: String?
@@ -320,6 +323,7 @@ public final class ChatScreenViewModel {
         let manager = socketManager
         streamTask?.cancel()
         streamTask = nil
+        cancelPendingStreamingAssistantText()
         socketManager = nil
         if let manager {
             Task { await manager.disconnect() }
@@ -356,16 +360,19 @@ public final class ChatScreenViewModel {
     ) async {
         switch update.kind {
         case .sessionReady:
+            guard messages.isEmpty else { break }
             if let detail = try? await apiClient.fetchAgentSession(agentId: agentId, sessionId: sessionId) {
                 messages = detail.messages
             }
         case .sessionEvent, .sessionDelta:
             if update.kind == .sessionDelta, let text = update.messageText {
-                applyStreamingAssistantText(text, sessionId: sessionId)
+                scheduleStreamingAssistantText(text, sessionId: sessionId)
             } else if let msg = update.message {
                 upsertMessage(msg, sessionId: sessionId)
             }
-        case .sessionClosed, .sessionError, .heartbeat:
+        case .sessionClosed, .sessionError:
+            flushPendingStreamingAssistantText()
+        case .heartbeat:
             break
         }
     }
@@ -376,6 +383,7 @@ public final class ChatScreenViewModel {
 
     private func upsertMessage(_ message: ChatMessage, sessionId: String) {
         if message.role == .assistant {
+            cancelPendingStreamingAssistantText(for: sessionId)
             messages.removeAll { $0.id == streamingAssistantMessageId(for: sessionId) }
         } else if message.role == .user {
             messages.removeAll { $0.id.hasPrefix("optimistic-user-") }
@@ -388,9 +396,47 @@ public final class ChatScreenViewModel {
         }
     }
 
-    private func applyStreamingAssistantText(_ text: String, sessionId: String) {
+    private func scheduleStreamingAssistantText(_ text: String, sessionId: String) {
         guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        pendingStreamingSessionId = sessionId
+        pendingStreamingAssistantText = text
 
+        guard streamingFlushTask == nil else {
+            return
+        }
+
+        streamingFlushTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 33_000_000)
+            guard !Task.isCancelled else { return }
+            flushPendingStreamingAssistantText()
+        }
+    }
+
+    private func flushPendingStreamingAssistantText() {
+        guard let sessionId = pendingStreamingSessionId,
+              let text = pendingStreamingAssistantText else {
+            streamingFlushTask = nil
+            return
+        }
+
+        pendingStreamingSessionId = nil
+        pendingStreamingAssistantText = nil
+        streamingFlushTask = nil
+        applyStreamingAssistantText(text, sessionId: sessionId)
+    }
+
+    private func cancelPendingStreamingAssistantText(for sessionId: String? = nil) {
+        guard sessionId == nil || pendingStreamingSessionId == sessionId else {
+            return
+        }
+
+        streamingFlushTask?.cancel()
+        streamingFlushTask = nil
+        pendingStreamingSessionId = nil
+        pendingStreamingAssistantText = nil
+    }
+
+    private func applyStreamingAssistantText(_ text: String, sessionId: String) {
         let id = streamingAssistantMessageId(for: sessionId)
         let message = ChatMessage(
             id: id,

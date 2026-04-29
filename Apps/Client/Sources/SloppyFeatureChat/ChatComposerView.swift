@@ -86,7 +86,6 @@ public struct ChatComposerView: View {
         .frame(width: Self.panelWidth, height: Self.panelHeight, alignment: .leading)
         .background(c.surfaceRaised.opacity(0.88 as Float))
         .glassEffect(.regular, in: .rect(cornerRadius: Self.panelRadius))
-        .border(c.border.opacity(0.68 as Float), lineWidth: theme.borders.thin)
     }
 
     private func submit() {

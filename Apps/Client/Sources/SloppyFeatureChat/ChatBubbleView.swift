@@ -33,14 +33,16 @@ public struct ChatBubbleView: View {
         return HStack(spacing: 0) {
             Spacer(minLength: sp.xxl)
 
-            Text(messageText)
+            Text(markdown: messageText)
                 .font(.system(size: ty.body))
                 .foregroundColor(c.textPrimary)
                 .frame(width: Self.userBubbleWidth, alignment: .leading)
                 .padding(.horizontal, sp.m)
                 .padding(.vertical, sp.s)
-                .background(c.surfaceRaised.opacity(0.9 as Float))
-                .glassEffect(.regular, in: .rect(cornerRadius: Self.userBubbleRadius))
+                .background {
+                    RoundedRectangleShape(cornerRadius: Self.userBubbleRadius)
+                        .fill(c.surface)
+                }
         }
     }
 
@@ -62,7 +64,7 @@ public struct ChatBubbleView: View {
                 .frame(height: theme.borders.thin)
                 .background(c.border.opacity(0.48 as Float))
 
-            Text(messageText)
+            Text(markdown: messageText)
                 .font(.system(size: ty.body))
                 .foregroundColor(c.textPrimary)
                 .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
