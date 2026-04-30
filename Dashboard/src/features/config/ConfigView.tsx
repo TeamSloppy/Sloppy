@@ -824,6 +824,8 @@ export function ConfigView({
   });
   const providerModelLoadTimerRef = useRef(null);
   const providerModelLoadTokenRef = useRef(0);
+  const providerAutoSaveTimerRef = useRef(null);
+  const providerAutoSaveTokenRef = useRef(0);
   const providerModelPickerRef = useRef(null);
   const providerModelMenuRef = useRef(null);
   const anthropicOAuthPopupRef = useRef(null);
@@ -915,6 +917,16 @@ export function ConfigView({
     const savedNorm = normalizeConfig(savedConfig);
     return stableConfigStringify(draftNorm) !== stableConfigStringify(savedNorm);
   }, [isRawMode, rawConfig, draftConfig, savedConfig]);
+
+  const hasManualChanges = useMemo(() => {
+    if (selectedSettings !== "providers" || isRawMode) {
+      return hasChanges;
+    }
+    const draftNorm = normalizeConfig(draftConfig);
+    const savedNorm = normalizeConfig(savedConfig);
+    draftNorm.models = savedNorm.models;
+    return stableConfigStringify(draftNorm) !== stableConfigStringify(savedNorm);
+  }, [selectedSettings, isRawMode, hasChanges, draftConfig, savedConfig]);
 
   const rawValid = useMemo(() => {
     try {
@@ -1144,6 +1156,69 @@ export function ConfigView({
       localStorage.setItem(DRAFT_CONFIG_KEY, json);
       return next;
     });
+  }
+
+  function writeProviderDraft(nextConfig) {
+    const json = JSON.stringify(nextConfig, null, 2);
+    setDraftConfig(nextConfig);
+    setRawConfig(json);
+  }
+
+  async function runProviderConfigSave(payload, token, successMessage) {
+    setStatusText("Saving provider changes...");
+    try {
+      const response = await updateRuntimeConfig(payload);
+      if (providerAutoSaveTokenRef.current !== token) {
+        return true;
+      }
+
+      localStorage.removeItem(DRAFT_CONFIG_KEY);
+      const normalized = normalizeConfig(response);
+      setDraftConfig(normalized);
+      setSavedConfig(normalized);
+      setRawConfig(JSON.stringify(normalized, null, 2));
+      if (typeof onRuntimeConfigUpdated === "function") {
+        onRuntimeConfigUpdated(response as Record<string, unknown>);
+      }
+      await loadOpenAIProviderStatus();
+      await loadAnthropicProviderStatus();
+      await loadSearchProviderStatus();
+      await loadGitHubAuthStatus();
+      setStatusText(successMessage);
+      return true;
+    } catch (err) {
+      if (providerAutoSaveTokenRef.current === token) {
+        const message = err instanceof Error ? err.message : "Failed to save provider changes";
+        setStatusText(message);
+      }
+      return false;
+    }
+  }
+
+  function scheduleProviderConfigSave(nextConfig, options: { debounce?: boolean; successMessage?: string } = {}) {
+    const debounce = options.debounce !== false;
+    const successMessage = options.successMessage || "Provider changes saved";
+    const payload = normalizeConfig(nextConfig);
+    const token = providerAutoSaveTokenRef.current + 1;
+    providerAutoSaveTokenRef.current = token;
+
+    if (providerAutoSaveTimerRef.current) {
+      clearTimeout(providerAutoSaveTimerRef.current);
+      providerAutoSaveTimerRef.current = null;
+    }
+
+    if (!debounce) {
+      return runProviderConfigSave(payload, token, successMessage);
+    }
+
+    setStatusText("Provider changes save automatically...");
+    providerAutoSaveTimerRef.current = setTimeout(() => {
+      providerAutoSaveTimerRef.current = null;
+      runProviderConfigSave(payload, token, successMessage).catch(() => {
+        // runProviderConfigSave reports errors in the header.
+      });
+    }, 650);
+    return Promise.resolve(true);
   }
 
   async function openOpenAIPlatform() {
@@ -1378,30 +1453,29 @@ export function ConfigView({
   function appendProviderAndOpenModal(catalogId) {
     const provider = getProviderDefinition(catalogId);
     const base = clone(provider.defaultEntry);
-    setDraftConfig((prev) => {
-      const next = clone(prev);
-      next.models.push({
-        ...base,
-        title: base.title,
-        disabled: false,
-        providerCatalogId: catalogId
-      });
-      const idx = next.models.length - 1;
-      const json = JSON.stringify(next, null, 2);
-      setRawConfig(json);
-      localStorage.setItem(DRAFT_CONFIG_KEY, json);
-      const entry = next.models[idx];
-      setProviderModalIndex(idx);
-      setProviderModalId(catalogId);
-      setProviderForm({
-        apiKey: entry.apiKey ?? "",
-        apiUrl: entry.apiUrl ?? "",
-        model: entry.model ?? "",
-        title: entry.title || provider.defaultEntry.title,
-        disabled: false
-      });
-      setProviderModelMenuOpen(false);
-      return next;
+    const next = clone(draftConfig);
+    next.models.push({
+      ...base,
+      title: base.title,
+      disabled: false,
+      providerCatalogId: catalogId
+    });
+    const idx = next.models.length - 1;
+    const entry = next.models[idx];
+    writeProviderDraft(next);
+    setProviderModalIndex(idx);
+    setProviderModalId(catalogId);
+    setProviderForm({
+      apiKey: entry.apiKey ?? "",
+      apiUrl: entry.apiUrl ?? "",
+      model: entry.model ?? "",
+      title: entry.title || provider.defaultEntry.title,
+      disabled: false
+    });
+    setProviderModelMenuOpen(false);
+    scheduleProviderConfigSave(next, {
+      debounce: false,
+      successMessage: "Provider added"
     });
   }
 
@@ -1427,15 +1501,46 @@ export function ConfigView({
     setProviderModelMenuRect(null);
   }
 
+  function providerEntryFromForm(provider, form) {
+    return {
+      title: String(form.title || "").trim() || provider.defaultEntry.title,
+      apiKey: provider.requiresApiKey ? String(form.apiKey || "").trim() : "",
+      apiUrl: String(form.apiUrl || "").trim() || provider.defaultEntry.apiUrl,
+      model: String(form.model || "").trim() || provider.defaultEntry.model,
+      disabled: Boolean(form.disabled),
+      providerCatalogId: provider.id
+    };
+  }
+
+  function configWithProviderForm(provider, form) {
+    const nextConfig = clone(draftConfig);
+    const nextEntry = providerEntryFromForm(provider, form);
+    const index =
+      providerModalIndex != null ? providerModalIndex : findProviderModelIndex(nextConfig.models, provider.id);
+    if (index >= 0) {
+      nextConfig.models[index] = nextEntry;
+    } else {
+      nextConfig.models.push(nextEntry);
+      setProviderModalIndex(nextConfig.models.length - 1);
+    }
+    return nextConfig;
+  }
+
   function updateProviderForm(field, value) {
-    setProviderForm((previous) => {
-      if (!previous) {
-        return previous;
-      }
-      return {
-        ...previous,
-        [field]: value
-      };
+    if (!providerModalMeta || !providerForm) {
+      return;
+    }
+
+    const nextForm = {
+      ...providerForm,
+      [field]: value
+    };
+    setProviderForm(nextForm);
+
+    const nextConfig = configWithProviderForm(providerModalMeta, nextForm);
+    writeProviderDraft(nextConfig);
+    scheduleProviderConfigSave(nextConfig, {
+      successMessage: "Provider changes saved"
     });
 
     if (field === "model") {
@@ -1630,6 +1735,10 @@ export function ConfigView({
   useEffect(() => {
     return () => {
       configDeviceCodePollingRef.current = false;
+      if (providerAutoSaveTimerRef.current) {
+        clearTimeout(providerAutoSaveTimerRef.current);
+        providerAutoSaveTimerRef.current = null;
+      }
     };
   }, []);
 
@@ -1694,30 +1803,21 @@ export function ConfigView({
       return;
     }
 
-    const provider = providerModalMeta;
-    const nextEntry = {
-      title: String(providerForm.title || "").trim() || provider.defaultEntry.title,
-      apiKey: provider.requiresApiKey ? providerForm.apiKey.trim() : "",
-      apiUrl: providerForm.apiUrl.trim() || provider.defaultEntry.apiUrl,
-      model: providerForm.model.trim() || provider.defaultEntry.model,
-      disabled: Boolean(providerForm.disabled),
-      providerCatalogId: provider.id
-    };
-
-    const nextConfig = clone(draftConfig);
-    const index =
-      providerModalIndex != null ? providerModalIndex : findProviderModelIndex(nextConfig.models, provider.id);
-    if (index >= 0) {
-      nextConfig.models[index] = nextEntry;
-    } else {
-      nextConfig.models.push(nextEntry);
-    }
-
-    const json = JSON.stringify(nextConfig, null, 2);
-    setDraftConfig(nextConfig);
-    setRawConfig(json);
+    const nextConfig = configWithProviderForm(providerModalMeta, providerForm);
+    writeProviderDraft(nextConfig);
     closeProviderModal();
-    await persistConfig(nextConfig);
+    await scheduleProviderConfigSave(nextConfig, {
+      debounce: false,
+      successMessage: "Provider changes saved"
+    });
+  }
+
+  async function closeProviderModalWithAutosave() {
+    if (!providerModalMeta || !providerForm) {
+      closeProviderModal();
+      return;
+    }
+    await saveProviderFromModal();
   }
 
   async function removeProviderFromModal() {
@@ -1726,12 +1826,8 @@ export function ConfigView({
     }
 
     const provider = providerModalMeta;
-    if (provider.id === "openai-oauth") {
-      setPendingOAuthDisconnect(true);
-    }
-    if (provider.id === "anthropic-oauth") {
-      setPendingAnthropicOAuthDisconnect(true);
-    }
+    const disconnectOpenAI = provider.id === "openai-oauth";
+    const disconnectAnthropic = provider.id === "anthropic-oauth";
 
     const nextConfig = clone(draftConfig);
     const index =
@@ -1740,19 +1836,32 @@ export function ConfigView({
       nextConfig.models.splice(index, 1);
     }
 
-    const json = JSON.stringify(nextConfig, null, 2);
-    setDraftConfig(nextConfig);
-    setRawConfig(json);
+    writeProviderDraft(nextConfig);
     closeProviderModal();
-    await persistConfig(nextConfig);
+    const saved = await scheduleProviderConfigSave(nextConfig, {
+      debounce: false,
+      successMessage: "Provider removed"
+    });
+    if (saved && disconnectOpenAI) {
+      await disconnectOpenAIOAuth();
+      await loadOpenAIProviderStatus();
+    }
+    if (saved && disconnectAnthropic) {
+      await disconnectAnthropicOAuth();
+      await loadAnthropicProviderStatus();
+    }
   }
 
   function setProviderRowDisabled(index, disabled) {
-    mutateDraft((draft) => {
-      if (!draft.models[index]) {
-        return;
-      }
-      draft.models[index].disabled = disabled;
+    const nextConfig = clone(draftConfig);
+    if (!nextConfig.models[index]) {
+      return;
+    }
+    nextConfig.models[index].disabled = disabled;
+    writeProviderDraft(nextConfig);
+    scheduleProviderConfigSave(nextConfig, {
+      debounce: false,
+      successMessage: "Provider changes saved"
     });
   }
 
@@ -1762,7 +1871,6 @@ export function ConfigView({
         <>
           <ProviderEditor
             providerCatalog={PROVIDER_CATALOG_UI}
-            draftConfig={draftConfig}
             configuredProviderRows={configuredProviderRows}
             customModelsCount={customModelsCount}
             openAIProviderStatus={openAIProviderStatus}
@@ -1779,7 +1887,7 @@ export function ConfigView({
             onOpenProviderAtIndex={openProviderModalAtIndex}
             onAppendProvider={appendProviderAndOpenModal}
             onSetProviderRowDisabled={setProviderRowDisabled}
-            onCloseProviderModal={closeProviderModal}
+            onCloseProviderModal={closeProviderModalWithAutosave}
             onUpdateProviderForm={updateProviderForm}
             onOpenOAuth={openOpenAIPlatform}
             onOpenAnthropicOAuth={openAnthropicOAuthPopup}
@@ -2166,7 +2274,7 @@ export function ConfigView({
 
       <section className="settings-main">
         <SettingsMainHeader
-          hasChanges={hasChanges}
+          hasChanges={hasManualChanges}
           statusText={statusText}
           onReload={cancelChanges}
           onSave={saveConfig}

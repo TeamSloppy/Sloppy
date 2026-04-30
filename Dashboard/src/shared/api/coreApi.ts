@@ -77,6 +77,7 @@ export interface CoreApi {
   validateDashboardAuthToken: (token: string) => Promise<AnyRecord | null>;
   updateRuntimeConfig: (config: AnyRecord) => Promise<AnyRecord>;
   fetchSystemLogs: () => Promise<AnyRecord | null>;
+  createIssueReport: (payload?: { logLimit?: number }) => Promise<AnyRecord | null>;
   selectDirectory: () => Promise<AnyRecord | null>;
   fetchOpenAIModels: (payload: AnyRecord) => Promise<AnyRecord | null>;
   fetchOpenAIProviderStatus: () => Promise<AnyRecord | null>;
@@ -433,6 +434,18 @@ export function createCoreApi(): CoreApi {
     fetchSystemLogs: async () => {
       const response = await requestJson<AnyRecord>({
         path: "/v1/logs"
+      });
+      if (!response.ok) {
+        return null;
+      }
+      return response.data;
+    },
+
+    createIssueReport: async (payload = {}) => {
+      const response = await requestJson<AnyRecord, AnyRecord>({
+        path: "/v1/support/issue-report",
+        method: "POST",
+        body: payload
       });
       if (!response.ok) {
         return null;

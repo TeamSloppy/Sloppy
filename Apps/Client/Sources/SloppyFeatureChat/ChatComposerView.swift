@@ -12,7 +12,7 @@ public final class ChatComposerDraft {
 
 public struct ChatComposerView: View {
     private static let panelWidth: Float = 840
-    private static let panelHeight: Float = 118
+    public static let panelHeight: Float = 118
     private static let panelRadius: Float = 18
     private static let fieldHeight: Float = 52
     private static let sendSize: Float = 32
@@ -65,26 +65,26 @@ public struct ChatComposerView: View {
                         .foregroundColor(c.textMuted)
                 }
 
+                Spacer(minLength: 0)
+                
                 Text("Send")
                     .font(.system(size: ty.caption))
                     .foregroundColor(c.textMuted)
 
-                Spacer(minLength: 0)
 
                 Button(action: submit) {
                     Icons.symbol(.arrowUpward, size: 17)
                         .foregroundColor(sendInk)
                         .frame(width: Self.sendSize, height: Self.sendSize)
-                        .background(sendFill)
-                        .glassEffect(.regular, in: .rect(cornerRadius: Self.sendSize / 2))
+                        .glassEffect(.regular.tint(sendFill), in: .rect(cornerRadius: Self.sendSize / 2))
                 }
             }
-            .frame(minWidth: 0, maxWidth: .infinity)
+            .frame(maxWidth: .infinity)
+            .debugOverlay()
         }
         .padding(.horizontal, sp.l)
         .padding(.vertical, sp.l)
-        .frame(width: Self.panelWidth, height: Self.panelHeight, alignment: .leading)
-        .background(c.surfaceRaised.opacity(0.88 as Float))
+        .frame(maxWidth: Self.panelWidth, minHeight: Self.panelHeight, maxHeight: Self.panelHeight, alignment: .leading)
         .glassEffect(.regular, in: .rect(cornerRadius: Self.panelRadius))
     }
 

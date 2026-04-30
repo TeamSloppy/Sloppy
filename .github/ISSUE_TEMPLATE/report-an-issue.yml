@@ -1,0 +1,58 @@
+name: Report an Issue
+description: Report a Sloppy issue with sanitized dashboard diagnostics.
+title: "[Bug]: "
+labels: ["bug", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting this. The dashboard may prefill sanitized logs below. Please review before submitting.
+  - type: input
+    id: summary
+    attributes:
+      label: Summary
+      description: What went wrong?
+      placeholder: Short description of the issue
+    validations:
+      required: true
+  - type: textarea
+    id: expected-behavior
+    attributes:
+      label: Expected Behavior
+      description: What did you expect to happen?
+    validations:
+      required: false
+  - type: textarea
+    id: steps-to-reproduce
+    attributes:
+      label: Steps To Reproduce
+      description: List the shortest path that reproduces the issue.
+      placeholder: |
+        1. Open ...
+        2. Click ...
+        3. See ...
+    validations:
+      required: false
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Sloppy version and runtime details.
+      render: shell
+    validations:
+      required: false
+  - type: textarea
+    id: logs
+    attributes:
+      label: Sanitized Log Output
+      description: Review these logs before submitting. Secrets should be redacted.
+      render: shell
+    validations:
+      required: false
+  - type: checkboxes
+    id: confirmation
+    attributes:
+      label: Safety Check
+      options:
+        - label: I reviewed the report and did not intentionally include secrets, passwords, API keys, or model provider tokens.
+          required: true

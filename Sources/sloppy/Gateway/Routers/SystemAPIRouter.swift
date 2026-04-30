@@ -156,6 +156,25 @@ struct SystemAPIRouter: APIRouter {
             }
         }
 
+        router.post("/v1/support/issue-report", metadata: RouteMetadata(summary: "Create issue report", description: "Builds a GitHub issue URL with sanitized diagnostic logs", tags: ["System"])) { request in
+            let payload: IssueReportRequest
+            if let body = request.body {
+                guard let decoded = CoreRouter.decode(body, as: IssueReportRequest.self) else {
+                    return CoreRouter.json(status: HTTPStatus.badRequest, payload: ["error": ErrorCode.invalidBody])
+                }
+                payload = decoded
+            } else {
+                payload = IssueReportRequest()
+            }
+
+            do {
+                let response = try await service.createIssueReport(request: payload)
+                return CoreRouter.encodable(status: HTTPStatus.ok, payload: response)
+            } catch {
+                return CoreRouter.json(status: HTTPStatus.internalServerError, payload: ["error": ErrorCode.issueReportFailed])
+            }
+        }
+
         router.put("/v1/config", metadata: RouteMetadata(summary: "Update config", description: "Updates the sloppy configuration", tags: ["System"])) { request in
             guard let body = request.body,
                   let payload = CoreRouter.decode(body, as: CoreConfig.self)

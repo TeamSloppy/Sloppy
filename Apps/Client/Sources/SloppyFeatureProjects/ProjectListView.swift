@@ -16,14 +16,6 @@ struct ProjectListView: View {
 
         return ScrollView {
             VStack(alignment: .leading, spacing: sp.l) {
-                HStack {
-                    SectionHeader("Projects")
-                    Spacer()
-                    Button("REFRESH") { onRefresh() }
-                        .foregroundColor(c.accent)
-                        .font(.system(size: ty.caption))
-                }
-
                 if projects.isEmpty {
                     EmptyStateView(isLoading ? "Loading..." : "No projects found")
                 } else {
@@ -42,6 +34,13 @@ struct ProjectListView: View {
                 }
             }
             .padding(sp.l)
+        }
+        .navigationTitle("Projects")
+        .navigationTitlePosition(.leading)
+        .navigationBarTrailingItems {
+            Button("REFRESH") { onRefresh() }
+                .foregroundColor(c.accent)
+                .font(.system(size: ty.caption))
         }
     }
 

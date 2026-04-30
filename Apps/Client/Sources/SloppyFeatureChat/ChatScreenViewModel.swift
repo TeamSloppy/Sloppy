@@ -76,11 +76,11 @@ public final class ChatScreenViewModel {
             if let agent {
                 selectedAgent = agent
                 await loadSessions(for: agent)
-
-                if let lastSessionId = settings.lastSessionId,
-                   sessions.contains(where: { $0.id == lastSessionId }) {
-                    selectSession(lastSessionId)
-                }
+                selectedSessionId = nil
+                messages = []
+                activeContextTitle = nil
+                activeProjectId = nil
+                settings.lastSessionId = nil
             }
 
             if let pendingNavigationRequest {

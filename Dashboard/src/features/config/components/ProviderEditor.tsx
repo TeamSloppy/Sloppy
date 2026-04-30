@@ -94,7 +94,7 @@ export function ProviderEditor({
           Disabled providers stay in config but are ignored at runtime.
         </p>
         <div className="providers-note">
-          When you add a provider, choose a model and run a completion test before saving.
+          Provider changes save automatically. Add credentials, choose a model, and run a connection test when needed.
         </div>
         {customModelsCount > 0 ? (
           <p className="placeholder-text">
@@ -457,10 +457,10 @@ export function ProviderEditor({
               )}
               <div className="provider-modal-footer-actions">
                 <button type="button" onClick={onCloseProviderModal}>
-                  Cancel
+                  Close
                 </button>
                 <button type="button" onClick={onSaveProvider}>
-                  Save Provider
+                  Done
                 </button>
               </div>
             </div>

@@ -191,6 +191,7 @@ enum ErrorCode {
     static let toolForbidden = "tool_forbidden"
     static let toolInvokeFailed = "tool_invoke_failed"
     static let systemLogsReadFailed = "system_logs_read_failed"
+    static let issueReportFailed = "issue_report_failed"
     static let invalidActorPayload = "invalid_actor_payload"
     static let actorNotFound = "actor_not_found"
     static let linkNotFound = "link_not_found"

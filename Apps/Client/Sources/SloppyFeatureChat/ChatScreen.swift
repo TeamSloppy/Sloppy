@@ -41,103 +41,115 @@ private struct ChatScreenContent: View {
     @Environment(\.theme) private var theme
 
     var body: some View {
-        ZStack(anchor: .topLeading) {
-            VStack {
-                topBar
-                connectionBar
+        NavigationStack {
+            ZStack(anchor: .topLeading) {
+                VStack(spacing: 0) {
+                    connectionBar
 
-                contentArea
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    ZStack(anchor: .bottom) {
+                        contentArea
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-                HStack {
-                    Spacer(minLength: 0)
-                    composerBar
-                        .frame(width: chatContentWidth)
-                    Spacer(minLength: 0)
-                }
-                .padding(.bottom, theme.spacing.m)
-//                    quickActionRow
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-
-            if viewModel.showAgentPicker {
-                overlayDim
-                    .overlay(anchor: .topLeading) {
-                        AgentPickerView(
-                            agents: viewModel.agents,
-                            selectedAgent: viewModel.selectedAgent,
-                            onSelect: { agent in
-                                viewModel.pickAgent(agent)
-                            },
-                            onDismiss: { viewModel.showAgentPicker = false }
-                        )
-                        .frame(width: 320)
+                        composerOverlay
+//                        quickActionRow
                     }
-            }
-
-            if viewModel.showSessionPicker {
-                overlayDim
-                    .overlay(anchor: .topLeading) {
-                        SessionPickerView(
-                            sessions: viewModel.sessions,
-                            selectedSessionId: viewModel.selectedSessionId,
-                            isLoading: viewModel.isLoadingSessions,
-                            actionStatus: viewModel.sessionActionStatus,
-                            onSelect: { session in
-                                viewModel.pickSession(session)
-                            },
-                            onNewSession: {
-                                viewModel.pickNewSession()
-                            },
-                            onDelete: { session in
-                                viewModel.deleteSession(session)
-                            },
-                            onDownloadDebug: { session in
-                                #if DEBUG
-                                viewModel.downloadSession(session)
-                                #endif
-                            },
-                            onDismiss: { viewModel.showSessionPicker = false }
-                        )
-                        .frame(width: 320)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+                if viewModel.showAgentPicker {
+                    overlayDim
+                        .overlay(anchor: .topLeading) {
+                            AgentPickerView(
+                                agents: viewModel.agents,
+                                selectedAgent: viewModel.selectedAgent,
+                                onSelect: { agent in
+                                    viewModel.pickAgent(agent)
+                                },
+                                onDismiss: { viewModel.showAgentPicker = false }
+                            )
+                            .frame(width: 320)
+                        }
+                }
+
+                if viewModel.showSessionPicker {
+                    overlayDim
+                        .overlay(anchor: .topLeading) {
+                            SessionPickerView(
+                                sessions: viewModel.sessions,
+                                selectedSessionId: viewModel.selectedSessionId,
+                                isLoading: viewModel.isLoadingSessions,
+                                actionStatus: viewModel.sessionActionStatus,
+                                onSelect: { session in
+                                    viewModel.pickSession(session)
+                                },
+                                onNewSession: {
+                                    viewModel.pickNewSession()
+                                },
+                                onDelete: { session in
+                                    viewModel.deleteSession(session)
+                                },
+                                onDownloadDebug: { session in
+                                    #if DEBUG
+                                    viewModel.downloadSession(session)
+                                    #endif
+                                },
+                                onDismiss: { viewModel.showSessionPicker = false }
+                            )
+                            .frame(width: 320)
+                    }
+                }
+            }
+            .navigationTitle(navigationTitle)
+            .navigationTitlePosition(.center)
+            .navigationBarLeadingItems {
+                agentNavigationButton
+            }
+            .navigationBarTrailingItems {
+                navigationActions
             }
         }
         .onAppear { viewModel.loadInitialData() }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
-    // MARK: - Top Bar
+    // MARK: - Navigation Bar
 
-    private var topBar: some View {
+    private var navigationTitle: String {
+        if let title = viewModel.activeContextTitle {
+            return title
+        }
+
+        if viewModel.selectedSessionId != nil {
+            return "Chat"
+        }
+
+        return "New Chat"
+    }
+
+    private var agentNavigationButton: some View {
         let c = theme.colors
         let sp = theme.spacing
         let ty = theme.typography
 
-        return HStack(spacing: sp.m) {
-            Button(action: { viewModel.showAgentPicker = true }) {
-                VStack(alignment: .leading, spacing: sp.xs) {
-                    HStack(spacing: sp.s) {
-                        Text(viewModel.selectedAgent?.displayName ?? "Select Agent")
-                            .font(.system(size: ty.body))
-                            .foregroundColor(c.textPrimary)
-                        Icons.symbol(.expandMore, size: ty.caption)
-                            .foregroundColor(c.textMuted)
-                    }
-
-                    if let title = viewModel.activeContextTitle {
-                        Text(title)
-                            .font(.system(size: ty.caption))
-                            .foregroundColor(c.textMuted)
-                            .lineLimit(1)
-                    }
-                }
-                .padding(.horizontal, sp.m)
-                .padding(.vertical, sp.m)
+        return Button(action: { viewModel.showAgentPicker = true }) {
+            HStack(spacing: sp.s) {
+                Text(viewModel.selectedAgent?.displayName ?? "Select Agent")
+                    .font(.system(size: ty.body))
+                    .foregroundColor(c.textPrimary)
+                    .lineLimit(1)
+                Icons.symbol(.expandMore, size: ty.caption)
+                    .foregroundColor(c.textMuted)
             }
+        }
+    }
 
-            Spacer()
+    private var navigationActions: some View {
+        let c = theme.colors
+        let sp = theme.spacing
+        let ty = theme.typography
 
+        return HStack(spacing: sp.s) {
             if viewModel.selectedSessionId != nil {
                 Button(action: { viewModel.showSessionPicker = true }) {
                     HStack(spacing: sp.s) {
@@ -148,9 +160,6 @@ private struct ChatScreenContent: View {
                             .foregroundColor(c.textMuted)
                     }
                 }
-                .padding(.horizontal, sp.m)
-                .padding(.vertical, sp.m)
-                .glassEffect(.regular, in: .rect(cornerRadius: 18))
             }
 
             Button(action: viewModel.openSettings) {
@@ -158,12 +167,7 @@ private struct ChatScreenContent: View {
                     .font(.system(size: ty.caption))
                     .foregroundColor(c.textSecondary)
             }
-            .padding(.horizontal, sp.m)
-            .padding(.vertical, sp.m)
-            .glassEffect(.regular, in: .rect(cornerRadius: 18))
         }
-        .padding(.horizontal, sp.l)
-        .padding(.top, sp.l)
     }
 
     // MARK: - Connection Bar
@@ -206,7 +210,7 @@ private struct ChatScreenContent: View {
                                 .frame(minWidth: 0, maxWidth: .infinity)
                         }
                         .padding(.top, theme.spacing.xl)
-                        .padding(.bottom, theme.spacing.xxl)
+                        .padding(.bottom, composerScrollInset)
                     }
                     .onChange(of: viewModel.messages.count) { oldCount, newCount in
                         guard newCount > oldCount,
@@ -263,6 +267,21 @@ private struct ChatScreenContent: View {
     }
 
     // MARK: - Composer
+
+    @ViewBuilder
+    private var composerOverlay: some View {
+        HStack {
+            Spacer(minLength: 0)
+            composerBar
+                .frame(width: chatContentWidth)
+            Spacer(minLength: 0)
+        }
+        .padding(.bottom, theme.spacing.m)
+    }
+
+    private var composerScrollInset: Float {
+        ChatComposerView.panelHeight + theme.spacing.xxl
+    }
 
     @ViewBuilder
     private var composerBar: some View {

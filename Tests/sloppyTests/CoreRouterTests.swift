@@ -795,6 +795,129 @@ func systemLogsMetadataKeysAreSorted() async throws {
 }
 
 @Test
+func issueReportEndpointBuildsSanitizedGitHubURL() async throws {
+    var config = CoreConfig.test
+    config.auth.token = "dev-super-secret-token"
+    config.models = [
+        .init(
+            title: "OpenAI",
+            apiKey: "sk-supersecretvalue1234567890",
+            apiUrl: "https://api.openai.com/v1",
+            model: "gpt-5.4-mini"
+        )
+    ]
+    config.channels.telegram = .init(botToken: "123456789:ABCDEFGHIJKLMNOPQRSTUVWXYZ12345")
+
+    let workspaceRoot = config.resolvedWorkspaceRootURL()
+    let logsDirectory = workspaceRoot.appendingPathComponent("logs", isDirectory: true)
+    try FileManager.default.createDirectory(at: logsDirectory, withIntermediateDirectories: true)
+    let logFileURL = logsDirectory.appendingPathComponent("core-issue-report.log")
+    let logLines = [
+        #"{"label":"sloppy.core.main","level":"info","message":"normal operation detail","metadata":{"module":"tests"},"source":"sloppyTests","timestamp":"2026-03-10T10:11:12.123Z"}"#,
+        #"{"label":"sloppy.core.auth","level":"error","message":"failed with Authorization: Bearer dev-super-secret-token and key sk-supersecretvalue1234567890 and bot 123456789:ABCDEFGHIJKLMNOPQRSTUVWXYZ12345","metadata":{"apiKey":"sk-supersecretvalue1234567890","safe":"visible"},"source":"sloppyTests","timestamp":"2026-03-10T10:11:13.123Z"}"#
+    ]
+    try (logLines.joined(separator: "\n") + "\n").data(using: .utf8)?.write(to: logFileURL, options: .atomic)
+
+    let service = CoreService(config: config)
+    let router = CoreRouter(service: service)
+    let body = try JSONEncoder().encode(IssueReportRequest(logLimit: 20))
+    let response = await router.handle(method: "POST", path: "/v1/support/issue-report", body: body)
+    #expect(response.status == 200)
+
+    let payload = try JSONDecoder().decode(IssueReportResponse.self, from: response.body)
+    #expect(payload.issueUrl.hasPrefix("https://github.com/TeamSloppy/Sloppy/issues/new"))
+    #expect(payload.issueUrl.contains("template=report-an-issue.yml"))
+    #expect(payload.logEntryCount == 2)
+    #expect(payload.redactionCount >= 4)
+
+    let components = try #require(URLComponents(string: payload.issueUrl))
+    let query = Dictionary(uniqueKeysWithValues: (components.queryItems ?? []).compactMap { item in
+        item.value.map { (item.name, $0) }
+    })
+    let logs = try #require(query["logs"])
+    let environment = try #require(query["environment"])
+    #expect(environment.contains("Sloppy version:"))
+    #expect(logs.contains("normal operation detail"))
+    #expect(logs.contains("safe=visible"))
+    #expect(logs.contains("[REDACTED]"))
+    #expect(!logs.contains("dev-super-secret-token"))
+    #expect(!logs.contains("sk-supersecretvalue1234567890"))
+    #expect(!logs.contains("123456789:ABCDEFGHIJKLMNOPQRSTUVWXYZ12345"))
+}
+
+@Test
+func issueReportRedactorCoversEnvironmentValuesAndInlineCredentials() {
+    var config = CoreConfig.test
+    config.auth.token = "config-secret-token"
+    let redactor = SensitiveLogRedactor(
+        config: config,
+        environment: [
+            "SLOPPY_LOGIN": "alice@example.com",
+            "OPENAI_API_KEY": "sk-envsecretvalue1234567890"
+        ]
+    )
+
+    let result = redactor.redact(
+        "user alice@example.com used https://alice:password@github.com/org/repo with Bearer config-secret-token, sk-envsecretvalue1234567890, ghp_abcdefghij1234567890, and aaaabbbbcccc.ddddeeeeffff.gggghhhhiiii"
+    )
+
+    #expect(result.count >= 6)
+    #expect(result.value.contains("[REDACTED]"))
+    #expect(!result.value.contains("alice@example.com"))
+    #expect(!result.value.contains("password@github.com"))
+    #expect(!result.value.contains("config-secret-token"))
+    #expect(!result.value.contains("sk-envsecretvalue1234567890"))
+    #expect(!result.value.contains("ghp_abcdefghij1234567890"))
+    #expect(!result.value.contains("aaaabbbbcccc.ddddeeeeffff.gggghhhhiiii"))
+}
+
+@Test
+func issueReportEndpointBoundsLargeLogURL() async throws {
+    let config = CoreConfig.test
+    let workspaceRoot = config.resolvedWorkspaceRootURL()
+    let logsDirectory = workspaceRoot.appendingPathComponent("logs", isDirectory: true)
+    try FileManager.default.createDirectory(at: logsDirectory, withIntermediateDirectories: true)
+    let logFileURL = logsDirectory.appendingPathComponent("core-issue-report-large.log")
+    let repeated = String(repeating: "long diagnostic context ", count: 180)
+    let lines = (0..<300).map { index in
+        #"{"label":"test","level":"info","message":"entry \#(index) \#(repeated)","metadata":{"module":"large"},"source":"test","timestamp":"2026-03-10T10:11:12.123Z"}"#
+    }
+    try (lines.joined(separator: "\n") + "\n").data(using: .utf8)?.write(to: logFileURL, options: .atomic)
+
+    let service = CoreService(config: config)
+    let router = CoreRouter(service: service)
+    let body = try JSONEncoder().encode(IssueReportRequest(logLimit: 300))
+    let response = await router.handle(method: "POST", path: "/v1/support/issue-report", body: body)
+    #expect(response.status == 200)
+
+    let payload = try JSONDecoder().decode(IssueReportResponse.self, from: response.body)
+    #expect(payload.truncated == true)
+    #expect(payload.issueUrl.utf8.count <= 14_000)
+    #expect(payload.logEntryCount < 300)
+}
+
+@Test
+func issueReportEndpointRequiresDashboardAuthWhenEnabled() async throws {
+    var config = CoreConfig.test
+    config.ui.dashboardAuth.enabled = true
+    config.ui.dashboardAuth.token = "dashboard-secret"
+
+    let service = CoreService(config: config)
+    let router = CoreRouter(service: service)
+
+    let unauthorized = await router.handle(method: "POST", path: "/v1/support/issue-report", body: nil)
+    #expect(unauthorized.status == 401)
+
+    let authorized = await router.handle(
+        method: "POST",
+        path: "/v1/support/issue-report",
+        body: nil,
+        headers: ["Authorization": "Bearer dashboard-secret"]
+    )
+    #expect(authorized.status == 200)
+}
+
+@Test
 func serviceSupportsInMemoryPersistenceBuilder() async throws {
     let config = CoreConfig.test
     let service = CoreService(

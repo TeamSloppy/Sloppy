@@ -159,6 +159,33 @@ public struct SystemLogsResponse: Codable, Sendable, Equatable {
     }
 }
 
+public struct IssueReportRequest: Codable, Sendable, Equatable {
+    public var logLimit: Int?
+
+    public init(logLimit: Int? = nil) {
+        self.logLimit = logLimit
+    }
+}
+
+public struct IssueReportResponse: Codable, Sendable, Equatable {
+    public var issueUrl: String
+    public var logEntryCount: Int
+    public var redactionCount: Int
+    public var truncated: Bool
+
+    public init(
+        issueUrl: String,
+        logEntryCount: Int,
+        redactionCount: Int,
+        truncated: Bool
+    ) {
+        self.issueUrl = issueUrl
+        self.logEntryCount = logEntryCount
+        self.redactionCount = redactionCount
+        self.truncated = truncated
+    }
+}
+
 public struct ProjectChannel: Codable, Sendable, Equatable {
     public var id: String
     public var title: String

@@ -20,7 +20,6 @@ struct AgentDetailView: View {
     let agent: APIAgentRecord
     let apiClient: SloppyAPIClient
 
-    @Environment(\.dismiss) private var dismiss
     @Environment(\.theme) private var theme
     @State private var selectedTab: AgentDetailTab = .info
     @State private var agentTasks: [APIAgentTaskRecord] = []
@@ -28,36 +27,15 @@ struct AgentDetailView: View {
 
     var body: some View {
         let c = theme.colors
-        let sp = theme.spacing
-        let bo = theme.borders
-        let ty = theme.typography
 
-        return VStack(alignment: .leading, spacing: 0) {
-            HStack(spacing: sp.m) {
-                BackButton("Agents", action: { dismiss() })
-                Spacer()
-            }
-            .padding(.horizontal, sp.l)
-            .padding(.vertical, sp.m)
-
-            HStack(spacing: sp.s) {
-                Color.clear
-                    .frame(width: bo.thick, height: 28)
-                    .background(c.accentCyan)
-                Text(agent.displayName.uppercased())
-                    .font(.system(size: ty.title))
-                    .foregroundColor(c.textPrimary)
-            }
-            .padding(.horizontal, sp.l)
-            .padding(.bottom, sp.m)
-
-            TabView(selection: $selectedTab) {
-                Tab(AgentDetailTab.info.title, value: AgentDetailTab.info) { tabContent(.info) }
-                Tab(AgentDetailTab.tasks.title, value: AgentDetailTab.tasks) { tabContent(.tasks) }
-                Tab(AgentDetailTab.chat.title, value: AgentDetailTab.chat) { tabContent(.chat) }
-            }
-            .tabViewStyle(ScrollableTabViewStyle(accentColor: c.accentCyan))
+        return TabView(selection: $selectedTab) {
+            Tab(AgentDetailTab.info.title, value: AgentDetailTab.info) { tabContent(.info) }
+            Tab(AgentDetailTab.tasks.title, value: AgentDetailTab.tasks) { tabContent(.tasks) }
+            Tab(AgentDetailTab.chat.title, value: AgentDetailTab.chat) { tabContent(.chat) }
         }
+        .tabViewStyle(ScrollableTabViewStyle(accentColor: c.accentCyan))
+        .navigationTitle(agent.displayName.uppercased())
+        .navigationTitlePosition(.leading)
     }
 
     @ViewBuilder

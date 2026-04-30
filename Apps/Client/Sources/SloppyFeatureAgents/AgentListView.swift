@@ -16,14 +16,6 @@ struct AgentListView: View {
 
         return ScrollView {
             VStack(alignment: .leading, spacing: sp.l) {
-                HStack {
-                    SectionHeader("Agents", accentColor: c.accentCyan)
-                    Spacer()
-                    Button("REFRESH") { onRefresh() }
-                        .foregroundColor(c.accentCyan)
-                        .font(.system(size: ty.caption))
-                }
-
                 if agents.isEmpty {
                     EmptyStateView(isLoading ? "Loading..." : "No agents registered")
                 } else {
@@ -46,6 +38,13 @@ struct AgentListView: View {
                 }
             }
             .padding(sp.l)
+        }
+        .navigationTitle("Agents")
+        .navigationTitlePosition(.leading)
+        .navigationBarTrailingItems {
+            Button("REFRESH") { onRefresh() }
+                .foregroundColor(c.accentCyan)
+                .font(.system(size: ty.caption))
         }
     }
 }

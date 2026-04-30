@@ -264,29 +264,43 @@ struct ChatTranscriptView: View {
             .padding(.horizontal, sp.l)
             .padding(.vertical, sp.m)
 
-            ScrollView {
-                if messages.isEmpty {
-                    EmptyStateView("No messages yet")
-                        .padding(.vertical, sp.xl)
+            ZStack(anchor: .bottom) {
+                ScrollView {
+                    if messages.isEmpty {
+                        EmptyStateView("No messages yet")
+                            .padding(.vertical, sp.xl)
+                            .padding(sp.m)
+                            .padding(.bottom, composerScrollInset)
+                    } else {
+                        LazyVStack(
+                            messages,
+                            alignment: .leading,
+                            spacing: sp.s,
+                            estimatedRowHeight: 96,
+                            overscan: 10
+                        ) { msg in
+                            ChatBubbleView(message: msg)
+                        }
                         .padding(sp.m)
-                } else {
-                    LazyVStack(
-                        messages,
-                        alignment: .leading,
-                        spacing: sp.s,
-                        estimatedRowHeight: 96,
-                        overscan: 10
-                    ) { msg in
-                        ChatBubbleView(message: msg)
+                        .padding(.bottom, composerScrollInset)
                     }
-                    .padding(sp.m)
                 }
-            }
 
-            ChatComposerView(draft: composerDraft, agentName: agentId) { content in
-                onSend(content)
+                HStack {
+                    Spacer(minLength: 0)
+                    ChatComposerView(draft: composerDraft, agentName: agentId) { content in
+                        onSend(content)
+                    }
+                    Spacer(minLength: 0)
+                }
+                .padding(.bottom, sp.m)
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .background(c.background)
+    }
+
+    private var composerScrollInset: Float {
+        ChatComposerView.panelHeight + theme.spacing.xxl
     }
 }

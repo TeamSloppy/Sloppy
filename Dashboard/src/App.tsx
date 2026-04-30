@@ -6,6 +6,7 @@ import { SidebarView } from "./components/SidebarView";
 import { NotificationProvider } from "./features/notifications/NotificationContext";
 import { NotificationBell } from "./features/notifications/NotificationBell";
 import { NotificationToastContainer } from "./features/notifications/NotificationToast";
+import { emitNotification } from "./features/notifications/notificationBus";
 import { useNotificationSocket } from "./features/notifications/useNotificationSocket";
 import { OnboardingView } from "./features/onboarding/OnboardingView";
 import { useRuntimeOverview } from "./features/runtime-overview/model/useRuntimeOverview";
@@ -73,6 +74,7 @@ function DashboardShell({
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [sidebarProjects, setSidebarProjects] = useState<AnyRecord[]>([]);
   const [terminalClosedHost, setTerminalClosedHost] = useState<HTMLDivElement | null>(null);
+  const [issueReportLoading, setIssueReportLoading] = useState(false);
   const sidebarChatRepairRef = useRef<string | null>(null);
   const { status: updateStatus } = useUpdateCheck();
   useNotificationSocket();
@@ -159,6 +161,39 @@ function DashboardShell({
     projectTaskReference: string | null = null
   ) {
     setProjectRoute(projectId, projectTab, projectTaskReference);
+  }
+
+  async function handleReportIssue() {
+    if (issueReportLoading) {
+      return;
+    }
+
+    setIssueReportLoading(true);
+    const popup = window.open("about:blank", "_blank");
+    if (!popup) {
+      emitNotification("system_error", "Issue report blocked", "Allow popups for this dashboard, then try Report an Issue again.");
+      setIssueReportLoading(false);
+      return;
+    }
+    popup.opener = null;
+
+    try {
+      const report = await dependencies.coreApi.createIssueReport({ logLimit: 200 });
+      const issueUrl = typeof report?.issueUrl === "string" ? report.issueUrl : "";
+      if (!issueUrl) {
+        popup.close();
+        emitNotification("system_error", "Issue report failed", "Sloppy could not prepare a sanitized GitHub issue URL.");
+        return;
+      }
+
+      popup.location.href = issueUrl;
+      setMobileSidebarOpen(false);
+    } catch {
+      popup.close();
+      emitNotification("system_error", "Issue report failed", "Sloppy could not prepare a sanitized GitHub issue URL.");
+    } finally {
+      setIssueReportLoading(false);
+    }
   }
 
   const runtimeContent = (
@@ -326,6 +361,21 @@ function DashboardShell({
               </span>
               {!sidebarCompact && <span className="sidebar-docs-label">[ DOCS ]</span>}
             </a>
+            <button
+              type="button"
+              className="sidebar-report-link"
+              title="Report an Issue"
+              aria-label="Report an Issue"
+              onClick={handleReportIssue}
+              disabled={issueReportLoading}
+            >
+              <span className="material-symbols-rounded sidebar-icon" aria-hidden="true">
+                campaign
+              </span>
+              {!sidebarCompact && (
+                <span className="sidebar-report-label">{issueReportLoading ? "[ PREPARING ]" : "[ REPORT ISSUE ]"}</span>
+              )}
+            </button>
             <div className="sidebar-footer-tray">
               <NotificationBell
                 isCompact={sidebarCompact}

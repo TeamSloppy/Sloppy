@@ -19,41 +19,17 @@ enum ProjectDetailTab: String, CaseIterable, Hashable {
 struct ProjectDetailView: View {
     let project: APIProjectRecord
 
-    @Environment(\.dismiss) private var dismiss
     @Environment(\.theme) private var theme
     @State private var selectedTab: ProjectDetailTab = .info
 
     var body: some View {
-        let c = theme.colors
-        let sp = theme.spacing
-        let bo = theme.borders
-        let ty = theme.typography
-
-        return VStack(alignment: .leading, spacing: 0) {
-            HStack(spacing: sp.m) {
-                BackButton("Projects", action: { dismiss() })
-                Spacer()
-            }
-            .padding(.horizontal, sp.l)
-            .padding(.vertical, sp.m)
-
-            HStack(spacing: sp.s) {
-                Color.clear
-                    .frame(width: bo.thick, height: 28)
-                    .background(c.accent)
-                Text(project.name.uppercased())
-                    .font(.system(size: ty.title))
-                    .foregroundColor(c.textPrimary)
-            }
-            .padding(.horizontal, sp.l)
-            .padding(.bottom, sp.m)
-
-            TabView(selection: $selectedTab) {
-                Tab(ProjectDetailTab.info.title, value: ProjectDetailTab.info) { tabContent(.info) }
-                Tab(ProjectDetailTab.tasks.title, value: ProjectDetailTab.tasks) { tabContent(.tasks) }
-                Tab(ProjectDetailTab.channels.title, value: ProjectDetailTab.channels) { tabContent(.channels) }
-            }
+        TabView(selection: $selectedTab) {
+            Tab(ProjectDetailTab.info.title, value: ProjectDetailTab.info) { tabContent(.info) }
+            Tab(ProjectDetailTab.tasks.title, value: ProjectDetailTab.tasks) { tabContent(.tasks) }
+            Tab(ProjectDetailTab.channels.title, value: ProjectDetailTab.channels) { tabContent(.channels) }
         }
+        .navigationTitle(project.name.uppercased())
+        .navigationTitlePosition(.leading)
     }
 
     @ViewBuilder

@@ -17,6 +17,7 @@ export const fetchArtifact = coreApi.fetchArtifact;
 export const fetchRuntimeConfig = coreApi.fetchRuntimeConfig;
 export const updateRuntimeConfig = coreApi.updateRuntimeConfig;
 export const fetchSystemLogs = coreApi.fetchSystemLogs;
+export const createIssueReport = coreApi.createIssueReport;
 export const selectDirectory = coreApi.selectDirectory;
 export const fetchOpenAIModels = coreApi.fetchOpenAIModels;
 export const fetchOpenAIProviderStatus = coreApi.fetchOpenAIProviderStatus;
