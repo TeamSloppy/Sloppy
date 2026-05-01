@@ -9,6 +9,7 @@ import {
   fetchRuntimeConfig,
   fetchSearchProviderStatus,
   importAnthropicClaudeCredentials,
+  importOpenAICodexCredentials,
   probeProvider,
   startAnthropicOAuth,
   startOpenAIDeviceCode,
@@ -829,6 +830,7 @@ export function ConfigView({
   const providerModelPickerRef = useRef(null);
   const providerModelMenuRef = useRef(null);
   const anthropicOAuthPopupRef = useRef(null);
+  const [anthropicOAuthAuthorizationURL, setAnthropicOAuthAuthorizationURL] = useState("");
 
   useEffect(() => {
     loadConfig().catch(() => {
@@ -1222,14 +1224,27 @@ export function ConfigView({
   }
 
   async function openOpenAIPlatform() {
-    setProviderStatus("openai-oauth", "Requesting device code from OpenAI...");
+    setProviderStatus("openai-oauth", "Checking for local Codex credentials...");
     setConfigDeviceCode(null);
     setConfigDeviceCodeCopied(false);
     configDeviceCodePollingRef.current = false;
 
+    const imported = await importOpenAICodexCredentials();
+    if (imported?.ok) {
+      setProviderStatus("openai-oauth", String(imported.message || "Codex credentials imported."));
+      setStatusText("OpenAI OAuth connected");
+      await loadOpenAIProviderStatus();
+      await loadProviderModels("openai-oauth", providerForm || getProviderDefinition("openai-oauth").defaultEntry);
+      return;
+    }
+
+    setProviderStatus("openai-oauth", "Codex credentials were not found locally. Requesting device code from OpenAI...");
     const response = await startOpenAIDeviceCode();
     if (!response || typeof response.deviceAuthId !== "string") {
-      setProviderStatus("openai-oauth", "Failed to start device code flow.");
+      const message = imported?.message
+        ? `Failed to start device code flow. ${String(imported.message)}`
+        : "Failed to start device code flow.";
+      setProviderStatus("openai-oauth", message);
       return;
     }
 
@@ -1358,13 +1373,29 @@ export function ConfigView({
 
   async function openAnthropicOAuthPopup() {
     const redirectURI = `${window.location.origin}${window.location.pathname}`;
-    setProviderStatus("anthropic-oauth", "Requesting Anthropic OAuth URL...");
+    setProviderStatus("anthropic-oauth", "Checking for local Claude Code credentials...");
+    setAnthropicOAuthAuthorizationURL("");
+
+    const imported = await importAnthropicClaudeCredentials();
+    if (imported?.ok) {
+      setProviderStatus("anthropic-oauth", String(imported.message || "Claude Code credentials imported."));
+      setStatusText("Anthropic OAuth imported");
+      await loadAnthropicProviderStatus();
+      await loadProviderModels("anthropic-oauth", providerForm || getProviderDefinition("anthropic-oauth").defaultEntry);
+      return;
+    }
+
+    setProviderStatus("anthropic-oauth", "Claude Code credentials were not found locally. Requesting Anthropic OAuth URL...");
 
     const response = await startAnthropicOAuth({ redirectURI });
     if (!response || typeof response.authorizationURL !== "string") {
-      setProviderStatus("anthropic-oauth", "Failed to start Anthropic OAuth.");
+      const message = imported?.message
+        ? `Failed to start Anthropic OAuth. ${String(imported.message)}`
+        : "Failed to start Anthropic OAuth.";
+      setProviderStatus("anthropic-oauth", message);
       return;
     }
+    setAnthropicOAuthAuthorizationURL(String(response.authorizationURL));
 
     const width = 640;
     const height = 860;
@@ -1377,7 +1408,7 @@ export function ConfigView({
     );
     anthropicOAuthPopupRef.current = popup;
     if (!popup) {
-      setProviderStatus("anthropic-oauth", "Popup was blocked. Allow popups and try again.");
+      setProviderStatus("anthropic-oauth", "Popup was blocked. Allow popups, use the QR code, or open the browser login again.");
       return;
     }
 
@@ -1393,6 +1424,7 @@ export function ConfigView({
 
       setProviderStatus("anthropic-oauth", String(completion.message || "Anthropic OAuth connected."));
       setStatusText("Anthropic OAuth connected");
+      setAnthropicOAuthAuthorizationURL("");
       await loadAnthropicProviderStatus();
       await loadProviderModels("anthropic-oauth", providerForm || getProviderDefinition("anthropic-oauth").defaultEntry);
     } catch (error) {
@@ -1405,6 +1437,7 @@ export function ConfigView({
 
   async function importClaudeCredentialsForAnthropic() {
     setProviderStatus("anthropic-oauth", "Importing Claude Code credentials...");
+    setAnthropicOAuthAuthorizationURL("");
     const response = await importAnthropicClaudeCredentials();
     if (!response?.ok) {
       setProviderStatus("anthropic-oauth", String(response?.message || "Failed to import Claude Code credentials."));
@@ -1425,6 +1458,7 @@ export function ConfigView({
     }
 
     setProviderStatus("anthropic-oauth", "Anthropic OAuth disconnected.");
+    setAnthropicOAuthAuthorizationURL("");
     setStatusText("Anthropic OAuth disconnected");
     setProviderModelOptions((previous) => ({
       ...previous,
@@ -1902,6 +1936,7 @@ export function ConfigView({
             onOpenAnthropicOAuth={openAnthropicOAuthPopup}
             onImportAnthropicClaudeCredentials={importClaudeCredentialsForAnthropic}
             onDisconnectAnthropicOAuth={handleAnthropicOAuthDisconnect}
+            anthropicOAuthAuthorizationURL={anthropicOAuthAuthorizationURL}
             onCancelDeviceCode={cancelConfigDeviceCodePolling}
             onCopyDeviceCode={copyConfigDeviceCode}
             onOpenDeviceCodeLoginPage={openConfigDeviceCodeLoginPage}

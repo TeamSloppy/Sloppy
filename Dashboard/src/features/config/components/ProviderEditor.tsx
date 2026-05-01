@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Gemini, ProviderIcon } from "@lobehub/icons";
+import { QRCodeSVG } from "qrcode.react";
 
 /** ProviderIcon resolves providers via keyword map; "gemini" is not registered (only "google"). */
 function ProviderBrandMark({ brandProviderKey, size }) {
@@ -41,6 +42,7 @@ export function ProviderEditor({
   onOpenAnthropicOAuth,
   onImportAnthropicClaudeCredentials,
   onDisconnectAnthropicOAuth,
+  anthropicOAuthAuthorizationURL,
   onCancelDeviceCode,
   onCopyDeviceCode,
   onOpenDeviceCodeLoginPage,
@@ -384,9 +386,19 @@ export function ProviderEditor({
                       </button>
                     </div>
 
+                    <div className="provider-device-code-qr">
+                      <QRCodeSVG
+                        value={deviceCode.verificationURL}
+                        size={132}
+                        bgColor="#ffffff"
+                        fgColor="#000000"
+                        level="M"
+                      />
+                    </div>
+
                     <div className="provider-device-code-step">
                       <span className="provider-device-code-step-number">2</span>
-                      <span>Open OpenAI and paste the code</span>
+                      <span>Open OpenAI in this browser or scan the QR code</span>
                     </div>
                     <button type="button" onClick={onOpenDeviceCodeLoginPage}>
                       Open login page
@@ -438,6 +450,31 @@ export function ProviderEditor({
                         </button>
                       ) : null}
                     </div>
+                    {anthropicOAuthAuthorizationURL ? (
+                      <div className="provider-device-code-card">
+                        <div className="provider-device-code-step">
+                          <span className="provider-device-code-step-number">1</span>
+                          <span>Open Anthropic in this browser or scan the QR code</span>
+                        </div>
+                        <div className="provider-device-code-qr">
+                          <QRCodeSVG
+                            value={anthropicOAuthAuthorizationURL}
+                            size={132}
+                            bgColor="#ffffff"
+                            fgColor="#000000"
+                            level="M"
+                          />
+                        </div>
+                        <a
+                          className="provider-device-code-link"
+                          href={anthropicOAuthAuthorizationURL}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                        >
+                          Open login page
+                        </a>
+                      </div>
+                    ) : null}
                     <p className="placeholder-text">
                       {anthropicProviderStatus.hasOAuthCredentials
                         ? `Connected via ${anthropicProviderStatus.oauthSource || "anthropic_oauth"}${anthropicProviderStatus.oauthRefreshable ? " (refreshable)" : ""}${anthropicProviderStatus.oauthExpiresAt ? `, expires ${anthropicProviderStatus.oauthExpiresAt}` : ""}.`

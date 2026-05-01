@@ -158,6 +158,10 @@ extension CoreService {
         try await openAIOAuthService.completeLogin(request: request)
     }
 
+    public func importOpenAICodexCredentials() async throws -> OpenAIOAuthImportCodexResponse {
+        try await openAIOAuthService.importCodexCredentials()
+    }
+
     public func startOpenAIDeviceCode() async throws -> OpenAIDeviceCodeStartResponse {
         try await openAIOAuthService.startDeviceCode()
     }

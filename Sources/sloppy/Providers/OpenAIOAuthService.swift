@@ -184,6 +184,8 @@ struct OpenAIOAuthService: @unchecked Sendable {
         case missingAccessToken
         case missingAccountID
         case invalidTokenPayload
+        case missingCodexCredentials
+        case invalidCodexCredentials
 
         var errorDescription: String? {
             switch self {
@@ -207,6 +209,10 @@ struct OpenAIOAuthService: @unchecked Sendable {
                 return "OpenAI OAuth token does not contain a ChatGPT account id."
             case .invalidTokenPayload:
                 return "OpenAI OAuth token payload is invalid."
+            case .missingCodexCredentials:
+                return "Codex credentials were not found in ~/.codex/auth.json. Sign in with the official Codex app or CLI first."
+            case .invalidCodexCredentials:
+                return "Codex credentials in ~/.codex/auth.json are missing a valid OpenAI OAuth access token."
             }
         }
     }
@@ -215,12 +221,14 @@ struct OpenAIOAuthService: @unchecked Sendable {
     private let fileManager: FileManager
     private let transport: Transport
     private let now: @Sendable () -> Date
+    private let codexCredentialsURL: URL
 
     init(
         workspaceRootURL: URL,
         fileManager: FileManager = .default,
         transport: Transport? = nil,
-        now: @escaping @Sendable () -> Date = Date.init
+        now: @escaping @Sendable () -> Date = Date.init,
+        codexCredentialsURL: URL? = nil
     ) {
         self.workspaceRootURL = workspaceRootURL
         self.fileManager = fileManager
@@ -232,6 +240,8 @@ struct OpenAIOAuthService: @unchecked Sendable {
             return (data, http)
         }
         self.now = now
+        self.codexCredentialsURL = codexCredentialsURL
+            ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".codex/auth.json")
     }
 
     func startLogin(redirectURI: String) throws -> OpenAIOAuthStartResponse {
@@ -387,6 +397,35 @@ struct OpenAIOAuthService: @unchecked Sendable {
 
     func ensureValidToken() async throws {
         _ = try await validCredentials()
+    }
+
+    func importCodexCredentials() async throws -> OpenAIOAuthImportCodexResponse {
+        guard let imported = try readCodexCredentials() else {
+            throw Error.missingCodexCredentials
+        }
+        guard !imported.tokens.accessToken.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            throw Error.invalidCodexCredentials
+        }
+
+        var stored = imported
+        let claims = Self.parseAuthClaims(from: stored.tokens.accessToken)
+        if stored.tokens.accountId?.isEmpty ?? true {
+            stored.tokens.accountId = claims?.accountId
+        }
+        guard stored.tokens.accountId?.isEmpty == false else {
+            throw Error.missingAccountID
+        }
+        if stored.lastRefresh.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            stored.lastRefresh = Self.iso8601String(from: now())
+        }
+
+        try saveStoredAuth(stored)
+        return OpenAIOAuthImportCodexResponse(
+            ok: true,
+            message: "Codex credentials imported.",
+            accountId: stored.tokens.accountId,
+            planType: claims?.planType
+        )
     }
 
     func startDeviceCode() async throws -> OpenAIDeviceCodeStartResponse {
@@ -762,9 +801,27 @@ struct OpenAIOAuthService: @unchecked Sendable {
 
     private func httpErrorMessage(data: Data, statusCode: Int) -> String {
         if let body = String(data: data, encoding: .utf8), !body.isEmpty {
+            if Self.isCloudflareChallenge(body) {
+                return "status \(statusCode): auth.openai.com returned a Cloudflare challenge to Sloppy's non-browser HTTP client. Sign in with the official Codex app or CLI, then import Codex credentials."
+            }
             return "status \(statusCode): \(body)"
         }
         return "status \(statusCode)"
+    }
+
+    private static func isCloudflareChallenge(_ body: String) -> Bool {
+        let lower = body.lowercased()
+        return lower.contains("just a moment")
+            || lower.contains("challenges.cloudflare.com")
+            || lower.contains("_cf_chl_opt")
+            || lower.contains("cf-mitigated")
+    }
+
+    private func readCodexCredentials() throws -> StoredAuth? {
+        guard fileManager.fileExists(atPath: codexCredentialsURL.path) else {
+            return nil
+        }
+        return try load(StoredAuth.self, from: codexCredentialsURL)
     }
 
     private func savePendingSession(_ session: PendingSession) throws {

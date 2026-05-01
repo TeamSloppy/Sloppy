@@ -358,6 +358,74 @@ func openAIOAuthPollDeviceTokenCompletesOnApproval() async throws {
 }
 
 @Test
+func openAIOAuthImportCodexCredentialsReadsLocalAuthFile() async throws {
+    let workspaceRootURL = FileManager.default.temporaryDirectory
+        .appendingPathComponent("openai-oauth-import-codex-\(UUID().uuidString)", isDirectory: true)
+    let codexRootURL = FileManager.default.temporaryDirectory
+        .appendingPathComponent("openai-oauth-codex-home-\(UUID().uuidString)", isDirectory: true)
+    let codexAuthURL = codexRootURL.appendingPathComponent("auth.json")
+
+    let accessToken = try makeJWT(
+        claims: [
+            "exp": NSNumber(value: 2_000_000_000),
+            "https://api.openai.com/auth": [
+                "chatgpt_account_id": "acct_imported",
+                "chatgpt_plan_type": "plus"
+            ]
+        ]
+    )
+    let body =
+        """
+        {
+          "auth_mode": "chatgpt",
+          "OPENAI_API_KEY": null,
+          "tokens": {
+            "id_token": "id_imported",
+            "access_token": "\(accessToken)",
+            "refresh_token": "refresh_imported"
+          },
+          "last_refresh": "2026-01-01T00:00:00Z"
+        }
+        """
+    try FileManager.default.createDirectory(at: codexRootURL, withIntermediateDirectories: true)
+    try Data(body.utf8).write(to: codexAuthURL)
+
+    let service = OpenAIOAuthService(
+        workspaceRootURL: workspaceRootURL,
+        codexCredentialsURL: codexAuthURL
+    )
+
+    let response = try await service.importCodexCredentials()
+    #expect(response.ok)
+    #expect(response.accountId == "acct_imported")
+    #expect(response.planType == "plus")
+    #expect(service.currentAccessToken() == accessToken)
+    #expect(service.currentAccountId() == "acct_imported")
+}
+
+@Test
+func openAIOAuthDeviceCodeCloudflareChallengeReturnsFriendlyMessage() async throws {
+    let workspaceRootURL = FileManager.default.temporaryDirectory
+        .appendingPathComponent("openai-oauth-device-cloudflare-\(UUID().uuidString)", isDirectory: true)
+
+    let service = OpenAIOAuthService(
+        workspaceRootURL: workspaceRootURL,
+        transport: { request in
+            let html = "<!DOCTYPE html><html><head><title>Just a moment...</title></head><body>challenges.cloudflare.com</body></html>"
+            return (Data(html.utf8), makeOAuthHTTPResponse(url: request.url!, statusCode: 403))
+        }
+    )
+
+    do {
+        _ = try await service.startDeviceCode()
+        Issue.record("Expected Cloudflare challenge error")
+    } catch {
+        #expect(error.localizedDescription.contains("Cloudflare challenge"))
+        #expect(!error.localizedDescription.contains("<!DOCTYPE html>"))
+    }
+}
+
+@Test
 func openAIOAuthStartDeviceCodeHandles404() async throws {
     let workspaceRootURL = FileManager.default.temporaryDirectory
         .appendingPathComponent("openai-oauth-device-404-\(UUID().uuidString)", isDirectory: true)

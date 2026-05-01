@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
+import { QRCodeSVG } from "qrcode.react";
 import type { CoreApi } from "../../shared/api/coreApi";
 import { AgentGeneratePreview, type GeneratedAgentFiles } from "../agents/components/AgentGeneratePreview";
 import orchestratorImage from "../../assets/orchestrator.png";
@@ -551,7 +552,9 @@ export function OnboardingView({ coreApi, initialConfig, onCompleted }: Onboardi
   const [deviceCode, setDeviceCode] = useState<{ deviceAuthId: string; userCode: string; verificationURL: string } | null>(null);
   const [isDeviceCodePolling, setIsDeviceCodePolling] = useState(false);
   const [deviceCodeCopied, setDeviceCodeCopied] = useState(false);
+  const [anthropicOAuthAuthorizationURL, setAnthropicOAuthAuthorizationURL] = useState("");
   const deviceCodePollingRef = useRef(false);
+  const anthropicOAuthPopupRef = useRef<Window | null>(null);
 
   const activeProvider = useMemo(
     () => PROVIDERS.find((provider) => provider.id === providerId) || PROVIDERS[0],
@@ -614,14 +617,28 @@ export function OnboardingView({ coreApi, initialConfig, onCompleted }: Onboardi
   }
 
   async function startDeviceCodeFlow() {
-    setProbeStatus("Requesting device code from OpenAI...");
+    setProbeStatus("Checking for local Codex credentials...");
     setDeviceCode(null);
     setDeviceCodeCopied(false);
     deviceCodePollingRef.current = false;
 
+    const imported = await coreApi.importOpenAICodexCredentials();
+    if (imported?.ok) {
+      setProviderId("openai-oauth");
+      const oauthApiUrl = PROVIDERS.find((p) => p.id === "openai-oauth")?.defaultEntry.apiUrl || providerApiUrl;
+      setProviderApiUrl(oauthApiUrl);
+      setProbeStatus(String(imported.message || "Codex credentials imported."));
+      await runProviderProbe("openai-oauth", "", oauthApiUrl);
+      return;
+    }
+
+    setProbeStatus("Codex credentials were not found locally. Requesting device code from OpenAI...");
     const response = await coreApi.startOpenAIDeviceCode();
     if (!response || typeof response.deviceAuthId !== "string") {
-      setProbeStatus("Failed to start device code flow.");
+      const message = imported?.message
+        ? `Failed to start device code flow. ${String(imported.message)}`
+        : "Failed to start device code flow.";
+      setProbeStatus(message);
       return;
     }
 
@@ -661,6 +678,110 @@ export function OnboardingView({ coreApi, initialConfig, onCompleted }: Onboardi
       return;
     }
     setDeviceCodeCopied(true);
+  }
+
+  function waitForAnthropicOAuthCallback(popup: Window | null, redirectURI: string) {
+    return new Promise<string>((resolve, reject) => {
+      const startedAt = Date.now();
+      const interval = window.setInterval(() => {
+        if (!popup || popup.closed) {
+          window.clearInterval(interval);
+          reject(new Error("Anthropic OAuth window was closed."));
+          return;
+        }
+
+        if (Date.now() - startedAt > 5 * 60 * 1000) {
+          window.clearInterval(interval);
+          try {
+            popup.close();
+          } catch {
+            // ignore
+          }
+          reject(new Error("Anthropic OAuth timed out. Try again."));
+          return;
+        }
+
+        try {
+          const href = popup.location.href;
+          if (href && href.startsWith(redirectURI)) {
+            window.clearInterval(interval);
+            try {
+              popup.close();
+            } catch {
+              // ignore
+            }
+            resolve(href);
+          }
+        } catch {
+          // Cross-origin until the popup returns to our redirect URI.
+        }
+      }, 500);
+    });
+  }
+
+  async function connectAnthropicOAuth() {
+    setProbeStatus("Checking for local Claude Code credentials...");
+    setAnthropicOAuthAuthorizationURL("");
+
+    const imported = await coreApi.importAnthropicClaudeCredentials();
+    const oauthApiUrl = PROVIDERS.find((p) => p.id === "anthropic-oauth")?.defaultEntry.apiUrl || providerApiUrl;
+    if (imported?.ok) {
+      setProviderId("anthropic-oauth");
+      setProviderApiUrl(oauthApiUrl);
+      setProviderApiKey("");
+      setProbeStatus(String(imported.message || "Claude Code credentials imported."));
+      await runProviderProbe("anthropic-oauth", "", oauthApiUrl);
+      return;
+    }
+
+    setProbeStatus("Claude Code credentials were not found locally. Requesting Anthropic OAuth URL...");
+    const redirectURI = `${window.location.origin}${window.location.pathname}`;
+    const response = await coreApi.startAnthropicOAuth({ redirectURI });
+    if (!response || typeof response.authorizationURL !== "string") {
+      const message = imported?.message
+        ? `Failed to start Anthropic OAuth. ${String(imported.message)}`
+        : "Failed to start Anthropic OAuth.";
+      setProbeStatus(message);
+      return;
+    }
+
+    const authorizationURL = String(response.authorizationURL);
+    setAnthropicOAuthAuthorizationURL(authorizationURL);
+    const width = 640;
+    const height = 860;
+    const left = Math.max(0, Math.round(window.screenX + (window.outerWidth - width) / 2));
+    const top = Math.max(0, Math.round(window.screenY + (window.outerHeight - height) / 2));
+    const popup = window.open(
+      authorizationURL,
+      "sloppy-anthropic-oauth",
+      `popup=yes,width=${width},height=${height},left=${left},top=${top}`
+    );
+    anthropicOAuthPopupRef.current = popup;
+    if (!popup) {
+      setProbeStatus("Popup was blocked. Allow popups, use the QR code, or open the login page.");
+      return;
+    }
+
+    setProbeStatus("Waiting for Anthropic sign-in confirmation...");
+    try {
+      const callbackURL = await waitForAnthropicOAuthCallback(popup, redirectURI);
+      const completion = await coreApi.completeAnthropicOAuth({ callbackURL });
+      if (!completion?.ok) {
+        setProbeStatus(String(completion?.message || "Anthropic OAuth failed."));
+        return;
+      }
+      setAnthropicOAuthAuthorizationURL("");
+      setProviderId("anthropic-oauth");
+      setProviderApiUrl(oauthApiUrl);
+      setProviderApiKey("");
+      setProbeStatus(String(completion.message || "Anthropic OAuth connected."));
+      await runProviderProbe("anthropic-oauth", "", oauthApiUrl);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Anthropic OAuth failed.";
+      setProbeStatus(message);
+    } finally {
+      anthropicOAuthPopupRef.current = null;
+    }
   }
 
   async function pollDeviceCode(info: { deviceAuthId: string; userCode: string; verificationURL: string }) {
@@ -1017,9 +1138,19 @@ export function OnboardingView({ coreApi, initialConfig, onCompleted }: Onboardi
                       </button>
                     </div>
 
+                    <div className="onboarding-device-code-qr">
+                      <QRCodeSVG
+                        value={deviceCode.verificationURL}
+                        size={132}
+                        bgColor="#ffffff"
+                        fgColor="#000000"
+                        level="M"
+                      />
+                    </div>
+
                     <div className="onboarding-device-code-step">
                       <span className="onboarding-device-code-step-number">2</span>
-                      <span>Open OpenAI and paste the code</span>
+                      <span>Open OpenAI in this browser or scan the QR code</span>
                     </div>
                     <button
                       type="button"
@@ -1052,6 +1183,41 @@ export function OnboardingView({ coreApi, initialConfig, onCompleted }: Onboardi
                     </button>
                   </div>
                 )
+              ) : null}
+
+              {activeProvider.id === "anthropic-oauth" ? (
+                <div className="onboarding-device-code-card">
+                  <div className="onboarding-provider-actions">
+                    <button type="button" className="onboarding-ghost-button hover-levitate" onClick={() => void connectAnthropicOAuth()}>
+                      Connect Anthropic
+                    </button>
+                  </div>
+                  {anthropicOAuthAuthorizationURL ? (
+                    <>
+                      <div className="onboarding-device-code-step">
+                        <span className="onboarding-device-code-step-number">1</span>
+                        <span>Open Anthropic in this browser or scan the QR code</span>
+                      </div>
+                      <div className="onboarding-device-code-qr">
+                        <QRCodeSVG
+                          value={anthropicOAuthAuthorizationURL}
+                          size={132}
+                          bgColor="#ffffff"
+                          fgColor="#000000"
+                          level="M"
+                        />
+                      </div>
+                      <a
+                        className="onboarding-device-code-link"
+                        href={anthropicOAuthAuthorizationURL}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                      >
+                        Open login page
+                      </a>
+                    </>
+                  ) : null}
+                </div>
               ) : null}
 
               {activeProvider.id === "openai-oauth" ? (

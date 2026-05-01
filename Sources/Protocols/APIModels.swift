@@ -2773,6 +2773,20 @@ public struct OpenAIOAuthCompleteResponse: Codable, Sendable {
     }
 }
 
+public struct OpenAIOAuthImportCodexResponse: Codable, Sendable {
+    public var ok: Bool
+    public var message: String
+    public var accountId: String?
+    public var planType: String?
+
+    public init(ok: Bool, message: String, accountId: String? = nil, planType: String? = nil) {
+        self.ok = ok
+        self.message = message
+        self.accountId = accountId
+        self.planType = planType
+    }
+}
+
 public struct AnthropicOAuthStartRequest: Codable, Sendable {
     public var redirectURI: String
 

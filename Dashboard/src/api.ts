@@ -24,6 +24,7 @@ export const fetchOpenAIProviderStatus = coreApi.fetchOpenAIProviderStatus;
 export const fetchAnthropicProviderStatus = coreApi.fetchAnthropicProviderStatus;
 export const startOpenAIOAuth = coreApi.startOpenAIOAuth;
 export const completeOpenAIOAuth = coreApi.completeOpenAIOAuth;
+export const importOpenAICodexCredentials = coreApi.importOpenAICodexCredentials;
 export const startOpenAIDeviceCode = coreApi.startOpenAIDeviceCode;
 export const pollOpenAIDeviceCode = coreApi.pollOpenAIDeviceCode;
 export const disconnectOpenAIOAuth = coreApi.disconnectOpenAIOAuth;

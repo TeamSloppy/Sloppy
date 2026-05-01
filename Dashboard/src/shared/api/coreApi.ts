@@ -84,6 +84,7 @@ export interface CoreApi {
   fetchAnthropicProviderStatus: () => Promise<AnyRecord | null>;
   startOpenAIOAuth: (payload: AnyRecord) => Promise<AnyRecord | null>;
   completeOpenAIOAuth: (payload: AnyRecord) => Promise<AnyRecord | null>;
+  importOpenAICodexCredentials: () => Promise<AnyRecord | null>;
   startOpenAIDeviceCode: () => Promise<AnyRecord | null>;
   pollOpenAIDeviceCode: (payload: AnyRecord) => Promise<AnyRecord | null>;
   disconnectOpenAIOAuth: () => Promise<boolean>;
@@ -513,6 +514,14 @@ export function createCoreApi(): CoreApi {
         path: "/v1/providers/openai/oauth/complete",
         method: "POST",
         body: payload
+      });
+      return response.data;
+    },
+
+    importOpenAICodexCredentials: async () => {
+      const response = await requestJson<AnyRecord>({
+        path: "/v1/providers/openai/oauth/import-codex",
+        method: "POST"
       });
       return response.data;
     },

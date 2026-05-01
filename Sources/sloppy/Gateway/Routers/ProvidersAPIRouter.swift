@@ -64,6 +64,21 @@ struct ProvidersAPIRouter: APIRouter {
             }
         }
 
+        router.post("/v1/providers/openai/oauth/import-codex", metadata: RouteMetadata(summary: "Import Codex credentials", description: "Imports official Codex app or CLI credentials into Sloppy", tags: ["Providers"])) { _ in
+            do {
+                let response = try await service.importOpenAICodexCredentials()
+                return CoreRouter.encodable(status: HTTPStatus.ok, payload: response)
+            } catch {
+                return CoreRouter.encodable(
+                    status: HTTPStatus.ok,
+                    payload: OpenAIOAuthImportCodexResponse(
+                        ok: false,
+                        message: error.localizedDescription
+                    )
+                )
+            }
+        }
+
         router.post("/v1/providers/openai/oauth/device-code/poll", metadata: RouteMetadata(summary: "Poll device code", description: "Polls the device code authorization status", tags: ["Providers"])) { request in
             guard let body = request.body,
                   let payload = CoreRouter.decode(body, as: OpenAIDeviceCodePollRequest.self)

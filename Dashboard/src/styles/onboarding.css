@@ -389,6 +389,28 @@
   padding: 0 0 0 34px;
 }
 
+.onboarding-device-code-qr {
+  display: inline-flex;
+  width: 156px;
+  height: 156px;
+  align-items: center;
+  justify-content: center;
+  margin-left: 34px;
+  border: 1px solid var(--line);
+  background: #fff;
+}
+
+.onboarding-device-code-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 44px;
+  border: 1px solid var(--line);
+  color: var(--text);
+  text-decoration: none;
+  font-weight: 700;
+}
+
 .onboarding-device-code-value {
   font-family: "Fira Code", "JetBrains Mono", monospace;
   font-size: 1.25rem;
