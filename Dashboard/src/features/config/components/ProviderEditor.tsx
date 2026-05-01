@@ -384,11 +384,11 @@ export function ProviderEditor({
                       </button>
                     </div>
 
-                    <div className={`provider-device-code-step ${deviceCodeCopied ? "" : "disabled"}`}>
+                    <div className="provider-device-code-step">
                       <span className="provider-device-code-step-number">2</span>
                       <span>Open OpenAI and paste the code</span>
                     </div>
-                    <button type="button" disabled={!deviceCodeCopied} onClick={onOpenDeviceCodeLoginPage}>
+                    <button type="button" onClick={onOpenDeviceCodeLoginPage}>
                       Open login page
                     </button>
 

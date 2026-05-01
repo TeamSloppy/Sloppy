@@ -1297,7 +1297,16 @@ export function ConfigView({
     const height = 860;
     const left = Math.max(0, Math.round(window.screenX + (window.outerWidth - width) / 2));
     const top = Math.max(0, Math.round(window.screenY + (window.outerHeight - height) / 2));
-    window.open(configDeviceCode.verificationURL, "sloppy-openai-device-code", `popup=yes,width=${width},height=${height},left=${left},top=${top}`);
+    const popup = window.open(
+      configDeviceCode.verificationURL,
+      "sloppy-openai-device-code",
+      `popup=yes,width=${width},height=${height},left=${left},top=${top}`
+    );
+    if (!popup) {
+      setProviderStatus("openai-oauth", "Login window was blocked. Allow popups or open the login page in a new tab.");
+      return;
+    }
+    setConfigDeviceCodeCopied(true);
   }
 
   function cancelConfigDeviceCodePolling() {

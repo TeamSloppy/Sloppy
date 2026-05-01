@@ -651,7 +651,16 @@ export function OnboardingView({ coreApi, initialConfig, onCompleted }: Onboardi
     const height = 860;
     const left = Math.max(0, Math.round(window.screenX + (window.outerWidth - width) / 2));
     const top = Math.max(0, Math.round(window.screenY + (window.outerHeight - height) / 2));
-    window.open(deviceCode.verificationURL, "sloppy-openai-device-code", `popup=yes,width=${width},height=${height},left=${left},top=${top}`);
+    const popup = window.open(
+      deviceCode.verificationURL,
+      "sloppy-openai-device-code",
+      `popup=yes,width=${width},height=${height},left=${left},top=${top}`
+    );
+    if (!popup) {
+      setProbeStatus("Login window was blocked. Allow popups or open the login page in a new tab.");
+      return;
+    }
+    setDeviceCodeCopied(true);
   }
 
   async function pollDeviceCode(info: { deviceAuthId: string; userCode: string; verificationURL: string }) {
@@ -1008,14 +1017,13 @@ export function OnboardingView({ coreApi, initialConfig, onCompleted }: Onboardi
                       </button>
                     </div>
 
-                    <div className={`onboarding-device-code-step ${deviceCodeCopied ? "" : "disabled"}`}>
+                    <div className="onboarding-device-code-step">
                       <span className="onboarding-device-code-step-number">2</span>
                       <span>Open OpenAI and paste the code</span>
                     </div>
                     <button
                       type="button"
                       className="onboarding-ghost-button hover-levitate"
-                      disabled={!deviceCodeCopied}
                       onClick={openDeviceCodeLoginPage}
                     >
                       Open login page
