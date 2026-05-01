@@ -65,7 +65,7 @@ bash scripts/install.sh --bundle --no-prompt
 curl -fsSL https://sloppy.team/install.sh | bash -s -- --server-only
 ```
 
-The installer builds `sloppy` and `SloppyNode`, optionally builds the Dashboard, and links the CLI into `~/.local/bin`.
+The installer builds `sloppy`, optionally builds the Dashboard, and links the CLI into `~/.local/bin`. Install the standalone `sloppy-node` executor separately when you need a process boundary for local computer control.
 
 ## Build the Swift targets
 
@@ -132,6 +132,8 @@ Run the node daemon when needed:
 ```bash
 swift run SloppyNode
 ```
+
+The user-facing installed command is `sloppy-node`; the SwiftPM product remains `SloppyNode`.
 
 ## Run the Swift tests
 

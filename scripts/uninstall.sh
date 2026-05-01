@@ -30,7 +30,7 @@ Usage: $SCRIPT_NAME [options]
 Remove Sloppy binaries and dashboard assets installed by scripts/install.sh.
 
 Options:
-  --bin-dir <path>              Directory containing sloppy and SloppyNode commands. Default: $BIN_DIR
+  --bin-dir <path>              Directory containing the sloppy command. Default: $BIN_DIR
   --dashboard-dir <path>        Dashboard bundle directory. Default: $DASHBOARD_DIR
   --local-root <path>           Release layout root. Default: $LOCAL_ROOT
   --install-dir <path>          Source checkout directory. Default: $INSTALL_DIR
@@ -161,15 +161,9 @@ main() {
   if remove_file_if_exists "$BIN_DIR/sloppy"; then
     removed_any=0
   fi
-  if remove_file_if_exists "$BIN_DIR/SloppyNode"; then
-    removed_any=0
-  fi
 
   if [[ "$release_bin_dir" != "$BIN_DIR" ]]; then
     if remove_file_if_exists "$release_bin_dir/sloppy"; then
-      removed_any=0
-    fi
-    if remove_file_if_exists "$release_bin_dir/SloppyNode"; then
       removed_any=0
     fi
   fi

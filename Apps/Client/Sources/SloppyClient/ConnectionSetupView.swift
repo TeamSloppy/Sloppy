@@ -1,6 +1,9 @@
 import AdaEngine
 import SloppyClientCore
 import SloppyClientUI
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
 
 struct ConnectionSetupView: View {
     let settings: ClientSettings

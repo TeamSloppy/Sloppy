@@ -13,10 +13,12 @@ let package = Package(
         .library(name: "ChannelPluginSupport", targets: ["ChannelPluginSupport"]),
         .library(name: "ChannelPluginTelegram", targets: ["ChannelPluginTelegram"]),
         .library(name: "ChannelPluginDiscord", targets: ["ChannelPluginDiscord"]),
+        .library(name: "SloppyNodeCore", targets: ["SloppyNodeCore"]),
         .executable(name: "sloppy", targets: ["sloppy"]),
         .executable(name: "SloppyNode", targets: ["SloppyNode"])
     ],
     dependencies: [
+        .package(path: "Packages/SloppyComputerControl"),
         .package(url: "https://github.com/apple/swift-argument-parser.git", from: "1.5.0"),
         .package(url: "https://github.com/apple/swift-configuration.git", from: "0.2.0"),
         .package(url: "https://github.com/apple/swift-log.git", from: "1.6.0"),
@@ -33,6 +35,7 @@ let package = Package(
         .target(
             name: "Protocols",
             dependencies: [
+                .product(name: "SloppyComputerControl", package: "SloppyComputerControl"),
                 .product(name: "Logging", package: "swift-log")
             ],
             path: "Sources/Protocols"
@@ -69,6 +72,7 @@ let package = Package(
                 "Protocols",
                 "PluginSDK",
                 "CSQLite3",
+                .product(name: "SloppyComputerControl", package: "SloppyComputerControl"),
                 .product(name: "AnyLanguageModel", package: "AnyLanguageModel"),
                 .product(name: "ArgumentParser", package: "swift-argument-parser"),
                 .product(name: "Configuration", package: "swift-configuration"),
@@ -97,12 +101,21 @@ let package = Package(
         .executableTarget(
             name: "SloppyNode",
             dependencies: [
+                "SloppyNodeCore",
                 "Protocols",
                 "CSQLite3",
                 .product(name: "ArgumentParser", package: "swift-argument-parser"),
                 .product(name: "Logging", package: "swift-log")
             ],
             path: "Sources/Node"
+        ),
+        .target(
+            name: "SloppyNodeCore",
+            dependencies: [
+                "Protocols",
+                .product(name: "SloppyComputerControl", package: "SloppyComputerControl")
+            ],
+            path: "Sources/NodeCore"
         ),
         .target(
             name: "ChannelPluginTelegram",
@@ -147,6 +160,14 @@ let package = Package(
                 "CSQLite3"
             ],
             path: "Tests/sloppyTests"
+        ),
+        .testTarget(
+            name: "SloppyNodeCoreTests",
+            dependencies: [
+                "SloppyNodeCore",
+                "Protocols"
+            ],
+            path: "Tests/SloppyNodeCoreTests"
         ),
         .target(
             name: "CSQLite3",

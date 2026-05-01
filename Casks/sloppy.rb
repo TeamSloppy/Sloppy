@@ -8,7 +8,6 @@ cask "sloppy" do
   homepage "https://github.com/TeamSloppy/Sloppy"
 
   binary "bin/sloppy"
-  binary "bin/SloppyNode"
 
   artifact "share/sloppy/dashboard", target: "#{Dir.home}/.local/share/sloppy/dashboard"
 end

@@ -24,17 +24,17 @@ final class SloppyDesktopOverlay {
         }
 
         miniaturizeTask = Task { @MainActor in
-            let notifications = NotificationCenter.default.notifications(named: .adaEngineWindowDidMiniaturize)
+            let notifications = NotificationCenter.default.sloppyNotifications(named: .adaEngineWindowDidMiniaturize)
             for await notification in notifications {
-                guard let window = notification.object as? UIWindow else { continue }
+                guard let window = notification.rawValue.object as? UIWindow else { continue }
                 showOverlay(for: window)
             }
         }
 
         deminiaturizeTask = Task { @MainActor in
-            let notifications = NotificationCenter.default.notifications(named: .adaEngineWindowDidDeminiaturize)
+            let notifications = NotificationCenter.default.sloppyNotifications(named: .adaEngineWindowDidDeminiaturize)
             for await notification in notifications {
-                guard let window = notification.object as? UIWindow else { continue }
+                guard let window = notification.rawValue.object as? UIWindow else { continue }
                 if window === primaryWindow {
                     hideOverlay()
                 }

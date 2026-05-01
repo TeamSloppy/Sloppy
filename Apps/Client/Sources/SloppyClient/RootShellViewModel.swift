@@ -31,9 +31,9 @@ final class RootShellViewModel {
 
     func startDeepLinkListener() {
         Task { @MainActor in
-            let notifications = NotificationCenter.default.notifications(named: .adaEngineOpenURL)
+            let notifications = NotificationCenter.default.sloppyNotifications(named: .adaEngineOpenURL)
             for await notification in notifications {
-                guard let url = notification.object as? URL,
+                guard let url = notification.rawValue.object as? URL,
                       let deepLink = DeepLink.parse(url),
                       let serverURL = deepLink.serverURL else { continue }
                 settings.useServer(deepLink.savedServer)

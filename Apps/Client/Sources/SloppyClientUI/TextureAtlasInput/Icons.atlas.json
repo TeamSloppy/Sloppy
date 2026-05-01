@@ -1,6 +1,6 @@
 {
   "atlasName": "Icons",
-  "inputDirectory": ".",
+  "inputDirectory": "",
   "padding": 2,
   "extrude": 1,
   "powerOfTwo": false,

@@ -18,7 +18,7 @@ brew tap teamsloppy/sloppy https://github.com/TeamSloppy/Sloppy
 brew install --cask teamsloppy/sloppy/sloppy
 ```
 
-This installs the `sloppy` and `SloppyNode` binaries and copies the Dashboard bundle to `~/.local/share/sloppy/dashboard`, matching the layout used by the source installer.
+This installs the `sloppy` binary and copies the Dashboard bundle to `~/.local/share/sloppy/dashboard`, matching the layout used by the source installer. Install `sloppy-node` separately when you need a standalone local computer-control executor.
 
 ::: tip macOS architecture
 
@@ -85,9 +85,9 @@ curl -fsSL https://sloppy.team/install.sh | bash
 
 The installer will:
 
-- build `sloppy` and `SloppyNode` in release mode
+- build `sloppy` in release mode
 - build the Dashboard bundle by default
-- install `sloppy` and `SloppyNode` symlinks into `~/.local/bin`
+- install the `sloppy` symlink into `~/.local/bin`
 
 Useful modes:
 
@@ -111,6 +111,22 @@ Verify the installation and check connectivity:
 ```bash
 sloppy --version
 ```
+
+### Standalone SloppyNode
+
+`sloppy` can use computer-control tools in-process. For a separate node executable, install `sloppy-node`:
+
+```bash
+bash scripts/install-sloppy-node.sh
+```
+
+On Windows:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/install-sloppy-node.ps1
+```
+
+For permissions, protocol details, and client helper notes, see [SloppyNode](/guides/sloppy-node).
 
 Then start the server:
 

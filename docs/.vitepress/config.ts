@@ -51,6 +51,7 @@ export default defineConfig({
           { text: "Development Workflow", link: "/guides/development-workflow" },
           { text: "Project Context", link: "/guides/project-context" },
           { text: "CLI Reference", link: "/guides/cli" },
+          { text: "SloppyNode", link: "/guides/sloppy-node" },
           { text: "Model Providers", link: "/guides/models" },
           { text: "MCP Integration", link: "/guides/mcp" },
           { text: "ACP Integration", link: "/guides/acp" },

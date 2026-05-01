@@ -42,7 +42,7 @@ At its core, the project provides:
 | `sloppy` | 🖥️ HTTP API, routing layer, orchestration services, persistence, scheduling, and plugin bootstrap |
 | `AgentRuntime` | 🧠 Runtime model built around `Channel`, `Branch`, `Worker`, `Compactor`, and `Visor` |
 | `PluginSDK` | 🔌 Extension points for model providers, tools, memory, and gateways |
-| `Node` | ⚙️ Daemon for process execution |
+| `Node` | ⚙️ Standalone `sloppy-node` process wrapper for local computer control |
 | `Dashboard` | 📊 Vite/React UI for runtime visibility |
 
 The runtime is designed to keep agent execution structured, inspectable, and recoverable instead of collapsing everything into one opaque prompt loop.
@@ -110,6 +110,12 @@ Remote bootstrap variants:
 ```bash
 curl -fsSL https://sloppy.team/install.sh | bash
 curl -fsSL https://sloppy.team/install.sh | bash -s -- --server-only
+```
+
+For a standalone local computer-control executor, install `sloppy-node` separately:
+
+```bash
+bash scripts/install-sloppy-node.sh
 ```
 
 📖 For detailed install options, Docker, and configuration, see [docs/install.md](docs/install.md) and [docs/index.md](docs/index.md).

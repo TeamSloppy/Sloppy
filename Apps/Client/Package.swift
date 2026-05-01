@@ -27,6 +27,7 @@ let package = Package(
         .library(name: "SloppyFeatureChat", targets: ["SloppyFeatureChat"])
     ],
     dependencies: [
+        .package(name: "SloppyComputerControl", path: "../../Packages/SloppyComputerControl"),
         .package(url: "https://github.com/apple/swift-log.git", from: "1.6.0"),
         .package(name: "AdaEngine", path: adaEnginePath),
         .package(name: "AdaMCP", path: "../../Vendor/AdaMCP")
@@ -111,6 +112,7 @@ let package = Package(
                 .product(name: "Logging", package: "swift-log"),
                 .product(name: "AdaEngine", package: "AdaEngine"),
                 .product(name: "AdaMCPPlugin", package: "AdaMCP", condition: .when(platforms: [.macOS, .iOS, .visionOS])),
+                .product(name: "SloppyComputerControl", package: "SloppyComputerControl", condition: .when(platforms: [.macOS])),
 //                .product(name: "AdaRuntimeDebugPlugin", package: "AdaMCP", condition: .when(platforms: [.macOS]))
             ],
             path: "Sources/SloppyClient"

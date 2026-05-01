@@ -11,6 +11,8 @@ options:
 packages:
   SloppyClient:
     path: .
+  SloppyComputerControl:
+    path: ../../Packages/SloppyComputerControl
   AdaMCP:
     path: ../../Vendor/AdaMCP
 
@@ -36,6 +38,8 @@ targets:
         product: SloppyFeatureAgents
       - package: SloppyClient
         product: SloppyFeatureSettings
+      - package: SloppyComputerControl
+        product: SloppyComputerControl
     info:
       path: SupportingFiles/macOS/Info.plist
       properties:

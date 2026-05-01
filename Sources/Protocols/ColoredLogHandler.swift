@@ -1,10 +1,5 @@
 import Foundation
 import Logging
-#if os(Linux)
-import Glibc
-#else
-import Darwin
-#endif
 
 public struct ColoredLogHandler: LogHandler, @unchecked Sendable {
     private static let isColorEnabled: Bool = {
@@ -45,10 +40,7 @@ public struct ColoredLogHandler: LogHandler, @unchecked Sendable {
             output = "\(ts) \(levelTag) [\(label)] \(event.message)\(metaString)\n"
         }
 
-        let data = Array(output.utf8)
-        data.withUnsafeBufferPointer { buf in
-            _ = write(STDERR_FILENO, buf.baseAddress, buf.count)
-        }
+        FileHandle.standardError.write(Data(output.utf8))
     }
 
     private func formatMetadata(_ callMetadata: Logger.Metadata?) -> String {

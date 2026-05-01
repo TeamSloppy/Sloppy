@@ -10,6 +10,7 @@ struct ToolRegistryTests {
         let expectedIDs: Set<String> = [
             "files.read", "files.edit", "files.write",
             "runtime.exec", "runtime.process",
+            "computer.click", "computer.type", "computer.key", "computer.screenshot",
             "web.search", "web.fetch",
             "branches.spawn",
             "workers.spawn", "agents.delegate_task", "workers.route",

@@ -124,11 +124,13 @@ func runForegroundProcess(
     cwd: URL?,
     timeoutMs: Int,
     maxOutputBytes: Int,
-    environmentOverrides: [String: String] = [:]
+    environmentOverrides: [String: String] = [:],
+    standardInput: Data? = nil
 ) async throws -> JSONValue {
     let process = Process()
     let stdout = Pipe()
     let stderr = Pipe()
+    let stdin = Pipe()
 
     if command.hasPrefix("/") || command.hasPrefix("./") || command.hasPrefix("../") {
         process.executableURL = URL(fileURLWithPath: command)
@@ -141,8 +143,15 @@ func runForegroundProcess(
     process.environment = childProcessEnvironment(overrides: environmentOverrides)
     process.standardOutput = stdout
     process.standardError = stderr
+    if standardInput != nil {
+        process.standardInput = stdin
+    }
     process.currentDirectoryURL = cwd
     try process.run()
+    if let standardInput {
+        stdin.fileHandleForWriting.write(standardInput)
+        try? stdin.fileHandleForWriting.close()
+    }
 
     let didTimeout = await raceProcessAgainstTimeout(process: process, timeoutMs: timeoutMs)
     if didTimeout, process.isRunning {

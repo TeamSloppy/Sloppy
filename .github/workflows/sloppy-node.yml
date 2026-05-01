@@ -1,0 +1,51 @@
+name: SloppyNode
+
+on:
+  push:
+    branches:
+      - main
+      - "codex/**"
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: sloppy-node-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build SloppyNode (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - macos-latest
+          - windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Swift
+        uses: swift-actions/setup-swift@v2
+        with:
+          swift-version: "6.2"
+
+      - name: Swift Version
+        run: swift --version
+
+      - name: Build SloppyNode
+        run: swift build -c release --product SloppyNode
+
+      - name: Build Focused Test Targets
+        run: |
+          swift build --target ProtocolsTests
+          swift build --target SloppyNodeCoreTests
+
+      - name: Smoke invoke
+        shell: pwsh
+        run: |
+          $request = '{"action":"status","payload":{}}'
+          $exe = if ($IsWindows) { ".build\release\SloppyNode.exe" } else { ".build/release/SloppyNode" }
+          $request | & $exe invoke --stdin

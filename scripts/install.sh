@@ -49,7 +49,7 @@ Install Sloppy from source and optionally build the Dashboard bundle, or install
 prebuilt binaries from a GitHub Release.
 
 Options:
-  --release           Install sloppy and SloppyNode from GitHub Release assets (no Swift build).
+  --release           Install sloppy from GitHub Release assets (no Swift build).
   --release-tag <t>   Use this tag (for example v1.2.3). Default: latest release.
   --bundle            Build the server stack and Dashboard bundle.
   --server-only       Build only the server stack.
@@ -57,7 +57,7 @@ Options:
   --bin-dir <path>    Install command symlinks into <path>. Default: $BIN_DIR
   --dashboard-dir <path>
                      Install the built Dashboard bundle into <path>. Default: $DASHBOARD_DIR
-  --no-link           Do not create symlinks for sloppy and SloppyNode.
+  --no-link           Do not create symlinks for sloppy.
   --no-git-update     Do not pull an existing checkout before building.
   --no-prompt         Disable interactive prompts and use defaults.
   --dry-run           Print the actions without executing them.
@@ -245,8 +245,8 @@ ensure_mode() {
   fi
 
   log "Choose install mode:"
-  log "  1) bundle      Build sloppy, SloppyNode, and Dashboard"
-  log "  2) server-only Build sloppy and SloppyNode only"
+  log "  1) bundle      Build sloppy and Dashboard"
+  log "  2) server-only Build sloppy only"
   log "  3) release     Download prebuilt binaries from GitHub Releases"
   printf 'Selection [1]: '
   read -r selection
@@ -418,13 +418,11 @@ install_from_github_release() {
   if [[ "$NO_LINK" == "1" ]]; then
     log "Skipping command symlinks (--no-link)."
   else
-    local sloppy_bin sloppy_node
+    local sloppy_bin
     sloppy_bin="$LOCAL_ROOT/bin/sloppy"
-    sloppy_node="$LOCAL_ROOT/bin/SloppyNode"
     log "Installing command symlinks into $BIN_DIR"
     run_cmd mkdir -p "$BIN_DIR"
     maybe_link_binary "$sloppy_bin" "$BIN_DIR/sloppy"
-    maybe_link_binary "$sloppy_node" "$BIN_DIR/SloppyNode"
   fi
 
   trap - EXIT
@@ -438,7 +436,7 @@ install_from_github_release() {
   if [[ "$NO_LINK" == "1" ]]; then
     log "  CLI: run $LOCAL_ROOT/bin/sloppy"
   else
-    log "  CLI links: $BIN_DIR/sloppy and $BIN_DIR/SloppyNode"
+    log "  CLI link: $BIN_DIR/sloppy"
   fi
   log
   log "Next steps:"
@@ -489,9 +487,6 @@ build_server_stack() {
 
   log "Building sloppy (release)"
   run_cmd swift build -c release --package-path "$repo_root" --product sloppy
-
-  log "Building SloppyNode (release)"
-  run_cmd swift build -c release --package-path "$repo_root" --product SloppyNode
 }
 
 build_dashboard() {
@@ -538,7 +533,6 @@ link_binaries() {
   log "Installing command symlinks into $BIN_DIR"
   run_cmd mkdir -p "$BIN_DIR"
   maybe_link_binary "$bin_path/sloppy" "$BIN_DIR/sloppy"
-  maybe_link_binary "$bin_path/SloppyNode" "$BIN_DIR/SloppyNode"
 }
 
 print_summary() {
@@ -557,7 +551,7 @@ print_summary() {
   if [[ "$NO_LINK" == "1" ]]; then
     log "  CLI links: skipped"
   else
-    log "  CLI links: $BIN_DIR/sloppy and $BIN_DIR/SloppyNode"
+    log "  CLI link: $BIN_DIR/sloppy"
   fi
   log
   log "Next steps:"

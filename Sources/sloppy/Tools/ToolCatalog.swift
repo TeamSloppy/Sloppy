@@ -115,6 +115,40 @@ enum ToolCatalog {
             ]),
             "required": .array([.string("action")])
         ]),
+        "computer.click": .object([
+            "type": .string("object"),
+            "properties": .object([
+                "x": .object(["type": .string("number")]),
+                "y": .object(["type": .string("number")]),
+                "width": .object(["type": .string("number")]),
+                "height": .object(["type": .string("number")])
+            ]),
+            "required": .array([.string("x"), .string("y")])
+        ]),
+        "computer.type": .object([
+            "type": .string("object"),
+            "properties": .object([
+                "text": .object(["type": .string("string")])
+            ]),
+            "required": .array([.string("text")])
+        ]),
+        "computer.key": .object([
+            "type": .string("object"),
+            "properties": .object([
+                "key": .object(["type": .string("string")]),
+                "modifiers": .object([
+                    "type": .string("array"),
+                    "items": .object(["type": .string("string")])
+                ])
+            ]),
+            "required": .array([.string("key")])
+        ]),
+        "computer.screenshot": .object([
+            "type": .string("object"),
+            "properties": .object([
+                "outputPath": .object(["type": .string("string")])
+            ])
+        ]),
         "branches.spawn": .object([
             "type": .string("object"),
             "properties": .object([

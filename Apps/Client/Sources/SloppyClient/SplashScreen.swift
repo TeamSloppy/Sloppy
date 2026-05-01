@@ -1,6 +1,9 @@
 import AdaEngine
 import SloppyClientCore
 import SloppyClientUI
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
 
 enum SplashResult {
     case connected(URL)

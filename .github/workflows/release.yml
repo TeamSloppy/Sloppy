@@ -62,10 +62,8 @@ jobs:
       - name: Run Test Suite
         run: swift test --parallel
 
-      - name: Build Release Binaries
-        run: |
-          swift build -c release --product sloppy
-          swift build -c release --product SloppyNode
+      - name: Build Release Binary
+        run: swift build -c release --product sloppy
 
       - name: Build Dashboard
         working-directory: Dashboard
@@ -80,7 +78,7 @@ jobs:
           BIN_PATH="$(swift build --show-bin-path -c release)"
           STAGE="$(mktemp -d)"
           mkdir -p "$STAGE/bin" "$STAGE/share/sloppy/dashboard"
-          cp "$BIN_PATH/sloppy" "$BIN_PATH/SloppyNode" "$STAGE/bin/"
+          cp "$BIN_PATH/sloppy" "$STAGE/bin/"
           cp -R Dashboard/dist "$STAGE/share/sloppy/dashboard/"
           cp Dashboard/config.json "$STAGE/share/sloppy/dashboard/"
           cp Sources/sloppy/Resources/sloppy-version.json "$STAGE/share/sloppy/sloppy-version.json"
@@ -163,27 +161,77 @@ jobs:
           BIN_PATH="$(swift build --show-bin-path -c release)"
           STAGE="$(mktemp -d)"
           mkdir -p "$STAGE/bin" "$STAGE/share/sloppy/dashboard"
-          cp "$BIN_PATH/sloppy" "$BIN_PATH/SloppyNode" "$STAGE/bin/"
+          cp "$BIN_PATH/sloppy" "$STAGE/bin/"
           cp -R Dashboard/dist "$STAGE/share/sloppy/dashboard/"
           cp Dashboard/config.json "$STAGE/share/sloppy/dashboard/"
           cp Sources/sloppy/Resources/sloppy-version.json "$STAGE/share/sloppy/sloppy-version.json"
           cp -R Sources/sloppy/Resources/Prompts "$STAGE/share/sloppy/Prompts"
           OUT="Sloppy-macos-${ASSET_ARCH}.tar.gz"
           tar -C "$STAGE" -czvf "${{ runner.temp }}/$OUT" bin share
+          NODE_STAGE="$(mktemp -d)"
+          mkdir -p "$NODE_STAGE/bin"
+          cp "$BIN_PATH/SloppyNode" "$NODE_STAGE/bin/sloppy-node"
+          NODE_OUT="SloppyNode-macos-${ASSET_ARCH}.tar.gz"
+          tar -C "$NODE_STAGE" -czvf "${{ runner.temp }}/$NODE_OUT" bin
           echo "tarball_path=${{ runner.temp }}/$OUT" >> "$GITHUB_OUTPUT"
+          echo "node_tarball_path=${{ runner.temp }}/$NODE_OUT" >> "$GITHUB_OUTPUT"
           echo "asset_name=$OUT" >> "$GITHUB_OUTPUT"
+          echo "node_asset_name=$NODE_OUT" >> "$GITHUB_OUTPUT"
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
           name: macos-tarball
-          path: ${{ steps.pack.outputs.tarball_path }}
+          path: |
+            ${{ steps.pack.outputs.tarball_path }}
+            ${{ steps.pack.outputs.node_tarball_path }}
+
+  build-windows-node:
+    name: Build SloppyNode (Windows)
+    runs-on: windows-latest
+
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Swift
+        uses: swift-actions/setup-swift@v2
+        with:
+          swift-version: ${{ env.SWIFT_VERSION }}
+
+      - name: Resolve Swift Packages
+        run: swift package resolve
+
+      - name: Build SloppyNode
+        run: swift build -c release --product SloppyNode
+
+      - name: Package SloppyNode
+        id: pack
+        shell: pwsh
+        run: |
+          $binPath = swift build --show-bin-path -c release
+          $stage = Join-Path $env:RUNNER_TEMP "sloppy-node-stage"
+          New-Item -ItemType Directory -Force -Path (Join-Path $stage "bin") | Out-Null
+          Copy-Item (Join-Path $binPath "SloppyNode.exe") (Join-Path $stage "bin/sloppy-node.exe")
+          $out = Join-Path $env:RUNNER_TEMP "SloppyNode-windows-x86_64.zip"
+          Compress-Archive -Force -Path (Join-Path $stage "bin") -DestinationPath $out
+          "zip_path=$out" >> $env:GITHUB_OUTPUT
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-node-zip
+          path: ${{ steps.pack.outputs.zip_path }}
 
   publish:
     name: Publish Release
     needs:
       - build-linux
       - build-macos
+      - build-windows-node
     runs-on: ubuntu-latest
 
     permissions:
@@ -196,6 +244,8 @@ jobs:
       linux_sha256: ${{ steps.assets.outputs.linux_sha256 }}
       macos_sha256: ${{ steps.assets.outputs.macos_sha256 }}
       macos_asset: ${{ steps.assets.outputs.macos_asset }}
+      node_macos_sha256: ${{ steps.assets.outputs.node_macos_sha256 }}
+      node_macos_asset: ${{ steps.assets.outputs.node_macos_asset }}
 
     steps:
       - name: Checkout
@@ -227,6 +277,12 @@ jobs:
           name: macos-tarball
           path: release-assets
 
+      - name: Download Windows SloppyNode Artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: windows-node-zip
+          path: release-assets
+
       - name: Write sloppy-version.json and SHA256SUMS
         id: assets
         working-directory: release-assets
@@ -242,13 +298,18 @@ jobs:
           EOF
           LINUX=$(ls Sloppy-linux-x86_64.tar.gz)
           MACOS=$(ls Sloppy-macos-*.tar.gz | head -1)
+          NODE_MACOS=$(ls SloppyNode-macos-*.tar.gz | head -1)
+          NODE_WINDOWS=$(ls SloppyNode-windows-x86_64.zip)
           LINUX_SHA=$(sha256sum "$LINUX" | awk '{print $1}')
           MACOS_SHA=$(sha256sum "$MACOS" | awk '{print $1}')
-          sha256sum sloppy-version.json "$LINUX" "$MACOS" > SHA256SUMS.txt
+          NODE_MACOS_SHA=$(sha256sum "$NODE_MACOS" | awk '{print $1}')
+          sha256sum sloppy-version.json "$LINUX" "$MACOS" "$NODE_MACOS" "$NODE_WINDOWS" > SHA256SUMS.txt
           {
             echo "linux_sha256=$LINUX_SHA"
             echo "macos_sha256=$MACOS_SHA"
             echo "macos_asset=$MACOS"
+            echo "node_macos_sha256=$NODE_MACOS_SHA"
+            echo "node_macos_asset=$NODE_MACOS"
           } >> "$GITHUB_OUTPUT"
 
       - name: Create GitHub Release
@@ -264,6 +325,8 @@ jobs:
             release-assets/sloppy-version.json
             release-assets/Sloppy-linux-x86_64.tar.gz
             release-assets/Sloppy-macos-*.tar.gz
+            release-assets/SloppyNode-macos-*.tar.gz
+            release-assets/SloppyNode-windows-x86_64.zip
 
   bump-homebrew:
     name: Bump Homebrew Tap Files
@@ -293,6 +356,8 @@ jobs:
           LINUX_SHA256: ${{ needs.publish.outputs.linux_sha256 }}
           MACOS_SHA256: ${{ needs.publish.outputs.macos_sha256 }}
           MACOS_ASSET: ${{ needs.publish.outputs.macos_asset }}
+          NODE_MACOS_SHA256: ${{ needs.publish.outputs.node_macos_sha256 }}
+          NODE_MACOS_ASSET: ${{ needs.publish.outputs.node_macos_asset }}
           REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
@@ -301,12 +366,16 @@ jobs:
           MACOS_URL="https://github.com/${REPO}/releases/download/${TAG}/${MACOS_ASSET}"
           LINUX_URL="https://github.com/${REPO}/releases/download/${TAG}/Sloppy-linux-x86_64.tar.gz"
           export VERSION LINUX_SHA256 MACOS_SHA256 MACOS_URL LINUX_URL REPO
+          NODE_MACOS_URL="https://github.com/${REPO}/releases/download/${TAG}/${NODE_MACOS_ASSET}"
+          export NODE_MACOS_SHA256 NODE_MACOS_URL
           python3 <<'PY'
           import os
           v = os.environ["VERSION"]
           linux_sha = os.environ["LINUX_SHA256"]
           macos_sha = os.environ["MACOS_SHA256"]
           macos_url = os.environ["MACOS_URL"]
+          node_macos_sha = os.environ["NODE_MACOS_SHA256"]
+          node_macos_url = os.environ["NODE_MACOS_URL"]
           linux_url = os.environ["LINUX_URL"]
           repo = os.environ["REPO"]
           cask_lines = [
@@ -320,9 +389,21 @@ jobs:
               f'  homepage "https://github.com/{repo}"',
               "",
               '  binary "bin/sloppy"',
-              '  binary "bin/SloppyNode"',
               "",
               '  artifact "share/sloppy/dashboard", target: "#{Dir.home}/.local/share/sloppy/dashboard"',
+              "end",
+          ]
+          node_cask_lines = [
+              'cask "sloppy-node" do',
+              f'  version "{v}"',
+              f'  sha256 "{node_macos_sha}"',
+              "",
+              f'  url "{node_macos_url}"',
+              '  name "SloppyNode"',
+              '  desc "Local computer-control executor for Sloppy"',
+              f'  homepage "https://github.com/{repo}"',
+              "",
+              '  binary "bin/sloppy-node"',
               "end",
           ]
           formula_lines = [
@@ -336,7 +417,6 @@ jobs:
               "",
               "  def install",
               '    bin.install "bin/sloppy" => "sloppy"',
-              '    bin.install "bin/SloppyNode" => "SloppyNode"',
               '    (share/"sloppy").install Dir["share/sloppy/*"]',
               "  end",
               "",
@@ -349,6 +429,8 @@ jobs:
           os.makedirs("Formula", exist_ok=True)
           with open("Casks/sloppy.rb", "w", encoding="utf-8") as f:
               f.write("\n".join(cask_lines) + "\n")
+          with open("Casks/sloppy-node.rb", "w", encoding="utf-8") as f:
+              f.write("\n".join(node_cask_lines) + "\n")
           with open("Formula/sloppy.rb", "w", encoding="utf-8") as f:
               f.write("\n".join(formula_lines) + "\n")
           PY
@@ -358,7 +440,7 @@ jobs:
           VERSION: ${{ needs.publish.outputs.version }}
         run: |
           set -euo pipefail
-          git add Casks/sloppy.rb Formula/sloppy.rb
+          git add Casks/sloppy.rb Casks/sloppy-node.rb Formula/sloppy.rb
           if git diff --staged --quiet; then
             echo "No Homebrew file changes."
             exit 0
