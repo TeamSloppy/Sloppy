@@ -30,7 +30,7 @@ struct MainView: View {
         settings: ClientSettings,
         connectionMonitor: ConnectionMonitor,
         rootSafeAreaInsets: EdgeInsets = EdgeInsets(),
-        onOpenSettings: @escaping @MainActor () -> Void,
+        onOpenSettings: @Sendable @escaping @MainActor () -> Void,
         onOpenWorkspace: @escaping @MainActor () -> Void
     ) {
         self.baseURL = baseURL

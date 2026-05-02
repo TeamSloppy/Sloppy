@@ -292,6 +292,8 @@ public actor RuntimeSystem {
             return
         }
 
+        let tracker = StreamActivityTracker()
+
         do {
             let session = try await getOrCreateSession(
                 channelId: channelId,
@@ -302,6 +304,7 @@ public actor RuntimeSystem {
 
             if let invoker = toolInvoker {
                 let observingHandler: @Sendable (ToolInvocationRequest) async -> ToolInvocationResult = { request in
+                    await tracker.toolStarted()
                     if let observationHandler {
                         await observationHandler(.toolCall(request))
                     }
@@ -309,6 +312,7 @@ public actor RuntimeSystem {
                     if let observationHandler {
                         await observationHandler(.toolResult(result))
                     }
+                    await tracker.toolFinished()
                     return result
                 }
                 session.toolExecutionDelegate = SloppyToolExecutionDelegate(toolCallHandler: observingHandler)
@@ -332,7 +336,6 @@ public actor RuntimeSystem {
 
             let streamStartedAt = Date()
             let streamIdleTimeoutSeconds: Int = 120
-            let tracker = StreamActivityTracker()
 
             let responseStream = session.streamResponse(to: userMessage, options: options)
             do {
@@ -340,14 +343,14 @@ public actor RuntimeSystem {
                     group.addTask {
                         while !Task.isCancelled {
                             try await Task.sleep(for: .seconds(10))
-                            if await tracker.isIdle(thresholdSeconds: streamIdleTimeoutSeconds) {
+                            if await tracker.shouldTriggerIdleTimeout(thresholdSeconds: streamIdleTimeoutSeconds) {
                                 throw StreamIdleTimeoutError()
                             }
                         }
                     }
                     group.addTask { @Sendable [tracker] in
                         for try await snapshot in responseStream {
-                            await tracker.touch()
+                            await tracker.touchChunk()
                             await tracker.update(content: snapshot.content)
                             if let onResponseChunk {
                                 let shouldContinue = await onResponseChunk(snapshot.content)
@@ -412,6 +415,7 @@ public actor RuntimeSystem {
                     )
                     if let invoker = toolInvoker {
                         let observingHandler: @Sendable (ToolInvocationRequest) async -> ToolInvocationResult = { request in
+                            await tracker.toolStarted()
                             if let observationHandler {
                                 await observationHandler(.toolCall(request))
                             }
@@ -419,6 +423,7 @@ public actor RuntimeSystem {
                             if let observationHandler {
                                 await observationHandler(.toolResult(result))
                             }
+                            await tracker.toolFinished()
                             return result
                         }
                         freshSession.toolExecutionDelegate = SloppyToolExecutionDelegate(toolCallHandler: observingHandler)
@@ -1324,11 +1329,16 @@ struct StreamIdleTimeoutError: Error, LocalizedError {
 
 actor StreamActivityTracker {
     private var lastActivityAt: Date = Date()
+    private var activeToolCalls: Int = 0
     private(set) var latestContent: String = ""
     private(set) var chunks: Int = 0
     private(set) var wasCancelledByConsumer: Bool = false
 
     func touch() {
+        lastActivityAt = Date()
+    }
+
+    func touchChunk() {
         lastActivityAt = Date()
         chunks += 1
     }
@@ -1341,7 +1351,25 @@ actor StreamActivityTracker {
         wasCancelledByConsumer = true
     }
 
+    func toolStarted() {
+        activeToolCalls += 1
+        lastActivityAt = Date()
+    }
+
+    func toolFinished() {
+        activeToolCalls = max(0, activeToolCalls - 1)
+        lastActivityAt = Date()
+    }
+
+    var hasActiveTools: Bool {
+        activeToolCalls > 0
+    }
+
     func isIdle(thresholdSeconds: Int) -> Bool {
         Date().timeIntervalSince(lastActivityAt) >= Double(thresholdSeconds)
+    }
+
+    func shouldTriggerIdleTimeout(thresholdSeconds: Int) -> Bool {
+        activeToolCalls == 0 && Date().timeIntervalSince(lastActivityAt) >= Double(thresholdSeconds)
     }
 }

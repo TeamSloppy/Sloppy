@@ -125,6 +125,7 @@ final class AgentToolsFileStore {
         if policy.guardrails.maxReadBytes <= 0 ||
             policy.guardrails.maxWriteBytes <= 0 ||
             policy.guardrails.execTimeoutMs <= 0 ||
+            policy.guardrails.maxExecTimeoutMs <= 0 ||
             policy.guardrails.maxExecOutputBytes <= 0 ||
             policy.guardrails.maxProcessesPerSession <= 0 ||
             policy.guardrails.maxToolCallsPerMinute <= 0 ||

@@ -1133,20 +1133,10 @@ extension CoreService {
             return false
         }
 
-        let didTimeout = await withTaskGroup(of: Bool.self) { group in
-            group.addTask { process.waitUntilExit(); return false }
-            group.addTask {
-                try? await Task.sleep(nanoseconds: 120_000_000_000)
-                return true
-            }
-            let first = await group.next() ?? false
-            group.cancelAll()
-            return first
-        }
+        let didTimeout = await waitForProcessExitOrTimeout(process: process, timeoutMs: 120_000)
 
         if didTimeout, process.isRunning {
-            process.terminate()
-            process.waitUntilExit()
+            await terminateProcess(process)
             let stderrOutput = String(decoding: stderr.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
             logger.error(
                 "project.clone.timeout",

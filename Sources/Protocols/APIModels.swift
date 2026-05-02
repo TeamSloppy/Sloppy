@@ -1954,6 +1954,7 @@ public struct AgentToolsGuardrails: Codable, Sendable, Equatable {
     public var maxReadBytes: Int
     public var maxWriteBytes: Int
     public var execTimeoutMs: Int
+    public var maxExecTimeoutMs: Int
     public var maxExecOutputBytes: Int
     public var maxProcessesPerSession: Int
     public var maxToolCallsPerMinute: Int
@@ -1972,6 +1973,7 @@ public struct AgentToolsGuardrails: Codable, Sendable, Equatable {
         maxReadBytes: Int = 512 * 1024,
         maxWriteBytes: Int = 512 * 1024,
         execTimeoutMs: Int = 15_000,
+        maxExecTimeoutMs: Int = 120_000,
         maxExecOutputBytes: Int = 256 * 1024,
         maxProcessesPerSession: Int = 2,
         maxToolCallsPerMinute: Int = 60,
@@ -1989,6 +1991,7 @@ public struct AgentToolsGuardrails: Codable, Sendable, Equatable {
         self.maxReadBytes = maxReadBytes
         self.maxWriteBytes = maxWriteBytes
         self.execTimeoutMs = execTimeoutMs
+        self.maxExecTimeoutMs = maxExecTimeoutMs
         self.maxExecOutputBytes = maxExecOutputBytes
         self.maxProcessesPerSession = maxProcessesPerSession
         self.maxToolCallsPerMinute = maxToolCallsPerMinute
@@ -2008,6 +2011,7 @@ public struct AgentToolsGuardrails: Codable, Sendable, Equatable {
         case maxReadBytes
         case maxWriteBytes
         case execTimeoutMs
+        case maxExecTimeoutMs
         case maxExecOutputBytes
         case maxProcessesPerSession
         case maxToolCallsPerMinute
@@ -2030,6 +2034,7 @@ public struct AgentToolsGuardrails: Codable, Sendable, Equatable {
             maxReadBytes: try container.decodeIfPresent(Int.self, forKey: .maxReadBytes) ?? defaults.maxReadBytes,
             maxWriteBytes: try container.decodeIfPresent(Int.self, forKey: .maxWriteBytes) ?? defaults.maxWriteBytes,
             execTimeoutMs: try container.decodeIfPresent(Int.self, forKey: .execTimeoutMs) ?? defaults.execTimeoutMs,
+            maxExecTimeoutMs: try container.decodeIfPresent(Int.self, forKey: .maxExecTimeoutMs) ?? defaults.maxExecTimeoutMs,
             maxExecOutputBytes: try container.decodeIfPresent(Int.self, forKey: .maxExecOutputBytes) ?? defaults.maxExecOutputBytes,
             maxProcessesPerSession: try container.decodeIfPresent(Int.self, forKey: .maxProcessesPerSession) ?? defaults.maxProcessesPerSession,
             maxToolCallsPerMinute: try container.decodeIfPresent(Int.self, forKey: .maxToolCallsPerMinute) ?? defaults.maxToolCallsPerMinute,

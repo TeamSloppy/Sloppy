@@ -71,9 +71,10 @@ The tool access policy for this agent. Controls which tools the agent is allowed
 |---|---|---|
 | `maxReadBytes` | 512 KB | Reading excessively large files |
 | `maxWriteBytes` | 512 KB | Writing excessively large files |
-| `execTimeoutMs` | 30,000 ms | Shell commands running indefinitely |
-| `maxExecOutputBytes` | 512 KB | Shell commands producing huge output |
-| `maxProcessesPerSession` | 5 | Spawning too many concurrent processes |
+| `execTimeoutMs` | 15,000 ms | Short commands inheriting an unbounded default runtime |
+| `maxExecTimeoutMs` | 120,000 ms | Model-requested command timeouts growing without an upper bound |
+| `maxExecOutputBytes` | 256 KB | Shell commands producing huge output |
+| `maxProcessesPerSession` | 2 | Spawning too many concurrent processes |
 | `maxToolCallsPerMinute` | 60 | Tool call rate limiting |
 | `deniedCommandPrefixes` | — | Specific shell commands always blocked (e.g. `rm -rf`) |
 | `allowedWriteRoots` | — | Directories the agent may write to; empty means unrestricted |

@@ -95,6 +95,7 @@ function defaultDraft() {
       maxReadBytes: 524288,
       maxWriteBytes: 524288,
       execTimeoutMs: 15000,
+      maxExecTimeoutMs: 120000,
       maxExecOutputBytes: 262144,
       maxProcessesPerSession: 2,
       maxToolCallsPerMinute: 60,
@@ -138,7 +139,13 @@ const NUMERIC_GUARDRAILS = [
   {
     key: "execTimeoutMs",
     label: "Exec Timeout",
-    hint: "Maximum run time for one command execution.",
+    hint: "Default run time for one command execution.",
+    unit: "ms"
+  },
+  {
+    key: "maxExecTimeoutMs",
+    label: "Max Exec Timeout",
+    hint: "Upper bound for model-requested command timeouts.",
     unit: "ms"
   },
   {
@@ -344,6 +351,7 @@ export function AgentToolsTab({ agentId }) {
         maxReadBytes: Number(draft.guardrails.maxReadBytes),
         maxWriteBytes: Number(draft.guardrails.maxWriteBytes),
         execTimeoutMs: Number(draft.guardrails.execTimeoutMs),
+        maxExecTimeoutMs: Number(draft.guardrails.maxExecTimeoutMs),
         maxExecOutputBytes: Number(draft.guardrails.maxExecOutputBytes),
         maxProcessesPerSession: Number(draft.guardrails.maxProcessesPerSession),
         maxToolCallsPerMinute: Number(draft.guardrails.maxToolCallsPerMinute),

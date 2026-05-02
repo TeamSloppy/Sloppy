@@ -193,17 +193,32 @@ extension CoreService {
                     result = deniedResult
                     break
                 }
-                result = await withSpan("tool.invoke", ofKind: .internal) { span in
-                    span.attributes["agent_id"] = "\(normalizedAgentID)"
-                    span.attributes["session_id"] = "\(normalizedSessionID)"
-                    span.attributes["tool_id"] = "\(request.tool)"
-                    return await toolExecution.invoke(
-                        agentID: normalizedAgentID,
-                        sessionID: normalizedSessionID,
-                        request: request,
-                        policy: effectivePolicy,
-                        currentDirectoryURL: currentDirectoryURL
-                    )
+                await toolLoopGuard.recordStarted(
+                    sessionID: normalizedSessionID,
+                    request: request,
+                    policy: effectivePolicy,
+                    workspaceRootURL: workspaceRootURL,
+                    currentDirectoryURL: currentDirectoryURL
+                )
+                let toolExecution = self.toolExecution
+                let invocationPolicy = effectivePolicy
+                let timeoutMs = toolInvocationHardTimeoutMs(request: request, policy: invocationPolicy)
+                result = await runToolInvocationWithHardTimeout(
+                    toolID: request.tool,
+                    timeoutMs: timeoutMs
+                ) {
+                    await withSpan("tool.invoke", ofKind: .internal) { span in
+                        span.attributes["agent_id"] = "\(normalizedAgentID)"
+                        span.attributes["session_id"] = "\(normalizedSessionID)"
+                        span.attributes["tool_id"] = "\(request.tool)"
+                        return await toolExecution.invoke(
+                            agentID: normalizedAgentID,
+                            sessionID: normalizedSessionID,
+                            request: request,
+                            policy: invocationPolicy,
+                            currentDirectoryURL: currentDirectoryURL
+                        )
+                    }
                 }
                 await toolLoopGuard.recordResult(
                     sessionID: normalizedSessionID,
@@ -248,6 +263,19 @@ extension CoreService {
                                 stage: .paused,
                                 label: "Loop blocked",
                                 details: result.error?.message ?? "Loop blocked: repeated identical tool call."
+                            )
+                        )
+                    )
+                } else if result.error?.code == "tool_timeout" {
+                    eventsToAppend.append(
+                        AgentSessionEvent(
+                            agentId: normalizedAgentID,
+                            sessionId: normalizedSessionID,
+                            type: .runStatus,
+                            runStatus: AgentRunStatusEvent(
+                                stage: .paused,
+                                label: "Tool timed out",
+                                details: result.error?.message ?? "Tool timed out."
                             )
                         )
                     )
@@ -392,17 +420,32 @@ extension CoreService {
                     result = deniedResult
                     break
                 }
-                result = await withSpan("tool.invoke.channel", ofKind: .internal) { span in
-                    span.attributes["agent_id"] = "\(normalizedAgentID)"
-                    span.attributes["channel_id"] = "\(channelID)"
-                    span.attributes["tool_id"] = "\(request.tool)"
-                    return await toolExecution.invoke(
-                        agentID: normalizedAgentID,
-                        sessionID: channelID,
-                        request: request,
-                        policy: effectivePolicy,
-                        currentDirectoryURL: currentDirectoryURL
-                    )
+                await toolLoopGuard.recordStarted(
+                    sessionID: channelID,
+                    request: request,
+                    policy: effectivePolicy,
+                    workspaceRootURL: workspaceRootURL,
+                    currentDirectoryURL: currentDirectoryURL
+                )
+                let toolExecution = self.toolExecution
+                let invocationPolicy = effectivePolicy
+                let timeoutMs = toolInvocationHardTimeoutMs(request: request, policy: invocationPolicy)
+                result = await runToolInvocationWithHardTimeout(
+                    toolID: request.tool,
+                    timeoutMs: timeoutMs
+                ) {
+                    await withSpan("tool.invoke.channel", ofKind: .internal) { span in
+                        span.attributes["agent_id"] = "\(normalizedAgentID)"
+                        span.attributes["channel_id"] = "\(channelID)"
+                        span.attributes["tool_id"] = "\(request.tool)"
+                        return await toolExecution.invoke(
+                            agentID: normalizedAgentID,
+                            sessionID: channelID,
+                            request: request,
+                            policy: invocationPolicy,
+                            currentDirectoryURL: currentDirectoryURL
+                        )
+                    }
                 }
                 await toolLoopGuard.recordResult(
                     sessionID: channelID,
@@ -581,4 +624,77 @@ extension CoreService {
         return (workingDirectory, roots)
     }
 
+}
+
+private actor ToolInvocationResultBox {
+    private var stored: ToolInvocationResult?
+
+    func complete(_ result: ToolInvocationResult) {
+        guard stored == nil else { return }
+        stored = result
+    }
+
+    var value: ToolInvocationResult? {
+        stored
+    }
+}
+
+private func runToolInvocationWithHardTimeout(
+    toolID: String,
+    timeoutMs: Int,
+    operation: @escaping @Sendable () async -> ToolInvocationResult
+) async -> ToolInvocationResult {
+    let box = ToolInvocationResultBox()
+    let startedAt = Date()
+    let timeoutMs = max(1, timeoutMs)
+    let task = Task {
+        let result = await operation()
+        await box.complete(result)
+    }
+    let deadline = Date().addingTimeInterval(Double(timeoutMs) / 1000.0)
+
+    while Date() < deadline {
+        if let result = await box.value {
+            return result
+        }
+        try? await Task.sleep(nanoseconds: 25_000_000)
+    }
+
+    if let result = await box.value {
+        return result
+    }
+
+    task.cancel()
+    let durationMs = max(timeoutMs, Int(Date().timeIntervalSince(startedAt) * 1000))
+    return ToolInvocationResult(
+        tool: toolID,
+        ok: false,
+        data: .object([
+            "timedOut": .bool(true),
+            "timeoutMs": .number(Double(timeoutMs))
+        ]),
+        error: ToolErrorPayload(
+            code: "tool_timeout",
+            message: "Tool execution timed out after \(timeoutMs) ms.",
+            retryable: true,
+            hint: "Stop retrying the same tool call. Summarize the blocker or use runtime.process for long-running commands."
+        ),
+        durationMs: durationMs
+    )
+}
+
+private func toolInvocationHardTimeoutMs(request: ToolInvocationRequest, policy: AgentToolsPolicy) -> Int {
+    let toolID = request.tool.trimmingCharacters(in: .whitespacesAndNewlines)
+    switch toolID {
+    case "runtime.exec":
+        return resolvedExecTimeoutMs(arguments: request.arguments, guardrails: policy.guardrails) + 3_000
+
+    case "tools.sleep":
+        let rawSeconds = request.arguments["seconds"]?.asInt ?? 0
+        let seconds = min(max(0, rawSeconds), SleepTool.maxSeconds)
+        return seconds * 1_000 + 1_000
+
+    default:
+        return max(30_000, policy.guardrails.maxExecTimeoutMs + 5_000)
+    }
 }

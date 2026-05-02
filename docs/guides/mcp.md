@@ -230,5 +230,5 @@ sloppy mcp call <agentId> read_file --args '{"path":"/tmp/workspace/README.md"}'
 Install and uninstall commands executed through `mcp.install_server` and `mcp.uninstall_server` are subject to the runtime guardrails policy:
 
 - Commands are checked against `deniedCommandPrefixes` before execution.
-- Execution timeout is controlled by `execTimeoutMs`.
+- Execution timeout defaults to `execTimeoutMs` and is capped by `maxExecTimeoutMs`.
 - Output is capped at `maxExecOutputBytes`.

@@ -9,8 +9,10 @@ actor ToolLoopGuard {
 
     private struct InvocationRecord: Sendable {
         let timestamp: Date
+        let tool: String
         let signature: String
         let nonRetryableFailure: Bool
+        let timeoutFailure: Bool
         let enforcesRepeatedCallLimits: Bool
     }
 
@@ -20,6 +22,7 @@ actor ToolLoopGuard {
     }
 
     private var recordsBySession: [String: [InvocationRecord]] = [:]
+    private var pendingBySession: [String: [String: Int]] = [:]
 
     func evaluate(
         sessionID: String,
@@ -35,6 +38,7 @@ actor ToolLoopGuard {
             windowSeconds: policy.guardrails.toolLoopWindowSeconds
         )
 
+        let trimmedTool = request.tool.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let descriptor = signatureDescriptor(
             for: request,
             policy: policy,
@@ -46,6 +50,23 @@ actor ToolLoopGuard {
 
         let records = recordsBySession[sessionID] ?? []
         let signature = descriptor.signature
+
+        if (pendingBySession[sessionID]?[signature] ?? 0) > 0 {
+            return .block(message: "Loop blocked: a matching tool call is already running.")
+        }
+
+        let recentRuntimeExecTimeouts = records.reduce(into: 0) { count, record in
+            guard trimmedTool == "runtime.exec",
+                  record.tool == trimmedTool,
+                  record.timeoutFailure
+            else {
+                return
+            }
+            count += 1
+        }
+        if recentRuntimeExecTimeouts >= max(1, policy.guardrails.maxRepeatedNonRetryableFailures) {
+            return .block(message: "Loop blocked: repeated runtime.exec timeouts. Summarize the blocker instead of retrying diagnostic commands.")
+        }
 
         let repeatedNonRetryableFailures = records.reduce(into: 0) { count, record in
             guard record.signature == signature, record.nonRetryableFailure else {
@@ -80,6 +101,24 @@ actor ToolLoopGuard {
         return .allow(signature: signature)
     }
 
+    func recordStarted(
+        sessionID: String,
+        request: ToolInvocationRequest,
+        policy: AgentToolsPolicy,
+        workspaceRootURL: URL,
+        currentDirectoryURL: URL? = nil
+    ) {
+        guard let descriptor = signatureDescriptor(
+            for: request,
+            policy: policy,
+            workspaceRootURL: workspaceRootURL,
+            currentDirectoryURL: currentDirectoryURL
+        ) else {
+            return
+        }
+        pendingBySession[sessionID, default: [:]][descriptor.signature, default: 0] += 1
+    }
+
     func recordResult(
         sessionID: String,
         request: ToolInvocationRequest,
@@ -103,10 +142,27 @@ actor ToolLoopGuard {
             windowSeconds: policy.guardrails.toolLoopWindowSeconds
         )
 
+        if var pending = pendingBySession[sessionID] {
+            let remaining = (pending[descriptor.signature] ?? 0) - 1
+            if remaining > 0 {
+                pending[descriptor.signature] = remaining
+            } else {
+                pending.removeValue(forKey: descriptor.signature)
+            }
+            if pending.isEmpty {
+                pendingBySession.removeValue(forKey: sessionID)
+            } else {
+                pendingBySession[sessionID] = pending
+            }
+        }
+
+        let trimmedTool = request.tool.trimmingCharacters(in: .whitespacesAndNewlines)
         let record = InvocationRecord(
             timestamp: Date(),
+            tool: trimmedTool,
             signature: descriptor.signature,
             nonRetryableFailure: result.ok == false && result.error?.retryable == false,
+            timeoutFailure: result.error?.code == "tool_timeout" || result.data?.asObject?["timedOut"]?.asBool == true,
             enforcesRepeatedCallLimits: descriptor.enforcesRepeatedCallLimits
         )
         recordsBySession[sessionID, default: []].append(record)
@@ -114,6 +170,7 @@ actor ToolLoopGuard {
 
     func cleanup(sessionID: String) {
         recordsBySession.removeValue(forKey: sessionID)
+        pendingBySession.removeValue(forKey: sessionID)
     }
 
     private func cleanupExpiredRepeatedCallWindow(sessionID: String, now: Date, windowSeconds: Int) {

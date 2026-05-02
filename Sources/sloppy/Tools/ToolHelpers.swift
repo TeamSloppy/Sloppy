@@ -2,6 +2,11 @@ import Foundation
 import PluginSDK
 import Protocols
 import AgentRuntime
+#if canImport(Darwin)
+import Darwin
+#elseif canImport(Glibc)
+import Glibc
+#endif
 
 // MARK: - Path resolution
 
@@ -118,6 +123,42 @@ func childProcessEnvironment(
 
 // MARK: - Process execution
 
+final class ProcessOutputBuffer: @unchecked Sendable {
+    private let lock = NSLock()
+    private var data = Data()
+    private let maxBytes: Int
+    private var truncated = false
+
+    init(maxBytes: Int) {
+        self.maxBytes = max(0, maxBytes)
+    }
+
+    func append(_ chunk: Data) {
+        guard !chunk.isEmpty else { return }
+        lock.lock()
+        defer { lock.unlock() }
+
+        guard data.count < maxBytes else {
+            truncated = true
+            return
+        }
+
+        let remaining = maxBytes - data.count
+        if chunk.count > remaining {
+            data.append(chunk.prefix(remaining))
+            truncated = true
+        } else {
+            data.append(chunk)
+        }
+    }
+
+    func snapshot() -> (data: Data, truncated: Bool) {
+        lock.lock()
+        defer { lock.unlock() }
+        return (data, truncated)
+    }
+}
+
 func runForegroundProcess(
     command: String,
     arguments: [String],
@@ -131,6 +172,8 @@ func runForegroundProcess(
     let stdout = Pipe()
     let stderr = Pipe()
     let stdin = Pipe()
+    let stdoutBuffer = ProcessOutputBuffer(maxBytes: maxOutputBytes)
+    let stderrBuffer = ProcessOutputBuffer(maxBytes: maxOutputBytes)
 
     if command.hasPrefix("/") || command.hasPrefix("./") || command.hasPrefix("../") {
         process.executableURL = URL(fileURLWithPath: command)
@@ -147,49 +190,87 @@ func runForegroundProcess(
         process.standardInput = stdin
     }
     process.currentDirectoryURL = cwd
+
+    stdout.fileHandleForReading.readabilityHandler = { handle in
+        stdoutBuffer.append(handle.availableData)
+    }
+    stderr.fileHandleForReading.readabilityHandler = { handle in
+        stderrBuffer.append(handle.availableData)
+    }
+
     try process.run()
     if let standardInput {
         stdin.fileHandleForWriting.write(standardInput)
         try? stdin.fileHandleForWriting.close()
     }
 
-    let didTimeout = await raceProcessAgainstTimeout(process: process, timeoutMs: timeoutMs)
+    let didTimeout = await waitForProcessExitOrTimeout(process: process, timeoutMs: timeoutMs)
+
     if didTimeout, process.isRunning {
-        process.terminate()
-        process.waitUntilExit()
+        await terminateProcess(process)
     }
 
-    let stdoutData = stdout.fileHandleForReading.readDataToEndOfFile()
-    let stderrData = stderr.fileHandleForReading.readDataToEndOfFile()
+    stdout.fileHandleForReading.readabilityHandler = nil
+    stderr.fileHandleForReading.readabilityHandler = nil
+
+    let stdoutSnapshot = stdoutBuffer.snapshot()
+    let stderrSnapshot = stderrBuffer.snapshot()
+    let exitCode = process.isRunning ? -1 : Int(process.terminationStatus)
 
     return .object([
         "command": .string(command),
         "arguments": .array(arguments.map { .string($0) }),
-        "exitCode": .number(Double(process.terminationStatus)),
+        "exitCode": .number(Double(exitCode)),
         "timedOut": .bool(didTimeout),
-        "stdout": .string(String(decoding: trimData(stdoutData, maxBytes: maxOutputBytes), as: UTF8.self)),
-        "stderr": .string(String(decoding: trimData(stderrData, maxBytes: maxOutputBytes), as: UTF8.self))
+        "stdout": .string(String(decoding: stdoutSnapshot.data, as: UTF8.self)),
+        "stderr": .string(String(decoding: stderrSnapshot.data, as: UTF8.self)),
+        "stdoutTruncated": .bool(stdoutSnapshot.truncated),
+        "stderrTruncated": .bool(stderrSnapshot.truncated)
     ])
 }
 
-private func raceProcessAgainstTimeout(process: Process, timeoutMs: Int) async -> Bool {
-    await withTaskGroup(of: Bool.self) { group in
-        group.addTask {
-            process.waitUntilExit()
-            return false
-        }
-        group.addTask {
-            try? await Task.sleep(nanoseconds: UInt64(max(1, timeoutMs)) * 1_000_000)
-            return true
-        }
-        let first = await group.next() ?? false
-        group.cancelAll()
-        return first
-    }
+func resolvedExecTimeoutMs(arguments: [String: JSONValue], guardrails: AgentToolsGuardrails) -> Int {
+    let requested = arguments["timeoutMs"]?.asInt ?? guardrails.execTimeoutMs
+    return min(max(1, requested), max(1, guardrails.maxExecTimeoutMs))
 }
 
-private func trimData(_ data: Data, maxBytes: Int) -> Data {
-    data.count <= maxBytes ? data : data.prefix(maxBytes)
+func waitForProcessExitOrTimeout(process: Process, timeoutMs: Int) async -> Bool {
+    let deadline = Date().addingTimeInterval(Double(max(1, timeoutMs)) / 1000.0)
+    while process.isRunning {
+        if Date() >= deadline {
+            return true
+        }
+        try? await Task.sleep(nanoseconds: 50_000_000)
+    }
+    return false
+}
+
+func terminateProcess(_ process: Process) async {
+    process.terminate()
+    if await waitForProcessToStop(process, graceMs: 2_000) {
+        return
+    }
+    forceKill(process)
+    _ = await waitForProcessToStop(process, graceMs: 2_000)
+}
+
+private func waitForProcessToStop(_ process: Process, graceMs: Int) async -> Bool {
+    let deadline = Date().addingTimeInterval(Double(max(1, graceMs)) / 1000.0)
+    while process.isRunning {
+        if Date() >= deadline {
+            return false
+        }
+        try? await Task.sleep(nanoseconds: 50_000_000)
+    }
+    return true
+}
+
+private func forceKill(_ process: Process) {
+    #if canImport(Darwin) || canImport(Glibc)
+    kill(process.processIdentifier, SIGKILL)
+    #else
+    process.interrupt()
+    #endif
 }
 
 // MARK: - String / argument utilities
