@@ -68,8 +68,6 @@ func taskListWithProjectIdSucceedsWithoutChannelLink() async throws {
     let config = CoreConfig.test
     let service = CoreService(config: config, persistenceBuilder: InMemoryCorePersistenceBuilder())
     let router = CoreRouter(service: service)
-    let decoder = JSONDecoder()
-    decoder.dateDecodingStrategy = .iso8601
 
     let projectID = "tool-proj-\(UUID().uuidString)"
     let createBody = try JSONEncoder().encode(
@@ -95,6 +93,81 @@ func taskListWithProjectIdSucceedsWithoutChannelLink() async throws {
     #expect(result.ok == true)
     let tasks = result.data?.asObject?["tasks"]?.asArray
     #expect(tasks?.count == 1)
+}
+
+@Test
+func taskCancelAcceptsMultipleTaskIds() async throws {
+    let config = CoreConfig.test
+    let service = CoreService(config: config, persistenceBuilder: InMemoryCorePersistenceBuilder())
+    let router = CoreRouter(service: service)
+
+    let projectID = "tool-proj-\(UUID().uuidString)"
+    let createBody = try JSONEncoder().encode(
+        ProjectCreateRequest(id: projectID, name: "Tool Test Project", description: "", channels: [])
+    )
+    let createResp = await router.handle(method: "POST", path: "/v1/projects", body: createBody)
+    #expect(createResp.status == 201)
+
+    let context = makeToolContext(service: service, sessionID: "session-no-channel")
+    let createTool = ProjectTaskCreateTool()
+    let first = await createTool.invoke(arguments: ["title": .string("Task One"), "projectId": .string(projectID)], context: context)
+    let second = await createTool.invoke(arguments: ["title": .string("Task Two"), "projectId": .string(projectID)], context: context)
+    let firstID = try #require(first.data?.asObject?["taskId"]?.asString)
+    let secondID = try #require(second.data?.asObject?["taskId"]?.asString)
+
+    let cancelTool = ProjectTaskCancelTool()
+    let result = await cancelTool.invoke(
+        arguments: [
+            "taskIds": .array([.string(firstID), .string(secondID)]),
+            "projectId": .string(projectID),
+            "reason": .string("No longer needed")
+        ],
+        context: context
+    )
+
+    #expect(result.ok == true)
+    #expect(result.data?.asObject?["cancelledCount"]?.asNumber == 2)
+
+    let project = try await service.getProject(id: projectID)
+    let statuses = Dictionary(uniqueKeysWithValues: project.tasks.map { ($0.id, $0.status) })
+    #expect(statuses[firstID] == ProjectTaskStatus.cancelled.rawValue)
+    #expect(statuses[secondID] == ProjectTaskStatus.cancelled.rawValue)
+}
+
+@Test
+func taskDeleteAcceptsMultipleReferences() async throws {
+    let config = CoreConfig.test
+    let service = CoreService(config: config, persistenceBuilder: InMemoryCorePersistenceBuilder())
+    let router = CoreRouter(service: service)
+
+    let projectID = "tool-proj-\(UUID().uuidString)"
+    let createBody = try JSONEncoder().encode(
+        ProjectCreateRequest(id: projectID, name: "Tool Test Project", description: "", channels: [])
+    )
+    let createResp = await router.handle(method: "POST", path: "/v1/projects", body: createBody)
+    #expect(createResp.status == 201)
+
+    let context = makeToolContext(service: service, sessionID: "session-no-channel")
+    let createTool = ProjectTaskCreateTool()
+    let first = await createTool.invoke(arguments: ["title": .string("Task One"), "projectId": .string(projectID)], context: context)
+    let second = await createTool.invoke(arguments: ["title": .string("Task Two"), "projectId": .string(projectID)], context: context)
+    let firstID = try #require(first.data?.asObject?["taskId"]?.asString)
+    let secondID = try #require(second.data?.asObject?["taskId"]?.asString)
+
+    let deleteTool = ProjectTaskDeleteTool()
+    let result = await deleteTool.invoke(
+        arguments: [
+            "references": .array([.string(firstID), .string(secondID.lowercased())]),
+            "projectId": .string(projectID)
+        ],
+        context: context
+    )
+
+    #expect(result.ok == true)
+    #expect(result.data?.asObject?["deletedCount"]?.asNumber == 2)
+
+    let project = try await service.getProject(id: projectID)
+    #expect(project.tasks.isEmpty)
 }
 
 // MARK: - Helper

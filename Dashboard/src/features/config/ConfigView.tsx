@@ -693,6 +693,7 @@ function normalizeConfig(config) {
       ? {
         botToken: String(tg.botToken || ""),
         channelChatMap: tg.channelChatMap && typeof tg.channelChatMap === "object" ? tg.channelChatMap : {},
+        topicChannelMap: tg.topicChannelMap && typeof tg.topicChannelMap === "object" ? tg.topicChannelMap : {},
         allowedUserIds: Array.isArray(tg.allowedUserIds) ? tg.allowedUserIds : [],
         allowedChatIds: Array.isArray(tg.allowedChatIds) ? tg.allowedChatIds : []
       }

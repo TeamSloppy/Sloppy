@@ -31,6 +31,7 @@ public actor TelegramGatewayPlugin: StreamingGatewayPlugin {
     public init(
         botToken: String,
         channelChatMap: [String: Int64],
+        topicChannelMap: [String: String] = [:],
         allowedUserIds: [Int64] = [],
         allowedChatIds: [Int64] = [],
         logger: Logger? = nil,
@@ -39,10 +40,11 @@ public actor TelegramGatewayPlugin: StreamingGatewayPlugin {
         self.config = TelegramPluginConfig(
             botToken: botToken,
             channelChatMap: channelChatMap,
+            topicChannelMap: topicChannelMap,
             allowedUserIds: allowedUserIds,
             allowedChatIds: allowedChatIds
         )
-        self.channelIds = Array(channelChatMap.keys)
+        self.channelIds = Array(Set(channelChatMap.keys).union(topicChannelMap.values))
         let resolvedLogger = logger ?? Logger(label: "sloppy.plugin.telegram")
         self.logger = resolvedLogger
         self.bot = TelegramBotAPI(botToken: botToken, logger: resolvedLogger)

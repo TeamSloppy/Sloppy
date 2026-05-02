@@ -313,6 +313,54 @@ func normalizeTaskRef(_ raw: String) -> String? {
     return t
 }
 
+func taskReferences(from arguments: [String: JSONValue]) -> (references: [String], invalid: [String]) {
+    var rawReferences: [String] = []
+    var invalid: [String] = []
+
+    func appendSingle(_ key: String) {
+        guard let value = arguments[key] else { return }
+        if let raw = value.asString {
+            rawReferences.append(raw)
+        } else {
+            invalid.append(key)
+        }
+    }
+
+    func appendArray(_ key: String) {
+        guard let value = arguments[key] else { return }
+        guard let array = value.asArray else {
+            invalid.append(key)
+            return
+        }
+        for item in array {
+            if let raw = item.asString {
+                rawReferences.append(raw)
+            } else {
+                invalid.append(key)
+            }
+        }
+    }
+
+    appendSingle("taskId")
+    appendSingle("reference")
+    appendArray("taskIds")
+    appendArray("references")
+
+    var seen = Set<String>()
+    let normalized = rawReferences.compactMap { raw -> String? in
+        guard let ref = normalizeTaskRef(raw) else {
+            invalid.append(raw)
+            return nil
+        }
+        let key = ref.lowercased()
+        guard seen.insert(key).inserted else {
+            return nil
+        }
+        return ref
+    }
+    return (normalized, invalid)
+}
+
 func findTask(reference: String, in project: ProjectRecord) throws -> ProjectTask {
     let lower = reference.lowercased()
     guard let task = project.tasks.first(where: { $0.id == reference || $0.id.lowercased() == lower }) else {

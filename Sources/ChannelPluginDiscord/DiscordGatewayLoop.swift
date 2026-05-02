@@ -71,7 +71,9 @@ actor DiscordGatewayLoop {
     private struct ProjectLinkMenu: Sendable {
         let sloppyChannelId: String
         let discordChannelId: String
-        let options: [ChannelProjectLinkOption]
+        let projectOptions: [ChannelProjectLinkOption]
+        let selectedProject: ChannelProjectLinkOption?
+        let agentOptions: [ChannelProjectLinkAgentOption]
     }
 
     private let client: any DiscordPlatformClient
@@ -443,7 +445,9 @@ actor DiscordGatewayLoop {
         projectLinkMenus[nonce] = ProjectLinkMenu(
             sloppyChannelId: sloppyChannelId,
             discordChannelId: discordChannelId,
-            options: visible
+            projectOptions: visible,
+            selectedProject: nil,
+            agentOptions: []
         )
         let extra = options.count > visible.count ? "\n\nShowing first 25 projects. Use Dashboard for the full list." : ""
         do {
@@ -452,7 +456,7 @@ actor DiscordGatewayLoop {
                 interactionToken: interactionToken,
                 type: 4,
                 content: "Choose a project for this Discord channel.\(extra)",
-                components: projectLinkComponents(nonce: nonce, options: visible)
+                components: projectLinkProjectComponents(nonce: nonce, options: visible)
             )
         } catch {
             logger.warning("Failed to present Discord project link menu: \(error)")
@@ -471,10 +475,9 @@ actor DiscordGatewayLoop {
         }
 
         let parts = customId.split(separator: ":", omittingEmptySubsequences: false)
-        guard parts.count == 4,
-              let menu = projectLinkMenus[String(parts[2])],
-              let index = Int(parts[3]),
-              menu.options.indices.contains(index)
+        guard parts.count == 5,
+              let menu = projectLinkMenus[String(parts[3])],
+              let index = Int(parts[4])
         else {
             try? await client.createInteractionResponse(
                 interactionId: interactionId,
@@ -486,23 +489,82 @@ actor DiscordGatewayLoop {
             return
         }
 
-        let option = menu.options[index]
+        if parts[2] == "p" {
+            guard menu.projectOptions.indices.contains(index) else {
+                try? await client.createInteractionResponse(
+                    interactionId: interactionId,
+                    interactionToken: interactionToken,
+                    type: 4,
+                    content: "Project list expired. Run /channel_link again.",
+                    components: nil
+                )
+                return
+            }
+            let project = menu.projectOptions[index]
+            let agents = await receiver.projectLinkAgentOptions(projectId: project.projectId)
+            guard !agents.isEmpty else {
+                try? await client.createInteractionResponse(
+                    interactionId: interactionId,
+                    interactionToken: interactionToken,
+                    type: 4,
+                    content: "No agents are attached to this project.",
+                    components: nil
+                )
+                return
+            }
+            let visibleAgents = Array(agents.prefix(25))
+            projectLinkMenus[String(parts[3])] = ProjectLinkMenu(
+                sloppyChannelId: menu.sloppyChannelId,
+                discordChannelId: menu.discordChannelId,
+                projectOptions: menu.projectOptions,
+                selectedProject: project,
+                agentOptions: visibleAgents
+            )
+            let extra = agents.count > visibleAgents.count ? "\n\nShowing first 25 agents. Use Dashboard for the full list." : ""
+            try? await client.createInteractionResponse(
+                interactionId: interactionId,
+                interactionToken: interactionToken,
+                type: 7,
+                content: "Choose an agent for \(project.name).\(extra)",
+                components: projectLinkAgentComponents(nonce: String(parts[3]), options: visibleAgents)
+            )
+            return
+        }
+
+        guard parts[2] == "a",
+              let project = menu.selectedProject,
+              menu.agentOptions.indices.contains(index)
+        else {
+            try? await client.createInteractionResponse(
+                interactionId: interactionId,
+                interactionToken: interactionToken,
+                type: 4,
+                content: "Agent list expired. Run /channel_link again.",
+                components: nil
+            )
+            return
+        }
+
+        let agent = menu.agentOptions[index]
         let result = await receiver.linkProjectChannel(
-            projectId: option.projectId,
+            projectId: project.projectId,
             channelId: menu.sloppyChannelId,
             topicId: nil,
-            title: "Discord channel"
+            title: "Discord channel",
+            routeChannelId: agent.channelId,
+            platform: "discord",
+            platformChannelId: menu.discordChannelId
         )
 
         switch result {
         case .linked(_, let projectName, let channelId, let status):
-            projectLinkMenus[String(parts[2])] = nil
+            projectLinkMenus[String(parts[3])] = nil
             let verb = status == "existing" ? "Already linked" : "Linked"
             try? await client.createInteractionResponse(
                 interactionId: interactionId,
                 interactionToken: interactionToken,
                 type: 7,
-                content: "\(verb) to \(projectName).\n\nChannel: \(channelId)",
+                content: "\(verb) to \(projectName).\n\nAgent: \(agent.name)\nChannel: \(channelId)",
                 components: .array([])
             )
         case .conflict(_, let ownerProjectName):
@@ -532,7 +594,7 @@ actor DiscordGatewayLoop {
         }
     }
 
-    private func projectLinkComponents(nonce: String, options: [ChannelProjectLinkOption]) -> JSONValue {
+    private func projectLinkProjectComponents(nonce: String, options: [ChannelProjectLinkOption]) -> JSONValue {
         var rows: [JSONValue] = []
         var current: [JSONValue] = []
         for (index, option) in options.enumerated() {
@@ -540,7 +602,34 @@ actor DiscordGatewayLoop {
                 "type": .number(2),
                 "style": .number(1),
                 "label": .string(String(option.name.prefix(80))),
-                "custom_id": .string("sloppy:cl:\(nonce):\(index)")
+                "custom_id": .string("sloppy:cl:p:\(nonce):\(index)")
+            ]))
+            if current.count == 5 {
+                rows.append(.object([
+                    "type": .number(1),
+                    "components": .array(current)
+                ]))
+                current = []
+            }
+        }
+        if !current.isEmpty {
+            rows.append(.object([
+                "type": .number(1),
+                "components": .array(current)
+            ]))
+        }
+        return .array(rows)
+    }
+
+    private func projectLinkAgentComponents(nonce: String, options: [ChannelProjectLinkAgentOption]) -> JSONValue {
+        var rows: [JSONValue] = []
+        var current: [JSONValue] = []
+        for (index, option) in options.enumerated() {
+            current.append(.object([
+                "type": .number(2),
+                "style": .number(1),
+                "label": .string(String(option.name.prefix(80))),
+                "custom_id": .string("sloppy:cl:a:\(nonce):\(index)")
             ]))
             if current.count == 5 {
                 rows.append(.object([

@@ -744,6 +744,7 @@ public struct CoreConfig: Codable, Sendable {
             public var botToken: String
             /// Maps Sloppy channelId → Telegram chat_id.
             public var channelChatMap: [String: Int64]
+            public var topicChannelMap: [String: String]
             /// When non-empty, only these Telegram user IDs are allowed.
             public var allowedUserIds: [Int64]
             /// When non-empty, only these Telegram chat IDs are allowed.
@@ -752,13 +753,32 @@ public struct CoreConfig: Codable, Sendable {
             public init(
                 botToken: String,
                 channelChatMap: [String: Int64] = [:],
+                topicChannelMap: [String: String] = [:],
                 allowedUserIds: [Int64] = [],
                 allowedChatIds: [Int64] = []
             ) {
                 self.botToken = botToken
                 self.channelChatMap = channelChatMap
+                self.topicChannelMap = topicChannelMap
                 self.allowedUserIds = allowedUserIds
                 self.allowedChatIds = allowedChatIds
+            }
+
+            private enum CodingKeys: String, CodingKey {
+                case botToken
+                case channelChatMap
+                case topicChannelMap
+                case allowedUserIds
+                case allowedChatIds
+            }
+
+            public init(from decoder: Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                botToken = try container.decodeIfPresent(String.self, forKey: .botToken) ?? ""
+                channelChatMap = try container.decodeIfPresent([String: Int64].self, forKey: .channelChatMap) ?? [:]
+                topicChannelMap = try container.decodeIfPresent([String: String].self, forKey: .topicChannelMap) ?? [:]
+                allowedUserIds = try container.decodeIfPresent([Int64].self, forKey: .allowedUserIds) ?? []
+                allowedChatIds = try container.decodeIfPresent([Int64].self, forKey: .allowedChatIds) ?? []
             }
         }
 

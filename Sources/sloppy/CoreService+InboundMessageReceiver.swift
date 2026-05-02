@@ -924,13 +924,44 @@ extension CoreService: InboundMessageReceiver {
             .map { ChannelProjectLinkOption(projectId: $0.id, name: $0.name) }
     }
 
+    public func projectLinkAgentOptions(projectId: String) async -> [ChannelProjectLinkAgentOption] {
+        guard let normalizedID = normalizedProjectID(projectId),
+              let project = await store.project(id: normalizedID)
+        else {
+            return []
+        }
+        let projectActorIDs = Set(project.actors.map { $0.lowercased() })
+        let board = (try? getActorBoard()) ?? ActorBoardSnapshot(nodes: [], links: [], teams: [])
+        let nodes = board.nodes
+            .filter { node in
+                node.kind == .agent
+                    && !normalizeWhitespace(node.channelId ?? "").isEmpty
+                    && !normalizeWhitespace(node.linkedAgentId ?? "").isEmpty
+                    && (projectActorIDs.isEmpty || projectActorIDs.contains(node.id.lowercased()))
+            }
+            .sorted { $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending }
+
+        return nodes.map {
+            ChannelProjectLinkAgentOption(
+                actorId: $0.id,
+                agentId: normalizeWhitespace($0.linkedAgentId ?? ""),
+                name: $0.displayName,
+                channelId: normalizeWhitespace($0.channelId ?? "")
+            )
+        }
+    }
+
     public func linkProjectChannel(
         projectId: String,
         channelId: String,
         topicId: String?,
-        title: String?
+        title: String?,
+        routeChannelId: String?,
+        platform: String?,
+        platformChannelId: String?
     ) async -> ChannelProjectLinkResult {
-        let scopedChannelId = ChannelGatewayScope.scopedChannelId(baseChannelId: channelId, topicKey: topicId)
+        let baseChannelId = normalizeWhitespace(routeChannelId ?? channelId)
+        let scopedChannelId = ChannelGatewayScope.scopedChannelId(baseChannelId: baseChannelId, topicKey: topicId)
         do {
             let result = try await linkProjectChannel(
                 projectID: projectId,
@@ -939,6 +970,12 @@ extension CoreService: InboundMessageReceiver {
                     title: title,
                     ensureSession: true
                 )
+            )
+            try await updateGatewayRouteIfNeeded(
+                platform: platform,
+                platformChannelId: platformChannelId,
+                topicId: topicId,
+                routeChannelId: baseChannelId
             )
             return .linked(
                 projectId: result.project.id,
@@ -956,6 +993,51 @@ extension CoreService: InboundMessageReceiver {
         } catch {
             return .failed(message: error.localizedDescription)
         }
+    }
+
+    private func updateGatewayRouteIfNeeded(
+        platform: String?,
+        platformChannelId: String?,
+        topicId: String?,
+        routeChannelId: String
+    ) async throws {
+        let routeChannelId = normalizeWhitespace(routeChannelId)
+        guard !routeChannelId.isEmpty,
+              let platform = platform?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
+              let platformChannelId = platformChannelId?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !platformChannelId.isEmpty
+        else {
+            return
+        }
+
+        var config = currentConfig
+        switch platform {
+        case "telegram":
+            guard let chatId = Int64(platformChannelId), var telegram = config.channels.telegram else {
+                return
+            }
+            telegram.channelChatMap[routeChannelId] = chatId
+            if let key = telegramTopicRouteKey(chatId: chatId, topicId: topicId) {
+                telegram.topicChannelMap[key] = routeChannelId
+            }
+            config.channels.telegram = telegram
+        case "discord":
+            guard var discord = config.channels.discord else {
+                return
+            }
+            discord.channelDiscordChannelMap[routeChannelId] = platformChannelId
+            config.channels.discord = discord
+        default:
+            return
+        }
+        _ = try await updateConfig(config)
+    }
+
+    private func telegramTopicRouteKey(chatId: Int64, topicId: String?) -> String? {
+        guard let topicId = topicId?.trimmingCharacters(in: .whitespacesAndNewlines), !topicId.isEmpty else {
+            return nil
+        }
+        return "\(chatId):\(topicId)"
     }
 
     func emitNotificationIfNeeded(from event: EventEnvelope) async {

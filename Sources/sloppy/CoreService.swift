@@ -57,6 +57,7 @@ struct BuiltInGatewayPluginFactory: Sendable {
             TelegramGatewayPlugin(
                 botToken: config.botToken,
                 channelChatMap: config.channelChatMap,
+                topicChannelMap: config.topicChannelMap,
                 allowedUserIds: config.allowedUserIds,
                 allowedChatIds: config.allowedChatIds,
                 logger: Logger(label: "sloppy.plugin.telegram"),
@@ -829,6 +830,10 @@ extension CoreService: ProjectToolService {
 
     func cancelTaskWithReason(projectID: String, taskID: String, reason: String?) async throws -> ProjectRecord {
         try await cancelProjectTask(projectID: projectID, taskID: taskID, reason: reason)
+    }
+
+    func deleteTask(projectID: String, taskID: String) async throws -> ProjectRecord {
+        try await deleteProjectTask(projectID: projectID, taskID: taskID)
     }
 
     func getTask(reference: String) async throws -> AgentTaskRecord {

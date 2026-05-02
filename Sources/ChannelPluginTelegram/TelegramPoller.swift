@@ -15,8 +15,11 @@ actor TelegramPoller {
 
     private struct ProjectLinkSession: Sendable {
         let bindingChannelId: String
+        let platformChatId: Int64
         let messageThreadId: Int?
-        let options: [ChannelProjectLinkOption]
+        let projectOptions: [ChannelProjectLinkOption]
+        let selectedProject: ChannelProjectLinkOption?
+        let agentOptions: [ChannelProjectLinkAgentOption]
     }
 
     private let bot: TelegramBotAPI
@@ -124,7 +127,7 @@ actor TelegramPoller {
             }
         }
 
-        guard let bindingChannelId = config.channelId(forChatId: chatId) else {
+        guard let bindingChannelId = config.channelId(forChatId: chatId, topicId: messageThreadId.map(String.init)) else {
             try? await bot.answerCallbackQuery(callbackQueryId: query.id, text: "Канал не привязан.", showAlert: true)
             return
         }
@@ -279,7 +282,7 @@ actor TelegramPoller {
             }
         }
 
-        guard let channelId = config.channelId(forChatId: chatId) else {
+        guard let channelId = config.channelId(forChatId: chatId, topicId: topicId) else {
             logger.warning("No channel mapping for chatId=\(chatId). Known mappings: \(config.channelChatMap). Message dropped.")
             let hint = "This chat is not connected to any channel.\n\nTo route messages here, add a binding in the Channels → Bindings section (leave Chat ID empty to accept any chat)."
             _ = try? await bot.sendMessage(chatId: chatId, text: hint, messageThreadId: messageThreadId)
@@ -383,15 +386,18 @@ actor TelegramPoller {
             )
             projectLinkSessions[sent.messageId] = ProjectLinkSession(
                 bindingChannelId: bindingChannelId,
+                platformChatId: chatId,
                 messageThreadId: messageThreadId,
-                options: visible
+                projectOptions: visible,
+                selectedProject: nil,
+                agentOptions: []
             )
             _ = try await bot.editMessageText(
                 chatId: chatId,
                 messageId: sent.messageId,
                 text: "Choose a project for this channel/topic.\(extra)",
                 messageThreadId: messageThreadId,
-                replyMarkup: projectLinkKeyboard(messageId: sent.messageId, options: visible)
+                replyMarkup: projectLinkProjectKeyboard(messageId: sent.messageId, options: visible)
             )
         } catch {
             logger.warning("Failed to present project link picker: \(error)")
@@ -415,31 +421,73 @@ actor TelegramPoller {
             return false
         }
         let parts = data.split(separator: ":", omittingEmptySubsequences: false)
-        guard parts.count == 3,
-              let pickerMessageId = Int64(parts[1]),
-              let index = Int(parts[2]),
-              let session = projectLinkSessions[pickerMessageId],
-              session.options.indices.contains(index)
+        guard parts.count == 4,
+              let pickerMessageId = Int64(parts[2]),
+              let index = Int(parts[3]),
+              let session = projectLinkSessions[pickerMessageId]
         else {
             try? await bot.answerCallbackQuery(callbackQueryId: query.id, text: "Project list expired. Send /channel_link again.", showAlert: true)
             return true
         }
 
-        let option = session.options[index]
+        if parts[1] == "p" {
+            guard session.projectOptions.indices.contains(index) else {
+                try? await bot.answerCallbackQuery(callbackQueryId: query.id, text: "Project list expired. Send /channel_link again.", showAlert: true)
+                return true
+            }
+            let project = session.projectOptions[index]
+            let agents = await receiver.projectLinkAgentOptions(projectId: project.projectId)
+            guard !agents.isEmpty else {
+                try? await bot.answerCallbackQuery(callbackQueryId: query.id, text: "No agents are attached to this project.", showAlert: true)
+                return true
+            }
+            let visibleAgents = Array(agents.prefix(25))
+            projectLinkSessions[pickerMessageId] = ProjectLinkSession(
+                bindingChannelId: session.bindingChannelId,
+                platformChatId: session.platformChatId,
+                messageThreadId: session.messageThreadId,
+                projectOptions: session.projectOptions,
+                selectedProject: project,
+                agentOptions: visibleAgents
+            )
+            let extra = agents.count > visibleAgents.count ? "\n\nShowing first 25 agents. Use Dashboard for the full list." : ""
+            _ = try? await bot.editMessageText(
+                chatId: chatId,
+                messageId: messageId,
+                text: "Choose an agent for \(project.name).\(extra)",
+                messageThreadId: messageThreadId,
+                replyMarkup: projectLinkAgentKeyboard(messageId: pickerMessageId, options: visibleAgents)
+            )
+            try? await bot.answerCallbackQuery(callbackQueryId: query.id)
+            return true
+        }
+
+        guard parts[1] == "a",
+              let project = session.selectedProject,
+              session.agentOptions.indices.contains(index)
+        else {
+            try? await bot.answerCallbackQuery(callbackQueryId: query.id, text: "Agent list expired. Send /channel_link again.", showAlert: true)
+            return true
+        }
+
+        let agent = session.agentOptions[index]
         let title = session.messageThreadId.map { "Telegram topic \($0)" } ?? "Telegram chat"
         let result = await receiver.linkProjectChannel(
-            projectId: option.projectId,
+            projectId: project.projectId,
             channelId: session.bindingChannelId,
             topicId: session.messageThreadId.map(String.init),
-            title: title
+            title: title,
+            routeChannelId: agent.channelId,
+            platform: "telegram",
+            platformChannelId: String(session.platformChatId)
         )
 
         switch result {
         case .linked(_, let projectName, let channelId, let status):
             projectLinkSessions[pickerMessageId] = nil
             let text = status == "existing"
-                ? "Already linked to \(projectName).\n\nChannel: \(channelId)"
-                : "Linked to \(projectName).\n\nChannel: \(channelId)"
+                ? "Already linked to \(projectName).\n\nAgent: \(agent.name)\nChannel: \(channelId)"
+                : "Linked to \(projectName).\n\nAgent: \(agent.name)\nChannel: \(channelId)"
             _ = try? await bot.editMessageText(
                 chatId: chatId,
                 messageId: messageId,
@@ -462,12 +510,23 @@ actor TelegramPoller {
         return true
     }
 
-    private func projectLinkKeyboard(messageId: Int64, options: [ChannelProjectLinkOption]) -> [[[String: String]]] {
+    private func projectLinkProjectKeyboard(messageId: Int64, options: [ChannelProjectLinkOption]) -> [[[String: String]]] {
         var rows: [[[String: String]]] = []
         for (index, option) in options.enumerated() {
             rows.append([[
                 "text": String(option.name.prefix(48)),
-                "callback_data": "pl:\(messageId):\(index)"
+                "callback_data": "pl:p:\(messageId):\(index)"
+            ]])
+        }
+        return rows
+    }
+
+    private func projectLinkAgentKeyboard(messageId: Int64, options: [ChannelProjectLinkAgentOption]) -> [[[String: String]]] {
+        var rows: [[[String: String]]] = []
+        for (index, option) in options.enumerated() {
+            rows.append([[
+                "text": String(option.name.prefix(48)),
+                "callback_data": "pl:a:\(messageId):\(index)"
             ]])
         }
         return rows

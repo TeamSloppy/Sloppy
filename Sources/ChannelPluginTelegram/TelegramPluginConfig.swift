@@ -6,23 +6,38 @@ struct TelegramPluginConfig: Sendable {
     let allowedChatIds: Set<Int64>
     /// Maps Sloppy channelId → Telegram chat_id.
     let channelChatMap: [String: Int64]
+    let topicChannelMap: [String: String]
 
     /// Initialise from structured config values (used when loading from CoreConfig).
     init(
         botToken: String,
         channelChatMap: [String: Int64] = [:],
+        topicChannelMap: [String: String] = [:],
         allowedUserIds: [Int64] = [],
         allowedChatIds: [Int64] = []
     ) {
         self.botToken = botToken
         self.channelChatMap = channelChatMap
+        self.topicChannelMap = topicChannelMap
         self.allowedUserIds = Set(allowedUserIds)
         self.allowedChatIds = Set(allowedChatIds)
     }
 
     /// Reverse lookup: Telegram chat_id → channelId.
     /// Tries an exact match first; falls back to a catch-all binding (chatId == 0).
-    func channelId(forChatId chatId: Int64) -> String? {
+    static func topicRouteKey(chatId: Int64, topicId: String?) -> String? {
+        guard let topicId = topicId?.trimmingCharacters(in: .whitespacesAndNewlines), !topicId.isEmpty else {
+            return nil
+        }
+        return "\(chatId):\(topicId)"
+    }
+
+    func channelId(forChatId chatId: Int64, topicId: String? = nil) -> String? {
+        if let key = Self.topicRouteKey(chatId: chatId, topicId: topicId),
+           let routed = topicChannelMap[key]?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !routed.isEmpty {
+            return routed
+        }
         if let exact = channelChatMap.first(where: { $0.value == chatId }) {
             return exact.key
         }

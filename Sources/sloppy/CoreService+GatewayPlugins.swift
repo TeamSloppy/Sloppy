@@ -16,7 +16,7 @@ extension CoreService {
                 plugin,
                 id: "telegram",
                 type: "telegram",
-                channelIds: Array(telegramConfig.channelChatMap.keys)
+                channelIds: Array(Set(telegramConfig.channelChatMap.keys).union(telegramConfig.topicChannelMap.values))
             )
         }
 

@@ -48,14 +48,24 @@ private actor RecordingInboundReceiver: InboundMessageReceiver {
         ]
     }
 
+    func projectLinkAgentOptions(projectId: String) async -> [ChannelProjectLinkAgentOption] {
+        [
+            ChannelProjectLinkAgentOption(actorId: "galya", agentId: "galya", name: "Galya", channelId: "agent:galya")
+        ]
+    }
+
     func linkProjectChannel(
         projectId: String,
         channelId: String,
         topicId: String?,
-        title: String?
+        title: String?,
+        routeChannelId: String?,
+        platform: String?,
+        platformChannelId: String?
     ) async -> ChannelProjectLinkResult {
-        linked.append((projectId: projectId, channelId: channelId))
-        return .linked(projectId: projectId, projectName: projectId.uppercased(), channelId: channelId, status: "linked")
+        let linkedChannelId = routeChannelId ?? channelId
+        linked.append((projectId: projectId, channelId: linkedChannelId))
+        return .linked(projectId: projectId, projectName: projectId.uppercased(), channelId: linkedChannelId, status: "linked")
     }
 
     func snapshot() -> [Message] {
@@ -650,11 +660,25 @@ func discordInteractionChannelLinkShowsButtonsAndLinksSelection() async throws {
     await session.enqueue(componentInteractionPayload(customId: customId))
 
     try await waitUntil {
+        let s = await client.snapshot()
+        return s.interactionResponses.contains { response in
+            response.type == 7
+                && response.components?.asArray?.first?.asObject?["components"]?.asArray?.first?.asObject?["custom_id"]?.asString?.contains(":a:") == true
+        }
+    }
+
+    let agentMenu = await client.snapshot()
+    let agentCustomId = try #require(
+        agentMenu.interactionResponses.last?.components?.asArray?.first?.asObject?["components"]?.asArray?.first?.asObject?["custom_id"]?.asString
+    )
+    await session.enqueue(componentInteractionPayload(customId: agentCustomId))
+
+    try await waitUntil {
         await receiver.linkedSnapshot().count == 1
     }
     await plugin.stop()
 
     let linked = await receiver.linkedSnapshot()
     #expect(linked.first?.projectId == "avito")
-    #expect(linked.first?.channelId == "general")
+    #expect(linked.first?.channelId == "agent:galya")
 }

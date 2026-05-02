@@ -81,7 +81,7 @@ extension CoreService {
                     plugin = builtInGatewayPluginFactory.makeTelegram(telegramConfig, self as any TelegramModelPickerBridge)
                 }
             }
-            let channelIds = config.channels.telegram.map { Array($0.channelChatMap.keys) } ?? []
+            let channelIds = config.channels.telegram.map { Array(Set($0.channelChatMap.keys).union($0.topicChannelMap.values)) } ?? []
             await reloadBuiltInPlugin(
                 id: "telegram",
                 type: "telegram",

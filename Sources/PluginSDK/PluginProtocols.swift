@@ -32,6 +32,20 @@ public struct ChannelProjectLinkOption: Sendable, Equatable {
     }
 }
 
+public struct ChannelProjectLinkAgentOption: Sendable, Equatable {
+    public let actorId: String
+    public let agentId: String
+    public let name: String
+    public let channelId: String
+
+    public init(actorId: String, agentId: String, name: String, channelId: String) {
+        self.actorId = actorId
+        self.agentId = agentId
+        self.name = name
+        self.channelId = channelId
+    }
+}
+
 public enum ChannelProjectLinkResult: Sendable, Equatable {
     case linked(projectId: String, projectName: String, channelId: String, status: String)
     case conflict(ownerProjectId: String, ownerProjectName: String)
@@ -71,12 +85,18 @@ public protocol InboundMessageReceiver: Sendable {
     /// Active dashboard projects available for gateway project-link pickers.
     func projectLinkOptions() async -> [ChannelProjectLinkOption]
 
+    /// Agent routes available for a project-link picker.
+    func projectLinkAgentOptions(projectId: String) async -> [ChannelProjectLinkAgentOption]
+
     /// Links the current platform channel or topic to a project.
     func linkProjectChannel(
         projectId: String,
         channelId: String,
         topicId: String?,
-        title: String?
+        title: String?,
+        routeChannelId: String?,
+        platform: String?,
+        platformChannelId: String?
     ) async -> ChannelProjectLinkResult
 }
 
@@ -110,11 +130,18 @@ public extension InboundMessageReceiver {
         []
     }
 
+    func projectLinkAgentOptions(projectId: String) async -> [ChannelProjectLinkAgentOption] {
+        []
+    }
+
     func linkProjectChannel(
         projectId: String,
         channelId: String,
         topicId: String?,
-        title: String?
+        title: String?,
+        routeChannelId: String?,
+        platform: String?,
+        platformChannelId: String?
     ) async -> ChannelProjectLinkResult {
         .failed(message: "Project linking is not available.")
     }

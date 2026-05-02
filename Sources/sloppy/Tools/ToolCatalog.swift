@@ -430,7 +430,15 @@ enum ToolCatalog {
             ]),
             "required": .array([.string("projectId")])
         ]),
-        "project.task_list": .object(["type": .string("object")]),
+        "project.task_list": .object([
+            "type": .string("object"),
+            "properties": .object([
+                "projectId": .object(["type": .string("string")]),
+                "status": .object(["type": .string("string")]),
+                "channelId": .object(["type": .string("string")]),
+                "topicId": .object(["type": .string("string")])
+            ])
+        ]),
         "project.task_create": .object([
             "type": .string("object"),
             "properties": .object([
@@ -438,10 +446,13 @@ enum ToolCatalog {
                 "description": .object(["type": .string("string")]),
                 "priority": .object(["type": .string("string")]),
                 "status": .object(["type": .string("string")]),
-                "completionConfidence": .object(["type": .string("string")]),
-                "completionNote": .object(["type": .string("string")]),
+                "kind": .object(["type": .string("string")]),
+                "parentTaskId": .object(["type": .string("string")]),
+                "loopModeOverride": .object(["type": .string("string")]),
                 "actorId": .object(["type": .string("string")]),
                 "teamId": .object(["type": .string("string")]),
+                "selectedModel": .object(["type": .string("string")]),
+                "projectId": .object(["type": .string("string")]),
                 "channelId": .object(["type": .string("string")]),
                 "topicId": .object(["type": .string("string")])
             ]),
@@ -464,8 +475,13 @@ enum ToolCatalog {
                 "description": .object(["type": .string("string")]),
                 "priority": .object(["type": .string("string")]),
                 "status": .object(["type": .string("string")]),
+                "completionConfidence": .object(["type": .string("string")]),
+                "completionNote": .object(["type": .string("string")]),
+                "kind": .object(["type": .string("string")]),
+                "loopModeOverride": .object(["type": .string("string")]),
                 "actorId": .object(["type": .string("string")]),
                 "teamId": .object(["type": .string("string")]),
+                "projectId": .object(["type": .string("string")]),
                 "channelId": .object(["type": .string("string")]),
                 "topicId": .object(["type": .string("string")])
             ])
@@ -475,7 +491,34 @@ enum ToolCatalog {
             "properties": .object([
                 "taskId": .object(["type": .string("string")]),
                 "reference": .object(["type": .string("string")]),
+                "taskIds": .object([
+                    "type": .string("array"),
+                    "items": .object(["type": .string("string")])
+                ]),
+                "references": .object([
+                    "type": .string("array"),
+                    "items": .object(["type": .string("string")])
+                ]),
                 "reason": .object(["type": .string("string")]),
+                "projectId": .object(["type": .string("string")]),
+                "channelId": .object(["type": .string("string")]),
+                "topicId": .object(["type": .string("string")])
+            ])
+        ]),
+        "project.task_delete": .object([
+            "type": .string("object"),
+            "properties": .object([
+                "taskId": .object(["type": .string("string")]),
+                "reference": .object(["type": .string("string")]),
+                "taskIds": .object([
+                    "type": .string("array"),
+                    "items": .object(["type": .string("string")])
+                ]),
+                "references": .object([
+                    "type": .string("array"),
+                    "items": .object(["type": .string("string")])
+                ]),
+                "projectId": .object(["type": .string("string")]),
                 "channelId": .object(["type": .string("string")]),
                 "topicId": .object(["type": .string("string")])
             ])
