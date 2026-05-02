@@ -8,13 +8,15 @@ struct PromptRenderContext: Sendable {
     var bootstrapMarker: String?
     var documents: AgentDocumentBundle?
     var installedSkills: [InstalledSkill]
+    var agentDirectoryPath: String?
 
     static func agentSessionBootstrap(
         agentID: String,
         sessionID: String,
         bootstrapMarker: String,
         documents: AgentDocumentBundle,
-        installedSkills: [InstalledSkill]
+        installedSkills: [InstalledSkill],
+        agentDirectoryPath: String?
     ) -> PromptRenderContext {
         PromptRenderContext(
             processKind: .agentSessionBootstrap,
@@ -22,7 +24,8 @@ struct PromptRenderContext: Sendable {
             sessionID: sessionID,
             bootstrapMarker: bootstrapMarker,
             documents: documents,
-            installedSkills: installedSkills
+            installedSkills: installedSkills,
+            agentDirectoryPath: agentDirectoryPath
         )
     }
 }

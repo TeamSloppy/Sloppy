@@ -138,7 +138,8 @@ private func makeAgentSessionFixture(
 private func expectedFallbackBootstrapMessage(
     agentID: String,
     sessionID: String,
-    documents: AgentDocumentBundle
+    documents: AgentDocumentBundle,
+    agentDirectoryPath: String? = nil
 ) throws -> String {
     let loader = PromptTemplateLoader()
     let renderer = PromptTemplateRenderer()
@@ -149,12 +150,13 @@ private func expectedFallbackBootstrapMessage(
     let toolsInstruction = try renderer.render(template: try loader.loadPartial(named: "tools_instruction"), values: [:])
     let taskPlanningRules = try renderer.render(template: try loader.loadPartial(named: "task_planning_rules"), values: [:])
     let completionReflection = try renderer.render(template: try loader.loadPartial(named: "completion_reflection"), values: [:])
+    let agentDirectoryLine = agentDirectoryPath.map { "Agent directory: \($0)\n" } ?? ""
 
     return """
     [agent_session_context_bootstrap_v1]
     Session context initialized.
     Agent: \(agentID)
-    Session: \(sessionID)
+    \(agentDirectoryLine)Session: \(sessionID)
 
     [AGENTS.md]
     \(documents.agentsMarkdown)
@@ -466,7 +468,8 @@ func agentSessionBootstrapFallsBackWhenPromptComposerFails() async throws {
     let expected = try expectedFallbackBootstrapMessage(
         agentID: "fallback-agent",
         sessionID: session.id,
-        documents: documents
+        documents: documents,
+        agentDirectoryPath: agentsRootURL.appendingPathComponent("fallback-agent", isDirectory: true).path
     )
     func normalized(_ text: String) -> String {
         let trimmed = text.trimmingCharacters(in: .newlines)

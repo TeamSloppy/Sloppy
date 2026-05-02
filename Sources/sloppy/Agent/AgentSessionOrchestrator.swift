@@ -989,6 +989,7 @@ actor AgentSessionOrchestrator {
             throw OrchestratorError.storageFailure
         }
         let installedSkills = loadInstalledSkills(agentID: agentID)
+        let agentDirectoryPath = (try? agentCatalogStore.directoryURL(agentID: agentID).path)
         let bootstrapPrompt: Prompt
         do {
             bootstrapPrompt = try promptComposer.compose(
@@ -997,7 +998,8 @@ actor AgentSessionOrchestrator {
                     sessionID: sessionID,
                     bootstrapMarker: Self.sessionContextBootstrapMarker,
                     documents: documents,
-                    installedSkills: installedSkills
+                    installedSkills: installedSkills,
+                    agentDirectoryPath: agentDirectoryPath
                 )
             )
         } catch {
@@ -1012,7 +1014,8 @@ actor AgentSessionOrchestrator {
             bootstrapPrompt = fallbackSessionBootstrapContextMessage(
                 agentID: agentID,
                 sessionID: sessionID,
-                documents: documents
+                documents: documents,
+                agentDirectoryPath: agentDirectoryPath
             )
         }
 
@@ -1052,6 +1055,7 @@ actor AgentSessionOrchestrator {
                 "identity_md_chars": .stringConvertible(documents.identityMarkdown.count),
                 "soul_md_chars": .stringConvertible(documents.soulMarkdown.count),
                 "memory_md_chars": .stringConvertible(documents.memoryMarkdown.count),
+                "agent_directory": .string(agentDirectoryPath ?? ""),
                 "skills_count": .stringConvertible(installedSkills.count),
                 "bootstrap_prompt": .string(truncateForLog(bootstrapContent, limit: 24000))
             ]
@@ -1064,7 +1068,8 @@ actor AgentSessionOrchestrator {
     private func fallbackSessionBootstrapContextMessage(
         agentID: String,
         sessionID: String,
-        documents: AgentDocumentBundle
+        documents: AgentDocumentBundle,
+        agentDirectoryPath: String?
     ) -> Prompt {
         let capabilitiesSection = renderedFallbackPromptPartial(
             named: "session_capabilities",
@@ -1149,6 +1154,10 @@ actor AgentSessionOrchestrator {
             Self.sessionContextBootstrapMarker
             "Session context initialized."
             "Agent: \(agentID)"
+            if let agentDirectoryPath,
+               !agentDirectoryPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                "Agent directory: \(agentDirectoryPath)"
+            }
             "Session: \(sessionID)"
             ""
             "[AGENTS.md]"

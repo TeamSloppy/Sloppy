@@ -47,6 +47,10 @@ struct AgentPromptComposer {
             bootstrapMarker
             "Session context initialized."
             "Agent: \(context.agentID)"
+            if let agentDirectoryPath = context.agentDirectoryPath,
+               !agentDirectoryPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                "Agent directory: \(agentDirectoryPath)"
+            }
             "Current session ID: \(sessionID)"
 
             if !documents.agentsMarkdown.isEmpty {
