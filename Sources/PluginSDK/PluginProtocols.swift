@@ -22,6 +22,23 @@ public struct ChannelInboundContext: Sendable, Equatable {
     }
 }
 
+public struct ChannelProjectLinkOption: Sendable, Equatable {
+    public let projectId: String
+    public let name: String
+
+    public init(projectId: String, name: String) {
+        self.projectId = projectId
+        self.name = name
+    }
+}
+
+public enum ChannelProjectLinkResult: Sendable, Equatable {
+    case linked(projectId: String, projectName: String, channelId: String, status: String)
+    case conflict(ownerProjectId: String, ownerProjectName: String)
+    case notFound
+    case failed(message: String)
+}
+
 /// Receives inbound messages from external channels and routes them into sloppy.
 /// Implementations bridge external platforms (Telegram, Slack, etc.) to channel runtime.
 public protocol InboundMessageReceiver: Sendable {
@@ -50,6 +67,17 @@ public protocol InboundMessageReceiver: Sendable {
 
     /// Unique skill slash menu rows for all linked agents across the given channel ids (Telegram/Discord menus).
     func skillSlashMenuEntriesUnion(forChannelIDs: [String]) async -> [ChannelSlashCommandItem]
+
+    /// Active dashboard projects available for gateway project-link pickers.
+    func projectLinkOptions() async -> [ChannelProjectLinkOption]
+
+    /// Links the current platform channel or topic to a project.
+    func linkProjectChannel(
+        projectId: String,
+        channelId: String,
+        topicId: String?,
+        title: String?
+    ) async -> ChannelProjectLinkResult
 }
 
 public extension InboundMessageReceiver {
@@ -76,6 +104,19 @@ public extension InboundMessageReceiver {
 
     func skillSlashMenuEntriesUnion(forChannelIDs: [String]) async -> [ChannelSlashCommandItem] {
         []
+    }
+
+    func projectLinkOptions() async -> [ChannelProjectLinkOption] {
+        []
+    }
+
+    func linkProjectChannel(
+        projectId: String,
+        channelId: String,
+        topicId: String?,
+        title: String?
+    ) async -> ChannelProjectLinkResult {
+        .failed(message: "Project linking is not available.")
     }
 }
 

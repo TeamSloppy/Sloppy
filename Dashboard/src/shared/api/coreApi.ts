@@ -106,6 +106,7 @@ export interface CoreApi {
   refreshProjectContext: (projectId: string) => Promise<AnyRecord | null>;
   deleteProject: (projectId: string) => Promise<boolean>;
   createProjectChannel: (projectId: string, payload: AnyRecord) => Promise<AnyRecord | null>;
+  linkProjectChannel: (projectId: string, payload: AnyRecord) => Promise<AnyRecord | null>;
   deleteProjectChannel: (projectId: string, channelId: string) => Promise<AnyRecord | null>;
   createProjectTask: (projectId: string, payload: AnyRecord) => Promise<AnyRecord | null>;
   updateProjectTask: (projectId: string, taskId: string, payload: AnyRecord) => Promise<AnyRecord | null>;
@@ -747,6 +748,18 @@ export function createCoreApi(): CoreApi {
       });
       if (!response.ok) {
         return null;
+      }
+      return response.data;
+    },
+
+    linkProjectChannel: async (projectId, payload) => {
+      const response = await requestJson<AnyRecord, AnyRecord>({
+        path: `/v1/projects/${encodeURIComponent(projectId)}/channel-links`,
+        method: "POST",
+        body: payload
+      });
+      if (!response.ok) {
+        return response.data || null;
       }
       return response.data;
     },

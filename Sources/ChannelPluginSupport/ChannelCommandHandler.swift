@@ -35,6 +35,7 @@ public struct ChannelCommandHandler: Sendable {
         BotCommand(name: "whoami", description: "Show channel and user info"),
         BotCommand(name: "task", description: "Create a task via Sloppy", argument: "description"),
         BotCommand(name: "model", description: "Show or switch model", argument: "model_id"),
+        BotCommand(name: "channel_link", description: "Link this channel or topic to a project"),
         BotCommand(name: "context", description: "Show token usage and context info"),
         BotCommand(name: "abort", description: "Abort current agent processing"),
         BotCommand(name: "btw", description: "Stop current reply, reset model context, optional message", argument: "message"),
@@ -90,6 +91,10 @@ public struct ChannelCommandHandler: Sendable {
         }
 
         if lower == "/model" || lower.hasPrefix("/model ") {
+            return nil
+        }
+
+        if lower == "/channel_link" || lower.hasPrefix("/channel_link ") {
             return nil
         }
 

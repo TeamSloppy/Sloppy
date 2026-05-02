@@ -46,6 +46,7 @@ export const updateProject = coreApi.updateProject;
 export const refreshProjectContext = coreApi.refreshProjectContext;
 export const deleteProject = coreApi.deleteProject;
 export const createProjectChannel = coreApi.createProjectChannel;
+export const linkProjectChannel = coreApi.linkProjectChannel;
 export const deleteProjectChannel = coreApi.deleteProjectChannel;
 export const createProjectTask = coreApi.createProjectTask;
 export const updateProjectTask = coreApi.updateProjectTask;

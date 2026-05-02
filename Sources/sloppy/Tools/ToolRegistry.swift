@@ -104,6 +104,7 @@ struct ToolRegistry: Sendable {
             ProjectListTool(),
             ProjectCreateTool(),
             ProjectUpdateTool(),
+            ProjectChannelLinkTool(),
             ProjectDeleteTool(),
             ProjectTaskListTool(),
             ProjectTaskCreateTool(),

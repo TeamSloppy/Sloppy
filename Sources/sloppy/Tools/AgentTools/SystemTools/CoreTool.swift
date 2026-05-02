@@ -125,6 +125,7 @@ protocol ProjectToolService: Sendable {
     func listAllProjects() async -> [ProjectRecord]
     func createProject(_ request: ProjectCreateRequest) async throws -> ProjectCreateResult
     func updateProject(projectID: String, request: ProjectUpdateRequest) async throws -> ProjectRecord
+    func linkProjectChannel(projectID: String, request: ProjectChannelLinkRequest) async throws -> ProjectChannelLinkResponse
     func deleteProject(projectID: String) async throws
 }
 

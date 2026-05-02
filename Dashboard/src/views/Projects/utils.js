@@ -4,7 +4,6 @@ export const ACTIVE_WORKER_STATUSES = new Set(["queued", "running", "waitinginpu
 
 export const PROJECT_TABS = [
   { id: "overview", title: "Overview" },
-  { id: "channels", title: "Channels" },
   { id: "chat", title: "Chat" },
   { id: "files", title: "Files" },
   { id: "tasks", title: "Tasks" },
@@ -338,7 +337,7 @@ export function buildOverviewMetrics(project, taskCounts, activeWorkers, chatSna
       label: "Active channels",
       value: activeChannelCount,
       sublabel: relatedChannelCount > 0 ? `${relatedChannelCount} configured` : "No channels",
-      tabId: "channels"
+      tabId: "chat"
     }
   ];
 }

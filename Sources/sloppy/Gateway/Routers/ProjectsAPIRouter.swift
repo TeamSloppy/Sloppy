@@ -148,6 +148,34 @@ struct ProjectsAPIRouter: APIRouter {
             }
         }
 
+        router.post("/v1/projects/:projectId/channel-links", metadata: RouteMetadata(summary: "Link project channel", description: "Links an existing Telegram topic, Discord room, or channel id to a project", tags: ["Projects"])) { request in
+            let projectId = request.pathParam("projectId") ?? ""
+            guard let body = request.body,
+                  let payload = CoreRouter.decode(body, as: ProjectChannelLinkRequest.self)
+            else {
+                return CoreRouter.json(status: HTTPStatus.badRequest, payload: ["error": ErrorCode.invalidBody])
+            }
+
+            do {
+                let response = try await service.linkProjectChannel(projectID: projectId, request: payload)
+                return CoreRouter.encodable(status: HTTPStatus.ok, payload: response)
+            } catch let conflict as CoreService.ProjectChannelLinkConflict {
+                return CoreRouter.json(
+                    status: HTTPStatus.conflict,
+                    payload: [
+                        "error": ErrorCode.projectConflict,
+                        "ownerProjectId": conflict.ownerProjectId,
+                        "ownerProjectName": conflict.ownerProjectName,
+                        "channelId": conflict.channelId
+                    ]
+                )
+            } catch let error as CoreService.ProjectError {
+                return CoreRouter.projectErrorResponse(error, fallback: ErrorCode.projectUpdateFailed)
+            } catch {
+                return CoreRouter.json(status: HTTPStatus.internalServerError, payload: ["error": ErrorCode.projectUpdateFailed])
+            }
+        }
+
         router.get("/v1/projects/:projectId/tasks/archived", metadata: RouteMetadata(summary: "List archived tasks", description: "Returns tasks that have been archived (done/cancelled for more than 2 days)", tags: ["Projects"])) { request in
             let projectId = request.pathParam("projectId") ?? ""
             do {

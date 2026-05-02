@@ -15,6 +15,7 @@ private actor RecordingInboundReceiver: InboundMessageReceiver {
     }
 
     private var messages: [Message] = []
+    private var linked: [(projectId: String, channelId: String)] = []
     private let shouldAccept: Bool
 
     init(shouldAccept: Bool = true) {
@@ -40,8 +41,29 @@ private actor RecordingInboundReceiver: InboundMessageReceiver {
         []
     }
 
+    func projectLinkOptions() async -> [ChannelProjectLinkOption] {
+        [
+            ChannelProjectLinkOption(projectId: "avito", name: "AVITO"),
+            ChannelProjectLinkOption(projectId: "sloppy", name: "Sloppy")
+        ]
+    }
+
+    func linkProjectChannel(
+        projectId: String,
+        channelId: String,
+        topicId: String?,
+        title: String?
+    ) async -> ChannelProjectLinkResult {
+        linked.append((projectId: projectId, channelId: channelId))
+        return .linked(projectId: projectId, projectName: projectId.uppercased(), channelId: channelId, status: "linked")
+    }
+
     func snapshot() -> [Message] {
         messages
+    }
+
+    func linkedSnapshot() -> [(projectId: String, channelId: String)] {
+        linked
     }
 }
 
@@ -130,7 +152,7 @@ private actor MockDiscordClient: DiscordPlatformClient {
     }
 
     private var registeredCommands: [JSONValue] = []
-    private var interactionResponses: [(id: String, token: String, type: Int, content: String?)] = []
+    private var interactionResponses: [(id: String, token: String, type: Int, content: String?, components: JSONValue?)] = []
 
     func registerGlobalCommands(applicationId: String, commands: [JSONValue]) async throws {
         registeredCommands = commands
@@ -140,9 +162,10 @@ private actor MockDiscordClient: DiscordPlatformClient {
         interactionId: String,
         interactionToken: String,
         type: Int,
-        content: String?
+        content: String?,
+        components: JSONValue?
     ) async throws {
-        interactionResponses.append((id: interactionId, token: interactionToken, type: type, content: content))
+        interactionResponses.append((id: interactionId, token: interactionToken, type: type, content: content, components: components))
     }
 
     func snapshot() -> (
@@ -150,7 +173,7 @@ private actor MockDiscordClient: DiscordPlatformClient {
         edited: [EditedMessage],
         deleted: [(channelId: String, messageId: String)],
         registeredCommands: [JSONValue],
-        interactionResponses: [(id: String, token: String, type: Int, content: String?)]
+        interactionResponses: [(id: String, token: String, type: Int, content: String?, components: JSONValue?)]
     ) {
         (sentMessages, editedMessages, deletedMessages, registeredCommands, interactionResponses)
     }
@@ -371,6 +394,7 @@ func channelCommandHandlerCommandsListIsComplete() {
     #expect(names.contains("whoami"))
     #expect(names.contains("task"))
     #expect(names.contains("model"))
+    #expect(names.contains("channel_link"))
     #expect(names.contains("abort"))
     #expect(names.contains("create-skill"))
     #expect(names.contains("create-subagent"))
@@ -415,6 +439,33 @@ private func interactionCreatePayload(
     return DiscordGatewayPayload(op: 0, d: .object(payload), s: 3, t: "INTERACTION_CREATE")
 }
 
+private func componentInteractionPayload(
+    customId: String,
+    interactionId: String = "component-1",
+    interactionToken: String = "component-token",
+    channelId: String = "discord-general",
+    userId: String = "user-1"
+) -> DiscordGatewayPayload {
+    let payload: [String: JSONValue] = [
+        "id": .string(interactionId),
+        "token": .string(interactionToken),
+        "type": .number(3),
+        "channel_id": .string(channelId),
+        "data": .object([
+            "custom_id": .string(customId),
+            "component_type": .number(2)
+        ]),
+        "member": .object([
+            "user": .object([
+                "id": .string(userId),
+                "username": .string("alice"),
+                "global_name": .string("Alice")
+            ])
+        ])
+    ]
+    return DiscordGatewayPayload(op: 0, d: .object(payload), s: 4, t: "INTERACTION_CREATE")
+}
+
 @Test
 func discordGatewayRegistersCommandsOnReady() async throws {
     let session = MockDiscordGatewaySession()
@@ -446,6 +497,7 @@ func discordGatewayRegistersCommandsOnReady() async throws {
     #expect(commandNames.contains("whoami"))
     #expect(commandNames.contains("task"))
     #expect(commandNames.contains("model"))
+    #expect(commandNames.contains("channel_link"))
     #expect(commandNames.contains("abort"))
     #expect(commandNames.contains("create-skill"))
     #expect(commandNames.contains("create-subagent"))
@@ -566,4 +618,43 @@ func discordInteractionTaskForwardsToCore() async throws {
     let ackResponse = snapshot.interactionResponses.first { $0.id == "interaction-1" }
     #expect(ackResponse?.type == 4)
     #expect(ackResponse?.content == "Processing...")
+}
+
+@Test
+func discordInteractionChannelLinkShowsButtonsAndLinksSelection() async throws {
+    let session = MockDiscordGatewaySession()
+    let client = MockDiscordClient(session: session)
+    let plugin = DiscordGatewayPlugin(
+        botToken: "discord-token",
+        channelDiscordChannelMap: ["general": "discord-general"],
+        logger: Logger(label: "tests.discord"),
+        client: client
+    )
+    let receiver = RecordingInboundReceiver()
+
+    try await plugin.start(inboundReceiver: receiver)
+    await session.enqueue(helloPayload())
+    await session.enqueue(readyPayload(botUserId: "bot-1"))
+    await session.enqueue(interactionCreatePayload(commandName: "channel_link"))
+
+    try await waitUntil {
+        let s = await client.snapshot()
+        return s.interactionResponses.contains(where: { $0.id == "interaction-1" && $0.components != nil })
+    }
+
+    let snapshot = await client.snapshot()
+    let menu = try #require(snapshot.interactionResponses.first { $0.id == "interaction-1" })
+    let customId = try #require(
+        menu.components?.asArray?.first?.asObject?["components"]?.asArray?.first?.asObject?["custom_id"]?.asString
+    )
+    await session.enqueue(componentInteractionPayload(customId: customId))
+
+    try await waitUntil {
+        await receiver.linkedSnapshot().count == 1
+    }
+    await plugin.stop()
+
+    let linked = await receiver.linkedSnapshot()
+    #expect(linked.first?.projectId == "avito")
+    #expect(linked.first?.channelId == "general")
 }

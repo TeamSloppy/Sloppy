@@ -4,11 +4,18 @@ import AppKit
 #endif
 import AgentRuntime
 import Protocols
+import PluginSDK
 import Logging
 
 // MARK: - Projects
 
 extension CoreService {
+    public struct ProjectChannelLinkConflict: Error {
+        public let ownerProjectId: String
+        public let ownerProjectName: String
+        public let channelId: String
+    }
+
     /// Synthetic `projectId` for `/v1/projects/:id/files/...` when the UI should search the workspace `projects/` directory (all project folders) rather than one project root.
     static let sloppyProjectsDirectoryScopeID = "_sloppyProjectsRoot"
 
@@ -724,6 +731,69 @@ extension CoreService {
         return project
     }
 
+    public func linkProjectChannel(
+        projectID: String,
+        request: ProjectChannelLinkRequest
+    ) async throws -> ProjectChannelLinkResponse {
+        guard let normalizedID = normalizedProjectID(projectID) else {
+            throw ProjectError.invalidProjectID
+        }
+        guard var project = await store.project(id: normalizedID) else {
+            throw ProjectError.notFound
+        }
+
+        let channelID = try normalizedChannelID(request.channelId)
+        let title = normalizeChannelTitle(request.title ?? channelID)
+        let projects = await store.listProjects()
+        for candidate in projects where candidate.id != normalizedID {
+            if candidate.channels.contains(where: { channelBindingsConflict($0.channelId, channelID) }) {
+                throw ProjectChannelLinkConflict(
+                    ownerProjectId: candidate.id,
+                    ownerProjectName: candidate.name,
+                    channelId: channelID
+                )
+            }
+        }
+
+        let status: String
+        let channel: ProjectChannel
+        if let existing = project.channels.first(where: { channelBindingsConflict($0.channelId, channelID) }) {
+            channel = existing
+            status = "existing"
+        } else {
+            channel = ProjectChannel(
+                id: UUID().uuidString,
+                title: title,
+                channelId: channelID,
+                createdAt: Date()
+            )
+            project.channels.append(channel)
+            project.updatedAt = Date()
+            await store.saveProject(project)
+            await kanbanEventService.push(KanbanEvent(type: .projectUpdated, projectId: normalizedID))
+            status = "linked"
+        }
+
+        let session: ProjectChannelLinkSession?
+        if request.ensureSession == true {
+            let summary = try await channelSessionStore.ensureOpenSession(channelId: channelID)
+            session = ProjectChannelLinkSession(
+                channelId: summary.channelId,
+                sessionId: summary.sessionId,
+                status: summary.status.rawValue
+            )
+        } else {
+            session = nil
+        }
+
+        return ProjectChannelLinkResponse(
+            project: project,
+            channel: channel,
+            session: session,
+            status: status
+        )
+    }
+
     /// Removes a channel from a dashboard project.
     public func deleteProjectChannel(projectID: String, channelID: String) async throws -> ProjectRecord {
         guard let normalizedID = normalizedProjectID(projectID) else {
@@ -1240,10 +1310,20 @@ extension CoreService {
     func normalizedChannelID(_ raw: String) throws -> String {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         let allowed = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_.:/")
+            .union(CharacterSet(charactersIn: "\u{001E}"))
         guard !trimmed.isEmpty, trimmed.count <= 200, trimmed.rangeOfCharacter(from: allowed.inverted) == nil else {
             throw ProjectError.invalidChannelID
         }
         return trimmed
+    }
+
+    func channelBindingsConflict(_ left: String, _ right: String) -> Bool {
+        let lhs = left.trimmingCharacters(in: .whitespacesAndNewlines)
+        let rhs = right.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !lhs.isEmpty, !rhs.isEmpty else {
+            return false
+        }
+        return lhs == rhs
     }
 
     func slugify(_ raw: String) -> String {

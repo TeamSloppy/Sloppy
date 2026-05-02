@@ -917,6 +917,47 @@ extension CoreService: InboundMessageReceiver {
         return items.sorted { $0.name < $1.name }
     }
 
+    public func projectLinkOptions() async -> [ChannelProjectLinkOption] {
+        await store.listProjects()
+            .filter { !$0.isArchived }
+            .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+            .map { ChannelProjectLinkOption(projectId: $0.id, name: $0.name) }
+    }
+
+    public func linkProjectChannel(
+        projectId: String,
+        channelId: String,
+        topicId: String?,
+        title: String?
+    ) async -> ChannelProjectLinkResult {
+        let scopedChannelId = ChannelGatewayScope.scopedChannelId(baseChannelId: channelId, topicKey: topicId)
+        do {
+            let result = try await linkProjectChannel(
+                projectID: projectId,
+                request: ProjectChannelLinkRequest(
+                    channelId: scopedChannelId,
+                    title: title,
+                    ensureSession: true
+                )
+            )
+            return .linked(
+                projectId: result.project.id,
+                projectName: result.project.name,
+                channelId: result.channel.channelId,
+                status: result.status
+            )
+        } catch let conflict as CoreService.ProjectChannelLinkConflict {
+            return .conflict(ownerProjectId: conflict.ownerProjectId, ownerProjectName: conflict.ownerProjectName)
+        } catch let error as ProjectError {
+            if case .notFound = error {
+                return .notFound
+            }
+            return .failed(message: "\(error)")
+        } catch {
+            return .failed(message: error.localizedDescription)
+        }
+    }
+
     func emitNotificationIfNeeded(from event: EventEnvelope) async {
         switch event.messageType {
         case .workerFailed:

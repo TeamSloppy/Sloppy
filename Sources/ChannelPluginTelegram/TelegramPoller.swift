@@ -13,6 +13,12 @@ actor TelegramPoller {
         let models: [ProviderModelOption]
     }
 
+    private struct ProjectLinkSession: Sendable {
+        let bindingChannelId: String
+        let messageThreadId: Int?
+        let options: [ChannelProjectLinkOption]
+    }
+
     private let bot: TelegramBotAPI
     private let receiver: any InboundMessageReceiver
     private let config: TelegramPluginConfig
@@ -26,6 +32,7 @@ actor TelegramPoller {
     private var botUsernameLowercased: String = ""
     /// Picker UI state keyed by the Telegram message id that hosts the keyboard.
     private var modelPickerSessions: [Int64: PickerSession] = [:]
+    private var projectLinkSessions: [Int64: ProjectLinkSession] = [:]
 
     init(
         bot: TelegramBotAPI,
@@ -119,6 +126,16 @@ actor TelegramPoller {
 
         guard let bindingChannelId = config.channelId(forChatId: chatId) else {
             try? await bot.answerCallbackQuery(callbackQueryId: query.id, text: "Канал не привязан.", showAlert: true)
+            return
+        }
+
+        if await handleProjectLinkCallback(
+            data: data,
+            query: query,
+            chatId: chatId,
+            messageId: message.messageId,
+            messageThreadId: messageThreadId
+        ) {
             return
         }
 
@@ -304,6 +321,15 @@ actor TelegramPoller {
             return
         }
 
+        if await handleProjectLinkSlashCommand(
+            text: text,
+            bindingChannelId: channelId,
+            chatId: chatId,
+            messageThreadId: messageThreadId
+        ) {
+            return
+        }
+
         let ok = await receiver.postMessage(
             channelId: channelId,
             userId: userIdString,
@@ -322,6 +348,129 @@ actor TelegramPoller {
                 messageThreadId: messageThreadId
             )
         }
+    }
+
+    private func handleProjectLinkSlashCommand(
+        text: String,
+        bindingChannelId: String,
+        chatId: Int64,
+        messageThreadId: Int?
+    ) async -> Bool {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let lower = trimmed.lowercased()
+        guard lower == "/channel_link" || lower.hasPrefix("/channel_link ") else {
+            return false
+        }
+
+        let options = await receiver.projectLinkOptions()
+        guard !options.isEmpty else {
+            _ = try? await bot.sendMessage(
+                chatId: chatId,
+                text: "No active projects found.",
+                messageThreadId: messageThreadId
+            )
+            return true
+        }
+
+        let visible = Array(options.prefix(25))
+        let extra = options.count > visible.count ? "\n\nShowing first 25 projects. Use Dashboard for the full list." : ""
+        do {
+            let sent = try await bot.sendMessage(
+                chatId: chatId,
+                text: "Choose a project for this channel/topic.\(extra)",
+                messageThreadId: messageThreadId,
+                showTyping: true
+            )
+            projectLinkSessions[sent.messageId] = ProjectLinkSession(
+                bindingChannelId: bindingChannelId,
+                messageThreadId: messageThreadId,
+                options: visible
+            )
+            _ = try await bot.editMessageText(
+                chatId: chatId,
+                messageId: sent.messageId,
+                text: "Choose a project for this channel/topic.\(extra)",
+                messageThreadId: messageThreadId,
+                replyMarkup: projectLinkKeyboard(messageId: sent.messageId, options: visible)
+            )
+        } catch {
+            logger.warning("Failed to present project link picker: \(error)")
+            _ = try? await bot.sendMessage(
+                chatId: chatId,
+                text: "Failed to show projects. Try again later.",
+                messageThreadId: messageThreadId
+            )
+        }
+        return true
+    }
+
+    private func handleProjectLinkCallback(
+        data: String,
+        query: TelegramBotAPI.CallbackQuery,
+        chatId: Int64,
+        messageId: Int64,
+        messageThreadId: Int?
+    ) async -> Bool {
+        guard data.hasPrefix("pl:") else {
+            return false
+        }
+        let parts = data.split(separator: ":", omittingEmptySubsequences: false)
+        guard parts.count == 3,
+              let pickerMessageId = Int64(parts[1]),
+              let index = Int(parts[2]),
+              let session = projectLinkSessions[pickerMessageId],
+              session.options.indices.contains(index)
+        else {
+            try? await bot.answerCallbackQuery(callbackQueryId: query.id, text: "Project list expired. Send /channel_link again.", showAlert: true)
+            return true
+        }
+
+        let option = session.options[index]
+        let title = session.messageThreadId.map { "Telegram topic \($0)" } ?? "Telegram chat"
+        let result = await receiver.linkProjectChannel(
+            projectId: option.projectId,
+            channelId: session.bindingChannelId,
+            topicId: session.messageThreadId.map(String.init),
+            title: title
+        )
+
+        switch result {
+        case .linked(_, let projectName, let channelId, let status):
+            projectLinkSessions[pickerMessageId] = nil
+            let text = status == "existing"
+                ? "Already linked to \(projectName).\n\nChannel: \(channelId)"
+                : "Linked to \(projectName).\n\nChannel: \(channelId)"
+            _ = try? await bot.editMessageText(
+                chatId: chatId,
+                messageId: messageId,
+                text: text,
+                messageThreadId: messageThreadId,
+                replyMarkup: []
+            )
+            try? await bot.answerCallbackQuery(callbackQueryId: query.id, text: "Done")
+        case .conflict(_, let ownerProjectName):
+            try? await bot.answerCallbackQuery(
+                callbackQueryId: query.id,
+                text: "Already linked to \(ownerProjectName).",
+                showAlert: true
+            )
+        case .notFound:
+            try? await bot.answerCallbackQuery(callbackQueryId: query.id, text: "Project not found.", showAlert: true)
+        case .failed(let message):
+            try? await bot.answerCallbackQuery(callbackQueryId: query.id, text: message, showAlert: true)
+        }
+        return true
+    }
+
+    private func projectLinkKeyboard(messageId: Int64, options: [ChannelProjectLinkOption]) -> [[[String: String]]] {
+        var rows: [[[String: String]]] = []
+        for (index, option) in options.enumerated() {
+            rows.append([[
+                "text": String(option.name.prefix(48)),
+                "callback_data": "pl:\(messageId):\(index)"
+            ]])
+        }
+        return rows
     }
 
     /// - Returns: `true` if the message was fully handled (picker or immediate set).

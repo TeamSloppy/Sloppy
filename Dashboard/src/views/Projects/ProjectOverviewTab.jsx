@@ -186,7 +186,7 @@ function LiveActivitySection({ channels, onOpenTab }) {
         <section className="project-pane">
             <div className="project-pane-head">
                 <h4>Live Activity</h4>
-                <SectionAction label="Open Channels" onClick={() => onOpenTab("channels")} />
+                <SectionAction label="Open Chat" onClick={() => onOpenTab("chat")} />
             </div>
 
             {visibleChannels.length === 0 ? (

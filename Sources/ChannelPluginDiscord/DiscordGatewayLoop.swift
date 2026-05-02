@@ -68,6 +68,12 @@ actor DiscordGatewayLoop {
         case reconnect
     }
 
+    private struct ProjectLinkMenu: Sendable {
+        let sloppyChannelId: String
+        let discordChannelId: String
+        let options: [ChannelProjectLinkOption]
+    }
+
     private let client: any DiscordPlatformClient
     private let receiver: any InboundMessageReceiver
     private let config: DiscordPluginConfig
@@ -78,6 +84,7 @@ actor DiscordGatewayLoop {
     private var sequence: Int?
     private var botUserID: String?
     private var applicationId: String?
+    private var projectLinkMenus: [String: ProjectLinkMenu] = [:]
 
     init(
         client: any DiscordPlatformClient,
@@ -296,9 +303,17 @@ actor DiscordGatewayLoop {
     private func handleInteraction(_ payload: DiscordGatewayPayload) async {
         guard let data = payload.d?.asObject,
               let interactionId = data["id"]?.asString,
-              let interactionToken = data["token"]?.asString,
-              let commandName = data["data"]?.asObject?["name"]?.asString
+              let interactionToken = data["token"]?.asString
         else {
+            return
+        }
+
+        if data["type"]?.asInt == 3 {
+            await handleComponentInteraction(data: data, interactionId: interactionId, interactionToken: interactionToken)
+            return
+        }
+
+        guard let commandName = data["data"]?.asObject?["name"]?.asString else {
             return
         }
 
@@ -323,6 +338,16 @@ actor DiscordGatewayLoop {
         let discordChannelId = data["channel_id"]?.asString ?? ""
         let sloppyChannelId = config.channelId(forDiscordChannelId: discordChannelId)
 
+        if commandName == "channel_link" {
+            await respondWithProjectLinkMenu(
+                interactionId: interactionId,
+                interactionToken: interactionToken,
+                discordChannelId: discordChannelId,
+                sloppyChannelId: sloppyChannelId
+            )
+            return
+        }
+
         let messageContext = MessageContext(
             channelId: sloppyChannelId ?? discordChannelId,
             userId: "discord:\(userId)",
@@ -342,7 +367,8 @@ actor DiscordGatewayLoop {
                     interactionId: interactionId,
                     interactionToken: interactionToken,
                     type: 4,
-                    content: trimmedContent(localReply)
+                    content: trimmedContent(localReply),
+                    components: nil
                 )
             } catch {
                 logger.warning("Failed to respond to interaction \(interactionId): \(error)")
@@ -355,7 +381,8 @@ actor DiscordGatewayLoop {
                 interactionId: interactionId,
                 interactionToken: interactionToken,
                 type: 4,
-                content: "Processing..."
+                content: "Processing...",
+                components: nil
             )
         } catch {
             logger.warning("Failed to ack interaction \(interactionId): \(error)")
@@ -376,6 +403,160 @@ actor DiscordGatewayLoop {
         if !ok {
             logger.warning("Failed to forward interaction to sloppy: channelId=\(sloppyChannelId)")
         }
+    }
+
+    private func respondWithProjectLinkMenu(
+        interactionId: String,
+        interactionToken: String,
+        discordChannelId: String,
+        sloppyChannelId: String?
+    ) async {
+        guard let sloppyChannelId else {
+            do {
+                try await client.createInteractionResponse(
+                    interactionId: interactionId,
+                    interactionToken: interactionToken,
+                    type: 4,
+                    content: "This Discord channel is not connected to any Sloppy channel.",
+                    components: nil
+                )
+            } catch {
+                logger.warning("Failed to respond to channel_link interaction: \(error)")
+            }
+            return
+        }
+
+        let options = await receiver.projectLinkOptions()
+        guard !options.isEmpty else {
+            try? await client.createInteractionResponse(
+                interactionId: interactionId,
+                interactionToken: interactionToken,
+                type: 4,
+                content: "No active projects found.",
+                components: nil
+            )
+            return
+        }
+
+        let visible = Array(options.prefix(25))
+        let nonce = String(UUID().uuidString.prefix(8))
+        projectLinkMenus[nonce] = ProjectLinkMenu(
+            sloppyChannelId: sloppyChannelId,
+            discordChannelId: discordChannelId,
+            options: visible
+        )
+        let extra = options.count > visible.count ? "\n\nShowing first 25 projects. Use Dashboard for the full list." : ""
+        do {
+            try await client.createInteractionResponse(
+                interactionId: interactionId,
+                interactionToken: interactionToken,
+                type: 4,
+                content: "Choose a project for this Discord channel.\(extra)",
+                components: projectLinkComponents(nonce: nonce, options: visible)
+            )
+        } catch {
+            logger.warning("Failed to present Discord project link menu: \(error)")
+        }
+    }
+
+    private func handleComponentInteraction(
+        data: [String: JSONValue],
+        interactionId: String,
+        interactionToken: String
+    ) async {
+        guard let customId = data["data"]?.asObject?["custom_id"]?.asString,
+              customId.hasPrefix("sloppy:cl:")
+        else {
+            return
+        }
+
+        let parts = customId.split(separator: ":", omittingEmptySubsequences: false)
+        guard parts.count == 4,
+              let menu = projectLinkMenus[String(parts[2])],
+              let index = Int(parts[3]),
+              menu.options.indices.contains(index)
+        else {
+            try? await client.createInteractionResponse(
+                interactionId: interactionId,
+                interactionToken: interactionToken,
+                type: 4,
+                content: "Project list expired. Run /channel_link again.",
+                components: nil
+            )
+            return
+        }
+
+        let option = menu.options[index]
+        let result = await receiver.linkProjectChannel(
+            projectId: option.projectId,
+            channelId: menu.sloppyChannelId,
+            topicId: nil,
+            title: "Discord channel"
+        )
+
+        switch result {
+        case .linked(_, let projectName, let channelId, let status):
+            projectLinkMenus[String(parts[2])] = nil
+            let verb = status == "existing" ? "Already linked" : "Linked"
+            try? await client.createInteractionResponse(
+                interactionId: interactionId,
+                interactionToken: interactionToken,
+                type: 7,
+                content: "\(verb) to \(projectName).\n\nChannel: \(channelId)",
+                components: .array([])
+            )
+        case .conflict(_, let ownerProjectName):
+            try? await client.createInteractionResponse(
+                interactionId: interactionId,
+                interactionToken: interactionToken,
+                type: 4,
+                content: "This channel is already linked to \(ownerProjectName).",
+                components: nil
+            )
+        case .notFound:
+            try? await client.createInteractionResponse(
+                interactionId: interactionId,
+                interactionToken: interactionToken,
+                type: 4,
+                content: "Project not found.",
+                components: nil
+            )
+        case .failed(let message):
+            try? await client.createInteractionResponse(
+                interactionId: interactionId,
+                interactionToken: interactionToken,
+                type: 4,
+                content: trimmedContent(message),
+                components: nil
+            )
+        }
+    }
+
+    private func projectLinkComponents(nonce: String, options: [ChannelProjectLinkOption]) -> JSONValue {
+        var rows: [JSONValue] = []
+        var current: [JSONValue] = []
+        for (index, option) in options.enumerated() {
+            current.append(.object([
+                "type": .number(2),
+                "style": .number(1),
+                "label": .string(String(option.name.prefix(80))),
+                "custom_id": .string("sloppy:cl:\(nonce):\(index)")
+            ]))
+            if current.count == 5 {
+                rows.append(.object([
+                    "type": .number(1),
+                    "components": .array(current)
+                ]))
+                current = []
+            }
+        }
+        if !current.isEmpty {
+            rows.append(.object([
+                "type": .number(1),
+                "components": .array(current)
+            ]))
+        }
+        return .array(rows)
     }
 
     private func handleIncomingMessage(_ message: IncomingMessage) async {

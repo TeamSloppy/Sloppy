@@ -127,7 +127,7 @@ function resolveProjectParticipants({ project, board }) {
   return { participants, resolvedTeams };
 }
 
-export function ProjectChatTab({ project, onNavigateToChannelSession }) {
+export function ProjectChatTab({ project, onNavigateToChannelSession, onAddChannel }) {
   const [board, setBoard] = useState(null);
   const [channelSessions, setChannelSessions] = useState([]);
   const [sessionDetails, setSessionDetails] = useState({});
@@ -254,6 +254,14 @@ export function ProjectChatTab({ project, onNavigateToChannelSession }) {
       </div>
 
       <div className="project-chat-actions">
+        <button
+          type="button"
+          className="project-chat-refresh-btn hover-levitate"
+          onClick={() => onAddChannel?.()}
+        >
+          <span className="material-symbols-rounded" aria-hidden="true">add</span>
+          Add Channel
+        </button>
         <button
           type="button"
           className="project-chat-refresh-btn hover-levitate"

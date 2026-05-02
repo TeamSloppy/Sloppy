@@ -632,6 +632,62 @@ function formatEventTime(value) {
   return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 }
 
+function formatEventClockTime(value) {
+  if (!value) {
+    return "";
+  }
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return "";
+  }
+  return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+}
+
+function formatElapsedSince(value, nowMs = Date.now()) {
+  if (!value) {
+    return "";
+  }
+  const startedMs = new Date(value).getTime();
+  if (!Number.isFinite(startedMs)) {
+    return "";
+  }
+  const elapsedSeconds = Math.max(0, Math.floor((nowMs - startedMs) / 1000));
+  if (elapsedSeconds < 60) {
+    return `${elapsedSeconds}s ago`;
+  }
+  const elapsedMinutes = Math.floor(elapsedSeconds / 60);
+  if (elapsedMinutes < 60) {
+    return `${elapsedMinutes}m ago`;
+  }
+  const elapsedHours = Math.floor(elapsedMinutes / 60);
+  if (elapsedHours < 24) {
+    const remainderMinutes = elapsedMinutes % 60;
+    return remainderMinutes > 0 ? `${elapsedHours}h ${remainderMinutes}m ago` : `${elapsedHours}h ago`;
+  }
+  const elapsedDays = Math.floor(elapsedHours / 24);
+  return `${elapsedDays}d ago`;
+}
+
+function formatTechnicalEventTime(value, nowMs = Date.now()) {
+  const clock = formatEventClockTime(value);
+  const elapsed = formatElapsedSince(value, nowMs);
+  if (clock && elapsed) {
+    return `${clock} · ${elapsed}`;
+  }
+  return clock || elapsed;
+}
+
+function formatFullEventDateTime(value) {
+  if (!value) {
+    return "";
+  }
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return "";
+  }
+  return date.toLocaleString();
+}
+
 function latestRespondingTextFromEvents(events) {
   const latest = [...(Array.isArray(events) ? events : [])]
     .reverse()
@@ -1509,6 +1565,7 @@ function AgentChatEvents({
 }) {
   const scrollRef = useRef(null);
   const wasNearBottomRef = useRef(true);
+  const [timeNowMs, setTimeNowMs] = useState(() => Date.now());
 
   useEffect(() => {
     const el = scrollRef.current;
@@ -1528,6 +1585,17 @@ function AgentChatEvents({
   }, [timelineItems, isLoadingSession, isSending, latestRunStatus?.id]);
 
   const displayGroups = useMemo(() => groupTimelineItems(timelineItems), [timelineItems]);
+  const hasActiveTechnicalRecord = useMemo(
+    () => timelineItems.some((item) => item?.kind === "technical" && item?.record?.isActive),
+    [timelineItems]
+  );
+
+  useEffect(() => {
+    const intervalMs = isSending || hasActiveTechnicalRecord ? 1000 : 30000;
+    const timer = window.setInterval(() => setTimeNowMs(Date.now()), intervalMs);
+    return () => window.clearInterval(timer);
+  }, [isSending, hasActiveTechnicalRecord]);
+
   const hasWaitingStreamIndicator = useMemo(
     () => timelineItems.some((item) => item?.kind === "message" && item?.isWaitingForStream),
     [timelineItems]
@@ -1553,6 +1621,8 @@ function AgentChatEvents({
     if (!record) return null;
     const isExpanded = Boolean(expandedRecordIds[record.id]);
     const isLatestActive = Boolean(record.isActive);
+    const eventTimeLabel = formatTechnicalEventTime(record.createdAt, timeNowMs);
+    const eventTimeTitle = formatFullEventDateTime(record.createdAt);
 
     return (
       <div key={techItem.id || `tech-${techIndex}`} className="agent-chat-tech-entry">
@@ -1563,6 +1633,11 @@ function AgentChatEvents({
           aria-expanded={isExpanded}
         >
           <span className="agent-chat-tech-trigger-label">{record.title || "Technical event"}</span>
+          {eventTimeLabel ? (
+            <span className="agent-chat-tech-trigger-time" title={eventTimeTitle || eventTimeLabel}>
+              {eventTimeLabel}
+            </span>
+          ) : null}
           <span className="material-symbols-rounded agent-chat-tech-trigger-arrow" aria-hidden="true">
             chevron_right
           </span>
@@ -1612,6 +1687,14 @@ function AgentChatEvents({
               const groupId = timelineItem.id;
               const isGroupOpen = Boolean(expandedRecordIds[groupId]);
               const isGroupActive = timelineItem.items.some((item) => item.record?.isActive);
+              const latestGroupTime = timelineItem.items.reduce((latest, item) => {
+                const createdAt = item?.record?.createdAt;
+                const ms = createdAt ? new Date(createdAt).getTime() : 0;
+                return Number.isFinite(ms) && ms > latest ? ms : latest;
+              }, 0);
+              const latestGroupTimeLabel = latestGroupTime > 0
+                ? formatTechnicalEventTime(new Date(latestGroupTime).toISOString(), timeNowMs)
+                : "";
               return (
                 <div key={groupId} className="agent-chat-tech-group">
                   <button
@@ -1623,6 +1706,11 @@ function AgentChatEvents({
                     <span className="agent-chat-tech-trigger-label">
                       {timelineItem.count} steps
                     </span>
+                    {latestGroupTimeLabel ? (
+                      <span className="agent-chat-tech-trigger-time" title={formatFullEventDateTime(new Date(latestGroupTime).toISOString())}>
+                        {latestGroupTimeLabel}
+                      </span>
+                    ) : null}
                     <span className="material-symbols-rounded agent-chat-tech-trigger-arrow" aria-hidden="true">
                       chevron_right
                     </span>

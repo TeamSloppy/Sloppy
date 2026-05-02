@@ -103,6 +103,15 @@ actor ChannelSessionFileStore {
         return ChannelSessionDetail(summary: summary, events: events)
     }
 
+    @discardableResult
+    func ensureOpenSession(channelId: String, createdAt: Date = Date()) throws -> ChannelSessionSummary {
+        let normalizedChannelID = try normalizedChannelID(channelId)
+        if let open = try currentOpenSession(channelId: normalizedChannelID) {
+            return open
+        }
+        return try createSession(channelId: normalizedChannelID, createdAt: createdAt)
+    }
+
     func closeSession(
         sessionID: String,
         reason: String = "inactive_timeout",

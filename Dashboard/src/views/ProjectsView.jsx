@@ -2,11 +2,12 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   fetchActorsBoard,
   fetchChannelState,
+  fetchChannelSessions,
   fetchProjects as fetchProjectsRequest,
   createProject as createProjectRequest,
   updateProject as updateProjectRequest,
   deleteProject as deleteProjectRequest,
-  createProjectChannel as createProjectChannelRequest,
+  linkProjectChannel as linkProjectChannelRequest,
   deleteProjectChannel as deleteProjectChannelRequest,
   createProjectTask as createProjectTaskRequest,
   updateProjectTask as updateProjectTaskRequest,
@@ -53,7 +54,6 @@ import { ProjectOverviewTab } from "./Projects/ProjectOverviewTab";
 import { ProjectTasksTab } from "./Projects/ProjectTasksTab";
 import { ProjectWorkersTab } from "./Projects/ProjectWorkersTab";
 import { ProjectVisorTab } from "./Projects/ProjectVisorTab";
-import { ProjectChannelsTab } from "./Projects/ProjectChannelsTab";
 import { ProjectChatTab } from "./Projects/ProjectChatTab";
 import { ProjectSettingsTab } from "./Projects/ProjectSettingsTab";
 import { ProjectFilesTab } from "./Projects/ProjectFilesTab";
@@ -733,14 +733,16 @@ function AddChannelModal({ isOpen, projectChannels, availableChannels, draft, on
                 <input
                   ref={searchRef}
                   className="actor-team-search"
-                  value={channelSearch}
+                  value={draft.channelId}
                   onChange={(event) => {
-                    setChannelSearch(event.target.value);
+                    const value = event.target.value;
+                    onChange("channelId", value);
+                    setChannelSearch(value);
                     setDropdownOpen(true);
                   }}
                   onFocus={() => setDropdownOpen(true)}
                   onBlur={() => setTimeout(() => setDropdownOpen(false), 150)}
-                  placeholder="Search channels..."
+                  placeholder="Search active sessions or paste channel ID..."
                   autoComplete="off"
                 />
                 {dropdownOpen ? (
@@ -1540,14 +1542,54 @@ export function ProjectsView({
       return;
     }
 
-    const board = await fetchActorsBoard();
+    const [sessions, board] = await Promise.all([
+      fetchChannelSessions({ status: "open" }).catch(() => null),
+      fetchActorsBoard().catch(() => null)
+    ]);
+    const allProjectChannels = new Map();
+    for (const project of projects) {
+      if (project.id === selectedProject.id || project.isArchived) {
+        continue;
+      }
+      const chats = Array.isArray(project.chats) ? project.chats : [];
+      for (const chat of chats) {
+        const channelId = String(chat?.channelId || "").trim();
+        if (channelId) {
+          allProjectChannels.set(channelId, project.name || project.id);
+        }
+      }
+    }
+
+    function isLinkedElsewhere(channelId) {
+      for (const bindingId of allProjectChannels.keys()) {
+        if (channelId === bindingId) {
+          return true;
+        }
+      }
+      return false;
+    }
+
     const channels = [];
+    if (Array.isArray(sessions)) {
+      for (const session of sessions) {
+        const channelId = String(session?.channelId || "").trim();
+        if (!channelId || isLinkedElsewhere(channelId)) {
+          continue;
+        }
+        const preview = String(session?.lastMessagePreview || "").trim();
+        channels.push({
+          channelId,
+          displayName: preview ? `${channelId} · ${preview}` : channelId
+        });
+      }
+    }
     if (board && Array.isArray(board.nodes)) {
       for (const node of board.nodes) {
-        if (node.channelId) {
+        const channelId = String(node?.channelId || "").trim();
+        if (channelId && !isLinkedElsewhere(channelId)) {
           channels.push({
-            channelId: String(node.channelId),
-            displayName: String(node.displayName || node.channelId)
+            channelId,
+            displayName: String(node.displayName || channelId)
           });
         }
       }
@@ -1594,14 +1636,15 @@ export function ProjectsView({
       return;
     }
 
-    const updated = await createProjectChannelRequest(selectedProject.id, { title, channelId });
-    if (!updated) {
-      setStatusText("Failed to add channel to project.");
+    const result = await linkProjectChannelRequest(selectedProject.id, { title, channelId, ensureSession: true });
+    if (!result || !result.project) {
+      const owner = result?.ownerProjectName ? ` Already linked to ${result.ownerProjectName}.` : "";
+      setStatusText(`Failed to add channel to project.${owner}`);
       return;
     }
 
-    replaceProjectInState(updated);
-    setStatusText("Channel added.");
+    replaceProjectInState(result.project);
+    setStatusText(result.status === "existing" ? "Channel already linked." : "Channel added.");
     closeAddChannelModal();
   }
 
@@ -1690,20 +1733,12 @@ export function ProjectsView({
       );
     }
 
-    if (selectedTab === "channels") {
-      return (
-        <ProjectChannelsTab
-          project={project}
-          onNavigateToChannelSession={onNavigateToChannelSession}
-        />
-      );
-    }
-
     if (selectedTab === "chat") {
       return (
         <ProjectChatTab
           project={project}
           onNavigateToChannelSession={onNavigateToChannelSession}
+          onAddChannel={openAddChannelModal}
         />
       );
     }

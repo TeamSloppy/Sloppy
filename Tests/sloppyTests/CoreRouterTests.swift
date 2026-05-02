@@ -3,6 +3,7 @@ import Testing
 @testable import AgentRuntime
 @testable import sloppy
 @testable import Protocols
+import PluginSDK
 
 #if canImport(CSQLite3)
 import CSQLite3
@@ -229,6 +230,49 @@ func projectCrudEndpoints() async throws {
 
     let fetchDeletedResponse = await router.handle(method: "GET", path: "/v1/projects/\(created.id)", body: nil)
     #expect(fetchDeletedResponse.status == 404)
+}
+
+@Test
+func projectChannelLinkEndpointLinksDetectsDuplicatesAndConflicts() async throws {
+    let service = CoreService(config: .test)
+    let router = CoreRouter(service: service)
+    let decoder = JSONDecoder()
+    decoder.dateDecodingStrategy = .iso8601
+
+    let firstCreate = try JSONEncoder().encode(
+        ProjectCreateRequest(id: "avito", name: "AVITO", channels: [.init(title: "Main", channelId: "avito-main")])
+    )
+    let secondCreate = try JSONEncoder().encode(
+        ProjectCreateRequest(id: "other", name: "Other", channels: [.init(title: "Main", channelId: "other-main")])
+    )
+    #expect(await router.handle(method: "POST", path: "/v1/projects", body: firstCreate).status == 201)
+    #expect(await router.handle(method: "POST", path: "/v1/projects", body: secondCreate).status == 201)
+
+    let scoped = ChannelGatewayScope.scopedChannelId(baseChannelId: "telegram-main", topicKey: "42")
+    let linkBody = try JSONEncoder().encode(
+        ProjectChannelLinkRequest(channelId: scoped, title: "Telegram topic 42", ensureSession: true)
+    )
+    let linkResponse = await router.handle(method: "POST", path: "/v1/projects/avito/channel-links", body: linkBody)
+    #expect(linkResponse.status == 200)
+    let linked = try decoder.decode(ProjectChannelLinkResponse.self, from: linkResponse.body)
+    #expect(linked.status == "linked")
+    #expect(linked.channel.channelId == scoped)
+    #expect(linked.session?.channelId == scoped)
+
+    let duplicateResponse = await router.handle(method: "POST", path: "/v1/projects/avito/channel-links", body: linkBody)
+    #expect(duplicateResponse.status == 200)
+    let duplicate = try decoder.decode(ProjectChannelLinkResponse.self, from: duplicateResponse.body)
+    #expect(duplicate.status == "existing")
+
+    let conflictResponse = await router.handle(method: "POST", path: "/v1/projects/other/channel-links", body: linkBody)
+    #expect(conflictResponse.status == 409)
+    let conflict = try decoder.decode(ErrorResponse.self, from: conflictResponse.body)
+    #expect(conflict.error == ErrorCode.projectConflict)
+
+    let sessionsResponse = await router.handle(method: "GET", path: "/v1/channel-sessions?status=open", body: nil)
+    #expect(sessionsResponse.status == 200)
+    let sessions = try decoder.decode([ChannelSessionSummary].self, from: sessionsResponse.body)
+    #expect(sessions.contains(where: { $0.channelId == scoped }))
 }
 
 @Test

@@ -18,7 +18,7 @@ protocol DiscordPlatformClient: Sendable {
     func editMessage(channelId: String, messageId: String, content: String) async throws -> DiscordRESTMessage
     func deleteMessage(channelId: String, messageId: String) async throws
     func registerGlobalCommands(applicationId: String, commands: [JSONValue]) async throws
-    func createInteractionResponse(interactionId: String, interactionToken: String, type: Int, content: String?) async throws
+    func createInteractionResponse(interactionId: String, interactionToken: String, type: Int, content: String?, components: JSONValue?) async throws
 }
 
 struct DiscordGatewayPayload: Codable, Sendable {
@@ -140,11 +140,15 @@ actor DiscordHTTPClient: DiscordPlatformClient {
         interactionId: String,
         interactionToken: String,
         type: Int,
-        content: String?
+        content: String?,
+        components: JSONValue? = nil
     ) async throws {
         var data: [String: JSONValue] = [:]
         if let content {
             data["content"] = .string(content)
+        }
+        if let components {
+            data["components"] = components
         }
         let body: [String: JSONValue] = [
             "type": .number(Double(type)),

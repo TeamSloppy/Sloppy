@@ -21,6 +21,7 @@ import {
 } from "../../api";
 import { collectAggregatedProviderModels, filterModelsByQuery } from "../agents/utils/aggregateProviderModels";
 import { NodeHostEditor } from "./components/NodeHostEditor";
+import { MCPEditor } from "./components/MCPEditor";
 import { PluginEditor } from "./components/PluginEditor";
 import { ProviderEditor } from "./components/ProviderEditor";
 import { SearchToolsEditor } from "./components/SearchToolsEditor";
@@ -47,6 +48,7 @@ const SETTINGS_ITEMS = [
   { id: "channels", title: "Channels", icon: "forum" },
   { id: "approvals", title: "Approvals", icon: "fact_check" },
   { id: "plugins", title: "Plugins", icon: "extension" },
+  { id: "mcp", title: "MCP", icon: "account_tree" },
   // { id: "browser", title: "Browser", icon: "open_in_browser" },
   { id: "ui", title: "UI", icon: "palette" },
   { id: "nodehost", title: "NodeHost", icon: "dns" },
@@ -217,6 +219,24 @@ function emptyPlugin() {
     apiKey: "",
     apiUrl: "",
     plugin: ""
+  };
+}
+
+function emptyMCPServer() {
+  return {
+    id: "new-mcp-server",
+    transport: "stdio",
+    command: "npx",
+    arguments: [],
+    cwd: "",
+    endpoint: "",
+    headers: {},
+    timeoutMs: 15000,
+    enabled: true,
+    exposeTools: true,
+    exposeResources: true,
+    exposePrompts: true,
+    toolPrefix: ""
   };
 }
 
@@ -527,6 +547,33 @@ function normalizePlugin(item, index) {
   };
 }
 
+function normalizeMCPServer(item, index) {
+  const base = emptyMCPServer();
+  const transport = String(item?.transport || base.transport).trim().toLowerCase();
+  const headers = item?.headers && typeof item.headers === "object" && !Array.isArray(item.headers)
+    ? Object.fromEntries(
+      Object.entries(item.headers).map(([key, value]) => [String(key), String(value)])
+    )
+    : {};
+
+  return {
+    ...base,
+    id: String(item?.id || `mcp-server-${index + 1}`),
+    transport: transport === "http" ? "http" : "stdio",
+    command: String(item?.command || ""),
+    arguments: Array.isArray(item?.arguments) ? item.arguments.map((arg) => String(arg)) : [],
+    cwd: String(item?.cwd || ""),
+    endpoint: String(item?.endpoint || ""),
+    headers,
+    timeoutMs: parseInteger(item?.timeoutMs ?? base.timeoutMs, base.timeoutMs),
+    enabled: item?.enabled == null ? true : Boolean(item.enabled),
+    exposeTools: item?.exposeTools == null ? true : Boolean(item.exposeTools),
+    exposeResources: item?.exposeResources == null ? true : Boolean(item.exposeResources),
+    exposePrompts: item?.exposePrompts == null ? true : Boolean(item.exposePrompts),
+    toolPrefix: String(item?.toolPrefix || "")
+  };
+}
+
 function normalizeConfig(config) {
   const normalized = clone(EMPTY_CONFIG);
 
@@ -625,7 +672,9 @@ function normalizeConfig(config) {
 
   normalized.nodes = Array.isArray(config?.nodes) ? config.nodes.filter(Boolean) : [];
   normalized.gateways = Array.isArray(config?.gateways) ? config.gateways.filter(Boolean) : [];
-  normalized.mcp.servers = Array.isArray(config?.mcp?.servers) ? config.mcp.servers : [];
+  normalized.mcp.servers = Array.isArray(config?.mcp?.servers)
+    ? config.mcp.servers.map((server, index) => normalizeMCPServer(server, index))
+    : [];
 
   const models = Array.isArray(config?.models) ? config.models : [];
   normalized.models = models.map(normalizeModel);
@@ -779,6 +828,7 @@ export function ConfigView({
   const [rawConfig, setRawConfig] = useState(JSON.stringify(EMPTY_CONFIG, null, 2));
   const [statusText, setStatusText] = useState("Loading config...");
   const [selectedPluginIndex, setSelectedPluginIndex] = useState(0);
+  const [selectedMCPServerIndex, setSelectedMCPServerIndex] = useState(0);
   const [providerModalId, setProviderModalId] = useState(null);
   const [providerModalIndex, setProviderModalIndex] = useState(null);
   const [providerForm, setProviderForm] = useState(null);
@@ -883,6 +933,13 @@ export function ConfigView({
       setSelectedPluginIndex(Math.max(0, draftConfig.plugins.length - 1));
     }
   }, [draftConfig.plugins.length, selectedPluginIndex]);
+
+  useEffect(() => {
+    const serverCount = Array.isArray(draftConfig.mcp?.servers) ? draftConfig.mcp.servers.length : 0;
+    if (selectedMCPServerIndex >= serverCount) {
+      setSelectedMCPServerIndex(Math.max(0, serverCount - 1));
+    }
+  }, [draftConfig.mcp?.servers?.length, selectedMCPServerIndex]);
 
   useEffect(() => {
     if (!isSettingsSection(sectionId)) {
@@ -2016,6 +2073,18 @@ export function ConfigView({
           onSelectPluginIndex={setSelectedPluginIndex}
           mutateDraft={mutateDraft}
           emptyPlugin={emptyPlugin}
+        />
+      );
+    }
+    if (selectedSettings === "mcp") {
+      return (
+        <MCPEditor
+          draftConfig={draftConfig}
+          selectedMCPServerIndex={selectedMCPServerIndex}
+          onSelectMCPServerIndex={setSelectedMCPServerIndex}
+          mutateDraft={mutateDraft}
+          emptyMCPServer={emptyMCPServer}
+          parseLines={parseLines}
         />
       );
     }

@@ -11,6 +11,7 @@ struct RootShellView: View {
     var body: some View {
         RootShellContent(viewModel: viewModel)
             .environment(viewModel)
+            .debugOverlay()
     }
 }
 

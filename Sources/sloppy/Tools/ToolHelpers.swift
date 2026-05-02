@@ -285,17 +285,21 @@ func parseMemoryScope(from arguments: [String: JSONValue]) -> MemoryScope? {
 func findProjectForChannel(store: any PersistenceStore, channelId: String, topicId: String?) async -> ProjectRecord? {
     let projects = await store.listProjects()
     let scoped = ChannelGatewayScope.parse(channelId)
-    let base = scoped.baseChannelId
-    let effectiveTopic = scoped.topicKey ?? topicId
-    if let effectiveTopic, !effectiveTopic.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-        let compositeId = "\(base):\(effectiveTopic)"
-        if let found = projects.sorted(by: { $0.createdAt < $1.createdAt })
-            .first(where: { $0.channels.contains(where: { $0.channelId == compositeId }) }) {
-            return found
-        }
+    let effectiveChannelId = ChannelGatewayScope.scopedChannelId(
+        baseChannelId: scoped.baseChannelId,
+        topicKey: scoped.topicKey ?? topicId
+    )
+    let ordered = projects.sorted(by: { $0.createdAt < $1.createdAt })
+    if let exact = ordered.first(where: { project in
+        project.channels.contains { $0.channelId == effectiveChannelId }
+    }) {
+        return exact
     }
-    return projects.sorted(by: { $0.createdAt < $1.createdAt })
-        .first(where: { $0.channels.contains(where: { $0.channelId == base || $0.channelId == channelId }) })
+    return ordered.first(where: { project in
+        project.channels.contains { binding in
+            ChannelGatewayScope.sessionMatchesBinding(sessionChannelId: effectiveChannelId, bindingChannelId: binding.channelId)
+        }
+    })
 }
 
 func normalizeTaskRef(_ raw: String) -> String? {

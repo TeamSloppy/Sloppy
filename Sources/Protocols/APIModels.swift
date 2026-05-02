@@ -726,6 +726,49 @@ public struct ProjectChannelCreateRequest: Codable, Sendable {
     }
 }
 
+public struct ProjectChannelLinkRequest: Codable, Sendable {
+    public var channelId: String
+    public var title: String?
+    public var ensureSession: Bool?
+
+    public init(channelId: String, title: String? = nil, ensureSession: Bool? = nil) {
+        self.channelId = channelId
+        self.title = title
+        self.ensureSession = ensureSession
+    }
+}
+
+public struct ProjectChannelLinkSession: Codable, Sendable, Equatable {
+    public var channelId: String
+    public var sessionId: String
+    public var status: String
+
+    public init(channelId: String, sessionId: String, status: String) {
+        self.channelId = channelId
+        self.sessionId = sessionId
+        self.status = status
+    }
+}
+
+public struct ProjectChannelLinkResponse: Codable, Sendable, Equatable {
+    public var project: ProjectRecord
+    public var channel: ProjectChannel
+    public var session: ProjectChannelLinkSession?
+    public var status: String
+
+    public init(
+        project: ProjectRecord,
+        channel: ProjectChannel,
+        session: ProjectChannelLinkSession? = nil,
+        status: String
+    ) {
+        self.project = project
+        self.channel = channel
+        self.session = session
+        self.status = status
+    }
+}
+
 public struct ProjectTaskCreateRequest: Codable, Sendable {
     public var title: String
     public var description: String?

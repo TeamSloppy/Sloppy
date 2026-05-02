@@ -1903,10 +1903,25 @@ body.agent-chat-no-page-scroll .page {
   color: var(--muted);
   font-size: 0.82rem;
   line-height: 1.15;
+  min-width: 0;
 }
 
 .agent-chat-tech-trigger-label {
   position: relative;
+}
+
+.agent-chat-tech-trigger-time {
+  color: var(--muted);
+  opacity: 0.72;
+  font-size: 0.72rem;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.agent-chat-tech-trigger-time::before {
+  content: "·";
+  margin-right: 4px;
+  opacity: 0.75;
 }
 
 .agent-chat-tech-trigger-arrow {
