@@ -147,6 +147,8 @@ private func expectedFallbackBootstrapMessage(
     let branchingRules = try renderer.render(template: try loader.loadPartial(named: "branching_rules"), values: [:])
     let workerRules = try renderer.render(template: try loader.loadPartial(named: "worker_rules"), values: [:])
     let toolsInstruction = try renderer.render(template: try loader.loadPartial(named: "tools_instruction"), values: [:])
+    let taskPlanningRules = try renderer.render(template: try loader.loadPartial(named: "task_planning_rules"), values: [:])
+    let completionReflection = try renderer.render(template: try loader.loadPartial(named: "completion_reflection"), values: [:])
 
     return """
     [agent_session_context_bootstrap_v1]
@@ -175,6 +177,10 @@ private func expectedFallbackBootstrapMessage(
     \(workerRules)
 
     \(toolsInstruction)
+
+    \(taskPlanningRules)
+
+    \(completionReflection)
     """
 }
 
@@ -501,6 +507,67 @@ func agentSessionBootstrapIncludesSkillsRulesPartial() async throws {
     #expect(bootstrapMessage.contains("[Skills rules]"))
     #expect(bootstrapMessage.contains("files.read"))
     #expect(bootstrapMessage.contains("SKILL.md"))
+}
+
+@Test
+func agentSessionBootstrapIncludesCompletionReflectionPartial() async throws {
+    let availableModels = [
+        ProviderModelOption(id: "openai:gpt-5.4-mini", title: "openai:gpt-5.4-mini", capabilities: ["tools"])
+    ]
+    let (catalogStore, sessionStore, _) = try makeAgentSessionFixture(
+        agentID: "completion-reflection-agent",
+        selectedModel: "openai:gpt-5.4-mini",
+        availableModels: availableModels
+    )
+
+    let runtime = RuntimeSystem()
+    let orchestrator = AgentSessionOrchestrator(
+        runtime: runtime,
+        sessionStore: sessionStore,
+        agentCatalogStore: catalogStore,
+        availableModels: availableModels
+    )
+
+    let session = try await orchestrator.createSession(agentID: "completion-reflection-agent", request: AgentSessionCreateRequest())
+    let snapshot = await runtime.channelState(channelId: "agent:completion-reflection-agent:session:\(session.id)")
+    let bootstrapMessage = snapshot?.messages.first(where: {
+        $0.userId == "system" && $0.content.contains("[agent_session_context_bootstrap_v1]")
+    })?.content ?? ""
+
+    #expect(bootstrapMessage.contains("[Completion reflection]"))
+    #expect(bootstrapMessage.contains("turned into a skill or remembered"))
+    #expect(bootstrapMessage.contains("Is there anything from this work"))
+}
+
+@Test
+func agentSessionBootstrapIncludesTaskPlanningRulesPartial() async throws {
+    let availableModels = [
+        ProviderModelOption(id: "openai:gpt-5.4-mini", title: "openai:gpt-5.4-mini", capabilities: ["tools"])
+    ]
+    let (catalogStore, sessionStore, _) = try makeAgentSessionFixture(
+        agentID: "task-planning-rules-agent",
+        selectedModel: "openai:gpt-5.4-mini",
+        availableModels: availableModels
+    )
+
+    let runtime = RuntimeSystem()
+    let orchestrator = AgentSessionOrchestrator(
+        runtime: runtime,
+        sessionStore: sessionStore,
+        agentCatalogStore: catalogStore,
+        availableModels: availableModels
+    )
+
+    let session = try await orchestrator.createSession(agentID: "task-planning-rules-agent", request: AgentSessionCreateRequest())
+    let snapshot = await runtime.channelState(channelId: "agent:task-planning-rules-agent:session:\(session.id)")
+    let bootstrapMessage = snapshot?.messages.first(where: {
+        $0.userId == "system" && $0.content.contains("[agent_session_context_bootstrap_v1]")
+    })?.content ?? ""
+
+    #expect(bootstrapMessage.contains("[Task planning rules]"))
+    #expect(bootstrapMessage.contains("project.task_list"))
+    #expect(bootstrapMessage.contains("project.task_update"))
+    #expect(bootstrapMessage.contains("not only by exact title text"))
 }
 
 @Test

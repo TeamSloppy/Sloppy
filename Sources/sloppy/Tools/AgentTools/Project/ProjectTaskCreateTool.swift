@@ -7,7 +7,7 @@ struct ProjectTaskCreateTool: CoreTool {
     let title = "Create project task"
     let status = "fully_functional"
     let name = "project.task_create"
-    let description = "Create a new task in the project associated with the current channel."
+    let description = "Create a new task in the project associated with the current channel. For planning tasks, first call project.task_list and compare existing active tasks by intent, goal, scope, and expected outcome. If a similar task already exists, use project.task_update to add missing details instead of creating a duplicate."
 
     var parameters: GenerationSchema {
         .objectSchema([

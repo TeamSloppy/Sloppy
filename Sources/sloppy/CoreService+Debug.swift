@@ -160,6 +160,8 @@ extension CoreService {
             "tools_instruction",
             "skills_rules",
             "memory_rules",
+            "task_planning_rules",
+            "completion_reflection",
             "cli_awareness"
         ]
         let loader = PromptTemplateLoader()

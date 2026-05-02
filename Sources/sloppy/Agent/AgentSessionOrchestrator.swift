@@ -1122,6 +1122,28 @@ actor AgentSessionOrchestrator {
                 - When using a tool, follow its parameter schema exactly. Required parameters must be provided.
                 """
         )
+        let taskPlanningRulesSection = renderedFallbackPromptPartial(
+            named: "task_planning_rules",
+            fallback:
+                """
+                [Task planning rules]
+                - Before creating a new planning task, inspect existing project tasks with `project.task_list`.
+                - Compare tasks by intent, goal, scope, and expected outcome, not only by exact title text.
+                - If an existing active task covers the same work, update that task with `project.task_update` instead of creating a duplicate.
+                - If an existing task is related but incomplete, add the missing details to that task's description or title.
+                - Create a new task only when no existing active task substantially overlaps with the requested work.
+                """
+        )
+        let completionReflectionSection = renderedFallbackPromptPartial(
+            named: "completion_reflection",
+            fallback:
+                """
+                [Completion reflection]
+                - When you finish a project task for the user, close your final response with a brief question asking whether anything from the work should be turned into a skill or remembered.
+                - Ask in the user's language when possible. Example: "Is there anything from this work that should be turned into a skill or remembered?"
+                - Keep the question short and natural; do not ask it when the task is blocked, still awaiting input, or clearly not completed.
+                """
+        )
 
         return Prompt {
             Self.sessionContextBootstrapMarker
@@ -1155,6 +1177,10 @@ actor AgentSessionOrchestrator {
             workerRulesSection
             ""
             toolsInstructionSection
+            ""
+            taskPlanningRulesSection
+            ""
+            completionReflectionSection
         }
     }
 
