@@ -209,21 +209,19 @@ struct ConnectionSetupView: View {
 
     private func connectManual() {
         errorMessage = nil
-        let host = hostDraft.trimmingCharacters(in: .whitespaces)
-        let port = Int(portDraft.trimmingCharacters(in: .whitespaces)) ?? 25101
-        guard !host.isEmpty else { return }
+        guard let address = ServerAddress.parse(host: hostDraft, port: portDraft) else { return }
 
         isConnecting = true
         Task { @MainActor in
-            let url = URL(string: "http://\(host):\(port)") ?? URL(string: "http://localhost:25101")!
+            let url = address.baseURL
             let ok = await checkHealth(url: url)
             isConnecting = false
             if ok {
-                let server = SavedServer(label: "Sloppy @ \(host)", host: host, port: port)
+                let server = SavedServer(label: "Sloppy @ \(address.host)", host: address.host, port: address.port)
                 settings.useServer(server)
                 onConnected(url)
             } else {
-                errorMessage = "Could not connect to \(host):\(port)"
+                errorMessage = "Could not connect to \(address.host):\(address.port)"
             }
         }
     }

@@ -7,9 +7,11 @@ struct GitSyncSection: View {
     let onSave: (SloppyConfig) -> Void
 
     @State private var enabled: Bool
+    @State private var authToken: String
     @State private var repository: String
     @State private var branch: String
     @State private var frequency: String
+    @State private var syncTime: String
     @State private var conflictStrategy: String
     @Environment(\.theme) private var theme
 
@@ -21,16 +23,18 @@ struct GitSyncSection: View {
         self.onSave = onSave
         let g = config.gitSync
         self._enabled = State(initialValue: g.enabled)
+        self._authToken = State(initialValue: g.authToken)
         self._repository = State(initialValue: g.repository)
         self._branch = State(initialValue: g.branch)
         self._frequency = State(initialValue: g.schedule.frequency)
+        self._syncTime = State(initialValue: g.schedule.time)
         self._conflictStrategy = State(initialValue: g.conflictStrategy)
     }
 
     private var hasChanges: Bool {
         let g = config.gitSync
-        return enabled != g.enabled || repository != g.repository || branch != g.branch ||
-            frequency != g.schedule.frequency || conflictStrategy != g.conflictStrategy
+        return enabled != g.enabled || authToken != g.authToken || repository != g.repository || branch != g.branch ||
+            frequency != g.schedule.frequency || syncTime != g.schedule.time || conflictStrategy != g.conflictStrategy
     }
 
     var body: some View {
@@ -50,6 +54,8 @@ struct GitSyncSection: View {
                 SettingsFieldRow("Repository", hint: "owner/repo or https://github.com/owner/repo.git", text: $repository)
                 SettingsDivider()
                 SettingsFieldRow("Branch", hint: "Default: main", text: $branch)
+                SettingsDivider()
+                SettingsFieldRow("Auth Token", hint: "Optional GitHub PAT for private repositories", text: $authToken, isSecure: true)
             }
 
             SettingsSectionCard("Schedule") {
@@ -74,6 +80,8 @@ struct GitSyncSection: View {
                 }
                 .padding(.horizontal, sp.m)
                 .padding(.vertical, sp.s)
+                SettingsDivider()
+                SettingsFieldRow("Sync Time", hint: "UTC, HH:MM", text: $syncTime)
             }
 
             SettingsSectionCard("Conflict Strategy") {
@@ -113,18 +121,22 @@ struct GitSyncSection: View {
     private func reset() {
         let g = config.gitSync
         enabled = g.enabled
+        authToken = g.authToken
         repository = g.repository
         branch = g.branch
         frequency = g.schedule.frequency
+        syncTime = g.schedule.time
         conflictStrategy = g.conflictStrategy
     }
 
     private func save() {
         var updated = config
         updated.gitSync.enabled = enabled
+        updated.gitSync.authToken = authToken
         updated.gitSync.repository = repository
         updated.gitSync.branch = branch
         updated.gitSync.schedule.frequency = frequency
+        updated.gitSync.schedule.time = syncTime
         updated.gitSync.conflictStrategy = conflictStrategy
         onSave(updated)
     }

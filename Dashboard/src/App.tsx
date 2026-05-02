@@ -56,6 +56,38 @@ function isDashboardAuthRequired(config: AnyRecord | null) {
   return Boolean(dashboardAuth?.enabled) && String(dashboardAuth?.token || "").trim().length > 0;
 }
 
+async function copyTextToClipboard(text: string) {
+  if (!text.trim()) {
+    return false;
+  }
+
+  if (navigator.clipboard?.writeText) {
+    try {
+      await navigator.clipboard.writeText(text);
+      return true;
+    } catch {
+      // Fall through to the textarea fallback below.
+    }
+  }
+
+  const textarea = document.createElement("textarea");
+  textarea.value = text;
+  textarea.setAttribute("readonly", "true");
+  textarea.style.position = "fixed";
+  textarea.style.left = "-9999px";
+  textarea.style.top = "0";
+  document.body.appendChild(textarea);
+  textarea.select();
+
+  try {
+    return document.execCommand("copy");
+  } catch {
+    return false;
+  } finally {
+    document.body.removeChild(textarea);
+  }
+}
+
 function DashboardShell({
   dependencies,
   debugEnabled,
@@ -180,14 +212,23 @@ function DashboardShell({
     try {
       const report = await dependencies.coreApi.createIssueReport({ logLimit: 200 });
       const issueUrl = typeof report?.issueUrl === "string" ? report.issueUrl : "";
+      const logs = typeof report?.logs === "string" ? report.logs : "";
       if (!issueUrl) {
         popup.close();
         emitNotification("system_error", "Issue report failed", "Sloppy could not prepare a sanitized GitHub issue URL.");
         return;
       }
 
+      const copiedLogs = await copyTextToClipboard(logs);
       popup.location.href = issueUrl;
       setMobileSidebarOpen(false);
+      emitNotification(
+        copiedLogs ? "confirmation" : "system_error",
+        copiedLogs ? "Issue report ready" : "Issue report opened",
+        copiedLogs
+          ? "Sanitized logs were copied to the clipboard. Paste them into the GitHub log field before submitting."
+          : "GitHub opened, but Sloppy could not copy logs to the clipboard. Open Logs and copy the relevant lines manually."
+      );
     } catch {
       popup.close();
       emitNotification("system_error", "Issue report failed", "Sloppy could not prepare a sanitized GitHub issue URL.");

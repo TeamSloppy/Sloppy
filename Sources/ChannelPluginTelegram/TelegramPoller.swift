@@ -29,6 +29,7 @@ actor TelegramPoller {
     private let logger: Logger
     private let onMessageRouted: (@Sendable (String, Int64) async -> Void)?
     private let modelPickerBridge: (any TelegramModelPickerBridge)?
+    private let toolApprovalBridge: (any ToolApprovalBridge)?
     private var offset: Int64? = nil
     /// Resolved via `getMe` for `/cmd@bot` routing and mention detection.
     private var botUserId: Int64 = 0
@@ -43,7 +44,8 @@ actor TelegramPoller {
         config: TelegramPluginConfig,
         logger: Logger,
         onMessageRouted: (@Sendable (String, Int64) async -> Void)? = nil,
-        modelPickerBridge: (any TelegramModelPickerBridge)? = nil
+        modelPickerBridge: (any TelegramModelPickerBridge)? = nil,
+        toolApprovalBridge: (any ToolApprovalBridge)? = nil
     ) {
         self.bot = bot
         self.receiver = receiver
@@ -52,6 +54,7 @@ actor TelegramPoller {
         self.logger = logger
         self.onMessageRouted = onMessageRouted
         self.modelPickerBridge = modelPickerBridge
+        self.toolApprovalBridge = toolApprovalBridge
     }
 
     func run() async {
@@ -139,6 +142,33 @@ actor TelegramPoller {
             messageId: message.messageId,
             messageThreadId: messageThreadId
         ) {
+            return
+        }
+
+        switch TelegramToolApproval.parseCallback(data) {
+        case .unknown:
+            break
+        case .approve(let approvalId), .reject(let approvalId):
+            guard let bridge = toolApprovalBridge else {
+                try? await bot.answerCallbackQuery(callbackQueryId: query.id, text: "Approval bridge unavailable.", showAlert: true)
+                return
+            }
+            let approved: Bool
+            if case .approve = TelegramToolApproval.parseCallback(data) {
+                approved = true
+            } else {
+                approved = false
+            }
+            let record = await bridge.resolveToolApproval(
+                id: approvalId,
+                approved: approved,
+                decidedBy: "tg:\(userId)"
+            )
+            if record == nil {
+                try? await bot.answerCallbackQuery(callbackQueryId: query.id, text: "Approval is no longer pending.", showAlert: true)
+            } else {
+                try? await bot.answerCallbackQuery(callbackQueryId: query.id, text: approved ? "Approved" : "Rejected")
+            }
             return
         }
 

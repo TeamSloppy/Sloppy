@@ -108,7 +108,7 @@ public final class ChatScreenViewModel {
 
     public func pickSession(_ session: ChatSessionSummary) {
         showSessionPicker = false
-        selectSession(session.id, projectId: session.projectId)
+        selectSession(session.id, contextTitle: displayTitle(for: session), projectId: session.projectId)
     }
 
     public func pickNewSession() {
@@ -172,8 +172,14 @@ public final class ChatScreenViewModel {
             routeToBlankChat()
         case .project(let projectId, let projectName, _):
             routeToContext(request, projectId: projectId, title: "Project: \(projectName)")
-        case .task(let projectId, let projectName, _, let taskTitle, _):
-            routeToContext(request, projectId: projectId, title: "\(projectName) / \(taskTitle)", preferredSessionTitle: taskTitle)
+        case .task(let projectId, let projectName, let taskId, let taskTitle, _):
+            routeToContext(
+                request,
+                projectId: projectId,
+                title: "\(projectName) / \(taskTitle)",
+                preferredSessionTitle: taskTitle,
+                preferredTaskId: taskId
+            )
         }
     }
 
@@ -248,7 +254,8 @@ public final class ChatScreenViewModel {
         _ request: ChatNavigationRequest,
         projectId: String,
         title: String,
-        preferredSessionTitle: String? = nil
+        preferredSessionTitle: String? = nil,
+        preferredTaskId: String? = nil
     ) {
         let agent = agentForNavigation(request) ?? selectedAgent ?? agents.first
         guard let agent else {
@@ -264,13 +271,16 @@ public final class ChatScreenViewModel {
             agent: agent,
             projectId: projectId,
             contextTitle: title,
-            preferredSessionTitle: preferredSessionTitle
+            preferredSessionTitle: preferredSessionTitle,
+            preferredTaskId: preferredTaskId
         )
     }
 
     private func agentForNavigation(_ request: ChatNavigationRequest) -> APIAgentRecord? {
         guard let preferredAgentId = request.preferredAgentId else { return nil }
-        return agents.first(where: { $0.id == preferredAgentId })
+        return agents.first {
+            $0.id.caseInsensitiveCompare(preferredAgentId) == .orderedSame
+        }
     }
 
     private func activateDraft(agent: APIAgentRecord, contextTitle: String?) {
@@ -292,7 +302,8 @@ public final class ChatScreenViewModel {
         agent: APIAgentRecord,
         projectId: String,
         contextTitle: String,
-        preferredSessionTitle: String?
+        preferredSessionTitle: String?,
+        preferredTaskId: String?
     ) {
         disconnectCurrentSession()
         selectedAgent = agent
@@ -304,14 +315,40 @@ public final class ChatScreenViewModel {
         settings.lastSessionId = nil
 
         Task { @MainActor in
-            await loadSessions(for: agent, projectId: projectId)
+            await loadSessions(for: agent, projectId: preferredTaskId == nil ? projectId : nil)
             guard selectedAgent?.id == agent.id,
                   activeProjectId == projectId,
                   selectedSessionId == nil else {
                 return
             }
 
-            guard let session = preferredSession(in: sessions, title: preferredSessionTitle) else {
+            guard let session = preferredSession(
+                in: sessions,
+                title: preferredSessionTitle,
+                taskId: preferredTaskId,
+                projectId: projectId,
+                allowsFallback: preferredTaskId == nil
+            ) else {
+                guard let taskId = preferredTaskId else {
+                    return
+                }
+
+                guard let summary = try? await apiClient.createAgentSession(
+                    agentId: agent.id,
+                    title: taskSessionTitle(for: taskId),
+                    projectId: projectId
+                ) else {
+                    return
+                }
+
+                guard selectedAgent?.id == agent.id,
+                      activeProjectId == projectId,
+                      selectedSessionId == nil else {
+                    return
+                }
+
+                sessions.insert(summary, at: 0)
+                selectSession(summary.id, contextTitle: contextTitle, projectId: projectId)
                 return
             }
 
@@ -459,20 +496,46 @@ public final class ChatScreenViewModel {
         session.title.isEmpty ? "Chat" : session.title
     }
 
-    private func preferredSession(in sessions: [ChatSessionSummary], title: String?) -> ChatSessionSummary? {
+    private func taskSessionTitle(for taskId: String) -> String {
+        "task-\(taskId)"
+    }
+
+    private func preferredSession(
+        in sessions: [ChatSessionSummary],
+        title: String?,
+        taskId: String? = nil,
+        projectId: String? = nil,
+        allowsFallback: Bool = true
+    ) -> ChatSessionSummary? {
         let candidates = sessions
             .filter { $0.kind != "heartbeat" }
             .sorted { $0.updatedAt > $1.updatedAt }
 
+        if let taskId = taskId?.trimmingCharacters(in: .whitespacesAndNewlines), !taskId.isEmpty {
+            var normalizedTaskTitles = [taskSessionTitle(for: taskId)]
+            if let projectId = projectId?.trimmingCharacters(in: .whitespacesAndNewlines), !projectId.isEmpty {
+                normalizedTaskTitles.append("task-comment:\(projectId):\(taskId)")
+            }
+            normalizedTaskTitles = normalizedTaskTitles.map { $0.lowercased() }
+
+            if let taskSession = candidates.first(where: { session in
+                normalizedTaskTitles.contains(session.title.trimmingCharacters(in: .whitespacesAndNewlines).lowercased())
+            }) {
+                return taskSession
+            }
+        }
+
         guard let title = title?.trimmingCharacters(in: .whitespacesAndNewlines), !title.isEmpty else {
-            return candidates.first
+            return allowsFallback ? candidates.first : nil
         }
 
         let normalizedTitle = title.lowercased()
-        return candidates.first {
+        let titleMatch = candidates.first {
             let sessionTitle = $0.title.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
             return sessionTitle == normalizedTitle || sessionTitle.contains(normalizedTitle)
-        } ?? candidates.first
+        }
+
+        return titleMatch ?? (allowsFallback ? candidates.first : nil)
     }
 
     private func showSessionStatus(_ status: String) {

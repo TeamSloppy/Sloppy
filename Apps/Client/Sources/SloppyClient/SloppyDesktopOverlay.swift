@@ -1,4 +1,5 @@
 @_spi(Internal) import AdaEngine
+import Observation
 import SloppyClientCore
 import SloppyClientUI
 
@@ -15,6 +16,7 @@ final class SloppyDesktopOverlay {
     private var overlayWindow: UIWindow?
     private var miniaturizeTask: Task<Void, Never>?
     private var deminiaturizeTask: Task<Void, Never>?
+    private let state = SloppyDesktopOverlayState()
 
     func start(settings: ClientSettings) {
         applyCloseBehavior(settings.windowCloseBehavior)
@@ -52,6 +54,10 @@ final class SloppyDesktopOverlay {
         Application.shared?.setLastWindowCloseBehavior(engineBehavior)
     }
 
+    func updateToolApproval(_ notification: AppNotification) {
+        state.apply(notification)
+    }
+
     private func showOverlay(for window: UIWindow) {
         guard window !== overlayWindow else {
             return
@@ -86,6 +92,7 @@ final class SloppyDesktopOverlay {
             SloppyDesktopOverlayView {
                 self?.activatePrimaryWindow()
             }
+            .environment(self?.state ?? SloppyDesktopOverlayState())
             .theme(.sloppyDark)
         }
         if let overlayWindow {
@@ -125,6 +132,26 @@ final class SloppyDesktopOverlay {
     }
 }
 
+@Observable
+@MainActor
+private final class SloppyDesktopOverlayState {
+    var toolApproval: AppNotification?
+
+    func apply(_ notification: AppNotification) {
+        guard notification.type == .toolApproval else {
+            return
+        }
+        let status = notification.metadata["status"] ?? "pending"
+        if status == "pending" {
+            toolApproval = notification
+            return
+        }
+        if toolApproval?.metadata["approvalId"] == notification.metadata["approvalId"] {
+            toolApproval = nil
+        }
+    }
+}
+
 private extension Rect {
     var toNSRect: NSRect {
         NSRect(
@@ -140,6 +167,7 @@ private struct SloppyDesktopOverlayView: View {
     let onActivate: @MainActor () -> Void
 
     @Environment(\.theme) private var theme
+    @Environment(SloppyDesktopOverlayState.self) private var overlayState
     @State private var isExpanded = false
 
     private enum Metrics {
@@ -198,12 +226,23 @@ private struct SloppyDesktopOverlayView: View {
 
             ZStack {
                 VStack(spacing: 12) {
-                    Text("Sloppy")
+                    Text(expandedTitle)
                         .font(.system(size: ty.caption))
-                        .foregroundColor(c.textMuted)
+                        .foregroundColor(hasApproval ? c.statusWarning : c.textMuted)
                     HStack(spacing: 14) {
                         ActivityGlyph()
                             .frame(width: glyphSize, height: glyphSize)
+                        if let approval = overlayState.toolApproval {
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text(approval.metadata["tool"] ?? "Tool")
+                                    .font(.system(size: ty.body))
+                                    .foregroundColor(c.textPrimary)
+                                Text(shortApprovalReason(approval))
+                                    .font(.system(size: ty.caption))
+                                    .foregroundColor(c.textMuted)
+                            }
+                            .frame(width: 300, alignment: .leading)
+                        }
                     }
                 }
                 .opacity(expansion)
@@ -211,9 +250,9 @@ private struct SloppyDesktopOverlayView: View {
                 HStack(spacing: 10) {
                     ActivityGlyph()
                         .frame(width: 18, height: 18)
-                    Text("Sloppy")
+                    Text(hasApproval ? "Approval required" : "Sloppy")
                         .font(.system(size: ty.caption))
-                        .foregroundColor(c.textSecondary)
+                        .foregroundColor(hasApproval ? c.statusWarning : c.textSecondary)
                 }
                 .padding(.top, 8)
                 .opacity(1 - expansion)
@@ -231,6 +270,26 @@ private struct SloppyDesktopOverlayView: View {
 
     private func lerp(_ start: Float, _ end: Float, _ progress: Float) -> Float {
         start + (end - start) * progress
+    }
+
+    private var hasApproval: Bool {
+        overlayState.toolApproval != nil
+    }
+
+    private var expandedTitle: String {
+        hasApproval ? "Approval required" : "Sloppy"
+    }
+
+    private func shortApprovalReason(_ notification: AppNotification) -> String {
+        let reason = notification.metadata["reason"] ?? notification.message
+        let trimmed = reason.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            return "Waiting for Approve or Reject"
+        }
+        if trimmed.count > 72 {
+            return String(trimmed.prefix(72)) + "..."
+        }
+        return trimmed
     }
 }
 

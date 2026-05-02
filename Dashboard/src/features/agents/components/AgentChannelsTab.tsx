@@ -1,5 +1,15 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { createActorNode, deleteActorNode, fetchActorsBoard, fetchChannelSessions, fetchChannelSession } from "../../../api";
+import React, { useEffect, useMemo, useState } from "react";
+import {
+  createActorNode,
+  deleteActorNode,
+  fetchAccessUsers,
+  fetchActorsBoard,
+  fetchAgentConfig,
+  fetchChannelPlugins,
+  fetchChannelSessions,
+  fetchChannelSession,
+  updateAgentConfig
+} from "../../../api";
 import { ChannelModelSelector } from "./ChannelModelSelector";
 
 const CHANNEL_MESSAGES_LIMIT = 9;
@@ -73,16 +83,127 @@ function extractSessionMessages(sessionDetail: any) {
     });
 }
 
+function uniqueIds(values: string[]) {
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const value of values) {
+    const trimmed = String(value || "").trim();
+    if (!trimmed || seen.has(trimmed)) {
+      continue;
+    }
+    seen.add(trimmed);
+    result.push(trimmed);
+  }
+  return result;
+}
+
+function channelSettings(config: any) {
+  return {
+    autoCloseEnabled: Boolean(config?.channelSessions?.autoCloseEnabled),
+    autoCloseAfterMinutes: Number.parseInt(String(config?.channelSessions?.autoCloseAfterMinutes ?? 30), 10) || 30,
+    inboundActivation: config?.channelSessions?.inboundActivation === "mention_or_reply" ? "mention_or_reply" : "all",
+    allowedChannelIds: Array.isArray(config?.channelSessions?.allowedChannelIds)
+      ? uniqueIds(config.channelSessions.allowedChannelIds)
+      : [],
+    excludedChannelIds: Array.isArray(config?.channelSessions?.excludedChannelIds)
+      ? uniqueIds(config.channelSessions.excludedChannelIds)
+      : []
+  };
+}
+
 export function AgentChannelsTab({ agentId, agentDisplayName, onNavigateToChannelSession = null }) {
   const [nodes, setNodes] = useState([]);
   const [activeSessions, setActiveSessions] = useState([]);
   const [sessionDetails, setSessionDetails] = useState<Record<string, any>>({});
+  const [agentConfig, setAgentConfig] = useState<any | null>(null);
+  const [accessUsers, setAccessUsers] = useState<any[]>([]);
+  const [channelPlugins, setChannelPlugins] = useState<any[]>([]);
   const [statusText, setStatusText] = useState("Loading channels...");
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [showForm, setShowForm] = useState(false);
   const [newChannelId, setNewChannelId] = useState("");
+  const [channelDropdownOpen, setChannelDropdownOpen] = useState(false);
   const [formError, setFormError] = useState("");
+
+  const settings = useMemo(() => channelSettings(agentConfig), [agentConfig]);
+
+  const configuredRows = useMemo(() => {
+    const byChannel = new Map<string, any>();
+    for (const node of nodes) {
+      const channelId = String(node?.channelId || "").trim();
+      if (!channelId) {
+        continue;
+      }
+      byChannel.set(channelId, { channelId, node, source: "actor node" });
+    }
+    for (const channelId of settings.allowedChannelIds) {
+      if (!byChannel.has(channelId)) {
+        byChannel.set(channelId, { channelId, node: null, source: "config allow" });
+      }
+    }
+    for (const channelId of settings.excludedChannelIds) {
+      if (!byChannel.has(channelId)) {
+        byChannel.set(channelId, { channelId, node: null, source: "config exclude" });
+      }
+    }
+    return Array.from(byChannel.values()).map((row) => ({
+      ...row,
+      isAllowed: settings.allowedChannelIds.includes(row.channelId) || Boolean(row.node),
+      isExcluded: settings.excludedChannelIds.includes(row.channelId)
+    }));
+  }, [nodes, settings.allowedChannelIds, settings.excludedChannelIds]);
+
+  const channelSuggestions = useMemo(() => {
+    const suggestions = new Map<string, { value: string; label: string; meta: string }>();
+    function addSuggestion(value: string, label: string, meta: string) {
+      const trimmed = String(value || "").trim();
+      if (!trimmed || suggestions.has(trimmed)) {
+        return;
+      }
+      suggestions.set(trimmed, { value: trimmed, label, meta });
+    }
+
+    for (const node of nodes) {
+      const channelId = String(node?.channelId || "").trim();
+      addSuggestion(channelId, channelId, "linked channel");
+    }
+    for (const plugin of channelPlugins) {
+      const pluginId = String(plugin?.id || plugin?.type || "plugin");
+      const ids = Array.isArray(plugin?.channelIds) ? plugin.channelIds : [];
+      for (const channelId of ids) {
+        addSuggestion(String(channelId), String(channelId), `${pluginId} channel`);
+      }
+    }
+    for (const session of activeSessions) {
+      const channelId = String(session?.channelId || "").trim();
+      addSuggestion(channelId, channelId, "active session");
+      const detail = sessionDetails[String(session?.sessionId || "")] || null;
+      for (const msg of extractSessionMessages(detail)) {
+        if (!msg.isBot) {
+          addSuggestion(msg.userId, msg.userId, `user in ${channelId || "session"}`);
+        }
+      }
+    }
+    for (const user of accessUsers) {
+      const platform = String(user?.platform || "").trim();
+      const platformUserId = String(user?.platformUserId || "").trim();
+      const displayName = String(user?.displayName || "").trim();
+      if (platformUserId) {
+        addSuggestion(platformUserId, displayName || platformUserId, `${platform || "channel"} user`);
+      }
+    }
+
+    const query = newChannelId.trim().toLowerCase();
+    return Array.from(suggestions.values())
+      .filter((item) => {
+        if (!query) {
+          return true;
+        }
+        return item.value.toLowerCase().includes(query) || item.label.toLowerCase().includes(query) || item.meta.toLowerCase().includes(query);
+      })
+      .slice(0, 12);
+  }, [accessUsers, activeSessions, channelPlugins, newChannelId, nodes, sessionDetails]);
 
   async function loadSessionDetails(sessions: any[]) {
     if (sessions.length === 0) {
@@ -105,9 +226,9 @@ export function AgentChannelsTab({ agentId, agentDisplayName, onNavigateToChanne
     setSessionDetails(details);
   }
 
-  function updateStatusText(nodeCount: number, sessionCount: number) {
+  function updateStatusText(channelCount: number, sessionCount: number) {
     setStatusText(
-      `${nodeCount} channel${nodeCount !== 1 ? "s" : ""} · ` +
+      `${channelCount} channel${channelCount !== 1 ? "s" : ""} · ` +
       `${sessionCount} active session${sessionCount !== 1 ? "s" : ""}`
     );
   }
@@ -117,9 +238,12 @@ export function AgentChannelsTab({ agentId, agentDisplayName, onNavigateToChanne
 
     async function load() {
       setIsLoading(true);
-      const [board, sessions] = await Promise.all([
+      const [board, sessions, config, users, plugins] = await Promise.all([
         fetchActorsBoard(),
-        fetchChannelSessions({ status: "open", agentId })
+        fetchChannelSessions({ status: "open", agentId }),
+        fetchAgentConfig(agentId).catch(() => null),
+        fetchAccessUsers().catch(() => null),
+        fetchChannelPlugins().catch(() => null)
       ]);
       if (cancelled) {
         return;
@@ -128,15 +252,29 @@ export function AgentChannelsTab({ agentId, agentDisplayName, onNavigateToChanne
         setNodes([]);
         setActiveSessions([]);
         setSessionDetails({});
+        setAgentConfig(null);
+        setAccessUsers([]);
+        setChannelPlugins([]);
         setStatusText("Failed to load channels.");
         setIsLoading(false);
         return;
       }
       const agentNodes = board.nodes.filter((n) => n.linkedAgentId === agentId);
+      const nextConfig = config || null;
       setNodes(agentNodes);
+      setAgentConfig(nextConfig);
+      setAccessUsers(Array.isArray(users) ? users : []);
+      setChannelPlugins(Array.isArray(plugins) ? plugins : []);
       const nextSessions = Array.isArray(sessions) ? sessions : [];
       setActiveSessions(nextSessions);
-      updateStatusText(agentNodes.length, nextSessions.length);
+      updateStatusText(
+        uniqueIds([
+          ...agentNodes.map((n) => String(n?.channelId || "")),
+          ...channelSettings(nextConfig).allowedChannelIds,
+          ...channelSettings(nextConfig).excludedChannelIds
+        ]).length,
+        nextSessions.length
+      );
       await loadSessionDetails(nextSessions);
       if (!cancelled) setIsLoading(false);
     }
@@ -146,6 +284,9 @@ export function AgentChannelsTab({ agentId, agentDisplayName, onNavigateToChanne
         setNodes([]);
         setActiveSessions([]);
         setSessionDetails({});
+        setAgentConfig(null);
+        setAccessUsers([]);
+        setChannelPlugins([]);
         setStatusText("Failed to load channels.");
         setIsLoading(false);
       }
@@ -157,19 +298,51 @@ export function AgentChannelsTab({ agentId, agentDisplayName, onNavigateToChanne
   }, [agentId]);
 
   async function refreshData() {
-    const [board, sessions] = await Promise.all([
+    const [board, sessions, config, users, plugins] = await Promise.all([
       fetchActorsBoard(),
-      fetchChannelSessions({ status: "open", agentId })
+      fetchChannelSessions({ status: "open", agentId }),
+      fetchAgentConfig(agentId).catch(() => null),
+      fetchAccessUsers().catch(() => null),
+      fetchChannelPlugins().catch(() => null)
     ]);
     if (!board || !Array.isArray(board.nodes)) {
       return;
     }
     const agentNodes = board.nodes.filter((n) => n.linkedAgentId === agentId);
+    const nextConfig = config || agentConfig;
     setNodes(agentNodes);
+    setAgentConfig(nextConfig);
+    setAccessUsers(Array.isArray(users) ? users : []);
+    setChannelPlugins(Array.isArray(plugins) ? plugins : []);
     const nextSessions = Array.isArray(sessions) ? sessions : [];
     setActiveSessions(nextSessions);
-    updateStatusText(agentNodes.length, nextSessions.length);
+    updateStatusText(
+      uniqueIds([
+        ...agentNodes.map((n) => String(n?.channelId || "")),
+        ...channelSettings(nextConfig).allowedChannelIds,
+        ...channelSettings(nextConfig).excludedChannelIds
+      ]).length,
+      nextSessions.length
+    );
     await loadSessionDetails(nextSessions);
+  }
+
+  async function saveChannelSessionSettings(nextSettings: any) {
+    const config = agentConfig || await fetchAgentConfig(agentId);
+    if (!config) {
+      return false;
+    }
+    const payload = {
+      role: String(config.role || ""),
+      selectedModel: config.selectedModel ?? null,
+      documents: config.documents,
+      heartbeat: config.heartbeat,
+      channelSessions: nextSettings,
+      runtime: config.runtime || { type: "native" }
+    };
+    const updated = await updateAgentConfig(agentId, payload);
+    setAgentConfig(updated);
+    return true;
   }
 
   async function addChannel() {
@@ -178,7 +351,7 @@ export function AgentChannelsTab({ agentId, agentDisplayName, onNavigateToChanne
       setFormError("Channel ID is required.");
       return;
     }
-    const alreadyExists = nodes.some((n) => n.channelId === channelId);
+    const alreadyExists = configuredRows.some((row) => row.channelId === channelId && row.isAllowed && !row.isExcluded);
     if (alreadyExists) {
       setFormError("A channel with this ID is already linked to this agent.");
       return;
@@ -186,6 +359,18 @@ export function AgentChannelsTab({ agentId, agentDisplayName, onNavigateToChanne
 
     setIsSaving(true);
     setFormError("");
+
+    const nextSettings = {
+      ...settings,
+      allowedChannelIds: uniqueIds([...settings.allowedChannelIds, channelId]),
+      excludedChannelIds: settings.excludedChannelIds.filter((id) => id !== channelId)
+    };
+    const saved = await saveChannelSessionSettings(nextSettings).catch(() => false);
+    if (!saved) {
+      setIsSaving(false);
+      setFormError("Failed to save channel allow list.");
+      return;
+    }
 
     const nodeId = `actor:${agentId}:${channelId}`;
     const payload = {
@@ -199,11 +384,12 @@ export function AgentChannelsTab({ agentId, agentDisplayName, onNavigateToChanne
       createdAt: new Date().toISOString()
     };
 
-    const result = await createActorNode(payload);
+    const hasNode = nodes.some((n) => n.id === nodeId || n.channelId === channelId);
+    const result = hasNode ? true : await createActorNode(payload);
     setIsSaving(false);
 
     if (!result) {
-      setFormError("Failed to create channel. The ID may already be taken.");
+      setFormError("Allow list saved, but the actor board link could not be created.");
       return;
     }
 
@@ -212,20 +398,70 @@ export function AgentChannelsTab({ agentId, agentDisplayName, onNavigateToChanne
     setShowForm(false);
   }
 
-  async function removeChannel(nodeId) {
-    const ok = await deleteActorNode(nodeId);
-    if (!ok) {
+  async function excludeChannel() {
+    const channelId = slugify(newChannelId);
+    if (!channelId) {
+      setFormError("Channel ID is required.");
       return;
     }
+    setIsSaving(true);
+    setFormError("");
+    const nextSettings = {
+      ...settings,
+      allowedChannelIds: settings.allowedChannelIds.filter((id) => id !== channelId),
+      excludedChannelIds: uniqueIds([...settings.excludedChannelIds, channelId])
+    };
+    const saved = await saveChannelSessionSettings(nextSettings).catch(() => false);
+    setIsSaving(false);
+    if (!saved) {
+      setFormError("Failed to save channel exclude list.");
+      return;
+    }
+    await refreshData();
+    setNewChannelId("");
+    setShowForm(false);
+  }
+
+  async function removeChannel(nodeId) {
+    const row = configuredRows.find((entry) => entry.node?.id === nodeId || entry.channelId === nodeId);
+    const node = row?.node || null;
+    const channelId = row?.channelId || "";
+    const ok = node ? await deleteActorNode(node.id) : true;
+    if (!ok || !channelId) {
+      return;
+    }
+    const nextSettings = {
+      ...settings,
+      allowedChannelIds: settings.allowedChannelIds.filter((id) => id !== channelId),
+      excludedChannelIds: settings.excludedChannelIds.filter((id) => id !== channelId)
+    };
+    await saveChannelSessionSettings(nextSettings).catch(() => null);
     setNodes((previous) => {
-      const next = previous.filter((n) => n.id !== nodeId);
+      const next = previous.filter((n) => n.id !== node?.id);
+      const nextChannelCount = Math.max(0, configuredRows.length - 1);
       setStatusText(
-        `${next.length} channel${next.length !== 1 ? "s" : ""} · ` +
+        `${nextChannelCount} channel${nextChannelCount !== 1 ? "s" : ""} · ` +
         `${activeSessions.length} active session${activeSessions.length !== 1 ? "s" : ""}`
       );
       return next;
     });
     await refreshData();
+  }
+
+  async function toggleExcluded(channelId: string) {
+    const isExcluded = settings.excludedChannelIds.includes(channelId);
+    const nextSettings = {
+      ...settings,
+      excludedChannelIds: isExcluded
+        ? settings.excludedChannelIds.filter((id) => id !== channelId)
+        : uniqueIds([...settings.excludedChannelIds, channelId])
+    };
+    setIsSaving(true);
+    const saved = await saveChannelSessionSettings(nextSettings).catch(() => false);
+    setIsSaving(false);
+    if (saved) {
+      await refreshData();
+    }
   }
 
   function handleFormKeyDown(event) {
@@ -254,30 +490,44 @@ export function AgentChannelsTab({ agentId, agentDisplayName, onNavigateToChanne
         <p className="placeholder-text">Loading...</p>
       ) : (
         <>
-          {nodes.length === 0 && !showForm ? (
+          {configuredRows.length === 0 && !showForm ? (
             <div className="agent-channels-empty">
               <p className="placeholder-text">No channels configured. Add a channel ID to connect this agent to incoming messages.</p>
             </div>
           ) : (
             <div className="agent-channels-list">
-              {nodes.map((node) => {
-                const channelId = node.channelId || node.id;
+              {configuredRows.map((row) => {
+                const channelId = row.channelId;
                 return (
-                  <div key={node.id} className="agent-channel-row">
+                  <div key={channelId} className={`agent-channel-row ${row.isExcluded ? "is-excluded" : ""}`}>
                     <div className="agent-channel-info">
                       <span className="agent-channel-id">
                         <span className="material-symbols-rounded agent-channel-icon">forum</span>
                         {channelId}
+                        {row.isExcluded ? <span className="agent-channel-badge danger">excluded</span> : null}
+                        {row.source === "config allow" ? <span className="agent-channel-badge">config</span> : null}
                       </span>
-                      <span className="agent-channel-node-id">actor node · {node.id}</span>
+                      <span className="agent-channel-node-id">
+                        {row.node ? `actor node · ${row.node.id}` : row.source}
+                      </span>
                     </div>
                     <div className="agent-channel-actions">
                       <ChannelModelSelector channelId={channelId} />
                       <button
                         type="button"
+                        className={`agent-channel-exclude ${row.isExcluded ? "active" : ""}`}
+                        onClick={() => void toggleExcluded(channelId)}
+                        title={row.isExcluded ? "Remove from exclude list" : "Exclude this channel for this agent"}
+                        disabled={isSaving}
+                      >
+                        <span className="material-symbols-rounded">{row.isExcluded ? "block" : "do_not_disturb_on"}</span>
+                      </button>
+                      <button
+                        type="button"
                         className="agent-channel-remove"
-                        onClick={() => void removeChannel(node.id)}
+                        onClick={() => void removeChannel(channelId)}
                         title="Remove channel"
+                        disabled={isSaving}
                       >
                         <span className="material-symbols-rounded">delete</span>
                       </button>
@@ -362,15 +612,47 @@ export function AgentChannelsTab({ agentId, agentDisplayName, onNavigateToChanne
           {showForm ? (
             <div className="agent-channel-form">
               <label className="agent-channel-form-label">
-                Channel ID
-                <span className="agent-channel-form-hint">Lowercase letters, numbers, hyphens, underscores, and colons only.</span>
-                <input
-                  value={newChannelId}
-                  onChange={(event) => setNewChannelId(event.target.value)}
-                  onKeyDown={handleFormKeyDown}
-                  placeholder="e.g. support, general, tg:my-group"
-                  autoFocus
-                />
+                Channel or User ID
+                <span className="agent-channel-form-hint">Pick an existing channel/user ID, or type a new lowercase ID with letters, numbers, hyphens, underscores, and colons.</span>
+                <div className="actor-team-search-wrap">
+                  <input
+                    className="actor-team-search"
+                    value={newChannelId}
+                    onChange={(event) => {
+                      setNewChannelId(event.target.value);
+                      setChannelDropdownOpen(true);
+                    }}
+                    onFocus={() => setChannelDropdownOpen(true)}
+                    onBlur={() => setTimeout(() => setChannelDropdownOpen(false), 150)}
+                    onKeyDown={handleFormKeyDown}
+                    placeholder="e.g. support, general, tg:my-group"
+                    autoComplete="off"
+                    autoFocus
+                  />
+                  {channelDropdownOpen ? (
+                    <ul className="actor-team-dropdown">
+                      {channelSuggestions.length === 0 ? (
+                        <li className="actor-team-dropdown-empty">No known channels or users.</li>
+                      ) : (
+                        channelSuggestions.map((suggestion) => (
+                          <li
+                            key={suggestion.value}
+                            className={`actor-team-dropdown-item ${slugify(newChannelId) === slugify(suggestion.value) ? "selected" : ""}`}
+                            onMouseDown={(event) => {
+                              event.preventDefault();
+                              setNewChannelId(suggestion.value);
+                              setChannelDropdownOpen(false);
+                            }}
+                          >
+                            <span className="actor-team-dropdown-name">{suggestion.label}</span>
+                            <span className="actor-team-dropdown-id">{suggestion.value}</span>
+                            <span className="actor-team-dropdown-id">{suggestion.meta}</span>
+                          </li>
+                        ))
+                      )}
+                    </ul>
+                  ) : null}
+                </div>
               </label>
               {formError ? <p className="agent-create-error">{formError}</p> : null}
               <div className="agent-channel-form-actions">
@@ -383,6 +665,9 @@ export function AgentChannelsTab({ agentId, agentDisplayName, onNavigateToChanne
                   }}
                 >
                   Cancel
+                </button>
+                <button type="button" disabled={isSaving} onClick={() => void excludeChannel()}>
+                  {isSaving ? "Saving..." : "Exclude"}
                 </button>
                 <button type="button" className="agent-create-confirm hover-levitate" disabled={isSaving} onClick={() => void addChannel()}>
                   {isSaving ? "Adding..." : "Add Channel"}

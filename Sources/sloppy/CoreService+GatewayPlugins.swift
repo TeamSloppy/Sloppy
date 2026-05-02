@@ -11,7 +11,11 @@ extension CoreService {
         await refreshOAuthModelCacheIfNeeded()
 
         if let telegramConfig = currentConfig.channels.telegram {
-            let plugin = builtInGatewayPluginFactory.makeTelegram(telegramConfig, self as any TelegramModelPickerBridge)
+            let plugin = builtInGatewayPluginFactory.makeTelegram(
+                telegramConfig,
+                self as any TelegramModelPickerBridge,
+                self as any ToolApprovalBridge
+            )
             await startBuiltInPlugin(
                 plugin,
                 id: "telegram",

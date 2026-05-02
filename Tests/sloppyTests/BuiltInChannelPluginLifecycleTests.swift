@@ -52,7 +52,7 @@ func bootstrapChannelPluginsSeedsDiscordRecord() async throws {
 
     let probe = LifecyclePluginProbe()
     let factory = BuiltInGatewayPluginFactory(
-        makeTelegram: { pluginConfig, _ in
+        makeTelegram: { pluginConfig, _, _ in
             LifecycleGatewayPlugin(
                 id: "telegram",
                 channelIds: Array(pluginConfig.channelChatMap.keys)
@@ -101,7 +101,7 @@ func updateConfigReloadsAndRemovesDiscordPlugin() async throws {
 
     let probe = LifecyclePluginProbe()
     let factory = BuiltInGatewayPluginFactory(
-        makeTelegram: { pluginConfig, _ in
+        makeTelegram: { pluginConfig, _, _ in
             LifecycleGatewayPlugin(
                 id: "telegram",
                 channelIds: Array(pluginConfig.channelChatMap.keys)

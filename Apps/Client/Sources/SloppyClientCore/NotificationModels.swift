@@ -5,6 +5,7 @@ public enum AppNotificationType: String, Codable, Sendable {
     case agentError = "agent_error"
     case systemError = "system_error"
     case pendingApproval = "pending_approval"
+    case toolApproval = "tool_approval"
 }
 
 public struct AppNotification: Codable, Sendable, Identifiable {

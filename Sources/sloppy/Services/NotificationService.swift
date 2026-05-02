@@ -7,6 +7,7 @@ public struct DashboardNotification: Codable, Sendable {
         case agentError = "agent_error"
         case systemError = "system_error"
         case pendingApproval = "pending_approval"
+        case toolApproval = "tool_approval"
     }
 
     public var id: String
@@ -86,6 +87,28 @@ public actor NotificationService {
         var metadata: [String: String] = [:]
         if let taskId { metadata["taskId"] = taskId }
         push(DashboardNotification(type: .confirmation, title: title, message: message, metadata: metadata))
+    }
+
+    public func pushToolApproval(_ approval: ToolApprovalRecord) {
+        var metadata: [String: String] = [
+            "approvalId": approval.id,
+            "status": approval.status.rawValue,
+            "agentId": approval.agentId,
+            "tool": approval.tool,
+            "expiresAt": ISO8601DateFormatter().string(from: approval.expiresAt)
+        ]
+        if let sessionId = approval.sessionId { metadata["sessionId"] = sessionId }
+        if let channelId = approval.channelId { metadata["channelId"] = channelId }
+        if let topicId = approval.topicId { metadata["topicId"] = topicId }
+        if let reason = approval.reason { metadata["reason"] = reason }
+        push(DashboardNotification(
+            type: .toolApproval,
+            title: approval.status == .pending ? "Tool approval required" : "Tool approval \(approval.status.rawValue)",
+            message: approval.reason?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+                ? approval.reason!
+                : approval.tool,
+            metadata: metadata
+        ))
     }
 
     private func unsubscribe(id: UUID) {

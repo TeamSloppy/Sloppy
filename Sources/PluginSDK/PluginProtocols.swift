@@ -221,6 +221,17 @@ public extension StreamingGatewayPlugin {
     }
 }
 
+/// Optional gateway capability for presenting human approval prompts with native platform actions.
+public protocol ToolApprovalGatewayPlugin: GatewayPlugin {
+    func presentToolApproval(_ approval: ToolApprovalRecord) async throws
+    func updateToolApproval(_ approval: ToolApprovalRecord) async throws
+}
+
+/// Lets an in-process gateway resolve tool approval callbacks without depending on CoreService.
+public protocol ToolApprovalBridge: Sendable {
+    func resolveToolApproval(id: String, approved: Bool, decidedBy: String?) async -> ToolApprovalRecord?
+}
+
 /// Plugin interface for exposing structured external tools ("actions") to an agent runtime.
 /// Each tool must declare its contract (name, arguments) and implement `invoke`.
 public protocol ToolPlugin: Sendable {

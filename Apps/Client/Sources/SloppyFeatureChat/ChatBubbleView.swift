@@ -10,22 +10,36 @@ public struct ChatBubbleView: View {
 
     public init(message: ChatMessage) { self.message = message }
 
+    @Environment(\.userInterfaceIdiom) private var idiom
     @Environment(\.theme) private var theme
 
     private var isUser: Bool { message.role == .user }
     private var isAssistant: Bool { message.role == .assistant }
+    private var isPhone: Bool { idiom == .phone }
 
     public var body: some View {
         if isUser {
             userMessage
+                .multilineTextAligment(.leading)
         } else if isAssistant {
             assistantMessage
+                .multilineTextAligment(.leading)
         } else {
             systemMessage
+                .multilineTextAligment(.center)
         }
     }
 
+    @ViewBuilder
     private var userMessage: some View {
+        if isPhone {
+            phoneUserMessage
+        } else {
+            desktopUserMessage
+        }
+    }
+
+    private var desktopUserMessage: some View {
         let c = theme.colors
         let sp = theme.spacing
         let ty = theme.typography
@@ -46,7 +60,33 @@ public struct ChatBubbleView: View {
         }
     }
 
+    private var phoneUserMessage: some View {
+        let c = theme.colors
+        let sp = theme.spacing
+        let ty = theme.typography
+
+        return Text(markdown: messageText)
+            .font(.system(size: ty.body))
+            .foregroundColor(c.textPrimary)
+            .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, sp.s)
+            .padding(.vertical, sp.s)
+            .background {
+                RoundedRectangleShape(cornerRadius: Self.userBubbleRadius)
+                    .fill(c.surface)
+            }
+    }
+
+    @ViewBuilder
     private var assistantMessage: some View {
+        if isPhone {
+            phoneAssistantMessage
+        } else {
+            desktopAssistantMessage
+        }
+    }
+
+    private var desktopAssistantMessage: some View {
         let c = theme.colors
         let sp = theme.spacing
         let ty = theme.typography
@@ -70,6 +110,19 @@ public struct ChatBubbleView: View {
                 .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
         }
         .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var phoneAssistantMessage: some View {
+        let c = theme.colors
+        let sp = theme.spacing
+        let ty = theme.typography
+
+        return Text(markdown: messageText)
+            .font(.system(size: ty.body))
+            .foregroundColor(c.textPrimary)
+            .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, sp.s)
+            .padding(.vertical, sp.m)
     }
 
     private var systemMessage: some View {

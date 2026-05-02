@@ -47,7 +47,9 @@ function emptyAgentConfigDraft(agentId) {
     channelSessions: {
       autoCloseEnabled: false,
       autoCloseAfterMinutes: 30,
-      inboundActivation: "all"
+      inboundActivation: "all",
+      allowedChannelIds: [],
+      excludedChannelIds: []
     },
     heartbeatStatus: {
       lastRunAt: null,
@@ -86,7 +88,13 @@ function normalizeConfigDraft(agentId, config) {
       autoCloseEnabled: Boolean(config.channelSessions?.autoCloseEnabled),
       autoCloseAfterMinutes: Number.parseInt(String(config.channelSessions?.autoCloseAfterMinutes ?? 30), 10) || 30,
       inboundActivation:
-        config.channelSessions?.inboundActivation === "mention_or_reply" ? "mention_or_reply" : "all"
+        config.channelSessions?.inboundActivation === "mention_or_reply" ? "mention_or_reply" : "all",
+      allowedChannelIds: Array.isArray(config.channelSessions?.allowedChannelIds)
+        ? config.channelSessions.allowedChannelIds
+        : [],
+      excludedChannelIds: Array.isArray(config.channelSessions?.excludedChannelIds)
+        ? config.channelSessions.excludedChannelIds
+        : []
     },
     heartbeatStatus: {
       lastRunAt: config.heartbeatStatus?.lastRunAt || null,
@@ -582,7 +590,13 @@ export function AgentConfigTab({ agentId, agentDisplayName = "", onDeleteAgent =
       channelSessions: {
         autoCloseEnabled: Boolean(draft.channelSessions.autoCloseEnabled),
         autoCloseAfterMinutes: autoCloseAfterMinutes || 30,
-        inboundActivation: draft.channelSessions.inboundActivation === "mention_or_reply" ? "mention_or_reply" : "all"
+        inboundActivation: draft.channelSessions.inboundActivation === "mention_or_reply" ? "mention_or_reply" : "all",
+        allowedChannelIds: Array.isArray(draft.channelSessions.allowedChannelIds)
+          ? draft.channelSessions.allowedChannelIds
+          : [],
+        excludedChannelIds: Array.isArray(draft.channelSessions.excludedChannelIds)
+          ? draft.channelSessions.excludedChannelIds
+          : []
       },
       runtime
     };

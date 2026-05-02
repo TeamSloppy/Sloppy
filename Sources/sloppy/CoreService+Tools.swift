@@ -23,7 +23,8 @@ extension CoreService {
         agentID: String,
         sessionID: String,
         request: ToolInvocationRequest,
-        recordSessionEvents: Bool = true
+        recordSessionEvents: Bool = true,
+        requireApproval: Bool = false
     ) async -> ToolInvocationResult {
         guard let normalizedAgentID = normalizedAgentID(agentID) else {
             return .init(
@@ -181,6 +182,17 @@ extension CoreService {
                 )
 
             case .allow:
+                if let approval = await requestToolApprovalIfNeeded(
+                    agentID: normalizedAgentID,
+                    sessionID: normalizedSessionID,
+                    channelID: nil,
+                    topicID: nil,
+                    request: request,
+                    requireApproval: requireApproval
+                ), let deniedResult = toolApprovalDeniedResult(tool: request.tool, approval: approval) {
+                    result = deniedResult
+                    break
+                }
                 result = await withSpan("tool.invoke", ofKind: .internal) { span in
                     span.attributes["agent_id"] = "\(normalizedAgentID)"
                     span.attributes["session_id"] = "\(normalizedSessionID)"
@@ -277,7 +289,9 @@ extension CoreService {
     public func invokeToolFromChannelRuntime(
         agentID: String,
         channelID: String,
-        request: ToolInvocationRequest
+        request: ToolInvocationRequest,
+        topicID: String? = nil,
+        requireApproval: Bool = false
     ) async -> ToolInvocationResult {
         guard let normalizedAgentID = normalizedAgentID(agentID) else {
             return .init(
@@ -367,6 +381,17 @@ extension CoreService {
                 )
 
             case .allow:
+                if let approval = await requestToolApprovalIfNeeded(
+                    agentID: normalizedAgentID,
+                    sessionID: nil,
+                    channelID: channelID,
+                    topicID: topicID,
+                    request: request,
+                    requireApproval: requireApproval
+                ), let deniedResult = toolApprovalDeniedResult(tool: request.tool, approval: approval) {
+                    result = deniedResult
+                    break
+                }
                 result = await withSpan("tool.invoke.channel", ofKind: .internal) { span in
                     span.attributes["agent_id"] = "\(normalizedAgentID)"
                     span.attributes["channel_id"] = "\(channelID)"

@@ -115,4 +115,6 @@ public enum MessageType: String, Codable, Sendable, CaseIterable {
     case visorSignalIdle = "visor.signal.idle"
     case actorDiscussionStarted = "actor.discussion.started"
     case actorDiscussionConcluded = "actor.discussion.concluded"
+    case toolApprovalRequested = "tool.approval.requested"
+    case toolApprovalResolved = "tool.approval.resolved"
 }

@@ -78,7 +78,11 @@ extension CoreService {
             if let telegramConfig = config.channels.telegram {
                 let token = telegramConfig.botToken.trimmingCharacters(in: .whitespacesAndNewlines)
                 if !token.isEmpty {
-                    plugin = builtInGatewayPluginFactory.makeTelegram(telegramConfig, self as any TelegramModelPickerBridge)
+                    plugin = builtInGatewayPluginFactory.makeTelegram(
+                        telegramConfig,
+                        self as any TelegramModelPickerBridge,
+                        self as any ToolApprovalBridge
+                    )
                 }
             }
             let channelIds = config.channels.telegram.map { Array(Set($0.channelChatMap.keys).union($0.topicChannelMap.values)) } ?? []
@@ -132,6 +136,13 @@ extension CoreService {
     }
     public func getConfig() -> CoreConfig {
         currentConfig
+    }
+
+    public func runWorkspaceGitSyncNow() async throws -> WorkspaceGitSyncResponse {
+        try await workspaceGitSyncService.syncNow(
+            config: currentConfig.gitSync,
+            workspaceRootURL: workspaceRootURL
+        )
     }
 
     /// Lists all persisted agents from workspace `/agents`.

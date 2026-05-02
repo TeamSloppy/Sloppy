@@ -169,20 +169,40 @@ public struct IssueReportRequest: Codable, Sendable, Equatable {
 
 public struct IssueReportResponse: Codable, Sendable, Equatable {
     public var issueUrl: String
+    public var logs: String
     public var logEntryCount: Int
     public var redactionCount: Int
     public var truncated: Bool
 
+    private enum CodingKeys: String, CodingKey {
+        case issueUrl
+        case logs
+        case logEntryCount
+        case redactionCount
+        case truncated
+    }
+
     public init(
         issueUrl: String,
+        logs: String,
         logEntryCount: Int,
         redactionCount: Int,
         truncated: Bool
     ) {
         self.issueUrl = issueUrl
+        self.logs = logs
         self.logEntryCount = logEntryCount
         self.redactionCount = redactionCount
         self.truncated = truncated
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        issueUrl = try container.decode(String.self, forKey: .issueUrl)
+        logs = try container.decodeIfPresent(String.self, forKey: .logs) ?? ""
+        logEntryCount = try container.decode(Int.self, forKey: .logEntryCount)
+        redactionCount = try container.decode(Int.self, forKey: .redactionCount)
+        truncated = try container.decode(Bool.self, forKey: .truncated)
     }
 }
 
@@ -1458,21 +1478,29 @@ public struct AgentChannelSessionSettings: Codable, Sendable, Equatable {
     public var autoCloseEnabled: Bool
     public var autoCloseAfterMinutes: Int
     public var inboundActivation: ChannelInboundActivation
+    public var allowedChannelIds: [String]
+    public var excludedChannelIds: [String]
 
     public init(
         autoCloseEnabled: Bool = false,
         autoCloseAfterMinutes: Int = 30,
-        inboundActivation: ChannelInboundActivation = .allMessages
+        inboundActivation: ChannelInboundActivation = .allMessages,
+        allowedChannelIds: [String] = [],
+        excludedChannelIds: [String] = []
     ) {
         self.autoCloseEnabled = autoCloseEnabled
         self.autoCloseAfterMinutes = autoCloseAfterMinutes
         self.inboundActivation = inboundActivation
+        self.allowedChannelIds = Self.normalizedChannelIds(allowedChannelIds)
+        self.excludedChannelIds = Self.normalizedChannelIds(excludedChannelIds)
     }
 
     enum CodingKeys: String, CodingKey {
         case autoCloseEnabled
         case autoCloseAfterMinutes
         case inboundActivation
+        case allowedChannelIds
+        case excludedChannelIds
     }
 
     public init(from decoder: Decoder) throws {
@@ -1480,6 +1508,8 @@ public struct AgentChannelSessionSettings: Codable, Sendable, Equatable {
         autoCloseEnabled = try c.decodeIfPresent(Bool.self, forKey: .autoCloseEnabled) ?? false
         autoCloseAfterMinutes = try c.decodeIfPresent(Int.self, forKey: .autoCloseAfterMinutes) ?? 30
         inboundActivation = try c.decodeIfPresent(ChannelInboundActivation.self, forKey: .inboundActivation) ?? .allMessages
+        allowedChannelIds = Self.normalizedChannelIds(try c.decodeIfPresent([String].self, forKey: .allowedChannelIds) ?? [])
+        excludedChannelIds = Self.normalizedChannelIds(try c.decodeIfPresent([String].self, forKey: .excludedChannelIds) ?? [])
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -1487,6 +1517,21 @@ public struct AgentChannelSessionSettings: Codable, Sendable, Equatable {
         try c.encode(autoCloseEnabled, forKey: .autoCloseEnabled)
         try c.encode(autoCloseAfterMinutes, forKey: .autoCloseAfterMinutes)
         try c.encode(inboundActivation, forKey: .inboundActivation)
+        try c.encode(allowedChannelIds, forKey: .allowedChannelIds)
+        try c.encode(excludedChannelIds, forKey: .excludedChannelIds)
+    }
+
+    private static func normalizedChannelIds(_ values: [String]) -> [String] {
+        var seen = Set<String>()
+        var result: [String] = []
+        for value in values {
+            let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty, seen.insert(trimmed).inserted else {
+                continue
+            }
+            result.append(trimmed)
+        }
+        return result
     }
 }
 
@@ -2065,6 +2110,70 @@ public struct ToolInvocationRequest: Codable, Sendable {
         self.tool = tool
         self.arguments = arguments
         self.reason = reason
+    }
+}
+
+public enum ToolApprovalStatus: String, Codable, Sendable, Equatable, CaseIterable {
+    case pending
+    case approved
+    case rejected
+    case timedOut = "timed_out"
+}
+
+public struct ToolApprovalRecord: Codable, Sendable, Equatable, Identifiable {
+    public var id: String
+    public var status: ToolApprovalStatus
+    public var agentId: String
+    public var sessionId: String?
+    public var channelId: String?
+    public var topicId: String?
+    public var tool: String
+    public var arguments: [String: JSONValue]
+    public var reason: String?
+    public var requestedBy: String?
+    public var decidedBy: String?
+    public var createdAt: Date
+    public var updatedAt: Date
+    public var expiresAt: Date
+
+    public init(
+        id: String = UUID().uuidString,
+        status: ToolApprovalStatus = .pending,
+        agentId: String,
+        sessionId: String? = nil,
+        channelId: String? = nil,
+        topicId: String? = nil,
+        tool: String,
+        arguments: [String: JSONValue] = [:],
+        reason: String? = nil,
+        requestedBy: String? = nil,
+        decidedBy: String? = nil,
+        createdAt: Date = Date(),
+        updatedAt: Date = Date(),
+        expiresAt: Date
+    ) {
+        self.id = id
+        self.status = status
+        self.agentId = agentId
+        self.sessionId = sessionId
+        self.channelId = channelId
+        self.topicId = topicId
+        self.tool = tool
+        self.arguments = arguments
+        self.reason = reason
+        self.requestedBy = requestedBy
+        self.decidedBy = decidedBy
+        self.createdAt = createdAt
+        self.updatedAt = updatedAt
+        self.expiresAt = expiresAt
+    }
+}
+
+public struct ToolApprovalDecisionRequest: Codable, Sendable, Equatable {
+    public var decidedBy: String?
+
+    public init(decidedBy: String? = nil) {
+        self.decidedBy = decidedBy
     }
 }
 
@@ -2989,6 +3098,28 @@ public struct GitHubAuthStatusResponse: Codable, Sendable {
         self.connected = connected
         self.username = username
         self.connectedAt = connectedAt
+    }
+}
+
+public struct WorkspaceGitSyncResponse: Codable, Sendable {
+    public var ok: Bool
+    public var message: String
+    public var branch: String
+    public var commit: String?
+    public var filesChanged: Int
+
+    public init(
+        ok: Bool,
+        message: String,
+        branch: String,
+        commit: String? = nil,
+        filesChanged: Int = 0
+    ) {
+        self.ok = ok
+        self.message = message
+        self.branch = branch
+        self.commit = commit
+        self.filesChanged = filesChanged
     }
 }
 

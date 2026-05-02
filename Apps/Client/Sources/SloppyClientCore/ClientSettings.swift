@@ -47,7 +47,8 @@ public final class ClientSettings {
     }
 
     public var baseURL: URL {
-        URL(string: "http://\(serverHost):\(serverPort)") ?? URL(string: "http://localhost:25101")!
+        ServerAddress.parse(host: serverHost, port: String(serverPort))?.baseURL
+            ?? ServerAddress(host: "localhost").baseURL
     }
 
     public var activeServer: SavedServer? {

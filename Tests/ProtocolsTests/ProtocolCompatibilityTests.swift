@@ -585,7 +585,9 @@ func messageTypeHandlesAllKnownCases() throws {
         .compactorSummaryApplied,
         .visorBulletinGenerated,
         .actorDiscussionStarted,
-        .actorDiscussionConcluded
+        .actorDiscussionConcluded,
+        .toolApprovalRequested,
+        .toolApprovalResolved
     ]
 
     // Then: All cases have valid raw values

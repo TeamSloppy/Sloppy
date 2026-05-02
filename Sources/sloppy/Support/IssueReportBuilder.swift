@@ -156,7 +156,7 @@ struct SensitiveLogRedactor: Sendable {
 struct IssueReportBuilder: Sendable {
     private static let issueBaseURL = "https://github.com/TeamSloppy/Sloppy/issues/new"
     private static let templateName = "report-an-issue.yml"
-    private static let maxIssueURLBytes = 14_000
+    private static let maxLogsBytes = 64_000
 
     let redactor: SensitiveLogRedactor
     let processInfo: ProcessInfo
@@ -171,32 +171,22 @@ struct IssueReportBuilder: Sendable {
         let environment = environmentText(build: build)
         var includedCount = sanitized.entries.count
         var truncated = false
-
         var logsText = formatLogs(Array(sanitized.entries.suffix(includedCount)))
-        var issueURL = makeIssueURL(environment: environment, logs: logsText)
 
-        while issueURL.utf8.count > Self.maxIssueURLBytes && includedCount > 1 {
+        while logsText.utf8.count > Self.maxLogsBytes && includedCount > 1 {
             truncated = true
             includedCount = max(1, includedCount / 2)
             logsText = formatLogs(Array(sanitized.entries.suffix(includedCount)))
-            issueURL = makeIssueURL(environment: environment, logs: logsText)
         }
 
-        if issueURL.utf8.count > Self.maxIssueURLBytes {
+        if logsText.utf8.count > Self.maxLogsBytes {
             truncated = true
-            logsText = truncatedLogsText(logsText, environment: environment)
-            issueURL = makeIssueURL(environment: environment, logs: logsText)
-        }
-
-        if issueURL.utf8.count > Self.maxIssueURLBytes {
-            truncated = true
-            includedCount = 0
-            logsText = "[logs omitted: report URL length limit reached]"
-            issueURL = makeIssueURL(environment: environment, logs: logsText)
+            logsText = truncatedLogsText(logsText)
         }
 
         return IssueReportResponse(
-            issueUrl: issueURL,
+            issueUrl: makeIssueURL(environment: environment),
+            logs: logsText,
             logEntryCount: includedCount,
             redactionCount: sanitized.redactionCount,
             truncated: truncated
@@ -272,26 +262,23 @@ struct IssueReportBuilder: Sendable {
         return formatter.string(from: date)
     }
 
-    private func truncatedLogsText(_ logs: String, environment: String) -> String {
+    private func truncatedLogsText(_ logs: String) -> String {
+        let suffix = "\n...[truncated]"
+        let targetBytes = Self.maxLogsBytes - suffix.utf8.count
         var current = logs
-        while current.count > 512 {
-            current = String(current.prefix(max(512, current.count / 2)))
-            let candidate = current + "\n...[truncated]"
-            if makeIssueURL(environment: environment, logs: candidate).utf8.count <= Self.maxIssueURLBytes {
-                return candidate
-            }
+        while current.utf8.count > targetBytes && !current.isEmpty {
+            current = String(current.prefix(max(1, current.count / 2)))
         }
-        return "[logs truncated: report URL length limit reached]"
+        return current + suffix
     }
 
-    private func makeIssueURL(environment: String, logs: String) -> String {
+    private func makeIssueURL(environment: String) -> String {
         var components = URLComponents(string: Self.issueBaseURL)
         components?.queryItems = [
             URLQueryItem(name: "template", value: Self.templateName),
             URLQueryItem(name: "title", value: "[Bug]: "),
             URLQueryItem(name: "summary", value: "Opened from Sloppy dashboard"),
-            URLQueryItem(name: "environment", value: environment),
-            URLQueryItem(name: "logs", value: logs)
+            URLQueryItem(name: "environment", value: environment)
         ]
         return components?.url?.absoluteString ?? Self.issueBaseURL
     }

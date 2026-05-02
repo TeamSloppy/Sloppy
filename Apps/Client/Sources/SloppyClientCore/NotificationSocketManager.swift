@@ -13,6 +13,7 @@ public actor NotificationSocketManager {
     private var continuation: AsyncStream<AppNotification>.Continuation?
     private var disposed = false
     private var reconnectDelay: Double = 1.0
+    private var socketAttempt = 0
 
     public init(
         baseURL: URL = URL(string: "http://localhost:25101")!,
@@ -38,6 +39,9 @@ public actor NotificationSocketManager {
     }
 
     public func connect() -> AsyncStream<AppNotification> {
+        disposed = false
+        reconnectDelay = 1.0
+        socketAttempt = 0
         let stream = AsyncStream<AppNotification> { continuation in
             self.continuation = continuation
             continuation.onTermination = { [weak self] _ in
@@ -50,6 +54,7 @@ public actor NotificationSocketManager {
 
     public func disconnect() {
         disposed = true
+        logger.info("Disconnecting notification socket for \(baseURL.absoluteString)")
         task?.cancel(with: .goingAway, reason: nil)
         task = nil
         continuation?.finish()
@@ -62,12 +67,16 @@ public actor NotificationSocketManager {
         var components = URLComponents(url: baseURL, resolvingAgainstBaseURL: false)
         components?.scheme = baseURL.scheme == "https" ? "wss" : "ws"
         components?.path = "/v1/notifications/ws"
-        guard let wsURL = components?.url else { return }
+        guard let wsURL = components?.url else {
+            logger.error("Could not build notification socket URL from \(baseURL.absoluteString)")
+            return
+        }
 
+        socketAttempt += 1
+        logger.info("Opening notification socket attempt \(socketAttempt): \(wsURL.absoluteString)")
         let wsTask = URLSession.shared.webSocketTask(with: wsURL)
         self.task = wsTask
         wsTask.resume()
-        reconnectDelay = 1.0
 
         Task { await receiveLoop(task: wsTask) }
     }
@@ -76,6 +85,7 @@ public actor NotificationSocketManager {
         while !disposed {
             do {
                 let message = try await task.receive()
+                reconnectDelay = 1.0
                 switch message {
                 case .string(let text):
                     if let data = text.data(using: .utf8),
@@ -91,10 +101,11 @@ public actor NotificationSocketManager {
                 }
             } catch {
                 guard !disposed else { return }
-                logger.warning("Notification socket disconnected: \(error). Reconnecting in \(reconnectDelay)s")
+                let delay = reconnectDelay
+                logger.warning("Notification socket attempt \(socketAttempt) disconnected: \(error). Reconnecting in \(delay)s")
                 self.task = nil
-                try? await Task.sleep(nanoseconds: UInt64(reconnectDelay * 1_000_000_000))
-                reconnectDelay = min(reconnectDelay * 2, 30)
+                try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+                reconnectDelay = min(delay * 2, 30)
                 if !disposed {
                     openSocket()
                 }

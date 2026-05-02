@@ -2838,6 +2838,11 @@ body.agent-chat-no-page-scroll .page {
   background: var(--surface);
 }
 
+.agent-channel-row.is-excluded {
+  border-color: rgba(248, 113, 113, 0.45);
+  background: rgba(248, 113, 113, 0.06);
+}
+
 .agent-channel-info {
   display: flex;
   flex-direction: column;
@@ -2867,6 +2872,25 @@ body.agent-chat-no-page-scroll .page {
   font-family: "Fira Code", monospace;
 }
 
+.agent-channel-badge {
+  display: inline-flex;
+  align-items: center;
+  height: 18px;
+  padding: 0 6px;
+  border: 1px solid var(--line);
+  color: var(--muted);
+  font-family: "Fira Code", monospace;
+  font-size: 0.64rem;
+  font-weight: 500;
+  text-transform: uppercase;
+}
+
+.agent-channel-badge.danger {
+  border-color: rgba(248, 113, 113, 0.5);
+  color: var(--danger);
+}
+
+.agent-channel-exclude,
 .agent-channel-remove {
   flex-shrink: 0;
   min-width: auto;
@@ -2883,11 +2907,18 @@ body.agent-chat-no-page-scroll .page {
   cursor: pointer;
 }
 
+.agent-channel-exclude:hover,
+.agent-channel-exclude.active {
+  border-color: rgba(248, 113, 113, 0.6);
+  color: var(--danger);
+}
+
 .agent-channel-remove:hover {
   border-color: var(--danger);
   color: var(--danger);
 }
 
+.agent-channel-exclude .material-symbols-rounded,
 .agent-channel-remove .material-symbols-rounded {
   font-size: 17px;
   font-variation-settings: "FILL" 0, "wght" 300, "GRAD" 0, "opsz" 20;

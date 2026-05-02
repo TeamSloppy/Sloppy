@@ -8,8 +8,10 @@ import Foundation
 /// and rewrites auth headers for Claude Code–compatible routing (Bearer OAuth, MiniMax, third-party `x-api-key`, etc.).
 ///
 /// Uses a plain ``URLSession`` for the actual load so this protocol is not re-entered.
-final class OAuthAnthropicURLProtocol: URLProtocol, @unchecked Sendable, URLSessionDataDelegate {
+final class OAuthAnthropicURLProtocol: URLProtocol {
     private var activeTask: URLSessionDataTask?
+    private var activeSession: URLSession?
+    private var activeDelegate: OAuthAnthropicURLProtocolSessionDelegate?
 
     /// Session without custom `protocolClasses` so sub-requests do not loop through this type.
     private static let plainSession: URLSession = {
@@ -40,39 +42,44 @@ final class OAuthAnthropicURLProtocol: URLProtocol, @unchecked Sendable, URLSess
         let request = self.request
         let modified = Self.modifiedRequest(from: request)
         
-        // We must create a session per task to handle delegates correctly on Linux/FoundationNetworking
-        // or use the global session and accept limitations.
-        // For URLProtocol, the most reliable way is to use a session with the protocol itself as a delegate.
+        // Keep URLProtocol separate from URLSessionDataDelegate: FoundationNetworking
+        // makes URLSession delegates Sendable, while URLProtocol cannot conform to Sendable on Linux.
         let config = URLSessionConfiguration.ephemeral
-        let session = URLSession(configuration: config, delegate: self, delegateQueue: nil)
+        let delegate = OAuthAnthropicURLProtocolSessionDelegate(owner: self)
+        let session = URLSession(configuration: config, delegate: delegate, delegateQueue: nil)
         
         let task = session.dataTask(with: modified)
+        self.activeDelegate = delegate
+        self.activeSession = session
         self.activeTask = task
         task.resume()
     }
 
     override func stopLoading() {
         activeTask?.cancel()
+        activeSession?.invalidateAndCancel()
+        activeDelegate = nil
+        activeSession = nil
         activeTask = nil
     }
 
-    // MARK: - URLSessionDataDelegate
-
-    func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive response: URLResponse, completionHandler: @escaping (URLSession.ResponseDisposition) -> Void) {
+    fileprivate func didReceive(response: URLResponse) {
         self.client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
-        completionHandler(.allow)
     }
 
-    func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
+    fileprivate func didReceive(data: Data) {
         self.client?.urlProtocol(self, didLoad: data)
     }
 
-    func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
+    fileprivate func didComplete(with error: Error?) {
         if let error = error {
             self.client?.urlProtocol(self, didFailWithError: error)
         } else {
             self.client?.urlProtocolDidFinishLoading(self)
         }
+        activeDelegate = nil
+        activeSession = nil
+        activeTask = nil
     }
 
     /// `.../v1/messages` → configured API base (e.g. `https://api.anthropic.com` or `https://proxy.example/anthropic`).
@@ -108,6 +115,28 @@ final class OAuthAnthropicURLProtocol: URLProtocol, @unchecked Sendable, URLSess
             mutable.setValue(value, forHTTPHeaderField: field)
         }
         return mutable
+    }
+}
+
+private final class OAuthAnthropicURLProtocolSessionDelegate: NSObject, URLSessionDataDelegate, @unchecked Sendable {
+    private weak var owner: OAuthAnthropicURLProtocol?
+
+    init(owner: OAuthAnthropicURLProtocol) {
+        self.owner = owner
+    }
+
+    func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive response: URLResponse, completionHandler: @escaping (URLSession.ResponseDisposition) -> Void) {
+        owner?.didReceive(response: response)
+        completionHandler(.allow)
+    }
+
+    func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
+        owner?.didReceive(data: data)
+    }
+
+    func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
+        owner?.didComplete(with: error)
+        session.finishTasksAndInvalidate()
     }
 }
 

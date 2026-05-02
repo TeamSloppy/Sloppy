@@ -6,7 +6,7 @@ import Protocols
 
 /// In-process GatewayPlugin that bridges Telegram to Sloppy channels.
 /// Uses long-polling to receive messages and InboundMessageReceiver to forward them to Sloppy.
-public actor TelegramGatewayPlugin: StreamingGatewayPlugin {
+public actor TelegramGatewayPlugin: StreamingGatewayPlugin, ToolApprovalGatewayPlugin {
     private struct StreamState: Sendable {
         let chatId: Int64
         let messageId: Int64
@@ -23,8 +23,10 @@ public actor TelegramGatewayPlugin: StreamingGatewayPlugin {
     private let bot: TelegramBotAPI
     private let logger: Logger
     private let modelPickerBridge: (any TelegramModelPickerBridge)?
+    private let toolApprovalBridge: (any ToolApprovalBridge)?
     private var pollerTask: Task<Void, Never>?
     private var streams: [String: StreamState] = [:]
+    private var approvalMessages: [String: StreamState] = [:]
     /// Tracks the most recent inbound chatId per channelId for catch-all bindings (chatId == 0).
     private var activeChatIds: [String: Int64] = [:]
 
@@ -35,7 +37,8 @@ public actor TelegramGatewayPlugin: StreamingGatewayPlugin {
         allowedUserIds: [Int64] = [],
         allowedChatIds: [Int64] = [],
         logger: Logger? = nil,
-        modelPickerBridge: (any TelegramModelPickerBridge)? = nil
+        modelPickerBridge: (any TelegramModelPickerBridge)? = nil,
+        toolApprovalBridge: (any ToolApprovalBridge)? = nil
     ) {
         self.config = TelegramPluginConfig(
             botToken: botToken,
@@ -49,6 +52,7 @@ public actor TelegramGatewayPlugin: StreamingGatewayPlugin {
         self.logger = resolvedLogger
         self.bot = TelegramBotAPI(botToken: botToken, logger: resolvedLogger)
         self.modelPickerBridge = modelPickerBridge
+        self.toolApprovalBridge = toolApprovalBridge
     }
 
     func setActiveChatId(channelId: String, chatId: Int64) {
@@ -91,7 +95,8 @@ public actor TelegramGatewayPlugin: StreamingGatewayPlugin {
             onMessageRouted: { [self] channelId, chatId in
                 await self.setActiveChatId(channelId: channelId, chatId: chatId)
             },
-            modelPickerBridge: modelPickerBridge
+            modelPickerBridge: modelPickerBridge,
+            toolApprovalBridge: toolApprovalBridge
         )
         pollerTask = Task { await poller.run() }
     }
@@ -100,6 +105,7 @@ public actor TelegramGatewayPlugin: StreamingGatewayPlugin {
         pollerTask?.cancel()
         pollerTask = nil
         streams.removeAll()
+        approvalMessages.removeAll()
         logger.info("Telegram gateway plugin stopped.")
     }
 
@@ -129,6 +135,44 @@ public actor TelegramGatewayPlugin: StreamingGatewayPlugin {
         }
         let threadId = effectiveMessageThreadId(channelId: channelId, topicId: topicId)
         _ = try await bot.sendMessage(chatId: chatId, text: message, messageThreadId: threadId)
+    }
+
+    public func presentToolApproval(_ approval: ToolApprovalRecord) async throws {
+        guard let channelId = approval.channelId,
+              let chatId = resolvedChatId(forChannelId: channelId)
+        else {
+            logger.warning("No Telegram chat target for tool approval \(approval.id).")
+            return
+        }
+
+        let threadId = effectiveMessageThreadId(channelId: channelId, topicId: approval.topicId)
+        let sent = try await bot.sendMessage(
+            chatId: chatId,
+            text: TelegramToolApproval.pendingText(approval),
+            messageThreadId: threadId,
+            replyMarkup: TelegramToolApproval.keyboard(id: approval.id),
+            showTyping: false
+        )
+        approvalMessages[approval.id] = StreamState(
+            chatId: chatId,
+            messageId: sent.messageId,
+            messageThreadId: threadId,
+            lastRenderedText: TelegramToolApproval.pendingText(approval),
+            lastUpdatedAt: Date()
+        )
+    }
+
+    public func updateToolApproval(_ approval: ToolApprovalRecord) async throws {
+        guard let state = approvalMessages.removeValue(forKey: approval.id) else {
+            return
+        }
+        _ = try await bot.editMessageText(
+            chatId: state.chatId,
+            messageId: state.messageId,
+            text: TelegramToolApproval.resolvedText(approval),
+            messageThreadId: state.messageThreadId,
+            replyMarkup: []
+        )
     }
 
     public func beginStreaming(channelId: String, userId: String, topicId: String?) async throws -> GatewayOutboundStreamHandle {

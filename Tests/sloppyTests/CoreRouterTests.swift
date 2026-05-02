@@ -873,20 +873,21 @@ func issueReportEndpointBuildsSanitizedGitHubURL() async throws {
     #expect(payload.issueUrl.contains("template=report-an-issue.yml"))
     #expect(payload.logEntryCount == 2)
     #expect(payload.redactionCount >= 4)
+    #expect(payload.issueUrl.utf8.count < 2_000)
 
     let components = try #require(URLComponents(string: payload.issueUrl))
     let query = Dictionary(uniqueKeysWithValues: (components.queryItems ?? []).compactMap { item in
         item.value.map { (item.name, $0) }
     })
-    let logs = try #require(query["logs"])
     let environment = try #require(query["environment"])
     #expect(environment.contains("Sloppy version:"))
-    #expect(logs.contains("normal operation detail"))
-    #expect(logs.contains("safe=visible"))
-    #expect(logs.contains("[REDACTED]"))
-    #expect(!logs.contains("dev-super-secret-token"))
-    #expect(!logs.contains("sk-supersecretvalue1234567890"))
-    #expect(!logs.contains("123456789:ABCDEFGHIJKLMNOPQRSTUVWXYZ12345"))
+    #expect(query["logs"] == nil)
+    #expect(payload.logs.contains("normal operation detail"))
+    #expect(payload.logs.contains("safe=visible"))
+    #expect(payload.logs.contains("[REDACTED]"))
+    #expect(!payload.logs.contains("dev-super-secret-token"))
+    #expect(!payload.logs.contains("sk-supersecretvalue1234567890"))
+    #expect(!payload.logs.contains("123456789:ABCDEFGHIJKLMNOPQRSTUVWXYZ12345"))
 }
 
 @Test
@@ -936,7 +937,8 @@ func issueReportEndpointBoundsLargeLogURL() async throws {
 
     let payload = try JSONDecoder().decode(IssueReportResponse.self, from: response.body)
     #expect(payload.truncated == true)
-    #expect(payload.issueUrl.utf8.count <= 14_000)
+    #expect(payload.issueUrl.utf8.count < 2_000)
+    #expect(payload.logs.utf8.count <= 64_000)
     #expect(payload.logEntryCount < 300)
 }
 
@@ -1590,6 +1592,8 @@ func agentConfigEndpointsReadAndUpdate() async throws {
     #expect(fetched.heartbeat.intervalMinutes == 5)
     #expect(fetched.channelSessions.autoCloseEnabled == false)
     #expect(fetched.channelSessions.autoCloseAfterMinutes == 30)
+    #expect(fetched.channelSessions.allowedChannelIds.isEmpty)
+    #expect(fetched.channelSessions.excludedChannelIds.isEmpty)
     #expect(fetched.documents.heartbeatMarkdown.isEmpty)
     #expect(fetched.heartbeatStatus.lastRunAt == nil)
 
@@ -1607,7 +1611,9 @@ func agentConfigEndpointsReadAndUpdate() async throws {
         heartbeat: AgentHeartbeatSettings(enabled: true, intervalMinutes: 15),
         channelSessions: AgentChannelSessionSettings(
             autoCloseEnabled: true,
-            autoCloseAfterMinutes: 45
+            autoCloseAfterMinutes: 45,
+            allowedChannelIds: ["support", "support"],
+            excludedChannelIds: ["ops"]
         )
     )
     let updateBody = try JSONEncoder().encode(updateRequest)
@@ -1625,6 +1631,8 @@ func agentConfigEndpointsReadAndUpdate() async throws {
     #expect(updated.heartbeat.intervalMinutes == 15)
     #expect(updated.channelSessions.autoCloseEnabled == true)
     #expect(updated.channelSessions.autoCloseAfterMinutes == 45)
+    #expect(updated.channelSessions.allowedChannelIds == ["support"])
+    #expect(updated.channelSessions.excludedChannelIds == ["ops"])
 
     let agentDirectory = config
         .resolvedWorkspaceRootURL()
@@ -1645,6 +1653,83 @@ func agentConfigEndpointsReadAndUpdate() async throws {
     #expect(configFileText.contains(nextModel))
     #expect(configFileText.contains("\"intervalMinutes\" : 15"))
     #expect(configFileText.contains("\"autoCloseAfterMinutes\" : 45"))
+    #expect(configFileText.contains("\"allowedChannelIds\""))
+    #expect(configFileText.contains("\"excludedChannelIds\""))
+}
+
+@Test
+func channelRoutingSkipsExcludedFirstAgentAndUsesConfigAllowList() async throws {
+    let config = CoreConfig.test
+    let service = CoreService(config: config)
+
+    _ = try await service.createAgent(
+        AgentCreateRequest(id: "channel-first", displayName: "First", role: "First channel agent")
+    )
+    _ = try await service.createAgent(
+        AgentCreateRequest(id: "channel-second", displayName: "Second", role: "Second channel agent")
+    )
+    _ = try await service.createAgent(
+        AgentCreateRequest(id: "channel-config", displayName: "Config", role: "Config channel agent")
+    )
+
+    let firstConfig = try await service.getAgentConfig(agentID: "channel-first")
+    _ = try await service.updateAgentConfig(
+        agentID: "channel-first",
+        request: AgentConfigUpdateRequest(
+            role: firstConfig.role,
+            selectedModel: firstConfig.selectedModel,
+            documents: firstConfig.documents,
+            heartbeat: firstConfig.heartbeat,
+            channelSessions: AgentChannelSessionSettings(
+                autoCloseEnabled: firstConfig.channelSessions.autoCloseEnabled,
+                autoCloseAfterMinutes: firstConfig.channelSessions.autoCloseAfterMinutes,
+                inboundActivation: firstConfig.channelSessions.inboundActivation,
+                excludedChannelIds: ["shared"]
+            ),
+            runtime: firstConfig.runtime
+        )
+    )
+
+    let configOnly = try await service.getAgentConfig(agentID: "channel-config")
+    _ = try await service.updateAgentConfig(
+        agentID: "channel-config",
+        request: AgentConfigUpdateRequest(
+            role: configOnly.role,
+            selectedModel: configOnly.selectedModel,
+            documents: configOnly.documents,
+            heartbeat: configOnly.heartbeat,
+            channelSessions: AgentChannelSessionSettings(
+                autoCloseEnabled: configOnly.channelSessions.autoCloseEnabled,
+                autoCloseAfterMinutes: configOnly.channelSessions.autoCloseAfterMinutes,
+                inboundActivation: configOnly.channelSessions.inboundActivation,
+                allowedChannelIds: ["config-only"]
+            ),
+            runtime: configOnly.runtime
+        )
+    )
+
+    _ = try await service.createActorNode(
+        node: ActorNode(id: "actor:channel-first:shared", displayName: "First", kind: .agent, linkedAgentId: "channel-first", channelId: "shared")
+    )
+    _ = try await service.createActorNode(
+        node: ActorNode(id: "actor:channel-second:shared", displayName: "Second", kind: .agent, linkedAgentId: "channel-second", channelId: "shared")
+    )
+
+    let board = try await service.getActorBoard()
+    let sharedAgent = await service.linkedAgentID(forChannelID: "shared", board: board)
+    let configOnlyAgent = await service.linkedAgentID(forChannelID: "config-only", board: board)
+    let firstBindings = await service.boundChannelIDs(agentID: "channel-first", board: board)
+    let secondBindings = await service.boundChannelIDs(agentID: "channel-second", board: board)
+    let configBindings = await service.boundChannelIDs(agentID: "channel-config", board: board)
+
+    #expect(sharedAgent == "channel-second")
+    #expect(configOnlyAgent == "channel-config")
+    #expect(!firstBindings.contains("shared"))
+    #expect(firstBindings.contains("agent:channel-first"))
+    #expect(secondBindings.contains("shared"))
+    #expect(secondBindings.contains("agent:channel-second"))
+    #expect(configBindings.contains("config-only"))
+    #expect(configBindings.contains("agent:channel-config"))
 }
 
 @Test

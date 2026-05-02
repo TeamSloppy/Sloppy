@@ -205,6 +205,7 @@ struct ChatModelsTests {
         #expect(AppNotificationType.agentError.rawValue == "agent_error")
         #expect(AppNotificationType.systemError.rawValue == "system_error")
         #expect(AppNotificationType.pendingApproval.rawValue == "pending_approval")
+        #expect(AppNotificationType.toolApproval.rawValue == "tool_approval")
         #expect(AppNotificationType.confirmation.rawValue == "confirmation")
     }
 }

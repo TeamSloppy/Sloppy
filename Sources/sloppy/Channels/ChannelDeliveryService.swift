@@ -214,6 +214,43 @@ actor ChannelDeliveryService {
         return await postHTTP(plugin: plugin, channelId: channelId, userId: userId, content: content)
     }
 
+    @discardableResult
+    func presentToolApproval(_ approval: ToolApprovalRecord) async -> Bool {
+        guard let channelId = approval.channelId else {
+            return false
+        }
+        if let plugin = resolvedInProcessPlugin(channelId: channelId) as? any ToolApprovalGatewayPlugin {
+            do {
+                try await plugin.presentToolApproval(approval)
+                return true
+            } catch {
+                return false
+            }
+        }
+        return await deliver(
+            channelId: channelId,
+            userId: approval.requestedBy ?? approval.agentId,
+            content: "Tool approval required: \(approval.tool)",
+            topicId: approval.topicId
+        )
+    }
+
+    @discardableResult
+    func updateToolApproval(_ approval: ToolApprovalRecord) async -> Bool {
+        guard let channelId = approval.channelId else {
+            return false
+        }
+        if let plugin = resolvedInProcessPlugin(channelId: channelId) as? any ToolApprovalGatewayPlugin {
+            do {
+                try await plugin.updateToolApproval(approval)
+                return true
+            } catch {
+                return false
+            }
+        }
+        return false
+    }
+
     private func externalPluginBinding(for channelId: String) async -> ChannelPluginRecord? {
         let plugins = await store.listChannelPlugins()
         let base = ChannelGatewayScope.parse(channelId).baseChannelId

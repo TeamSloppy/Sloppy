@@ -20,7 +20,8 @@ final class RootShellViewModel {
 
     private var bannerDismissTask: Task<Void, Never>?
     private var notificationManager: NotificationSocketManager?
-    private var notificationListenerStarted = false
+    private var notificationListenerTask: Task<Void, Never>?
+    private var notificationBaseURL: URL?
     #if os(macOS)
     private let desktopOverlay = SloppyDesktopOverlay()
     #endif
@@ -61,13 +62,20 @@ final class RootShellViewModel {
     }
 
     private func startNotificationListener(baseURL: URL) {
-        guard !notificationListenerStarted else { return }
-        notificationListenerStarted = true
+        guard notificationBaseURL != baseURL || notificationManager == nil else { return }
+
+        notificationListenerTask?.cancel()
+        if let notificationManager {
+            Task { await notificationManager.disconnect() }
+        }
+
         let manager = NotificationSocketManager(baseURL: baseURL)
         notificationManager = manager
-        Task { @MainActor in
+        notificationBaseURL = baseURL
+        notificationListenerTask = Task { @MainActor in
             let stream = await manager.connect()
             for await notification in stream {
+                guard !Task.isCancelled else { return }
                 showBanner(for: notification)
             }
         }
@@ -77,9 +85,15 @@ final class RootShellViewModel {
         let c = AppColors.dark
         let color: Color = switch notification.type {
         case .agentError, .systemError: c.statusBlocked
-        case .pendingApproval: c.statusWarning
+        case .pendingApproval, .toolApproval: c.statusWarning
         case .confirmation: c.statusDone
         }
+
+        #if os(macOS)
+        if notification.type == .toolApproval {
+            desktopOverlay.updateToolApproval(notification)
+        }
+        #endif
 
         bannerDismissTask?.cancel()
         activeBanner = NotificationBannerItem(

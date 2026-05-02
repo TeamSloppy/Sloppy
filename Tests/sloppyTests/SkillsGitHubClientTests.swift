@@ -1,8 +1,11 @@
 import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
 import Testing
 @testable import sloppy
 
-private final class SkillsGitHubClientMockURLProtocol: URLProtocol, @unchecked Sendable {
+private final class SkillsGitHubClientMockURLProtocol: URLProtocol {
     nonisolated(unsafe) static var requestHandler: (@Sendable (URLRequest) throws -> (HTTPURLResponse, Data))?
 
     override class func canInit(with request: URLRequest) -> Bool {

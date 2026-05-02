@@ -247,39 +247,85 @@ extension CoreService {
     }
 
     func boundChannelIDs(agentID: String, board: ActorBoardSnapshot?) -> Set<String> {
-        guard let board else {
-            return []
+        var bindings: Set<String> = []
+
+        if let board {
+            for node in board.nodes where normalizeWhitespace(node.linkedAgentId ?? "") == agentID {
+                let channelID = normalizeWhitespace(node.channelId ?? "")
+                if !channelID.isEmpty {
+                    bindings.insert(channelID)
+                }
+            }
         }
 
-        return Set(
-            board.nodes.compactMap { node in
-                guard normalizeWhitespace(node.linkedAgentId ?? "") == agentID else {
-                    return nil
+        if let config = try? getAgentConfig(agentID: agentID) {
+            bindings.formUnion(config.channelSessions.allowedChannelIds.map(normalizeWhitespace).filter { !$0.isEmpty })
+            bindings = bindings.filter { binding in
+                !config.channelSessions.excludedChannelIds.contains { excluded in
+                    channelBindingMatches(excluded, channelID: binding)
                 }
-                let channelID = normalizeWhitespace(node.channelId ?? "")
-                return channelID.isEmpty ? nil : channelID
             }
-        )
+        }
+
+        return bindings
     }
 
     func linkedAgentID(forChannelID channelID: String, board: ActorBoardSnapshot?) -> String? {
-        guard let board else {
-            return nil
-        }
-
         let normalizedChannelID = normalizeWhitespace(
             ChannelGatewayScope.parse(channelID).baseChannelId
         )
-        for node in board.nodes {
-            guard normalizeWhitespace(node.channelId ?? "") == normalizedChannelID else {
+        guard !normalizedChannelID.isEmpty else {
+            return nil
+        }
+
+        if let board {
+            for node in board.nodes {
+                guard channelBindingMatches(node.channelId ?? "", channelID: normalizedChannelID) else {
+                    continue
+                }
+                let linkedAgentID = normalizeWhitespace(node.linkedAgentId ?? "")
+                if !linkedAgentID.isEmpty, !agent(linkedAgentID, excludesChannelID: normalizedChannelID) {
+                    return linkedAgentID
+                }
+            }
+        }
+
+        guard let agents = try? listAgents() else {
+            return nil
+        }
+        for agent in agents {
+            guard let config = try? getAgentConfig(agentID: agent.id) else {
                 continue
             }
-            let linkedAgentID = normalizeWhitespace(node.linkedAgentId ?? "")
-            if !linkedAgentID.isEmpty {
-                return linkedAgentID
+            if config.channelSessions.excludedChannelIds.contains(where: { channelBindingMatches($0, channelID: normalizedChannelID) }) {
+                continue
+            }
+            if config.channelSessions.allowedChannelIds.contains(where: { channelBindingMatches($0, channelID: normalizedChannelID) }) {
+                return agent.id
             }
         }
         return nil
+    }
+
+    func agent(_ agentID: String, excludesChannelID channelID: String) -> Bool {
+        guard let config = try? getAgentConfig(agentID: agentID) else {
+            return false
+        }
+        return config.channelSessions.excludedChannelIds.contains { excluded in
+            channelBindingMatches(excluded, channelID: channelID)
+        }
+    }
+
+    func channelBindingMatches(_ binding: String, channelID: String) -> Bool {
+        let normalizedBinding = normalizeWhitespace(ChannelGatewayScope.parse(binding).baseChannelId)
+        let normalizedChannelID = normalizeWhitespace(ChannelGatewayScope.parse(channelID).baseChannelId)
+        guard !normalizedBinding.isEmpty, !normalizedChannelID.isEmpty else {
+            return false
+        }
+        return ChannelGatewayScope.sessionMatchesBinding(
+            sessionChannelId: normalizedChannelID,
+            bindingChannelId: normalizedBinding
+        )
     }
 
 }

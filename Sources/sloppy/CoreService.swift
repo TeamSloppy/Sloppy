@@ -49,11 +49,11 @@ public struct AgentSessionStreamUpdate: Codable, Sendable {
 }
 
 struct BuiltInGatewayPluginFactory: Sendable {
-    let makeTelegram: @Sendable (CoreConfig.ChannelConfig.Telegram, (any TelegramModelPickerBridge)?) -> any GatewayPlugin
+    let makeTelegram: @Sendable (CoreConfig.ChannelConfig.Telegram, (any TelegramModelPickerBridge)?, (any ToolApprovalBridge)?) -> any GatewayPlugin
     let makeDiscord: @Sendable (CoreConfig.ChannelConfig.Discord) -> any GatewayPlugin
 
     static let live = BuiltInGatewayPluginFactory(
-        makeTelegram: { config, _ in
+        makeTelegram: { config, modelPickerBridge, toolApprovalBridge in
             TelegramGatewayPlugin(
                 botToken: config.botToken,
                 channelChatMap: config.channelChatMap,
@@ -61,7 +61,8 @@ struct BuiltInGatewayPluginFactory: Sendable {
                 allowedUserIds: config.allowedUserIds,
                 allowedChatIds: config.allowedChatIds,
                 logger: Logger(label: "sloppy.plugin.telegram"),
-                modelPickerBridge: nil
+                modelPickerBridge: modelPickerBridge,
+                toolApprovalBridge: toolApprovalBridge
             )
         },
         makeDiscord: { config in
@@ -213,6 +214,7 @@ public actor CoreService {
     let updateChecker: UpdateCheckerService
     let swarmPlanner: SwarmPlanner
     let gitWorktreeService: GitWorktreeService
+    let workspaceGitSyncService: WorkspaceGitSyncService
     let logger: Logger
     let configPath: String
     let builtInGatewayPluginFactory: BuiltInGatewayPluginFactory
@@ -240,6 +242,7 @@ public actor CoreService {
     public let notificationService: NotificationService
     public let kanbanEventService: KanbanEventService
     public let pendingApprovalService: PendingApprovalService
+    let toolApprovalService: ToolApprovalService
     let dashboardTerminalService: DashboardTerminalService
     let channelStreamCancelRegistry: ChannelStreamCancelRegistry
     var inboundChannelPluginQueues: [String: InboundChannelPluginQueueSlot] = [:]
@@ -366,6 +369,7 @@ public actor CoreService {
             await runtime.complete(prompt: prompt, maxTokens: maxTokens)
         }
         self.gitWorktreeService = GitWorktreeService()
+        self.workspaceGitSyncService = WorkspaceGitSyncService()
         let orchestratorCatalogStore = AgentCatalogFileStore(agentsRootURL: self.agentsRootURL)
         let orchestratorSessionStore = AgentSessionFileStore(agentsRootURL: self.agentsRootURL)
         let orchestratorSkillsStore = AgentSkillsFileStore(agentsRootURL: self.agentsRootURL)
@@ -415,6 +419,7 @@ public actor CoreService {
         self.recoveryManager = RecoveryManager(store: self.store, runtime: self.runtime, logger: self.logger)
         self.notificationService = NotificationService()
         self.kanbanEventService = KanbanEventService()
+        self.toolApprovalService = ToolApprovalService(eventBus: self.runtime.eventBus, notificationService: self.notificationService)
         self.pendingApprovalService = PendingApprovalService(
             workspaceDirectory: config
                 .resolvedWorkspaceRootURL(currentDirectory: currentDirectory).path
@@ -462,7 +467,8 @@ public actor CoreService {
                     agentID: agentID,
                     sessionID: sessionID,
                     request: request,
-                    recordSessionEvents: false
+                    recordSessionEvents: false,
+                    requireApproval: true
                 )
             }
             await self.sessionOrchestrator.updateResponseChunkObserver { [weak self] agentID, sessionID, chunk in

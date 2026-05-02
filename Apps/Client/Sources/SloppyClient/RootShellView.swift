@@ -18,6 +18,7 @@ struct RootShellView: View {
 @MainActor
 private struct RootShellContent: View {
     @State var viewModel: RootShellViewModel
+    @Environment(\.safeAreaInsets) private var safeAreaInsets
     @Environment(\.theme) private var theme
 
     var body: some View {
@@ -48,6 +49,7 @@ private struct RootShellContent: View {
                     baseURL: url,
                     settings: rootViewModel.settings,
                     connectionMonitor: rootViewModel.connectionMonitor,
+                    rootSafeAreaInsets: safeAreaInsets,
                     onOpenSettings: {
                         rootViewModel.appState = .settings
                     },
@@ -60,7 +62,7 @@ private struct RootShellContent: View {
                 SettingsScreen(
                     settings: rootViewModel.settings,
                     onDismiss: {
-                        rootViewModel.appState = .chat(rootViewModel.settings.baseURL)
+                        rootViewModel.startConnected(url: rootViewModel.settings.baseURL)
                     }
                 )
             }
@@ -81,5 +83,6 @@ private struct RootShellContent: View {
         .background {
             theme.colors.background.ignoresSafeArea()
         }
+//        .ignoresSafeArea()
     }
 }

@@ -15,6 +15,7 @@ public actor SessionSocketManager {
     private var continuation: AsyncStream<ChatStreamUpdate>.Continuation?
     private var disposed = false
     private var reconnectDelay: Double = 1.0
+    private var socketAttempt = 0
 
     public init(
         baseURL: URL = URL(string: "http://localhost:25101")!,
@@ -44,6 +45,9 @@ public actor SessionSocketManager {
     }
 
     public func connect() -> AsyncStream<ChatStreamUpdate> {
+        disposed = false
+        reconnectDelay = 1.0
+        socketAttempt = 0
         let stream = AsyncStream<ChatStreamUpdate> { continuation in
             self.continuation = continuation
             continuation.onTermination = { [weak self] _ in
@@ -56,6 +60,7 @@ public actor SessionSocketManager {
 
     public func disconnect() {
         disposed = true
+        logger.info("Disconnecting session socket for agent=\(agentId) session=\(sessionId) baseURL=\(baseURL.absoluteString)")
         task?.cancel(with: .goingAway, reason: nil)
         task = nil
         continuation?.finish()
@@ -76,12 +81,16 @@ public actor SessionSocketManager {
             Self.encodePathSegment(sessionId),
             "ws"
         ].joined(separator: "/")
-        guard let wsURL = components?.url else { return }
+        guard let wsURL = components?.url else {
+            logger.error("Could not build session socket URL from \(baseURL.absoluteString) for agent=\(agentId) session=\(sessionId)")
+            return
+        }
 
+        socketAttempt += 1
+        logger.info("Opening session socket attempt \(socketAttempt): \(wsURL.absoluteString)")
         let wsTask = URLSession.shared.webSocketTask(with: wsURL)
         self.task = wsTask
         wsTask.resume()
-        reconnectDelay = 1.0
 
         Task { await receiveLoop(task: wsTask) }
     }
@@ -90,6 +99,7 @@ public actor SessionSocketManager {
         while !disposed {
             do {
                 let message = try await task.receive()
+                reconnectDelay = 1.0
                 switch message {
                 case .string(let text):
                     if let data = text.data(using: .utf8),
@@ -109,10 +119,11 @@ public actor SessionSocketManager {
                 }
             } catch {
                 guard !disposed else { return }
-                logger.warning("Session socket disconnected: \(error). Reconnecting in \(reconnectDelay)s")
+                let delay = reconnectDelay
+                logger.warning("Session socket attempt \(socketAttempt) disconnected: \(error). Reconnecting in \(delay)s")
                 self.task = nil
-                try? await Task.sleep(nanoseconds: UInt64(reconnectDelay * 1_000_000_000))
-                reconnectDelay = min(reconnectDelay * 2, 30)
+                try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+                reconnectDelay = min(delay * 2, 30)
 
                 // Signal caller to resync via REST
                 continuation?.yield(ChatStreamUpdate(kind: .sessionReady, cursor: 0))

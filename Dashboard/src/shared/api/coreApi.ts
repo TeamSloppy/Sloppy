@@ -71,11 +71,13 @@ export interface CoreApi {
       skillId?: string | null;
     }>;
   } | null>;
+  fetchChannelPlugins: () => Promise<AnyRecord[] | null>;
   fetchWorkers: () => Promise<AnyRecord[]>;
   fetchArtifact: (id: string) => Promise<AnyRecord | null>;
   fetchRuntimeConfig: () => Promise<AnyRecord | null>;
   validateDashboardAuthToken: (token: string) => Promise<AnyRecord | null>;
   updateRuntimeConfig: (config: AnyRecord) => Promise<AnyRecord>;
+  runWorkspaceGitSync: () => Promise<AnyRecord | null>;
   fetchSystemLogs: () => Promise<AnyRecord | null>;
   createIssueReport: (payload?: { logLimit?: number }) => Promise<AnyRecord | null>;
   selectDirectory: () => Promise<AnyRecord | null>;
@@ -368,6 +370,16 @@ export function createCoreApi(): CoreApi {
       return response.data;
     },
 
+    fetchChannelPlugins: async () => {
+      const response = await requestJson<AnyRecord[]>({
+        path: "/v1/plugins"
+      });
+      if (!response.ok || !Array.isArray(response.data)) {
+        return null;
+      }
+      return response.data;
+    },
+
     fetchWorkers: async () => {
       const response = await requestJson<AnyRecord[]>({
         path: "/v1/workers"
@@ -431,6 +443,14 @@ export function createCoreApi(): CoreApi {
         clearDashboardAuthToken();
       }
       return response.data;
+    },
+
+    runWorkspaceGitSync: async () => {
+      const response = await requestJson<AnyRecord>({
+        path: "/v1/git-sync/run",
+        method: "POST"
+      });
+      return response.data ?? null;
     },
 
     fetchSystemLogs: async () => {

@@ -111,6 +111,29 @@ struct ChannelsAPIRouter: APIRouter {
             )
         }
 
+        router.get("/v1/tool-approvals/pending", metadata: RouteMetadata(summary: "List pending tool approvals", description: "Returns pending human approval requests for risky tool calls", tags: ["Tools"])) { _ in
+            let pending = await service.listPendingToolApprovals()
+            return CoreRouter.encodable(status: HTTPStatus.ok, payload: pending)
+        }
+
+        router.post("/v1/tool-approvals/:approvalId/approve", metadata: RouteMetadata(summary: "Approve tool call", description: "Approves a pending risky tool call", tags: ["Tools"])) { request in
+            let approvalId = request.pathParam("approvalId") ?? ""
+            let payload = request.body.flatMap { CoreRouter.decode($0, as: ToolApprovalDecisionRequest.self) }
+            guard let record = await service.approveToolApproval(id: approvalId, decidedBy: payload?.decidedBy) else {
+                return CoreRouter.json(status: HTTPStatus.notFound, payload: ["error": "not_found"])
+            }
+            return CoreRouter.encodable(status: HTTPStatus.ok, payload: record)
+        }
+
+        router.post("/v1/tool-approvals/:approvalId/reject", metadata: RouteMetadata(summary: "Reject tool call", description: "Rejects a pending risky tool call", tags: ["Tools"])) { request in
+            let approvalId = request.pathParam("approvalId") ?? ""
+            let payload = request.body.flatMap { CoreRouter.decode($0, as: ToolApprovalDecisionRequest.self) }
+            guard let record = await service.rejectToolApproval(id: approvalId, decidedBy: payload?.decidedBy) else {
+                return CoreRouter.json(status: HTTPStatus.notFound, payload: ["error": "not_found"])
+            }
+            return CoreRouter.encodable(status: HTTPStatus.ok, payload: record)
+        }
+
         router.get("/v1/channel-approvals/pending", metadata: RouteMetadata(summary: "List pending approvals", description: "Returns all pending channel access approval requests", tags: ["Channels"])) { request in
             let platform = request.queryParam("platform")
             let pending: [PendingApprovalEntry]

@@ -130,6 +130,22 @@ struct SystemAPIRouter: APIRouter {
             return CoreRouter.encodable(status: HTTPStatus.ok, payload: response)
         }
 
+        router.post("/v1/git-sync/run", metadata: RouteMetadata(summary: "Run workspace Git Sync", description: "Synchronizes the workspace configuration snapshot to the configured Git repository", tags: ["System"])) { _ in
+            do {
+                let response = try await service.runWorkspaceGitSyncNow()
+                return CoreRouter.encodable(status: HTTPStatus.ok, payload: response)
+            } catch {
+                return CoreRouter.encodable(
+                    status: HTTPStatus.badRequest,
+                    payload: WorkspaceGitSyncResponse(
+                        ok: false,
+                        message: error.localizedDescription,
+                        branch: ""
+                    )
+                )
+            }
+        }
+
         router.post("/v1/dashboard/auth/validate", metadata: RouteMetadata(summary: "Validate dashboard token", description: "Validates dashboard operator auth and returns current capability flags", tags: ["System"])) { _ in
             let status = await service.dashboardAuthStatus()
             return CoreRouter.encodable(

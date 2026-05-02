@@ -17,7 +17,8 @@ import {
   updateRuntimeConfig,
   fetchGitHubAuthStatus,
   connectGitHub,
-  disconnectGitHub
+  disconnectGitHub,
+  runWorkspaceGitSync
 } from "../../api";
 import { collectAggregatedProviderModels, filterModelsByQuery } from "../agents/utils/aggregateProviderModels";
 import { NodeHostEditor } from "./components/NodeHostEditor";
@@ -866,6 +867,8 @@ export function ConfigView({
   const [gitHubToken, setGitHubToken] = useState("");
   const [gitHubStatusText, setGitHubStatusText] = useState("");
   const [gitHubConnecting, setGitHubConnecting] = useState(false);
+  const [gitSyncRunning, setGitSyncRunning] = useState(false);
+  const [gitSyncStatusText, setGitSyncStatusText] = useState("");
   const [modelRoutingCatalog, setModelRoutingCatalog] = useState([]);
   const [modelRoutingCatalogStatus, setModelRoutingCatalogStatus] = useState("");
 
@@ -1113,6 +1116,33 @@ export function ConfigView({
       await persistConfig(payload);
     } catch {
       setStatusText("Invalid raw JSON");
+    }
+  }
+
+  async function runGitSyncNow() {
+    if (gitSyncRunning) return;
+    setGitSyncRunning(true);
+    setGitSyncStatusText("Syncing workspace...");
+    try {
+      if (hasChanges) {
+        const payload = isRawMode ? normalizeConfig(JSON.parse(rawConfig)) : draftConfig;
+        const saved = await persistConfig(payload);
+        if (!saved) {
+          setGitSyncStatusText("Save config before syncing.");
+          return;
+        }
+      }
+      const response = await runWorkspaceGitSync();
+      const ok = Boolean(response?.ok);
+      const message = String(response?.message || (ok ? "Workspace synced." : "Workspace sync failed."));
+      setGitSyncStatusText(message);
+      setStatusText(message);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Workspace sync failed.";
+      setGitSyncStatusText(message);
+      setStatusText(message);
+    } finally {
+      setGitSyncRunning(false);
     }
   }
 
@@ -2245,6 +2275,17 @@ export function ConfigView({
                 Default policy keeps remote as the source of truth and rewrites local workspace state on conflict.
               </span>
             </label>
+            <div style={{ gridColumn: "1 / -1", display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm"
+                onClick={runGitSyncNow}
+                disabled={gitSyncRunning || !gitSyncEnabled}
+              >
+                {gitSyncRunning ? "Syncing..." : "Sync now"}
+              </button>
+              {gitSyncStatusText ? <span className="entry-form-hint">{gitSyncStatusText}</span> : null}
+            </div>
           </div>
         </section>
       );

@@ -12,9 +12,9 @@ public enum DeepLink: Sendable {
             let items = components.queryItems ?? []
             guard let host = items.first(where: { $0.name == "host" })?.value, !host.isEmpty else { return nil }
             let portString = items.first(where: { $0.name == "port" })?.value
-            let port = portString.flatMap(Int.init) ?? 25101
+            guard let address = ServerAddress.parse(host: host, port: portString) else { return nil }
             let label = items.first(where: { $0.name == "label" })?.value
-            return .connect(host: host, port: port, label: label)
+            return .connect(host: address.host, port: address.port, label: label)
         default:
             return nil
         }
@@ -23,7 +23,7 @@ public enum DeepLink: Sendable {
     public var serverURL: URL? {
         switch self {
         case .connect(let host, let port, _):
-            return URL(string: "http://\(host):\(port)")
+            return ServerAddress(host: host, port: port).baseURL
         }
     }
 

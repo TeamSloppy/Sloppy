@@ -29,7 +29,9 @@ struct SloppyClientApp: App {
         }
         .windowMode(.windowed)
         .minimumSize(width: 1280, height: 800)
-        .windowTitle("Sloppy")
+        .windowTitle("")
+        .windowTitleBar(.overlay)
+        .windowTrafficLightOffset(x: 6, y: 6)
     }
 
     var body: some AppScene {

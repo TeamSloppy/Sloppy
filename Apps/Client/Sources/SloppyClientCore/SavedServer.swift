@@ -16,7 +16,8 @@ public struct SavedServer: Codable, Identifiable, Equatable, Sendable {
     }
 
     public var baseURL: URL {
-        URL(string: "http://\(host):\(port)") ?? URL(string: "http://localhost:25101")!
+        ServerAddress.parse(host: host, port: String(port))?.baseURL
+            ?? ServerAddress(host: "localhost").baseURL
     }
 }
 

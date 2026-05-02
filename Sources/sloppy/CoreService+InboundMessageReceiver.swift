@@ -523,7 +523,9 @@ extension CoreService {
                 return await self.invokeToolFromChannelRuntime(
                     agentID: agentID,
                     channelID: channelId,
-                    request: toolRequest
+                    request: toolRequest,
+                    topicID: topicId,
+                    requireApproval: true
                 )
             }
         } else {

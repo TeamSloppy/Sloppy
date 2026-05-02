@@ -96,10 +96,11 @@ struct ClientSettingsSection: View {
     }
 
     private func applyConnection() {
-        settings.serverHost = hostDraft.trimmingCharacters(in: .whitespaces)
-        if let port = Int(portDraft.trimmingCharacters(in: .whitespaces)), port > 0 {
-            settings.serverPort = port
-        }
+        guard let address = ServerAddress.parse(host: hostDraft, port: portDraft) else { return }
+        hostDraft = address.host
+        portDraft = String(address.port)
+        settings.serverHost = address.host
+        settings.serverPort = address.port
     }
 
     #if os(macOS)

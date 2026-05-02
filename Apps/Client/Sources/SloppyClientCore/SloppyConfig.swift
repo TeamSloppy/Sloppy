@@ -305,13 +305,15 @@ public struct SloppyConfig: Codable, Sendable {
         }
 
         public var enabled: Bool
+        public var authToken: String
         public var repository: String
         public var branch: String
         public var schedule: Schedule
         public var conflictStrategy: String
 
-        public init(enabled: Bool = false, repository: String = "", branch: String = "main", schedule: Schedule = Schedule(), conflictStrategy: String = "remote_wins") {
+        public init(enabled: Bool = false, authToken: String = "", repository: String = "", branch: String = "main", schedule: Schedule = Schedule(), conflictStrategy: String = "remote_wins") {
             self.enabled = enabled
+            self.authToken = authToken
             self.repository = repository
             self.branch = branch
             self.schedule = schedule
@@ -319,12 +321,13 @@ public struct SloppyConfig: Codable, Sendable {
         }
 
         private enum CodingKeys: String, CodingKey {
-            case enabled, repository, branch, schedule, conflictStrategy
+            case enabled, authToken, repository, branch, schedule, conflictStrategy
         }
 
         public init(from decoder: Decoder) throws {
             let container = try decoder.container(keyedBy: CodingKeys.self)
             enabled = try container.decodeIfPresent(Bool.self, forKey: .enabled) ?? false
+            authToken = try container.decodeIfPresent(String.self, forKey: .authToken) ?? ""
             repository = try container.decodeIfPresent(String.self, forKey: .repository) ?? ""
             branch = try container.decodeIfPresent(String.self, forKey: .branch) ?? "main"
             schedule = try container.decodeIfPresent(Schedule.self, forKey: .schedule) ?? Schedule()
