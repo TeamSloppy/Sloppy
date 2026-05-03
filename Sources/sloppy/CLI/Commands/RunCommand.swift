@@ -606,13 +606,13 @@ func printServerStartupBanner(
         info += "\(dim)\(padded)\(reset)\(green)\(value)\(reset)\n"
     }
 
+    let logo = sloppyRunLogoLines()
+        .map { "\(cyan)\(bold)\($0)\(reset)" }
+        .joined(separator: "\n")
+
     let banner = """
 
-    \(cyan)\(bold) ██████  ██       ██████  ██████  ██████  ██    ██
-    ██       ██      ██    ██ ██   ██ ██   ██  ██  ██
-     █████   ██      ██    ██ ██████  ██████    ████
-         ██  ██      ██    ██ ██      ██         ██
-    ██████   ███████  ██████  ██      ██         ██\(reset)
+    \(logo)
 
     \(cyan)━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\(reset)
     \(info)
@@ -622,6 +622,17 @@ func printServerStartupBanner(
     data.withUnsafeBufferPointer { buf in
         _ = write(STDERR_FILENO, buf.baseAddress, buf.count)
     }
+}
+
+private func sloppyRunLogoLines() -> [String] {
+    [
+        "███████╗██╗      ██████╗ ██████╗ ██████╗ ██╗   ██╗",
+        "██╔════╝██║     ██╔═══██╗██╔══██╗██╔══██╗╚██╗ ██╔╝",
+        "███████╗██║     ██║   ██║██████╔╝██████╔╝ ╚████╔╝ ",
+        "╚════██║██║     ██║   ██║██╔═══╝ ██╔═══╝   ╚██╔╝  ",
+        "███████║███████╗╚██████╔╝██║     ██║        ██║   ",
+        "╚══════╝╚══════╝ ╚═════╝ ╚═╝     ╚═╝        ╚═╝   ",
+    ]
 }
 
 private func signalNameForCode(_ code: Int32) -> String {

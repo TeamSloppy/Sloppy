@@ -98,3 +98,35 @@ func anthropicProbeUsesClaudeSettingsAuthTokenWhenCredentialsAreEmpty() async th
     #expect(await recorder.url == "https://api.anthropic.com/v1/messages")
     #expect(await recorder.authorization == "Bearer settings-oauth-token")
 }
+
+@Test
+func anthropicOAuthProbeShowsHTTPStatusAndBodyOnVerificationFailure() async throws {
+    let workspaceRootURL = FileManager.default.temporaryDirectory
+        .appendingPathComponent("anthropic-oauth-probe-\(UUID().uuidString)", isDirectory: true)
+    try FileManager.default.createDirectory(at: workspaceRootURL, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: workspaceRootURL) }
+
+    let service = AnthropicOAuthService(
+        workspaceRootURL: workspaceRootURL,
+        transport: { request in
+            let body =
+                """
+                {"type":"error","error":{"type":"authentication_error","message":"invalid oauth token"}}
+                """
+            return (
+                Data(body.utf8),
+                makeAnthropicProbeHTTPResponse(url: request.url!, statusCode: 401)
+            )
+        }
+    )
+
+    let response = await service.probe(
+        apiURL: URL(string: "https://api.anthropic.com")!,
+        manualToken: "expired-oauth-token"
+    )
+
+    #expect(response.ok == false)
+    #expect(response.message.contains("HTTP 401"))
+    #expect(response.message.contains("authentication_error"))
+    #expect(response.message.contains("invalid oauth token"))
+}

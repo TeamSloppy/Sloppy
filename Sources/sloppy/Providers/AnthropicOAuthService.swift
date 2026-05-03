@@ -74,6 +74,7 @@ struct AnthropicOAuthService: @unchecked Sendable {
         case tokenExchangeFailed(String)
         case missingAccessToken
         case missingClaudeCredentials
+        case verificationFailed(statusCode: Int, body: String)
 
         var errorDescription: String? {
             switch self {
@@ -95,6 +96,11 @@ struct AnthropicOAuthService: @unchecked Sendable {
                 return "Anthropic OAuth token response is missing the access token."
             case .missingClaudeCredentials:
                 return "Claude Code credentials were not found in ~/.claude/.credentials.json or .claude/settings.json."
+            case let .verificationFailed(statusCode, body):
+                if body.isEmpty {
+                    return "Anthropic API verification failed with HTTP \(statusCode)."
+                }
+                return "Anthropic API verification failed with HTTP \(statusCode): \(body)"
             }
         }
     }
@@ -325,6 +331,7 @@ struct AnthropicOAuthService: @unchecked Sendable {
                 models: ProviderProbeService.anthropicModelCatalog
             )
         } catch {
+            logVerificationFailure(error, apiURL: apiURL)
             return ProviderProbeResponse(
                 providerId: .anthropicOAuth,
                 ok: false,
@@ -355,10 +362,45 @@ struct AnthropicOAuthService: @unchecked Sendable {
         ]
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
 
-        let (_, response) = try await transport(request)
+        let (data, response) = try await transport(request)
         guard (200..<300).contains(response.statusCode) || response.statusCode == 429 else {
-            throw URLError(.userAuthenticationRequired)
+            throw Error.verificationFailed(
+                statusCode: response.statusCode,
+                body: Self.responseBodySnippet(from: data)
+            )
         }
+    }
+
+    private func logVerificationFailure(_ error: any Swift.Error, apiURL: URL) {
+        if case let Error.verificationFailed(statusCode, body) = error {
+            Self.logger.warning(
+                "anthropic_oauth.verification_failed",
+                metadata: [
+                    "api_url": .string(apiURL.absoluteString),
+                    "status_code": .stringConvertible(statusCode),
+                    "response_body": .string(body)
+                ]
+            )
+            return
+        }
+
+        Self.logger.warning(
+            "anthropic_oauth.verification_failed",
+            metadata: [
+                "api_url": .string(apiURL.absoluteString),
+                "error": .string(error.localizedDescription)
+            ]
+        )
+    }
+
+    private static func responseBodySnippet(from data: Data, limit: Int = 1_000) -> String {
+        let body = String(decoding: data, as: UTF8.self)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !body.isEmpty else { return "" }
+        if body.count <= limit {
+            return body
+        }
+        return "\(body.prefix(limit))..."
     }
 
     private func preferredStoredAuth() throws -> StoredAuth {

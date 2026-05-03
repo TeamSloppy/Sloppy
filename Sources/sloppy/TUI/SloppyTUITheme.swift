@@ -1,0 +1,570 @@
+import Foundation
+import Protocols
+import TauTUI
+
+enum SloppyTUITheme {
+    private static let resetBackground = "\u{001B}[49m"
+    private static let accent = AnsiStyling.rgb(82, 211, 194)
+    private static let accentBright = AnsiStyling.rgb(103, 232, 249)
+    private static let blue = AnsiStyling.rgb(96, 165, 250)
+    private static let green = AnsiStyling.rgb(74, 222, 128)
+    private static let yellow = AnsiStyling.rgb(250, 204, 21)
+    private static let orange = AnsiStyling.rgb(251, 178, 123)
+    private static let red = AnsiStyling.rgb(248, 113, 113)
+    private static let muted = AnsiStyling.rgb(148, 163, 184)
+    private static let foreground = AnsiStyling.rgb(226, 232, 240)
+    private static let black = AnsiStyling.color(30)
+    private static let panelBackground = AnsiStyling.Background.rgb(24, 24, 24)
+    private static let userMessageBackground = AnsiStyling.Background.rgb(55, 55, 55)
+    private static let toolBackground = AnsiStyling.Background.rgb(31, 41, 55)
+    private static let thinkingBackground = AnsiStyling.Background.rgb(38, 38, 38)
+    private static let attachmentBackground = AnsiStyling.Background.rgb(32, 45, 42)
+    private static let waitingFrames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
+    private static let thinkingWords = [
+        "thinking",
+        "processing",
+        "looting",
+        "brewing",
+        "plotting",
+        "untangling",
+        "debugging",
+        "polishing",
+        "compiling",
+    ]
+
+    static let selectListTheme = SelectListTheme(
+        selectedPrefix: { accentBright($0) },
+        selectedText: { accentBright(AnsiStyling.bold($0)) },
+        description: { muted($0) },
+        scrollInfo: { muted($0) },
+        noMatch: { muted($0) }
+    )
+
+    static let palette = ThemePalette(
+        editor: EditorTheme(
+            borderColor: { accent($0) },
+            selectList: selectListTheme
+        ),
+        selectList: selectListTheme,
+        markdown: MarkdownComponent.MarkdownTheme(
+            heading: { accentBright($0) },
+            link: { blue(AnsiStyling.underline($0)) },
+            linkUrl: { muted($0) },
+            code: { yellow($0) },
+            codeBlock: { green($0) },
+            codeBlockBorder: { muted($0) },
+            quote: { muted(AnsiStyling.italic($0)) },
+            quoteBorder: { accent($0) },
+            hr: { muted($0) },
+            listBullet: { accent($0) },
+            bold: AnsiStyling.bold,
+            italic: AnsiStyling.italic,
+            strikethrough: AnsiStyling.strikethrough,
+            underline: AnsiStyling.underline
+        ),
+        textBackground: .init(red: 12, green: 16, blue: 22),
+        loader: Loader.LoaderTheme(
+            spinner: { accentBright($0) },
+            message: { muted($0) }
+        ),
+        truncatedBackground: .rgb(12, 16, 22)
+    )
+
+    static func header(project: String, agent: String, session: String) -> String {
+        let title = accentBright(AnsiStyling.bold("Sloppy TUI"))
+        return "\(title)  \(muted("project:")) \(foreground(project))  \(muted("agent:")) \(foreground(agent))  \(muted("session:")) \(foreground(session))"
+    }
+
+    static func status(_ text: String, isBusy: Bool) -> String {
+        if isBusy {
+            return yellow(text)
+        }
+        if text.contains("\u{001B}[") {
+            return text
+        }
+        return muted(text)
+    }
+
+    static func sessionStatusLine(mode: AgentChatMode, model: String, context: String, attachments: String, sessionID: String) -> String {
+        muted("mode: ") + modeTitle(mode) + muted("  model: \(model)\(context)\(attachments)  last: \(shortID(sessionID))")
+    }
+
+    static func welcomeScreen(
+        width: Int,
+        cwd: String,
+        project: String,
+        agent: String,
+        model: String,
+        mode: AgentChatMode,
+        includeFooter: Bool = true
+    ) -> [String] {
+        let contentWidth = max(1, min(max(1, width - 4), 112))
+        let left = max(0, (width - contentWidth) / 2)
+        let indent = String(repeating: " ", count: left)
+        var lines: [String] = []
+
+        lines.append("")
+        lines.append(indent + welcomePromptLine(width: contentWidth))
+        lines.append(indent + welcomeMetaLine(width: contentWidth, project: project, agent: agent, model: model, mode: mode))
+        lines.append(indent + welcomeShortcutsLine(width: contentWidth))
+        lines.append("")
+        lines.append(center(yellow("Tip") + muted("  Use ") + foreground("/model") + muted(" to switch models with arrow keys."), width: width))
+        lines.append("")
+        if includeFooter {
+            lines.append(welcomeFooter(width: width, cwd: cwd))
+        }
+        lines.append("")
+        return lines
+    }
+
+    static func composerMetaLine(width: Int, mode: AgentChatMode, model: String, agent: String, provider: String) -> String {
+        let modelText = truncateEnd(compactModel(model), maxWidth: max(4, width / 3))
+        let agentText = truncateEnd(agent, maxWidth: max(4, width / 5))
+        let providerText = truncateEnd(provider, maxWidth: max(4, width / 5))
+        let text = "  " + modeTitle(mode) + muted(" · ") + foreground(modelText) + muted("  ") + muted(agentText) + muted("  ") + muted(providerText)
+        return applyPanelBackground(padded(text, width: width), width: width)
+    }
+
+    private static func modeTitle(_ mode: AgentChatMode) -> String {
+        switch mode {
+        case .ask:
+            return green(mode.title)
+        case .build:
+            return blue(mode.title)
+        case .plan:
+            return accentBright(mode.title)
+        case .debug:
+            return yellow(mode.title)
+        }
+    }
+
+    static func compactPickerDescription(_ model: String) -> String {
+        compactModel(model)
+    }
+
+    static func modelPickerDescription(_ model: ProviderModelOption) -> String {
+        var parts: [String] = []
+        let title = model.title.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !title.isEmpty, title != model.id {
+            parts.append(title)
+        }
+        if let contextWindow = model.contextWindow?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !contextWindow.isEmpty {
+            parts.append(contextWindow)
+        }
+        if !model.capabilities.isEmpty {
+            parts.append(model.capabilities.joined(separator: ", "))
+        }
+        if parts.isEmpty {
+            return compactModel(model.id)
+        }
+        return parts.joined(separator: " · ")
+    }
+
+    static func sessionHeaderTitle(_ session: AgentSessionSummary) -> String {
+        "\(session.title) (\(shortID(session.id)))"
+    }
+
+    static func sessionPickerDescription(_ session: AgentSessionSummary) -> String {
+        let preview = session.lastMessagePreview?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: "\n", with: " ") ?? ""
+        let detail = preview.isEmpty ? "\(session.messageCount) messages" : preview
+        return "\(relativeTime(session.updatedAt)) · \(shortID(session.id)) · \(detail)"
+    }
+
+    static func waitingIndicator(frame: Int, word: String) -> String {
+        let spinner = waitingFrames[frame % waitingFrames.count]
+        return muted("\(spinner) ") + accentBright(word)
+    }
+
+    static func waitingWord(seed: String) -> String {
+        let value = seed.unicodeScalars.reduce(0) { partial, scalar in
+            partial &+ Int(scalar.value)
+        }
+        return thinkingWords[value % thinkingWords.count]
+    }
+
+    static func userMessageLines(_ text: String, width: Int) -> [String] {
+        let contentWidth = max(1, width - 4)
+        let rawLines = text
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .split(separator: "\n", omittingEmptySubsequences: false)
+            .flatMap { line in
+                AnsiWrapping.wrapText(String(line), width: contentWidth)
+            }
+
+        let lines = rawLines.isEmpty ? [""] : rawLines
+        return lines.enumerated().map { index, line in
+            let prefix = index == 0 ? "› " : "  "
+            return applyBackground(
+                " " + muted(prefix) + highlightedFileReferences(in: line),
+                width: width,
+                background: userMessageBackground
+            )
+        }
+    }
+
+    static func thinkingLines(_ text: String, width: Int) -> [String] {
+        let contentWidth = max(1, width - 6)
+        let rawLines = text
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .split(separator: "\n", omittingEmptySubsequences: false)
+            .flatMap { line in
+                AnsiWrapping.wrapText(String(line), width: contentWidth)
+            }
+        let lines = rawLines.isEmpty ? [""] : rawLines
+        return lines.enumerated().map { index, line in
+            let prefix = index == 0 ? "thought " : "        "
+            return applyBackground(
+                " " + muted(prefix) + foreground(line),
+                width: width,
+                background: thinkingBackground
+            )
+        }
+    }
+
+    static func toolCallLine(tool: String, reason: String?, argumentNames: [String], width: Int) -> String {
+        let args = argumentNames.isEmpty ? "" : muted(" · \(argumentNames.joined(separator: ", "))")
+        let suffix = reason?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let reasonText = suffix?.isEmpty == false ? muted(" · \(suffix!)") : ""
+        let line = " " + blue("tool") + foreground(" \(tool)") + args + reasonText
+        return applyBackground(padded(line, width: width), width: width, background: toolBackground)
+    }
+
+    static func toolResultLine(tool: String, ok: Bool, error: String?, durationMs: Int?, width: Int) -> String {
+        let status = ok ? green("done") : red("failed")
+        let duration = durationMs.map { muted(" · \($0)ms") } ?? ""
+        let errorText = error?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let suffix = errorText?.isEmpty == false ? muted(" · \(errorText!)") : ""
+        let line = " " + status + foreground(" \(tool)") + duration + suffix
+        return applyBackground(padded(line, width: width), width: width, background: toolBackground)
+    }
+
+    static func attachmentLine(name: String, mimeType: String, sizeBytes: Int, width: Int) -> String {
+        let size = formattedBytes(sizeBytes)
+        let line = " " + green("attached") + foreground(" ") + yellow(name) + muted("  \(mimeType), \(size)")
+        return applyBackground(padded(line, width: width), width: width, background: attachmentBackground)
+    }
+
+    static func commandPaletteLines(
+        width: Int,
+        commands: [SloppyTUISlashCommand],
+        selectedIndex: Int,
+        maxVisible: Int
+    ) -> [String] {
+        let paletteWidth = max(1, min(max(1, width - 4), 96))
+        let left = max(0, (width - paletteWidth) / 2)
+        let indent = String(repeating: " ", count: left)
+        let visibleCount = max(1, min(maxVisible, commands.count))
+        let start = max(0, min(selectedIndex - visibleCount / 2, commands.count - visibleCount))
+        let end = min(commands.count, start + visibleCount)
+        var lines: [String] = []
+
+        for index in start..<end {
+            let command = commands[index]
+            let name = "/" + command.name
+            let description = command.description ?? ""
+            let raw: String
+            if paletteWidth < 32 {
+                raw = "  " + truncateEnd(name, maxWidth: max(1, paletteWidth - 2))
+            } else {
+                let nameWidth = max(10, min(22, paletteWidth / 3))
+                let descWidth = max(1, paletteWidth - nameWidth - 4)
+                raw = "  " + truncateEnd(name, maxWidth: nameWidth).padding(toLength: nameWidth, withPad: " ", startingAt: 0) + "  " + truncateEnd(description, maxWidth: descWidth)
+            }
+            let line = padded(raw, width: paletteWidth)
+            if index == selectedIndex {
+                lines.append(indent + selectedLine(line))
+            } else {
+                lines.append(indent + applyPanelBackground(foreground(line), width: paletteWidth))
+            }
+        }
+        if commands.count > visibleCount {
+            let info = "  " + muted("\(selectedIndex + 1)/\(commands.count)")
+            lines.append(indent + applyPanelBackground(padded(info, width: paletteWidth), width: paletteWidth))
+        }
+        return lines
+    }
+
+    static func pickerLines(width: Int, picker: SloppyTUIPicker, maxVisible: Int) -> [String] {
+        let paletteWidth = max(1, min(max(1, width - 4), 96))
+        let left = max(0, (width - paletteWidth) / 2)
+        let indent = String(repeating: " ", count: left)
+        let visibleCount = max(1, min(maxVisible, picker.items.count))
+        let start = max(0, min(picker.selectedIndex - visibleCount / 2, picker.items.count - visibleCount))
+        let end = min(picker.items.count, start + visibleCount)
+        var lines = [
+            indent + padded("  " + foreground(AnsiStyling.bold(picker.title)) + "  " + muted("Enter apply · Esc cancel"), width: paletteWidth),
+        ]
+
+        for index in start..<end {
+            let item = picker.items[index]
+            let raw: String
+            if paletteWidth < 32 {
+                let marker = item.isCurrent ? "✓ " : "  "
+                raw = "  " + marker + truncateEnd(item.label, maxWidth: max(1, paletteWidth - 4))
+            } else {
+                let nameWidth = max(14, min(42, paletteWidth / 2))
+                let descWidth = max(1, paletteWidth - nameWidth - 6)
+                let marker = item.isCurrent ? "✓ " : "  "
+                let label = truncateEnd(item.label, maxWidth: nameWidth).padding(toLength: nameWidth, withPad: " ", startingAt: 0)
+                raw = "  " + marker + label + "  " + truncateEnd(item.description ?? "", maxWidth: descWidth)
+            }
+            let line = padded(raw, width: paletteWidth)
+            if index == picker.selectedIndex {
+                lines.append(indent + selectedLine(line))
+            } else {
+                lines.append(indent + foreground(line))
+            }
+        }
+        if picker.items.count > visibleCount {
+            let info = "  " + muted("\(picker.selectedIndex + 1)/\(picker.items.count)")
+            lines.append(indent + padded(info, width: paletteWidth))
+        }
+        return lines
+    }
+
+    static func overlayModal(
+        base: [String],
+        width: Int,
+        title: String,
+        subtitle: String,
+        content: [String],
+        maxWidth: Int
+    ) -> [String] {
+        let dimmed = base.map { AnsiStyling.dim($0) }
+        let modalWidth = max(1, min(maxWidth, max(1, width - 8)))
+        let left = max(0, (width - modalWidth) / 2)
+        let top = max(1, (dimmed.count - content.count - 4) / 2)
+        let indent = String(repeating: " ", count: left)
+        var modal: [String] = []
+        let titleText = truncateEnd(title, maxWidth: max(1, modalWidth / 2))
+        let subtitleText = modalWidth > 36 ? truncateEnd(subtitle, maxWidth: max(1, modalWidth / 2)) : ""
+        let gap = max(1, modalWidth - 4 - VisibleWidth.measure(titleText) - VisibleWidth.measure(subtitleText))
+        modal.append(applyPanelBackground(padded("  " + foreground(AnsiStyling.bold(titleText)) + String(repeating: " ", count: gap) + muted(subtitleText) + "  ", width: modalWidth), width: modalWidth))
+        modal.append(applyPanelBackground(padded("", width: modalWidth), width: modalWidth))
+        for line in content {
+            let inner = padded("  " + line, width: modalWidth)
+            modal.append(applyPanelBackground(inner, width: modalWidth))
+        }
+        modal.append(applyPanelBackground(padded("", width: modalWidth), width: modalWidth))
+
+        var result = dimmed
+        for (offset, line) in modal.enumerated() {
+            let index = top + offset
+            guard result.indices.contains(index) else { continue }
+            result[index] = overlay(line: result[index], overlay: indent + line, width: width)
+        }
+        return result
+    }
+
+    static func appFooter(width: Int, cwd: String) -> String {
+        welcomeFooter(width: width, cwd: cwd)
+    }
+
+    static func normalize(lines: [String], width: Int, height: Int) -> [String] {
+        let normalized = lines.prefix(height).map { line in
+            let visible = VisibleWidth.measure(line)
+            guard visible < width else { return line }
+            return line + String(repeating: " ", count: width - visible)
+        }
+        if normalized.count >= height {
+            return Array(normalized)
+        }
+        return normalized + Array(repeating: String(repeating: " ", count: width), count: height - normalized.count)
+    }
+
+    static func modelPickerPrompt(current: String) -> String {
+        " " + accentBright(AnsiStyling.bold("Select model")) + "  " + muted("current:") + " " + foreground(current)
+    }
+
+    static func roleTitle(_ title: String, role: AgentMessageRole) -> String {
+        switch role {
+        case .assistant:
+            return accentBright(title)
+        case .user:
+            return blue(title)
+        case .system:
+            return muted(title)
+        }
+    }
+
+    static func runStatus(_ label: String) -> String {
+        let normalized = label.lowercased()
+        if normalized.contains("fail") || normalized.contains("error") {
+            return red("_\(label)_")
+        }
+        if normalized.contains("complete") || normalized.contains("done") {
+            return green("_\(label)_")
+        }
+        return yellow("_\(label)_")
+    }
+
+    static func isModelProviderError(_ text: String) -> Bool {
+        text.localizedCaseInsensitiveContains("Model provider error")
+            || text.localizedCaseInsensitiveContains("No models loaded")
+    }
+
+    static func errorBlock(_ text: String) -> String {
+        "### \(red("Error"))\n\(text)"
+    }
+
+    private static func welcomePromptLine(width: Int) -> String {
+        let text: String
+        if width < 48 {
+            text = muted("Ask anything...")
+        } else {
+            text = muted("Ask anything...  ") + foreground("\"What is the tech stack of this project?\"")
+        }
+        return accent("▌") + " " + padded(text, width: max(1, width - 2))
+    }
+
+    private static func welcomeMetaLine(width: Int, project: String, agent: String, model: String, mode: AgentChatMode) -> String {
+        let modelText = truncateEnd(compactModel(model), maxWidth: max(8, width / 3))
+        let agentText = truncateEnd(agent, maxWidth: max(6, width / 5))
+        let projectText = truncateEnd(project, maxWidth: max(6, width / 5))
+        let text = modeTitle(mode) + muted(" · ") + foreground(modelText) + muted("  ") + foreground(agentText) + muted("  ") + muted(projectText)
+        return accent("▌") + " " + padded(text, width: max(1, width - 2))
+    }
+
+    private static func welcomeShortcutsLine(width: Int) -> String {
+        let text: String
+        if width < 48 {
+            text = foreground("/help") + muted(" commands")
+        } else {
+            text = foreground("tab") + muted(" mode") + muted("     ") + foreground("/model") + muted(" models") + muted("     ") + foreground("/help") + muted(" commands")
+        }
+        return "  " + padded(text, width: max(1, width - 2))
+    }
+
+    private static func welcomeFooter(width: Int, cwd: String) -> String {
+        let pathWidth = max(1, width - 24)
+        let path = truncateStart(shortPath(cwd), maxWidth: pathWidth)
+        let left = muted(path) + muted("  ") + green("○") + muted(" ") + foreground("1 MCP") + muted("  /status")
+        let right = muted(SloppyVersion.current)
+        let leftWidth = VisibleWidth.measure(left)
+        let rightWidth = VisibleWidth.measure(right)
+        guard leftWidth + rightWidth + 1 <= width else {
+            return leftWidth <= width ? left : muted(truncateStart(path, maxWidth: width))
+        }
+        let gap = width - leftWidth - rightWidth
+        return left + String(repeating: " ", count: gap) + right
+    }
+
+    private static func applyPanelBackground(_ line: String, width: Int) -> String {
+        applyBackground(line, width: width, background: panelBackground)
+    }
+
+    private static func applyBackground(_ line: String, width: Int, background: AnsiStyling.Background) -> String {
+        AnsiWrapping.applyBackgroundToLine(line, width: width, background: background) + resetBackground
+    }
+
+    private static func selectedLine(_ line: String) -> String {
+        "\u{001B}[48;2;251;178;123m\u{001B}[38;2;0;0;0m\(line)\u{001B}[39m\u{001B}[49m"
+    }
+
+    private static func overlay(line: String, overlay: String, width: Int) -> String {
+        let overlayWidth = VisibleWidth.measure(overlay)
+        guard overlayWidth < width else { return overlay }
+        let suffix = max(0, width - overlayWidth)
+        return overlay + String(repeating: " ", count: suffix)
+    }
+
+    private static func center(_ text: String, width: Int) -> String {
+        let visible = VisibleWidth.measure(text)
+        guard visible < width else { return text }
+        return String(repeating: " ", count: (width - visible) / 2) + text
+    }
+
+    private static func padded(_ text: String, width: Int) -> String {
+        let visible = VisibleWidth.measure(text)
+        if visible >= width { return text }
+        return text + String(repeating: " ", count: width - visible)
+    }
+
+    private static func compactModel(_ model: String) -> String {
+        let raw = model.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !raw.isEmpty else { return "default" }
+        if let colon = raw.firstIndex(of: ":") {
+            return String(raw[raw.index(after: colon)...])
+        }
+        return raw
+    }
+
+    private static func shortPath(_ path: String) -> String {
+        let expanded = (path as NSString).abbreviatingWithTildeInPath
+        let parts = expanded.split(separator: "/").map(String.init)
+        guard parts.count > 2 else { return expanded }
+        return "…/" + parts.suffix(2).joined(separator: "/")
+    }
+
+    private static func truncateEnd(_ text: String, maxWidth: Int) -> String {
+        guard maxWidth > 1, VisibleWidth.measure(text) > maxWidth else { return text }
+        let limit = max(1, maxWidth - 1)
+        return String(text.prefix(limit)) + "…"
+    }
+
+    private static func truncateStart(_ text: String, maxWidth: Int) -> String {
+        guard maxWidth > 1, VisibleWidth.measure(text) > maxWidth else { return text }
+        let limit = max(1, maxWidth - 1)
+        return "…" + String(text.suffix(limit))
+    }
+
+    private static func highlightedFileReferences(in line: String) -> String {
+        let pattern = #"@[A-Za-z0-9._/\-~]+"#
+        guard let regex = try? NSRegularExpression(pattern: pattern) else {
+            return foreground(line)
+        }
+        let nsRange = NSRange(line.startIndex..<line.endIndex, in: line)
+        let matches = regex.matches(in: line, range: nsRange)
+        guard !matches.isEmpty else {
+            return foreground(line)
+        }
+
+        var result = ""
+        var cursor = line.startIndex
+        for match in matches {
+            guard let range = Range(match.range, in: line) else { continue }
+            if range.lowerBound > cursor {
+                result += foreground(String(line[cursor..<range.lowerBound]))
+            }
+            result += yellow(String(line[range]))
+            cursor = range.upperBound
+        }
+        if cursor < line.endIndex {
+            result += foreground(String(line[cursor..<line.endIndex]))
+        }
+        return result
+    }
+
+    private static func formattedBytes(_ bytes: Int) -> String {
+        if bytes < 1024 { return "\(bytes) B" }
+        let units = ["KB", "MB", "GB"]
+        var value = Double(bytes) / 1024.0
+        var unit = units[0]
+        for nextUnit in units.dropFirst() where value >= 1024.0 {
+            value /= 1024.0
+            unit = nextUnit
+        }
+        return String(format: "%.1f %@", value, unit)
+    }
+
+    static func shortID(_ id: String) -> String {
+        guard id.count > 12 else { return id }
+        return String(id.prefix(8))
+    }
+
+    private static func relativeTime(_ date: Date) -> String {
+        let seconds = max(0, Int(Date().timeIntervalSince(date)))
+        if seconds < 60 { return "just now" }
+        let minutes = seconds / 60
+        if minutes < 60 { return "\(minutes)m ago" }
+        let hours = minutes / 60
+        if hours < 24 { return "\(hours)h ago" }
+        let days = hours / 24
+        if days < 7 { return "\(days)d ago" }
+        return date.formatted(date: .abbreviated, time: .omitted)
+    }
+}
+
