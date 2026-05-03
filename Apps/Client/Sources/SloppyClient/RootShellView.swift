@@ -73,6 +73,7 @@ private struct RootShellContent: View {
                     .padding(theme.spacing.m)
             }
         }
+        .frame(minWidth: 0, maxWidth: .infinity, minHeight: 0, maxHeight: .infinity, alignment: .topLeading)
         .onAppear {
             rootViewModel.startDeepLinkListener()
             rootViewModel.startDesktopWindowIntegration()
