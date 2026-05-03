@@ -10,7 +10,7 @@ enum ProxySessionFactory {
         guard proxy.enabled, !proxy.host.isEmpty else {
             let config = URLSessionConfiguration.default
             config.protocolClasses = mergedProtocolClasses(protocolClasses, existing: config.protocolClasses)
-            return URLSession(configuration: config)
+            return SloppyURLSessionFactory.makeSession(configuration: config)
         }
 
         #if canImport(FoundationNetworking)
@@ -26,7 +26,7 @@ enum ProxySessionFactory {
         config.protocolClasses = mergedProtocolClasses(protocolClasses, existing: config.protocolClasses)
 
         guard let port = NWEndpoint.Port(rawValue: UInt16(clamping: proxy.port)) else {
-            return URLSession(configuration: config)
+            return SloppyURLSessionFactory.makeSession(configuration: config)
         }
 
         let endpoint = NWEndpoint.hostPort(
@@ -49,7 +49,7 @@ enum ProxySessionFactory {
         }
 
         config.proxyConfigurations = [proxyConfig]
-        return URLSession(configuration: config)
+        return SloppyURLSessionFactory.makeSession(configuration: config)
     }
     #endif
 
@@ -59,7 +59,7 @@ enum ProxySessionFactory {
         setAllProxyEnv(url)
         let config = URLSessionConfiguration.default
         config.protocolClasses = mergedProtocolClasses(protocolClasses, existing: config.protocolClasses)
-        return URLSession(configuration: config)
+        return SloppyURLSessionFactory.makeSession(configuration: config)
     }
 
     private static func setAllProxyEnv(_ url: String) {

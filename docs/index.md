@@ -134,6 +134,7 @@ API keys go in a `.env` file at the repository root:
 OPENAI_API_KEY=your_key
 GEMINI_API_KEY=your_key
 ANTHROPIC_API_KEY=your_key
+SLOPPY_CA_CERTS=/path/to/extra-ca.pem
 ```
 
 Runtime configuration lives in `sloppy.json`. If you do nothing, Sloppy uses sensible defaults and picks up any API keys from the environment.

@@ -161,7 +161,7 @@ actor URLSessionBrowserCDPTransport: BrowserCDPTransport {
         let encodedURL = url.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? "about:blank"
         var request = URLRequest(url: URL(string: "http://127.0.0.1:\(port)/json/new?\(encodedURL)")!)
         request.httpMethod = "PUT"
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await SloppyURLSessionFactory.shared.data(for: request)
         if let http = response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
             throw BrowserCDPError.cdpFailed("new page returned HTTP \(http.statusCode)")
         }

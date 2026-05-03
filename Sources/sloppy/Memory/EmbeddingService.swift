@@ -54,7 +54,7 @@ public actor EmbeddingService {
         }
         request.httpBody = bodyData
 
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await SloppyURLSessionFactory.shared.data(for: request)
         guard let httpResponse = response as? HTTPURLResponse else {
             throw EmbeddingError.transportFailure
         }

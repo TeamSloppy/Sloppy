@@ -230,6 +230,7 @@ npm run build
 | `OPENAI_API_KEY` | OpenAI model provider |
 | `GEMINI_API_KEY` | Google Gemini model provider |
 | `ANTHROPIC_API_KEY` | Anthropic Claude model provider |
+| `SLOPPY_CA_CERTS` | Additional PEM Certificate Authority bundle for outbound HTTPS |
 | `BRAVE_API_KEY` | Brave web search tool |
 | `PERPLEXITY_API_KEY` | Perplexity web search tool |
 

@@ -57,7 +57,7 @@ struct WebFetchService: Sendable {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.timeoutIntervalForRequest = request.timeoutInterval
         configuration.timeoutIntervalForResource = request.timeoutInterval
-        let session = URLSession(configuration: configuration)
+        let session = SloppyURLSessionFactory.makeSession(configuration: configuration)
 
         do {
             let (data, response) = try await session.data(for: request)

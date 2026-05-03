@@ -18,7 +18,7 @@ actor SkillsRegistryService {
     private let urlSession: URLSession
     private let decoder: JSONDecoder
 
-    init(baseURL: String = "https://skills.sh", urlSession: URLSession = URLSession.shared) {
+    init(baseURL: String = "https://skills.sh", urlSession: URLSession = SloppyURLSessionFactory.shared) {
         self.baseURL = baseURL
         self.urlSession = urlSession
 

@@ -20,7 +20,7 @@ actor SkillsGitHubClient {
     private let decoder: JSONDecoder
     private let tokenProvider: @Sendable () -> String?
 
-    init(urlSession: URLSession = URLSession.shared, tokenProvider: (@Sendable () -> String?)? = nil) {
+    init(urlSession: URLSession = SloppyURLSessionFactory.shared, tokenProvider: (@Sendable () -> String?)? = nil) {
         self.urlSession = urlSession
         self.decoder = JSONDecoder()
         self.tokenProvider = tokenProvider ?? {

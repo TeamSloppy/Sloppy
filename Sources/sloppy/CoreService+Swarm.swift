@@ -1013,7 +1013,7 @@ extension CoreService {
             request.httpBody = body
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
             do {
-                let (_, response) = try await URLSession.shared.data(for: request)
+                let (_, response) = try await SloppyURLSessionFactory.shared.data(for: request)
                 let status = (response as? HTTPURLResponse)?.statusCode ?? 0
                 if status < 200 || status >= 300 {
                     logger.warning(

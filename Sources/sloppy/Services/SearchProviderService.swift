@@ -304,7 +304,7 @@ public actor SearchProviderService {
 
         let configuration = URLSessionConfiguration.default
         configuration.timeoutIntervalForRequest = request.timeoutInterval
-        let session = URLSession(configuration: configuration)
+        let session = SloppyURLSessionFactory.makeSession(configuration: configuration)
 
         let (data, response) = try await session.data(for: request)
         guard let httpResponse = response as? HTTPURLResponse else {

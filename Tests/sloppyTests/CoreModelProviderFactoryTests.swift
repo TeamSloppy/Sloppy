@@ -85,3 +85,22 @@ func geminiOAuthURLProtocolRewritesAPIKeyHeaderToBearerAuth() throws {
     #expect(modified.value(forHTTPHeaderField: "x-goog-api-key") == nil)
     #expect(modified.value(forHTTPHeaderField: "Authorization") == "Bearer oauth-token")
 }
+
+@Test
+func sloppyExtraCertificateAuthorityExtractsMultiplePEMCertificates() {
+    let first = Data([0x01, 0x02, 0x03]).base64EncodedString()
+    let second = Data([0x04, 0x05, 0x06]).base64EncodedString()
+    let pem =
+        """
+        -----BEGIN CERTIFICATE-----
+        \(first)
+        -----END CERTIFICATE-----
+        -----BEGIN CERTIFICATE-----
+        \(second)
+        -----END CERTIFICATE-----
+        """
+
+    let certificates = SloppyExtraCertificateAuthority.certificateData(fromPEM: pem)
+
+    #expect(certificates == [Data([0x01, 0x02, 0x03]), Data([0x04, 0x05, 0x06])])
+}

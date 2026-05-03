@@ -241,6 +241,7 @@ Create a `.env` in the repository root to configure API keys:
 OPENAI_API_KEY=your_key
 GEMINI_API_KEY=your_key
 ANTHROPIC_API_KEY=your_key
+SLOPPY_CA_CERTS=/path/to/extra-ca.pem
 BRAVE_API_KEY=your_key
 PERPLEXITY_API_KEY=your_key
 ```

@@ -28,6 +28,7 @@ Environment variables provide a way to configure API keys without writing them i
 | `ANTHROPIC_API_KEY` | Anthropic | Console API key or OAuth/setup token for Claude (direct `api.anthropic.com` only) |
 | `ANTHROPIC_AUTH_TOKEN` | Anthropic | Auth token for Claude/Anthropic-compatible auth; can also be read from `.claude/settings.json` under `env` |
 | `ANTHROPIC_BASE_URL` | Anthropic | Base URL for Anthropic-compatible auth when set in `.claude/settings.json` under `env` |
+| `SLOPPY_CA_CERTS` | TLS | Path to a PEM bundle with additional Certificate Authority certificates for Sloppy-owned outbound HTTPS sessions |
 | `BRAVE_API_KEY` | Search | API key for Brave web search tool |
 | `PERPLEXITY_API_KEY` | Search | API key for Perplexity web search tool |
 

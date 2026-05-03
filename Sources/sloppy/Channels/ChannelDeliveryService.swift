@@ -36,7 +36,7 @@ actor ChannelDeliveryService {
 #if canImport(FoundationNetworking)
         let config = URLSessionConfiguration.default
         config.timeoutIntervalForRequest = timeoutInterval
-        self.session = URLSession(configuration: config)
+        self.session = SloppyURLSessionFactory.makeSession(configuration: config)
 #endif
     }
 

@@ -95,6 +95,19 @@ private final class GeminiOAuthURLProtocolSessionDelegate: NSObject, URLSessionD
         owner?.didReceive(data: data)
     }
 
+    #if canImport(Security)
+    func urlSession(
+        _ session: URLSession,
+        didReceive challenge: URLAuthenticationChallenge,
+        completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void
+    ) {
+        if SloppyExtraCertificateAuthority.handle(challenge: challenge, completionHandler: completionHandler) {
+            return
+        }
+        completionHandler(.performDefaultHandling, nil)
+    }
+    #endif
+
     func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
         owner?.didComplete(with: error)
         session.finishTasksAndInvalidate()

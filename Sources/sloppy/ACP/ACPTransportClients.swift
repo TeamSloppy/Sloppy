@@ -220,7 +220,7 @@ actor WebSocketACPClient: ACPTransportClient {
         if !target.headers.isEmpty {
             configuration.httpAdditionalHeaders = target.headers
         }
-        let session = URLSession(configuration: configuration)
+        let session = SloppyURLSessionFactory.makeSession(configuration: configuration)
         self.session = session
         self.transport = WebSocketTransport(url: url, session: session)
         self.encoder.outputFormatting = [.withoutEscapingSlashes]
