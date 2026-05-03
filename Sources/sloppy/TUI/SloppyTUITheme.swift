@@ -104,6 +104,9 @@ enum SloppyTUITheme {
         var lines: [String] = []
 
         lines.append("")
+        lines.append("")
+        lines.append(contentsOf: logoLines(width: width))
+        lines.append("")
         lines.append(indent + welcomePromptLine(width: contentWidth))
         lines.append(indent + welcomeMetaLine(width: contentWidth, project: project, agent: agent, model: model, mode: mode))
         lines.append(indent + welcomeShortcutsLine(width: contentWidth))
@@ -410,6 +413,21 @@ enum SloppyTUITheme {
         "### \(red("Error"))\n\(text)"
     }
 
+    private static func logoLines(width: Int) -> [String] {
+        if width < 64 {
+            return [center(accentBright(AnsiStyling.bold("sloppy")), width: width)]
+        }
+        let logo = [
+            "███████╗██╗      ██████╗ ██████╗ ██████╗ ██╗   ██╗",
+            "██╔════╝██║     ██╔═══██╗██╔══██╗██╔══██╗╚██╗ ██╔╝",
+            "███████╗██║     ██║   ██║██████╔╝██████╔╝ ╚████╔╝ ",
+            "╚════██║██║     ██║   ██║██╔═══╝ ██╔═══╝   ╚██╔╝  ",
+            "███████║███████╗╚██████╔╝██║     ██║        ██║   ",
+            "╚══════╝╚══════╝ ╚═════╝ ╚═╝     ╚═╝        ╚═╝   ",
+        ]
+        return logo.map { center(accentBright($0), width: width) }
+    }
+
     private static func welcomePromptLine(width: Int) -> String {
         let text: String
         if width < 48 {
@@ -567,4 +585,3 @@ enum SloppyTUITheme {
         return date.formatted(date: .abbreviated, time: .omitted)
     }
 }
-

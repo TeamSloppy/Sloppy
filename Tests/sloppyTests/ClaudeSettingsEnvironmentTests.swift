@@ -80,6 +80,8 @@ func anthropicProbeUsesClaudeSettingsAuthTokenWhenCredentialsAreEmpty() async th
                 url: request.url?.absoluteString,
                 authorization: request.value(forHTTPHeaderField: "Authorization")
             )
+            #expect(request.httpMethod == "GET")
+            #expect(request.httpBody == nil)
             return (Data(), makeAnthropicProbeHTTPResponse(url: request.url!))
         },
         claudeSettingsProvider: { settings }
@@ -95,7 +97,7 @@ func anthropicProbeUsesClaudeSettingsAuthTokenWhenCredentialsAreEmpty() async th
 
     #expect(response.ok == true)
     #expect(response.usedEnvironmentKey == true)
-    #expect(await recorder.url == "https://api.anthropic.com/v1/messages")
+    #expect(await recorder.url == "https://api.anthropic.com/v1/models")
     #expect(await recorder.authorization == "Bearer settings-oauth-token")
 }
 
@@ -109,6 +111,9 @@ func anthropicOAuthProbeShowsHTTPStatusAndBodyOnVerificationFailure() async thro
     let service = AnthropicOAuthService(
         workspaceRootURL: workspaceRootURL,
         transport: { request in
+            #expect(request.httpMethod == "GET")
+            #expect(request.url?.absoluteString == "https://api.anthropic.com/v1/models")
+            #expect(request.httpBody == nil)
             let body =
                 """
                 {"type":"error","error":{"type":"authentication_error","message":"invalid oauth token"}}

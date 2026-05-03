@@ -343,10 +343,9 @@ struct AnthropicOAuthService: @unchecked Sendable {
     }
 
     private func verifyAnthropicKey(apiKey: String, baseURL: URL) async throws {
-        let endpoint = baseURL.appendingPathComponent("v1/messages")
+        let endpoint = baseURL.appendingPathComponent("v1/models")
         var request = URLRequest(url: endpoint)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpMethod = "GET"
         let authHeaders = OAuthAnthropicAuthHeaders.authenticationHeaders(
             apiKey: apiKey,
             baseURL: baseURL,
@@ -355,12 +354,6 @@ struct AnthropicOAuthService: @unchecked Sendable {
         for (field, value) in authHeaders {
             request.setValue(value, forHTTPHeaderField: field)
         }
-        let body: [String: Any] = [
-            "model": "claude-3-5-haiku-20241022",
-            "max_tokens": 1,
-            "messages": [["role": "user", "content": "hi"]],
-        ]
-        request.httpBody = try JSONSerialization.data(withJSONObject: body)
 
         let (data, response) = try await transport(request)
         guard (200..<300).contains(response.statusCode) || response.statusCode == 429 else {

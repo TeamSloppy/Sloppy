@@ -626,10 +626,9 @@ struct ProviderProbeService {
     }
 
     private func verifyAnthropicKey(apiKey: String, baseURL: URL) async throws -> [ProviderModelOption] {
-        let endpoint = baseURL.appendingPathComponent("v1/messages")
+        let endpoint = baseURL.appendingPathComponent("v1/models")
         var urlRequest = URLRequest(url: endpoint)
-        urlRequest.httpMethod = "POST"
-        urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        urlRequest.httpMethod = "GET"
         let authHeaders = OAuthAnthropicAuthHeaders.authenticationHeaders(
             apiKey: apiKey,
             baseURL: baseURL,
@@ -638,12 +637,6 @@ struct ProviderProbeService {
         for (field, value) in authHeaders {
             urlRequest.setValue(value, forHTTPHeaderField: field)
         }
-        let body: [String: Any] = [
-            "model": "claude-3-5-haiku-20241022",
-            "max_tokens": 1,
-            "messages": [["role": "user", "content": "hi"]]
-        ]
-        urlRequest.httpBody = try JSONSerialization.data(withJSONObject: body)
 
         let (_, response) = try await transport(urlRequest)
         guard (200..<300).contains(response.statusCode) || response.statusCode == 429 else {

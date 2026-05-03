@@ -107,8 +107,63 @@ struct SloppyToolExecutionDelegateTests {
         #expect(items[1] == .string("two"))
     }
 
+    @Test("Tool name map restores provider-safe aliases before invocation")
+    func toolNameMapRestoresOriginalName() async throws {
+        let capture = RequestCapture()
+        let delegate = SloppyToolExecutionDelegate(
+            toolNameMap: ["files_read": "files.read"],
+            toolCallHandler: { request in
+                await capture.store(request)
+                return ToolInvocationResult(tool: request.tool, ok: true)
+            }
+        )
+
+        let toolCall = Transcript.ToolCall(
+            id: "call-5",
+            toolName: "files_read",
+            arguments: GeneratedContent(properties: [:])
+        )
+        _ = await delegate.toolCallDecision(for: toolCall, in: makeFakeSession())
+
+        let invoked = try #require(await capture.value)
+        #expect(invoked.tool == "files.read")
+    }
+
+    @Test("Model tool sanitizer emits OpenAI-compatible unique names")
+    func modelToolNameSanitizerEmitsProviderSafeNames() {
+        let tools: [any Tool] = [
+            NamedTool(name: "files.read"),
+            NamedTool(name: "files_read"),
+            NamedTool(name: "mcp.fs/read-file"),
+            NamedTool(name: "..."),
+        ]
+
+        let result = ModelToolNameSanitizer.sanitizeTools(tools)
+        let names = result.tools.map(\.name)
+
+        #expect(names.count == Set(names).count)
+        #expect(names.allSatisfy(isProviderSafeToolName))
+        #expect(result.nameMap["files_read"] == "files.read")
+        #expect(result.nameMap[names[1]] == "files_read")
+        #expect(result.nameMap["mcp_fs_read-file"] == "mcp.fs/read-file")
+        #expect(result.nameMap["tool"] == "...")
+    }
+
     private func makeFakeSession() -> LanguageModelSession {
         LanguageModelSession(model: StubLanguageModel(), instructions: "test")
+    }
+
+    private func isProviderSafeToolName(_ name: String) -> Bool {
+        !name.isEmpty
+            && name.count <= ModelToolNameSanitizer.maximumNameLength
+            && name.unicodeScalars.allSatisfy { scalar in
+                switch scalar.value {
+                case 48...57, 65...90, 97...122, 45, 95:
+                    return true
+                default:
+                    return false
+                }
+            }
     }
 }
 
@@ -118,6 +173,19 @@ private actor RequestCapture {
     private var stored: ToolInvocationRequest?
     var value: ToolInvocationRequest? { stored }
     func store(_ request: ToolInvocationRequest) { stored = request }
+}
+
+private struct NamedTool: Tool {
+    typealias Arguments = GeneratedContent
+    typealias Output = String
+
+    let name: String
+    let description = "Test tool"
+    let parameters: GenerationSchema = String.generationSchema
+
+    func call(arguments: GeneratedContent) async throws -> String {
+        ""
+    }
 }
 
 private struct StubLanguageModel: LanguageModel {

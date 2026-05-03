@@ -315,7 +315,10 @@ public actor RuntimeSystem {
                     await tracker.toolFinished()
                     return result
                 }
-                session.toolExecutionDelegate = SloppyToolExecutionDelegate(toolCallHandler: observingHandler)
+                session.toolExecutionDelegate = makeToolExecutionDelegate(
+                    for: session,
+                    toolCallHandler: observingHandler
+                )
             }
 
             let options = modelProvider.generationOptions(for: activeModel, maxTokens: 1024, reasoningEffort: reasoningEffort)
@@ -426,7 +429,10 @@ public actor RuntimeSystem {
                             await tracker.toolFinished()
                             return result
                         }
-                        freshSession.toolExecutionDelegate = SloppyToolExecutionDelegate(toolCallHandler: observingHandler)
+                        freshSession.toolExecutionDelegate = makeToolExecutionDelegate(
+                            for: freshSession,
+                            toolCallHandler: observingHandler
+                        )
                     }
                     let fallbackResponse = try await freshSession.respond(to: userMessage, options: options)
                     let fallbackContent = fallbackResponse.content
@@ -666,6 +672,31 @@ public actor RuntimeSystem {
         return full.filter { allow.contains($0.name) }
     }
 
+    private func sanitizedModelTools(
+        channelId: String,
+        modelProvider: any ModelProvider,
+        includeTools: Bool
+    ) -> [any Tool] {
+        ModelToolNameSanitizer.sanitizeTools(
+            filteredModelTools(channelId: channelId, modelProvider: modelProvider, includeTools: includeTools)
+        ).tools
+    }
+
+    private func makeToolExecutionDelegate(
+        for session: LanguageModelSession,
+        toolCallHandler: @escaping @Sendable (ToolInvocationRequest) async -> ToolInvocationResult
+    ) -> SloppyToolExecutionDelegate {
+        var nameMap: [String: String] = [:]
+        for tool in session.tools {
+            if let sanitized = tool as? SanitizedLanguageModelTool {
+                nameMap[sanitized.name] = sanitized.originalName
+            } else {
+                nameMap[tool.name] = tool.name
+            }
+        }
+        return SloppyToolExecutionDelegate(toolNameMap: nameMap, toolCallHandler: toolCallHandler)
+    }
+
     /// Returns cached session for channel, or creates a new one seeded with the bootstrap
     /// system message if present.
     private func getOrCreateSession(
@@ -679,7 +710,7 @@ public actor RuntimeSystem {
         }
 
         let languageModel = try await modelProvider.createLanguageModel(for: activeModel)
-        let tools = filteredModelTools(channelId: channelId, modelProvider: modelProvider, includeTools: includeTools)
+        let tools = sanitizedModelTools(channelId: channelId, modelProvider: modelProvider, includeTools: includeTools)
         let session: LanguageModelSession
         if let instructions = modelProvider.systemInstructions {
             session = LanguageModelSession(model: languageModel, tools: tools, instructions: instructions)
@@ -725,7 +756,7 @@ public actor RuntimeSystem {
             return "Model provider error: \(error)"
         }
 
-        let tools = filteredModelTools(
+        let tools = sanitizedModelTools(
             channelId: channelId,
             modelProvider: modelProvider,
             includeTools: toolInvoker != nil
@@ -754,7 +785,10 @@ public actor RuntimeSystem {
                 }
                 return result
             }
-            freshSession.toolExecutionDelegate = SloppyToolExecutionDelegate(toolCallHandler: observingHandler)
+            freshSession.toolExecutionDelegate = makeToolExecutionDelegate(
+                for: freshSession,
+                toolCallHandler: observingHandler
+            )
         }
 
         let options = modelProvider.generationOptions(for: activeModel, maxTokens: 1024, reasoningEffort: reasoningEffort)
@@ -883,10 +917,11 @@ public actor RuntimeSystem {
             return nil
         }
         let session: LanguageModelSession
+        let tools = ModelToolNameSanitizer.sanitizeTools(modelProvider.tools).tools
         if let instructions = modelProvider.systemInstructions {
-            session = LanguageModelSession(model: languageModel, tools: modelProvider.tools, instructions: instructions)
+            session = LanguageModelSession(model: languageModel, tools: tools, instructions: instructions)
         } else {
-            session = LanguageModelSession(model: languageModel, tools: modelProvider.tools)
+            session = LanguageModelSession(model: languageModel, tools: tools)
         }
         let options = modelProvider.generationOptions(for: defaultModel, maxTokens: maxTokens, reasoningEffort: nil)
         return try? await session.respond(to: prompt.promptRepresentation, options: options).content

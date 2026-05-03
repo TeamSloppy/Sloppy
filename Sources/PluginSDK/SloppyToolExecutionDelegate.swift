@@ -9,8 +9,13 @@ import Protocols
 /// encoded result as structured output back to the session.
 public struct SloppyToolExecutionDelegate: ToolExecutionDelegate {
     public let toolCallHandler: @Sendable (ToolInvocationRequest) async -> ToolInvocationResult
+    private let toolNameMap: [String: String]
 
-    public init(toolCallHandler: @escaping @Sendable (ToolInvocationRequest) async -> ToolInvocationResult) {
+    public init(
+        toolNameMap: [String: String] = [:],
+        toolCallHandler: @escaping @Sendable (ToolInvocationRequest) async -> ToolInvocationResult
+    ) {
+        self.toolNameMap = toolNameMap
         self.toolCallHandler = toolCallHandler
     }
 
@@ -18,8 +23,9 @@ public struct SloppyToolExecutionDelegate: ToolExecutionDelegate {
         for toolCall: Transcript.ToolCall,
         in session: LanguageModelSession
     ) async -> ToolExecutionDecision {
+        let toolName = toolNameMap[toolCall.toolName] ?? toolCall.toolName
         let request = ToolInvocationRequest(
-            tool: toolCall.toolName,
+            tool: toolName,
             arguments: jsonArguments(from: toolCall.arguments)
         )
         let result = await toolCallHandler(request)
