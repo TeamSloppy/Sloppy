@@ -40,6 +40,7 @@ extension CoreService {
         await toolExecution.updateLSPConfig(config.lsp)
         await toolsAuthorization.invalidateCachedPolicies()
         toolExecution.updateWorkspaceRootURL(workspaceRootURL)
+        await toolExecution.updateBrowserConfig(config.browser)
         toolExecution.updateStore(refreshedStore)
         systemLogStore.updateWorkspaceRootURL(workspaceRootURL)
         await channelDelivery.updateStore(refreshedStore)

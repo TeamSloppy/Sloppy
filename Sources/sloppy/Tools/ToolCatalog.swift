@@ -149,6 +149,54 @@ enum ToolCatalog {
                 "outputPath": .object(["type": .string("string")])
             ])
         ]),
+        "browser.open": .object([
+            "type": .string("object"),
+            "properties": .object([
+                "url": .object(["type": .string("string")])
+            ])
+        ]),
+        "browser.navigate": .object([
+            "type": .string("object"),
+            "properties": .object([
+                "url": .object(["type": .string("string")]),
+                "pageId": .object(["type": .string("string")])
+            ]),
+            "required": .array([.string("url")])
+        ]),
+        "browser.click": .object([
+            "type": .string("object"),
+            "properties": .object([
+                "selector": .object(["type": .string("string")]),
+                "pageId": .object(["type": .string("string")])
+            ]),
+            "required": .array([.string("selector")])
+        ]),
+        "browser.type": .object([
+            "type": .string("object"),
+            "properties": .object([
+                "selector": .object(["type": .string("string")]),
+                "text": .object(["type": .string("string")]),
+                "pageId": .object(["type": .string("string")])
+            ]),
+            "required": .array([.string("selector"), .string("text")])
+        ]),
+        "browser.screenshot": .object([
+            "type": .string("object"),
+            "properties": .object([
+                "outputPath": .object(["type": .string("string")]),
+                "pageId": .object(["type": .string("string")])
+            ])
+        ]),
+        "browser.status": .object([
+            "type": .string("object"),
+            "properties": .object([:])
+        ]),
+        "browser.close": .object([
+            "type": .string("object"),
+            "properties": .object([
+                "pageId": .object(["type": .string("string")])
+            ])
+        ]),
         "branches.spawn": .object([
             "type": .string("object"),
             "properties": .object([

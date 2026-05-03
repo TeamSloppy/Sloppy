@@ -34,6 +34,7 @@ import { DiscordEditor } from "./components/DiscordEditor";
 import { ApprovalsView } from "./components/ApprovalsView";
 import { ConfigRawView } from "./components/ConfigRawView";
 import { ProxyEditor } from "./components/ProxyEditor";
+import { BrowserEditor } from "./components/BrowserEditor";
 import { ACPEditor } from "./components/ACPEditor";
 import { UIEditor } from "./components/UIEditor";
 import { VisorEditor } from "./components/VisorEditor";
@@ -50,7 +51,7 @@ const SETTINGS_ITEMS = [
   { id: "approvals", title: "Approvals", icon: "fact_check" },
   { id: "plugins", title: "Plugins", icon: "extension" },
   { id: "mcp", title: "MCP", icon: "account_tree" },
-  // { id: "browser", title: "Browser", icon: "open_in_browser" },
+  { id: "browser", title: "Browser", icon: "open_in_browser" },
   { id: "ui", title: "UI", icon: "palette" },
   { id: "nodehost", title: "NodeHost", icon: "dns" },
   // { id: "bindings", title: "Bindings", icon: "cable" },
@@ -321,6 +322,15 @@ const EMPTY_CONFIG = {
     port: 1080,
     username: "",
     password: ""
+  },
+  browser: {
+    enabled: false,
+    executablePath: "",
+    profileName: "default",
+    profilePath: "",
+    headless: false,
+    startupTimeoutMs: 10000,
+    additionalArguments: []
   },
   visor: {
     scheduler: {
@@ -725,6 +735,16 @@ function normalizeConfig(config) {
   normalized.proxy.port = parseInteger(config?.proxy?.port ?? 1080, 1080);
   normalized.proxy.username = String(config?.proxy?.username || "");
   normalized.proxy.password = String(config?.proxy?.password || "");
+
+  normalized.browser.enabled = Boolean(config?.browser?.enabled);
+  normalized.browser.executablePath = String(config?.browser?.executablePath || "");
+  normalized.browser.profileName = String(config?.browser?.profileName || "default").trim() || "default";
+  normalized.browser.profilePath = String(config?.browser?.profilePath || "");
+  normalized.browser.headless = Boolean(config?.browser?.headless);
+  normalized.browser.startupTimeoutMs = parseInteger(config?.browser?.startupTimeoutMs ?? 10000, 10000);
+  normalized.browser.additionalArguments = Array.isArray(config?.browser?.additionalArguments)
+    ? config.browser.additionalArguments.map((arg) => String(arg)).filter(Boolean)
+    : [];
 
   const vc = config?.visor;
   normalized.visor.scheduler.enabled = vc?.scheduler?.enabled !== false;
@@ -2301,6 +2321,10 @@ export function ConfigView({
 
     if (selectedSettings === "proxy") {
       return <ProxyEditor draftConfig={draftConfig} mutateDraft={mutateDraft} />;
+    }
+
+    if (selectedSettings === "browser") {
+      return <BrowserEditor draftConfig={draftConfig} mutateDraft={mutateDraft} parseLines={parseLines} />;
     }
 
     if (selectedSettings === "visor") {

@@ -272,14 +272,11 @@ struct ChatTranscriptView: View {
                             .padding(sp.m)
                             .padding(.bottom, composerScrollInset)
                     } else {
-                        LazyVStack(
-                            messages,
-                            alignment: .leading,
-                            spacing: sp.s,
-                            estimatedRowHeight: 96,
-                            overscan: 10
-                        ) { msg in
-                            ChatBubbleView(message: msg)
+                        VStack(alignment: .leading, spacing: sp.s) {
+                            ForEach(messages) { msg in
+                                ChatBubbleView(message: msg)
+                                    .id(msg.id)
+                            }
                         }
                         .padding(sp.m)
                         .padding(.bottom, composerScrollInset)

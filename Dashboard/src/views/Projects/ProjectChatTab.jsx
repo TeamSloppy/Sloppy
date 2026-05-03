@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { fetchActorsBoard, fetchChannelSession, fetchChannelSessions, refreshProjectContext } from "../../api";
+import { fetchActorsBoard, fetchChannelSession, fetchChannelSessions, refreshProjectContext, subscribeProjectChangeStream } from "../../api";
 import { gatewayBindingChannelId, sessionChannelMatchesBinding } from "../../shared/channelGatewayScope";
 
 const CHANNEL_MESSAGES_LIMIT = 9;
@@ -134,6 +134,7 @@ export function ProjectChatTab({ project, onNavigateToChannelSession, onAddChann
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [refreshStatus, setRefreshStatus] = useState("");
+  const [changeBatches, setChangeBatches] = useState([]);
 
   const projectChannelIds = useMemo(() => {
     const chats = Array.isArray(project?.chats) ? project.chats : [];
@@ -209,6 +210,19 @@ export function ProjectChatTab({ project, onNavigateToChannelSession, onAddChann
     loadSessions();
     return () => { cancelled = true; };
   }, [projectChannelIds]);
+
+  useEffect(() => {
+    const projectId = normalizeId(project?.id);
+    if (!projectId) {
+      setChangeBatches([]);
+      return undefined;
+    }
+    return subscribeProjectChangeStream(projectId, {
+      onBatch: (batch) => {
+        setChangeBatches((prev) => [batch, ...prev].slice(0, 5));
+      }
+    });
+  }, [project?.id]);
 
   const cards = useMemo(() => {
     return channelSessions.map((session) => {
@@ -293,6 +307,31 @@ export function ProjectChatTab({ project, onNavigateToChannelSession, onAddChann
         <p className="app-status-text" style={{ marginTop: 0 }}>
           Teams: {resolvedTeams.map((t) => normalizeId(t?.name) || normalizeId(t?.id)).filter(Boolean).join(", ")}
         </p>
+      ) : null}
+
+      {changeBatches.length > 0 ? (
+        <div className="project-workspace-change-feed">
+          {changeBatches.map((batch, index) => {
+            const changes = Array.isArray(batch?.changes) ? batch.changes : [];
+            return (
+              <div key={`${batch?.createdAt || index}-${index}`} className="project-workspace-change-card">
+                <div className="project-workspace-change-head">
+                  <span className="material-symbols-rounded" aria-hidden="true">folder_code</span>
+                  <strong>Workspace changes</strong>
+                  <span>{changes.length}</span>
+                </div>
+                <div className="project-workspace-change-list">
+                  {changes.slice(0, 6).map((change, i) => (
+                    <span key={`${change?.path || i}-${i}`}>
+                      {normalizeId(change?.kind) || "modified"}: {normalizeId(change?.path)}
+                    </span>
+                  ))}
+                  {changes.length > 6 ? <span>and {changes.length - 6} more</span> : null}
+                </div>
+              </div>
+            );
+          })}
+        </div>
       ) : null}
 
       {participants.length === 0 ? (
@@ -384,4 +423,3 @@ export function ProjectChatTab({ project, onNavigateToChannelSession, onAddChann
     </section>
   );
 }
-

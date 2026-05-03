@@ -21,6 +21,7 @@ struct SloppyApp: AsyncParsableCommand {
             SkillsCommand.self,
             StatusCommand.self,
             UpdateCommand.self,
+            TuiCommand.self,
             LogsCommand.self,
             WorkersCommand.self,
             BulletinsCommand.self,
@@ -36,6 +37,6 @@ struct SloppyApp: AsyncParsableCommand {
             print("sloppy \(SloppyVersion.current)")
             return
         }
-        CLIStyle.printHelp()
+        try await SloppyTUIApp().run()
     }
 }

@@ -650,6 +650,58 @@ public struct CoreConfig: Codable, Sendable {
         }
     }
 
+    public struct Browser: Codable, Sendable, Equatable {
+        public var enabled: Bool
+        public var executablePath: String
+        public var profileName: String
+        public var profilePath: String?
+        public var headless: Bool
+        public var startupTimeoutMs: Int
+        public var additionalArguments: [String]
+
+        private enum CodingKeys: String, CodingKey {
+            case enabled
+            case executablePath
+            case profileName
+            case profilePath
+            case headless
+            case startupTimeoutMs
+            case additionalArguments
+        }
+
+        public init(
+            enabled: Bool = false,
+            executablePath: String = "",
+            profileName: String = "default",
+            profilePath: String? = nil,
+            headless: Bool = false,
+            startupTimeoutMs: Int = 10_000,
+            additionalArguments: [String] = []
+        ) {
+            self.enabled = enabled
+            self.executablePath = executablePath
+            self.profileName = profileName
+            self.profilePath = profilePath
+            self.headless = headless
+            self.startupTimeoutMs = startupTimeoutMs
+            self.additionalArguments = additionalArguments
+        }
+
+        public init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            enabled = try container.decodeIfPresent(Bool.self, forKey: .enabled) ?? false
+            executablePath = try container.decodeIfPresent(String.self, forKey: .executablePath) ?? ""
+            let decodedProfileName = try container.decodeIfPresent(String.self, forKey: .profileName) ?? "default"
+            profileName = decodedProfileName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                ? "default"
+                : decodedProfileName
+            profilePath = try container.decodeIfPresent(String.self, forKey: .profilePath)
+            headless = try container.decodeIfPresent(Bool.self, forKey: .headless) ?? false
+            startupTimeoutMs = try container.decodeIfPresent(Int.self, forKey: .startupTimeoutMs) ?? 10_000
+            additionalArguments = try container.decodeIfPresent([String].self, forKey: .additionalArguments) ?? []
+        }
+    }
+
     public struct SearchTools: Codable, Sendable, Equatable {
         public enum ProviderID: String, Codable, Sendable, Equatable {
             case brave
@@ -1093,6 +1145,7 @@ public struct CoreConfig: Codable, Sendable {
     public var lsp: LSP
     public var searchTools: SearchTools
     public var proxy: Proxy
+    public var browser: Browser
     public var visor: Visor
     public var ui: UI
     public var sqlitePath: String
@@ -1116,6 +1169,7 @@ public struct CoreConfig: Codable, Sendable {
         lsp: LSP = LSP(),
         searchTools: SearchTools = SearchTools(),
         proxy: Proxy = Proxy(),
+        browser: Browser = Browser(),
         visor: Visor = Visor(),
         ui: UI = UI(),
         sqlitePath: String,
@@ -1138,6 +1192,7 @@ public struct CoreConfig: Codable, Sendable {
         self.lsp = lsp
         self.searchTools = searchTools
         self.proxy = proxy
+        self.browser = browser
         self.visor = visor
         self.ui = ui
         self.sqlitePath = sqlitePath
@@ -1175,6 +1230,7 @@ public struct CoreConfig: Codable, Sendable {
             acp: .init(),
             searchTools: .init(),
             proxy: .init(),
+            browser: .init(),
             visor: .init(),
             ui: .init(),
             sqlitePath: CoreConfig.defaultSQLiteFileName,
@@ -1241,6 +1297,7 @@ public struct CoreConfig: Codable, Sendable {
         case lsp
         case searchTools
         case proxy
+        case browser
         case visor
         case ui
         case sqlitePath
@@ -1265,6 +1322,7 @@ public struct CoreConfig: Codable, Sendable {
         lsp = try container.decodeIfPresent(LSP.self, forKey: .lsp) ?? .init()
         searchTools = try container.decodeIfPresent(SearchTools.self, forKey: .searchTools) ?? .init()
         proxy = try container.decodeIfPresent(Proxy.self, forKey: .proxy) ?? .init()
+        browser = try container.decodeIfPresent(Browser.self, forKey: .browser) ?? .init()
         visor = try container.decodeIfPresent(Visor.self, forKey: .visor) ?? .init()
         ui = try container.decodeIfPresent(UI.self, forKey: .ui) ?? .init()
         sqlitePath = try container.decode(String.self, forKey: .sqlitePath)
@@ -1292,6 +1350,7 @@ public struct CoreConfig: Codable, Sendable {
         try container.encode(lsp, forKey: .lsp)
         try container.encode(searchTools, forKey: .searchTools)
         try container.encode(proxy, forKey: .proxy)
+        try container.encode(browser, forKey: .browser)
         try container.encode(visor, forKey: .visor)
         try container.encode(ui, forKey: .ui)
         try container.encode(sqlitePath, forKey: .sqlitePath)

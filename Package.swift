@@ -27,6 +27,7 @@ let package = Package(
         .package(url: "https://github.com/apple/swift-system.git", from: "1.6.0"),
         .package(url: "https://github.com/mattt/AnyLanguageModel.git", branch: "main"),
         .package(url: "https://github.com/TeamSloppy/CodexBar.git", branch: "main"),
+        .package(url: "https://github.com/steipete/TauTUI.git", branch: "main"),
         .package(url: "https://github.com/modelcontextprotocol/swift-sdk.git", from: "0.11.0"),
         .package(url: "https://github.com/TeamSloppy/swift-acp", branch: "main"),
         .package(url: "https://github.com/swiftlang/swift-tools-protocols.git", branch: "main")
@@ -83,6 +84,7 @@ let package = Package(
                 .product(name: "NIOWebSocket", package: "swift-nio"),
                 .product(name: "Tracing", package: "swift-distributed-tracing"),
                 .product(name: "CodexBarCore", package: "CodexBar"),
+                .product(name: "TauTUI", package: "TauTUI"),
                 .product(name: "MCP", package: "swift-sdk"),
                 .product(name: "ACP", package: "swift-acp"),
                 .product(name: "ACPModel", package: "swift-acp"),

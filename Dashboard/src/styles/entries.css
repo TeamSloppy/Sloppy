@@ -137,3 +137,16 @@
   color: var(--muted);
   font-size: 0.88rem;
 }
+
+.entry-form-grid .entry-toggle-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 38px;
+  color: var(--text);
+}
+
+.entry-toggle-row input {
+  width: auto;
+  margin: 0;
+}

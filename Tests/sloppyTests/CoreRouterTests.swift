@@ -1045,6 +1045,14 @@ func putConfigEndpoint() async throws {
         schedule: .init(frequency: .daily, time: "18:00"),
         conflictStrategy: .remoteWins
     )
+    config.browser = .init(
+        enabled: true,
+        executablePath: "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+        profileName: "router-test",
+        headless: true,
+        startupTimeoutMs: 12_000,
+        additionalArguments: ["--disable-extensions"]
+    )
 
     let payload = try JSONEncoder().encode(config)
     let response = await router.handle(method: "PUT", path: "/v1/config", body: payload)
@@ -1055,6 +1063,10 @@ func putConfigEndpoint() async throws {
     #expect(updated.gitSync.enabled == true)
     #expect(updated.gitSync.repository == "acme/workspace-sync")
     #expect(updated.gitSync.branch == "sync/main")
+    #expect(updated.browser.enabled == true)
+    #expect(updated.browser.profileName == "router-test")
+    #expect(updated.browser.headless == true)
+    #expect(updated.browser.additionalArguments == ["--disable-extensions"])
 }
 
 @Test

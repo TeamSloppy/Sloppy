@@ -11,7 +11,6 @@ struct RootShellView: View {
     var body: some View {
         RootShellContent(viewModel: viewModel)
             .environment(viewModel)
-            .debugOverlay()
     }
 }
 
@@ -84,6 +83,5 @@ private struct RootShellContent: View {
         .background {
             theme.colors.background.ignoresSafeArea()
         }
-//        .ignoresSafeArea()
     }
 }

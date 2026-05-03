@@ -400,6 +400,7 @@ public actor CoreService {
             agentCatalogStore: self.agentCatalogStore,
             agentSkillsStore: self.agentSkillsStore,
             processRegistry: processRegistry,
+            browserConfig: config.browser,
             channelSessionStore: self.channelSessionStore,
             store: self.store,
             searchProviderService: self.searchProviderService,

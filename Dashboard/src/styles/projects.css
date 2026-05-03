@@ -838,6 +838,55 @@
   font-size: 0.8rem;
 }
 
+.project-workspace-change-feed {
+  display: grid;
+  gap: 8px;
+  margin: 12px 0 16px;
+}
+
+.project-workspace-change-card {
+  border: 1px solid var(--line);
+  background: var(--surface-2);
+  padding: 10px 12px;
+}
+
+.project-workspace-change-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.82rem;
+}
+
+.project-workspace-change-head .material-symbols-rounded {
+  color: var(--muted);
+  font-size: 1.05rem;
+}
+
+.project-workspace-change-head span:last-child {
+  margin-left: auto;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.project-workspace-change-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.project-workspace-change-list span {
+  max-width: 320px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--muted);
+  padding: 4px 6px;
+  font-size: 0.75rem;
+}
+
 .project-overview-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));

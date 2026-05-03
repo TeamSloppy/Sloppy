@@ -16,6 +16,7 @@ import {
   fetchAgentTokenUsage,
   searchProjectFiles,
   fetchProjectWorkingTreeGit,
+  subscribeProjectChangeStream,
   fetchAgentChatSlashCommands
 } from "../../../api";
 import { navigateToTaskScreen } from "../../../app/routing/navigateToTaskScreen";
@@ -132,6 +133,24 @@ function writeComposeDraftState(agentId, sessionId, text, gitTags) {
   } catch {
     // ignore quota / private mode
   }
+}
+
+function workspaceChangesMarkdown(batch) {
+  const changes = Array.isArray(batch?.changes) ? batch.changes : [];
+  const lines = changes
+    .map((change) => {
+      const kind = String(change?.kind || "modified");
+      const path = String(change?.path || "").trim();
+      if (!path) return "";
+      const size = typeof change?.sizeBytes === "number" ? ` (${change.sizeBytes} bytes)` : "";
+      return `- ${kind}: ${path}${size}`;
+    })
+    .filter(Boolean);
+  return [
+    "[Workspace changes]",
+    `Project: ${String(batch?.projectId || "")}`,
+    ...lines
+  ].join("\n");
 }
 
 function removeAgentChatComposeDraft(agentId, sessionId) {
@@ -2677,6 +2696,7 @@ export function AgentChatTab({
   const [isDebugMenuOpen, setIsDebugMenuOpen] = useState(false);
   const [gitPanelOpen, setGitPanelOpen] = useState(false);
   const [gitBadge, setGitBadge] = useState(null);
+  const [projectChangeBatch, setProjectChangeBatch] = useState(null);
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
   const [isDesktopSessionsCollapsed, setIsDesktopSessionsCollapsed] = useState(false);
   const [sessionSidebarSearch, setSessionSidebarSearch] = useState("");
@@ -2857,6 +2877,21 @@ export function AgentChatTab({
       cancelled = true;
       window.clearInterval(timerId);
     };
+  }, [scopedProjectId]);
+
+  useEffect(() => {
+    if (!scopedProjectId) {
+      setProjectChangeBatch(null);
+      return undefined;
+    }
+    return subscribeProjectChangeStream(scopedProjectId, {
+      onBatch: (batch) => {
+        setProjectChangeBatch(batch);
+      },
+      onError: () => {
+        // The periodic git badge still works if the metadata stream disconnects.
+      }
+    });
   }, [scopedProjectId]);
 
   useEffect(() => {
@@ -4949,6 +4984,31 @@ export function AgentChatTab({
                 <span className="agent-chat-git-toolbar-stats">
                   <span className="agent-chat-git-stat-add">+{gitBadge.added}</span>
                   <span className="agent-chat-git-stat-del">−{gitBadge.deleted}</span>
+                </span>
+              </button>
+            ) : null}
+            {scopedProjectId && Array.isArray(projectChangeBatch?.changes) && projectChangeBatch.changes.length > 0 ? (
+              <button
+                type="button"
+                className="agent-chat-git-toolbar-btn"
+                onClick={() => {
+                  setGitDiffComposeTags((prev) => [
+                    ...prev,
+                    {
+                      id: `changes-${Date.now()}-${Math.random().toString(36).slice(2, 11)}`,
+                      label: `${projectChangeBatch.changes.length} workspace changes`,
+                      markdown: workspaceChangesMarkdown(projectChangeBatch)
+                    }
+                  ]);
+                }}
+                title="Attach recent workspace change list to the composer"
+                data-testid="agent-chat-workspace-changes-btn"
+              >
+                <span className="material-symbols-rounded" aria-hidden="true">
+                  folder_code
+                </span>
+                <span className="agent-chat-git-toolbar-stats">
+                  {projectChangeBatch.changes.length}
                 </span>
               </button>
             ) : null}

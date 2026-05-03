@@ -89,10 +89,6 @@ struct MainView: View {
         .onAppear {
             Task { await loadProjects() }
         }
-        .debugOverlay(isDebugEnabled ? .layoutBounds : .off)
-        .keyboardShortcut(.d, modifiers: [.command, .shift]) {
-            self.isDebugEnabled.toggle()
-        }
     }
     
     @State private var isDebugEnabled = false

@@ -1071,6 +1071,40 @@ public actor CoreRouter {
         )
     }
 
+    static func sseProjectChanges(status: Int, stream: AsyncStream<ProjectWorkingTreeChangeBatch>) -> CoreRouterResponse {
+        let sseStream = AsyncStream<CoreRouterServerSentEvent>(bufferingPolicy: .bufferingNewest(128)) { continuation in
+            let task = Task {
+                let encoder = JSONEncoder()
+                encoder.dateEncodingStrategy = .iso8601
+                encoder.outputFormatting = .sortedKeys
+
+                for await batch in stream {
+                    let payload = (try? encoder.encode(batch)) ?? CoreRouterConstants.emptyJSONData
+                    continuation.yield(
+                        CoreRouterServerSentEvent(
+                            event: "change_batch",
+                            data: payload,
+                            id: String(Int(batch.createdAt.timeIntervalSince1970 * 1000))
+                        )
+                    )
+                }
+
+                continuation.finish()
+            }
+
+            continuation.onTermination = { _ in
+                task.cancel()
+            }
+        }
+
+        return CoreRouterResponse(
+            status: status,
+            body: Data(),
+            contentType: "text/event-stream",
+            sseStream: sseStream
+        )
+    }
+
     static func sseText(status: Int, stream: AsyncStream<String>) -> CoreRouterResponse {
         let sseStream = AsyncStream<CoreRouterServerSentEvent>(bufferingPolicy: .bufferingNewest(256)) { continuation in
             let task = Task {

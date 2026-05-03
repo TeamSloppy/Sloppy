@@ -10,6 +10,7 @@ final class ToolExecutionService: @unchecked Sendable {
     private let agentCatalogStore: AgentCatalogFileStore
     private let agentSkillsStore: AgentSkillsFileStore?
     private let processRegistry: SessionProcessRegistry
+    private let browserService: BrowserCDPService
     private let channelSessionStore: ChannelSessionFileStore
     private var store: any PersistenceStore
     private let searchProviderService: SearchProviderService
@@ -33,6 +34,7 @@ final class ToolExecutionService: @unchecked Sendable {
         agentCatalogStore: AgentCatalogFileStore,
         agentSkillsStore: AgentSkillsFileStore? = nil,
         processRegistry: SessionProcessRegistry,
+        browserConfig: CoreConfig.Browser = CoreConfig.Browser(),
         channelSessionStore: ChannelSessionFileStore,
         store: any PersistenceStore,
         searchProviderService: SearchProviderService,
@@ -47,6 +49,7 @@ final class ToolExecutionService: @unchecked Sendable {
         self.agentCatalogStore = agentCatalogStore
         self.agentSkillsStore = agentSkillsStore
         self.processRegistry = processRegistry
+        self.browserService = BrowserCDPService(config: browserConfig, workspaceRootURL: workspaceRootURL)
         self.channelSessionStore = channelSessionStore
         self.store = store
         self.searchProviderService = searchProviderService
@@ -62,6 +65,10 @@ final class ToolExecutionService: @unchecked Sendable {
         self.workspaceRootURL = url
     }
 
+    func updateBrowserConfig(_ config: CoreConfig.Browser) async {
+        await browserService.updateConfig(config, workspaceRootURL: workspaceRootURL)
+    }
+
     func updateLSPConfig(_ config: CoreConfig.LSP) async {
         await lspManager.updateConfig(config, workspaceRootURL: workspaceRootURL)
     }
@@ -72,10 +79,12 @@ final class ToolExecutionService: @unchecked Sendable {
 
     func cleanupSessionProcesses(_ sessionID: String) async {
         await processRegistry.cleanup(sessionID: sessionID)
+        await browserService.cleanup(sessionID: sessionID)
     }
 
     func shutdown() async {
         await processRegistry.shutdown()
+        await browserService.shutdown()
         await lspManager.shutdown()
     }
 
@@ -145,6 +154,7 @@ final class ToolExecutionService: @unchecked Sendable {
             configService: configService,
             skillsService: skillsService,
             lspManager: lspManager,
+            browserService: browserService,
             applyAgentMarkdown: boundApply,
             delegateSubagent: delegateSubagent
         )

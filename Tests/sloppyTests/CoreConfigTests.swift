@@ -516,3 +516,55 @@ func proxyConfigRoundTrips() throws {
 
     #expect(decoded == original)
 }
+
+@Test
+func missingBrowserConfigFallsBackToDefaults() throws {
+    let json =
+        """
+        {
+          "listen": { "host": "0.0.0.0", "port": 25101 },
+          "auth": { "token": "dev-token" },
+          "models": [],
+          "memory": { "backend": "sqlite-local-vectors" },
+          "nodes": ["local"],
+          "gateways": [],
+          "plugins": [],
+          "sqlitePath": "core.sqlite"
+        }
+        """
+
+    let decoded = try JSONDecoder().decode(CoreConfig.self, from: Data(json.utf8))
+
+    #expect(decoded.browser.enabled == false)
+    #expect(decoded.browser.executablePath == "")
+    #expect(decoded.browser.profileName == "default")
+    #expect(decoded.browser.profilePath == nil)
+    #expect(decoded.browser.headless == false)
+    #expect(decoded.browser.startupTimeoutMs == 10_000)
+    #expect(decoded.browser.additionalArguments.isEmpty)
+}
+
+@Test
+func browserConfigRoundTrips() throws {
+    var config = CoreConfig.default
+    config.browser = .init(
+        enabled: true,
+        executablePath: "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+        profileName: "agent",
+        profilePath: "/tmp/sloppy-browser-profile",
+        headless: true,
+        startupTimeoutMs: 12_000,
+        additionalArguments: ["--disable-extensions"]
+    )
+
+    let encoded = try JSONEncoder().encode(config)
+    let decoded = try JSONDecoder().decode(CoreConfig.self, from: encoded)
+
+    #expect(decoded.browser.enabled == true)
+    #expect(decoded.browser.executablePath == "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome")
+    #expect(decoded.browser.profileName == "agent")
+    #expect(decoded.browser.profilePath == "/tmp/sloppy-browser-profile")
+    #expect(decoded.browser.headless == true)
+    #expect(decoded.browser.startupTimeoutMs == 12_000)
+    #expect(decoded.browser.additionalArguments == ["--disable-extensions"])
+}

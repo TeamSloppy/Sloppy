@@ -117,6 +117,7 @@ export const updateChannelModel = coreApi.updateChannelModel;
 export const clearChannelModel = coreApi.clearChannelModel;
 export const fetchTaskDiff = coreApi.fetchTaskDiff;
 export const fetchProjectWorkingTreeGit = coreApi.fetchProjectWorkingTreeGit;
+export const subscribeProjectChangeStream = coreApi.subscribeProjectChangeStream;
 export const postProjectGitRestore = coreApi.postProjectGitRestore;
 export const approveProjectTask = coreApi.approveProjectTask;
 export const rejectProjectTask = coreApi.rejectProjectTask;

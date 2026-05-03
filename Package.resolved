@@ -1,5 +1,5 @@
 {
-  "originHash" : "4d765e14b0c4b5795164ff4625be2f8c4501f15d1b83196c2389a214abdd4d3f",
+  "originHash" : "ac28225b899adc41d8cb3d2f2b0ecaee91eb9cd56c2ab52c0a822672a685c937",
   "pins" : [
     {
       "identity" : "anylanguagemodel",
@@ -92,6 +92,15 @@
       }
     },
     {
+      "identity" : "swift-cmark",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/swiftlang/swift-cmark.git",
+      "state" : {
+        "revision" : "5d9bdaa4228b381639fff09403e39a04926e2dbe",
+        "version" : "0.7.1"
+      }
+    },
+    {
       "identity" : "swift-collections",
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/apple/swift-collections.git",
@@ -110,6 +119,15 @@
       }
     },
     {
+      "identity" : "swift-displaywidth",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/ainame/swift-displaywidth.git",
+      "state" : {
+        "revision" : "5493276f6c91fd09d348e6cea70d66346fc7b610",
+        "version" : "0.1.0"
+      }
+    },
+    {
       "identity" : "swift-distributed-tracing",
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/apple/swift-distributed-tracing.git",
@@ -125,6 +143,15 @@
       "state" : {
         "revision" : "8c0f217f01000dd30f60d6e536569ad4e74291f9",
         "version" : "1.11.0"
+      }
+    },
+    {
+      "identity" : "swift-markdown",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/apple/swift-markdown.git",
+      "state" : {
+        "revision" : "7d9a5ce307528578dfa777d505496bd5f544ad94",
+        "version" : "0.7.3"
       }
     },
     {
@@ -188,6 +215,15 @@
       "state" : {
         "branch" : "main",
         "revision" : "963a4d30886b093443f406abf154e07cd90aac0f"
+      }
+    },
+    {
+      "identity" : "tautui",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/steipete/TauTUI.git",
+      "state" : {
+        "branch" : "main",
+        "revision" : "d314c409d2ba719ee8da41a664bcd5059f09d9ca"
       }
     }
   ],

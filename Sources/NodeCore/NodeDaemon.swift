@@ -54,6 +54,7 @@ public actor NodeDaemon {
                 return .success(action: request.action, data: try JSONValueCoder.encode(result))
             case .computerClick:
                 let payload = try JSONValueCoder.decode(ComputerClickPayload.self, from: request.payload)
+                try validateClickPayload(payload)
                 let data = try await computerController.click(payload)
                 return .success(action: request.action, data: JSONValue(computerControlValue: data))
             case .computerTypeText:

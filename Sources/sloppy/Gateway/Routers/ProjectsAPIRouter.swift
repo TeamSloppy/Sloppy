@@ -96,6 +96,18 @@ struct ProjectsAPIRouter: APIRouter {
             }
         }
 
+        router.get("/v1/projects/:projectId/changes/stream", metadata: RouteMetadata(summary: "Project working tree change stream", description: "Streams debounced project file metadata changes without file contents", tags: ["Projects"])) { request in
+            let projectId = request.pathParam("projectId") ?? ""
+            do {
+                let stream = try await service.streamProjectWorkingTreeChanges(projectID: projectId)
+                return CoreRouter.sseProjectChanges(status: HTTPStatus.ok, stream: stream)
+            } catch let error as CoreService.ProjectError {
+                return CoreRouter.projectErrorResponse(error, fallback: ErrorCode.projectReadFailed)
+            } catch {
+                return CoreRouter.json(status: HTTPStatus.internalServerError, payload: ["error": ErrorCode.projectReadFailed])
+            }
+        }
+
         router.post("/v1/projects/:projectId/git/restore", metadata: RouteMetadata(summary: "Restore project file from HEAD", description: "Runs git restore --source=HEAD --staged --worktree for a path under the project repo", tags: ["Projects"])) { request in
             let projectId = request.pathParam("projectId") ?? ""
             guard let body = request.body,

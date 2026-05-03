@@ -479,6 +479,50 @@ public struct ProjectCreateResult: Codable, Sendable, Equatable {
     }
 }
 
+public enum ProjectWorkingTreeChangeKind: String, Codable, Sendable, Equatable {
+    case created
+    case modified
+    case deleted
+}
+
+public struct ProjectWorkingTreeChange: Codable, Sendable, Equatable {
+    public var path: String
+    public var kind: ProjectWorkingTreeChangeKind
+    public var sizeBytes: Int?
+    public var modifiedAt: Date?
+
+    public init(
+        path: String,
+        kind: ProjectWorkingTreeChangeKind,
+        sizeBytes: Int? = nil,
+        modifiedAt: Date? = nil
+    ) {
+        self.path = path
+        self.kind = kind
+        self.sizeBytes = sizeBytes
+        self.modifiedAt = modifiedAt
+    }
+}
+
+public struct ProjectWorkingTreeChangeBatch: Codable, Sendable, Equatable {
+    public var projectId: String
+    public var rootPath: String
+    public var changes: [ProjectWorkingTreeChange]
+    public var createdAt: Date
+
+    public init(
+        projectId: String,
+        rootPath: String,
+        changes: [ProjectWorkingTreeChange],
+        createdAt: Date = Date()
+    ) {
+        self.projectId = projectId
+        self.rootPath = rootPath
+        self.changes = changes
+        self.createdAt = createdAt
+    }
+}
+
 // MARK: - Project Analytics
 
 public enum ProjectAnalyticsWindow: String, Codable, Sendable, Equatable, CaseIterable {

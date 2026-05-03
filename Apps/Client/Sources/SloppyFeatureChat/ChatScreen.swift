@@ -66,7 +66,7 @@ private struct ChatScreenContent: View {
     var body: some View {
         NavigationStack {
             chatChrome
-//                .background(idiom == .phone ? theme.colors.background.ignoresSafeArea() : Color.clear.ignoresSafeArea())
+                .background(idiom == .phone ? theme.colors.background.ignoresSafeArea() : Color.clear.ignoresSafeArea())
                 .navigationBarLeadingItems {
                     leadingNavigationItems
                 }
@@ -259,16 +259,13 @@ private struct ChatScreenContent: View {
             VStack(spacing: 0) {
                 ScrollViewReader { proxy in
                     ScrollView {
-                        LazyVStack(
-                            viewModel.messages,
-                            alignment: .leading,
-                            spacing: theme.spacing.xl,
-                            estimatedRowHeight: 124,
-                            overscan: 10
-                        ) { msg in
-                            ChatBubbleView(message: msg)
-                                .frame(minWidth: 0, maxWidth: .infinity)
-                                .allowsHitTesting(false)
+                        VStack(alignment: .leading, spacing: theme.spacing.xl) {
+                            ForEach(viewModel.messages) { msg in
+                                ChatBubbleView(message: msg)
+                                    .frame(minWidth: 0, maxWidth: .infinity)
+                                    .allowsHitTesting(false)
+                                    .id(msg.id)
+                            }
                         }
                         .padding(.top, messagesTopInset)
                         .padding(.bottom, composerScrollInset)

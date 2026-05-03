@@ -38,6 +38,12 @@ interface AgentSessionStreamHandlers {
   onError?: () => void;
 }
 
+interface ProjectChangeStreamHandlers {
+  onBatch?: (batch: AnyRecord) => void;
+  onOpen?: () => void;
+  onError?: () => void;
+}
+
 interface DashboardTerminalHandlers {
   onMessage?: (payload: AnyRecord) => void;
   onOpen?: () => void;
@@ -207,6 +213,10 @@ export interface CoreApi {
   clearChannelModel: (channelId: string) => Promise<boolean>;
   fetchTaskDiff: (projectId: string, taskId: string) => Promise<AnyRecord | null>;
   fetchProjectWorkingTreeGit: (projectId: string) => Promise<AnyRecord | null>;
+  subscribeProjectChangeStream: (
+    projectId: string,
+    handlers?: ProjectChangeStreamHandlers
+  ) => () => void;
   postProjectGitRestore: (projectId: string, path: string) => Promise<boolean>;
   approveProjectTask: (projectId: string, taskId: string) => Promise<boolean>;
   rejectProjectTask: (projectId: string, taskId: string, reason?: string) => Promise<boolean>;
@@ -1688,6 +1698,36 @@ export function createCoreApi(): CoreApi {
       });
       if (!response.ok) return null;
       return response.data;
+    },
+
+    subscribeProjectChangeStream: (projectId, handlers = {}) => {
+      const source = new EventSource(
+        buildApiURL(`/v1/projects/${encodeURIComponent(projectId)}/changes/stream`)
+      );
+
+      source.onopen = () => {
+        handlers.onOpen?.();
+      };
+
+      source.addEventListener("change_batch", (event) => {
+        if (typeof handlers.onBatch !== "function") return;
+        try {
+          const payload = JSON.parse(String(event.data || "{}"));
+          if (payload && typeof payload === "object") {
+            handlers.onBatch(payload as AnyRecord);
+          }
+        } catch {
+          // Ignore malformed change chunks and keep the stream alive.
+        }
+      });
+
+      source.onerror = () => {
+        handlers.onError?.();
+      };
+
+      return () => {
+        source.close();
+      };
     },
 
     postProjectGitRestore: async (projectId, path) => {
