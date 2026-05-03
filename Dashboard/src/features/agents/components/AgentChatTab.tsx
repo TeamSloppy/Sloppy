@@ -845,6 +845,15 @@ function containsOAuthError(text) {
   return OAUTH_ERROR_PATTERNS.some((pattern) => lower.includes(pattern));
 }
 
+function isToolApprovalRecord(record) {
+  const title = String(record?.title || "").toLowerCase();
+  const summary = String(record?.summary || "").toLowerCase();
+  const detail = String(record?.detail || "").toLowerCase();
+  return title.includes("tool approval required") ||
+    summary.includes("tool approval required") ||
+    detail.includes("tool approval required");
+}
+
 function navigateToOAuthSettings() {
   window.history.pushState({}, "", "/config/providers");
   window.dispatchEvent(new PopStateEvent("popstate"));
@@ -1623,6 +1632,21 @@ function AgentChatEvents({
     const isLatestActive = Boolean(record.isActive);
     const eventTimeLabel = formatTechnicalEventTime(record.createdAt, timeNowMs);
     const eventTimeTitle = formatFullEventDateTime(record.createdAt);
+    const isToolApproval = isToolApprovalRecord(record);
+
+    if (isToolApproval) {
+      return (
+        <article key={techItem.id || `tech-${techIndex}`} className="agent-chat-approval-card">
+          <span className="material-symbols-rounded" aria-hidden="true">
+            approval
+          </span>
+          <div>
+            <strong>{record.title || "Tool approval required"}</strong>
+            <p>{record.summary || record.detail || "The upstream ACP runtime requested permission before continuing."}</p>
+          </div>
+        </article>
+      );
+    }
 
     return (
       <div key={techItem.id || `tech-${techIndex}`} className="agent-chat-tech-entry">

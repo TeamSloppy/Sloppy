@@ -436,6 +436,15 @@ public actor CoreService {
                 return await self.projectBootstrapMarkdownForAgentSession(projectID: projectID)
             }
             await self.configureToolExecutionServices()
+            await self.acpSessionManager.updatePermissionNotificationSink { [weak self] agentID, sessionID, summary in
+                guard let self else { return }
+                await self.notificationService.pushToolApprovalRequired(
+                    title: "Tool approval required",
+                    message: summary,
+                    agentId: agentID,
+                    sessionId: sessionID
+                )
+            }
             await self.runtime.updateWorkerExecutor(
                 ToolExecutionWorkerExecutorAdapter(
                     toolExecutionService: self.toolExecution,

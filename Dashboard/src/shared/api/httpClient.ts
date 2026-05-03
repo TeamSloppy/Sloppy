@@ -171,6 +171,7 @@ export async function requestJson<TResponse, TBody = unknown>(
 
   try {
     const response = await fetch(buildApiURL(options.path), requestInit);
+    markNetworkConnected();
     const data = await parseJSONSafely<TResponse>(response);
     if (response.status === 401 && (protectedRequest || headers.has("authorization"))) {
       invalidateDashboardAuthToken();
@@ -182,12 +183,18 @@ export async function requestJson<TResponse, TBody = unknown>(
   }
 }
 
-let lastNetworkErrorTs = 0;
-const NETWORK_ERROR_THROTTLE_MS = 10_000;
+let consecutiveNetworkErrorCount = 0;
+let networkErrorShown = false;
+const NETWORK_ERROR_DISPLAY_THRESHOLD = 5;
 
 function emitNetworkError() {
-  const now = Date.now();
-  if (now - lastNetworkErrorTs < NETWORK_ERROR_THROTTLE_MS) return;
-  lastNetworkErrorTs = now;
+  consecutiveNetworkErrorCount += 1;
+  if (networkErrorShown || consecutiveNetworkErrorCount < NETWORK_ERROR_DISPLAY_THRESHOLD) return;
+  networkErrorShown = true;
   emitNotification("system_error", "Connection lost", "Failed to reach the backend. Check if Sloppy is running.");
+}
+
+function markNetworkConnected() {
+  consecutiveNetworkErrorCount = 0;
+  networkErrorShown = false;
 }

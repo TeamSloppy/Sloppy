@@ -181,6 +181,7 @@ actor ACPSessionManager {
     private var config: CoreConfig.ACP
     private var workspaceRootURL: URL
     private var sessions: [String: ACPManagedSession] = [:]
+    private var permissionNotificationSink: (@Sendable (String, String, String) async -> Void)?
 
     init(
         config: CoreConfig.ACP,
@@ -194,6 +195,10 @@ actor ACPSessionManager {
         self.stateStore = ACPSessionStateStore(agentsRootURL: agentsRootURL)
         self.logger = logger
         self.clientFactory = clientFactory
+    }
+
+    func updatePermissionNotificationSink(_ sink: (@Sendable (String, String, String) async -> Void)?) {
+        permissionNotificationSink = sink
     }
 
     func updateConfig(_ config: CoreConfig.ACP, workspaceRootURL: URL, agentsRootURL: URL) async {
@@ -588,6 +593,36 @@ actor ACPSessionManager {
         )
     }
 
+    private func handlePermissionRequested(sessionKey: String, summary: String) async {
+        guard let managed = sessions[sessionKey], let currentRun = managed.currentRun else {
+            logger.info("ACP permission requested: \(summary)")
+            return
+        }
+
+        if currentRun.visibility == .hiddenPrimer {
+            logger.info("ACP hidden primer permission requested: \(summary)")
+            return
+        }
+
+        await permissionNotificationSink?(
+            currentRun.agentID,
+            currentRun.sloppySessionID,
+            summary
+        )
+        await currentRun.onEvent(
+            AgentSessionEvent(
+                agentId: currentRun.agentID,
+                sessionId: currentRun.sloppySessionID,
+                type: .runStatus,
+                runStatus: AgentRunStatusEvent(
+                    stage: .paused,
+                    label: "Tool approval required",
+                    details: summary
+                )
+            )
+        )
+    }
+
     private func logHiddenPrimerUpdate(_ update: SessionUpdate) {
         switch update {
         case .agentMessageChunk(let block), .agentThoughtChunk(let block):
@@ -737,7 +772,14 @@ actor ACPSessionManager {
         let delegate = ACPClientDelegateAdapter(
             permissionMode: target.permissionMode,
             permissionEventSink: { [weak self] summary in
-                await self?.handlePermissionDecision(sessionKey: sessionKey, summary: summary)
+                if summary.hasPrefix("requested: ") {
+                    await self?.handlePermissionRequested(
+                        sessionKey: sessionKey,
+                        summary: String(summary.dropFirst("requested: ".count))
+                    )
+                } else {
+                    await self?.handlePermissionDecision(sessionKey: sessionKey, summary: summary)
+                }
             }
         )
         await client.setDelegate(delegate)
@@ -1052,6 +1094,7 @@ private actor ACPClientDelegateAdapter: ClientDelegate {
 
     func handlePermissionRequest(request: RequestPermissionRequest) async throws -> RequestPermissionResponse {
         let requested = Self.permissionRequestSummary(request)
+        await permissionEventSink("requested: \(requested)")
 
         switch permissionMode {
         case .allowOnce:

@@ -7,7 +7,8 @@ const TYPE_META: Record<NotificationType, { icon: string; color: string; label: 
   confirmation: { icon: "help_outline", color: "var(--warn)", label: "CONFIRM" },
   agent_error: { icon: "error_outline", color: "var(--danger)", label: "AGENT" },
   system_error: { icon: "warning", color: "var(--danger)", label: "SYSTEM" },
-  pending_approval: { icon: "person_add", color: "var(--accent)", label: "APPROVAL" }
+  pending_approval: { icon: "person_add", color: "var(--accent)", label: "APPROVAL" },
+  tool_approval: { icon: "approval", color: "var(--warn)", label: "TOOL" }
 };
 
 function formatTime(ts: number): string {
@@ -16,6 +17,13 @@ function formatTime(ts: number): string {
   if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
   if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
   return new Date(ts).toLocaleDateString();
+}
+
+function sessionIdFromChannelId(channelId?: string): string | undefined {
+  const raw = channelId || "";
+  const sessionMarker = ":session:";
+  const sessionIdx = raw.indexOf(sessionMarker);
+  return sessionIdx >= 0 ? raw.slice(sessionIdx + sessionMarker.length) : undefined;
 }
 
 function NotificationItem({
@@ -33,12 +41,17 @@ function NotificationItem({
 }) {
   const meta = TYPE_META[notification.type];
 
-  const hasAgentLink = notification.type === "agent_error" && notification.metadata?.agentId;
+  const hasAgentLink = Boolean(notification.metadata?.agentId);
 
   function handleClick() {
     onRead(notification.id);
     if (notification.type === "pending_approval" && notification.metadata?.approvalId) {
       onApprovalClick?.(notification.metadata.approvalId);
+      return;
+    }
+    if (notification.metadata?.agentId && onNavigateToAgent) {
+      const sessionId = notification.metadata.sessionId || sessionIdFromChannelId(notification.metadata.channelId);
+      onNavigateToAgent(notification.metadata.agentId, sessionId);
     }
   }
 
@@ -47,10 +60,7 @@ function NotificationItem({
     onRead(notification.id);
     const agentId = notification.metadata?.agentId;
     if (!agentId || !onNavigateToAgent) return;
-    const channelId = notification.metadata?.channelId || "";
-    const sessionMarker = ":session:";
-    const sessionIdx = channelId.indexOf(sessionMarker);
-    const sessionId = sessionIdx >= 0 ? channelId.slice(sessionIdx + sessionMarker.length) : undefined;
+    const sessionId = notification.metadata?.sessionId || sessionIdFromChannelId(notification.metadata?.channelId);
     onNavigateToAgent(agentId, sessionId);
   }
 

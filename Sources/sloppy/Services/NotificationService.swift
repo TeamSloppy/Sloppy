@@ -111,6 +111,26 @@ public actor NotificationService {
         ))
     }
 
+    public func pushToolApprovalRequired(
+        title: String,
+        message: String,
+        agentId: String,
+        sessionId: String
+    ) {
+        push(
+            DashboardNotification(
+                type: .toolApproval,
+                title: title,
+                message: message,
+                metadata: [
+                    "agentId": agentId,
+                    "sessionId": sessionId,
+                    "channelId": "agent:\(agentId):session:\(sessionId)"
+                ]
+            )
+        )
+    }
+
     private func unsubscribe(id: UUID) {
         subscribers.removeValue(forKey: id)
     }

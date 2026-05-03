@@ -13,7 +13,8 @@ interface ServerNotification {
 }
 
 const RECONNECT_DELAY_MS = 3000;
-const VALID_TYPES: NotificationType[] = ["confirmation", "agent_error", "system_error", "pending_approval"];
+const VALID_TYPES: NotificationType[] = ["confirmation", "agent_error", "system_error", "pending_approval", "tool_approval"];
+const CONNECTION_LOST_DISPLAY_THRESHOLD = 5;
 
 function mapServerType(raw: string): NotificationType {
   if (VALID_TYPES.includes(raw as NotificationType)) return raw as NotificationType;
@@ -29,12 +30,19 @@ export function useNotificationSocket() {
     let socket: WebSocket | null = null;
     let reconnectTimer: number | null = null;
     let disposed = false;
+    let reconnectAttempts = 0;
+    let connectionLostShown = false;
 
     function connect() {
       if (disposed) return;
 
       const url = buildWebSocketURL("/v1/notifications/ws");
       socket = new WebSocket(url);
+
+      socket.onopen = () => {
+        reconnectAttempts = 0;
+        connectionLostShown = false;
+      };
 
       socket.onmessage = (event) => {
         if (!event?.data) return;
@@ -52,6 +60,11 @@ export function useNotificationSocket() {
       socket.onclose = () => {
         socket = null;
         if (disposed) return;
+        reconnectAttempts += 1;
+        if (!connectionLostShown && reconnectAttempts >= CONNECTION_LOST_DISPLAY_THRESHOLD) {
+          connectionLostShown = true;
+          pushRef.current("system_error", "Connection lost", "Failed to reach the backend notification stream.");
+        }
         reconnectTimer = window.setTimeout(() => {
           reconnectTimer = null;
           connect();

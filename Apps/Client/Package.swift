@@ -112,8 +112,6 @@ let package = Package(
                 .product(name: "Logging", package: "swift-log"),
                 .product(name: "AdaEngine", package: "AdaEngine"),
                 .product(name: "AdaMCPPlugin", package: "AdaMCP", condition: .when(platforms: [.macOS, .iOS, .visionOS])),
-                .product(name: "SloppyComputerControl", package: "SloppyComputerControl", condition: .when(platforms: [.macOS])),
-//                .product(name: "AdaRuntimeDebugPlugin", package: "AdaMCP", condition: .when(platforms: [.macOS]))
             ],
             path: "Sources/SloppyClient"
         ),

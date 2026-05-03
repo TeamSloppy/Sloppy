@@ -1965,6 +1965,38 @@ body.agent-chat-no-page-scroll .page {
   max-width: none;
 }
 
+.agent-chat-approval-card {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 10px;
+  align-items: start;
+  width: 100%;
+  padding: 12px 14px;
+  border: 1px solid rgba(245, 180, 80, 0.55);
+  background: rgba(245, 180, 80, 0.1);
+  color: var(--text);
+}
+
+.agent-chat-approval-card .material-symbols-rounded {
+  color: var(--warn);
+  font-size: 20px;
+}
+
+.agent-chat-approval-card strong {
+  display: block;
+  margin-bottom: 4px;
+  color: var(--warn);
+  font-size: 0.86rem;
+}
+
+.agent-chat-approval-card p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.8rem;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
 .agent-chat-technical-body {
   background: var(--surface-3);
   border-radius: 0;

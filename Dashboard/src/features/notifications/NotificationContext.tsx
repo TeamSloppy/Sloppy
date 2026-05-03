@@ -1,7 +1,7 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import { subscribeNotificationBus } from "./notificationBus";
 
-export type NotificationType = "confirmation" | "agent_error" | "system_error" | "pending_approval";
+export type NotificationType = "confirmation" | "agent_error" | "system_error" | "pending_approval" | "tool_approval";
 
 export interface Notification {
   id: string;
