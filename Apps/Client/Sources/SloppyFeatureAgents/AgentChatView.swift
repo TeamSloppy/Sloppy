@@ -18,6 +18,9 @@ struct AgentChatView: View {
     @State private var composerDraft = ChatComposerDraft()
     @State private var socketManager: SessionSocketManager?
     @State private var streamTask: Task<Void, Never>?
+    @State private var streamingFlushTask: Task<Void, Never>?
+    @State private var pendingStreamingSessionId: String?
+    @State private var pendingStreamingAssistantText: String?
     @Environment(\.theme) private var theme
 
     var body: some View {
@@ -102,6 +105,7 @@ struct AgentChatView: View {
         let manager = socketManager
         streamTask?.cancel()
         streamTask = nil
+        cancelPendingStreamingAssistantText()
         socketManager = nil
         if let manager {
             Task { await manager.disconnect() }
@@ -170,14 +174,12 @@ struct AgentChatView: View {
             }
         case .sessionEvent, .sessionDelta:
             if update.kind == .sessionDelta, let text = update.messageText {
-                applyStreamingAssistantText(text, sessionId: sessionId)
+                scheduleStreamingAssistantText(text, sessionId: sessionId)
             } else if let msg = update.message {
                 upsertMessage(msg, sessionId: sessionId)
             }
-        case .sessionClosed:
-            break
-        case .sessionError:
-            break
+        case .sessionClosed, .sessionError:
+            flushPendingStreamingAssistantText()
         case .heartbeat:
             break
         }
@@ -185,6 +187,7 @@ struct AgentChatView: View {
 
     private func upsertMessage(_ message: ChatMessage, sessionId: String) {
         if message.role == .assistant {
+            cancelPendingStreamingAssistantText(for: sessionId)
             messages.removeAll { $0.id == streamingAssistantMessageId(for: sessionId) }
         } else if message.role == .user {
             messages.removeAll { $0.id.hasPrefix("optimistic-user-") }
@@ -195,6 +198,46 @@ struct AgentChatView: View {
         } else {
             messages.append(message)
         }
+    }
+
+    private func scheduleStreamingAssistantText(_ text: String, sessionId: String) {
+        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        pendingStreamingSessionId = sessionId
+        pendingStreamingAssistantText = text
+
+        guard streamingFlushTask == nil else {
+            return
+        }
+
+        streamingFlushTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 100_000_000)
+            guard !Task.isCancelled else { return }
+            flushPendingStreamingAssistantText()
+        }
+    }
+
+    private func flushPendingStreamingAssistantText() {
+        guard let sessionId = pendingStreamingSessionId,
+              let text = pendingStreamingAssistantText else {
+            streamingFlushTask = nil
+            return
+        }
+
+        pendingStreamingSessionId = nil
+        pendingStreamingAssistantText = nil
+        streamingFlushTask = nil
+        applyStreamingAssistantText(text, sessionId: sessionId)
+    }
+
+    private func cancelPendingStreamingAssistantText(for sessionId: String? = nil) {
+        guard sessionId == nil || pendingStreamingSessionId == sessionId else {
+            return
+        }
+
+        streamingFlushTask?.cancel()
+        streamingFlushTask = nil
+        pendingStreamingSessionId = nil
+        pendingStreamingAssistantText = nil
     }
 
     private func applyStreamingAssistantText(_ text: String, sessionId: String) {
@@ -265,21 +308,50 @@ struct ChatTranscriptView: View {
             .padding(.vertical, sp.m)
 
             ZStack(anchor: .bottom) {
-                ScrollView {
-                    if messages.isEmpty {
-                        EmptyStateView("No messages yet")
-                            .padding(.vertical, sp.xl)
+                ScrollViewReader { proxy in
+                    ScrollView {
+                        if messages.isEmpty {
+                            EmptyStateView("No messages yet")
+                                .padding(.vertical, sp.xl)
+                                .padding(sp.m)
+                                .padding(.bottom, composerScrollInset)
+                        } else {
+                            LazyVStack(
+                                messages,
+                                alignment: .leading,
+                                spacing: sp.s,
+                                estimatedRowHeight: 156,
+                                overscan: 8
+                            ) { msg in
+                                ChatBubbleView(message: msg)
+                                    .frame(minWidth: 0, maxWidth: .infinity)
+                                    .allowsHitTesting(false)
+                            }
                             .padding(sp.m)
                             .padding(.bottom, composerScrollInset)
-                    } else {
-                        VStack(alignment: .leading, spacing: sp.s) {
-                            ForEach(messages) { msg in
-                                ChatBubbleView(message: msg)
-                                    .id(msg.id)
-                            }
                         }
-                        .padding(sp.m)
-                        .padding(.bottom, composerScrollInset)
+                    }
+                    .onChange(of: messages.count) { oldCount, newCount in
+                        guard newCount > oldCount,
+                              oldCount == 0 || proxy.isNearBottom(threshold: 220),
+                              let lastMessageId = messages.last?.id else {
+                            return
+                        }
+
+                        Task { @MainActor in
+                            proxy.scrollTo(lastMessageId, anchor: .bottom)
+                        }
+                    }
+                    .onChange(of: latestAssistantMessageLayoutKey) { _, _ in
+                        guard proxy.isNearBottom(threshold: 480),
+                              let lastMessage = messages.last,
+                              lastMessage.role == .assistant else {
+                            return
+                        }
+
+                        Task { @MainActor in
+                            proxy.scrollTo(lastMessage.id, anchor: .bottom)
+                        }
                     }
                 }
 
@@ -299,5 +371,13 @@ struct ChatTranscriptView: View {
 
     private var composerScrollInset: Float {
         ChatComposerView.panelHeight + theme.spacing.xxl
+    }
+
+    private var latestAssistantMessageLayoutKey: String {
+        guard let message = messages.last,
+              message.role == .assistant else {
+            return ""
+        }
+        return "\(message.id):\(message.textContent.count)"
     }
 }

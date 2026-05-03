@@ -72,20 +72,13 @@ struct MainView: View {
     var body: some View {
         let c = theme.colors
 
-        GeometryReader { proxy in
-            let isCompact = idiom == .phone || proxy.size.width < 620
+        ZStack {
+            c.background
+                .ignoresSafeArea()
 
-            ZStack {
-                c.background
-                    .ignoresSafeArea()
-
-                splitLayout(
-                    isCompact: isCompact,
-                    availableWidth: proxy.size.width
-                )
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            regularSplitLayout()
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onAppear {
             Task { await loadProjects() }
         }

@@ -16,6 +16,7 @@ public struct ChatBubbleView: View {
     private var isUser: Bool { message.role == .user }
     private var isAssistant: Bool { message.role == .assistant }
     private var isPhone: Bool { idiom == .phone }
+    private var isStreamingAssistant: Bool { message.id.hasPrefix("streaming-assistant-") }
 
     public var body: some View {
         if isUser {
@@ -47,7 +48,7 @@ public struct ChatBubbleView: View {
         return HStack(spacing: 0) {
             Spacer(minLength: sp.xxl)
 
-            Text(markdown: messageText)
+            Text(messageText)
                 .font(.system(size: ty.body))
                 .foregroundColor(c.textPrimary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -66,7 +67,7 @@ public struct ChatBubbleView: View {
         let sp = theme.spacing
         let ty = theme.typography
 
-        return Text(markdown: messageText)
+        return Text(messageText)
             .font(.system(size: ty.body))
             .foregroundColor(c.textPrimary)
             .fixedSize(horizontal: false, vertical: true)
@@ -106,7 +107,7 @@ public struct ChatBubbleView: View {
                 .frame(height: theme.borders.thin)
                 .background(c.border.opacity(0.48 as Float))
 
-            Text(markdown: messageText)
+            assistantText
                 .font(.system(size: ty.body))
                 .foregroundColor(c.textPrimary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -120,7 +121,7 @@ public struct ChatBubbleView: View {
         let sp = theme.spacing
         let ty = theme.typography
 
-        return Text(markdown: messageText)
+        return assistantText
             .font(.system(size: ty.body))
             .foregroundColor(c.textPrimary)
             .fixedSize(horizontal: false, vertical: true)
@@ -145,6 +146,15 @@ public struct ChatBubbleView: View {
                 .background(c.surface.opacity(0.68 as Float))
                 .glassEffect(.regular, in: .rect(cornerRadius: 12))
             Spacer(minLength: sp.xl)
+        }
+    }
+
+    @ViewBuilder
+    private var assistantText: some View {
+        if isStreamingAssistant {
+            Text(messageText)
+        } else {
+            Text(markdown: messageText)
         }
     }
 

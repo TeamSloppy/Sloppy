@@ -5,19 +5,100 @@ import SloppyClientCore
 
 @Observable
 @MainActor
+public final class ChatTranscriptState {
+    private static let initialVisibleMessageCount = 64
+    private static let visibleMessagePageSize = 64
+
+    @ObservationIgnored private var allMessages: [ChatMessage] = []
+    @ObservationIgnored private var visibleMessageCount = initialVisibleMessageCount
+    public private(set) var messages: [ChatMessage] = []
+
+    var isEmpty: Bool {
+        messages.isEmpty
+    }
+
+    var lastMessage: ChatMessage? {
+        messages.last
+    }
+
+    var hasEarlierMessages: Bool {
+        allMessages.count > messages.count
+    }
+
+    var hiddenMessageCount: Int {
+        max(0, allMessages.count - messages.count)
+    }
+
+    func replaceAll(_ newMessages: [ChatMessage]) {
+        allMessages = newMessages
+        visibleMessageCount = min(Self.initialVisibleMessageCount, max(visibleMessageCount, newMessages.count))
+        rebuildVisibleMessages()
+    }
+
+    func clear() {
+        allMessages = []
+        visibleMessageCount = Self.initialVisibleMessageCount
+        messages = []
+    }
+
+    func append(_ message: ChatMessage) {
+        allMessages.append(message)
+        rebuildVisibleMessages()
+    }
+
+    func removeAll(where shouldBeRemoved: (ChatMessage) -> Bool) {
+        allMessages.removeAll(where: shouldBeRemoved)
+        rebuildVisibleMessages()
+    }
+
+    func upsert(_ message: ChatMessage) {
+        if let idx = allMessages.firstIndex(where: { $0.id == message.id }) {
+            allMessages[idx] = message
+        } else {
+            allMessages.append(message)
+        }
+        rebuildVisibleMessages()
+    }
+
+    func revealEarlierMessages() {
+        guard hasEarlierMessages else { return }
+        visibleMessageCount = min(
+            allMessages.count,
+            visibleMessageCount + Self.visibleMessagePageSize
+        )
+        rebuildVisibleMessages()
+    }
+
+    private func rebuildVisibleMessages() {
+        guard !allMessages.isEmpty else {
+            messages = []
+            return
+        }
+
+        let count = min(visibleMessageCount, allMessages.count)
+        messages = Array(allMessages.suffix(count))
+    }
+}
+
+@Observable
+@MainActor
 public final class ChatScreenViewModel {
     public private(set) var agents: [APIAgentRecord] = []
     public private(set) var selectedAgent: APIAgentRecord?
     public private(set) var sessions: [ChatSessionSummary] = []
     public var selectedSessionId: String?
-    public private(set) var messages: [ChatMessage] = []
     public private(set) var activeContextTitle: String?
     public private(set) var sessionActionStatus: String?
     public private(set) var isLoadingSessions = false
     public private(set) var isSending = false
     public var showAgentPicker = false
     public var showSessionPicker = false
+    public let transcript = ChatTranscriptState()
     public let composerDraft = ChatComposerDraft()
+
+    public var messages: [ChatMessage] {
+        transcript.messages
+    }
 
     @ObservationIgnored private let apiClient: SloppyAPIClient
     @ObservationIgnored private let settings: ClientSettings
@@ -77,7 +158,7 @@ public final class ChatScreenViewModel {
                 selectedAgent = agent
                 await loadSessions(for: agent)
                 selectedSessionId = nil
-                messages = []
+                transcript.clear()
                 activeContextTitle = nil
                 activeProjectId = nil
                 settings.lastSessionId = nil
@@ -127,7 +208,7 @@ public final class ChatScreenViewModel {
                     disconnectCurrentSession()
                     selectedSessionId = nil
                     settings.lastSessionId = nil
-                    messages = []
+                    transcript.clear()
                     activeContextTitle = nil
                     activeProjectId = nil
                 }
@@ -187,7 +268,7 @@ public final class ChatScreenViewModel {
         disconnectCurrentSession()
         selectedAgent = agent
         selectedSessionId = nil
-        messages = []
+        transcript.clear()
         activeContextTitle = nil
         activeProjectId = nil
         settings.lastAgentId = agent.id
@@ -202,7 +283,7 @@ public final class ChatScreenViewModel {
         disconnectCurrentSession()
         let contextTitle = activeContextTitle
         let projectId = activeProjectId
-        messages = []
+        transcript.clear()
         selectedSessionId = nil
         activeContextTitle = contextTitle
         activeProjectId = projectId
@@ -228,7 +309,7 @@ public final class ChatScreenViewModel {
         let retainedContextTitle = contextTitle ?? activeContextTitle
         let retainedProjectId = projectId ?? activeProjectId
         disconnectCurrentSession()
-        messages = []
+        transcript.clear()
         selectedSessionId = sessionId
         activeContextTitle = retainedContextTitle
         activeProjectId = retainedProjectId
@@ -241,7 +322,7 @@ public final class ChatScreenViewModel {
         guard let agent else {
             selectedAgent = nil
             selectedSessionId = nil
-            messages = []
+            transcript.clear()
             activeContextTitle = nil
             activeProjectId = nil
             return
@@ -261,7 +342,7 @@ public final class ChatScreenViewModel {
         guard let agent else {
             selectedAgent = nil
             selectedSessionId = nil
-            messages = []
+            transcript.clear()
             activeContextTitle = title
             activeProjectId = projectId
             return
@@ -287,7 +368,7 @@ public final class ChatScreenViewModel {
         disconnectCurrentSession()
         selectedAgent = agent
         selectedSessionId = nil
-        messages = []
+        transcript.clear()
         activeContextTitle = contextTitle
         activeProjectId = nil
         settings.lastAgentId = agent.id
@@ -308,7 +389,7 @@ public final class ChatScreenViewModel {
         disconnectCurrentSession()
         selectedAgent = agent
         selectedSessionId = nil
-        messages = []
+        transcript.clear()
         activeContextTitle = contextTitle
         activeProjectId = projectId
         settings.lastAgentId = agent.id
@@ -378,7 +459,7 @@ public final class ChatScreenViewModel {
 
             if let detail = try? await apiClient.fetchAgentSession(agentId: agentId, sessionId: sessionId) {
                 guard isCurrentSession(agentId: agentId, sessionId: sessionId) else { return }
-                messages = detail.messages
+                transcript.replaceAll(detail.messages)
             }
 
             let stream = await manager.connect()
@@ -397,9 +478,9 @@ public final class ChatScreenViewModel {
     ) async {
         switch update.kind {
         case .sessionReady:
-            guard messages.isEmpty else { break }
+            guard transcript.isEmpty else { break }
             if let detail = try? await apiClient.fetchAgentSession(agentId: agentId, sessionId: sessionId) {
-                messages = detail.messages
+                transcript.replaceAll(detail.messages)
             }
         case .sessionEvent, .sessionDelta:
             if update.kind == .sessionDelta, let text = update.messageText {
@@ -421,16 +502,12 @@ public final class ChatScreenViewModel {
     private func upsertMessage(_ message: ChatMessage, sessionId: String) {
         if message.role == .assistant {
             cancelPendingStreamingAssistantText(for: sessionId)
-            messages.removeAll { $0.id == streamingAssistantMessageId(for: sessionId) }
+            transcript.removeAll { $0.id == streamingAssistantMessageId(for: sessionId) }
         } else if message.role == .user {
-            messages.removeAll { $0.id.hasPrefix("optimistic-user-") }
+            transcript.removeAll { $0.id.hasPrefix("optimistic-user-") }
         }
 
-        if let idx = messages.firstIndex(where: { $0.id == message.id }) {
-            messages[idx] = message
-        } else {
-            messages.append(message)
-        }
+        transcript.upsert(message)
     }
 
     private func scheduleStreamingAssistantText(_ text: String, sessionId: String) {
@@ -443,7 +520,7 @@ public final class ChatScreenViewModel {
         }
 
         streamingFlushTask = Task { @MainActor in
-            try? await Task.sleep(nanoseconds: 33_000_000)
+            try? await Task.sleep(nanoseconds: 100_000_000)
             guard !Task.isCancelled else { return }
             flushPendingStreamingAssistantText()
         }
@@ -481,11 +558,7 @@ public final class ChatScreenViewModel {
             segments: [ChatMessageSegment(kind: .text, text: text)]
         )
 
-        if let idx = messages.firstIndex(where: { $0.id == id }) {
-            messages[idx] = message
-        } else {
-            messages.append(message)
-        }
+        transcript.upsert(message)
     }
 
     private func streamingAssistantMessageId(for sessionId: String) -> String {
@@ -622,7 +695,7 @@ public final class ChatScreenViewModel {
             role: .user,
             segments: [ChatMessageSegment(kind: .text, text: content)]
         )
-        messages.append(optimistic)
+        transcript.append(optimistic)
         _ = try? await apiClient.postSessionMessage(agentId: agentId, sessionId: sessionId, content: content)
         isSending = false
     }

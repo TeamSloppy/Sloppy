@@ -65,12 +65,69 @@ function mergeDashboardSlashCommands(
 }
 const SLASH_CMD_INLINE_PATTERN = /\/([a-z][a-z0-9_-]*)/g;
 const SLASH_CMD_REMOVE_PATTERN = /(^|\s)(\/[a-z][a-z0-9_-]*)(\s?)$/;
+const FILE_REF_INLINE_PATTERN = /@([A-Za-z0-9._/-]+)/g;
 const PATH_AT_QUERY_VALUE_PATTERN = /^[A-Za-z0-9._/-]*$/;
+const CHAT_MODES = [
+  { id: "ask", label: "Ask", icon: "chat_bubble", description: "Ask mode" },
+  { id: "build", label: "Build", icon: "code", description: "Build mode" },
+  { id: "plan", label: "Plan", icon: "schema", description: "Plan mode" },
+  { id: "debug", label: "Debug", icon: "bug_report", description: "Debug mode" }
+];
+const DEFAULT_CHAT_MODE = "ask";
+const CHAT_MODE_STORAGE_PREFIX = "sloppy.agentChat.mode";
 
 /** Must match `CoreService.sloppyProjectsDirectoryScopeID` — file search under workspace `projects/` when the chat is not project-scoped. */
 const SLOPPY_PROJECTS_DIRECTORY_SCOPE_ID = "_sloppyProjectsRoot";
 
 const AGENT_CHAT_COMPOSE_DRAFT_PREFIX = "sloppy.agentChat.composeDraft";
+
+function chatModeStorageKey(agentId, projectId, scope) {
+  const explicit = String(scope || "").trim();
+  if (explicit) {
+    return `${CHAT_MODE_STORAGE_PREFIX}:${explicit}`;
+  }
+  const aid = String(agentId || "").trim() || "_agent";
+  const pid = String(projectId || "").trim();
+  return `${CHAT_MODE_STORAGE_PREFIX}:${pid ? `project:${pid}:` : ""}agent:${aid}`;
+}
+
+function normalizeChatMode(value) {
+  const raw = String(value || "").trim().toLowerCase();
+  return CHAT_MODES.some((mode) => mode.id === raw) ? raw : DEFAULT_CHAT_MODE;
+}
+
+function readStoredChatMode(agentId, projectId, scope) {
+  if (typeof window === "undefined") {
+    return DEFAULT_CHAT_MODE;
+  }
+  try {
+    return normalizeChatMode(window.localStorage.getItem(chatModeStorageKey(agentId, projectId, scope)));
+  } catch {
+    return DEFAULT_CHAT_MODE;
+  }
+}
+
+function writeStoredChatMode(agentId, projectId, scope, mode) {
+  if (typeof window === "undefined") {
+    return;
+  }
+  try {
+    window.localStorage.setItem(chatModeStorageKey(agentId, projectId, scope), normalizeChatMode(mode));
+  } catch {
+    // ignore quota / private mode
+  }
+}
+
+function nextChatMode(current, direction = 1) {
+  const normalized = normalizeChatMode(current);
+  const index = Math.max(0, CHAT_MODES.findIndex((mode) => mode.id === normalized));
+  const nextIndex = (index + direction + CHAT_MODES.length) % CHAT_MODES.length;
+  return CHAT_MODES[nextIndex].id;
+}
+
+function chatModeMeta(mode) {
+  return CHAT_MODES.find((item) => item.id === normalizeChatMode(mode)) || CHAT_MODES[0];
+}
 
 function agentChatComposeDraftKey(agentId, sessionId) {
   const aid = String(agentId || "").trim();
@@ -546,6 +603,42 @@ function splitTextBySlashCommands(value, allowedNames) {
     parts.push({ kind: "text", value: text.slice(cursor) });
   }
 
+  return parts.length > 0 ? parts : [{ kind: "text", value: text }];
+}
+
+function splitTextByFileRefs(value) {
+  const text = String(value || "");
+  if (!text) {
+    return [{ kind: "text", value: "" }];
+  }
+
+  const parts = [];
+  let cursor = 0;
+  FILE_REF_INLINE_PATTERN.lastIndex = 0;
+  let match = FILE_REF_INLINE_PATTERN.exec(text);
+  while (match) {
+    const full = match[0];
+    const path = match[1];
+    const start = match.index;
+    const end = start + full.length;
+    const previousChar = start > 0 ? text[start - 1] : "";
+
+    if (previousChar && !/\s|[([{'"`]/.test(previousChar)) {
+      match = FILE_REF_INLINE_PATTERN.exec(text);
+      continue;
+    }
+
+    if (start > cursor) {
+      parts.push({ kind: "text", value: text.slice(cursor, start) });
+    }
+    parts.push({ kind: "file", path, value: full });
+    cursor = end;
+    match = FILE_REF_INLINE_PATTERN.exec(text);
+  }
+
+  if (cursor < text.length) {
+    parts.push({ kind: "text", value: text.slice(cursor) });
+  }
   return parts.length > 0 ? parts : [{ kind: "text", value: text }];
 }
 
@@ -1118,6 +1211,31 @@ function TaskTaggedText({ text, onTaskTagClick, onTaskTagHoverStart, onTaskTagHo
             </button>
           );
         }
+        if (part.kind === "text") {
+          const fileParts = splitTextByFileRefs(part.value);
+          return (
+            <React.Fragment key={`text-${index}`}>
+              {fileParts.map((filePart, fileIndex) => {
+                if (filePart.kind === "file") {
+                  return (
+                    <span
+                      key={`file-${filePart.path}-${fileIndex}`}
+                      className="agent-chat-file-ref"
+                      title={filePart.path}
+                    >
+                      {filePart.value}
+                    </span>
+                  );
+                }
+                return (
+                  <React.Fragment key={`file-text-${fileIndex}`}>
+                    {filePart.value}
+                  </React.Fragment>
+                );
+              })}
+            </React.Fragment>
+          );
+        }
         return (
           <React.Fragment key={`text-${index}`}>
             {part.value}
@@ -1194,6 +1312,7 @@ function buildAgentChatMarkdownComponents(handlers) {
 
 const INLINE_TASK_TAG_SELECTOR = ".agent-chat-inline-task-tag";
 const INLINE_SLASH_COMMAND_SELECTOR = ".agent-chat-inline-slash-command";
+const INLINE_FILE_REF_SELECTOR = ".agent-chat-inline-file-ref";
 
 function isBlockElementNode(node) {
   return node?.nodeType === Node.ELEMENT_NODE && /^(DIV|P)$/i.test(node.tagName || "");
@@ -1217,6 +1336,9 @@ function readEditorNodeText(node) {
     return element.dataset.rawValue || element.textContent || "";
   }
   if (element.matches(INLINE_SLASH_COMMAND_SELECTOR)) {
+    return element.dataset.rawValue || element.textContent || "";
+  }
+  if (element.matches(INLINE_FILE_REF_SELECTOR)) {
     return element.dataset.rawValue || element.textContent || "";
   }
   if (element.tagName === "BR") {
@@ -1272,7 +1394,20 @@ function setEditorContentFromText(root, text, slashCommandNames) {
           cmdTag.textContent = sub.value;
           fragment.appendChild(cmdTag);
         } else if (sub.value) {
-          fragment.appendChild(document.createTextNode(sub.value));
+          const fileParts = splitTextByFileRefs(sub.value);
+          for (const filePart of fileParts) {
+            if (filePart.kind === "file") {
+              const fileTag = document.createElement("span");
+              fileTag.className = "agent-chat-file-ref agent-chat-inline-file-ref";
+              fileTag.setAttribute("contenteditable", "false");
+              fileTag.dataset.path = filePart.path;
+              fileTag.dataset.rawValue = filePart.value;
+              fileTag.textContent = filePart.value;
+              fragment.appendChild(fileTag);
+            } else if (filePart.value) {
+              fragment.appendChild(document.createTextNode(filePart.value));
+            }
+          }
         }
       }
     }
@@ -1842,8 +1977,13 @@ function AgentChatEvents({
                     if (segment.kind === "attachment" && segment.attachment) {
                       return (
                         <div key={key} className="agent-chat-attachment">
-                          <strong>{segment.attachment.name}</strong>
-                          <span>{segment.attachment.mimeType}</span>
+                          <span className="material-symbols-rounded agent-chat-attachment-icon" aria-hidden="true">
+                            attach_file
+                          </span>
+                          <div className="agent-chat-attachment-meta">
+                            <strong>{segment.attachment.name}</strong>
+                            <span>{segment.attachment.mimeType}</span>
+                          </div>
                         </div>
                       );
                     }
@@ -1942,6 +2082,8 @@ function AgentChatComposer({
   supportsReasoningEffort,
   reasoningEffort,
   onReasoningEffortChange,
+  chatMode = DEFAULT_CHAT_MODE,
+  onChatModeChange,
   availableTasks = [],
   slashCommands = [],
   onTaskTagClick,
@@ -1958,6 +2100,7 @@ function AgentChatComposer({
   const [pathSuggestions, setPathSuggestions] = useState<Array<{ path: string; type?: string }>>([]);
   const [pathSearchLoading, setPathSearchLoading] = useState(false);
   const [pathSearchError, setPathSearchError] = useState<string | null>(null);
+  const activeChatMode = chatModeMeta(chatMode);
   const pathSearchRequestIdRef = useRef(0);
   const pendingCaretOffsetRef = useRef(null);
   const scopedProjectId = projectId && String(projectId).trim() ? String(projectId).trim() : "";
@@ -2295,6 +2438,9 @@ function AgentChatComposer({
             <div className="agent-chat-pending-files">
               {pendingFiles.map((file, index) => (
                 <button key={`${file.name}-${index}`} type="button" onClick={() => onRemovePendingFile(index)}>
+                  <span className="material-symbols-rounded agent-chat-pending-file-icon" aria-hidden="true">
+                    attach_file
+                  </span>
                   <span>{file.name}</span>
                   <span className="material-symbols-rounded" aria-hidden="true">
                     close
@@ -2530,6 +2676,12 @@ function AgentChatComposer({
                   }
                 }
 
+                if (event.key === "Tab" && !event.ctrlKey && !event.altKey && !event.metaKey) {
+                  event.preventDefault();
+                  onChatModeChange?.(nextChatMode(chatMode, event.shiftKey ? -1 : 1));
+                  return;
+                }
+
                 if (
                   event.key === "Backspace" &&
                   !event.altKey &&
@@ -2578,6 +2730,20 @@ function AgentChatComposer({
             />
 
             <div className="agent-chat-compose-right">
+              <button
+                type="button"
+                className={`agent-chat-mode-button agent-chat-mode-button--${activeChatMode.id}`}
+                onClick={() => onChatModeChange?.(nextChatMode(chatMode))}
+                disabled={isBusy}
+                title={`Mode: ${activeChatMode.label}. Press Tab to switch.`}
+                aria-label={`Chat mode: ${activeChatMode.label}`}
+              >
+                <span className="material-symbols-rounded" aria-hidden="true">
+                  {activeChatMode.icon}
+                </span>
+                <span>{activeChatMode.label}</span>
+              </button>
+
               {supportsReasoningEffort ? (
                 <label className="agent-chat-reasoning-select">
                   <span>Reasoning</span>
@@ -2664,12 +2830,14 @@ export function AgentChatTab({
   agentId,
   initialSessionId = null,
   projectId = null,
-  onActiveSessionIdChange
+  onActiveSessionIdChange,
+  modeStorageScope = null
 }: {
   agentId: string;
   initialSessionId?: string | null;
   projectId?: string | null;
   onActiveSessionIdChange?: (sessionId: string | null) => void;
+  modeStorageScope?: string | null;
 }) {
   const [sessions, setSessions] = useState([]);
   const [activeSessionId, setActiveSessionId] = useState(null);
@@ -2689,6 +2857,7 @@ export function AgentChatTab({
   const [optimisticAssistantText, setOptimisticAssistantText] = useState("");
   const [replyTarget, setReplyTarget] = useState(null);
   const [reasoningEffort, setReasoningEffort] = useState(DEFAULT_REASONING_EFFORT);
+  const [chatMode, setChatMode] = useState(() => readStoredChatMode(agentId, projectId, modeStorageScope));
   const [expandedRecordIds, setExpandedRecordIds] = useState({});
   const [knownTaskRecords, setKnownTaskRecords] = useState([]);
   const [taskPreview, setTaskPreview] = useState(null);
@@ -3179,6 +3348,14 @@ export function AgentChatTab({
   useEffect(() => {
     setReasoningEffort(DEFAULT_REASONING_EFFORT);
   }, [agentId, selectedModel]);
+
+  useEffect(() => {
+    setChatMode(readStoredChatMode(agentId, projectId, modeStorageScope));
+  }, [agentId, projectId, modeStorageScope]);
+
+  useEffect(() => {
+    writeStoredChatMode(agentId, projectId, modeStorageScope, chatMode);
+  }, [agentId, projectId, modeStorageScope, chatMode]);
 
   useEffect(() => {
     let isCancelled = false;
@@ -4066,6 +4243,7 @@ export function AgentChatTab({
     if (!contentForSend && pendingFiles.length === 0) {
       return;
     }
+    const modeForSend = normalizeChatMode(chatMode);
 
     let sessionId = activeSessionId;
     if (!sessionId) {
@@ -4162,6 +4340,7 @@ export function AgentChatTab({
           content: contentForSend,
           attachments: uploads,
           spawnSubSession: false,
+          mode: modeForSend,
           reasoningEffort: supportsReasoningEffort ? reasoningEffort : undefined,
           selectedModel: selectedModel || undefined
         },
@@ -4461,6 +4640,7 @@ export function AgentChatTab({
           content: ANALYSIS_PREP_AGENT_PROMPT,
           attachments: [],
           spawnSubSession: false,
+          mode: normalizeChatMode(chatMode),
           reasoningEffort: supportsReasoningEffort ? reasoningEffort : undefined,
           selectedModel: selectedModel || undefined
         },
@@ -5156,6 +5336,8 @@ export function AgentChatTab({
                   supportsReasoningEffort={supportsReasoningEffort}
                   reasoningEffort={reasoningEffort}
                   onReasoningEffortChange={setReasoningEffort}
+                  chatMode={chatMode}
+                  onChatModeChange={setChatMode}
                   availableTasks={knownTaskRecords}
                   slashCommands={slashCommands}
                   onTaskTagClick={openTaskReference}

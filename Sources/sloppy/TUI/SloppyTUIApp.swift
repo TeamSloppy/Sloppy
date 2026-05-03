@@ -1,12 +1,17 @@
 import Foundation
+#if canImport(AppKit)
+import AppKit
+#endif
 import Protocols
 import TauTUI
 
 struct SloppyTUIApp {
     var configPath: String?
+    var requestedSessionID: String?
 
-    init(configPath: String? = nil) {
+    init(configPath: String? = nil, requestedSessionID: String? = nil) {
         self.configPath = configPath
+        self.requestedSessionID = requestedSessionID
     }
 
     @MainActor
@@ -23,17 +28,31 @@ struct SloppyTUIApp {
         let selection = state.selections[selectionKey]
 
         let agents = (try? await runtime.service.listAgents(includeSystem: false)) ?? []
-        let agent = try await resolveAgent(
-            service: runtime.service,
-            preferredID: selection?.agentId,
-            agents: agents
-        )
-        let session = try await resolveSession(
-            service: runtime.service,
-            projectID: project.id,
-            agentID: agent.id,
-            preferredID: selection?.sessionId
-        )
+        let resolved: (agent: AgentSummary, session: AgentSessionSummary)
+        if let requestedSessionID = requestedSessionID?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !requestedSessionID.isEmpty {
+            resolved = try await resolveExplicitSession(
+                service: runtime.service,
+                projectID: project.id,
+                sessionID: requestedSessionID,
+                agents: agents
+            )
+        } else {
+            let agent = try await resolveAgent(
+                service: runtime.service,
+                preferredID: selection?.agentId,
+                agents: agents
+            )
+            let session = try await resolveSession(
+                service: runtime.service,
+                projectID: project.id,
+                agentID: agent.id,
+                preferredID: selection?.sessionId
+            )
+            resolved = (agent, session)
+        }
+        let agent = resolved.agent
+        let session = resolved.session
 
         var nextState = state
         nextState.selections[selectionKey] = .init(agentId: agent.id, sessionId: session.id)
@@ -141,6 +160,50 @@ struct SloppyTUIApp {
             )
         )
     }
+
+    private func resolveExplicitSession(
+        service: CoreService,
+        projectID: String,
+        sessionID: String,
+        agents: [AgentSummary]
+    ) async throws -> (agent: AgentSummary, session: AgentSessionSummary) {
+        for agent in agents {
+            let sessions = (try? await service.listAgentSessions(agentID: agent.id, projectID: projectID)) ?? []
+            if let session = sessions.first(where: { $0.id == sessionID }) {
+                return (agent, session)
+            }
+        }
+        throw SloppyTUIError.sessionNotFound(sessionID)
+    }
+}
+
+private enum SloppyTUIError: LocalizedError {
+    case sessionNotFound(String)
+
+    var errorDescription: String? {
+        switch self {
+        case .sessionNotFound(let id):
+            return "No TUI session `\(id)` was found for this directory. Run `sloppy`, then choose `/sessions` to see available sessions."
+        }
+    }
+}
+
+private enum SloppyTUIAttachmentLimits {
+    static let maxBytes = 25 * 1024 * 1024
+}
+
+private enum SloppyTUIAttachmentError: LocalizedError {
+    case notAFile
+    case tooLarge(Int)
+
+    var errorDescription: String? {
+        switch self {
+        case .notAFile:
+            return "not a file"
+        case .tooLarge(let bytes):
+            return "file is too large (\(bytes) bytes)"
+        }
+    }
 }
 
 @MainActor
@@ -191,6 +254,7 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
         SloppyTUISlashCommand("help", "Show TUI commands"),
         SloppyTUISlashCommand("status", "Show session status"),
         SloppyTUISlashCommand("agents", "Switch agent"),
+        SloppyTUISlashCommand("sessions", "Switch session"),
         SloppyTUISlashCommand("new", "Create a new session"),
         SloppyTUISlashCommand("clear", "Clear local cards"),
         SloppyTUISlashCommand("stop", "Interrupt the current run"),
@@ -198,9 +262,6 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
         SloppyTUISlashCommand("context", "Attach changes or git diff"),
         SloppyTUISlashCommand("tasks", "Show project tasks"),
         SloppyTUISlashCommand("provider", "Configure provider"),
-        SloppyTUISlashCommand("openai-device", "Start OpenAI device auth"),
-        SloppyTUISlashCommand("anthropic-oauth", "Start Anthropic OAuth"),
-        SloppyTUISlashCommand("anthropic-callback", "Complete Anthropic OAuth"),
         SloppyTUISlashCommand("quit", "Exit TUI"),
     ]
 
@@ -217,17 +278,23 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
     private let timeline = MarkdownComponent(padding: .init(horizontal: 1, vertical: 0))
     private let status = Text(paddingX: 1, paddingY: 0)
 
-    private var sessionCards: [String] = []
-    private var localCards: [String] = []
+    private var sessionCards: [SloppyTUITimelineBlock] = []
+    private var localCards: [SloppyTUITimelineBlock] = []
     private var pendingContext: String?
+    private var pendingUploads: [AgentAttachmentUpload] = []
+    private var chatMode: AgentChatMode = .ask
     private var selectedModel = "default"
     private var commandPaletteSelection = 0
     private var streamTask: Task<Void, Never>?
     private var changeTask: Task<Void, Never>?
     private var devicePollTask: Task<Void, Never>?
+    private var thinkingAnimationTask: Task<Void, Never>?
     private var lastChangeBatch: ProjectWorkingTreeChangeBatch?
     private var lastRenderedSessionEventIDs: Set<String> = []
     private var activePicker: SloppyTUIPicker?
+    private var liveAssistantDraft: String?
+    private var thinkingFrame = 0
+    private var thinkingWord = "thinking"
     private var welcomeDismissed = false
     private var isPosting = false
 
@@ -250,8 +317,9 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
         self.tui = tui
         self.terminal = terminal
 
-        // The new TUI shell renders its own command palette and modal pickers.
-        // Keep TauTUI's built-in editor autocomplete disabled while that shell matures.
+        editor.setAutocompleteProvider(
+            SloppyTUIAutocompleteProvider(basePath: runtime.cwd)
+        )
         editor.onSubmit = { [weak self] value in
             guard let self else { return }
             Task { @MainActor in await self.submit(value) }
@@ -287,6 +355,7 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
         streamTask?.cancel()
         changeTask?.cancel()
         devicePollTask?.cancel()
+        thinkingAnimationTask?.cancel()
     }
 
     func render(width: Int) -> [String] {
@@ -302,6 +371,12 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
         if handleCommandPalette(input: input) {
             return
         }
+        if handleAttachmentInput(input) {
+            return
+        }
+        if handleModeCycle(input) {
+            return
+        }
         editor.handle(input: input)
     }
 
@@ -310,6 +385,7 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
         var composer = editor.render(width: width)
         composer.append(SloppyTUITheme.composerMetaLine(
             width: width,
+            mode: chatMode,
             model: selectedModel,
             agent: agent.displayName,
             provider: providerLabel(from: selectedModel)
@@ -336,10 +412,11 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
                 project: project.name,
                 agent: agent.displayName,
                 model: selectedModel,
+                mode: chatMode,
                 includeFooter: false
             )
         } else {
-            raw = header.render(width: width) + timeline.render(width: width) + status.render(width: width)
+            raw = header.render(width: width) + renderTimelineBlocks(width: width) + status.render(width: width)
         }
 
         if raw.count >= height {
@@ -413,6 +490,30 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
         }
     }
 
+    private func handleAttachmentInput(_ input: TerminalInput) -> Bool {
+        switch input {
+        case .paste(let text):
+            let urls = attachmentURLs(fromPastedText: text)
+            guard !urls.isEmpty else { return false }
+            addPendingAttachmentFiles(urls)
+            return true
+        case .key(.character("v"), let modifiers) where modifiers.contains(.control):
+            pasteAttachmentFromClipboard()
+            return true
+        default:
+            return false
+        }
+    }
+
+    private func handleModeCycle(_ input: TerminalInput) -> Bool {
+        guard case .key(.tab, let modifiers) = input, modifiers.isEmpty else {
+            return false
+        }
+        chatMode = chatMode.next
+        refreshStaticChrome()
+        return true
+    }
+
     private var commandPaletteVisible: Bool {
         let value = editor.getText()
         guard value.hasPrefix("/") else { return false }
@@ -474,10 +575,12 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
 
     private func submit(_ raw: String) async {
         let value = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !value.isEmpty else {
+        guard !value.isEmpty || !pendingUploads.isEmpty else {
             return
         }
-        editor.addToHistory(value)
+        if !value.isEmpty {
+            editor.addToHistory(value)
+        }
         editor.setText("")
         persistDraft("")
 
@@ -497,8 +600,12 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
         }
 
         isPosting = true
+        liveAssistantDraft = ""
+        startThinkingAnimation()
+        renderTimeline()
         refreshStaticChrome(statusLine: "sending...")
-        let content = await messageContentWithInlineAttachments(value)
+        let uploads = pendingUploads
+        let content = await messageContentWithInlineAttachments(value, uploads: uploads)
         do {
             if !runtime.config.onboarding.completed {
                 var config = await runtime.service.getConfig()
@@ -512,17 +619,23 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
                 request: AgentSessionPostMessageRequest(
                     userId: config.onboarding.completed ? "tui" : "onboarding",
                     content: content,
-                    attachments: [],
-                    spawnSubSession: false
+                    attachments: uploads,
+                    spawnSubSession: false,
+                    mode: chatMode
                 )
             )
             pendingContext = nil
+            pendingUploads.removeAll()
             await reloadSession()
         } catch {
+            liveAssistantDraft = nil
             appendLocalCard("Message failed: \(String(describing: error))")
         }
         isPosting = false
+        stopThinkingAnimation()
+        liveAssistantDraft = nil
         refreshStaticChrome()
+        renderTimeline()
     }
 
     private func handleCommand(_ raw: String) async {
@@ -534,14 +647,16 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
         case "help":
             appendLocalCard("""
             ## TUI commands
-            `/status`, `/new`, `/clear`, `/stop`, `/model <id>`, `/context changes`, `/context diff`, `/tasks`, `/provider`, `/provider <id> <key> [model]`, `/openai-device`, `/anthropic-oauth`, `/anthropic-callback <url>`, `/quit`.
+            `/status`, `/sessions`, `/new`, `/clear`, `/stop`, `/model <id>`, `/context changes`, `/context diff`, `/tasks`, `/provider`, `/provider <id> <key> [model]`, `/quit`.
 
-            Use `@path` in a message to inline a project file as explicit context. Tab completes slash commands and files.
+            Use `@path` in a message to inline a project file as explicit context. Tab completes slash commands.
             """)
         case "status":
             await showStatus()
         case "agents", "agent":
             await showAgentPicker()
+        case "sessions", "session":
+            await showSessionPicker()
         case "new":
             await createNewSession()
         case "clear":
@@ -614,6 +729,8 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
         - project: `\(project.name)`
         - agent: `\(agent.displayName)`
         - session: `\(session.title)`
+        - session id: `\(session.id)`
+        - resume: `sloppy -s \(session.id)`
         - model: `\(model)`
         - provider: `\(providerLabel(from: model))`
         """)
@@ -640,6 +757,35 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
             selectedIndex: 0
         )
         refreshStaticChrome(statusLine: "select agent with arrows, Enter to apply, Esc to cancel")
+    }
+
+    private func showSessionPicker() async {
+        let sessions = ((try? await runtime.service.listAgentSessions(agentID: agent.id, projectID: project.id)) ?? [])
+            .sorted { lhs, rhs in
+                if lhs.id == session.id { return true }
+                if rhs.id == session.id { return false }
+                return lhs.updatedAt > rhs.updatedAt
+            }
+
+        guard !sessions.isEmpty else {
+            appendLocalCard("No sessions for `\(agent.displayName)` in this directory.")
+            return
+        }
+
+        activePicker = SloppyTUIPicker(
+            kind: .session,
+            title: "Select session",
+            items: sessions.map { item in
+                SloppyTUIPickerItem(
+                    value: item.id,
+                    label: item.title.isEmpty ? item.id : item.title,
+                    description: SloppyTUITheme.sessionPickerDescription(item),
+                    isCurrent: item.id == session.id
+                )
+            },
+            selectedIndex: 0
+        )
+        refreshStaticChrome(statusLine: "select session with arrows, Enter to open, Esc to cancel")
     }
 
     private func switchModel(_ model: String?) async {
@@ -685,6 +831,8 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
             await applyModel(item.value)
         case .agent:
             await switchAgent(item.value)
+        case .session:
+            await switchSession(item.value)
         case .provider:
             if item.value == SloppyTUIProviderDefinition.addNewProviderValue {
                 showProviderCatalogPicker()
@@ -829,6 +977,19 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
         } catch {
             appendLocalCard("Agent switch failed: \(String(describing: error))")
         }
+    }
+
+    private func switchSession(_ sessionID: String) async {
+        let sessions = (try? await runtime.service.listAgentSessions(agentID: agent.id, projectID: project.id)) ?? []
+        guard let nextSession = sessions.first(where: { $0.id == sessionID }) else {
+            appendLocalCard("Session `\(sessionID)` is no longer available for `\(agent.displayName)`.")
+            return
+        }
+        session = nextSession
+        persistSelection()
+        streamSession()
+        await reloadSession()
+        appendLocalCard("Session switched to `\(nextSession.title)`.\nResume shortcut: `sloppy -s \(nextSession.id)`")
     }
 
     private func resolveSessionForCurrentProject(agentID: String) async throws -> AgentSessionSummary {
@@ -1039,10 +1200,17 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
                     guard !Task.isCancelled else { break }
                     await MainActor.run {
                         if update.kind == .sessionDelta, let message = update.message {
-                            self.appendLocalCard(message)
-                        } else if update.kind == .sessionEvent, update.event != nil {
+                            self.liveAssistantDraft = message
+                            self.renderTimeline()
+                        } else if update.kind == .sessionEvent, let event = update.event {
+                            if self.isFinalAssistantMessage(event) {
+                                self.liveAssistantDraft = nil
+                                self.stopThinkingAnimation()
+                            }
                             Task { await self.reloadSession() }
                         } else if update.kind == .sessionClosed {
+                            self.liveAssistantDraft = nil
+                            self.stopThinkingAnimation()
                             self.appendLocalCard(update.message ?? "Session closed.")
                         }
                     }
@@ -1065,52 +1233,156 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
                     guard !Task.isCancelled else { break }
                     await MainActor.run {
                         self.lastChangeBatch = batch
-                        guard !self.shouldRenderWelcome else { return }
-                        let paths = batch.changes.prefix(8).map { "`\($0.path)` \($0.kind.rawValue)" }.joined(separator: ", ")
-                        let suffix = batch.changes.count > 8 ? ", and \(batch.changes.count - 8) more" : ""
-                        self.appendLocalCard("## Workspace changes\n\(paths)\(suffix)\n\nUse `/context changes` or `/context diff` to attach context to the next message.")
                     }
                 }
             } catch {
-                await MainActor.run {
-                    self.appendLocalCard("Change watcher failed: \(String(describing: error))")
-                }
+                // Keep workspace watching silent so the timeline only shows agent output.
             }
         }
     }
 
     private func reloadSession() async {
         let detail = try? await runtime.service.getAgentSession(agentID: agent.id, sessionID: session.id)
-        var blocks: [String] = []
+        var blocks: [SloppyTUITimelineBlock] = []
         let events = detail?.events ?? []
         lastRenderedSessionEventIDs = Set(events.map(\.id))
         for event in events {
             if let message = event.message {
-                let title = SloppyTUITheme.roleTitle(
-                    message.role == .assistant ? "Assistant" : (message.userId ?? message.role.rawValue),
-                    role: message.role
-                )
-                let body = message.segments.compactMap(\.text).joined(separator: "\n")
+                let body = message.segments
+                    .filter { $0.kind == .text }
+                    .compactMap(\.text)
+                    .joined(separator: "\n")
+                let thinking = message.segments
+                    .filter { $0.kind == .thinking }
+                    .compactMap(\.text)
+                    .joined(separator: "\n")
+                let attachments = message.segments
+                    .filter { $0.kind == .attachment }
+                    .compactMap(\.attachment)
                 if !body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    blocks.append("### \(title)\n\(body)")
+                    if message.role == .assistant, SloppyTUITheme.isModelProviderError(body) {
+                        blocks.append(.error(body))
+                    } else {
+                        blocks.append(.message(role: message.role, text: body))
+                    }
                 }
-            } else if let status = event.runStatus {
-                blocks.append(SloppyTUITheme.runStatus(status.label))
+                if !thinking.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    blocks.append(.thinking(thinking))
+                }
+                for attachment in attachments {
+                    blocks.append(.attachment(name: attachment.name, mimeType: attachment.mimeType, sizeBytes: attachment.sizeBytes))
+                }
+            } else if let toolCall = event.toolCall {
+                blocks.append(.toolCall(tool: toolCall.tool, reason: toolCall.reason, argumentNames: toolCall.arguments.keys.sorted()))
+            } else if let toolResult = event.toolResult {
+                blocks.append(.toolResult(tool: toolResult.tool, ok: toolResult.ok, error: toolResult.error?.message, durationMs: toolResult.durationMs))
             }
         }
         sessionCards = blocks
         renderTimeline()
     }
 
+    private func isFinalAssistantMessage(_ event: AgentSessionEvent) -> Bool {
+        guard event.type == .message,
+              let message = event.message,
+              message.role == .assistant else {
+            return false
+        }
+        return message.segments.contains { segment in
+            segment.kind == .text && segment.text?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+        }
+    }
+
     private func renderTimeline() {
-        let blocks = sessionCards + localCards
-        timeline.text = blocks.joined(separator: "\n\n")
+        let blocks = sessionCards + liveAssistantBlocks() + localCards
+        timeline.text = blocks.map(\.plainText).joined(separator: "\n\n")
         refreshStaticChrome()
         requestRender()
     }
 
+    private func liveAssistantBlocks() -> [SloppyTUITimelineBlock] {
+        guard let liveAssistantDraft else {
+            return []
+        }
+
+        let spinner = SloppyTUITheme.waitingIndicator(frame: thinkingFrame, word: thinkingWord)
+        let body = liveAssistantDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+        if body.isEmpty {
+            return [.local(spinner)]
+        }
+        return [.message(role: .assistant, text: body + "\n\n" + spinner)]
+    }
+
+    private func renderTimelineBlocks(width: Int) -> [String] {
+        let blocks = sessionCards + liveAssistantBlocks() + localCards
+        guard !blocks.isEmpty else {
+            return timeline.render(width: width)
+        }
+
+        var lines: [String] = []
+        for block in blocks {
+            if !lines.isEmpty {
+                lines.append("")
+            }
+            switch block {
+            case .message(let role, let text):
+                if role == .user {
+                    lines.append(contentsOf: SloppyTUITheme.userMessageLines(text, width: width))
+                } else {
+                    lines.append(contentsOf: renderMarkdown(text, width: width))
+                }
+            case .local(let text):
+                lines.append(contentsOf: renderMarkdown(text, width: width))
+            case .error(let text):
+                lines.append(contentsOf: renderMarkdown(SloppyTUITheme.errorBlock(text), width: width))
+            case .thinking(let text):
+                lines.append(contentsOf: SloppyTUITheme.thinkingLines(text, width: width))
+            case .attachment(let name, let mimeType, let sizeBytes):
+                lines.append(SloppyTUITheme.attachmentLine(name: name, mimeType: mimeType, sizeBytes: sizeBytes, width: width))
+            case .toolCall(let tool, let reason, let argumentNames):
+                lines.append(SloppyTUITheme.toolCallLine(tool: tool, reason: reason, argumentNames: argumentNames, width: width))
+            case .toolResult(let tool, let ok, let error, let durationMs):
+                lines.append(SloppyTUITheme.toolResultLine(tool: tool, ok: ok, error: error, durationMs: durationMs, width: width))
+            }
+        }
+        return lines
+    }
+
+    private func renderMarkdown(_ text: String, width: Int) -> [String] {
+        let component = MarkdownComponent(
+            text: text,
+            padding: .init(horizontal: 1, vertical: 0),
+            theme: timeline.theme
+        )
+        return component.render(width: width)
+    }
+
+    private func startThinkingAnimation() {
+        thinkingAnimationTask?.cancel()
+        thinkingFrame = 0
+        thinkingWord = SloppyTUITheme.waitingWord(seed: session.id + String(Date().timeIntervalSince1970))
+        thinkingAnimationTask = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 220_000_000)
+                guard !Task.isCancelled else { break }
+                await MainActor.run {
+                    guard let self, self.liveAssistantDraft != nil else { return }
+                    self.thinkingFrame += 1
+                    self.renderTimeline()
+                }
+            }
+        }
+    }
+
+    private func stopThinkingAnimation() {
+        thinkingAnimationTask?.cancel()
+        thinkingAnimationTask = nil
+        thinkingFrame = 0
+        thinkingWord = "thinking"
+    }
+
     private func appendLocalCard(_ text: String) {
-        localCards.append(text)
+        localCards.append(.local(text))
         if localCards.count > 24 {
             localCards.removeFirst(localCards.count - 24)
         }
@@ -1121,11 +1393,18 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
         header.text = SloppyTUITheme.header(
             project: project.name,
             agent: agent.displayName,
-            session: session.title
+            session: SloppyTUITheme.sessionHeaderTitle(session)
         )
         let context = pendingContext == nil ? "" : "  context: queued"
+        let attachments = pendingUploads.isEmpty ? "" : "  attachments: \(pendingUploads.count)"
         status.text = SloppyTUITheme.status(
-            statusLine ?? "model: \(selectedModel)\(context)  /help for commands  Ctrl+C or /quit to exit",
+            statusLine ?? SloppyTUITheme.sessionStatusLine(
+                mode: chatMode,
+                model: selectedModel,
+                context: context,
+                attachments: attachments,
+                sessionID: session.id
+            ),
             isBusy: statusLine != nil
         )
         requestRender()
@@ -1165,10 +1444,234 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
         stateStore.save(state)
     }
 
-    private func messageContentWithInlineAttachments(_ raw: String) async -> String {
+    private func attachmentURLs(fromPastedText text: String) -> [URL] {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return [] }
+
+        let candidates = splitPastedPathCandidates(trimmed)
+        guard !candidates.isEmpty else { return [] }
+
+        var urls: [URL] = []
+        for candidate in candidates {
+            if let url = fileURL(fromPastedPathCandidate: candidate),
+               FileManager.default.fileExists(atPath: url.path) {
+                urls.append(url)
+            } else {
+                return []
+            }
+        }
+        return urls
+    }
+
+    private func splitPastedPathCandidates(_ text: String) -> [String] {
+        let normalized = text
+            .replacingOccurrences(of: "\r\n", with: "\n")
+            .replacingOccurrences(of: "\r", with: "\n")
+        let lines = normalized
+            .split(separator: "\n", omittingEmptySubsequences: true)
+            .map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+
+        if lines.count > 1 {
+            return lines.map(Self.unquotePathCandidate)
+        }
+
+        let single = Self.unquotePathCandidate(normalized.trimmingCharacters(in: .whitespacesAndNewlines))
+        if FileManager.default.fileExists(atPath: (single as NSString).expandingTildeInPath)
+            || single.hasPrefix("file://") {
+            return [single]
+        }
+
+        return splitEscapedShellPaths(single)
+    }
+
+    private func splitEscapedShellPaths(_ text: String) -> [String] {
+        var tokens: [String] = []
+        var current = ""
+        var isEscaped = false
+        var quote: Character?
+
+        for character in text {
+            if isEscaped {
+                current.append(character)
+                isEscaped = false
+                continue
+            }
+            if character == "\\" {
+                isEscaped = true
+                continue
+            }
+            if let activeQuote = quote {
+                if character == activeQuote {
+                    quote = nil
+                } else {
+                    current.append(character)
+                }
+                continue
+            }
+            if character == "\"" || character == "'" {
+                quote = character
+                continue
+            }
+            if character.isWhitespace {
+                if !current.isEmpty {
+                    tokens.append(current)
+                    current.removeAll()
+                }
+            } else {
+                current.append(character)
+            }
+        }
+        if isEscaped {
+            current.append("\\")
+        }
+        if !current.isEmpty {
+            tokens.append(current)
+        }
+        return tokens
+    }
+
+    private func fileURL(fromPastedPathCandidate candidate: String) -> URL? {
+        if candidate.hasPrefix("file://") {
+            return URL(string: candidate.removingPercentEncoding ?? candidate)
+        }
+        let raw = candidate.removingPercentEncoding ?? candidate
+        let expanded = (raw as NSString).expandingTildeInPath
+        if expanded.hasPrefix("/") {
+            return URL(fileURLWithPath: expanded).standardizedFileURL
+        }
+        return URL(fileURLWithPath: runtime.cwd)
+            .appendingPathComponent(expanded)
+            .standardizedFileURL
+    }
+
+    private static func unquotePathCandidate(_ value: String) -> String {
+        var result = value
+        if result.count >= 2,
+           let first = result.first,
+           let last = result.last,
+           (first == "\"" && last == "\"") || (first == "'" && last == "'") {
+            result.removeFirst()
+            result.removeLast()
+        }
+        return result.replacingOccurrences(of: "\\ ", with: " ")
+    }
+
+    private func addPendingAttachmentFiles(_ urls: [URL]) {
+        var added: [String] = []
+        var skipped: [String] = []
+        for url in urls {
+            do {
+                let upload = try makeAttachmentUpload(from: url)
+                pendingUploads.append(upload)
+                added.append(upload.name)
+            } catch {
+                skipped.append("\(url.lastPathComponent): \(String(describing: error))")
+            }
+        }
+        if !added.isEmpty {
+            appendLocalCard("Attached \(added.count) file(s): \(added.map { "`\($0)`" }.joined(separator: ", "))")
+        }
+        if !skipped.isEmpty {
+            appendLocalCard("Attachment skipped:\n" + skipped.map { "- \($0)" }.joined(separator: "\n"))
+        }
+        refreshStaticChrome()
+    }
+
+    private func makeAttachmentUpload(from url: URL) throws -> AgentAttachmentUpload {
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory), !isDirectory.boolValue else {
+            throw SloppyTUIAttachmentError.notAFile
+        }
+
+        let data = try Data(contentsOf: url)
+        guard data.count <= SloppyTUIAttachmentLimits.maxBytes else {
+            throw SloppyTUIAttachmentError.tooLarge(data.count)
+        }
+        return AgentAttachmentUpload(
+            name: url.lastPathComponent.isEmpty ? "attachment.bin" : url.lastPathComponent,
+            mimeType: mimeType(for: url),
+            sizeBytes: data.count,
+            contentBase64: data.base64EncodedString()
+        )
+    }
+
+    private func mimeType(for url: URL) -> String {
+        switch url.pathExtension.lowercased() {
+        case "png": return "image/png"
+        case "jpg", "jpeg": return "image/jpeg"
+        case "gif": return "image/gif"
+        case "webp": return "image/webp"
+        case "heic": return "image/heic"
+        case "tif", "tiff": return "image/tiff"
+        case "pdf": return "application/pdf"
+        case "json": return "application/json"
+        case "md", "markdown": return "text/markdown"
+        case "txt", "log": return "text/plain"
+        case "csv": return "text/csv"
+        case "html", "htm": return "text/html"
+        case "swift": return "text/x-swift"
+        default: return "application/octet-stream"
+        }
+    }
+
+    private func pasteAttachmentFromClipboard() {
+        #if canImport(AppKit)
+        let pasteboard = NSPasteboard.general
+        if let urls = pasteboard.readObjects(forClasses: [NSURL.self], options: nil) as? [URL],
+           !urls.isEmpty {
+            addPendingAttachmentFiles(urls)
+            return
+        }
+
+        if let pngData = pasteboard.data(forType: NSPasteboard.PasteboardType("public.png")) {
+            addPendingClipboardImage(data: pngData, mimeType: "image/png", extension: "png")
+            return
+        }
+        if let tiffData = pasteboard.data(forType: .tiff),
+           let image = NSImage(data: tiffData),
+           let pngData = image.pngData() {
+            addPendingClipboardImage(data: pngData, mimeType: "image/png", extension: "png")
+            return
+        }
+        appendLocalCard("Clipboard does not contain a file or image.")
+        #else
+        appendLocalCard("Clipboard image paste is only available on macOS.")
+        #endif
+    }
+
+    private func addPendingClipboardImage(data: Data, mimeType: String, extension pathExtension: String) {
+        guard data.count <= SloppyTUIAttachmentLimits.maxBytes else {
+            appendLocalCard("Clipboard image is too large (\(data.count) bytes).")
+            return
+        }
+        let name = "clipboard-\(Self.clipboardTimestamp()).\(pathExtension)"
+        pendingUploads.append(
+            AgentAttachmentUpload(
+                name: name,
+                mimeType: mimeType,
+                sizeBytes: data.count,
+                contentBase64: data.base64EncodedString()
+            )
+        )
+        appendLocalCard("Attached clipboard image: `\(name)`")
+        refreshStaticChrome()
+    }
+
+    private static func clipboardTimestamp() -> String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyyMMdd-HHmmss"
+        return formatter.string(from: Date())
+    }
+
+    private func messageContentWithInlineAttachments(_ raw: String, uploads: [AgentAttachmentUpload]) async -> String {
         var parts = [raw]
         if let pendingContext {
             parts.append("\n[Attached context]\n\(pendingContext)")
+        }
+        if !uploads.isEmpty {
+            let list = uploads.map { "- \($0.name) (\($0.mimeType), \($0.sizeBytes) bytes)" }.joined(separator: "\n")
+            parts.append("\n[Attached files]\n\(list)")
         }
 
         let tokens = raw.split(whereSeparator: { $0.isWhitespace }).map(String.init)
@@ -1190,6 +1693,7 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
 private enum SloppyTUIPickerKind {
     case model
     case agent
+    case session
     case provider
     case providerCatalog
 }
@@ -1208,7 +1712,53 @@ private struct SloppyTUIPicker {
     var selectedIndex: Int
 }
 
+private enum SloppyTUITimelineBlock {
+    case message(role: AgentMessageRole, text: String)
+    case local(String)
+    case error(String)
+    case thinking(String)
+    case attachment(name: String, mimeType: String, sizeBytes: Int)
+    case toolCall(tool: String, reason: String?, argumentNames: [String])
+    case toolResult(tool: String, ok: Bool, error: String?, durationMs: Int?)
+
+    var plainText: String {
+        switch self {
+        case .message(_, let text), .local(let text), .error(let text):
+            return text
+        case .thinking(let text):
+            return text
+        case .attachment(let name, let mimeType, _):
+            return "\(name) \(mimeType)"
+        case .toolCall(let tool, let reason, let argumentNames):
+            return ([tool] + argumentNames + [reason].compactMap { $0 }).joined(separator: " ")
+        case .toolResult(let tool, _, let error, _):
+            return ([tool] + [error].compactMap { $0 }).joined(separator: " ")
+        }
+    }
+}
+
+private extension AgentChatMode {
+    var next: AgentChatMode {
+        switch self {
+        case .ask: return .build
+        case .build: return .plan
+        case .plan: return .debug
+        case .debug: return .ask
+        }
+    }
+
+    var title: String {
+        switch self {
+        case .ask: return "Ask"
+        case .build: return "Build"
+        case .plan: return "Plan"
+        case .debug: return "Debug"
+        }
+    }
+}
+
 private enum SloppyTUITheme {
+    private static let resetBackground = "\u{001B}[49m"
     private static let accent = AnsiStyling.rgb(82, 211, 194)
     private static let accentBright = AnsiStyling.rgb(103, 232, 249)
     private static let blue = AnsiStyling.rgb(96, 165, 250)
@@ -1220,8 +1770,22 @@ private enum SloppyTUITheme {
     private static let foreground = AnsiStyling.rgb(226, 232, 240)
     private static let black = AnsiStyling.color(30)
     private static let panelBackground = AnsiStyling.Background.rgb(24, 24, 24)
-    private static let dropdownBackground = AnsiStyling.Background.rgb(46, 48, 51)
-    private static let dropdownSelectedBackground = AnsiStyling.Background.rgb(82, 87, 91)
+    private static let userMessageBackground = AnsiStyling.Background.rgb(55, 55, 55)
+    private static let toolBackground = AnsiStyling.Background.rgb(31, 41, 55)
+    private static let thinkingBackground = AnsiStyling.Background.rgb(38, 38, 38)
+    private static let attachmentBackground = AnsiStyling.Background.rgb(32, 45, 42)
+    private static let waitingFrames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
+    private static let thinkingWords = [
+        "thinking",
+        "processing",
+        "looting",
+        "brewing",
+        "plotting",
+        "untangling",
+        "debugging",
+        "polishing",
+        "compiling",
+    ]
 
     static let selectListTheme = SelectListTheme(
         selectedPrefix: { accentBright($0) },
@@ -1267,7 +1831,17 @@ private enum SloppyTUITheme {
     }
 
     static func status(_ text: String, isBusy: Bool) -> String {
-        isBusy ? yellow(text) : muted(text)
+        if isBusy {
+            return yellow(text)
+        }
+        if text.contains("\u{001B}[") {
+            return text
+        }
+        return muted(text)
+    }
+
+    static func sessionStatusLine(mode: AgentChatMode, model: String, context: String, attachments: String, sessionID: String) -> String {
+        muted("mode: ") + modeTitle(mode) + muted("  model: \(model)\(context)\(attachments)  last: \(shortID(sessionID))  /sessions  /help")
     }
 
     static func welcomeScreen(
@@ -1276,6 +1850,7 @@ private enum SloppyTUITheme {
         project: String,
         agent: String,
         model: String,
+        mode: AgentChatMode,
         includeFooter: Bool = true
     ) -> [String] {
         let contentWidth = max(1, min(max(1, width - 4), 112))
@@ -1288,7 +1863,7 @@ private enum SloppyTUITheme {
         lines.append(contentsOf: logoLines(width: width))
         lines.append("")
         lines.append(indent + welcomePromptLine(width: contentWidth))
-        lines.append(indent + welcomeMetaLine(width: contentWidth, project: project, agent: agent, model: model))
+        lines.append(indent + welcomeMetaLine(width: contentWidth, project: project, agent: agent, model: model, mode: mode))
         lines.append(indent + welcomeShortcutsLine(width: contentWidth))
         lines.append("")
         lines.append(center(yellow("Tip") + muted("  Use ") + foreground("/model") + muted(" to switch models with arrow keys."), width: width))
@@ -1300,16 +1875,115 @@ private enum SloppyTUITheme {
         return lines
     }
 
-    static func composerMetaLine(width: Int, model: String, agent: String, provider: String) -> String {
+    static func composerMetaLine(width: Int, mode: AgentChatMode, model: String, agent: String, provider: String) -> String {
         let modelText = truncateEnd(compactModel(model), maxWidth: max(4, width / 3))
         let agentText = truncateEnd(agent, maxWidth: max(4, width / 5))
         let providerText = truncateEnd(provider, maxWidth: max(4, width / 5))
-        let text = "  " + blue("Build") + muted(" · ") + foreground(modelText) + muted("  ") + muted(agentText) + muted("  ") + muted(providerText)
+        let text = "  " + modeTitle(mode) + muted(" · ") + foreground(modelText) + muted("  ") + muted(agentText) + muted("  ") + muted(providerText)
         return applyPanelBackground(padded(text, width: width), width: width)
+    }
+
+    private static func modeTitle(_ mode: AgentChatMode) -> String {
+        switch mode {
+        case .ask:
+            return green(mode.title)
+        case .build:
+            return blue(mode.title)
+        case .plan:
+            return accentBright(mode.title)
+        case .debug:
+            return yellow(mode.title)
+        }
     }
 
     static func compactPickerDescription(_ model: String) -> String {
         compactModel(model)
+    }
+
+    static func sessionHeaderTitle(_ session: AgentSessionSummary) -> String {
+        "\(session.title) (\(shortID(session.id)))"
+    }
+
+    static func sessionPickerDescription(_ session: AgentSessionSummary) -> String {
+        let preview = session.lastMessagePreview?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: "\n", with: " ") ?? ""
+        let detail = preview.isEmpty ? "\(session.messageCount) messages" : preview
+        return "\(relativeTime(session.updatedAt)) · \(shortID(session.id)) · \(detail)"
+    }
+
+    static func waitingIndicator(frame: Int, word: String) -> String {
+        let spinner = waitingFrames[frame % waitingFrames.count]
+        return muted("\(spinner) ") + accentBright(word)
+    }
+
+    static func waitingWord(seed: String) -> String {
+        let value = seed.unicodeScalars.reduce(0) { partial, scalar in
+            partial &+ Int(scalar.value)
+        }
+        return thinkingWords[value % thinkingWords.count]
+    }
+
+    static func userMessageLines(_ text: String, width: Int) -> [String] {
+        let contentWidth = max(1, width - 4)
+        let rawLines = text
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .split(separator: "\n", omittingEmptySubsequences: false)
+            .flatMap { line in
+                AnsiWrapping.wrapText(String(line), width: contentWidth)
+            }
+
+        let lines = rawLines.isEmpty ? [""] : rawLines
+        return lines.enumerated().map { index, line in
+            let prefix = index == 0 ? "› " : "  "
+            return applyBackground(
+                " " + muted(prefix) + highlightedFileReferences(in: line),
+                width: width,
+                background: userMessageBackground
+            )
+        }
+    }
+
+    static func thinkingLines(_ text: String, width: Int) -> [String] {
+        let contentWidth = max(1, width - 6)
+        let rawLines = text
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .split(separator: "\n", omittingEmptySubsequences: false)
+            .flatMap { line in
+                AnsiWrapping.wrapText(String(line), width: contentWidth)
+            }
+        let lines = rawLines.isEmpty ? [""] : rawLines
+        return lines.enumerated().map { index, line in
+            let prefix = index == 0 ? "thought " : "        "
+            return applyBackground(
+                " " + muted(prefix) + foreground(line),
+                width: width,
+                background: thinkingBackground
+            )
+        }
+    }
+
+    static func toolCallLine(tool: String, reason: String?, argumentNames: [String], width: Int) -> String {
+        let args = argumentNames.isEmpty ? "" : muted(" · \(argumentNames.joined(separator: ", "))")
+        let suffix = reason?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let reasonText = suffix?.isEmpty == false ? muted(" · \(suffix!)") : ""
+        let line = " " + blue("tool") + foreground(" \(tool)") + args + reasonText
+        return applyBackground(padded(line, width: width), width: width, background: toolBackground)
+    }
+
+    static func toolResultLine(tool: String, ok: Bool, error: String?, durationMs: Int?, width: Int) -> String {
+        let status = ok ? green("done") : red("failed")
+        let duration = durationMs.map { muted(" · \($0)ms") } ?? ""
+        let errorText = error?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let suffix = errorText?.isEmpty == false ? muted(" · \(errorText!)") : ""
+        let line = " " + status + foreground(" \(tool)") + duration + suffix
+        return applyBackground(padded(line, width: width), width: width, background: toolBackground)
+    }
+
+    static func attachmentLine(name: String, mimeType: String, sizeBytes: Int, width: Int) -> String {
+        let size = formattedBytes(sizeBytes)
+        let line = " " + green("attached") + foreground(" ") + yellow(name) + muted("  \(mimeType), \(size)")
+        return applyBackground(padded(line, width: width), width: width, background: attachmentBackground)
     }
 
     static func commandPaletteLines(
@@ -1353,45 +2027,40 @@ private enum SloppyTUITheme {
     }
 
     static func pickerLines(width: Int, picker: SloppyTUIPicker, maxVisible: Int) -> [String] {
-        let paletteWidth = dropdownWidth(width: width, picker: picker)
-        let innerWidth = max(1, paletteWidth - 2)
+        let paletteWidth = max(1, min(max(1, width - 4), 96))
         let left = max(0, (width - paletteWidth) / 2)
         let indent = String(repeating: " ", count: left)
         let visibleCount = max(1, min(maxVisible, picker.items.count))
         let start = max(0, min(picker.selectedIndex - visibleCount / 2, picker.items.count - visibleCount))
         let end = min(picker.items.count, start + visibleCount)
         var lines = [
-            indent + dropdownLine("╭" + String(repeating: "─", count: innerWidth) + "╮", width: paletteWidth),
-            indent + dropdownLine("│" + padded("  " + foreground(AnsiStyling.bold(picker.title)) + "  " + muted("Enter · Esc"), width: innerWidth) + "│", width: paletteWidth),
-            indent + dropdownLine("├" + String(repeating: "─", count: innerWidth) + "┤", width: paletteWidth),
+            indent + padded("  " + foreground(AnsiStyling.bold(picker.title)) + "  " + muted("Enter apply · Esc cancel"), width: paletteWidth),
         ]
 
         for index in start..<end {
             let item = picker.items[index]
             let raw: String
-            if innerWidth < 32 {
+            if paletteWidth < 32 {
                 let marker = item.isCurrent ? "✓ " : "  "
-                raw = " " + marker + truncateEnd(item.label, maxWidth: max(1, innerWidth - 4))
+                raw = "  " + marker + truncateEnd(item.label, maxWidth: max(1, paletteWidth - 4))
             } else {
-                let nameWidth = max(14, min(38, innerWidth / 2))
-                let descWidth = max(1, innerWidth - nameWidth - 7)
-                let marker = item.isCurrent ? "✓" : " "
+                let nameWidth = max(14, min(42, paletteWidth / 2))
+                let descWidth = max(1, paletteWidth - nameWidth - 6)
+                let marker = item.isCurrent ? "✓ " : "  "
                 let label = truncateEnd(item.label, maxWidth: nameWidth).padding(toLength: nameWidth, withPad: " ", startingAt: 0)
-                raw = " " + marker + " " + label + "  " + muted(truncateEnd(item.description ?? "", maxWidth: descWidth))
+                raw = "  " + marker + label + "  " + truncateEnd(item.description ?? "", maxWidth: descWidth)
             }
-            let line = "│" + padded(raw, width: innerWidth) + "│"
+            let line = padded(raw, width: paletteWidth)
             if index == picker.selectedIndex {
-                lines.append(indent + selectedDropdownLine(line))
+                lines.append(indent + selectedLine(line))
             } else {
-                lines.append(indent + dropdownLine(foreground(line), width: paletteWidth))
+                lines.append(indent + foreground(line))
             }
         }
         if picker.items.count > visibleCount {
             let info = "  " + muted("\(picker.selectedIndex + 1)/\(picker.items.count)")
-            lines.append(indent + dropdownLine("├" + String(repeating: "─", count: innerWidth) + "┤", width: paletteWidth))
-            lines.append(indent + dropdownLine("│" + padded(info, width: innerWidth) + "│", width: paletteWidth))
+            lines.append(indent + padded(info, width: paletteWidth))
         }
-        lines.append(indent + dropdownLine("╰" + String(repeating: "─", count: innerWidth) + "╯", width: paletteWidth))
         return lines
     }
 
@@ -1471,6 +2140,15 @@ private enum SloppyTUITheme {
         return yellow("_\(label)_")
     }
 
+    static func isModelProviderError(_ text: String) -> Bool {
+        text.localizedCaseInsensitiveContains("Model provider error")
+            || text.localizedCaseInsensitiveContains("No models loaded")
+    }
+
+    static func errorBlock(_ text: String) -> String {
+        "### \(red("Error"))\n\(text)"
+    }
+
     private static func logoLines(width: Int) -> [String] {
         if width < 64 {
             return [center(accentBright(AnsiStyling.bold("sloppy")), width: width)]
@@ -1496,11 +2174,11 @@ private enum SloppyTUITheme {
         return accent("▌") + " " + padded(text, width: max(1, width - 2))
     }
 
-    private static func welcomeMetaLine(width: Int, project: String, agent: String, model: String) -> String {
+    private static func welcomeMetaLine(width: Int, project: String, agent: String, model: String, mode: AgentChatMode) -> String {
         let modelText = truncateEnd(compactModel(model), maxWidth: max(8, width / 3))
         let agentText = truncateEnd(agent, maxWidth: max(6, width / 5))
         let projectText = truncateEnd(project, maxWidth: max(6, width / 5))
-        let text = blue("Build") + muted(" · ") + foreground(modelText) + muted("  ") + foreground(agentText) + muted("  ") + muted(projectText)
+        let text = modeTitle(mode) + muted(" · ") + foreground(modelText) + muted("  ") + foreground(agentText) + muted("  ") + muted(projectText)
         return accent("▌") + " " + padded(text, width: max(1, width - 2))
     }
 
@@ -1509,7 +2187,7 @@ private enum SloppyTUITheme {
         if width < 48 {
             text = foreground("/help") + muted(" commands")
         } else {
-            text = foreground("tab") + muted(" files") + muted("     ") + foreground("/model") + muted(" models") + muted("     ") + foreground("/help") + muted(" commands")
+            text = foreground("tab") + muted(" mode") + muted("     ") + foreground("/model") + muted(" models") + muted("     ") + foreground("/help") + muted(" commands")
         }
         return "  " + padded(text, width: max(1, width - 2))
     }
@@ -1529,38 +2207,15 @@ private enum SloppyTUITheme {
     }
 
     private static func applyPanelBackground(_ line: String, width: Int) -> String {
-        AnsiWrapping.applyBackgroundToLine(line, width: width, background: panelBackground)
+        applyBackground(line, width: width, background: panelBackground)
     }
 
-    private static func applyDropdownBackground(_ line: String, width: Int) -> String {
-        AnsiWrapping.applyBackgroundToLine(line, width: width, background: dropdownBackground)
-    }
-
-    private static func dropdownLine(_ line: String, width: Int) -> String {
-        applyDropdownBackground(line, width: width)
-    }
-
-    private static func selectedDropdownLine(_ line: String) -> String {
-        dropdownSelectedBackground.apply(foreground(AnsiStyling.bold(line)))
+    private static func applyBackground(_ line: String, width: Int, background: AnsiStyling.Background) -> String {
+        AnsiWrapping.applyBackgroundToLine(line, width: width, background: background) + resetBackground
     }
 
     private static func selectedLine(_ line: String) -> String {
         "\u{001B}[48;2;251;178;123m\u{001B}[38;2;0;0;0m\(line)\u{001B}[39m\u{001B}[49m"
-    }
-
-    private static func dropdownWidth(width: Int, picker: SloppyTUIPicker) -> Int {
-        let maxLabel = picker.items
-            .map { VisibleWidth.measure($0.label) }
-            .max() ?? 0
-        let maxDescription = picker.items
-            .compactMap(\.description)
-            .map { VisibleWidth.measure($0) }
-            .max() ?? 0
-        let contentWidth = max(
-            40,
-            min(72, max(VisibleWidth.measure(picker.title) + 14, maxLabel + min(maxDescription, 24) + 9))
-        )
-        return max(24, min(max(1, width - 4), contentWidth + 2))
     }
 
     private static func overlay(line: String, overlay: String, width: Int) -> String {
@@ -1609,6 +2264,62 @@ private enum SloppyTUITheme {
         let limit = max(1, maxWidth - 1)
         return "…" + String(text.suffix(limit))
     }
+
+    private static func highlightedFileReferences(in line: String) -> String {
+        let pattern = #"@[A-Za-z0-9._/\-~]+"#
+        guard let regex = try? NSRegularExpression(pattern: pattern) else {
+            return foreground(line)
+        }
+        let nsRange = NSRange(line.startIndex..<line.endIndex, in: line)
+        let matches = regex.matches(in: line, range: nsRange)
+        guard !matches.isEmpty else {
+            return foreground(line)
+        }
+
+        var result = ""
+        var cursor = line.startIndex
+        for match in matches {
+            guard let range = Range(match.range, in: line) else { continue }
+            if range.lowerBound > cursor {
+                result += foreground(String(line[cursor..<range.lowerBound]))
+            }
+            result += yellow(String(line[range]))
+            cursor = range.upperBound
+        }
+        if cursor < line.endIndex {
+            result += foreground(String(line[cursor..<line.endIndex]))
+        }
+        return result
+    }
+
+    private static func formattedBytes(_ bytes: Int) -> String {
+        if bytes < 1024 { return "\(bytes) B" }
+        let units = ["KB", "MB", "GB"]
+        var value = Double(bytes) / 1024.0
+        var unit = units[0]
+        for nextUnit in units.dropFirst() where value >= 1024.0 {
+            value /= 1024.0
+            unit = nextUnit
+        }
+        return String(format: "%.1f %@", value, unit)
+    }
+
+    static func shortID(_ id: String) -> String {
+        guard id.count > 12 else { return id }
+        return String(id.prefix(8))
+    }
+
+    private static func relativeTime(_ date: Date) -> String {
+        let seconds = max(0, Int(Date().timeIntervalSince(date)))
+        if seconds < 60 { return "just now" }
+        let minutes = seconds / 60
+        if minutes < 60 { return "\(minutes)m ago" }
+        let hours = minutes / 60
+        if hours < 24 { return "\(hours)h ago" }
+        let days = hours / 24
+        if days < 7 { return "\(days)d ago" }
+        return date.formatted(date: .abbreviated, time: .omitted)
+    }
 }
 
 struct SloppyTUISlashCommand: SlashCommand {
@@ -1630,6 +2341,64 @@ struct SloppyTUISlashCommand: SlashCommand {
 
     func argumentCompletions(prefix: String) -> [AutocompleteItem] {
         []
+    }
+}
+
+private final class SloppyTUIAutocompleteProvider: AutocompleteProvider {
+    private let base: CombinedAutocompleteProvider
+
+    init(basePath: String) {
+        self.base = CombinedAutocompleteProvider(basePath: basePath)
+    }
+
+    func getSuggestions(lines: [String], cursorLine: Int, cursorCol: Int) -> AutocompleteSuggestion? {
+        base.getSuggestions(lines: lines, cursorLine: cursorLine, cursorCol: cursorCol)
+    }
+
+    func applyCompletion(
+        lines: [String],
+        cursorLine: Int,
+        cursorCol: Int,
+        item: AutocompleteItem,
+        prefix: String
+    ) -> (lines: [String], cursorLine: Int, cursorCol: Int) {
+        guard prefix.hasPrefix("@") else {
+            return base.applyCompletion(
+                lines: lines,
+                cursorLine: cursorLine,
+                cursorCol: cursorCol,
+                item: item,
+                prefix: prefix
+            )
+        }
+        guard lines.indices.contains(cursorLine) else {
+            return (lines, cursorLine, cursorCol)
+        }
+
+        var mutableLines = lines
+        var currentLine = lines[cursorLine]
+        let safePrefixCount = min(prefix.count, cursorCol)
+        let start = currentLine.index(currentLine.startIndex, offsetBy: cursorCol - safePrefixCount)
+        let end = currentLine.index(start, offsetBy: safePrefixCount)
+        let replacement = item.value.hasPrefix("@") ? item.value + " " : "@" + item.value + " "
+        currentLine.replaceSubrange(start..<end, with: replacement)
+        mutableLines[cursorLine] = currentLine
+        let newCursor = cursorCol - safePrefixCount + replacement.count
+        return (mutableLines, cursorLine, max(0, newCursor))
+    }
+
+    func forceFileSuggestions(lines: [String], cursorLine: Int, cursorCol: Int) -> AutocompleteSuggestion? {
+        nil
+    }
+
+    func shouldTriggerFileCompletion(lines: [String], cursorLine: Int, cursorCol: Int) -> Bool {
+        guard lines.indices.contains(cursorLine) else {
+            return false
+        }
+        let currentLine = lines[cursorLine]
+        let prefixIndex = currentLine.index(currentLine.startIndex, offsetBy: min(cursorCol, currentLine.count))
+        let textBeforeCursor = String(currentLine[..<prefixIndex])
+        return textBeforeCursor.trimmingCharacters(in: .whitespaces).hasPrefix("/")
     }
 }
 
@@ -1715,3 +2484,15 @@ struct SloppyTUIProviderDefinition {
         return "openai:\(modelID)"
     }
 }
+
+#if canImport(AppKit)
+private extension NSImage {
+    func pngData() -> Data? {
+        guard let tiffRepresentation,
+              let bitmap = NSBitmapImageRep(data: tiffRepresentation) else {
+            return nil
+        }
+        return bitmap.representation(using: .png, properties: [:])
+    }
+}
+#endif

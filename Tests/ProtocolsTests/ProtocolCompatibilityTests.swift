@@ -328,7 +328,8 @@ func agentSessionPostMessageRequestRoundTripsReasoningEffort() throws {
         content: "Think harder",
         attachments: [],
         spawnSubSession: false,
-        reasoningEffort: .medium
+        reasoningEffort: .medium,
+        mode: .plan
     )
 
     let encoded = try JSONEncoder().encode(request)
@@ -336,6 +337,7 @@ func agentSessionPostMessageRequestRoundTripsReasoningEffort() throws {
 
     #expect(decoded.userId == "dashboard")
     #expect(decoded.reasoningEffort == .medium)
+    #expect(decoded.mode == .plan)
 }
 
 @Test

@@ -32,11 +32,14 @@ struct SloppyApp: AsyncParsableCommand {
     @Flag(name: .customLong("version"), help: "Print the current sloppy version.")
     var printVersion: Bool = false
 
+    @Option(name: [.short, .long], help: "Resume the TUI directly from an agent session ID.")
+    var session: String?
+
     mutating func run() async throws {
         if printVersion {
             print("sloppy \(SloppyVersion.current)")
             return
         }
-        try await SloppyTUIApp().run()
+        try await SloppyTUIApp(requestedSessionID: session).run()
     }
 }

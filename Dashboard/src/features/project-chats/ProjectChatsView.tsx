@@ -223,6 +223,7 @@ export function ProjectChatsView({
           initialSessionId={chatSessionId}
           projectId={chatProjectId}
           onActiveSessionIdChange={onActiveSessionIdChange}
+          modeStorageScope={`project-chat:${chatProjectId}:${chatAgentId}`}
         />
       ) : (
         <p className="app-status-text">Choose an agent to load sessions and chat.</p>

@@ -2725,6 +2725,13 @@ public enum ReasoningEffort: String, Codable, Sendable, Equatable, CaseIterable 
     case high
 }
 
+public enum AgentChatMode: String, Codable, Sendable, Equatable, CaseIterable {
+    case ask
+    case build
+    case plan
+    case debug
+}
+
 public struct AgentSessionPostMessageRequest: Codable, Sendable {
     public var userId: String
     public var content: String
@@ -2733,6 +2740,7 @@ public struct AgentSessionPostMessageRequest: Codable, Sendable {
     public var reasoningEffort: ReasoningEffort?
     /// When set and allowed for the agent, overrides catalog `selectedModel` for this turn only.
     public var selectedModel: String?
+    public var mode: AgentChatMode?
 
     public init(
         userId: String,
@@ -2740,7 +2748,8 @@ public struct AgentSessionPostMessageRequest: Codable, Sendable {
         attachments: [AgentAttachmentUpload] = [],
         spawnSubSession: Bool = false,
         reasoningEffort: ReasoningEffort? = nil,
-        selectedModel: String? = nil
+        selectedModel: String? = nil,
+        mode: AgentChatMode? = nil
     ) {
         self.userId = userId
         self.content = content
@@ -2748,6 +2757,7 @@ public struct AgentSessionPostMessageRequest: Codable, Sendable {
         self.spawnSubSession = spawnSubSession
         self.reasoningEffort = reasoningEffort
         self.selectedModel = selectedModel
+        self.mode = mode
     }
 }
 

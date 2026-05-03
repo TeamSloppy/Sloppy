@@ -247,46 +247,14 @@ private struct ChatScreenContent: View {
 
     @ViewBuilder
     private var contentArea: some View {
-        if viewModel.messages.isEmpty {
-            VStack(spacing: theme.spacing.xl) {
-                Spacer()
-                ChatGreetingView(agentName: viewModel.selectedAgent?.displayName ?? "Agent")
-                    .frame(width: heroWidth)
-                Spacer()
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-        } else {
-            VStack(spacing: 0) {
-                ScrollViewReader { proxy in
-                    ScrollView {
-                        VStack(alignment: .leading, spacing: theme.spacing.xl) {
-                            ForEach(viewModel.messages) { msg in
-                                ChatBubbleView(message: msg)
-                                    .frame(minWidth: 0, maxWidth: .infinity)
-                                    .allowsHitTesting(false)
-                                    .id(msg.id)
-                            }
-                        }
-                        .padding(.top, messagesTopInset)
-                        .padding(.bottom, composerScrollInset)
-                    }
-                    .onChange(of: viewModel.messages.count) { oldCount, newCount in
-                        guard newCount > oldCount,
-                              oldCount == 0 || proxy.isNearBottom(threshold: 160),
-                              let lastMessageId = viewModel.messages.last?.id else {
-                            return
-                        }
-
-                        Task { @MainActor in
-                            proxy.scrollTo(lastMessageId, anchor: .bottom)
-                        }
-                    }
-                }
-                .frame(width: contentWidth)
-                .frame(maxHeight: .infinity)
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-        }
+        ChatTranscriptPane(
+            transcript: viewModel.transcript,
+            agentName: viewModel.selectedAgent?.displayName ?? "Agent",
+            contentWidth: contentWidth,
+            heroWidth: heroWidth,
+            messagesTopInset: messagesTopInset,
+            composerScrollInset: composerScrollInset
+        )
     }
 
     private var quickActionRow: some View {
@@ -431,5 +399,109 @@ private struct ChatScreenContent: View {
             return 390
         }
         return max(320, screen.size.width)
+    }
+}
+
+@MainActor
+private struct ChatTranscriptPane: View {
+    let transcript: ChatTranscriptState
+    let agentName: String
+    let contentWidth: Float
+    let heroWidth: Float
+    let messagesTopInset: Float
+    let composerScrollInset: Float
+
+    @Environment(\.theme) private var theme
+
+    var body: some View {
+        if transcript.isEmpty {
+            VStack(spacing: theme.spacing.xl) {
+                Spacer()
+                ChatGreetingView(agentName: agentName)
+                    .frame(width: heroWidth)
+                Spacer()
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else {
+            VStack(spacing: 0) {
+                ScrollViewReader { proxy in
+                    ScrollView {
+                        if transcript.hasEarlierMessages {
+                            revealEarlierButton
+                                .padding(.top, messagesTopInset)
+                                .padding(.bottom, theme.spacing.m)
+                        }
+
+                        LazyVStack(
+                            transcript.messages,
+                            alignment: .leading,
+                            spacing: theme.spacing.xl,
+                            estimatedRowHeight: 168,
+                            overscan: 8
+                        ) { msg in
+                            ChatBubbleView(message: msg)
+                                .frame(minWidth: 0, maxWidth: .infinity)
+                                .allowsHitTesting(false)
+                        }
+                        .padding(.top, transcript.hasEarlierMessages ? 0 : messagesTopInset)
+                        .padding(.bottom, composerScrollInset)
+                    }
+                    .onChange(of: transcript.messages.count) { oldCount, newCount in
+                        guard newCount > oldCount,
+                              oldCount == 0 || proxy.isNearBottom(threshold: 220),
+                              let lastMessageId = transcript.lastMessage?.id else {
+                            return
+                        }
+
+                        Task { @MainActor in
+                            proxy.scrollTo(lastMessageId, anchor: .bottom)
+                        }
+                    }
+                    .onChange(of: latestAssistantMessageLayoutKey) { _, _ in
+                        guard proxy.isNearBottom(threshold: 480),
+                              let lastMessage = transcript.lastMessage,
+                              lastMessage.role == .assistant else {
+                            return
+                        }
+
+                        Task { @MainActor in
+                            proxy.scrollTo(lastMessage.id, anchor: .bottom)
+                        }
+                    }
+                }
+                .frame(width: contentWidth)
+                .frame(maxHeight: .infinity)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+    }
+
+    private var latestAssistantMessageLayoutKey: String {
+        guard let message = transcript.lastMessage,
+              message.role == .assistant else {
+            return ""
+        }
+        return "\(message.id):\(message.textContent.count)"
+    }
+
+    private var revealEarlierButton: some View {
+        let c = theme.colors
+        let sp = theme.spacing
+        let ty = theme.typography
+        let count = min(64, transcript.hiddenMessageCount)
+
+        return HStack {
+            Spacer(minLength: 0)
+            Button("Show \(count) earlier") {
+                transcript.revealEarlierMessages()
+            }
+            .font(.system(size: ty.caption))
+            .foregroundColor(c.textSecondary)
+            .padding(.horizontal, sp.m)
+            .padding(.vertical, sp.s)
+            .background(c.surface.opacity(0.74 as Float))
+            .glassEffect(.regular, in: .rect(cornerRadius: 14))
+            Spacer(minLength: 0)
+        }
     }
 }

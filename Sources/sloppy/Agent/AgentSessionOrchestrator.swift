@@ -201,6 +201,7 @@ actor AgentSessionOrchestrator {
                 "agent_id": .string(agentID),
                 "session_id": .string(sessionID),
                 "user_id": .string(request.userId),
+                "mode": .string(request.mode?.rawValue ?? AgentChatMode.ask.rawValue),
                 "attachment_count": .stringConvertible(request.attachments.count),
                 "prompt": .string(truncateForLog(content.isEmpty ? "[attachments_only_prompt]" : content))
             ]
@@ -301,6 +302,7 @@ actor AgentSessionOrchestrator {
             throw mapSessionStoreError(error)
         }
 
+        let runtimeContent = Self.runtimeContent(content, mode: request.mode)
         let runtimeOutcome: SessionRuntimeOutcome
         switch agentConfig.runtime.type {
         case .native:
@@ -308,7 +310,7 @@ actor AgentSessionOrchestrator {
                 agentID: agentID,
                 sessionID: sessionID,
                 userID: request.userId,
-                content: content,
+                content: runtimeContent,
                 selectedModel: selectedModel,
                 reasoningEffort: reasoningEffort
             )
@@ -320,7 +322,7 @@ actor AgentSessionOrchestrator {
                 let blocks = makeACPContentBlocks(
                     agentID: agentID,
                     sessionID: sessionID,
-                    content: content,
+                    content: runtimeContent,
                     attachments: attachments
                 )
                 let primerContent = await runtime.channelBootstrapContent(
@@ -673,6 +675,25 @@ actor AgentSessionOrchestrator {
         var routeDecision: ChannelRouteDecision?
         var wasInterrupted: Bool
         var didResetContext: Bool
+    }
+
+    static func runtimeContent(_ content: String, mode: AgentChatMode?) -> String {
+        let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
+        let instruction: String
+        switch mode ?? .ask {
+        case .ask:
+            instruction = "Sloppy mode: ask. Answer the user's question directly. Do not edit files, run mutating commands, or make code changes unless the user explicitly switches to build or debug for this turn."
+        case .build:
+            instruction = "Sloppy mode: build. Implement the requested change by writing code, editing files, and running the smallest relevant verification. Ask only when a blocking requirement is ambiguous."
+        case .plan:
+            instruction = "Sloppy mode: plan. Produce a concise implementation or investigation plan. Do not edit files, run mutating commands, or make irreversible changes unless the user explicitly switches to build or debug for this turn."
+        case .debug:
+            instruction = "Sloppy mode: debug. Add focused diagnostic logging or instrumentation to the code so the behavior can be understood, then run or describe the smallest check that would produce useful evidence. Do not implement the final product fix unless the user explicitly asks for it."
+        }
+        guard !trimmed.isEmpty else {
+            return instruction
+        }
+        return "\(instruction)\n\nUser request:\n\(trimmed)"
     }
 
     private func postNativeMessage(
