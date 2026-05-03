@@ -183,6 +183,39 @@
   flex-direction: row;
 }
 
+.provider-auth-mode-field {
+  display: grid;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 0.88rem;
+}
+
+.provider-auth-mode-segmented {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  border: 1px solid var(--line);
+  background: var(--surface);
+}
+
+.provider-auth-mode-segmented button {
+  min-width: 0;
+  border: none;
+  border-right: 1px solid var(--line);
+  border-radius: 0;
+  padding: 10px 12px;
+  background: transparent;
+  color: var(--muted);
+}
+
+.provider-auth-mode-segmented button:last-child {
+  border-right: none;
+}
+
+.provider-auth-mode-segmented button.active {
+  background: var(--surface-3);
+  color: var(--text);
+}
+
 .providers-list {
   display: grid;
   grid-template-columns: 1fr;
@@ -603,4 +636,3 @@
   display: flex;
   gap: 8px;
 }
-

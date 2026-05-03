@@ -132,15 +132,15 @@ const PROVIDER_CATALOG = [
     brandProviderKey: "anthropic",
     title: "Anthropic",
     description: "Claude models via Anthropic API key.",
-    modelHint: "claude-sonnet-4-20250514",
+    modelHint: "claude-sonnet-4-6",
     authMethod: "api_key",
     requiresApiKey: true,
-    supportsModelCatalog: false,
+    supportsModelCatalog: true,
     defaultEntry: {
       title: "anthropic",
       apiKey: "",
       apiUrl: "https://api.anthropic.com",
-      model: "claude-sonnet-4-20250514",
+      model: "claude-sonnet-4-6",
       disabled: false,
       providerCatalogId: "anthropic"
     }
@@ -149,8 +149,8 @@ const PROVIDER_CATALOG = [
     id: "anthropic-oauth",
     brandProviderKey: "anthropic",
     title: "Anthropic",
-    description: "Claude via Anthropic OAuth or Claude Code token (setup tokens, not Console API keys).",
-    modelHint: "claude-sonnet-4-20250514",
+    description: "Claude via Anthropic OAuth, Claude Code credentials, or API token.",
+    modelHint: "claude-sonnet-4-6",
     authMethod: "api_key",
     requiresApiKey: true,
     supportsModelCatalog: true,
@@ -158,7 +158,7 @@ const PROVIDER_CATALOG = [
       title: "anthropic-oauth",
       apiKey: "",
       apiUrl: "https://api.anthropic.com",
-      model: "claude-sonnet-4-20250514",
+      model: "claude-sonnet-4-6",
       disabled: false,
       providerCatalogId: "anthropic-oauth"
     }
@@ -534,6 +534,9 @@ function providerIsConfigured(provider, entry) {
   }
   const hasModel = Boolean(String(entry.model || "").trim());
   const hasURL = Boolean(String(entry.apiUrl || "").trim());
+  if (provider.id === "anthropic") {
+    return hasModel && Boolean(String(entry.apiKey || "").trim());
+  }
   if (provider.requiresApiKey) {
     return hasModel && hasURL && Boolean(String(entry.apiKey || "").trim());
   }
@@ -1653,10 +1656,13 @@ export function ConfigView({
   }
 
   function providerEntryFromForm(provider, form) {
+    const isAnthropic = provider.id === "anthropic" || provider.id === "anthropic-oauth";
     return {
       title: String(form.title || "").trim() || provider.defaultEntry.title,
       apiKey: provider.requiresApiKey ? String(form.apiKey || "").trim() : "",
-      apiUrl: String(form.apiUrl || "").trim() || provider.defaultEntry.apiUrl,
+      apiUrl: isAnthropic
+        ? String(form.apiUrl || "").trim()
+        : String(form.apiUrl || "").trim() || provider.defaultEntry.apiUrl,
       model: String(form.model || "").trim() || provider.defaultEntry.model,
       disabled: Boolean(form.disabled),
       providerCatalogId: provider.id
@@ -1699,6 +1705,40 @@ export function ConfigView({
     }
   }
 
+  function selectAnthropicAuthMode(mode) {
+    if (!providerForm) {
+      return;
+    }
+    const nextProviderId = mode === "api-token" ? "anthropic" : "anthropic-oauth";
+    if (providerModalId === nextProviderId) {
+      return;
+    }
+
+    const provider = getProviderDefinition(nextProviderId);
+    const currentTitle = String(providerForm.title || "").trim();
+    const nextTitle =
+      currentTitle === "anthropic" || currentTitle === "anthropic-oauth" || !currentTitle
+        ? provider.defaultEntry.title
+        : currentTitle;
+    const nextForm = {
+      ...providerForm,
+      title: nextTitle,
+      apiUrl: providerForm.apiUrl ?? provider.defaultEntry.apiUrl,
+      model: providerForm.model || provider.defaultEntry.model
+    };
+
+    setProviderModalId(nextProviderId);
+    setProviderForm(nextForm);
+    setProviderModelMenuOpen(false);
+    setProviderStatus(nextProviderId, "");
+
+    const nextConfig = configWithProviderForm(provider, nextForm);
+    writeProviderDraft(nextConfig);
+    scheduleProviderConfigSave(nextConfig, {
+      successMessage: "Provider changes saved"
+    });
+  }
+
   async function loadProviderModels(providerId, entryOverride = null) {
     const provider = getProviderDefinition(providerId);
     if (!provider.supportsModelCatalog) {
@@ -1713,11 +1753,11 @@ export function ConfigView({
     setProviderStatus(provider.id, "Loading provider models...");
 
     let payload;
-    if (provider.id === "openrouter" || provider.id === "ollama" || provider.id === "anthropic-oauth") {
+    if (provider.id === "openrouter" || provider.id === "ollama" || provider.id === "anthropic" || provider.id === "anthropic-oauth") {
       const probe = await probeProvider({
         providerId: provider.id,
         apiKey: String(entry.apiKey || "").trim() || undefined,
-        apiUrl: entry.apiUrl || provider.defaultEntry.apiUrl
+        apiUrl: entry.apiUrl || (provider.id === "anthropic" || provider.id === "anthropic-oauth" ? "" : provider.defaultEntry.apiUrl)
       });
       if (!probe) {
         setProviderStatus(provider.id, "Failed to load models from sloppy");
@@ -1759,8 +1799,8 @@ export function ConfigView({
           ? "OpenRouter"
           : provider.id === "ollama"
             ? "Ollama"
-            : provider.id === "anthropic-oauth"
-              ? "Anthropic OAuth"
+            : provider.id === "anthropic-oauth" || provider.id === "anthropic"
+              ? "Anthropic"
             : "OpenAI";
       setProviderStatus(provider.id, `Loaded ${models.length} models from ${label}`);
     } else {
@@ -1832,8 +1872,13 @@ export function ConfigView({
       return;
     }
 
-    if (provider.id === "anthropic-oauth" && !hasOAuthCredentialsForAnthropic && !String(providerForm.apiKey || "").trim()) {
-      setProviderStatus(provider.id, "Connect Anthropic OAuth, import Claude Code credentials, or paste a setup token.");
+    if (
+      provider.id === "anthropic-oauth" &&
+      !hasOAuthCredentialsForAnthropic &&
+      !anthropicProviderStatus.hasEnvironmentKey &&
+      !String(providerForm.apiKey || "").trim()
+    ) {
+      setProviderStatus(provider.id, "Connect Anthropic OAuth, import Claude Code credentials, or set ANTHROPIC_AUTH_TOKEN.");
       setProviderModelOptions((previous) => ({
         ...previous,
         [provider.id]: []
@@ -2040,6 +2085,7 @@ export function ConfigView({
             onSetProviderRowDisabled={setProviderRowDisabled}
             onCloseProviderModal={closeProviderModalWithAutosave}
             onUpdateProviderForm={updateProviderForm}
+            onSelectAnthropicAuthMode={selectAnthropicAuthMode}
             onOpenOAuth={openOpenAIPlatform}
             onOpenAnthropicOAuth={openAnthropicOAuthPopup}
             onImportAnthropicClaudeCredentials={importClaudeCredentialsForAnthropic}

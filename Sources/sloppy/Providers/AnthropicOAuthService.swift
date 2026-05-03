@@ -94,7 +94,7 @@ struct AnthropicOAuthService: @unchecked Sendable {
             case .missingAccessToken:
                 return "Anthropic OAuth token response is missing the access token."
             case .missingClaudeCredentials:
-                return "Claude Code credentials were not found in ~/.claude/.credentials.json."
+                return "Claude Code credentials were not found in ~/.claude/.credentials.json or .claude/settings.json."
             }
         }
     }
@@ -222,6 +222,14 @@ struct AnthropicOAuthService: @unchecked Sendable {
                 refreshable: stored.isRefreshable
             )
         }
+        if claudeSettingsEnvironment().hasAuthToken {
+            return AnthropicOAuthStatus(
+                hasCredentials: true,
+                source: "claude_settings_env",
+                expiresAt: nil,
+                refreshable: false
+            )
+        }
         return AnthropicOAuthStatus(
             hasCredentials: false,
             source: nil,
@@ -235,14 +243,27 @@ struct AnthropicOAuthService: @unchecked Sendable {
             return stored.accessToken.trimmingCharacters(in: .whitespacesAndNewlines)
         }
 
-        for environmentKey in ["ANTHROPIC_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY"] {
+        for environmentKey in ["ANTHROPIC_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_AUTH_TOKEN"] {
             let value = ProcessInfo.processInfo.environment[environmentKey]?
                 .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-            if !value.isEmpty, Self.isOAuthStyleToken(value) {
+            if !value.isEmpty {
                 return value
             }
         }
+        let settingsToken = claudeSettingsEnvironment().authToken?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if !settingsToken.isEmpty {
+            return settingsToken
+        }
+        let legacyAPIKey = ProcessInfo.processInfo.environment["ANTHROPIC_API_KEY"]?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if !legacyAPIKey.isEmpty, Self.isOAuthStyleToken(legacyAPIKey) {
+            return legacyAPIKey
+        }
         return nil
+    }
+
+    func claudeSettingsEnvironment() -> ClaudeSettingsEnvironment {
+        ClaudeSettingsEnvironment.load(workspaceRootURL: workspaceRootURL)
     }
 
     func ensureValidToken() async throws {

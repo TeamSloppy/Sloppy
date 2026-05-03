@@ -1,4 +1,4 @@
-import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   createAgentSession,
   deleteAgentSession,
@@ -17,7 +17,10 @@ import {
   searchProjectFiles,
   fetchProjectWorkingTreeGit,
   subscribeProjectChangeStream,
-  fetchAgentChatSlashCommands
+  fetchAgentChatSlashCommands,
+  fetchPendingToolApprovals,
+  approveToolApproval,
+  rejectToolApproval
 } from "../../../api";
 import { navigateToTaskScreen } from "../../../app/routing/navigateToTaskScreen";
 import { ProjectGitDiffPanel } from "./ProjectGitDiffPanel";
@@ -2061,6 +2064,74 @@ function AgentChatEvents({
   );
 }
 
+function formatToolApprovalDate(value) {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return String(value);
+  return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+}
+
+function formatToolApprovalArguments(value) {
+  if (!value || typeof value !== "object" || Object.keys(value).length === 0) {
+    return "{}";
+  }
+  try {
+    return JSON.stringify(value, null, 2);
+  } catch {
+    return String(value);
+  }
+}
+
+function AgentChatToolApprovalBanner({
+  approvals = [],
+  resolvingId = null,
+  statusText = "",
+  onApprove,
+  onReject
+}) {
+  if (!Array.isArray(approvals) || approvals.length === 0) {
+    return null;
+  }
+
+  const approval = approvals[0];
+  const isWorking = resolvingId === approval.id;
+  const extraCount = Math.max(0, approvals.length - 1);
+
+  return (
+    <section className="agent-chat-tool-approval-banner" aria-label="Tool approval required">
+      <div className="agent-chat-tool-approval-icon" aria-hidden="true">
+        <span className="material-symbols-rounded">approval</span>
+      </div>
+
+      <div className="agent-chat-tool-approval-body">
+        <div className="agent-chat-tool-approval-head">
+          <strong>Tool approval required</strong>
+          <span>{approval.tool || "Unknown tool"}</span>
+        </div>
+        <p>{approval.reason?.trim() || "The agent is waiting for permission before continuing."}</p>
+        <details className="agent-chat-tool-approval-details">
+          <summary>
+            Arguments
+            {approval.expiresAt ? ` · expires ${formatToolApprovalDate(approval.expiresAt)}` : ""}
+            {extraCount > 0 ? ` · +${extraCount} more` : ""}
+          </summary>
+          <pre>{formatToolApprovalArguments(approval.arguments)}</pre>
+        </details>
+        {statusText ? <span className="agent-chat-tool-approval-status">{statusText}</span> : null}
+      </div>
+
+      <div className="agent-chat-tool-approval-actions">
+        <button type="button" className="agent-chat-tool-approval-reject" onClick={() => onReject?.(approval.id)} disabled={isWorking}>
+          Reject
+        </button>
+        <button type="button" className="agent-chat-tool-approval-approve" onClick={() => onApprove?.(approval.id)} disabled={isWorking}>
+          Approve
+        </button>
+      </div>
+    </section>
+  );
+}
+
 function AgentChatComposer({
   agentId,
   projectId = null,
@@ -2853,6 +2924,9 @@ export function AgentChatTab({
   const [pendingFiles, setPendingFiles] = useState([]);
   const [gitDiffComposeTags, setGitDiffComposeTags] = useState([]);
   const [statusText, setStatusText] = useState("Loading sessions...");
+  const [pendingToolApprovals, setPendingToolApprovals] = useState([]);
+  const [toolApprovalStatusText, setToolApprovalStatusText] = useState("");
+  const [resolvingToolApprovalId, setResolvingToolApprovalId] = useState(null);
   const [optimisticUserEvent, setOptimisticUserEvent] = useState(null);
   const [optimisticAssistantText, setOptimisticAssistantText] = useState("");
   const [replyTarget, setReplyTarget] = useState(null);
@@ -2957,6 +3031,74 @@ export function AgentChatTab({
 
   const scopedProjectId =
     projectId && String(projectId).trim() ? String(projectId).trim() : "";
+
+  const activePendingToolApprovals = useMemo(() => {
+    const currentAgentId = String(agentId || "").trim();
+    const currentSessionId = String(activeSessionId || "").trim();
+    if (!currentAgentId) {
+      return [];
+    }
+    return pendingToolApprovals.filter((approval) => {
+      if (String(approval?.status || "pending") !== "pending") {
+        return false;
+      }
+      if (String(approval?.agentId || "").trim() !== currentAgentId) {
+        return false;
+      }
+      const approvalSessionId = String(approval?.sessionId || "").trim();
+      return !currentSessionId || !approvalSessionId || approvalSessionId === currentSessionId;
+    });
+  }, [agentId, activeSessionId, pendingToolApprovals]);
+
+  const refreshPendingToolApprovals = useCallback(async () => {
+    if (!String(agentId || "").trim()) {
+      setPendingToolApprovals([]);
+      return;
+    }
+    const list = await fetchPendingToolApprovals();
+    setPendingToolApprovals(Array.isArray(list) ? list : []);
+  }, [agentId]);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function load() {
+      if (cancelled) return;
+      try {
+        await refreshPendingToolApprovals();
+      } catch {
+        if (!cancelled) {
+          setPendingToolApprovals([]);
+        }
+      }
+    }
+    void load();
+    const timerId = window.setInterval(load, 3_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timerId);
+    };
+  }, [refreshPendingToolApprovals, activeSessionId]);
+
+  async function resolvePendingToolApproval(approvalId, approved) {
+    if (!approvalId || resolvingToolApprovalId) {
+      return;
+    }
+    setResolvingToolApprovalId(approvalId);
+    setToolApprovalStatusText("");
+    const record = approved
+      ? await approveToolApproval(approvalId)
+      : await rejectToolApproval(approvalId);
+    setResolvingToolApprovalId(null);
+
+    if (record) {
+      setPendingToolApprovals((prev) => prev.filter((approval) => approval?.id !== approvalId));
+      setToolApprovalStatusText(approved ? "Approved." : "Rejected.");
+      window.setTimeout(() => setToolApprovalStatusText(""), 1_500);
+    } else {
+      await refreshPendingToolApprovals().catch(() => {});
+      setToolApprovalStatusText("Request not found or already resolved.");
+    }
+  }
 
   useEffect(() => {
     if (typeof onActiveSessionIdChange !== "function") {
@@ -5313,6 +5455,14 @@ export function AgentChatTab({
               />
 
               <div className="agent-chat-compose-sticky-wrap">
+                <AgentChatToolApprovalBanner
+                  approvals={activePendingToolApprovals}
+                  resolvingId={resolvingToolApprovalId}
+                  statusText={toolApprovalStatusText}
+                  onApprove={(approvalId) => void resolvePendingToolApproval(approvalId, true)}
+                  onReject={(approvalId) => void resolvePendingToolApproval(approvalId, false)}
+                />
+
                 <AgentChatComposer
                   agentId={agentId}
                   projectId={projectId}

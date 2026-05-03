@@ -24,10 +24,15 @@ struct AnthropicModelProviderFactory: ModelProviderFactory {
                 .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
             let envClaudeCodeToken = ProcessInfo.processInfo.environment["CLAUDE_CODE_OAUTH_TOKEN"]?
                 .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            let envAuthToken = ProcessInfo.processInfo.environment["ANTHROPIC_AUTH_TOKEN"]?
+                .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
             let legacyAPIKey = ProcessInfo.processInfo.environment["ANTHROPIC_API_KEY"]?
                 .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            let claudeSettings = config.anthropicSettingsProvider?() ?? ClaudeSettingsEnvironment.load()
+            let settingsAuthToken = claudeSettings.authToken?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
 
             let baseURL = CoreModelProviderFactory.parseURL(oauthConfig.apiUrl)
+                ?? claudeSettings.baseURL
                 ?? OAuthAnthropicLanguageModel.defaultBaseURL
 
             let keyProvider: @Sendable () -> String = {
@@ -37,6 +42,10 @@ struct AnthropicModelProviderFactory: ModelProviderFactory {
                 if !configuredKey.isEmpty { return configuredKey }
                 if !envAnthropicToken.isEmpty { return envAnthropicToken }
                 if !envClaudeCodeToken.isEmpty { return envClaudeCodeToken }
+                if !envAuthToken.isEmpty { return envAuthToken }
+                let latestSettingsAuthToken = config.anthropicSettingsProvider?().authToken?
+                    .trimmingCharacters(in: .whitespacesAndNewlines) ?? settingsAuthToken
+                if !latestSettingsAuthToken.isEmpty { return latestSettingsAuthToken }
                 if !legacyAPIKey.isEmpty, isOAuthStyleToken(legacyAPIKey) {
                     return legacyAPIKey
                 }
@@ -57,11 +66,25 @@ struct AnthropicModelProviderFactory: ModelProviderFactory {
         }
 
         let envKey = ProcessInfo.processInfo.environment["ANTHROPIC_API_KEY"] ?? ""
+        let envAuthToken = ProcessInfo.processInfo.environment["ANTHROPIC_AUTH_TOKEN"]?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let claudeSettings = config.anthropicSettingsProvider?() ?? ClaudeSettingsEnvironment.load()
+        let settingsAuthToken = claudeSettings.authToken?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let configuredKey = (plainConfig?.apiKey ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        let resolvedKey = configuredKey.isEmpty ? envKey : configuredKey
+        let resolvedKey: String
+        if !configuredKey.isEmpty {
+            resolvedKey = configuredKey
+        } else if !envKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            resolvedKey = envKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        } else if !envAuthToken.isEmpty {
+            resolvedKey = envAuthToken
+        } else {
+            resolvedKey = settingsAuthToken
+        }
         guard !resolvedKey.isEmpty else { return nil }
 
         let baseURL = CoreModelProviderFactory.parseURL(plainConfig?.apiUrl)
+            ?? claudeSettings.baseURL
             ?? OAuthAnthropicLanguageModel.defaultBaseURL
 
         return AnthropicModelProvider(

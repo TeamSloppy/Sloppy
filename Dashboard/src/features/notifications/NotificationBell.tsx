@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from
 import { useNotifications } from "./NotificationContext";
 import type { Notification, NotificationType } from "./NotificationContext";
 import { ApprovalDialog } from "../config/components/ApprovalDialog";
+import { ToolApprovalDialog } from "./ToolApprovalDialog";
 
 const TYPE_META: Record<NotificationType, { icon: string; color: string; label: string }> = {
   confirmation: { icon: "help_outline", color: "var(--warn)", label: "CONFIRM" },
@@ -46,6 +47,10 @@ function NotificationItem({
   function handleClick() {
     onRead(notification.id);
     if (notification.type === "pending_approval" && notification.metadata?.approvalId) {
+      onApprovalClick?.(notification.metadata.approvalId);
+      return;
+    }
+    if (notification.type === "tool_approval" && notification.metadata?.approvalId) {
       onApprovalClick?.(notification.metadata.approvalId);
       return;
     }
@@ -113,6 +118,7 @@ export function NotificationBell({
   const { notifications, unreadCount, markRead, markAllRead, dismiss, clearAll } = useNotifications();
   const [open, setOpen] = useState(false);
   const [approvalId, setApprovalId] = useState<string | null>(null);
+  const [toolApprovalId, setToolApprovalId] = useState<string | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
@@ -176,7 +182,14 @@ export function NotificationBell({
                   notification={n}
                   onDismiss={dismiss}
                   onRead={markRead}
-                  onApprovalClick={(id) => { setOpen(false); setApprovalId(id); }}
+                  onApprovalClick={(id) => {
+                    setOpen(false);
+                    if (n.type === "tool_approval") {
+                      setToolApprovalId(id);
+                    } else {
+                      setApprovalId(id);
+                    }
+                  }}
                   onNavigateToAgent={onNavigateToAgent ? (agentId, sessionId) => { setOpen(false); onNavigateToAgent(agentId, sessionId); } : undefined}
                 />
               ))
@@ -189,6 +202,14 @@ export function NotificationBell({
         <ApprovalDialog
           approvalId={approvalId}
           onClose={() => setApprovalId(null)}
+        />
+      )}
+
+      {toolApprovalId && (
+        <ToolApprovalDialog
+          approvalId={toolApprovalId}
+          onClose={() => setToolApprovalId(null)}
+          onNavigateToAgent={onNavigateToAgent}
         />
       )}
     </div>

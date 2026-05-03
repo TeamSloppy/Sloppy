@@ -11,13 +11,27 @@ struct GeminiModelProviderFactory: ModelProviderFactory {
             CoreModelProviderFactory.resolvedIdentifier(for: $0)?.hasPrefix("gemini:") == true
         }
 
+        let baseURL = CoreModelProviderFactory.parseURL(primaryConfig?.apiUrl)
+            ?? GeminiLanguageModel.defaultBaseURL
+
+        if let oauthCredentials = config.geminiOAuthCredentialsProvider?() {
+            return GeminiModelProvider(
+                supportedModels: geminiModels,
+                apiKey: { oauthCredentials.accessToken },
+                baseURL: baseURL,
+                tools: config.tools,
+                systemInstructions: config.systemInstructions,
+                session: ProxySessionFactory.makeSession(
+                    proxy: config.coreConfig.proxy,
+                    protocolClasses: [GeminiOAuthURLProtocol.self]
+                )
+            )
+        }
+
         let envKey = ProcessInfo.processInfo.environment["GEMINI_API_KEY"] ?? ""
         let configuredKey = (primaryConfig?.apiKey ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         let resolvedKey = configuredKey.isEmpty ? envKey : configuredKey
         guard !resolvedKey.isEmpty else { return nil }
-
-        let baseURL = CoreModelProviderFactory.parseURL(primaryConfig?.apiUrl)
-            ?? GeminiLanguageModel.defaultBaseURL
 
         return GeminiModelProvider(
             supportedModels: geminiModels,

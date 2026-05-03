@@ -38,6 +38,7 @@ export function ProviderEditor({
   onSetProviderRowDisabled,
   onCloseProviderModal,
   onUpdateProviderForm,
+  onSelectAnthropicAuthMode,
   onOpenOAuth,
   onOpenAnthropicOAuth,
   onImportAnthropicClaudeCredentials,
@@ -80,6 +81,8 @@ export function ProviderEditor({
   const isTestingActiveProvider = providerModalMeta
     ? Boolean(providerProbeTesting?.[providerModalMeta.id])
     : false;
+  const isAnthropicModal = providerModalMeta?.id === "anthropic" || providerModalMeta?.id === "anthropic-oauth";
+  const anthropicAuthMode = providerModalMeta?.id === "anthropic" ? "api-token" : "oauth";
   const canTestActiveProvider = Boolean(
     providerModalMeta &&
       providerModalMeta.id !== "openai-oauth" &&
@@ -200,10 +203,13 @@ export function ProviderEditor({
               const configuredViaAnthropicOAuth =
                 catalogId === "anthropic-oauth" &&
                 (anthropicProviderStatus.hasOAuthCredentials || Boolean(String(entry?.apiKey || "").trim())) &&
-                Boolean(String(entry?.model || "").trim()) &&
-                Boolean(String(entry?.apiUrl || "").trim());
+                Boolean(String(entry?.model || "").trim());
+              const configuredViaAnthropicAPI =
+                catalogId === "anthropic" &&
+                Boolean(String(entry?.apiKey || "").trim()) &&
+                Boolean(String(entry?.model || "").trim());
               let configured = false;
-              if (configuredViaEnvironment || configuredViaOAuth || configuredViaAnthropicOAuth) {
+              if (configuredViaEnvironment || configuredViaOAuth || configuredViaAnthropicOAuth || configuredViaAnthropicAPI) {
                 configured = true;
               } else if (meta && catalogId !== "openai-oauth") {
                 configured = providerIsConfigured(meta, entry);
@@ -307,35 +313,68 @@ export function ProviderEditor({
                 </span>
                 <span>Enabled (runtime)</span>
               </label>
+              {isAnthropicModal ? (
+                <div className="provider-auth-mode-field">
+                  <span>Auth</span>
+                  <div className="provider-auth-mode-segmented" role="tablist" aria-label="Anthropic auth mode">
+                    <button
+                      type="button"
+                      role="tab"
+                      aria-selected={anthropicAuthMode === "oauth"}
+                      className={anthropicAuthMode === "oauth" ? "active" : ""}
+                      onClick={() => onSelectAnthropicAuthMode?.("oauth")}
+                    >
+                      OAuth
+                    </button>
+                    <button
+                      type="button"
+                      role="tab"
+                      aria-selected={anthropicAuthMode === "api-token"}
+                      className={anthropicAuthMode === "api-token" ? "active" : ""}
+                      onClick={() => onSelectAnthropicAuthMode?.("api-token")}
+                    >
+                      API token
+                    </button>
+                  </div>
+                </div>
+              ) : null}
               {providerModalMeta.requiresApiKey ? (
-              <label>
-                API Key
-                <input
-                  type="password"
-                  value={providerForm.apiKey}
-                  onChange={(event) => onUpdateProviderForm("apiKey", event.target.value)}
-                  placeholder={
-                    providerModalMeta.id === "anthropic-oauth"
-                      ? "Manual setup token fallback (sk-ant-oat…)"
-                      : providerModalMeta.id === "anthropic"
-                        ? "Console API key (sk-ant-api…)"
-                        : "sk-..."
-                  }
-                />
-                {providerModalMeta.id === "openai-api" && openAIProviderStatus.hasEnvironmentKey ? (
-                  <span className="placeholder-text">Using OPENAI_API_KEY from Sloppy environment.</span>
-                ) : null}
-                {providerModalMeta.id === "anthropic-oauth" ? (
-                  <span className="placeholder-text">
-                    Primary path: Anthropic OAuth or imported Claude Code credentials. Manual token is a fallback.
-                  </span>
-                ) : null}
-              </label>
-            ) : null}
+                <label>
+                  {isAnthropicModal
+                    ? anthropicAuthMode === "oauth"
+                      ? "OAuth token"
+                      : "API token"
+                    : "API Key"}
+                  <input
+                    type="password"
+                    value={providerForm.apiKey}
+                    onChange={(event) => onUpdateProviderForm("apiKey", event.target.value)}
+                    placeholder={
+                      providerModalMeta.id === "anthropic-oauth"
+                        ? "Paste token or leave empty for ANTHROPIC_AUTH_TOKEN"
+                        : providerModalMeta.id === "anthropic"
+                          ? "Console API key (sk-ant-api...)"
+                          : "sk-..."
+                    }
+                  />
+                  {providerModalMeta.id === "openai-api" && openAIProviderStatus.hasEnvironmentKey ? (
+                    <span className="placeholder-text">Using OPENAI_API_KEY from Sloppy environment.</span>
+                  ) : null}
+                  {providerModalMeta.id === "anthropic-oauth" ? (
+                    <span className="placeholder-text">
+                      Sloppy also checks ANTHROPIC_AUTH_TOKEN in the environment and .claude/settings.json.
+                    </span>
+                  ) : null}
+                </label>
+              ) : null}
 
               <label>
                 API URL
-                <input value={providerForm.apiUrl} onChange={(event) => onUpdateProviderForm("apiUrl", event.target.value)} />
+                <input
+                  value={providerForm.apiUrl}
+                  onChange={(event) => onUpdateProviderForm("apiUrl", event.target.value)}
+                  placeholder={isAnthropicModal ? "Leave empty to read ANTHROPIC_BASE_URL" : undefined}
+                />
               </label>
 
               <label>

@@ -205,6 +205,9 @@ export interface CoreApi {
   approvePendingApproval: (approvalId: string, code: string) => Promise<boolean>;
   rejectPendingApproval: (approvalId: string) => Promise<boolean>;
   blockPendingApproval: (approvalId: string) => Promise<boolean>;
+  fetchPendingToolApprovals: () => Promise<AnyRecord[] | null>;
+  approveToolApproval: (approvalId: string) => Promise<AnyRecord | null>;
+  rejectToolApproval: (approvalId: string) => Promise<AnyRecord | null>;
   fetchAccessUsers: (platform?: string) => Promise<AnyRecord[] | null>;
   deleteAccessUser: (userId: string) => Promise<boolean>;
   fetchTokenUsage: (query?: { channelId?: string; taskId?: string; from?: string; to?: string }) => Promise<AnyRecord | null>;
@@ -1623,6 +1626,34 @@ export function createCoreApi(): CoreApi {
         method: "POST"
       });
       return response.ok;
+    },
+
+    fetchPendingToolApprovals: async () => {
+      const response = await requestJson<AnyRecord[]>({
+        path: "/v1/tool-approvals/pending"
+      });
+      if (!response.ok || !Array.isArray(response.data)) return null;
+      return response.data;
+    },
+
+    approveToolApproval: async (approvalId) => {
+      const response = await requestJson<AnyRecord, AnyRecord>({
+        path: `/v1/tool-approvals/${encodeURIComponent(approvalId)}/approve`,
+        method: "POST",
+        body: { decidedBy: "dashboard" }
+      });
+      if (!response.ok) return null;
+      return response.data;
+    },
+
+    rejectToolApproval: async (approvalId) => {
+      const response = await requestJson<AnyRecord, AnyRecord>({
+        path: `/v1/tool-approvals/${encodeURIComponent(approvalId)}/reject`,
+        method: "POST",
+        body: { decidedBy: "dashboard" }
+      });
+      if (!response.ok) return null;
+      return response.data;
     },
 
     fetchAccessUsers: async (platform) => {

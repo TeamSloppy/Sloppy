@@ -14,7 +14,7 @@ Sloppy supports multiple LLM providers. Each provider is configured as an entry 
 | OpenAI API | `openai:` | `https://api.openai.com/v1` | `OPENAI_API_KEY` | API key |
 | OpenAI Codex (OAuth) | `openai:` | `https://chatgpt.com/backend-api` | — | OAuth device code |
 | Google Gemini | `gemini:` | `https://generativelanguage.googleapis.com` | `GEMINI_API_KEY` | API key |
-| Anthropic | `anthropic:` | `https://api.anthropic.com` | `ANTHROPIC_API_KEY` | OAuth / setup token (see below) |
+| Anthropic | `anthropic:` | `https://api.anthropic.com` | `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN` | OAuth / setup token (see below) |
 | Ollama | `ollama:` | `http://127.0.0.1:11434` | — | None |
 
 ## Environment variables
@@ -26,6 +26,8 @@ Environment variables provide a way to configure API keys without writing them i
 | `OPENAI_API_KEY` | OpenAI | API key for OpenAI models |
 | `GEMINI_API_KEY` | Gemini | API key for Google Gemini models |
 | `ANTHROPIC_API_KEY` | Anthropic | Console API key or OAuth/setup token for Claude (direct `api.anthropic.com` only) |
+| `ANTHROPIC_AUTH_TOKEN` | Anthropic | Auth token for Claude/Anthropic-compatible auth; can also be read from `.claude/settings.json` under `env` |
+| `ANTHROPIC_BASE_URL` | Anthropic | Base URL for Anthropic-compatible auth when set in `.claude/settings.json` under `env` |
 | `BRAVE_API_KEY` | Search | API key for Brave web search tool |
 | `PERPLEXITY_API_KEY` | Search | API key for Perplexity web search tool |
 
@@ -94,15 +96,15 @@ Use a key from [Anthropic Console](https://console.anthropic.com/). Console keys
   "title": "anthropic",
   "apiKey": "",
   "apiUrl": "https://api.anthropic.com",
-  "model": "claude-sonnet-4-20250514"
+  "model": "claude-sonnet-4-6"
 }
 ```
 
-With `ANTHROPIC_API_KEY` set in the environment, `apiKey` can stay empty. Available models include Claude Sonnet 4, Claude 3.7 Sonnet, Claude 3.5 Sonnet, Claude 3.5 Haiku, and Claude 3 Opus.
+With `ANTHROPIC_API_KEY` set in the environment, `apiKey` can stay empty. Available models include Claude Sonnet 4.6, Claude Opus 4.7, Claude 3.7 Sonnet, Claude 3.5 Sonnet, Claude 3.5 Haiku, and Claude 3 Opus.
 
 #### OAuth, setup tokens, and Claude Code
 
-If you use **Anthropic OAuth**, **setup tokens**, or tokens aligned with **Claude Code** (not the Console `sk-ant-api` keys), put that value in `apiKey`, or set `ANTHROPIC_API_KEY` to the same value. Sloppy sends the right headers for direct `api.anthropic.com` requests based on the key shape.
+If you use **Anthropic OAuth**, **setup tokens**, or tokens aligned with **Claude Code** (not the Console `sk-ant-api` keys), put that value in `apiKey`, set `ANTHROPIC_AUTH_TOKEN`, or set `ANTHROPIC_API_KEY` to the same value. Sloppy also reads `.claude/settings.json` and uses `env.ANTHROPIC_AUTH_TOKEN` plus `env.ANTHROPIC_BASE_URL` when local Claude credentials are empty or absent. Sloppy sends the right headers for direct `api.anthropic.com` requests based on the key shape.
 
 Example entry (same fields as above; the difference is the token you paste):
 
@@ -111,7 +113,7 @@ Example entry (same fields as above; the difference is the token you paste):
   "title": "anthropic-oauth",
   "apiKey": "",
   "apiUrl": "https://api.anthropic.com",
-  "model": "claude-sonnet-4-20250514",
+  "model": "claude-sonnet-4-6",
   "providerCatalogId": "anthropic-oauth"
 }
 ```
@@ -160,7 +162,7 @@ The `models` array supports multiple entries. `sloppy` builds a composite model 
       "title": "anthropic",
       "apiKey": "",
       "apiUrl": "https://api.anthropic.com",
-      "model": "claude-sonnet-4-20250514"
+      "model": "claude-sonnet-4-6"
     }
   ]
 }
@@ -174,7 +176,7 @@ Each agent has a `selectedModel` field in its config that determines which model
 | --- | --- |
 | OpenAI | `openai:gpt-5.4-mini` |
 | Gemini | `gemini:gemini-2.5-flash` |
-| Anthropic | `anthropic:claude-sonnet-4-20250514` |
+| Anthropic | `anthropic:claude-sonnet-4-6` |
 | Ollama | `ollama:qwen3` |
 
 Set this via:

@@ -26,14 +26,24 @@ struct ProviderProbeService {
 
     private let environmentLookup: @Sendable (String) -> String?
     private let transport: Transport
+    private let claudeSettingsProvider: @Sendable () -> ClaudeSettingsEnvironment
+    private let geminiOAuthCredentialsProvider: @Sendable () -> GeminiOAuthCredentials?
 
     init(
         environmentLookup: @escaping @Sendable (String) -> String? = { key in
             ProcessInfo.processInfo.environment[key]
         },
-        transport: Transport? = nil
+        transport: Transport? = nil,
+        claudeSettingsProvider: @escaping @Sendable () -> ClaudeSettingsEnvironment = {
+            ClaudeSettingsEnvironment.load()
+        },
+        geminiOAuthCredentialsProvider: @escaping @Sendable () -> GeminiOAuthCredentials? = {
+            GeminiOAuthCredentials.load()
+        }
     ) {
         self.environmentLookup = environmentLookup
+        self.claudeSettingsProvider = claudeSettingsProvider
+        self.geminiOAuthCredentialsProvider = geminiOAuthCredentialsProvider
         self.transport = transport ?? { request in
             let (data, response) = try await URLSession.shared.data(for: request)
             guard let httpResponse = response as? HTTPURLResponse else {
@@ -403,23 +413,31 @@ struct ProviderProbeService {
         let configuredKey = (primaryConfig?.apiKey ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         let requestKey = request.apiKey?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
 
-        let resolvedKey: String
+        let credential: GeminiAuthCredential
         let usedEnvironmentKey: Bool
-        if !requestKey.isEmpty {
-            resolvedKey = requestKey
+        let authSource: String
+        if let oauthCredentials = geminiOAuthCredentialsProvider() {
+            credential = .oauth(oauthCredentials)
             usedEnvironmentKey = false
+            authSource = "OAuth credentials"
+        } else if !requestKey.isEmpty {
+            credential = .apiKey(requestKey)
+            usedEnvironmentKey = false
+            authSource = "API key"
         } else if !configuredKey.isEmpty {
-            resolvedKey = configuredKey
+            credential = .apiKey(configuredKey)
             usedEnvironmentKey = false
+            authSource = "API key"
         } else if !envKey.isEmpty {
-            resolvedKey = envKey
+            credential = .apiKey(envKey)
             usedEnvironmentKey = true
+            authSource = "GEMINI_API_KEY"
         } else {
             return ProviderProbeResponse(
                 providerId: .gemini,
                 ok: false,
                 usedEnvironmentKey: false,
-                message: "Gemini API key is missing. Provide a key or set GEMINI_API_KEY.",
+                message: "Gemini credentials are missing. Sign in with Gemini CLI or provide a key or set GEMINI_API_KEY.",
                 models: []
             )
         }
@@ -439,7 +457,7 @@ struct ProviderProbeService {
         }
 
         do {
-            let models = try await fetchGeminiModels(apiKey: resolvedKey, baseURL: baseURL)
+            let models = try await fetchGeminiModels(credential: credential, baseURL: baseURL)
             guard !models.isEmpty else {
                 return ProviderProbeResponse(
                     providerId: .gemini,
@@ -454,7 +472,7 @@ struct ProviderProbeService {
                 providerId: .gemini,
                 ok: true,
                 usedEnvironmentKey: usedEnvironmentKey,
-                message: "Connected to Gemini. Loaded \(models.count) models.",
+                message: "Connected to Gemini with \(authSource). Loaded \(models.count) models.",
                 models: models
             )
         } catch {
@@ -468,16 +486,21 @@ struct ProviderProbeService {
         }
     }
 
-    private func fetchGeminiModels(apiKey: String, baseURL: URL) async throws -> [ProviderModelOption] {
+    private func fetchGeminiModels(credential: GeminiAuthCredential, baseURL: URL) async throws -> [ProviderModelOption] {
         let endpoint = baseURL
             .appendingPathComponent("v1beta")
             .appendingPathComponent("models")
         var components = URLComponents(url: endpoint, resolvingAgainstBaseURL: false)!
-        components.queryItems = [URLQueryItem(name: "key", value: apiKey)]
+        if case .apiKey(let apiKey) = credential {
+            components.queryItems = [URLQueryItem(name: "key", value: apiKey)]
+        }
 
         var urlRequest = URLRequest(url: components.url!)
         urlRequest.httpMethod = "GET"
         urlRequest.setValue("application/json", forHTTPHeaderField: "Accept")
+        if case .oauth(let credentials) = credential {
+            urlRequest.setValue(credentials.authorizationHeaderValue, forHTTPHeaderField: "Authorization")
+        }
 
         let (data, response) = try await transport(urlRequest)
         guard (200..<300).contains(response.statusCode) else {
@@ -515,7 +538,8 @@ struct ProviderProbeService {
     }
 
     static let anthropicModelCatalog: [ProviderModelOption] = [
-        ProviderModelOption(id: "claude-sonnet-4-20250514", title: "Claude Sonnet 4", contextWindow: "200K", capabilities: ["tools", "reasoning"]),
+        ProviderModelOption(id: "claude-sonnet-4-6", title: "Claude Sonnet 4.6", contextWindow: "1M", capabilities: ["tools", "reasoning"]),
+        ProviderModelOption(id: "claude-opus-4-7", title: "Claude Opus 4.7", contextWindow: "1M", capabilities: ["tools", "reasoning"]),
         ProviderModelOption(id: "claude-3-7-sonnet-20250219", title: "Claude 3.7 Sonnet", contextWindow: "200K", capabilities: ["tools", "reasoning"]),
         ProviderModelOption(id: "claude-3-5-sonnet-20241022", title: "Claude 3.5 Sonnet", contextWindow: "200K", capabilities: ["tools"]),
         ProviderModelOption(id: "claude-3-5-haiku-20241022", title: "Claude 3.5 Haiku", contextWindow: "200K", capabilities: ["tools"]),
@@ -532,6 +556,10 @@ struct ProviderProbeService {
 
         let envKey = environmentLookup("ANTHROPIC_API_KEY")?
             .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let envAuthToken = environmentLookup("ANTHROPIC_AUTH_TOKEN")?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let claudeSettings = claudeSettingsProvider()
+        let settingsAuthToken = claudeSettings.authToken?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let configuredKey = (primaryConfig?.apiKey ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         let requestKey = request.apiKey?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
 
@@ -546,18 +574,25 @@ struct ProviderProbeService {
         } else if !envKey.isEmpty {
             resolvedKey = envKey
             usedEnvironmentKey = true
+        } else if !envAuthToken.isEmpty {
+            resolvedKey = envAuthToken
+            usedEnvironmentKey = true
+        } else if !settingsAuthToken.isEmpty {
+            resolvedKey = settingsAuthToken
+            usedEnvironmentKey = true
         } else {
             return ProviderProbeResponse(
                 providerId: .anthropic,
                 ok: false,
                 usedEnvironmentKey: false,
-                message: "Anthropic API key is missing. Provide a key or set ANTHROPIC_API_KEY.",
+                message: "Anthropic API key is missing. Provide a key, set ANTHROPIC_API_KEY, or add ANTHROPIC_AUTH_TOKEN to .claude/settings.json.",
                 models: []
             )
         }
 
         let baseURL = CoreModelProviderFactory.parseURL(request.apiUrl)
             ?? CoreModelProviderFactory.parseURL(primaryConfig?.apiUrl)
+            ?? claudeSettings.baseURL
             ?? URL(string: "https://api.anthropic.com")
 
         guard let baseURL else {

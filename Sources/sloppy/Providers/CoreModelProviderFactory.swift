@@ -15,6 +15,8 @@ struct ModelProviderBuildConfig: @unchecked Sendable {
     var oauthTokenRefresh: (@Sendable () async throws -> Void)?
     var anthropicOAuthTokenProvider: (@Sendable () -> String?)?
     var anthropicOAuthTokenRefresh: (@Sendable () async throws -> Void)?
+    var anthropicSettingsProvider: (@Sendable () -> ClaudeSettingsEnvironment)?
+    var geminiOAuthCredentialsProvider: (@Sendable () -> GeminiOAuthCredentials?)?
     var systemInstructions: String?
     var proxySession: URLSession?
 }
@@ -42,6 +44,8 @@ enum CoreModelProviderFactory {
         oauthTokenRefresh: (@Sendable () async throws -> Void)? = nil,
         anthropicOAuthTokenProvider: (@Sendable () -> String?)? = nil,
         anthropicOAuthTokenRefresh: (@Sendable () async throws -> Void)? = nil,
+        anthropicSettingsProvider: (@Sendable () -> ClaudeSettingsEnvironment)? = nil,
+        geminiOAuthCredentialsProvider: (@Sendable () -> GeminiOAuthCredentials?)? = nil,
         systemInstructions: String? = nil,
         proxySession: URLSession? = nil
     ) -> (any ModelProvider)? {
@@ -54,6 +58,8 @@ enum CoreModelProviderFactory {
             oauthTokenRefresh: oauthTokenRefresh,
             anthropicOAuthTokenProvider: anthropicOAuthTokenProvider,
             anthropicOAuthTokenRefresh: anthropicOAuthTokenRefresh,
+            anthropicSettingsProvider: anthropicSettingsProvider,
+            geminiOAuthCredentialsProvider: geminiOAuthCredentialsProvider ?? { GeminiOAuthCredentials.load() },
             systemInstructions: systemInstructions,
             proxySession: proxySession
         )

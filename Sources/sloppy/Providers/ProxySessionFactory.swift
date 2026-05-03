@@ -6,21 +6,24 @@ import Network
 #endif
 
 enum ProxySessionFactory {
-    static func makeSession(proxy: CoreConfig.Proxy) -> URLSession {
+    static func makeSession(proxy: CoreConfig.Proxy, protocolClasses: [AnyClass] = []) -> URLSession {
         guard proxy.enabled, !proxy.host.isEmpty else {
-            return URLSession(configuration: .default)
+            let config = URLSessionConfiguration.default
+            config.protocolClasses = mergedProtocolClasses(protocolClasses, existing: config.protocolClasses)
+            return URLSession(configuration: config)
         }
 
         #if canImport(FoundationNetworking)
-        return makeSessionLinux(proxy: proxy)
+        return makeSessionLinux(proxy: proxy, protocolClasses: protocolClasses)
         #else
-        return makeSessionDarwin(proxy: proxy)
+        return makeSessionDarwin(proxy: proxy, protocolClasses: protocolClasses)
         #endif
     }
 
     #if !canImport(FoundationNetworking)
-    private static func makeSessionDarwin(proxy: CoreConfig.Proxy) -> URLSession {
+    private static func makeSessionDarwin(proxy: CoreConfig.Proxy, protocolClasses: [AnyClass]) -> URLSession {
         let config = URLSessionConfiguration.default
+        config.protocolClasses = mergedProtocolClasses(protocolClasses, existing: config.protocolClasses)
 
         guard let port = NWEndpoint.Port(rawValue: UInt16(clamping: proxy.port)) else {
             return URLSession(configuration: config)
@@ -51,10 +54,12 @@ enum ProxySessionFactory {
     #endif
 
     #if canImport(FoundationNetworking)
-    private static func makeSessionLinux(proxy: CoreConfig.Proxy) -> URLSession {
+    private static func makeSessionLinux(proxy: CoreConfig.Proxy, protocolClasses: [AnyClass]) -> URLSession {
         let url = buildProxyURL(proxy: proxy)
         setAllProxyEnv(url)
-        return URLSession(configuration: .default)
+        let config = URLSessionConfiguration.default
+        config.protocolClasses = mergedProtocolClasses(protocolClasses, existing: config.protocolClasses)
+        return URLSession(configuration: config)
     }
 
     private static func setAllProxyEnv(_ url: String) {
@@ -75,4 +80,9 @@ enum ProxySessionFactory {
         return "\(scheme)://\(auth)\(proxy.host):\(proxy.port)"
     }
     #endif
+
+    private static func mergedProtocolClasses(_ preferred: [AnyClass], existing: [AnyClass]?) -> [AnyClass]? {
+        guard !preferred.isEmpty else { return existing }
+        return preferred + (existing ?? [])
+    }
 }

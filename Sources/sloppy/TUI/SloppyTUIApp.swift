@@ -8,10 +8,16 @@ import TauTUI
 struct SloppyTUIApp {
     var configPath: String?
     var requestedSessionID: String?
+    var initialAction: SloppyTUIInitialAction
 
-    init(configPath: String? = nil, requestedSessionID: String? = nil) {
+    init(
+        configPath: String? = nil,
+        requestedSessionID: String? = nil,
+        initialAction: SloppyTUIInitialAction = .none
+    ) {
         self.configPath = configPath
         self.requestedSessionID = requestedSessionID
+        self.initialAction = initialAction
     }
 
     @MainActor
@@ -67,6 +73,7 @@ struct SloppyTUIApp {
                     session: session,
                     stateStore: stateStore,
                     state: nextState,
+                    initialAction: initialAction,
                     continuation: continuation
                 )
             } catch {
@@ -83,6 +90,7 @@ struct SloppyTUIApp {
         session: AgentSessionSummary,
         stateStore: SloppyTUIStateStore,
         state: SloppyTUIState,
+        initialAction: SloppyTUIInitialAction,
         continuation: CheckedContinuation<Void, Error>
     ) throws {
         let runHandle = SloppyTUIRunHandle(continuation: continuation)
@@ -96,6 +104,7 @@ struct SloppyTUIApp {
                 session: session,
                 stateStore: stateStore,
                 state: state,
+                initialAction: initialAction,
                 tui: tui,
                 terminal: terminal
             )
@@ -188,6 +197,11 @@ private enum SloppyTUIError: LocalizedError {
     }
 }
 
+enum SloppyTUIInitialAction {
+    case none
+    case modelPicker(exitAfterSelection: Bool)
+}
+
 private enum SloppyTUIAttachmentLimits {
     static let maxBytes = 25 * 1024 * 1024
 }
@@ -265,12 +279,19 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
         SloppyTUISlashCommand("quit", "Exit TUI"),
     ]
 
+    private static let firstStartBootstrapCard = """
+    ## First start bootstrap
+    Configure a provider with `/provider <id> <key> [model]`, `/openai-device`, or `/anthropic-oauth`.
+    Type the launch prompt when ready; Sloppy will create the onboarding session turn and mark onboarding complete.
+    """
+
     private let runtime: SloppyTUIRuntime
     private var project: ProjectRecord
     private var agent: AgentSummary
     private var session: AgentSessionSummary
     private let stateStore: SloppyTUIStateStore
     private var state: SloppyTUIState
+    private let initialAction: SloppyTUIInitialAction
     private weak var tui: TUI?
     private weak var terminal: Terminal?
 
@@ -297,6 +318,7 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
     private var thinkingWord = "thinking"
     private var welcomeDismissed = false
     private var isPosting = false
+    private var exitAfterModelSelection = false
 
     init(
         runtime: SloppyTUIRuntime,
@@ -305,6 +327,7 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
         session: AgentSessionSummary,
         stateStore: SloppyTUIStateStore,
         state: SloppyTUIState,
+        initialAction: SloppyTUIInitialAction = .none,
         tui: TUI,
         terminal: Terminal
     ) {
@@ -314,6 +337,7 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
         self.session = session
         self.stateStore = stateStore
         self.state = state
+        self.initialAction = initialAction
         self.tui = tui
         self.terminal = terminal
 
@@ -339,15 +363,16 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
 
     func start() {
         Task { @MainActor in await reloadSession() }
-        Task { @MainActor in await refreshSelectedModel() }
+        Task { @MainActor in
+            await refreshSelectedModel()
+            if case .modelPicker(let exitAfterSelection) = initialAction {
+                await showModelPicker(exitAfterSelection: exitAfterSelection)
+            }
+        }
         streamSession()
         streamChanges()
         if !runtime.config.onboarding.completed {
-            appendLocalCard("""
-            ## First start bootstrap
-            Configure a provider with `/provider <id> <key> [model]`, `/openai-device`, or `/anthropic-oauth`.
-            Type the launch prompt when ready; Sloppy will create the onboarding session turn and mark onboarding complete.
-            """)
+            appendLocalCard(Self.firstStartBootstrapCard)
         }
     }
 
@@ -455,6 +480,10 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
             return true
         case .escape:
             activePicker = nil
+            if exitAfterModelSelection && picker.kind == .model {
+                onExit?()
+                return true
+            }
             refreshStaticChrome()
             return true
         default:
@@ -590,6 +619,7 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
         }
 
         welcomeDismissed = true
+        dismissFirstStartBootstrapCard()
         await sendMessage(value)
     }
 
@@ -796,12 +826,17 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
         await applyModel(model)
     }
 
-    private func showModelPicker() async {
+    private func showModelPicker(exitAfterSelection: Bool = false) async {
+        exitAfterModelSelection = exitAfterSelection
+        refreshStaticChrome(statusLine: "loading models from providers...")
         do {
             let config = try await runtime.service.getAgentConfig(agentID: agent.id)
             let selected = config.selectedModel ?? selectedModel
             selectedModel = selected
-            let models = orderedModelsForPicker(config.availableModels, selected: selected)
+            let models = orderedModelsForPicker(
+                await selectableModels(base: config.availableModels, selected: selected),
+                selected: selected
+            )
             guard !models.isEmpty else {
                 appendLocalCard("No available models.")
                 return
@@ -813,7 +848,7 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
                     SloppyTUIPickerItem(
                         value: model.id,
                         label: model.id,
-                        description: model.title == model.id ? nil : model.title,
+                        description: SloppyTUITheme.modelPickerDescription(model),
                         isCurrent: model.id == selected
                     )
                 },
@@ -821,6 +856,7 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
             )
             refreshStaticChrome(statusLine: "select model with arrows, Enter to apply, Esc to cancel")
         } catch {
+            exitAfterModelSelection = false
             appendLocalCard("Could not load models: \(String(describing: error))")
         }
     }
@@ -829,6 +865,9 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
         switch kind {
         case .model:
             await applyModel(item.value)
+            if exitAfterModelSelection {
+                onExit?()
+            }
         case .agent:
             await switchAgent(item.value)
         case .session:
@@ -842,6 +881,60 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
         case .providerCatalog:
             await beginProviderSetup(item.value)
         }
+    }
+
+    private func selectableModels(base: [ProviderModelOption], selected: String) async -> [ProviderModelOption] {
+        var seen: Set<String> = []
+        var models: [ProviderModelOption] = []
+
+        func add(_ option: ProviderModelOption) {
+            let id = option.id.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !id.isEmpty, seen.insert(id).inserted else {
+                return
+            }
+            models.append(ProviderModelOption(
+                id: id,
+                title: option.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? id : option.title,
+                contextWindow: option.contextWindow,
+                capabilities: option.capabilities
+            ))
+        }
+
+        for option in base {
+            add(option)
+        }
+
+        let config = await runtime.service.getConfig()
+        for entry in config.models where !entry.disabled {
+            let definition = providerDefinition(for: entry)
+            let response = await runtime.service.probeProvider(
+                request: ProviderProbeRequest(
+                    providerId: definition.probeID,
+                    apiKey: entry.apiKey,
+                    apiUrl: entry.apiUrl
+                )
+            )
+            guard response.ok else {
+                continue
+            }
+            for option in response.models {
+                let rawId = option.id.trimmingCharacters(in: .whitespacesAndNewlines)
+                let id = runtimeModelID(rawId, provider: definition)
+                add(ProviderModelOption(
+                    id: id,
+                    title: option.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? rawId : option.title,
+                    contextWindow: option.contextWindow,
+                    capabilities: option.capabilities
+                ))
+            }
+        }
+
+        if !selected.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+           !seen.contains(selected) {
+            add(CoreService.providerModelOption(for: selected))
+        }
+
+        return models
     }
 
     private func applyModel(_ model: String) async {
@@ -859,6 +952,7 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
                 )
             )
             selectedModel = model
+            dismissFirstStartBootstrapCard()
             appendLocalCard("Model switched to `\(model)`.")
         } catch {
             appendLocalCard("Model switch failed: \(String(describing: error))")
@@ -1048,6 +1142,11 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
 
     private func runtimeModelID(for model: CoreConfig.ModelConfig) -> String {
         let rawModel = model.model.trimmingCharacters(in: .whitespacesAndNewlines)
+        return runtimeModelID(rawModel, provider: providerDefinition(for: model))
+    }
+
+    private func runtimeModelID(_ rawModel: String, provider: SloppyTUIProviderDefinition) -> String {
+        let rawModel = rawModel.trimmingCharacters(in: .whitespacesAndNewlines)
         if rawModel.hasPrefix("openai:")
             || rawModel.hasPrefix("openrouter:")
             || rawModel.hasPrefix("ollama:")
@@ -1055,7 +1154,7 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
             || rawModel.hasPrefix("anthropic:") {
             return rawModel
         }
-        return providerDefinition(for: model).runtimeModelID(rawModel)
+        return provider.runtimeModelID(rawModel)
     }
 
     private func providerTitle(for model: CoreConfig.ModelConfig) -> String {
@@ -1069,6 +1168,22 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
         }
         let title = model.title.lowercased()
         let apiURL = model.apiUrl.lowercased()
+        let rawModel = model.model.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if rawModel.hasPrefix("openrouter:") {
+            return SloppyTUIProviderDefinition("openrouter")
+        }
+        if rawModel.hasPrefix("ollama:") {
+            return SloppyTUIProviderDefinition("ollama")
+        }
+        if rawModel.hasPrefix("gemini:") {
+            return SloppyTUIProviderDefinition("gemini")
+        }
+        if rawModel.hasPrefix("anthropic:") {
+            return SloppyTUIProviderDefinition("anthropic")
+        }
+        if rawModel.hasPrefix("openai:") {
+            return title.contains("oauth") ? SloppyTUIProviderDefinition("openai-oauth") : SloppyTUIProviderDefinition("openai-api")
+        }
         if title.contains("openrouter") || apiURL.contains("openrouter") {
             return SloppyTUIProviderDefinition("openrouter")
         }
@@ -1117,6 +1232,7 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
         config.onboarding.completed = false
         do {
             _ = try await runtime.service.updateConfig(config)
+            dismissFirstStartBootstrapCard()
             appendLocalCard("Provider saved as `\(definition.id)`. Use `/model \(definition.runtimeModelID(model ?? definition.model))` if you want to switch the active agent now.")
         } catch {
             appendLocalCard("Provider save failed: \(String(describing: error))")
@@ -1387,6 +1503,15 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
             localCards.removeFirst(localCards.count - 24)
         }
         renderTimeline()
+    }
+
+    private func dismissFirstStartBootstrapCard() {
+        localCards.removeAll { block in
+            if case .local(let text) = block {
+                return text == Self.firstStartBootstrapCard
+            }
+            return false
+        }
     }
 
     private func refreshStaticChrome(statusLine: String? = nil) {
@@ -1841,7 +1966,7 @@ private enum SloppyTUITheme {
     }
 
     static func sessionStatusLine(mode: AgentChatMode, model: String, context: String, attachments: String, sessionID: String) -> String {
-        muted("mode: ") + modeTitle(mode) + muted("  model: \(model)\(context)\(attachments)  last: \(shortID(sessionID))  /sessions  /help")
+        muted("mode: ") + modeTitle(mode) + muted("  model: \(model)\(context)\(attachments)  last: \(shortID(sessionID))")
     }
 
     static func welcomeScreen(
@@ -1898,6 +2023,25 @@ private enum SloppyTUITheme {
 
     static func compactPickerDescription(_ model: String) -> String {
         compactModel(model)
+    }
+
+    static func modelPickerDescription(_ model: ProviderModelOption) -> String {
+        var parts: [String] = []
+        let title = model.title.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !title.isEmpty, title != model.id {
+            parts.append(title)
+        }
+        if let contextWindow = model.contextWindow?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !contextWindow.isEmpty {
+            parts.append(contextWindow)
+        }
+        if !model.capabilities.isEmpty {
+            parts.append(model.capabilities.joined(separator: ", "))
+        }
+        if parts.isEmpty {
+            return compactModel(model.id)
+        }
+        return parts.joined(separator: " · ")
     }
 
     static func sessionHeaderTitle(_ session: AgentSessionSummary) -> String {
@@ -2420,6 +2564,24 @@ struct SloppyTUIProviderDefinition {
     var model: String
     var requiresAPIKey: Bool
     var setupDescription: String
+    var probeID: ProviderProbeID {
+        switch id {
+        case "openrouter":
+            return .openRouter
+        case "gemini":
+            return .gemini
+        case "anthropic":
+            return .anthropic
+        case "anthropic-oauth":
+            return .anthropicOAuth
+        case "ollama":
+            return .ollama
+        case "openai-oauth":
+            return .openAIOAuth
+        default:
+            return .openAIAPI
+        }
+    }
 
     init(_ raw: String) {
         let normalized = raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
@@ -2442,14 +2604,14 @@ struct SloppyTUIProviderDefinition {
             id = "anthropic"
             title = "anthropic"
             apiURL = "https://api.anthropic.com"
-            model = "claude-sonnet-4-20250514"
+            model = "claude-sonnet-4-6"
             requiresAPIKey = true
             setupDescription = "Anthropic API key"
         case "anthropic-oauth":
             id = "anthropic-oauth"
             title = "anthropic-oauth"
             apiURL = "https://api.anthropic.com"
-            model = "claude-sonnet-4-20250514"
+            model = "claude-sonnet-4-6"
             requiresAPIKey = false
             setupDescription = "Browser OAuth flow"
         case "ollama", "ollama-local":

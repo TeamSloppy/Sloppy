@@ -66,8 +66,12 @@ extension CoreService {
             .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let envClaudeCodeKey = ProcessInfo.processInfo.environment["CLAUDE_CODE_OAUTH_TOKEN"]?
             .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let envAuthToken = ProcessInfo.processInfo.environment["ANTHROPIC_AUTH_TOKEN"]?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let settingsKey = anthropicOAuthService.claudeSettingsEnvironment().authToken?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let oauthStatus = anthropicOAuthService.status()
-        let hasEnvironmentKey = !envOAuthKey.isEmpty || !envClaudeCodeKey.isEmpty
+        let hasEnvironmentKey = !envOAuthKey.isEmpty || !envClaudeCodeKey.isEmpty || !envAuthToken.isEmpty || !settingsKey.isEmpty
 
         return AnthropicProviderStatusResponse(
             provider: "anthropic",
@@ -97,6 +101,7 @@ extension CoreService {
             }
             let baseURL = CoreModelProviderFactory.parseURL(request.apiUrl)
                 ?? CoreModelProviderFactory.parseURL(primaryConfig?.apiUrl)
+                ?? anthropicOAuthService.claudeSettingsEnvironment().baseURL
                 ?? URL(string: "https://api.anthropic.com")
             guard let baseURL else {
                 return ProviderProbeResponse(
@@ -120,6 +125,7 @@ extension CoreService {
         let config = currentConfig
         let oauthService = openAIOAuthService
         let anthropicOAuthService = self.anthropicOAuthService
+        let workspaceRootURL = self.workspaceRootURL
         let hasOAuth = oauthService.currentAccessToken() != nil
         let resolvedModels = CoreModelProviderFactory.resolveModelIdentifiers(
             config: config,
@@ -133,6 +139,7 @@ extension CoreService {
             oauthTokenRefresh: { try await oauthService.ensureValidToken() },
             anthropicOAuthTokenProvider: { anthropicOAuthService.currentAccessToken() },
             anthropicOAuthTokenRefresh: { try await anthropicOAuthService.ensureValidToken() },
+            anthropicSettingsProvider: { ClaudeSettingsEnvironment.load(workspaceRootURL: workspaceRootURL) },
             proxySession: ProxySessionFactory.makeSession(proxy: config.proxy)
         ) else {
             throw GenerateError.noModelProvider
@@ -346,6 +353,7 @@ extension CoreService {
             return knowsProvider
         case "gemini":
             guard knowsProvider else { return false }
+            if GeminiOAuthCredentials.load() != nil { return true }
             let env = ProcessInfo.processInfo.environment["GEMINI_API_KEY"]?
                 .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
             if !env.isEmpty { return true }
@@ -355,6 +363,11 @@ extension CoreService {
             let env = ProcessInfo.processInfo.environment["ANTHROPIC_API_KEY"]?
                 .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
             if !env.isEmpty { return true }
+            let envAuthToken = ProcessInfo.processInfo.environment["ANTHROPIC_AUTH_TOKEN"]?
+                .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            if !envAuthToken.isEmpty { return true }
+            let workspaceRootURL = config.resolvedWorkspaceRootURL(currentDirectory: FileManager.default.currentDirectoryPath)
+            if ClaudeSettingsEnvironment.load(workspaceRootURL: workspaceRootURL).hasAuthToken { return true }
             return anthropicHasApiKey(config: config)
         default:
             return false

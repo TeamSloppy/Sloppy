@@ -152,3 +152,47 @@ func providerProbeOpenAIListsModelsWithoutKeyOnPrivateLAN() async throws {
     #expect(payload.ok == true)
     #expect(payload.models.map(\.id) == ["lm-studio-model"])
 }
+
+@Test
+func providerProbeGeminiPrefersOAuthCredentialsFileOverAPIKey() async throws {
+    let service = ProviderProbeService(
+        environmentLookup: { key in
+            key == "GEMINI_API_KEY" ? "env-api-key" : nil
+        },
+        transport: { request in
+            #expect(request.value(forHTTPHeaderField: "Authorization") == "Bearer oauth-access-token")
+            #expect(request.url?.query?.contains("key=") != true)
+            let payload =
+                """
+                {
+                  "models": [
+                    { "name": "models/gemini-2.5-flash", "displayName": "Gemini 2.5 Flash" }
+                  ]
+                }
+                """
+            return (Data(payload.utf8), makeProbeHTTPResponse(url: request.url!))
+        },
+        geminiOAuthCredentialsProvider: {
+            GeminiOAuthCredentials(
+                accessToken: "oauth-access-token",
+                refreshToken: nil,
+                tokenType: "Bearer",
+                expiryDate: nil
+            )
+        }
+    )
+
+    let response = await service.probe(
+        config: .test,
+        request: ProviderProbeRequest(
+            providerId: .gemini,
+            apiKey: "request-api-key",
+            apiUrl: "https://generativelanguage.googleapis.com"
+        )
+    )
+
+    #expect(response.ok == true)
+    #expect(response.usedEnvironmentKey == false)
+    #expect(response.message == "Connected to Gemini with OAuth credentials. Loaded 1 models.")
+    #expect(response.models.map(\.id) == ["gemini-2.5-flash"])
+}

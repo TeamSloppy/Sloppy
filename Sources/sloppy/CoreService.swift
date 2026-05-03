@@ -280,6 +280,9 @@ public actor CoreService {
         self.openAIOAuthService = OpenAIOAuthService(workspaceRootURL: workspaceRootURL)
         self.anthropicOAuthService = AnthropicOAuthService(workspaceRootURL: workspaceRootURL)
         self.githubAuthService = GitHubAuthService(workspaceRootURL: workspaceRootURL)
+        let anthropicSettingsProvider: @Sendable () -> ClaudeSettingsEnvironment = {
+            ClaudeSettingsEnvironment.load(workspaceRootURL: workspaceRootURL)
+        }
         self.mcpRegistry = MCPClientRegistry(
             config: config.mcp,
             logger: Logger(label: "sloppy.mcp")
@@ -300,6 +303,7 @@ public actor CoreService {
             oauthTokenRefresh: { try await oauthService.ensureValidToken() },
             anthropicOAuthTokenProvider: { anthropicOAuthService.currentAccessToken() },
             anthropicOAuthTokenRefresh: { try await anthropicOAuthService.ensureValidToken() },
+            anthropicSettingsProvider: anthropicSettingsProvider,
             systemInstructions: "You are Sloppy core channel assistant.",
             proxySession: ProxySessionFactory.makeSession(proxy: config.proxy)
         )
@@ -348,7 +352,9 @@ public actor CoreService {
         self.workspaceRootURL = config
             .resolvedWorkspaceRootURL(currentDirectory: currentDirectory)
         self.openAIProviderCatalog = OpenAIProviderCatalogService()
-        self.providerProbeService = providerProbeService ?? ProviderProbeService()
+        self.providerProbeService = providerProbeService ?? ProviderProbeService(
+            claudeSettingsProvider: anthropicSettingsProvider
+        )
         self.searchProviderService = searchProviderService ?? SearchProviderService(config: config.searchTools)
         self.configPath = configPath
         self.agentsRootURL = self.workspaceRootURL

@@ -22,6 +22,7 @@ struct SloppyApp: AsyncParsableCommand {
             StatusCommand.self,
             UpdateCommand.self,
             TuiCommand.self,
+            ModelsCommand.self,
             LogsCommand.self,
             WorkersCommand.self,
             BulletinsCommand.self,

@@ -48,6 +48,10 @@ extension CoreService {
         await searchProviderService.updateConfig(config.searchTools)
         let oauthSvc = self.openAIOAuthService
         let anthropicOAuthSvc = self.anthropicOAuthService
+        let workspaceRootURL = self.workspaceRootURL
+        let anthropicSettingsProvider: @Sendable () -> ClaudeSettingsEnvironment = {
+            ClaudeSettingsEnvironment.load(workspaceRootURL: workspaceRootURL)
+        }
         let hasOAuth = oauthSvc.currentAccessToken() != nil
         let resolvedModels = CoreModelProviderFactory.resolveModelIdentifiers(
             config: config,
@@ -62,6 +66,7 @@ extension CoreService {
             oauthTokenRefresh: { try await oauthSvc.ensureValidToken() },
             anthropicOAuthTokenProvider: { anthropicOAuthSvc.currentAccessToken() },
             anthropicOAuthTokenRefresh: { try await anthropicOAuthSvc.ensureValidToken() },
+            anthropicSettingsProvider: anthropicSettingsProvider,
             systemInstructions: "You are Sloppy core channel assistant.",
             proxySession: ProxySessionFactory.makeSession(proxy: config.proxy)
         )

@@ -80,7 +80,7 @@ const PROVIDERS: ProviderDefinition[] = [
       title: "anthropic-oauth",
       apiKey: "",
       apiUrl: "https://api.anthropic.com",
-      model: "claude-sonnet-4-20250514"
+      model: "claude-sonnet-4-6"
     }
   },
   {
