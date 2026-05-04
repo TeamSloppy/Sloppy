@@ -9,6 +9,26 @@ private enum SloppyTUIAttachmentLimits {
     static let maxBytes = 25 * 1024 * 1024
 }
 
+private extension Array where Element == String {
+    func trimmingEmptyEdges() -> [String] {
+        var startIndex = self.startIndex
+        var endIndex = self.endIndex
+
+        while startIndex < endIndex, self[startIndex].trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            startIndex = index(after: startIndex)
+        }
+        while endIndex > startIndex {
+            let previousIndex = index(before: endIndex)
+            guard self[previousIndex].trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                break
+            }
+            endIndex = previousIndex
+        }
+
+        return Array(self[startIndex..<endIndex])
+    }
+}
+
 private enum SloppyTUIAttachmentError: LocalizedError {
     case notAFile
     case tooLarge(Int)
@@ -204,6 +224,7 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
                 mode: chatMode,
                 includeFooter: false
             )
+            return centerWelcome(raw, height: height)
         } else {
             raw = header.render(width: width) + renderTimelineBlocks(width: width) + status.render(width: width)
         }
@@ -212,6 +233,19 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
             return Array(raw.suffix(height))
         }
         return raw + Array(repeating: "", count: height - raw.count)
+    }
+
+    private func centerWelcome(_ lines: [String], height: Int) -> [String] {
+        let content = lines.trimmingEmptyEdges()
+        guard content.count < height else {
+            return Array(content.suffix(height))
+        }
+
+        let topPadding = (height - content.count) / 2
+        let bottomPadding = height - content.count - topPadding
+        return Array(repeating: "", count: topPadding)
+            + content
+            + Array(repeating: "", count: bottomPadding)
     }
 
     private func handleActivePicker(input: TerminalInput) -> Bool {
