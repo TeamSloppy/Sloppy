@@ -2,6 +2,7 @@ import Foundation
 #if canImport(AppKit)
 import AppKit
 #endif
+import ChannelPluginSupport
 import Protocols
 import TauTUI
 
@@ -48,16 +49,27 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
     let editor = Editor()
     var onExit: (@MainActor @Sendable () -> Void)?
 
-    private static let slashCommands = [
+    private static let baseSlashCommands = [
         SloppyTUISlashCommand("help", "Show TUI commands"),
         SloppyTUISlashCommand("status", "Show session status"),
         SloppyTUISlashCommand("agents", "Switch agent"),
         SloppyTUISlashCommand("sessions", "Switch session"),
+        SloppyTUISlashCommand("resume", "Resume a previous conversation"),
         SloppyTUISlashCommand("new", "Create a new session"),
         SloppyTUISlashCommand("clear", "Clear local cards"),
         SloppyTUISlashCommand("stop", "Interrupt the current run"),
+        SloppyTUISlashCommand("btw", "Ask a quick side question without interrupting the main conversation", argument: "message"),
+        SloppyTUISlashCommand("compact", "Free up context by summarizing the conversation so far"),
+        SloppyTUISlashCommand("add_dir", "Add a working directory to this session", argument: "path"),
+        SloppyTUISlashCommand("fork", "Create a branch of the current conversation", argument: "task"),
+        SloppyTUISlashCommand("bar", "Change color bar", argument: "color"),
+        SloppyTUISlashCommand("copy", "Copy last agent response to clipboard"),
+        SloppyTUISlashCommand("diff", "Show uncommitted changes and per-turn diffs"),
+        SloppyTUISlashCommand("effort", "Set reasoning effort level", argument: "low|medium|high"),
+        SloppyTUISlashCommand("skills", "Show enabled skills"),
+        SloppyTUISlashCommand("editor", "Open integrated editor"),
         SloppyTUISlashCommand("model", "Switch agent model"),
-        SloppyTUISlashCommand("context", "Attach changes or git diff"),
+        SloppyTUISlashCommand("context", "Attach changes or git diff", argument: "changes|diff"),
         SloppyTUISlashCommand("tasks", "Show project tasks"),
         SloppyTUISlashCommand("mcps", "Show MCP server statuses"),
         SloppyTUISlashCommand("provider", "Configure provider"),
@@ -85,25 +97,38 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
     private let status = Text(paddingX: 1, paddingY: 0)
 
     private var sessionCards: [SloppyTUITimelineBlock] = []
-    private var localCards: [SloppyTUITimelineBlock] = []
+    private var localCards: [SloppyTUILocalCard] = []
     private var pendingContext: String?
     private var pendingUploads: [AgentAttachmentUpload] = []
     private var chatMode: AgentChatMode = .ask
     private var selectedModel = "default"
+    private var reasoningEffort: ReasoningEffort?
+    private var skillSlashCommands: [SloppyTUISlashCommand] = []
+    private var skillSlashCommandNames: Set<String> = []
     private var commandPaletteSelection = 0
     private var streamTask: Task<Void, Never>?
     private var changeTask: Task<Void, Never>?
     private var devicePollTask: Task<Void, Never>?
     private var thinkingAnimationTask: Task<Void, Never>?
+    private var projectFileIndexTask: Task<Void, Never>?
+    private var projectFileReindexTask: Task<Void, Never>?
     private var lastChangeBatch: ProjectWorkingTreeChangeBatch?
     private var lastRenderedSessionEventIDs: Set<String> = []
     private var activePicker: SloppyTUIPicker?
+    private var projectFileIndex: ProjectFileIndex?
+    private var projectFileRootURL: URL?
+    private var projectFileSearchSelection = 0
+    private var suppressedProjectFileToken: String?
     private var liveAssistantDraft: String?
     private var thinkingFrame = 0
     private var thinkingWord = "thinking"
     private var welcomeDismissed = false
     private var isPosting = false
     private var exitAfterModelSelection = false
+    private var nextLocalCardID = 0
+    private var localCardDismissTasks: [Int: Task<Void, Never>] = [:]
+    private var timelineScrollOffset = 0
+    private var lastTimelineViewportHeight = 1
 
     init(
         runtime: SloppyTUIRuntime,
@@ -126,15 +151,15 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
         self.tui = tui
         self.terminal = terminal
 
-        editor.setAutocompleteProvider(
-            SloppyTUIAutocompleteProvider(basePath: runtime.cwd)
-        )
+        editor.apply(theme: SloppyTUITheme.palette)
+        editor.setAutocompleteProvider(SloppyTUIAutocompleteProvider(basePath: runtime.cwd))
         editor.onSubmit = { [weak self] value in
             guard let self else { return }
             Task { @MainActor in await self.submit(value) }
         }
         editor.onChange = { [weak self] value in
             self?.persistDraft(value)
+            self?.projectFileSearchSelection = 0
         }
         let draftKey = SloppyTUIStateStore.draftKey(
             projectId: project.id,
@@ -148,6 +173,7 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
 
     func start() {
         Task { @MainActor in await reloadSession() }
+        Task { @MainActor in await reloadSkillSlashCommands() }
         Task { @MainActor in
             await refreshSelectedModel()
             if case .modelPicker(let exitAfterSelection) = initialAction {
@@ -156,6 +182,7 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
         }
         streamSession()
         streamChanges()
+        loadProjectFileIndex()
         if !runtime.config.onboarding.completed {
             appendLocalCard(Self.firstStartBootstrapCard)
         }
@@ -166,6 +193,9 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
         changeTask?.cancel()
         devicePollTask?.cancel()
         thinkingAnimationTask?.cancel()
+        projectFileIndexTask?.cancel()
+        projectFileReindexTask?.cancel()
+        cancelLocalCardDismissTasks()
     }
 
     func render(width: Int) -> [String] {
@@ -181,10 +211,16 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
         if handleCommandPalette(input: input) {
             return
         }
+        if handleProjectFileSearchInput(input) {
+            return
+        }
         if handleAttachmentInput(input) {
             return
         }
         if handleModeCycle(input) {
+            return
+        }
+        if handleTimelineScroll(input) {
             return
         }
         editor.handle(input: input)
@@ -192,7 +228,7 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
 
     private func renderBaseScreen(width: Int, height: Int) -> [String] {
         let footer = SloppyTUITheme.appFooter(width: width, cwd: runtime.cwd)
-        var composer = editor.render(width: width)
+        var composer = SloppyTUITheme.highlightedComposerLines(editor.render(width: width))
         composer.append(SloppyTUITheme.composerMetaLine(
             width: width,
             mode: chatMode,
@@ -206,6 +242,8 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
             composer.insert(contentsOf: SloppyTUITheme.pickerLines(width: width, picker: picker, maxVisible: 9), at: 0)
         } else if let palette = commandPaletteLines(width: width) {
             composer.insert(contentsOf: palette, at: 0)
+        } else if let picker = projectFileSearchPicker() {
+            composer.insert(contentsOf: SloppyTUITheme.pickerLines(width: width, picker: picker, maxVisible: 9), at: 0)
         }
 
         let bodyHeight = max(1, height - composer.count)
@@ -214,9 +252,8 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
     }
 
     private func renderBody(width: Int, height: Int) -> [String] {
-        let raw: [String]
         if shouldRenderWelcome {
-            raw = SloppyTUITheme.welcomeScreen(
+            let raw = SloppyTUITheme.welcomeScreen(
                 width: width,
                 cwd: runtime.cwd,
                 project: project.name,
@@ -226,14 +263,18 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
                 includeFooter: false
             )
             return centerWelcome(raw, height: height)
-        } else {
-            raw = header.render(width: width) + renderTimelineBlocks(width: width) + status.render(width: width)
         }
 
-        if raw.count >= height {
-            return Array(raw.suffix(height))
-        }
-        return raw + Array(repeating: "", count: height - raw.count)
+        let headerLines = header.render(width: width)
+        let statusLines = status.render(width: width)
+        let timelineHeight = max(1, height - headerLines.count - statusLines.count)
+        let timelineLines = renderTimelineBlocks(width: width)
+        let visibleTimeline = visibleTimelineLines(timelineLines, height: timelineHeight)
+        let bottomPadding = max(0, height - headerLines.count - visibleTimeline.count - statusLines.count)
+        return headerLines
+            + visibleTimeline
+            + Array(repeating: "", count: bottomPadding)
+            + statusLines
     }
 
     private func centerWelcome(_ lines: [String], height: Int) -> [String] {
@@ -318,6 +359,31 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
         }
     }
 
+    private func handleProjectFileSearchInput(_ input: TerminalInput) -> Bool {
+        guard let picker = projectFileSearchPicker() else { return false }
+        guard case let .key(key, _) = input else { return false }
+
+        switch key {
+        case .arrowUp:
+            projectFileSearchSelection = max(0, projectFileSearchSelection - 1)
+            requestRender()
+            return true
+        case .arrowDown:
+            projectFileSearchSelection = min(picker.items.count - 1, projectFileSearchSelection + 1)
+            requestRender()
+            return true
+        case .enter, .tab:
+            applyProjectFileSearchItem(picker.items[picker.selectedIndex])
+            return true
+        case .escape:
+            suppressedProjectFileToken = currentProjectFileToken()?.token
+            requestRender()
+            return true
+        default:
+            return false
+        }
+    }
+
     private func handleAttachmentInput(_ input: TerminalInput) -> Bool {
         switch input {
         case .paste(let text):
@@ -342,6 +408,46 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
         return true
     }
 
+    private func handleTimelineScroll(_ input: TerminalInput) -> Bool {
+        guard case let .key(key, modifiers) = input else {
+            return false
+        }
+
+        let page = max(1, lastTimelineViewportHeight - 2)
+        switch key {
+        case .function(5):
+            scrollTimeline(by: page)
+        case .function(6):
+            scrollTimeline(by: -page)
+        case .arrowUp where modifiers.contains(.option) || modifiers.contains(.control):
+            scrollTimeline(by: 3)
+        case .arrowDown where modifiers.contains(.option) || modifiers.contains(.control):
+            scrollTimeline(by: -3)
+        case .home where modifiers.contains(.option) || modifiers.contains(.control):
+            scrollTimelineToTop()
+        case .end where modifiers.contains(.option) || modifiers.contains(.control):
+            scrollTimelineToBottom()
+        default:
+            return false
+        }
+        return true
+    }
+
+    private func scrollTimeline(by delta: Int) {
+        timelineScrollOffset = max(0, timelineScrollOffset + delta)
+        requestRender()
+    }
+
+    private func scrollTimelineToTop() {
+        timelineScrollOffset = Int.max
+        requestRender()
+    }
+
+    private func scrollTimelineToBottom() {
+        timelineScrollOffset = 0
+        requestRender()
+    }
+
     private var commandPaletteVisible: Bool {
         let value = editor.getText()
         guard value.hasPrefix("/") else { return false }
@@ -349,13 +455,19 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
         return !value.contains("\n")
     }
 
+    private var allSlashCommands: [SloppyTUISlashCommand] {
+        (Self.baseSlashCommands + skillSlashCommands).sorted {
+            $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending
+        }
+    }
+
     private func commandPaletteSuggestions() -> [SloppyTUISlashCommand] {
         let prefix = String(editor.getText().dropFirst()).trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         let matches: [SloppyTUISlashCommand]
         if prefix.isEmpty {
-            matches = Self.slashCommands
+            matches = allSlashCommands
         } else {
-            matches = Self.slashCommands.filter { command in
+            matches = allSlashCommands.filter { command in
                 command.name.lowercased().hasPrefix(prefix)
             }
         }
@@ -375,6 +487,84 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
             selectedIndex: commandPaletteSelection,
             maxVisible: 9
         )
+    }
+
+    private func projectFileSearchPicker() -> SloppyTUIPicker? {
+        guard let index = projectFileIndex,
+              let token = currentProjectFileToken(),
+              token.token != suppressedProjectFileToken
+        else {
+            return nil
+        }
+
+        let entries = index.search(String(token.token.dropFirst()), limit: 30)
+        guard !entries.isEmpty else {
+            return nil
+        }
+
+        let items = entries.map { entry in
+            let value = entry.type == .directory ? entry.path + "/" : entry.path
+            return SloppyTUIPickerItem(
+                value: value,
+                label: value,
+                description: entry.type == .directory ? "directory" : "file",
+                isCurrent: false
+            )
+        }
+        if projectFileSearchSelection >= items.count {
+            projectFileSearchSelection = max(0, items.count - 1)
+        }
+        return SloppyTUIPicker(
+            kind: .projectFile,
+            title: "Attach project path",
+            items: items,
+            selectedIndex: projectFileSearchSelection
+        )
+    }
+
+    private func applyProjectFileSearchItem(_ item: SloppyTUIPickerItem) {
+        guard let token = currentProjectFileToken() else {
+            return
+        }
+
+        var lines = editor.getText().components(separatedBy: "\n")
+        guard lines.indices.contains(token.line) else {
+            return
+        }
+
+        var line = lines[token.line]
+        let start = line.index(line.startIndex, offsetBy: token.startColumn)
+        let end = line.index(line.startIndex, offsetBy: token.endColumn)
+        line.replaceSubrange(start..<end, with: "@\(item.value) ")
+        lines[token.line] = line
+        suppressedProjectFileToken = nil
+        projectFileSearchSelection = 0
+        editor.setText(lines.joined(separator: "\n"))
+        requestRender()
+    }
+
+    private func currentProjectFileToken() -> (token: String, line: Int, startColumn: Int, endColumn: Int)? {
+        let text = editor.getText()
+        let cursor = editor.getCursor()
+        let lines = text.components(separatedBy: "\n")
+        guard lines.indices.contains(cursor.line) else {
+            return nil
+        }
+
+        let line = lines[cursor.line]
+        let endColumn = min(cursor.col, line.count)
+        let end = line.index(line.startIndex, offsetBy: endColumn)
+        let beforeCursor = String(line[..<end])
+        let start = beforeCursor.rangeOfCharacter(
+            from: .whitespacesAndNewlines,
+            options: .backwards
+        )?.upperBound ?? beforeCursor.startIndex
+        let token = String(beforeCursor[start...])
+        guard token.hasPrefix("@") else {
+            return nil
+        }
+        let startColumn = beforeCursor.distance(from: beforeCursor.startIndex, to: start)
+        return (token, cursor.line, startColumn, endColumn)
     }
 
     private func applyCommandPaletteSelection(_ command: SloppyTUISlashCommand) {
@@ -422,7 +612,7 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
         await sendMessage(value)
     }
 
-    private func sendMessage(_ value: String) async {
+    private func sendMessage(_ value: String, spawnSubSession: Bool = false) async {
         guard !isPosting else {
             appendLocalCard("A message is already in flight. Use `/stop` if you need to interrupt it.")
             return
@@ -449,7 +639,8 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
                     userId: config.onboarding.completed ? "tui" : "onboarding",
                     content: content,
                     attachments: uploads,
-                    spawnSubSession: false,
+                    spawnSubSession: spawnSubSession,
+                    reasoningEffort: reasoningEffort,
                     mode: chatMode
                 )
             )
@@ -474,25 +665,45 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
 
         switch command {
         case "help":
-            appendLocalCard("""
-            ## TUI commands
-            `/status`, `/sessions`, `/new`, `/clear`, `/stop`, `/model <id>`, `/context changes`, `/context diff`, `/tasks`, `/mcps`, `/provider`, `/provider <id> <key> [model]`, `/quit`.
-
-            Use `@path` in a message to inline a project file as explicit context. Tab completes slash commands.
-            """)
+            showHelp()
         case "status":
             await showStatus()
         case "agents", "agent":
             await showAgentPicker()
-        case "sessions", "session":
+        case "sessions", "session", "resume":
             await showSessionPicker()
         case "new":
             await createNewSession()
         case "clear":
-            localCards.removeAll()
+            clearLocalCards()
             renderTimeline()
         case "stop":
             await stopCurrentRun()
+        case "btw":
+            let message = args.joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !message.isEmpty else {
+                appendLocalCard("Usage: `/btw <message>`")
+                return
+            }
+            await sendMessage(raw)
+        case "compact":
+            await compactCurrentSession()
+        case "add_dir", "add-dir":
+            await addDirectoryToCurrentSession(raw)
+        case "fork":
+            await forkCurrentSession(task: args.joined(separator: " "))
+        case "bar":
+            changeBarColor(args.first)
+        case "copy":
+            copyLastAssistantResponse()
+        case "diff":
+            await showDiff()
+        case "effort":
+            setReasoningEffort(args.first)
+        case "skills":
+            await showSkills()
+        case "editor":
+            openIntegratedEditor()
         case "model":
             await switchModel(args.first)
         case "context":
@@ -516,14 +727,37 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
         case "quit", "exit":
             stopTUI()
         default:
+            if skillSlashCommandNames.contains(command) {
+                await sendMessage(raw)
+                return
+            }
             appendLocalCard("Unknown command `\(raw)`. Try `/help`.")
         }
+    }
+
+    private func showHelp() {
+        let commandLines = allSlashCommands.map { command -> String in
+            let usage = command.argument.map { " <\($0)>" } ?? ""
+            return "- `/\(command.name)\(usage)` — \(command.description ?? command.name)"
+        }.joined(separator: "\n")
+        appendLocalCard("""
+        ## TUI commands
+        \(commandLines)
+
+        Use `@path` in a message to inline a project file as explicit context. Tab completes slash commands.
+
+        ## History scroll
+        - PageUp / PageDown scroll by pages.
+        - Option+Up/Down or Ctrl+Up/Down scroll by a few lines.
+        - Option+Home / Ctrl+Home jumps to the start of history.
+        - Option+End / Ctrl+End jumps back to the bottom.
+        """)
     }
 
     private func showMCPServers() async {
         let statuses = await runtime.service.listMCPServerStatuses()
         guard !statuses.isEmpty else {
-            appendLocalCard("No MCP servers configured.")
+            appendLocalCard("No MCP servers configured.", autoDismissAfter: 6)
             return
         }
 
@@ -535,7 +769,7 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
         \(connectedCount)/\(enabledCount) enabled servers connected.
 
         \(lines)
-        """)
+        """, autoDismissAfter: 20)
     }
 
     private func mcpStatusLine(_ status: MCPServerStatus) -> String {
@@ -600,6 +834,168 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
         }
     }
 
+    private func compactCurrentSession() async {
+        do {
+            _ = try await runtime.service.requestAgentMemoryCheckpoint(
+                agentID: agent.id,
+                sessionID: session.id,
+                reason: "tui_compact_command"
+            )
+            appendLocalCard("Context compacted for `\(session.title)`. Memory checkpoint requested.", autoDismissAfter: 8)
+        } catch {
+            appendLocalCard("Compact failed: \(String(describing: error))")
+        }
+    }
+
+    private func addDirectoryToCurrentSession(_ raw: String) async {
+        guard let path = ChannelAddDirCommandParsing.pathTailIfCommand(raw),
+              !path.isEmpty
+        else {
+            appendLocalCard("Usage: `/add_dir <path>`")
+            return
+        }
+
+        do {
+            let response = try await runtime.service.addAgentSessionDirectory(
+                agentID: agent.id,
+                sessionID: session.id,
+                request: AgentSessionDirectoryRequest(path: path)
+            )
+            appendLocalCard("Added working directory:\n`\(response.path)`", autoDismissAfter: 8)
+        } catch {
+            appendLocalCard("Add directory failed: \(String(describing: error))")
+        }
+    }
+
+    private func forkCurrentSession(task: String) async {
+        do {
+            let titleTail = task.trimmingCharacters(in: .whitespacesAndNewlines)
+            let child = try await runtime.service.createAgentSession(
+                agentID: agent.id,
+                request: AgentSessionCreateRequest(
+                    title: titleTail.isEmpty ? "Fork of \(session.title)" : "Fork: \(String(titleTail.prefix(48)))",
+                    parentSessionId: session.id,
+                    projectId: project.id
+                )
+            )
+            session = child
+            persistSelection()
+            streamSession()
+            await reloadSession()
+            appendLocalCard("Forked into `\(child.title)`.", autoDismissAfter: 8)
+            if !titleTail.isEmpty {
+                await sendMessage(titleTail)
+            }
+        } catch {
+            appendLocalCard("Fork failed: \(String(describing: error))")
+        }
+    }
+
+    private func changeBarColor(_ rawColor: String?) {
+        guard let rawColor, !rawColor.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            appendLocalCard("Usage: `/bar <red|blue|green|yellow|purple|orange|pink|cyan|default>`")
+            return
+        }
+        guard SloppyTUITheme.setBarColor(rawColor) else {
+            appendLocalCard("Unknown bar color `\(rawColor)`. Use red, blue, green, yellow, purple, orange, pink, cyan, or default.")
+            return
+        }
+        editor.apply(theme: SloppyTUITheme.palette)
+        tui?.apply(theme: SloppyTUITheme.palette)
+        refreshStaticChrome(statusLine: "bar color set to \(rawColor)")
+        requestRender()
+    }
+
+    private func copyLastAssistantResponse() {
+        guard let text = sessionCards.reversed().compactMap({ block -> String? in
+            if case .message(let role, let text) = block, role == .assistant {
+                return text.trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+            return nil
+        }).first, !text.isEmpty else {
+            appendLocalCard("No agent response to copy.", autoDismissAfter: 6)
+            return
+        }
+
+        #if canImport(AppKit)
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
+        appendLocalCard("Copied last agent response to clipboard.", autoDismissAfter: 6)
+        #else
+        appendLocalCard("Clipboard copy is not available on this platform.", autoDismissAfter: 6)
+        #endif
+    }
+
+    private func showDiff() async {
+        do {
+            let git = try await runtime.service.projectWorkingTreeGit(projectID: project.id)
+            guard git.isGitRepository else {
+                appendLocalCard(git.message ?? "This project folder is not a git repository.")
+                return
+            }
+            guard !git.diff.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                appendLocalCard("No uncommitted changes.")
+                return
+            }
+            let branch = git.branch ?? "unknown"
+            let truncated = git.diffTruncated ? "\n\nDiff was truncated by the backend." : ""
+            appendLocalCard("""
+            ## Diff
+            Branch: `\(branch)`  +\(git.linesAdded) -\(git.linesDeleted)
+
+            \(fencedBlock("diff", git.diff, maxCharacters: 12_000))\(truncated)
+            """)
+        } catch {
+            appendLocalCard("Could not read git diff: \(String(describing: error))")
+        }
+    }
+
+    private func setReasoningEffort(_ raw: String?) {
+        let value = raw?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() ?? ""
+        guard !value.isEmpty else {
+            let current = reasoningEffort?.rawValue ?? "default"
+            appendLocalCard("Current reasoning effort: `\(current)`. Use `/effort low`, `/effort medium`, `/effort high`, or `/effort default`.")
+            return
+        }
+        if value == "default" || value == "none" || value == "off" {
+            reasoningEffort = nil
+            appendLocalCard("Reasoning effort reset to model default.", autoDismissAfter: 6)
+            return
+        }
+        guard let effort = ReasoningEffort(rawValue: value) else {
+            appendLocalCard("Unknown effort `\(value)`. Use low, medium, high, or default.")
+            return
+        }
+        reasoningEffort = effort
+        appendLocalCard("Reasoning effort set to `\(effort.rawValue)`.", autoDismissAfter: 6)
+    }
+
+    private func showSkills() async {
+        do {
+            let response = try await runtime.service.listAgentSkills(agentID: agent.id)
+            guard !response.skills.isEmpty else {
+                appendLocalCard("No enabled skills for `\(agent.displayName)`.", autoDismissAfter: 8)
+                return
+            }
+            let lines = response.skills.map { skill -> String in
+                let slash = skillSlashCommands.first { $0.description?.hasPrefix(skill.name) == true }?.name
+                let suffix = slash.map { " `/\($0)`" } ?? ""
+                return "- \(skill.name)\(suffix) — `\(skill.id)`"
+            }.joined(separator: "\n")
+            appendLocalCard("""
+            ## Skills
+            \(lines)
+            """)
+        } catch {
+            appendLocalCard("Could not load skills: \(String(describing: error))")
+        }
+    }
+
+    private func openIntegratedEditor() {
+        tui?.setFocus(self)
+        appendLocalCard("Integrated editor is active. Type your message in the composer.", autoDismissAfter: 6)
+    }
+
     private func showStatus() async {
         let config = try? await runtime.service.getAgentConfig(agentID: agent.id)
         let model = config?.selectedModel ?? selectedModel
@@ -613,7 +1009,7 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
         - resume: `sloppy -s \(session.id)`
         - model: `\(model)`
         - provider: `\(providerLabel(from: model))`
-        """)
+        """, autoDismissAfter: 20)
     }
 
     private func showAgentPicker() async {
@@ -730,6 +1126,8 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
             }
         case .providerCatalog:
             await beginProviderSetup(item.value)
+        case .projectFile:
+            applyProjectFileSearchItem(item)
         }
     }
 
@@ -804,7 +1202,7 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
             selectedModel = model
             dismissFirstStartBootstrapCard()
             dismissModelSwitchCards()
-            appendLocalCard("Model switched to `\(model)`.")
+            appendLocalCard("Model switched to `\(model)`.", autoDismissAfter: 6)
         } catch {
             appendLocalCard("Model switch failed: \(String(describing: error))")
         }
@@ -917,6 +1315,7 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
             persistSelection()
             streamSession()
             await reloadSession()
+            await reloadSkillSlashCommands()
             await refreshSelectedModel()
             appendLocalCard("Agent switched to `\(nextAgent.displayName)`.")
         } catch {
@@ -1200,11 +1599,88 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
                     guard !Task.isCancelled else { break }
                     await MainActor.run {
                         self.lastChangeBatch = batch
+                        self.scheduleProjectFileReindex()
                     }
                 }
             } catch {
                 // Keep workspace watching silent so the timeline only shows agent output.
             }
+        }
+    }
+
+    private func loadProjectFileIndex() {
+        projectFileIndexTask?.cancel()
+        projectFileIndexTask = Task { [weak self] in
+            guard let self else { return }
+            do {
+                let rootURL = try await runtime.service.resolveProjectWorkspaceRoot(projectID: project.id)
+                projectFileRootURL = rootURL
+
+                let rootPath = rootURL.standardizedFileURL.path
+                let store = ProjectFileIndexStore(workspaceRoot: runtime.workspaceRoot)
+                if let cached = store.load(projectId: project.id, rootPath: rootPath) {
+                    applyProjectFileIndex(cached)
+                }
+
+                rebuildProjectFileIndex(rootURL: rootURL)
+            } catch {
+                projectFileRootURL = nil
+                applyProjectFileIndex(nil)
+            }
+        }
+    }
+
+    private func scheduleProjectFileReindex() {
+        guard let rootURL = projectFileRootURL else {
+            loadProjectFileIndex()
+            return
+        }
+
+        projectFileReindexTask?.cancel()
+        projectFileReindexTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 350_000_000)
+            guard !Task.isCancelled else { return }
+            self?.rebuildProjectFileIndex(rootURL: rootURL)
+        }
+    }
+
+    private func rebuildProjectFileIndex(rootURL: URL) {
+        projectFileReindexTask?.cancel()
+        let projectID = project.id
+        let workspaceRoot = runtime.workspaceRoot
+        projectFileReindexTask = Task { [weak self] in
+            let index = await Task.detached(priority: .utility) {
+                let index = ProjectFileIndex.build(projectId: projectID, rootURL: rootURL)
+                ProjectFileIndexStore(workspaceRoot: workspaceRoot).save(index)
+                return index
+            }.value
+
+            guard !Task.isCancelled else { return }
+            self?.applyProjectFileIndex(index)
+        }
+    }
+
+    private func applyProjectFileIndex(_ index: ProjectFileIndex?) {
+        projectFileIndex = index
+        requestRender()
+    }
+
+    private func reloadSkillSlashCommands() async {
+        do {
+            let response = try await runtime.service.buildAgentChatSlashCommands(agentID: agent.id)
+            let skills = response.commands
+                .filter { $0.source == "skill" }
+                .compactMap { item -> SloppyTUISlashCommand? in
+                    let name = item.name.trimmingCharacters(in: .whitespacesAndNewlines)
+                    guard !name.isEmpty else { return nil }
+                    return SloppyTUISlashCommand(name, item.description, argument: item.argument ?? "message")
+                }
+            skillSlashCommands = skills
+            skillSlashCommandNames = Set(skills.map { $0.name.lowercased() })
+            requestRender()
+        } catch {
+            skillSlashCommands = []
+            skillSlashCommandNames = []
         }
     }
 
@@ -1240,9 +1716,21 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
                     blocks.append(.attachment(name: attachment.name, mimeType: attachment.mimeType, sizeBytes: attachment.sizeBytes))
                 }
             } else if let toolCall = event.toolCall {
-                blocks.append(.toolCall(tool: toolCall.tool, reason: toolCall.reason, argumentNames: toolCall.arguments.keys.sorted()))
+                let display = toolCallDisplay(tool: toolCall.tool, arguments: toolCall.arguments)
+                blocks.append(.toolCall(
+                    tool: toolCall.tool,
+                    reason: toolCall.reason,
+                    summary: display.summary,
+                    details: display.details
+                ))
             } else if let toolResult = event.toolResult {
-                blocks.append(.toolResult(tool: toolResult.tool, ok: toolResult.ok, error: toolResult.error?.message, durationMs: toolResult.durationMs))
+                blocks.append(.toolResult(
+                    tool: toolResult.tool,
+                    ok: toolResult.ok,
+                    error: toolResult.error?.message,
+                    durationMs: toolResult.durationMs,
+                    details: toolResultDisplay(toolResult)
+                ))
             }
         }
         sessionCards = blocks
@@ -1260,8 +1748,114 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
         }
     }
 
+    private func toolCallDisplay(
+        tool: String,
+        arguments: [String: JSONValue]
+    ) -> (summary: String?, details: String?) {
+        switch tool {
+        case "runtime.exec":
+            let command = arguments["command"]?.asString?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            let argv = arguments["arguments"]?.asArray?.compactMap(\.asString) ?? []
+            let fullCommand = ([command] + argv).filter { !$0.isEmpty }.map(shellQuote).joined(separator: " ")
+            let cwd = arguments["cwd"]?.asString?.trimmingCharacters(in: .whitespacesAndNewlines)
+            var details = fullCommand.isEmpty ? nil : fencedBlock("shell", fullCommand, maxCharacters: 4_000)
+            if let cwd, !cwd.isEmpty {
+                details = ([details, "cwd: `\(cwd)`"].compactMap { $0 }).joined(separator: "\n\n")
+            }
+            return (clip(fullCommand, maxCharacters: 160), details)
+        case "files.edit":
+            let path = arguments["path"]?.asString
+            let search = arguments["search"]?.asString
+            let replace = arguments["replace"]?.asString
+            let details = editPreview(search: search, replace: replace)
+            return (path.map { "path: \($0)" }, details)
+        case "files.write":
+            let path = arguments["path"]?.asString
+            let content = arguments["content"]?.asString
+            let details = content.map { fencedBlock("text", $0, maxCharacters: 4_000) }
+            return (path.map { "path: \($0)" }, details)
+        default:
+            let keys = arguments.keys.sorted()
+            let details = arguments.isEmpty ? nil : fencedBlock("json", prettyJSON(.object(arguments)), maxCharacters: 4_000)
+            return (keys.isEmpty ? nil : keys.joined(separator: ", "), details)
+        }
+    }
+
+    private func toolResultDisplay(_ result: AgentToolResultEvent) -> String? {
+        var parts: [String] = []
+
+        if let error = result.error {
+            parts.append("error code: `\(error.code)`")
+            if let hint = error.hint?.trimmingCharacters(in: .whitespacesAndNewlines), !hint.isEmpty {
+                parts.append("hint: \(hint)")
+            }
+        }
+
+        if result.tool == "runtime.exec",
+           let data = result.data?.asObject {
+            if let exitCode = data["exitCode"]?.asInt {
+                parts.append("exit code: `\(exitCode)`")
+            }
+            if data["timedOut"]?.asBool == true {
+                parts.append("timed out")
+            }
+            if let stdout = data["stdout"]?.asString, !stdout.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                parts.append("stdout:\n" + fencedBlock("text", stdout, maxCharacters: 6_000))
+            }
+            if let stderr = data["stderr"]?.asString, !stderr.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                parts.append("stderr:\n" + fencedBlock("text", stderr, maxCharacters: 6_000))
+            }
+        } else if let data = result.data {
+            parts.append(fencedBlock("json", prettyJSON(data), maxCharacters: 4_000))
+        }
+
+        return parts.isEmpty ? nil : parts.joined(separator: "\n\n")
+    }
+
+    private func editPreview(search: String?, replace: String?) -> String? {
+        guard let search, let replace else {
+            return nil
+        }
+        let removed = search.split(separator: "\n", omittingEmptySubsequences: false).map { "-\(String($0))" }
+        let added = replace.split(separator: "\n", omittingEmptySubsequences: false).map { "+\(String($0))" }
+        return fencedBlock("diff", (removed + added).joined(separator: "\n"), maxCharacters: 6_000)
+    }
+
+    private func fencedBlock(_ language: String, _ text: String, maxCharacters: Int) -> String {
+        let safeText = clip(text.replacingOccurrences(of: "```", with: "` ` `"), maxCharacters: maxCharacters)
+        return "```\(language)\n\(safeText)\n```"
+    }
+
+    private func prettyJSON(_ value: JSONValue) -> String {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        guard let data = try? encoder.encode(value),
+              let string = String(data: data, encoding: .utf8) else {
+            return String(describing: value)
+        }
+        return string
+    }
+
+    private func clip(_ text: String, maxCharacters: Int) -> String {
+        guard text.count > maxCharacters else {
+            return text
+        }
+        return String(text.prefix(max(0, maxCharacters - 14))) + "\n... truncated"
+    }
+
+    private func shellQuote(_ value: String) -> String {
+        guard !value.isEmpty else {
+            return "''"
+        }
+        let safeCharacters = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_@%+=:,./-")
+        if value.unicodeScalars.allSatisfy({ safeCharacters.contains($0) }) {
+            return value
+        }
+        return "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
+    }
+
     private func renderTimeline() {
-        let blocks = sessionCards + liveAssistantBlocks() + localCards
+        let blocks = sessionCards + liveAssistantBlocks() + localCards.map(\.block)
         timeline.text = blocks.map(\.plainText).joined(separator: "\n\n")
         refreshStaticChrome()
         requestRender()
@@ -1281,7 +1875,7 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
     }
 
     private func renderTimelineBlocks(width: Int) -> [String] {
-        let blocks = sessionCards + liveAssistantBlocks() + localCards
+        let blocks = sessionCards + liveAssistantBlocks() + localCards.map(\.block)
         guard !blocks.isEmpty else {
             return timeline.render(width: width)
         }
@@ -1306,16 +1900,75 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
                 lines.append(contentsOf: SloppyTUITheme.thinkingLines(text, width: width))
             case .attachment(let name, let mimeType, let sizeBytes):
                 lines.append(SloppyTUITheme.attachmentLine(name: name, mimeType: mimeType, sizeBytes: sizeBytes, width: width))
-            case .toolCall(let tool, let reason, let argumentNames):
-                lines.append(SloppyTUITheme.toolCallLine(tool: tool, reason: reason, argumentNames: argumentNames, width: width))
-            case .toolResult(let tool, let ok, let error, let durationMs):
+            case .toolCall(let tool, let reason, let summary, let details):
+                lines.append(SloppyTUITheme.toolCallLine(tool: tool, reason: reason, summary: summary, width: width))
+                if let details, !details.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    lines.append(contentsOf: renderMarkdown(details, width: width))
+                }
+            case .toolResult(let tool, let ok, let error, let durationMs, let details):
                 lines.append(SloppyTUITheme.toolResultLine(tool: tool, ok: ok, error: error, durationMs: durationMs, width: width))
+                if let details, !details.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    lines.append(contentsOf: renderMarkdown(details, width: width))
+                }
             }
         }
         return lines
     }
 
+    private func visibleTimelineLines(_ lines: [String], height: Int) -> [String] {
+        lastTimelineViewportHeight = max(1, height)
+        guard lines.count > height else {
+            timelineScrollOffset = 0
+            return lines
+        }
+
+        let maxOffset = max(0, lines.count - height)
+        timelineScrollOffset = min(max(0, timelineScrollOffset), maxOffset)
+        let end = lines.count - timelineScrollOffset
+        let start = max(0, end - height)
+        return Array(lines[start..<end])
+    }
+
     private func renderMarkdown(_ text: String, width: Int) -> [String] {
+        guard text.contains("```diff") else {
+            return renderPlainMarkdown(text, width: width)
+        }
+
+        var lines: [String] = []
+        var cursor = text.startIndex
+        while let fenceStart = text[cursor...].range(of: "```diff") {
+            appendPlainMarkdown(String(text[cursor..<fenceStart.lowerBound]), to: &lines, width: width)
+
+            guard let firstNewline = text[fenceStart.upperBound...].firstIndex(of: "\n") else {
+                cursor = fenceStart.upperBound
+                continue
+            }
+
+            let diffStart = text.index(after: firstNewline)
+            guard let fenceEnd = text[diffStart...].range(of: "```") else {
+                lines.append(contentsOf: SloppyTUITheme.diffLines(String(text[diffStart...]), width: width))
+                cursor = text.endIndex
+                break
+            }
+
+            lines.append(contentsOf: SloppyTUITheme.diffLines(String(text[diffStart..<fenceEnd.lowerBound]), width: width))
+            cursor = fenceEnd.upperBound
+        }
+        appendPlainMarkdown(String(text[cursor...]), to: &lines, width: width)
+        return lines
+    }
+
+    private func appendPlainMarkdown(_ text: String, to lines: inout [String], width: Int) {
+        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return
+        }
+        if !lines.isEmpty {
+            lines.append("")
+        }
+        lines.append(contentsOf: renderPlainMarkdown(text, width: width))
+    }
+
+    private func renderPlainMarkdown(_ text: String, width: Int) -> [String] {
         let component = MarkdownComponent(
             text: text,
             padding: .init(horizontal: 1, vertical: 0),
@@ -1348,17 +2001,26 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
         thinkingWord = "thinking"
     }
 
-    private func appendLocalCard(_ text: String) {
-        localCards.append(.local(text))
+    private func appendLocalCard(_ text: String, autoDismissAfter seconds: TimeInterval? = nil) {
+        nextLocalCardID += 1
+        let id = nextLocalCardID
+        localCards.append(SloppyTUILocalCard(id: id, block: .local(text)))
         if localCards.count > 24 {
+            let removed = localCards.prefix(localCards.count - 24)
+            for card in removed {
+                localCardDismissTasks.removeValue(forKey: card.id)?.cancel()
+            }
             localCards.removeFirst(localCards.count - 24)
+        }
+        if let seconds {
+            scheduleLocalCardDismissal(id: id, after: seconds)
         }
         renderTimeline()
     }
 
     private func dismissFirstStartBootstrapCard() {
-        localCards.removeAll { block in
-            if case .local(let text) = block {
+        dismissLocalCards { block in
+            if case .local(let text) = block.block {
                 return text == Self.firstStartBootstrapCard
             }
             return false
@@ -1366,12 +2028,48 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
     }
 
     private func dismissModelSwitchCards() {
-        localCards.removeAll { block in
-            if case .local(let text) = block {
+        dismissLocalCards { block in
+            if case .local(let text) = block.block {
                 return text.hasPrefix("Model switched to ")
             }
             return false
         }
+    }
+
+    private func clearLocalCards() {
+        cancelLocalCardDismissTasks()
+        localCards.removeAll()
+    }
+
+    private func dismissLocalCards(where shouldDismiss: (SloppyTUILocalCard) -> Bool) {
+        let removedIDs = localCards.filter(shouldDismiss).map(\.id)
+        guard !removedIDs.isEmpty else { return }
+        for id in removedIDs {
+            localCardDismissTasks.removeValue(forKey: id)?.cancel()
+        }
+        localCards.removeAll(where: shouldDismiss)
+    }
+
+    private func scheduleLocalCardDismissal(id: Int, after seconds: TimeInterval) {
+        localCardDismissTasks[id]?.cancel()
+        localCardDismissTasks[id] = Task { [weak self] in
+            let nanoseconds = UInt64(max(0, seconds) * 1_000_000_000)
+            try? await Task.sleep(nanoseconds: nanoseconds)
+            guard !Task.isCancelled else { return }
+            await MainActor.run {
+                guard let self else { return }
+                self.localCardDismissTasks[id] = nil
+                self.localCards.removeAll { $0.id == id }
+                self.renderTimeline()
+            }
+        }
+    }
+
+    private func cancelLocalCardDismissTasks() {
+        for task in localCardDismissTasks.values {
+            task.cancel()
+        }
+        localCardDismissTasks.removeAll()
     }
 
     private func refreshStaticChrome(statusLine: String? = nil) {
@@ -1664,14 +2362,63 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
             .filter { $0.hasPrefix("@") && $0.count > 1 }
             .map { String($0.dropFirst()) }
         for path in fileTokens.prefix(8) {
-            do {
-                let file = try await runtime.service.readProjectFile(projectID: project.id, path: path)
-                parts.append("\n[Attached file: \(file.path)]\n```\n\(file.content)\n```")
-            } catch {
-                parts.append("\n[Attachment failed: \(path)] \(String(describing: error))")
-            }
+            parts.append("\n\(await projectPathContext(for: path))")
         }
         return parts.joined(separator: "\n")
+    }
+
+    private func projectPathContext(for rawPath: String) async -> String {
+        let path = rawPath.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalizedPath = path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        let cachedType = projectFileIndex?.entries.first { $0.path == normalizedPath }?.type
+        let shouldTryDirectoryFirst = path.hasSuffix("/") || cachedType == .directory
+
+        if shouldTryDirectoryFirst, let manifest = await directoryContextBlock(path: path) {
+            return manifest
+        }
+
+        do {
+            let file = try await runtime.service.readProjectFile(projectID: project.id, path: path)
+            return "[Attached file: \(file.path)]\n```\n\(file.content)\n```"
+        } catch {
+            if !shouldTryDirectoryFirst, let manifest = await directoryContextBlock(path: path) {
+                return manifest
+            }
+            scheduleProjectFileReindex()
+            return "[Attachment failed: \(path)] Cached path is stale or unavailable: \(String(describing: error))"
+        }
+    }
+
+    private func directoryContextBlock(path: String) async -> String? {
+        let manifestLimit = 80
+        do {
+            let rootURL: URL
+            if let projectFileRootURL {
+                rootURL = projectFileRootURL
+            } else {
+                rootURL = try await runtime.service.resolveProjectWorkspaceRoot(projectID: project.id)
+                projectFileRootURL = rootURL
+            }
+
+            let entries = try ProjectFileIndex.directoryManifest(
+                projectId: project.id,
+                rootURL: rootURL,
+                path: path,
+                limit: manifestLimit
+            )
+            let normalized = path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+            let lines = entries.map { entry in
+                let suffix = entry.type == .directory ? "/" : ""
+                return "- \(entry.path)\(suffix)"
+            }.joined(separator: "\n")
+            let body = lines.isEmpty ? "- (empty directory)" : lines
+            return """
+            [Attached directory: \(normalized)/]
+            \(body)
+            """
+        } catch {
+            return nil
+        }
     }
 }
 

@@ -721,15 +721,10 @@ public actor RuntimeSystem {
         let languageModel = try await modelProvider.createLanguageModel(for: activeModel)
         let tools = sanitizedModelTools(channelId: channelId, modelProvider: modelProvider, includeTools: includeTools)
         let session: LanguageModelSession
-        if let instructions = modelProvider.systemInstructions {
+        if let instructions = sessionInstructions(channelId: channelId, modelProvider: modelProvider) {
             session = LanguageModelSession(model: languageModel, tools: tools, instructions: instructions)
         } else {
             session = LanguageModelSession(model: languageModel, tools: tools)
-        }
-
-        // Seed bootstrap content from channel state (set by ensureSessionContextLoaded)
-        if let bootstrap = bootstrapByChannel[channelId], !bootstrap.isEmpty {
-            _ = try? await session.respond(to: bootstrap)
         }
 
         sessionsByChannel[channelId] = CachedLanguageModelSession(model: activeModel, session: session)
@@ -771,14 +766,10 @@ public actor RuntimeSystem {
             includeTools: toolInvoker != nil
         )
         let freshSession: LanguageModelSession
-        if let instructions = modelProvider.systemInstructions {
+        if let instructions = sessionInstructions(channelId: channelId, modelProvider: modelProvider) {
             freshSession = LanguageModelSession(model: languageModel, tools: tools, instructions: instructions)
         } else {
             freshSession = LanguageModelSession(model: languageModel, tools: tools)
-        }
-
-        if let bootstrap = bootstrapByChannel[channelId], !bootstrap.isEmpty {
-            _ = try? await freshSession.respond(to: bootstrap)
         }
 
         sessionsByChannel[channelId] = CachedLanguageModelSession(model: activeModel, session: freshSession)
@@ -829,6 +820,16 @@ public actor RuntimeSystem {
     private func elapsedMilliseconds(since start: Date) -> Int {
         let elapsed = Date().timeIntervalSince(start)
         return Int((elapsed * 1000).rounded())
+    }
+
+    private func sessionInstructions(channelId: String, modelProvider: any ModelProvider) -> String? {
+        let parts = [
+            modelProvider.systemInstructions,
+            bootstrapByChannel[channelId]
+        ]
+            .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        return parts.isEmpty ? nil : parts.joined(separator: "\n\n")
     }
 
     private func modelCallMetadata(

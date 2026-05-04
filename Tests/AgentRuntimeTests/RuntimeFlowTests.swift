@@ -235,15 +235,18 @@ private final class MockCallStore: @unchecked Sendable {
     private var _models: [String] = []
     private var _reasoningEfforts: [ReasoningEffort?] = []
     private var _prompts: [String] = []
+    private var _instructions: [String] = []
 
     func recordModel(_ model: String) { lock.withLock { _models.append(model) } }
     func recordEffort(_ effort: ReasoningEffort?) { lock.withLock { _reasoningEfforts.append(effort) } }
     func recordPrompt(_ prompt: String) { lock.withLock { _prompts.append(prompt) } }
+    func recordInstructions(_ instructions: String?) { lock.withLock { _instructions.append(instructions ?? "") } }
 
     var models: [String] { lock.withLock { _models } }
     var reasoningEfforts: [ReasoningEffort?] { lock.withLock { _reasoningEfforts } }
     var lastPrompt: String? { lock.withLock { _prompts.last } }
     var allPrompts: [String] { lock.withLock { _prompts } }
+    var allInstructions: [String] { lock.withLock { _instructions } }
 }
 
 private func extractPromptText(from prompt: Prompt) -> String {
@@ -391,6 +394,7 @@ private struct PromptCapturingMockLanguageModel: LanguageModel {
         options: GenerationOptions
     ) async throws -> LanguageModelSession.Response<Content> where Content: Generable {
         guard type == String.self else { fatalError("PromptCapturingMockLanguageModel: only String supported") }
+        callStore.recordInstructions(session.instructions?.description)
         callStore.recordPrompt(extractPromptText(from: prompt))
         return LanguageModelSession.Response(
             content: "Captured." as! Content,
@@ -411,9 +415,11 @@ private struct PromptCapturingMockLanguageModel: LanguageModel {
             return LanguageModelSession.ResponseStream(stream: AsyncThrowingStream { $0.finish() })
         }
         let store = callStore
+        let instructions = session.instructions?.description
         let text = extractPromptText(from: prompt)
         let stream = AsyncThrowingStream<LanguageModelSession.ResponseStream<Content>.Snapshot, any Error> { continuation in
             Task {
+                store.recordInstructions(instructions)
                 store.recordPrompt(text)
                 continuation.yield(.init(content: output as! Content.PartiallyGenerated, rawContent: GeneratedContent(output)))
                 continuation.finish()
@@ -446,6 +452,7 @@ private final class PromptCapturingModelProvider: ModelProvider, @unchecked Send
 
     func lastPrompt() async -> String? { callStore.lastPrompt }
     func allPrompts() async -> [String] { callStore.allPrompts }
+    func allInstructions() async -> [String] { callStore.allInstructions }
     func requestedModelsSnapshot() async -> [String] { callStore.models }
     func requestedReasoningEffortsSnapshot() async -> [ReasoningEffort?] { callStore.reasoningEfforts }
 }
@@ -556,12 +563,13 @@ func respondInlineIncludesBootstrapContextInPrompt() async {
         request: ChannelMessageRequest(userId: "dashboard", content: "привет, как тебя зовут?")
     )
 
+    let instructions = await provider.allInstructions()
     let prompts = await provider.allPrompts()
-    let bootstrapPrompt = prompts.first ?? ""
+    let bootstrapInstructions = instructions.last ?? ""
     let userPrompt = prompts.last ?? ""
 
-    #expect(bootstrapPrompt.contains("[agent_session_context_bootstrap_v1]"))
-    #expect(bootstrapPrompt.contains("Тебя зовут Серега"))
+    #expect(bootstrapInstructions.contains("[agent_session_context_bootstrap_v1]"))
+    #expect(bootstrapInstructions.contains("Тебя зовут Серега"))
     #expect(userPrompt.contains("привет, как тебя зовут?"))
 }
 

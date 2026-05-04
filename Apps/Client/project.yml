@@ -231,3 +231,19 @@ targets:
         DEVELOPMENT_TEAM: 8PYCRS3EA3
         CODE_SIGN_STYLE: Automatic
         PRODUCT_BUNDLE_IDENTIFIER: team.sloppy.client
+
+schemes:
+  SloppyClient-macOS:
+    build:
+      targets:
+        SloppyClient-macOS: all
+    run:
+      config: Debug
+      executable: SloppyClient-macOS
+    profile:
+      config: Release
+      executable: SloppyClient-macOS
+    analyze:
+      config: Debug
+    archive:
+      config: Release

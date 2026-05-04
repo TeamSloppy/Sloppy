@@ -57,6 +57,7 @@ func dashboardTerminalRejectsRemoteAccessWhenLocalOnlyEnabled() async {
     }
 }
 
+#if canImport(Darwin)
 @Test
 func dashboardTerminalServiceAcceptsInputAndCanRestartSession() async throws {
     let terminalService = DashboardTerminalService()
@@ -119,3 +120,4 @@ private enum ServiceOutputError: Error {
     case streamEndedBeforeMarker
     case message(String)
 }
+#endif

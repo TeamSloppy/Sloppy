@@ -160,6 +160,12 @@ export interface CoreApi {
     payload: AnyRecord,
     options?: RequestOptions
   ) => Promise<AnyRecord | null>;
+  postAgentSessionDirectory: (
+    agentId: string,
+    sessionId: string,
+    payload: AnyRecord,
+    options?: RequestOptions
+  ) => Promise<AnyRecord | null>;
   postAgentSessionControl: (
     agentId: string,
     sessionId: string,
@@ -1202,6 +1208,19 @@ export function createCoreApi(): CoreApi {
     postAgentSessionMessage: async (agentId, sessionId, payload, options = {}) => {
       const response = await requestJson<AnyRecord, AnyRecord>({
         path: `/v1/agents/${encodeURIComponent(agentId)}/sessions/${encodeURIComponent(sessionId)}/messages`,
+        method: "POST",
+        body: payload,
+        signal: options.signal
+      });
+      if (!response.ok) {
+        return null;
+      }
+      return response.data;
+    },
+
+    postAgentSessionDirectory: async (agentId, sessionId, payload, options = {}) => {
+      const response = await requestJson<AnyRecord, AnyRecord>({
+        path: `/v1/agents/${encodeURIComponent(agentId)}/sessions/${encodeURIComponent(sessionId)}/directories`,
         method: "POST",
         body: payload,
         signal: options.signal

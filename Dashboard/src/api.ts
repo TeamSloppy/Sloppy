@@ -82,6 +82,7 @@ export const createAgentSession = coreApi.createAgentSession;
 export const postAgentMemoryCheckpoint = coreApi.postAgentMemoryCheckpoint;
 export const fetchAgentSession = coreApi.fetchAgentSession;
 export const postAgentSessionMessage = coreApi.postAgentSessionMessage;
+export const postAgentSessionDirectory = coreApi.postAgentSessionDirectory;
 export const postAgentSessionControl = coreApi.postAgentSessionControl;
 export const postAgentSessionEvents = coreApi.postAgentSessionEvents;
 export const subscribeAgentSessionStream = coreApi.subscribeAgentSessionStream;

@@ -235,6 +235,8 @@ public actor CoreService {
     var liveSessionStreamCursor: [String: Int] = [:]
     var sessionExtraRoots: [String: [String]] = [:]
     var sessionWorkingDirectories: [String: String] = [:]
+    var channelExtraRoots: [String: [String]] = [:]
+    var channelWorkingDirectories: [String: String] = [:]
     /// When set, only these tool IDs may execute for the session (subagent isolation overlay).
     var sessionSubagentToolAllowList: [String: Set<String>] = [:]
     /// Tool approvals granted for the lifetime of an agent session/channel, keyed by agent and session scope.

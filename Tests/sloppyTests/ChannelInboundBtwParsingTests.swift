@@ -36,6 +36,23 @@ func channelCommandHandler_forwardsBtwToSloppy() {
 }
 
 @Test
+func channelCommandHandler_forwardsAddDirToSloppy() {
+    let handler = ChannelCommandHandler(platformName: "telegram")
+    let context = MessageContext(
+        channelId: "c",
+        userId: "u",
+        platform: "telegram",
+        displayName: "d"
+    )
+    #expect(handler.handle(text: "/add_dir /tmp/work", context: context) == nil)
+    #expect(handler.handle(text: "/add-dir /tmp/work", context: context) == nil)
+    #expect(ChannelCommandHandler.commands(for: .telegram).contains(where: { $0.name == "add_dir" }))
+    #expect(ChannelCommandHandler.commands(for: .dashboard).contains(where: { $0.name == "add_dir" }))
+    #expect(ChannelAddDirCommandParsing.pathTailIfCommand(#"/add-dir "/tmp/with space""#) == "/tmp/with space")
+    #expect(ChannelAddDirCommandParsing.pathTailIfCommand(#"/add_dir "/tmp/with space""#) == "/tmp/with space")
+}
+
+@Test
 func channelRouteDecisionEncodesOptionalQueueFields() throws {
     let withQueue = ChannelRouteDecision(
         action: .respond,

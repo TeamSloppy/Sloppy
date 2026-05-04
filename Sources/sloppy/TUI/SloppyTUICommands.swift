@@ -4,18 +4,18 @@ import TauTUI
 struct SloppyTUISlashCommand: SlashCommand {
     let name: String
     let description: String?
+    let argument: String?
     var requiresArgument: Bool {
-        switch name {
-        case "context", "anthropic-callback":
-            return true
-        default:
+        if name == "model" || name == "effort" || name == "fork" {
             return false
         }
+        return argument != nil || name == "anthropic-callback"
     }
 
-    init(_ name: String, _ description: String?) {
+    init(_ name: String, _ description: String?, argument: String? = nil) {
         self.name = name
         self.description = description
+        self.argument = argument
     }
 
     func argumentCompletions(prefix: String) -> [AutocompleteItem] {
@@ -31,7 +31,7 @@ final class SloppyTUIAutocompleteProvider: AutocompleteProvider {
     }
 
     func getSuggestions(lines: [String], cursorLine: Int, cursorCol: Int) -> AutocompleteSuggestion? {
-        base.getSuggestions(lines: lines, cursorLine: cursorLine, cursorCol: cursorCol)
+        return base.getSuggestions(lines: lines, cursorLine: cursorLine, cursorCol: cursorCol)
     }
 
     func applyCompletion(
@@ -67,7 +67,7 @@ final class SloppyTUIAutocompleteProvider: AutocompleteProvider {
     }
 
     func forceFileSuggestions(lines: [String], cursorLine: Int, cursorCol: Int) -> AutocompleteSuggestion? {
-        nil
+        return base.forceFileSuggestions(lines: lines, cursorLine: cursorLine, cursorCol: cursorCol)
     }
 
     func shouldTriggerFileCompletion(lines: [String], cursorLine: Int, cursorCol: Int) -> Bool {
@@ -80,4 +80,3 @@ final class SloppyTUIAutocompleteProvider: AutocompleteProvider {
         return textBeforeCursor.trimmingCharacters(in: .whitespaces).hasPrefix("/")
     }
 }
-

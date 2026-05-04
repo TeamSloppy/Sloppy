@@ -244,6 +244,77 @@ struct ToolPathResolutionTests {
         #expect(result.error?.code == "cwd_not_allowed")
     }
 
+    @Test("add session directory allows tools to use outside cwd")
+    func addSessionDirectoryAllowsOutsideCwd() async throws {
+        let tmp = FileManager.default.temporaryDirectory
+        let outside = tmp.appendingPathComponent("sloppy-added-dir-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: outside, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: outside) }
+
+        let config = CoreConfig.test
+        let service = CoreService(config: config, persistenceBuilder: InMemoryCorePersistenceBuilder())
+        let agentID = "test-add-dir-agent"
+        _ = try await service.createAgent(
+            AgentCreateRequest(id: agentID, displayName: "Add Dir Agent", role: "assistant")
+        )
+        let session = try await service.createAgentSession(
+            agentID: agentID,
+            request: AgentSessionCreateRequest(title: "test")
+        )
+
+        let response = try await service.addAgentSessionDirectory(
+            agentID: agentID,
+            sessionID: session.id,
+            request: AgentSessionDirectoryRequest(path: outside.path)
+        )
+        #expect(response.path == outside.resolvingSymlinksInPath().path)
+        #expect(response.workingDirectory == response.path)
+        #expect(response.directories.contains(response.path))
+
+        let result = await service.invokeToolFromRuntime(
+            agentID: agentID,
+            sessionID: session.id,
+            request: ToolInvocationRequest(tool: "runtime.exec", arguments: [
+                "command": .string("pwd"),
+                "cwd": .string(outside.path),
+            ]),
+            recordSessionEvents: false
+        )
+        #expect(result.ok == true)
+    }
+
+    @Test("add channel directory allows channel tools to use outside cwd")
+    func addChannelDirectoryAllowsOutsideCwd() async throws {
+        let tmp = FileManager.default.temporaryDirectory
+        let outside = tmp.appendingPathComponent("sloppy-channel-dir-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: outside, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: outside) }
+
+        let config = CoreConfig.test
+        let service = CoreService(config: config, persistenceBuilder: InMemoryCorePersistenceBuilder())
+        let agentID = "test-channel-add-dir-agent"
+        _ = try await service.createAgent(
+            AgentCreateRequest(id: agentID, displayName: "Channel Add Dir Agent", role: "assistant")
+        )
+        let channelID = "telegram-add-dir-\(UUID().uuidString.prefix(8))"
+
+        let response = try await service.addChannelSessionDirectory(
+            channelID: channelID,
+            request: AgentSessionDirectoryRequest(path: outside.path)
+        )
+        #expect(response.path == outside.resolvingSymlinksInPath().path)
+
+        let result = await service.invokeToolFromChannelRuntime(
+            agentID: agentID,
+            channelID: channelID,
+            request: ToolInvocationRequest(tool: "runtime.exec", arguments: [
+                "command": .string("pwd"),
+                "cwd": .string(outside.path),
+            ])
+        )
+        #expect(result.ok == true)
+    }
+
     @Test("invokeToolFromRuntime restores project roots for task sessions")
     func invokeToolRestoresProjectRootsForTaskSession() async throws {
         let tmp = FileManager.default.temporaryDirectory

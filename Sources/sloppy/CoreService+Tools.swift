@@ -609,11 +609,13 @@ extension CoreService {
     func toolContextForChannel(
         channelID: String
     ) async -> (workingDirectory: String?, extraRoots: [String]) {
+        let savedRoots = channelExtraRoots[channelID] ?? []
+        let savedWorkingDirectory = channelWorkingDirectories[channelID]
         guard let project = await projectForChannel(channelId: channelID) else {
-            return (nil, [])
+            return (savedWorkingDirectory, savedRoots)
         }
         guard let workingDirectoryURL = try? await resolveProjectWorkspaceRoot(projectID: project.id) else {
-            return (nil, [])
+            return (savedWorkingDirectory, savedRoots)
         }
 
         let workingDirectory = workingDirectoryURL.path
@@ -621,7 +623,10 @@ extension CoreService {
         if !roots.contains(workingDirectory) {
             roots.append(workingDirectory)
         }
-        return (workingDirectory, roots)
+        for root in savedRoots where !roots.contains(root) {
+            roots.append(root)
+        }
+        return (savedWorkingDirectory ?? workingDirectory, roots)
     }
 
 }

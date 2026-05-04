@@ -2923,6 +2923,26 @@ public struct AgentSessionControlRequest: Codable, Sendable {
     }
 }
 
+public struct AgentSessionDirectoryRequest: Codable, Sendable {
+    public var path: String
+
+    public init(path: String) {
+        self.path = path
+    }
+}
+
+public struct AgentSessionDirectoryResponse: Codable, Sendable, Equatable {
+    public var path: String
+    public var workingDirectory: String?
+    public var directories: [String]
+
+    public init(path: String, workingDirectory: String? = nil, directories: [String]) {
+        self.path = path
+        self.workingDirectory = workingDirectory
+        self.directories = directories
+    }
+}
+
 public struct AgentSessionAppendEventsRequest: Codable, Sendable {
     public var events: [AgentSessionEvent]
 

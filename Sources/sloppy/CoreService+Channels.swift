@@ -16,6 +16,10 @@ extension CoreService {
         )
 
         let trimmedContent = request.content.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let addDirReply = await handleAddDirCommand(channelId: sessionChannelId, content: request.content) {
+            return ChannelRouteDecision(action: .respond, reason: addDirReply, confidence: 1.0, tokenBudget: 0)
+        }
+
         if trimmedContent.lowercased() == "/abort" {
             await channelStreamCancelRegistry.requestCancel(channelId: sessionChannelId)
             let cancelled = await runtime.abortChannel(channelId: sessionChannelId, reason: "Aborted by user")
@@ -159,6 +163,7 @@ extension CoreService {
             globalDefaultTimeoutMinutes: globalDefault
         )
         for summary in closed {
+            clearChannelSessionDirectories(channelID: summary.channelId)
             await handleGatewayChannelClosedForMemoryCheckpoint(summary)
         }
         return try await channelSessionStore.listSessions(
@@ -174,7 +179,11 @@ extension CoreService {
 
     public func deleteChannelSession(sessionID: String) async throws {
         await waitForStartup()
+        let detail = try? await channelSessionStore.loadSessionDetail(sessionID: sessionID)
         try await channelSessionStore.deleteSession(sessionID: sessionID)
+        if let channelID = detail?.summary.channelId {
+            clearChannelSessionDirectories(channelID: channelID)
+        }
     }
 
     /// Returns one dashboard project by identifier.
@@ -195,8 +204,14 @@ extension CoreService {
             globalDefaultTimeoutMinutes: globalDefault
         )
         for summary in closed {
+            clearChannelSessionDirectories(channelID: summary.channelId)
             await handleGatewayChannelClosedForMemoryCheckpoint(summary)
         }
+    }
+
+    func clearChannelSessionDirectories(channelID: String) {
+        channelExtraRoots.removeValue(forKey: channelID)
+        channelWorkingDirectories.removeValue(forKey: channelID)
     }
 
     func globalChannelInactivityTimeoutMinutes() -> Int? {

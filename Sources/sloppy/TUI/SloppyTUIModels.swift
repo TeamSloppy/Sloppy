@@ -6,6 +6,7 @@ enum SloppyTUIPickerKind {
     case session
     case provider
     case providerCatalog
+    case projectFile
 }
 
 struct SloppyTUIPickerItem {
@@ -22,14 +23,19 @@ struct SloppyTUIPicker {
     var selectedIndex: Int
 }
 
+struct SloppyTUILocalCard {
+    var id: Int
+    var block: SloppyTUITimelineBlock
+}
+
 enum SloppyTUITimelineBlock {
     case message(role: AgentMessageRole, text: String)
     case local(String)
     case error(String)
     case thinking(String)
     case attachment(name: String, mimeType: String, sizeBytes: Int)
-    case toolCall(tool: String, reason: String?, argumentNames: [String])
-    case toolResult(tool: String, ok: Bool, error: String?, durationMs: Int?)
+    case toolCall(tool: String, reason: String?, summary: String?, details: String?)
+    case toolResult(tool: String, ok: Bool, error: String?, durationMs: Int?, details: String?)
 
     var plainText: String {
         switch self {
@@ -39,10 +45,10 @@ enum SloppyTUITimelineBlock {
             return text
         case .attachment(let name, let mimeType, _):
             return "\(name) \(mimeType)"
-        case .toolCall(let tool, let reason, let argumentNames):
-            return ([tool] + argumentNames + [reason].compactMap { $0 }).joined(separator: " ")
-        case .toolResult(let tool, _, let error, _):
-            return ([tool] + [error].compactMap { $0 }).joined(separator: " ")
+        case .toolCall(let tool, let reason, let summary, let details):
+            return ([tool] + [summary, reason, details].compactMap { $0 }).joined(separator: " ")
+        case .toolResult(let tool, _, let error, _, let details):
+            return ([tool] + [error, details].compactMap { $0 }).joined(separator: " ")
         }
     }
 }
@@ -66,4 +72,3 @@ extension AgentChatMode {
         }
     }
 }
-

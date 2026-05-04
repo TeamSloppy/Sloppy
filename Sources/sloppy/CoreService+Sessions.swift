@@ -76,6 +76,50 @@ extension CoreService {
         }
     }
 
+    /// Adds a directory as a session-scoped tool root. The first added directory also becomes
+    /// the default current directory for sessions that do not already have one.
+    public func addAgentSessionDirectory(
+        agentID: String,
+        sessionID: String,
+        request: AgentSessionDirectoryRequest
+    ) async throws -> AgentSessionDirectoryResponse {
+        await waitForStartup()
+        guard let normalizedAgentID = normalizedAgentID(agentID) else {
+            throw AgentSessionError.invalidAgentID
+        }
+        guard let normalizedSessionID = normalizedSessionID(sessionID) else {
+            throw AgentSessionError.invalidSessionID
+        }
+
+        _ = try getAgent(id: normalizedAgentID)
+        let detail: AgentSessionDetail
+        do {
+            detail = try sessionStore.loadSession(agentID: normalizedAgentID, sessionID: normalizedSessionID)
+        } catch {
+            throw mapSessionStoreError(error)
+        }
+
+        let existingContext = await toolContextForSession(
+            sessionID: normalizedSessionID,
+            sessionTitle: detail.summary.title
+        )
+        let resolvedPath = try resolvedSessionDirectoryPath(
+            request.path,
+            baseDirectory: existingContext.workingDirectory
+        )
+        let workingDirectory = existingContext.workingDirectory ?? resolvedPath
+        let roots = appendingUniqueRoot(resolvedPath, to: existingContext.extraRoots)
+
+        sessionExtraRoots[normalizedSessionID] = roots
+        sessionWorkingDirectories[normalizedSessionID] = workingDirectory
+
+        return AgentSessionDirectoryResponse(
+            path: resolvedPath,
+            workingDirectory: workingDirectory,
+            directories: roots
+        )
+    }
+
     public func canStreamAgentSessionEvents(agentID: String, sessionID: String) -> Bool {
         do {
             let identifiers = try validatedStreamIdentifiers(agentID: agentID, sessionID: sessionID)
@@ -413,6 +457,78 @@ extension CoreService {
         } catch {
             throw mapSessionOrchestratorError(error)
         }
+    }
+
+    func addChannelSessionDirectory(
+        channelID: String,
+        request: AgentSessionDirectoryRequest
+    ) async throws -> AgentSessionDirectoryResponse {
+        let normalizedChannelID = channelID.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedChannelID.isEmpty else {
+            throw AgentSessionError.invalidSessionID
+        }
+
+        let existingContext = await toolContextForChannel(channelID: normalizedChannelID)
+        let resolvedPath = try resolvedSessionDirectoryPath(
+            request.path,
+            baseDirectory: existingContext.workingDirectory
+        )
+        let workingDirectory = existingContext.workingDirectory ?? resolvedPath
+        let roots = appendingUniqueRoot(resolvedPath, to: existingContext.extraRoots)
+
+        channelExtraRoots[normalizedChannelID] = roots
+        channelWorkingDirectories[normalizedChannelID] = workingDirectory
+
+        return AgentSessionDirectoryResponse(
+            path: resolvedPath,
+            workingDirectory: workingDirectory,
+            directories: roots
+        )
+    }
+
+    func resolvedSessionDirectoryPath(_ rawPath: String, baseDirectory: String?) throws -> String {
+        var trimmed = rawPath.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            throw AgentSessionError.invalidPayload
+        }
+
+        if (trimmed.hasPrefix("\"") && trimmed.hasSuffix("\"")) ||
+            (trimmed.hasPrefix("'") && trimmed.hasSuffix("'")) {
+            trimmed = String(trimmed.dropFirst().dropLast())
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        guard !trimmed.isEmpty else {
+            throw AgentSessionError.invalidPayload
+        }
+
+        let expanded = (trimmed as NSString).expandingTildeInPath
+        let candidate: URL
+        if expanded.hasPrefix("/") {
+            candidate = URL(fileURLWithPath: expanded, isDirectory: true)
+        } else {
+            let base = baseDirectory?.trimmingCharacters(in: .whitespacesAndNewlines)
+            let basePath = base?.isEmpty == false ? base! : workspaceRootURL.path
+            let baseURL = URL(fileURLWithPath: basePath, isDirectory: true)
+            candidate = baseURL.appendingPathComponent(expanded, isDirectory: true)
+        }
+
+        let resolved = candidate.resolvingSymlinksInPath().standardizedFileURL
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: resolved.path, isDirectory: &isDirectory),
+              isDirectory.boolValue
+        else {
+            throw AgentSessionError.invalidPayload
+        }
+        return resolved.path
+    }
+
+    func appendingUniqueRoot(_ root: String, to roots: [String]) -> [String] {
+        var result = roots
+        if !result.contains(root) {
+            result.append(root)
+        }
+        var seen = Set<String>()
+        return result.filter { seen.insert($0).inserted }
     }
 
 }

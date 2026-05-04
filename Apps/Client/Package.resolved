@@ -1,24 +1,6 @@
 {
-  "originHash" : "89c7ad8187a3b2407856e56881c830e0918b2b2b5002223e72124de7ff5ad84a",
+  "originHash" : "a710a025d3d766b7751787e964ab44aefc01cac3bc366601461a6ec3ebca87bc",
   "pins" : [
-    {
-      "identity" : "swan",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/adobe/swan",
-      "state" : {
-        "revision" : "1eb45a22c79439b50e9cde774454450e50147149",
-        "version" : "0.0.8"
-      }
-    },
-    {
-      "identity" : "swift-argument-parser",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/apple/swift-argument-parser",
-      "state" : {
-        "revision" : "626b5b7b2f45e1b0b1c6f4a309296d1d21d7311b",
-        "version" : "1.7.1"
-      }
-    },
     {
       "identity" : "swift-atomics",
       "kind" : "remoteSourceControl",
@@ -53,15 +35,6 @@
       "state" : {
         "revision" : "dc4030184203ffafbb2ec614352487235d747fe0",
         "version" : "1.4.1"
-      }
-    },
-    {
-      "identity" : "swift-format",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/swiftlang/swift-format.git",
-      "state" : {
-        "revision" : "62eaad2822b865407b8cde56c36386c00800f7ec",
-        "version" : "602.0.0"
       }
     },
     {
@@ -116,6 +89,15 @@
       "state" : {
         "revision" : "7c6ad0fc39d0763e0b699210e4124afd5041c5df",
         "version" : "1.6.4"
+      }
+    },
+    {
+      "identity" : "swiftlintplugins",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/SimplyDanny/SwiftLintPlugins",
+      "state" : {
+        "revision" : "8a4640d14777685ba8f14e832373160498fbab92",
+        "version" : "0.63.2"
       }
     },
     {

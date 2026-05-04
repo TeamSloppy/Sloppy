@@ -262,7 +262,7 @@ actor DiscordGatewayLoop {
             logger.warning("Cannot register Discord commands: applicationId not available from READY payload.")
             return
         }
-        var commandPayloads: [JSONValue] = ChannelCommandHandler.commands.map { cmd in
+        var commandPayloads: [JSONValue] = ChannelCommandHandler.commands(for: .discord).map { cmd in
             var fields: [String: JSONValue] = [
                 "name": .string(cmd.name),
                 "description": .string(cmd.description),

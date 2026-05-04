@@ -1,6 +1,9 @@
-import Darwin
 import Foundation
 import Logging
+
+#if canImport(Darwin)
+import Darwin
+#endif
 
 enum DashboardTerminalEvent: Sendable {
     case output(String)
@@ -29,7 +32,9 @@ actor DashboardTerminalService {
 
     private struct SessionState {
         let id: String
+        #if canImport(Darwin)
         let masterFD: Int32
+        #endif
         let pid: Int32
         let cwd: String
         let shell: String
@@ -56,6 +61,7 @@ actor DashboardTerminalService {
             throw ServiceError.launchFailed
         }
 
+        #if canImport(Darwin)
         var masterFD: Int32 = -1
         var size = winsize(
             ws_row: UInt16(max(1, min(rows, Int(UInt16.max)))),
@@ -123,6 +129,19 @@ actor DashboardTerminalService {
             pid: pid,
             events: events
         )
+        #else
+        Self.logger.warning(
+            "terminal.start.unsupported_platform",
+            metadata: [
+                "cwd": .string(cwdPath),
+                "shell": .string(shell),
+                "cols": .stringConvertible(cols),
+                "rows": .stringConvertible(rows)
+            ]
+        )
+        continuation.finish()
+        throw ServiceError.launchFailed
+        #endif
     }
 
     func sendInput(sessionID: String, data: String) throws {
@@ -130,12 +149,13 @@ actor DashboardTerminalService {
             Self.logger.warning("terminal.input.session_not_found", metadata: ["session_id": .string(sessionID)])
             throw ServiceError.sessionNotFound
         }
+        #if canImport(Darwin)
         let bytes = Array(data.utf8)
         let written = bytes.withUnsafeBytes { buffer -> ssize_t in
             guard let baseAddress = buffer.baseAddress else {
                 return 0
             }
-            return Darwin.write(session.masterFD, baseAddress, buffer.count)
+            return write(session.masterFD, baseAddress, buffer.count)
         }
         guard written >= 0 else {
             let err = errno
@@ -162,6 +182,10 @@ actor DashboardTerminalService {
                 ]
             )
         }
+        #else
+        Self.logger.warning("terminal.input.unsupported_platform", metadata: ["session_id": .string(sessionID)])
+        throw ServiceError.writeFailed
+        #endif
     }
 
     func resizeSession(sessionID: String, cols: Int, rows: Int) throws {
@@ -174,6 +198,7 @@ actor DashboardTerminalService {
             throw ServiceError.invalidSize
         }
 
+        #if canImport(Darwin)
         var size = winsize(
             ws_row: UInt16(max(1, min(rows, Int(UInt16.max)))),
             ws_col: UInt16(max(1, min(cols, Int(UInt16.max)))),
@@ -197,7 +222,11 @@ actor DashboardTerminalService {
             throw ServiceError.resizeFailed
         }
         Self.logger.debug("terminal.resize.ok", metadata: ["session_id": .string(sessionID), "cols": .stringConvertible(cols), "rows": .stringConvertible(rows)])
-        _ = Darwin.kill(session.pid, SIGWINCH)
+        _ = kill(session.pid, SIGWINCH)
+        #else
+        Self.logger.warning("terminal.resize.unsupported_platform", metadata: ["session_id": .string(sessionID)])
+        throw ServiceError.resizeFailed
+        #endif
     }
 
     func closeSession(sessionID: String) {
@@ -205,17 +234,20 @@ actor DashboardTerminalService {
             return
         }
         Self.logger.info("terminal.close.requested", metadata: ["session_id": .string(sessionID), "pid": .stringConvertible(session.pid)])
+        #if canImport(Darwin)
         terminateProcess(pid: session.pid)
-        _ = Darwin.close(session.masterFD)
+        _ = close(session.masterFD)
+        #endif
         session.continuation.yield(.closed)
         session.continuation.finish()
     }
 
+    #if canImport(Darwin)
     private static func readLoop(service: DashboardTerminalService, sessionID: String, masterFD: Int32) async {
         var buffer = [UInt8](repeating: 0, count: 4096)
 
         while true {
-            let count = Darwin.read(masterFD, &buffer, buffer.count)
+            let count = read(masterFD, &buffer, buffer.count)
             if count > 0 {
                 let chunk = String(decoding: buffer.prefix(Int(count)), as: UTF8.self)
                 await service.emit(.output(chunk), sessionID: sessionID)
@@ -290,11 +322,12 @@ actor DashboardTerminalService {
         guard let session = sessions.removeValue(forKey: sessionID) else {
             return
         }
-        _ = Darwin.close(session.masterFD)
+        _ = close(session.masterFD)
         session.continuation.yield(.exit(exitCode))
         session.continuation.yield(.closed)
         session.continuation.finish()
     }
+    #endif
 }
 
 private func preferredShell() -> String {
@@ -305,18 +338,19 @@ private func preferredShell() -> String {
     return "/bin/zsh"
 }
 
+#if canImport(Darwin)
 private func terminateProcess(pid: Int32) {
     guard pid > 0 else {
         return
     }
-    _ = Darwin.kill(pid, SIGHUP)
-    _ = Darwin.kill(pid, SIGCONT)
+    _ = kill(pid, SIGHUP)
+    _ = kill(pid, SIGCONT)
 }
 
 private func launchDashboardTerminalChild(shell: String, cwd: String) -> Never {
-    _ = Darwin.chdir(cwd)
-    _ = Darwin.setenv("TERM", "xterm-256color", 1)
-    _ = Darwin.setenv("COLORTERM", "truecolor", 1)
+    _ = chdir(cwd)
+    _ = setenv("TERM", "xterm-256color", 1)
+    _ = setenv("COLORTERM", "truecolor", 1)
 
     let shellPointer = strdup(shell)
     // Use interactive mode only to reduce startup latency from full login shell bootstrap.
@@ -343,3 +377,4 @@ private func processSignaled(_ status: Int32) -> Bool {
 private func processTermSignal(_ status: Int32) -> Int32 {
     status & 0x7f
 }
+#endif

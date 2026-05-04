@@ -421,6 +421,29 @@ struct AgentsAPIRouter: APIRouter {
             }
         }
 
+        router.post("/v1/agents/:agentId/sessions/:sessionId/directories", metadata: RouteMetadata(summary: "Add session directory", description: "Adds a working directory to an active agent session", tags: ["Agents"])) { request in
+            let agentId = request.pathParam("agentId") ?? ""
+            let sessionId = request.pathParam("sessionId") ?? ""
+            guard let body = request.body,
+                  let payload = CoreRouter.decode(body, as: AgentSessionDirectoryRequest.self)
+            else {
+                return CoreRouter.json(status: HTTPStatus.badRequest, payload: ["error": ErrorCode.invalidBody])
+            }
+
+            do {
+                let response = try await service.addAgentSessionDirectory(
+                    agentID: agentId,
+                    sessionID: sessionId,
+                    request: payload
+                )
+                return CoreRouter.encodable(status: HTTPStatus.ok, payload: response)
+            } catch let error as CoreService.AgentSessionError {
+                return CoreRouter.agentSessionErrorResponse(error, fallback: ErrorCode.sessionWriteFailed)
+            } catch {
+                return CoreRouter.json(status: HTTPStatus.internalServerError, payload: ["error": ErrorCode.sessionWriteFailed])
+            }
+        }
+
         router.post("/v1/agents/:agentId/sessions/:sessionId/control", metadata: RouteMetadata(summary: "Control agent session", description: "Sends a control command (e.g., interrupt) to an agent session", tags: ["Agents"])) { request in
             let agentId = request.pathParam("agentId") ?? ""
             let sessionId = request.pathParam("sessionId") ?? ""

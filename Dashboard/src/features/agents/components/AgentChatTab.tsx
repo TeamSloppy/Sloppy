@@ -10,6 +10,7 @@ import {
   fetchTaskByReference,
   postAgentMemoryCheckpoint,
   postAgentSessionControl,
+  postAgentSessionDirectory,
   postAgentSessionEvents,
   postAgentSessionMessage,
   subscribeAgentSessionStream,
@@ -43,8 +44,30 @@ const DEFAULT_REASONING_EFFORT = "medium";
 /** Web-chat-only commands (not in channel plugin list). */
 const DASHBOARD_ONLY_SLASH_COMMANDS = [
   { name: "clear", description: "Clear conversation (new session)" },
+  { name: "compact", description: "Free up context by summarizing the conversation so far" },
+  { name: "add_dir", description: "Add a working directory to this session" },
   { name: "tasks", description: "List tasks linked to this agent" }
 ];
+
+function pathTailIfAddDirCommand(text) {
+  const trimmed = String(text || "").trim();
+  if (!trimmed.startsWith("/")) {
+    return null;
+  }
+  const match = trimmed.match(/^\/add[_-]dir(?:\s+([\s\S]*))?$/i);
+  if (!match) {
+    return null;
+  }
+  const value = String(match[1] || "").trim();
+  if (value.length >= 2) {
+    const first = value[0];
+    const last = value[value.length - 1];
+    if ((first === "\"" && last === "\"") || (first === "'" && last === "'")) {
+      return value.slice(1, -1).trim();
+    }
+  }
+  return value;
+}
 
 function mergeDashboardSlashCommands(
   server: { commands?: Array<{ name?: string; description?: string }> } | null
@@ -4331,6 +4354,40 @@ export function AgentChatTab({
         usageText += "\n\n(Token usage data unavailable)";
       }
       await persistCommandEvents(text, usageText);
+      return true;
+    }
+
+    if (lower === "/compact") {
+      if (!activeSessionId) {
+        await persistCommandEvents(text, "No active session to compact.");
+        return true;
+      }
+      const response = await postAgentMemoryCheckpoint(agentId, activeSessionId, { reason: "dashboard_compact_command" }).catch(() => null);
+      await persistCommandEvents(
+        text,
+        response ? "Context compacted. Memory checkpoint requested for this session." : "Compact failed."
+      );
+      return true;
+    }
+
+    const addDirPath = pathTailIfAddDirCommand(text);
+    if (addDirPath !== null) {
+      if (!activeSessionId) {
+        await persistCommandEvents(text, "No active session to update.");
+        return true;
+      }
+      if (!addDirPath) {
+        await persistCommandEvents(text, "Usage: /add_dir <path>");
+        return true;
+      }
+      const response = await postAgentSessionDirectory(agentId, activeSessionId, { path: addDirPath }).catch(() => null);
+      await persistCommandEvents(
+        text,
+        response?.path ? `Added working directory:\n${response.path}` : "Add directory failed."
+      );
+      if (response) {
+        await syncSessionDetail(activeSessionId);
+      }
       return true;
     }
 

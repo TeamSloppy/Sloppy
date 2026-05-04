@@ -87,6 +87,58 @@ extension CoreService {
         """
     }
 
+    func handleCompactCommand(channelId: String, content: String) async -> String? {
+        let lower = content.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard lower == "/compact" else { return nil }
+
+        await runtime.invalidateChannelSession(channelId: channelId)
+        return "Context compacted for this channel. The next turn will rebuild the model context from saved channel state."
+    }
+
+    func handleDiffCommand(channelId: String, content: String) async -> String? {
+        let lower = content.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard lower == "/diff" || lower.hasPrefix("/diff ") else { return nil }
+
+        let baseChannelID = ChannelGatewayScope.parse(channelId).baseChannelId
+        let projects = await listProjects()
+        guard let project = projects.first(where: { project in
+            project.channels.contains { channel in
+                channelBindingMatches(channel.channelId, channelID: baseChannelID)
+            }
+        }) else {
+            return "No project is linked to channel `\(baseChannelID)`, so there is no workspace diff to show."
+        }
+
+        do {
+            let git = try await projectWorkingTreeGit(projectID: project.id)
+            guard git.isGitRepository else {
+                return git.message ?? "Project `\(project.name)` is not a git repository."
+            }
+            guard !git.diff.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                return "No uncommitted changes in `\(project.name)`."
+            }
+
+            let maxCharacters = 3_500
+            let clipped: String
+            if git.diff.count > maxCharacters {
+                clipped = String(git.diff.prefix(maxCharacters)) + "\n... diff truncated"
+            } else {
+                clipped = git.diff
+            }
+            let branch = git.branch ?? "unknown"
+            let truncatedNote = git.diffTruncated ? "\n\nDiff was truncated by the backend." : ""
+            return """
+            Diff for `\(project.name)` on `\(branch)` (+\(git.linesAdded) -\(git.linesDeleted)):
+
+            ```diff
+            \(clipped)
+            ```\(truncatedNote)
+            """
+        } catch {
+            return "Could not read project diff: \(String(describing: error))"
+        }
+    }
+
     static func parseContextWindowString(_ value: String) -> Int {
         let normalized = value.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
         guard let match = normalized.range(of: #"^([\d.]+)\s*([KMB])?$"#, options: .regularExpression) else { return 0 }

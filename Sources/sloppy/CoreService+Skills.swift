@@ -205,7 +205,7 @@ extension CoreService {
         _ = try getAgent(id: normalizedAgentID)
 
         var items: [AgentChatSlashCommandItem] = []
-        for cmd in ChannelCommandHandler.commands {
+        for cmd in ChannelCommandHandler.commands(for: .dashboard) {
             items.append(
                 AgentChatSlashCommandItem(
                     source: "channel",
@@ -216,7 +216,7 @@ extension CoreService {
                 )
             )
         }
-        let builtin = Set(ChannelCommandHandler.commands.map { $0.name.lowercased() })
+        let builtin = Set(ChannelCommandHandler.allCommands.map { $0.name.lowercased() })
         let skills = try await getAgentSkillsForRuntime(agentID: normalizedAgentID)
         for skill in skills where skill.userInvocable {
             var token = SkillSlashCommandNaming.slashToken(fromSkillId: skill.id)

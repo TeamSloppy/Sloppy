@@ -4,8 +4,8 @@ import TauTUI
 
 enum SloppyTUITheme {
     private static let resetBackground = "\u{001B}[49m"
-    private static let accent = AnsiStyling.rgb(82, 211, 194)
-    private static let accentBright = AnsiStyling.rgb(103, 232, 249)
+    nonisolated(unsafe) private static var accentStyle: (String) -> String = AnsiStyling.rgb(82, 211, 194)
+    nonisolated(unsafe) private static var accentBrightStyle: (String) -> String = AnsiStyling.rgb(103, 232, 249)
     private static let blue = AnsiStyling.rgb(96, 165, 250)
     private static let green = AnsiStyling.rgb(74, 222, 128)
     private static let yellow = AnsiStyling.rgb(250, 204, 21)
@@ -31,6 +31,49 @@ enum SloppyTUITheme {
         "polishing",
         "compiling",
     ]
+
+    static func setBarColor(_ raw: String) -> Bool {
+        switch raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "default":
+            accentStyle = AnsiStyling.rgb(82, 211, 194)
+            accentBrightStyle = AnsiStyling.rgb(103, 232, 249)
+        case "red":
+            accentStyle = red
+            accentBrightStyle = AnsiStyling.rgb(252, 165, 165)
+        case "blue":
+            accentStyle = blue
+            accentBrightStyle = AnsiStyling.rgb(147, 197, 253)
+        case "green":
+            accentStyle = green
+            accentBrightStyle = AnsiStyling.rgb(134, 239, 172)
+        case "yellow":
+            accentStyle = yellow
+            accentBrightStyle = AnsiStyling.rgb(254, 240, 138)
+        case "purple":
+            accentStyle = AnsiStyling.rgb(192, 132, 252)
+            accentBrightStyle = AnsiStyling.rgb(216, 180, 254)
+        case "orange":
+            accentStyle = orange
+            accentBrightStyle = AnsiStyling.rgb(253, 186, 116)
+        case "pink":
+            accentStyle = AnsiStyling.rgb(244, 114, 182)
+            accentBrightStyle = AnsiStyling.rgb(249, 168, 212)
+        case "cyan":
+            accentStyle = AnsiStyling.rgb(34, 211, 238)
+            accentBrightStyle = AnsiStyling.rgb(103, 232, 249)
+        default:
+            return false
+        }
+        return true
+    }
+
+    private static func accent(_ text: String) -> String {
+        accentStyle(text)
+    }
+
+    private static func accentBright(_ text: String) -> String {
+        accentBrightStyle(text)
+    }
 
     static let selectListTheme = SelectListTheme(
         selectedPrefix: { accentBright($0) },
@@ -126,6 +169,20 @@ enum SloppyTUITheme {
         let providerText = truncateEnd(provider, maxWidth: max(4, width / 5))
         let text = "  " + modeTitle(mode) + muted(" · ") + foreground(modelText) + muted("  ") + muted(agentText) + muted("  ") + muted(providerText)
         return applyPanelBackground(padded(text, width: width), width: width)
+    }
+
+    static func highlightedComposerLines(_ lines: [String]) -> [String] {
+        var borderCount = 0
+        return lines.map { line in
+            if isEditorBorderLine(line) {
+                borderCount += 1
+                return line
+            }
+            guard borderCount == 1 else {
+                return line
+            }
+            return highlightedComposerSyntax(in: line)
+        }
     }
 
     private static func modeTitle(_ mode: AgentChatMode) -> String {
@@ -227,8 +284,9 @@ enum SloppyTUITheme {
         }
     }
 
-    static func toolCallLine(tool: String, reason: String?, argumentNames: [String], width: Int) -> String {
-        let args = argumentNames.isEmpty ? "" : muted(" · \(argumentNames.joined(separator: ", "))")
+    static func toolCallLine(tool: String, reason: String?, summary: String?, width: Int) -> String {
+        let summaryText = summary?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let args = summaryText?.isEmpty == false ? muted(" · \(summaryText!)") : ""
         let suffix = reason?.trimmingCharacters(in: .whitespacesAndNewlines)
         let reasonText = suffix?.isEmpty == false ? muted(" · \(suffix!)") : ""
         let line = " " + blue("tool") + foreground(" \(tool)") + args + reasonText
@@ -248,6 +306,38 @@ enum SloppyTUITheme {
         let size = formattedBytes(sizeBytes)
         let line = " " + green("attached") + foreground(" ") + yellow(name) + muted("  \(mimeType), \(size)")
         return applyBackground(padded(line, width: width), width: width, background: attachmentBackground)
+    }
+
+    static func diffLines(_ diff: String, width: Int) -> [String] {
+        let contentWidth = max(1, width - 2)
+        return diff
+            .split(separator: "\n", omittingEmptySubsequences: false)
+            .map { rawLine in
+                let line = truncateEnd(String(rawLine), maxWidth: contentWidth)
+                return " " + coloredDiffLine(line)
+            }
+    }
+
+    private static func coloredDiffLine(_ line: String) -> String {
+        if line.hasPrefix("diff --git") {
+            return accentBright(line)
+        }
+        if line.hasPrefix("index ") || line.hasPrefix("\\ No newline") {
+            return muted(line)
+        }
+        if line.hasPrefix("@@") {
+            return blue(line)
+        }
+        if line.hasPrefix("+++") || line.hasPrefix("---") {
+            return yellow(line)
+        }
+        if line.hasPrefix("+") {
+            return green(line)
+        }
+        if line.hasPrefix("-") {
+            return red(line)
+        }
+        return foreground(line)
     }
 
     static func commandPaletteLines(
@@ -554,6 +644,151 @@ enum SloppyTUITheme {
             result += foreground(String(line[cursor..<line.endIndex]))
         }
         return result
+    }
+
+    private struct ComposerHighlightSpan {
+        var range: Range<Int>
+        var style: (String) -> String
+    }
+
+    private static func highlightedComposerSyntax(in line: String) -> String {
+        let plain = strippingANSI(from: line)
+        let spans = composerHighlightSpans(in: plain)
+        guard !spans.isEmpty else {
+            return line
+        }
+
+        var result = ""
+        var visibleOffset = 0
+        var index = line.startIndex
+        while index < line.endIndex {
+            if line[index] == "\u{001B}" {
+                let escapeEnd = ansiEscapeEnd(in: line, from: index)
+                result += String(line[index..<escapeEnd])
+                index = escapeEnd
+                continue
+            }
+
+            let character = String(line[index])
+            if let span = spans.first(where: { $0.range.contains(visibleOffset) }) {
+                result += span.style(character)
+            } else {
+                result += character
+            }
+            visibleOffset += 1
+            index = line.index(after: index)
+        }
+        return result
+    }
+
+    private static func composerHighlightSpans(in line: String) -> [ComposerHighlightSpan] {
+        var spans: [ComposerHighlightSpan] = []
+        appendComposerSpans(
+            pattern: #"(^|\s)(@[A-Za-z0-9._/\-~]+)"#,
+            captureGroup: 2,
+            style: { yellow($0) },
+            line: line,
+            spans: &spans
+        )
+        appendComposerSpans(
+            pattern: #"(^|\s)(/[A-Za-z0-9_][A-Za-z0-9_-]*)"#,
+            captureGroup: 2,
+            style: { accentBright(AnsiStyling.bold($0)) },
+            line: line,
+            spans: &spans
+        )
+        return spans.sorted { $0.range.lowerBound < $1.range.lowerBound }
+    }
+
+    private static func appendComposerSpans(
+        pattern: String,
+        captureGroup: Int,
+        style: @escaping (String) -> String,
+        line: String,
+        spans: inout [ComposerHighlightSpan]
+    ) {
+        guard let regex = try? NSRegularExpression(pattern: pattern) else {
+            return
+        }
+
+        let nsRange = NSRange(line.startIndex..<line.endIndex, in: line)
+        for match in regex.matches(in: line, range: nsRange) {
+            let capturedRange = match.range(at: captureGroup)
+            guard capturedRange.location != NSNotFound,
+                  let range = Range(capturedRange, in: line)
+            else {
+                continue
+            }
+
+            let lower = line.distance(from: line.startIndex, to: range.lowerBound)
+            let upper = line.distance(from: line.startIndex, to: range.upperBound)
+            let offsetRange = lower..<upper
+            guard !spans.contains(where: { overlaps($0.range, offsetRange) }) else {
+                continue
+            }
+            spans.append(ComposerHighlightSpan(range: offsetRange, style: style))
+        }
+    }
+
+    private static func overlaps(_ lhs: Range<Int>, _ rhs: Range<Int>) -> Bool {
+        lhs.lowerBound < rhs.upperBound && rhs.lowerBound < lhs.upperBound
+    }
+
+    private static func isEditorBorderLine(_ line: String) -> Bool {
+        let plain = strippingANSI(from: line)
+        return !plain.isEmpty && plain.allSatisfy { $0 == "─" }
+    }
+
+    private static func strippingANSI(from line: String) -> String {
+        var result = ""
+        var index = line.startIndex
+        while index < line.endIndex {
+            if line[index] == "\u{001B}" {
+                index = ansiEscapeEnd(in: line, from: index)
+                continue
+            }
+            result.append(line[index])
+            index = line.index(after: index)
+        }
+        return result
+    }
+
+    private static func ansiEscapeEnd(in line: String, from start: String.Index) -> String.Index {
+        let next = line.index(after: start)
+        guard next < line.endIndex else {
+            return next
+        }
+
+        if line[next] == "[" {
+            var index = line.index(after: next)
+            while index < line.endIndex {
+                let scalar = line[index].unicodeScalars.first?.value ?? 0
+                index = line.index(after: index)
+                if scalar >= 0x40 && scalar <= 0x7E {
+                    return index
+                }
+            }
+            return line.endIndex
+        }
+
+        if line[next] == "]" {
+            var index = line.index(after: next)
+            while index < line.endIndex {
+                if line[index] == "\u{0007}" {
+                    return line.index(after: index)
+                }
+                if line[index] == "\u{001B}" {
+                    let possibleTerminator = line.index(after: index)
+                    if possibleTerminator < line.endIndex, line[possibleTerminator] == "\\" {
+                        return line.index(after: possibleTerminator)
+                    }
+                }
+                index = line.index(after: index)
+            }
+            return line.endIndex
+        }
+
+        return line.index(after: next)
     }
 
     private static func formattedBytes(_ bytes: Int) -> String {

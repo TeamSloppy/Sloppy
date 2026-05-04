@@ -69,8 +69,11 @@ public actor TelegramGatewayPlugin: StreamingGatewayPlugin, ToolApprovalGatewayP
         if channelIds.isEmpty {
             logger.warning("No channel-chat mappings configured. Bot will receive messages but cannot route them to Sloppy channels.")
         }
-        var botCommands = ChannelCommandHandler.commands.map {
-            ["command": $0.name, "description": $0.description]
+        var botCommands = ChannelCommandHandler.commands(for: .telegram).compactMap { command -> [String: String]? in
+            guard command.name.range(of: #"^[a-z0-9_]{1,32}$"#, options: .regularExpression) != nil else {
+                return nil
+            }
+            return ["command": command.name, "description": command.description]
         }
         let skillRows = await inboundReceiver.skillSlashMenuEntriesUnion(forChannelIDs: channelIds)
         for row in skillRows {

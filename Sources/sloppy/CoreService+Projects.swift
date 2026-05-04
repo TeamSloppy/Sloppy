@@ -222,105 +222,11 @@ extension CoreService {
             throw ProjectError.notFound
         }
 
-        let trimmedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
         let maxResults = max(1, min(limit, 100))
-        let maxNodes = 80_000
-        let maxBuffer = min(2_000, maxResults * 40)
-
-        if trimmedQuery.isEmpty {
-            let contents = try fm.contentsOfDirectory(at: rootURL, includingPropertiesForKeys: [.isDirectoryKey], options: [.skipsHiddenFiles])
-            var entries: [ProjectFileSearchEntry] = []
-            for url in contents {
-                let resourceValues = try? url.resourceValues(forKeys: [.isDirectoryKey])
-                let isDirectory = resourceValues?.isDirectory ?? false
-                let name = url.lastPathComponent
-                entries.append(ProjectFileSearchEntry(
-                    path: name,
-                    type: isDirectory ? .directory : .file
-                ))
-            }
-            entries.sort { lhs, rhs in
-                if lhs.type == rhs.type {
-                    return lhs.path.localizedCaseInsensitiveCompare(rhs.path) == .orderedAscending
-                }
-                return lhs.type == .directory
-            }
-            return Array(entries.prefix(maxResults))
+        let index = ProjectFileIndex.build(projectId: projectID, rootURL: rootURL, limit: ProjectFileIndex.defaultLimit)
+        return index.search(query, limit: maxResults).map { entry in
+            ProjectFileSearchEntry(path: entry.path, type: entry.type)
         }
-
-        let needle = trimmedQuery.lowercased()
-        var buffer: [ProjectFileSearchEntry] = []
-        buffer.reserveCapacity(256)
-
-        var queue: [(URL, String)] = [(rootURL, "")]
-        var nodesVisited = 0
-
-        enumeration: while !queue.isEmpty, nodesVisited < maxNodes {
-            let (dirURL, dirRelative) = queue.removeFirst()
-            nodesVisited += 1
-
-            let contents: [URL]
-            do {
-                contents = try fm.contentsOfDirectory(at: dirURL, includingPropertiesForKeys: [.isDirectoryKey], options: [.skipsHiddenFiles])
-            } catch {
-                continue
-            }
-
-            for url in contents {
-                let name = url.lastPathComponent
-                let childRelative = dirRelative.isEmpty ? name : "\(dirRelative)/\(name)"
-                let resourceValues = try? url.resourceValues(forKeys: [.isDirectoryKey])
-                let isDirectory = resourceValues?.isDirectory ?? false
-
-                if childRelative.lowercased().contains(needle) {
-                    buffer.append(ProjectFileSearchEntry(path: childRelative, type: isDirectory ? .directory : .file))
-                    if buffer.count >= maxBuffer {
-                        queue.removeAll(keepingCapacity: false)
-                        break enumeration
-                    }
-                }
-
-                if isDirectory {
-                    queue.append((url, childRelative))
-                }
-            }
-        }
-
-        let sorted = buffer.sorted { lhs, rhs in
-            let l = lhs.path
-            let r = rhs.path
-            let lr = Self.projectFileSearchRank(path: l, needle: needle)
-            let rr = Self.projectFileSearchRank(path: r, needle: needle)
-            if lr.primary != rr.primary {
-                return lr.primary < rr.primary
-            }
-            if lr.secondary != rr.secondary {
-                return lr.secondary < rr.secondary
-            }
-            return l.localizedCaseInsensitiveCompare(r) == .orderedAscending
-        }
-
-        return Array(sorted.prefix(maxResults))
-    }
-
-    private static func projectFileSearchRank(path: String, needle: String) -> (primary: Int, secondary: Int) {
-        let p = path.lowercased()
-        let n = needle
-        if p == n {
-            return (0, 0)
-        }
-        if p.hasPrefix(n) {
-            return (1, p.count)
-        }
-        let last = (p as NSString).lastPathComponent
-        if last.hasPrefix(n) {
-            return (2, p.count)
-        }
-        if let range = p.range(of: n) {
-            let pos = p.distance(from: p.startIndex, to: range.lowerBound)
-            return (3, pos)
-        }
-        return (100, p.count)
     }
 
     public func readProjectFile(projectID: String, path: String) async throws -> ProjectFileContentResponse {

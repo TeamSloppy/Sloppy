@@ -762,6 +762,21 @@ extension CoreService: InboundMessageReceiver {
             return true
         }
 
+        if let addDirReply = await handleAddDirCommand(channelId: sessionChannelId, content: content) {
+            await deliverToChannelPlugin(channelId: sessionChannelId, content: addDirReply, topicId: topicId)
+            return true
+        }
+
+        if let compactReply = await handleCompactCommand(channelId: sessionChannelId, content: content) {
+            await deliverToChannelPlugin(channelId: sessionChannelId, content: compactReply, topicId: topicId)
+            return true
+        }
+
+        if let diffReply = await handleDiffCommand(channelId: sessionChannelId, content: content) {
+            await deliverToChannelPlugin(channelId: sessionChannelId, content: diffReply, topicId: topicId)
+            return true
+        }
+
         do {
             try await prepareChannelSession(channelId: bindingChannelId)
         } catch {
@@ -862,6 +877,27 @@ extension CoreService: InboundMessageReceiver {
         return true
     }
 
+    func handleAddDirCommand(channelId: String, content: String) async -> String? {
+        guard let rawPath = ChannelAddDirCommandParsing.pathTailIfCommand(content) else {
+            return nil
+        }
+        guard !rawPath.isEmpty else {
+            return "Usage: /add_dir <path>"
+        }
+
+        do {
+            let response = try await addChannelSessionDirectory(
+                channelID: channelId,
+                request: AgentSessionDirectoryRequest(path: rawPath)
+            )
+            return "Added working directory:\n\(response.path)"
+        } catch AgentSessionError.invalidPayload {
+            return "Directory not found: \(rawPath)"
+        } catch {
+            return "Failed to add directory: \(String(describing: error))"
+        }
+    }
+
     private func resolvedSkillSlashToken(skillId: String, builtinNames: Set<String>) -> String {
         var token = SkillSlashCommandNaming.slashToken(fromSkillId: skillId)
         if builtinNames.contains(token) {
@@ -880,7 +916,7 @@ extension CoreService: InboundMessageReceiver {
         guard let skills = try? await getAgentSkillsForRuntime(agentID: agentID) else {
             return []
         }
-        let builtin = Set(ChannelCommandHandler.commands.map { $0.name.lowercased() })
+        let builtin = Set(ChannelCommandHandler.allCommands.map { $0.name.lowercased() })
         return skills.filter(\.userInvocable).map { skill in
             resolvedSkillSlashToken(skillId: skill.id, builtinNames: builtin)
         }
@@ -898,7 +934,7 @@ extension CoreService: InboundMessageReceiver {
             guard let skills = try? await getAgentSkillsForRuntime(agentID: agentID) else {
                 continue
             }
-            let builtin = Set(ChannelCommandHandler.commands.map { $0.name.lowercased() })
+            let builtin = Set(ChannelCommandHandler.allCommands.map { $0.name.lowercased() })
             for skill in skills where skill.userInvocable {
                 let token = resolvedSkillSlashToken(skillId: skill.id, builtinNames: builtin)
                 guard !token.isEmpty, !seen.contains(token) else {
