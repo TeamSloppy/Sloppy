@@ -88,10 +88,15 @@ public actor RuntimeSystem {
     private var modelProvider: (any ModelProvider)?
     private var defaultModel: String?
 
+    private struct CachedLanguageModelSession {
+        var model: String
+        var session: LanguageModelSession
+    }
+
     /// Persistent LLM sessions keyed by channel ID. Each session accumulates full
     /// transcript (prompts, tool calls, tool outputs, responses) so the model sees
     /// complete history without rebuilding context on every turn.
-    private var sessionsByChannel: [String: LanguageModelSession] = [:]
+    private var sessionsByChannel: [String: CachedLanguageModelSession] = [:]
 
     /// Bootstrap system prompt content per channel, kept to recreate sessions after
     /// context overflow or model hot-swap.
@@ -648,6 +653,7 @@ public actor RuntimeSystem {
 
             await channels.appendSystemMessage(channelId: channelId, content: latest)
         } catch {
+            sessionsByChannel.removeValue(forKey: channelId)
             let text = "Model provider error: \(error)"
             if let onResponseChunk {
                 _ = await onResponseChunk(text)
@@ -706,7 +712,10 @@ public actor RuntimeSystem {
         includeTools: Bool = true
     ) async throws -> LanguageModelSession {
         if let existing = sessionsByChannel[channelId] {
-            return existing
+            if existing.model == activeModel {
+                return existing.session
+            }
+            sessionsByChannel.removeValue(forKey: channelId)
         }
 
         let languageModel = try await modelProvider.createLanguageModel(for: activeModel)
@@ -723,7 +732,7 @@ public actor RuntimeSystem {
             _ = try? await session.respond(to: bootstrap)
         }
 
-        sessionsByChannel[channelId] = session
+        sessionsByChannel[channelId] = CachedLanguageModelSession(model: activeModel, session: session)
         logger.info(
             "LLM session created",
             metadata: [
@@ -772,7 +781,7 @@ public actor RuntimeSystem {
             _ = try? await freshSession.respond(to: bootstrap)
         }
 
-        sessionsByChannel[channelId] = freshSession
+        sessionsByChannel[channelId] = CachedLanguageModelSession(model: activeModel, session: freshSession)
 
         if let invoker = toolInvoker {
             let observingHandler: @Sendable (ToolInvocationRequest) async -> ToolInvocationResult = { request in

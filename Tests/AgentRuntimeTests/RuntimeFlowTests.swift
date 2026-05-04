@@ -521,6 +521,24 @@ func respondInlineParsesToolCallEmbeddedInAssistantText() async {
 }
 
 @Test
+func respondInlineRecreatesSessionWhenRequestedModelChanges() async {
+    let provider = SequencedModelProvider(outputs: ["First", "Second"])
+    let system = RuntimeSystem(modelProvider: provider, defaultModel: "mock-a")
+    let channelId = "model-switch"
+
+    _ = await system.postMessage(
+        channelId: channelId,
+        request: ChannelMessageRequest(userId: "u1", content: "hello", model: "mock-a")
+    )
+    _ = await system.postMessage(
+        channelId: channelId,
+        request: ChannelMessageRequest(userId: "u1", content: "hello again", model: "mock-b")
+    )
+
+    #expect(await provider.requestedModelsSnapshot() == ["mock-a", "mock-b"])
+}
+
+@Test
 func respondInlineIncludesBootstrapContextInPrompt() async {
     let provider = PromptCapturingModelProvider()
     let system = RuntimeSystem(modelProvider: provider, defaultModel: "mock-model")

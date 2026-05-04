@@ -41,6 +41,18 @@ struct MCPServerSummary: Sendable {
     let toolPrefix: String?
 }
 
+struct MCPServerStatus: Sendable {
+    let id: String
+    let transport: String
+    let enabled: Bool
+    let connected: Bool
+    let exposeTools: Bool
+    let exposeResources: Bool
+    let exposePrompts: Bool
+    let toolPrefix: String?
+    let message: String?
+}
+
 struct MCPDynamicTool: Sendable {
     let id: String
     let serverID: String
@@ -216,6 +228,10 @@ actor MCPServerConnection {
         return try await client.getPrompt(name: name, arguments: arguments)
     }
 
+    func probe() async throws {
+        _ = try await ensureClient()
+    }
+
     private func ensureClient() async throws -> Client {
         if let client {
             return client
@@ -306,6 +322,64 @@ actor MCPClientRegistry {
                 toolPrefix: server.toolPrefix
             )
         }
+    }
+
+    func serverStatuses() async -> [MCPServerStatus] {
+        var statuses: [MCPServerStatus] = []
+        statuses.reserveCapacity(config.servers.count)
+
+        for server in config.servers {
+            guard server.enabled else {
+                statuses.append(
+                    MCPServerStatus(
+                        id: server.id,
+                        transport: server.transport.rawValue,
+                        enabled: false,
+                        connected: false,
+                        exposeTools: server.exposeTools,
+                        exposeResources: server.exposeResources,
+                        exposePrompts: server.exposePrompts,
+                        toolPrefix: server.toolPrefix,
+                        message: "disabled"
+                    )
+                )
+                continue
+            }
+
+            do {
+                let connection = try connection(for: server.id)
+                try await connection.probe()
+                statuses.append(
+                    MCPServerStatus(
+                        id: server.id,
+                        transport: server.transport.rawValue,
+                        enabled: true,
+                        connected: true,
+                        exposeTools: server.exposeTools,
+                        exposeResources: server.exposeResources,
+                        exposePrompts: server.exposePrompts,
+                        toolPrefix: server.toolPrefix,
+                        message: nil
+                    )
+                )
+            } catch {
+                statuses.append(
+                    MCPServerStatus(
+                        id: server.id,
+                        transport: server.transport.rawValue,
+                        enabled: true,
+                        connected: false,
+                        exposeTools: server.exposeTools,
+                        exposeResources: server.exposeResources,
+                        exposePrompts: server.exposePrompts,
+                        toolPrefix: server.toolPrefix,
+                        message: String(describing: error)
+                    )
+                )
+            }
+        }
+
+        return statuses
     }
 
     func listTools(serverID: String, cursor: String? = nil) async throws -> (tools: [MCP.Tool], nextCursor: String?) {

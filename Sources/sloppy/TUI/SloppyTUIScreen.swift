@@ -59,6 +59,7 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
         SloppyTUISlashCommand("model", "Switch agent model"),
         SloppyTUISlashCommand("context", "Attach changes or git diff"),
         SloppyTUISlashCommand("tasks", "Show project tasks"),
+        SloppyTUISlashCommand("mcps", "Show MCP server statuses"),
         SloppyTUISlashCommand("provider", "Configure provider"),
         SloppyTUISlashCommand("quit", "Exit TUI"),
     ]
@@ -475,7 +476,7 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
         case "help":
             appendLocalCard("""
             ## TUI commands
-            `/status`, `/sessions`, `/new`, `/clear`, `/stop`, `/model <id>`, `/context changes`, `/context diff`, `/tasks`, `/provider`, `/provider <id> <key> [model]`, `/quit`.
+            `/status`, `/sessions`, `/new`, `/clear`, `/stop`, `/model <id>`, `/context changes`, `/context diff`, `/tasks`, `/mcps`, `/provider`, `/provider <id> <key> [model]`, `/quit`.
 
             Use `@path` in a message to inline a project file as explicit context. Tab completes slash commands.
             """)
@@ -498,6 +499,8 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
             await attachContext(args.first)
         case "tasks":
             await showTasks()
+        case "mcps", "mcp":
+            await showMCPServers()
         case "provider", "providers":
             if args.isEmpty {
                 await showProviderPicker()
@@ -515,6 +518,55 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
         default:
             appendLocalCard("Unknown command `\(raw)`. Try `/help`.")
         }
+    }
+
+    private func showMCPServers() async {
+        let statuses = await runtime.service.listMCPServerStatuses()
+        guard !statuses.isEmpty else {
+            appendLocalCard("No MCP servers configured.")
+            return
+        }
+
+        let connectedCount = statuses.filter { $0.connected }.count
+        let enabledCount = statuses.filter { $0.enabled }.count
+        let lines = statuses.map(mcpStatusLine).joined(separator: "\n")
+        appendLocalCard("""
+        ## MCP servers
+        \(connectedCount)/\(enabledCount) enabled servers connected.
+
+        \(lines)
+        """)
+    }
+
+    private func mcpStatusLine(_ status: MCPServerStatus) -> String {
+        let state: String
+        if !status.enabled {
+            state = "disabled"
+        } else if status.connected {
+            state = "connected"
+        } else {
+            state = "disconnected"
+        }
+
+        var exposed: [String] = []
+        if status.exposeTools {
+            exposed.append("tools")
+        }
+        if status.exposeResources {
+            exposed.append("resources")
+        }
+        if status.exposePrompts {
+            exposed.append("prompts")
+        }
+        let exposedText = exposed.isEmpty ? "none" : exposed.joined(separator: ", ")
+        let prefixText = status.toolPrefix?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+            ? " prefix: `\(status.toolPrefix!)`"
+            : ""
+        let messageText = status.message?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+            ? " - \(status.message!)"
+            : ""
+
+        return "- `\(status.id)` \(state) transport: `\(status.transport)` exposed: \(exposedText)\(prefixText)\(messageText)"
     }
 
     private func createNewSession() async {
@@ -751,6 +803,7 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
             )
             selectedModel = model
             dismissFirstStartBootstrapCard()
+            dismissModelSwitchCards()
             appendLocalCard("Model switched to `\(model)`.")
         } catch {
             appendLocalCard("Model switch failed: \(String(describing: error))")
@@ -1307,6 +1360,15 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
         localCards.removeAll { block in
             if case .local(let text) = block {
                 return text == Self.firstStartBootstrapCard
+            }
+            return false
+        }
+    }
+
+    private func dismissModelSwitchCards() {
+        localCards.removeAll { block in
+            if case .local(let text) = block {
+                return text.hasPrefix("Model switched to ")
             }
             return false
         }
