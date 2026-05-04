@@ -11,7 +11,7 @@ private func makeExternalProjectDirectory(prefix: String = "open-project") throw
 }
 
 @Test
-func createProjectWithRepoPathCreatesWorkspaceLinkAndKeepsArtifactsLocal() async throws {
+func createProjectWithRepoPathKeepsArtifactsLocalWithoutWorkspaceLink() async throws {
     let config = CoreConfig.test
     let service = CoreService(config: config, persistenceBuilder: InMemoryCorePersistenceBuilder())
     let externalDirectory = try makeExternalProjectDirectory()
@@ -42,13 +42,44 @@ func createProjectWithRepoPathCreatesWorkspaceLinkAndKeepsArtifactsLocal() async
     #expect(FileManager.default.fileExists(atPath: metaDirectory.path, isDirectory: &isDirectory))
     #expect(isDirectory.boolValue)
 
-    let destination = try FileManager.default.destinationOfSymbolicLink(atPath: sourceLink.path)
-    let resolvedDestination = URL(fileURLWithPath: destination, relativeTo: projectRoot).standardizedFileURL.path
-    #expect(resolvedDestination == externalDirectory.standardizedFileURL.path)
+    #expect((try? FileManager.default.destinationOfSymbolicLink(atPath: sourceLink.path)) == nil)
+    #expect(!FileManager.default.fileExists(atPath: sourceLink.path))
 
     #expect(!FileManager.default.fileExists(atPath: externalDirectory.appendingPathComponent("artifacts").path))
     #expect(!FileManager.default.fileExists(atPath: externalDirectory.appendingPathComponent("logs").path))
     #expect(!FileManager.default.fileExists(atPath: externalDirectory.appendingPathComponent(".meta").path))
+}
+
+@Test
+func createProjectWithRepoPathRemovesLegacyWorkspaceLink() async throws {
+    let config = CoreConfig.test
+    let service = CoreService(config: config, persistenceBuilder: InMemoryCorePersistenceBuilder())
+    let externalDirectory = try makeExternalProjectDirectory()
+    let legacyDestination = try makeExternalProjectDirectory(prefix: "legacy-open-project")
+    defer { try? FileManager.default.removeItem(at: externalDirectory) }
+    defer { try? FileManager.default.removeItem(at: legacyDestination) }
+
+    let projectID = "open-project-legacy-\(UUID().uuidString.prefix(8).lowercased())"
+    let workspaceRoot = config.resolvedWorkspaceRootURL(currentDirectory: FileManager.default.currentDirectoryPath)
+    let projectRoot = workspaceRoot
+        .appendingPathComponent("projects", isDirectory: true)
+        .appendingPathComponent(projectID, isDirectory: true)
+    let sourceLink = projectRoot.appendingPathComponent("source", isDirectory: true)
+    try FileManager.default.createDirectory(at: projectRoot, withIntermediateDirectories: true)
+    try FileManager.default.createSymbolicLink(at: sourceLink, withDestinationURL: legacyDestination)
+
+    _ = try await service.createProject(
+        ProjectCreateRequest(
+            id: projectID,
+            name: "Open Project Legacy",
+            description: "External directory",
+            channels: [],
+            repoPath: externalDirectory.path
+        )
+    )
+
+    #expect((try? FileManager.default.destinationOfSymbolicLink(atPath: sourceLink.path)) == nil)
+    #expect(!FileManager.default.fileExists(atPath: sourceLink.path))
 }
 
 @Test

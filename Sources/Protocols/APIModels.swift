@@ -264,6 +264,25 @@ public enum ProjectTaskCompletionConfidence: String, Codable, Sendable, Equatabl
     case unsure
 }
 
+public struct ProjectTaskRouteStep: Codable, Sendable, Equatable {
+    public var actorId: String?
+    public var agentId: String?
+    public var reason: String
+    public var createdAt: Date
+
+    public init(
+        actorId: String? = nil,
+        agentId: String? = nil,
+        reason: String,
+        createdAt: Date = Date()
+    ) {
+        self.actorId = actorId
+        self.agentId = agentId
+        self.reason = reason
+        self.createdAt = createdAt
+    }
+}
+
 public struct ProjectTask: Codable, Sendable, Equatable {
     public var id: String
     public var title: String
@@ -288,9 +307,39 @@ public struct ProjectTask: Codable, Sendable, Equatable {
     public var worktreeBranch: String?
     /// When set and present in the agent's available models, overrides the agent default model for this task's worker run.
     public var selectedModel: String?
+    public var routeHistory: [ProjectTaskRouteStep]
     public var isArchived: Bool
     public var createdAt: Date
     public var updatedAt: Date
+
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case title
+        case description
+        case priority
+        case status
+        case kind
+        case loopModeOverride
+        case originType
+        case originChannelId
+        case actorId
+        case teamId
+        case claimedActorId
+        case claimedAgentId
+        case parentTaskId
+        case swarmId
+        case swarmTaskId
+        case swarmParentTaskId
+        case swarmDependencyIds
+        case swarmDepth
+        case swarmActorPath
+        case worktreeBranch
+        case selectedModel
+        case routeHistory
+        case isArchived
+        case createdAt
+        case updatedAt
+    }
 
     public init(
         id: String,
@@ -315,6 +364,7 @@ public struct ProjectTask: Codable, Sendable, Equatable {
         swarmActorPath: [String]? = nil,
         worktreeBranch: String? = nil,
         selectedModel: String? = nil,
+        routeHistory: [ProjectTaskRouteStep] = [],
         isArchived: Bool = false,
         createdAt: Date = Date(),
         updatedAt: Date = Date()
@@ -332,6 +382,7 @@ public struct ProjectTask: Codable, Sendable, Equatable {
         self.teamId = teamId
         self.claimedActorId = claimedActorId
         self.claimedAgentId = claimedAgentId
+        self.parentTaskId = parentTaskId
         self.swarmId = swarmId
         self.swarmTaskId = swarmTaskId
         self.swarmParentTaskId = swarmParentTaskId
@@ -340,9 +391,40 @@ public struct ProjectTask: Codable, Sendable, Equatable {
         self.swarmActorPath = swarmActorPath
         self.worktreeBranch = worktreeBranch
         self.selectedModel = selectedModel
+        self.routeHistory = routeHistory
         self.isArchived = isArchived
         self.createdAt = createdAt
         self.updatedAt = updatedAt
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        title = try container.decode(String.self, forKey: .title)
+        description = try container.decode(String.self, forKey: .description)
+        priority = try container.decode(String.self, forKey: .priority)
+        status = try container.decode(String.self, forKey: .status)
+        kind = try container.decodeIfPresent(ProjectTaskKind.self, forKey: .kind)
+        loopModeOverride = try container.decodeIfPresent(ProjectLoopMode.self, forKey: .loopModeOverride)
+        originType = try container.decodeIfPresent(TaskOriginType.self, forKey: .originType)
+        originChannelId = try container.decodeIfPresent(String.self, forKey: .originChannelId)
+        actorId = try container.decodeIfPresent(String.self, forKey: .actorId)
+        teamId = try container.decodeIfPresent(String.self, forKey: .teamId)
+        claimedActorId = try container.decodeIfPresent(String.self, forKey: .claimedActorId)
+        claimedAgentId = try container.decodeIfPresent(String.self, forKey: .claimedAgentId)
+        parentTaskId = try container.decodeIfPresent(String.self, forKey: .parentTaskId)
+        swarmId = try container.decodeIfPresent(String.self, forKey: .swarmId)
+        swarmTaskId = try container.decodeIfPresent(String.self, forKey: .swarmTaskId)
+        swarmParentTaskId = try container.decodeIfPresent(String.self, forKey: .swarmParentTaskId)
+        swarmDependencyIds = try container.decodeIfPresent([String].self, forKey: .swarmDependencyIds)
+        swarmDepth = try container.decodeIfPresent(Int.self, forKey: .swarmDepth)
+        swarmActorPath = try container.decodeIfPresent([String].self, forKey: .swarmActorPath)
+        worktreeBranch = try container.decodeIfPresent(String.self, forKey: .worktreeBranch)
+        selectedModel = try container.decodeIfPresent(String.self, forKey: .selectedModel)
+        routeHistory = try container.decodeIfPresent([ProjectTaskRouteStep].self, forKey: .routeHistory) ?? []
+        isArchived = try container.decodeIfPresent(Bool.self, forKey: .isArchived) ?? false
+        createdAt = try container.decodeIfPresent(Date.self, forKey: .createdAt) ?? Date()
+        updatedAt = try container.decodeIfPresent(Date.self, forKey: .updatedAt) ?? createdAt
     }
 }
 
@@ -3398,21 +3480,25 @@ public struct ProjectReviewSettings: Codable, Sendable, Equatable {
     public var enabled: Bool
     public var approvalMode: ReviewApprovalMode
     public var autonomousMode: ProjectAutonomousMode
+    public var maxAutonomousRouteSteps: Int
 
     public init(
         enabled: Bool = true,
         approvalMode: ReviewApprovalMode = .human,
-        autonomousMode: ProjectAutonomousMode = .off
+        autonomousMode: ProjectAutonomousMode = .off,
+        maxAutonomousRouteSteps: Int = 6
     ) {
         self.enabled = enabled
         self.approvalMode = approvalMode
         self.autonomousMode = autonomousMode
+        self.maxAutonomousRouteSteps = max(1, maxAutonomousRouteSteps)
     }
 
     enum CodingKeys: String, CodingKey {
         case enabled
         case approvalMode
         case autonomousMode
+        case maxAutonomousRouteSteps
     }
 
     public init(from decoder: Decoder) throws {
@@ -3420,6 +3506,7 @@ public struct ProjectReviewSettings: Codable, Sendable, Equatable {
         enabled = try container.decodeIfPresent(Bool.self, forKey: .enabled) ?? true
         approvalMode = try container.decodeIfPresent(ReviewApprovalMode.self, forKey: .approvalMode) ?? .human
         autonomousMode = try container.decodeIfPresent(ProjectAutonomousMode.self, forKey: .autonomousMode) ?? .off
+        maxAutonomousRouteSteps = max(1, try container.decodeIfPresent(Int.self, forKey: .maxAutonomousRouteSteps) ?? 6)
     }
 }
 

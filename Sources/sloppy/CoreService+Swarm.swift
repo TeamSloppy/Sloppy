@@ -1125,6 +1125,28 @@ extension CoreService {
                 task.claimedActorId = retryDelegate.actorID
                 task.claimedAgentId = retryDelegate.agentID
                 task.actorId = retryDelegate.actorID
+                let routeUpdate = recordAutonomousRoute(
+                    task: task,
+                    actorID: retryDelegate.actorID,
+                    agentID: retryDelegate.agentID,
+                    reason: "retry",
+                    settings: project.reviewSettings
+                )
+                task = routeUpdate.task
+                if let blockedMessage = routeUpdate.blockedMessage {
+                    await persistAutonomousRouteBlock(
+                        project: project,
+                        taskIndex: taskIndex,
+                        task: task,
+                        previousStatus: prevRetryStatus,
+                        message: blockedMessage,
+                        channelID: event.channelId,
+                        workerID: event.workerId,
+                        actorID: retryDelegate.actorID,
+                        agentID: retryDelegate.agentID
+                    )
+                    return
+                }
                 task.updatedAt = Date()
                 if let effectiveFailureNote {
                     let timestamp = ISO8601DateFormatter().string(from: event.ts)
@@ -1184,6 +1206,34 @@ extension CoreService {
 
                 if resolvedStatus == ProjectTaskStatus.done.rawValue,
                    let handoffDelegate = await nextTeamHandoffDelegate(project: project, task: task) {
+                    let previousHandoffActor = task.claimedAgentId ?? task.claimedActorId ?? "worker"
+                    let prevRouteStatus = task.status
+                    task.claimedActorId = handoffDelegate.actorID
+                    task.claimedAgentId = handoffDelegate.agentID
+                    task.actorId = handoffDelegate.actorID
+                    let routeUpdate = recordAutonomousRoute(
+                        task: task,
+                        actorID: handoffDelegate.actorID,
+                        agentID: handoffDelegate.agentID,
+                        reason: "handoff",
+                        settings: project.reviewSettings
+                    )
+                    task = routeUpdate.task
+                    if let blockedMessage = routeUpdate.blockedMessage {
+                        await persistAutonomousRouteBlock(
+                            project: project,
+                            taskIndex: taskIndex,
+                            task: task,
+                            previousStatus: prevRouteStatus,
+                            message: blockedMessage,
+                            channelID: event.channelId,
+                            workerID: event.workerId,
+                            actorID: handoffDelegate.actorID,
+                            agentID: handoffDelegate.agentID,
+                            artifactPath: completionArtifactPath
+                        )
+                        return
+                    }
                     let board = try? getActorBoard()
                     let nodesByID = Dictionary(uniqueKeysWithValues: (board?.nodes ?? []).map { ($0.id, $0) })
                     let nextNode = nodesByID[handoffDelegate.actorID]
@@ -1204,7 +1254,7 @@ extension CoreService {
                         return
                     }
 
-                    let handoffActor = task.claimedAgentId ?? task.claimedActorId ?? "worker"
+                    let handoffActor = previousHandoffActor
                     let handoffNote = "Handoff from \(handoffActor)"
                     if task.description.isEmpty {
                         task.description = handoffNote
@@ -1214,9 +1264,6 @@ extension CoreService {
 
                     let prevHandoffStatus = task.status
                     task.status = ProjectTaskStatus.ready.rawValue
-                    task.claimedActorId = handoffDelegate.actorID
-                    task.claimedAgentId = handoffDelegate.agentID
-                    task.actorId = handoffDelegate.actorID
                     task.updatedAt = Date()
                     project.tasks[taskIndex] = task
                     project.updatedAt = Date()

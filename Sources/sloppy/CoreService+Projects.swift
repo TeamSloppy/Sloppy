@@ -565,8 +565,8 @@ extension CoreService {
             updatedAt: now
         )
 
-        if let normalizedRepoPath {
-            try prepareExternalProjectWorkspace(projectID: normalizedID, repoPath: normalizedRepoPath)
+        if normalizedRepoPath != nil {
+            try prepareExternalProjectWorkspace(projectID: normalizedID)
         }
 
         await store.saveProject(project)
@@ -930,6 +930,14 @@ extension CoreService {
                 task.claimedAgentId = nil
             }
         }
+        let actorChanged = request.actorId != nil && oldTask.actorId != task.actorId
+        let teamChanged = request.teamId != nil && oldTask.teamId != task.teamId
+        let statusChangedToReady = request.status != nil && task.status == ProjectTaskStatus.ready.rawValue
+        let statusChangedToCancelled = request.status != nil && task.status == ProjectTaskStatus.cancelled.rawValue
+        if !requiresCompletionConfirmation(changedBy: changedBy),
+           actorChanged || teamChanged || statusChangedToReady || statusChangedToCancelled {
+            task.routeHistory = []
+        }
         task.updatedAt = Date()
         project.tasks[taskIndex] = task
         project.updatedAt = Date()
@@ -958,8 +966,6 @@ extension CoreService {
             )
         }
 
-        let actorChanged = request.actorId != nil && oldTask.actorId != task.actorId
-        let teamChanged = request.teamId != nil && oldTask.teamId != task.teamId
         let assigneeChangedWhileReady = (actorChanged || teamChanged)
             && task.status == ProjectTaskStatus.ready.rawValue
 

@@ -107,6 +107,28 @@ extension CoreService {
         if let actorID = delegation.actorID {
             task.actorId = actorID
         }
+        let routeUpdate = recordAutonomousRoute(
+            task: task,
+            actorID: delegation.actorID,
+            agentID: delegation.agentID,
+            reason: "delegate",
+            settings: project.reviewSettings
+        )
+        task = routeUpdate.task
+        if let blockedMessage = routeUpdate.blockedMessage {
+            await persistAutonomousRouteBlock(
+                project: project,
+                taskIndex: taskIndex,
+                task: task,
+                previousStatus: task.status,
+                message: blockedMessage,
+                channelID: delegation.channelID,
+                workerID: nil,
+                actorID: delegation.actorID,
+                agentID: delegation.agentID
+            )
+            return
+        }
 
         var worktreePath: String?
         if let repoPath = project.repoPath,
@@ -217,6 +239,152 @@ extension CoreService {
             return markedChannelID
         }
         return project.channels.sorted(by: { $0.createdAt < $1.createdAt }).first?.channelId
+    }
+
+    struct AutonomousRouteUpdate {
+        var task: ProjectTask
+        var blockedMessage: String?
+    }
+
+    func recordAutonomousRoute(
+        task: ProjectTask,
+        actorID: String?,
+        agentID: String?,
+        reason: String,
+        settings: ProjectReviewSettings
+    ) -> AutonomousRouteUpdate {
+        let normalizedActorID = normalizeWhitespace(actorID ?? "")
+        let normalizedAgentID = normalizeWhitespace(agentID ?? "")
+        let routeIdentity: String?
+        if !normalizedActorID.isEmpty {
+            routeIdentity = "actor:\(normalizedActorID)"
+        } else if !normalizedAgentID.isEmpty {
+            routeIdentity = "agent:\(normalizedAgentID)"
+        } else {
+            routeIdentity = nil
+        }
+
+        guard let routeIdentity else {
+            return AutonomousRouteUpdate(task: task, blockedMessage: nil)
+        }
+
+        var task = task
+        if let last = task.routeHistory.last,
+           autonomousRouteIdentity(actorID: last.actorId, agentID: last.agentId) == routeIdentity {
+            return AutonomousRouteUpdate(task: task, blockedMessage: nil)
+        }
+
+        let step = ProjectTaskRouteStep(
+            actorId: normalizedActorID.isEmpty ? nil : normalizedActorID,
+            agentId: normalizedAgentID.isEmpty ? nil : normalizedAgentID,
+            reason: normalizeWhitespace(reason).isEmpty ? "delegate" : normalizeWhitespace(reason)
+        )
+        let previousHistory = task.routeHistory
+        task.routeHistory.append(step)
+
+        let path = autonomousRoutePath(task.routeHistory)
+        if previousHistory.contains(where: {
+            autonomousRouteIdentity(actorID: $0.actorId, agentID: $0.agentId) == routeIdentity
+        }) {
+            return AutonomousRouteUpdate(
+                task: task,
+                blockedMessage: "Autonomous routing loop detected: \(path). Human intervention required."
+            )
+        }
+
+        let maxRouteSteps = max(1, settings.maxAutonomousRouteSteps)
+        if previousHistory.count >= maxRouteSteps {
+            return AutonomousRouteUpdate(
+                task: task,
+                blockedMessage: "Autonomous route limit reached (\(maxRouteSteps) steps): \(path). Human intervention required."
+            )
+        }
+
+        return AutonomousRouteUpdate(task: task, blockedMessage: nil)
+    }
+
+    func autonomousRouteIdentity(actorID: String?, agentID: String?) -> String? {
+        let normalizedActorID = normalizeWhitespace(actorID ?? "")
+        if !normalizedActorID.isEmpty {
+            return "actor:\(normalizedActorID)"
+        }
+        let normalizedAgentID = normalizeWhitespace(agentID ?? "")
+        if !normalizedAgentID.isEmpty {
+            return "agent:\(normalizedAgentID)"
+        }
+        return nil
+    }
+
+    func autonomousRoutePath(_ history: [ProjectTaskRouteStep]) -> String {
+        let labels = history.map { step in
+            if let actorID = step.actorId, !actorID.isEmpty {
+                return actorID
+            }
+            if let agentID = step.agentId, !agentID.isEmpty {
+                return "agent:\(agentID)"
+            }
+            return "unknown"
+        }
+        return labels.isEmpty ? "(empty)" : labels.joined(separator: " -> ")
+    }
+
+    func persistAutonomousRouteBlock(
+        project: ProjectRecord,
+        taskIndex: Int,
+        task: ProjectTask,
+        previousStatus: String,
+        message: String,
+        channelID: String?,
+        workerID: String?,
+        actorID: String?,
+        agentID: String?,
+        artifactPath: String? = nil
+    ) async {
+        var project = project
+        var task = task
+        task.status = ProjectTaskStatus.blocked.rawValue
+        task.updatedAt = Date()
+        let note = "Autonomous route blocked: \(message)"
+        if task.description.isEmpty {
+            task.description = note
+        } else if !task.description.contains(note) {
+            task.description += "\n\n\(note)"
+        }
+        project.tasks[taskIndex] = task
+        project.updatedAt = Date()
+        await store.saveProject(project)
+        await kanbanEventService.push(KanbanEvent(type: .taskUpdated, projectId: project.id, task: task))
+        await recordSystemStatusChange(
+            projectID: project.id,
+            taskID: task.id,
+            from: previousStatus,
+            to: task.status,
+            source: "system"
+        )
+        appendTaskLifecycleLog(
+            projectID: project.id,
+            taskID: task.id,
+            stage: "loop_guard_blocked",
+            channelID: channelID,
+            workerID: workerID,
+            message: message,
+            actorID: actorID,
+            agentID: agentID,
+            artifactPath: artifactPath
+        )
+        if let channelID {
+            let statusMessage = "Task \(task.id) blocked: \(message)"
+            await runtime.appendSystemMessage(channelId: channelID, content: statusMessage)
+            await deliverToChannelPlugin(channelId: channelID, content: statusMessage)
+        }
+        logger.warning(
+            "visor.task.loop_guard_blocked",
+            metadata: [
+                "project_id": .string(project.id),
+                "task_id": .string(task.id),
+                "message": .string(message)
+            ]
+        )
     }
 
     /// Stops background tasks and waits for pending work.
@@ -361,6 +529,7 @@ extension CoreService {
         }
 
         task.status = ProjectTaskStatus.done.rawValue
+        task.routeHistory = []
         task.worktreeBranch = nil
         task.updatedAt = Date()
         project.tasks[taskIndex] = task
@@ -512,6 +681,28 @@ extension CoreService {
         task.claimedAgentId = developerAgentID ?? task.claimedAgentId
         if let developerActorID {
             task.actorId = developerActorID
+        }
+        let routeUpdate = recordAutonomousRoute(
+            task: task,
+            actorID: task.claimedActorId,
+            agentID: task.claimedAgentId,
+            reason: "review_reject",
+            settings: project.reviewSettings
+        )
+        task = routeUpdate.task
+        if let blockedMessage = routeUpdate.blockedMessage {
+            await persistAutonomousRouteBlock(
+                project: project,
+                taskIndex: taskIndex,
+                task: task,
+                previousStatus: prevRejectStatus,
+                message: blockedMessage,
+                channelID: resolveExecutionChannelID(project: project, task: task),
+                workerID: nil,
+                actorID: task.claimedActorId,
+                agentID: task.claimedAgentId
+            )
+            return
         }
         task.updatedAt = Date()
         project.tasks[taskIndex] = task
@@ -1008,7 +1199,7 @@ extension CoreService {
         }
     }
 
-    func projectSourceLinkURL(projectID: String) -> URL {
+    func legacyProjectSourceSymlinkURL(projectID: String) -> URL {
         projectDirectoryURL(projectID: projectID).appendingPathComponent("source", isDirectory: true)
     }
 
@@ -1053,18 +1244,14 @@ extension CoreService {
         return normalizedPath
     }
 
-    func prepareExternalProjectWorkspace(projectID: String, repoPath: String) throws {
+    func prepareExternalProjectWorkspace(projectID: String) throws {
         ensureProjectWorkspaceDirectory(projectID: projectID)
 
         let fileManager = FileManager.default
-        let sourceLinkURL = projectSourceLinkURL(projectID: projectID)
-        if fileManager.fileExists(atPath: sourceLinkURL.path) {
+        let sourceLinkURL = legacyProjectSourceSymlinkURL(projectID: projectID)
+        if (try? fileManager.destinationOfSymbolicLink(atPath: sourceLinkURL.path)) != nil {
             try fileManager.removeItem(at: sourceLinkURL)
         }
-        try fileManager.createSymbolicLink(
-            at: sourceLinkURL,
-            withDestinationURL: URL(fileURLWithPath: repoPath, isDirectory: true)
-        )
     }
 
     /// Clones `repoUrl` into the project workspace directory. Returns `true` only when `git clone` exits successfully.

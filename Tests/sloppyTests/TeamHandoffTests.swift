@@ -3,6 +3,37 @@ import Testing
 @testable import sloppy
 @testable import Protocols
 
+private func saveProject(_ project: ProjectRecord, service: CoreService) async {
+    await service.store.saveProject(project)
+}
+
+private func channel(_ id: String = "chan") -> ProjectChannel {
+    ProjectChannel(id: "project-channel-\(id)", title: id, channelId: id)
+}
+
+private func node(_ id: String, agent: String, role: ActorSystemRole? = nil, channelId: String? = "chan") -> ActorNode {
+    ActorNode(
+        id: id,
+        displayName: agent,
+        kind: .agent,
+        linkedAgentId: agent,
+        channelId: channelId,
+        systemRole: role
+    )
+}
+
+private func createAgents(_ ids: [String], service: CoreService) async throws {
+    for id in ids {
+        _ = try await service.createAgent(
+            AgentCreateRequest(id: id, displayName: id.uppercased(), role: id.uppercased(), isSystem: false)
+        )
+    }
+}
+
+private func actorID(_ agentID: String) -> String {
+    "agent:\(agentID)"
+}
+
 @Test
 func nextTeamHandoffDelegateFollowsTaskLinks() async throws {
     let config = CoreConfig.test
@@ -94,4 +125,249 @@ func nextTeamHandoffDelegateFallsBackToArrayIndex() async throws {
     // Should fallback to next in array: QA
     #expect(delegate?.actorID == "agent:qa")
     #expect(delegate?.agentID == "qa")
+}
+
+@Test
+func handoffLoopBlocksBeforeRevisitingActor() async throws {
+    let service = CoreService(config: CoreConfig.test, persistenceBuilder: InMemoryCorePersistenceBuilder())
+    try await createAgents(["a", "b"], service: service)
+
+    let actorA = actorID("a")
+    let actorB = actorID("b")
+    let board = ActorBoardSnapshot(
+        nodes: [
+            node(actorA, agent: "a"),
+            node(actorB, agent: "b")
+        ],
+        links: [
+            ActorLink(id: "a-b", sourceActorId: actorA, targetActorId: actorB, direction: .oneWay, communicationType: .task),
+            ActorLink(id: "b-a", sourceActorId: actorB, targetActorId: actorA, direction: .oneWay, communicationType: .task)
+        ],
+        teams: [
+            ActorTeam(id: "team:loop", name: "Loop Team", memberActorIds: [actorA, actorB])
+        ]
+    )
+    _ = try await service.updateActorBoard(request: ActorBoardUpdateRequest(nodes: board.nodes, links: board.links, teams: board.teams))
+
+    let task = ProjectTask(
+        id: "task-loop",
+        title: "Looping task",
+        description: "",
+        priority: "medium",
+        status: ProjectTaskStatus.done.rawValue,
+        actorId: actorB,
+        teamId: "team:loop",
+        claimedActorId: actorB,
+        claimedAgentId: "b",
+        routeHistory: [
+            ProjectTaskRouteStep(actorId: actorA, agentId: "a", reason: "delegate"),
+            ProjectTaskRouteStep(actorId: actorB, agentId: "b", reason: "handoff")
+        ]
+    )
+    let project = ProjectRecord(
+        id: "proj-loop-\(UUID().uuidString)",
+        name: "Loop Project",
+        description: "",
+        channels: [channel()],
+        tasks: [task],
+        reviewSettings: ProjectReviewSettings(enabled: false)
+    )
+    await saveProject(project, service: service)
+
+    await service.handleVisorEvent(
+        EventEnvelope(
+            messageType: .workerCompleted,
+            channelId: "chan",
+            taskId: task.id,
+            workerId: "worker-b",
+            payload: .object([:])
+        )
+    )
+
+    let saved = try await service.getProject(id: project.id)
+    let savedTask = try #require(saved.tasks.first(where: { $0.id == task.id }))
+    #expect(savedTask.status == ProjectTaskStatus.blocked.rawValue)
+    #expect(savedTask.claimedActorId == actorA)
+    #expect(savedTask.routeHistory.map(\.actorId) == [actorA, actorB, actorA])
+    #expect(savedTask.description.contains("Autonomous routing loop detected"))
+}
+
+@Test
+func linearTeamHandoffContinuesWithoutLoopBlock() async throws {
+    let service = CoreService(config: CoreConfig.test, persistenceBuilder: InMemoryCorePersistenceBuilder())
+    try await createAgents(["a", "b", "c"], service: service)
+
+    let actorA = actorID("a")
+    let actorB = actorID("b")
+    let actorC = actorID("c")
+    let board = ActorBoardSnapshot(
+        nodes: [
+            node(actorA, agent: "a"),
+            node(actorB, agent: "b"),
+            node(actorC, agent: "c")
+        ],
+        links: [
+            ActorLink(id: "a-b", sourceActorId: actorA, targetActorId: actorB, direction: .oneWay, communicationType: .task),
+            ActorLink(id: "b-c", sourceActorId: actorB, targetActorId: actorC, direction: .oneWay, communicationType: .task)
+        ],
+        teams: [
+            ActorTeam(id: "team:linear", name: "Linear Team", memberActorIds: [actorA, actorB, actorC])
+        ]
+    )
+    _ = try await service.updateActorBoard(request: ActorBoardUpdateRequest(nodes: board.nodes, links: board.links, teams: board.teams))
+
+    let task = ProjectTask(
+        id: "task-linear",
+        title: "Linear task",
+        description: "",
+        priority: "medium",
+        status: ProjectTaskStatus.done.rawValue,
+        actorId: actorB,
+        teamId: "team:linear",
+        claimedActorId: actorB,
+        claimedAgentId: "b",
+        routeHistory: [
+            ProjectTaskRouteStep(actorId: actorA, agentId: "a", reason: "delegate"),
+            ProjectTaskRouteStep(actorId: actorB, agentId: "b", reason: "handoff")
+        ]
+    )
+    let project = ProjectRecord(
+        id: "proj-linear-\(UUID().uuidString)",
+        name: "Linear Project",
+        description: "",
+        channels: [channel()],
+        tasks: [task],
+        reviewSettings: ProjectReviewSettings(enabled: false)
+    )
+    await saveProject(project, service: service)
+
+    await service.handleVisorEvent(
+        EventEnvelope(
+            messageType: .workerCompleted,
+            channelId: "chan",
+            taskId: task.id,
+            workerId: "worker-b",
+            payload: .object([:])
+        )
+    )
+
+    let saved = try await service.getProject(id: project.id)
+    let savedTask = try #require(saved.tasks.first(where: { $0.id == task.id }))
+    #expect(savedTask.status == ProjectTaskStatus.inProgress.rawValue)
+    #expect(savedTask.claimedActorId == actorC)
+    #expect(savedTask.routeHistory.map(\.actorId) == [actorA, actorB, actorC])
+}
+
+@Test
+func reviewRejectBlocksWhenRouteLimitReached() async throws {
+    let service = CoreService(config: CoreConfig.test, persistenceBuilder: InMemoryCorePersistenceBuilder())
+    try await createAgents(["dev", "reviewer", "qa"], service: service)
+
+    let developer = actorID("dev")
+    let reviewer = actorID("reviewer")
+    let qa = actorID("qa")
+    let board = ActorBoardSnapshot(
+        nodes: [
+            node(developer, agent: "dev", role: .developer),
+            node(reviewer, agent: "reviewer", role: .reviewer),
+            node(qa, agent: "qa", role: .qa)
+        ],
+        links: [],
+        teams: [
+            ActorTeam(id: "team:review", name: "Review Team", memberActorIds: [developer, reviewer, qa])
+        ]
+    )
+    _ = try await service.updateActorBoard(request: ActorBoardUpdateRequest(nodes: board.nodes, links: board.links, teams: board.teams))
+
+    let task = ProjectTask(
+        id: "task-review-limit",
+        title: "Review limit",
+        description: "",
+        priority: "medium",
+        status: ProjectTaskStatus.needsReview.rawValue,
+        actorId: reviewer,
+        teamId: "team:review",
+        claimedActorId: reviewer,
+        claimedAgentId: "reviewer",
+        routeHistory: [
+            ProjectTaskRouteStep(actorId: reviewer, agentId: "reviewer", reason: "handoff"),
+            ProjectTaskRouteStep(actorId: qa, agentId: "qa", reason: "handoff")
+        ]
+    )
+    let project = ProjectRecord(
+        id: "proj-review-limit-\(UUID().uuidString)",
+        name: "Review Limit Project",
+        description: "",
+        channels: [channel()],
+        tasks: [task],
+        reviewSettings: ProjectReviewSettings(enabled: false, maxAutonomousRouteSteps: 2)
+    )
+    await saveProject(project, service: service)
+
+    try await service.rejectTask(projectID: project.id, taskID: task.id, reason: "Needs another implementation pass")
+
+    let saved = try await service.getProject(id: project.id)
+    let savedTask = try #require(saved.tasks.first(where: { $0.id == task.id }))
+    #expect(savedTask.status == ProjectTaskStatus.blocked.rawValue)
+    #expect(savedTask.claimedActorId == developer)
+    #expect(savedTask.routeHistory.map(\.actorId) == [reviewer, qa, developer])
+    #expect(savedTask.description.contains("Autonomous route limit reached"))
+}
+
+@Test
+func manualReadyResetClearsRouteHistoryForFreshRun() async throws {
+    let service = CoreService(config: CoreConfig.test, persistenceBuilder: InMemoryCorePersistenceBuilder())
+    try await createAgents(["a", "b"], service: service)
+
+    let actorA = actorID("a")
+    let actorB = actorID("b")
+    let board = ActorBoardSnapshot(
+        nodes: [
+            node(actorA, agent: "a"),
+            node(actorB, agent: "b")
+        ],
+        links: [],
+        teams: [
+            ActorTeam(id: "team:reset", name: "Reset Team", memberActorIds: [actorA, actorB])
+        ]
+    )
+    _ = try await service.updateActorBoard(request: ActorBoardUpdateRequest(nodes: board.nodes, links: board.links, teams: board.teams))
+
+    let task = ProjectTask(
+        id: "task-reset",
+        title: "Reset task",
+        description: "Blocked by loop",
+        priority: "medium",
+        status: ProjectTaskStatus.blocked.rawValue,
+        actorId: actorA,
+        teamId: "team:reset",
+        claimedActorId: actorA,
+        claimedAgentId: "a",
+        routeHistory: [
+            ProjectTaskRouteStep(actorId: actorA, agentId: "a", reason: "delegate"),
+            ProjectTaskRouteStep(actorId: actorB, agentId: "b", reason: "handoff"),
+            ProjectTaskRouteStep(actorId: actorA, agentId: "a", reason: "handoff")
+        ]
+    )
+    let project = ProjectRecord(
+        id: "proj-reset-\(UUID().uuidString)",
+        name: "Reset Project",
+        description: "",
+        channels: [channel()],
+        tasks: [task],
+        reviewSettings: ProjectReviewSettings(enabled: false)
+    )
+    await saveProject(project, service: service)
+
+    _ = try await service.updateProjectTask(
+        projectID: project.id,
+        taskID: task.id,
+        request: ProjectTaskUpdateRequest(status: ProjectTaskStatus.ready.rawValue)
+    )
+
+    let saved = try await service.getProject(id: project.id)
+    let savedTask = try #require(saved.tasks.first(where: { $0.id == task.id }))
+    #expect(savedTask.status == ProjectTaskStatus.inProgress.rawValue)
+    #expect(savedTask.claimedActorId == actorA)
+    #expect(savedTask.routeHistory.map(\.actorId) == [actorA])
 }

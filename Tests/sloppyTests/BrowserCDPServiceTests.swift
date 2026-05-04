@@ -45,6 +45,26 @@ struct BrowserCDPServiceTests {
         #expect(await transport.lastEndpointURL()?.absoluteString == "http://127.0.0.1:9223")
     }
 
+    @Test("open preserves configured websocket CDP endpoint")
+    func openUsesConfiguredWebSocketCDPEndpoint() async throws {
+        let endpoint = "ws://127.0.0.1:9224/devtools/browser/browser-id"
+        let transport = FakeBrowserCDPTransport()
+        let service = BrowserCDPService(
+            config: .init(enabled: true, cdpEndpoint: endpoint),
+            workspaceRootURL: FileManager.default.temporaryDirectory,
+            launcher: FailingBrowserProcessLauncher(),
+            transport: transport
+        )
+
+        let payload = try await service.open(sessionID: "session-ws", url: "https://example.com")
+        let object = payload.asObject ?? [:]
+
+        #expect(object["pid"] == .null)
+        #expect(object["port"]?.asInt == 9224)
+        #expect(object["cdpEndpoint"]?.asString == endpoint)
+        #expect(await transport.lastEndpointURL()?.absoluteString == endpoint)
+    }
+
     @Test("navigate click type and screenshot use fake CDP transport")
     func controlsPageThroughTransport() async throws {
         let temp = FileManager.default.temporaryDirectory
@@ -137,7 +157,7 @@ private actor FakeBrowserCDPTransport: BrowserCDPTransport {
     }
 
     func lastEndpointURL() -> URL? {
-        lastEndpoint?.baseURL
+        lastEndpoint?.displayURL
     }
 
     func command(pageID: String, method: String, params: JSONValue) async throws -> JSONValue {

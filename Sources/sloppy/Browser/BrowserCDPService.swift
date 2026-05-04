@@ -80,10 +80,47 @@ struct BrowserLaunchResult: @unchecked Sendable {
 }
 
 struct BrowserCDPEndpoint: Sendable, Equatable {
-    var baseURL: URL
+    enum Kind: Sendable, Equatable {
+        case http(baseURL: URL)
+        case webSocket(url: URL)
+    }
+
+    var kind: Kind
+
+    var displayURL: URL {
+        switch kind {
+        case .http(let baseURL):
+            return baseURL
+        case .webSocket(let url):
+            return url
+        }
+    }
+
+    var httpBaseURL: URL {
+        switch kind {
+        case .http(let baseURL):
+            return baseURL
+        case .webSocket(let url):
+            var components = URLComponents()
+            components.scheme = url.scheme == "wss" ? "https" : "http"
+            components.host = url.host
+            components.port = url.port
+            return components.url ?? url
+        }
+    }
+
+    var webSocketURL: URL? {
+        switch kind {
+        case .http:
+            return nil
+        case .webSocket(let url):
+            return url
+        }
+    }
 
     var port: Int {
-        baseURL.port ?? (baseURL.scheme == "https" ? 443 : 80)
+        let url = displayURL
+        return url.port ?? (url.scheme == "https" || url.scheme == "wss" ? 443 : 80)
     }
 
     static func parse(_ rawValue: String) throws -> BrowserCDPEndpoint {
@@ -100,35 +137,27 @@ struct BrowserCDPEndpoint: Sendable, Equatable {
         }
 
         guard let rawURL = URL(string: withScheme),
-              let scheme = normalizedScheme(rawURL.scheme),
+              let rawScheme = rawURL.scheme?.lowercased(),
               let host = rawURL.host,
               !host.isEmpty
         else {
             throw BrowserCDPError.invalidEndpoint(rawValue)
         }
 
-        var components = URLComponents()
-        components.scheme = scheme
-        components.host = host
-        components.port = rawURL.port
-        guard let baseURL = components.url else {
-            throw BrowserCDPError.invalidEndpoint(rawValue)
-        }
-        return BrowserCDPEndpoint(baseURL: baseURL)
-    }
-
-    private static func normalizedScheme(_ scheme: String?) -> String? {
-        switch scheme?.lowercased() {
-        case "http":
-            return "http"
-        case "https":
-            return "https"
-        case "ws":
-            return "http"
-        case "wss":
-            return "https"
+        switch rawScheme {
+        case "http", "https":
+            var components = URLComponents()
+            components.scheme = rawScheme
+            components.host = host
+            components.port = rawURL.port
+            guard let baseURL = components.url else {
+                throw BrowserCDPError.invalidEndpoint(rawValue)
+            }
+            return BrowserCDPEndpoint(kind: .http(baseURL: baseURL))
+        case "ws", "wss":
+            return BrowserCDPEndpoint(kind: .webSocket(url: rawURL))
         default:
-            return nil
+            throw BrowserCDPError.invalidEndpoint(rawValue)
         }
     }
 }
@@ -217,8 +246,12 @@ actor URLSessionBrowserCDPTransport: BrowserCDPTransport {
     private var clients: [String: CDPWebSocketClient] = [:]
 
     func newPage(endpoint: BrowserCDPEndpoint, url: String) async throws -> BrowserPageSnapshot {
+        if let webSocketURL = endpoint.webSocketURL {
+            return try await newPage(webSocketURL: webSocketURL, url: url)
+        }
+
         let encodedURL = url.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? "about:blank"
-        var components = URLComponents(url: endpoint.baseURL.appendingPathComponent("json/new"), resolvingAgainstBaseURL: false)
+        var components = URLComponents(url: endpoint.httpBaseURL.appendingPathComponent("json/new"), resolvingAgainstBaseURL: false)
         components?.percentEncodedQuery = encodedURL
         guard let requestURL = components?.url else {
             throw BrowserCDPError.invalidResponse
@@ -238,6 +271,64 @@ actor URLSessionBrowserCDPTransport: BrowserCDPTransport {
         clients[target.id] = client
         let info = try await pageInfo(pageID: target.id, client: client)
         return BrowserPageSnapshot(pageId: target.id, url: info.url, title: info.title)
+    }
+
+    private func newPage(webSocketURL: URL, url: String) async throws -> BrowserPageSnapshot {
+        if webSocketURL.path.contains("/devtools/page/") {
+            return try await connectPage(webSocketURL: webSocketURL, url: url)
+        }
+
+        let browserClient = CDPWebSocketClient(url: webSocketURL)
+        try await browserClient.connect()
+        defer {
+            Task {
+                await browserClient.close()
+            }
+        }
+
+        let response = try await browserClient.send(
+            method: "Target.createTarget",
+            params: .object(["url": .string(url)])
+        )
+        guard let targetID = response.asObject?["result"]?.asObject?["targetId"]?.asString,
+              let pageURL = pageWebSocketURL(from: webSocketURL, targetID: targetID)
+        else {
+            throw BrowserCDPError.invalidResponse
+        }
+        return try await connectPage(webSocketURL: pageURL, url: nil)
+    }
+
+    private func connectPage(webSocketURL: URL, url: String?) async throws -> BrowserPageSnapshot {
+        let targetID = webSocketURL.lastPathComponent
+        guard !targetID.isEmpty else {
+            throw BrowserCDPError.invalidResponse
+        }
+
+        let client = CDPWebSocketClient(url: webSocketURL)
+        try await client.connect()
+        clients[targetID] = client
+
+        if let url, url != "about:blank" {
+            _ = try await client.send(method: "Page.navigate", params: .object(["url": .string(url)]))
+        }
+        let info = try await pageInfo(pageID: targetID, client: client)
+        return BrowserPageSnapshot(pageId: targetID, url: info.url, title: info.title)
+    }
+
+    private func pageWebSocketURL(from browserURL: URL, targetID: String) -> URL? {
+        var components = URLComponents(url: browserURL, resolvingAgainstBaseURL: false)
+        let pathComponents = browserURL.pathComponents.filter { $0 != "/" }
+        guard pathComponents.count >= 2 else {
+            return nil
+        }
+
+        var prefix = pathComponents
+        prefix.removeLast(2)
+        prefix.append(contentsOf: ["page", targetID])
+        components?.path = "/" + prefix.joined(separator: "/")
+        components?.query = nil
+        components?.fragment = nil
+        return components?.url
     }
 
     func command(pageID: String, method: String, params: JSONValue) async throws -> JSONValue {
@@ -561,7 +652,7 @@ public actor BrowserCDPService {
             "running": .bool(sessionIsRunning(session)),
             "pid": session.process.map { .number(Double($0.processIdentifier)) } ?? .null,
             "port": .number(Double(session.port)),
-            "cdpEndpoint": .string(session.endpoint.baseURL.absoluteString),
+            "cdpEndpoint": .string(session.endpoint.displayURL.absoluteString),
             "profilePath": .string(session.profilePath),
             "pageId": activePage.map { .string($0.pageId) } ?? .null,
             "url": activePage.map { .string($0.url) } ?? .null,

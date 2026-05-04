@@ -70,7 +70,7 @@ export function BrowserEditor({ draftConfig, mutateDraft, parseLines }) {
         <label style={{ gridColumn: "1 / -1" }}>
           CDP Endpoint
           <input
-            placeholder="http://127.0.0.1:9222"
+            placeholder="http://127.0.0.1:9222 or ws://127.0.0.1:9222/devtools/browser/..."
             value={browser.cdpEndpoint || ""}
             onChange={(event) =>
               mutateDraft((draft) => {
@@ -79,7 +79,7 @@ export function BrowserEditor({ draftConfig, mutateDraft, parseLines }) {
             }
           />
           <span className="entry-form-hint">
-            Connect to an already running browser started with <code>--remote-debugging-port</code>. Leave empty to let Sloppy launch the browser.
+            Connect to an already running browser started with <code>--remote-debugging-port</code>. Supports DevTools HTTP and WebSocket URLs.
           </span>
         </label>
 
