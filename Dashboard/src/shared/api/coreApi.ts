@@ -206,7 +206,7 @@ export interface CoreApi {
   rejectPendingApproval: (approvalId: string) => Promise<boolean>;
   blockPendingApproval: (approvalId: string) => Promise<boolean>;
   fetchPendingToolApprovals: () => Promise<AnyRecord[] | null>;
-  approveToolApproval: (approvalId: string) => Promise<AnyRecord | null>;
+  approveToolApproval: (approvalId: string, scope?: "once" | "session") => Promise<AnyRecord | null>;
   rejectToolApproval: (approvalId: string) => Promise<AnyRecord | null>;
   fetchAccessUsers: (platform?: string) => Promise<AnyRecord[] | null>;
   deleteAccessUser: (userId: string) => Promise<boolean>;
@@ -1636,11 +1636,11 @@ export function createCoreApi(): CoreApi {
       return response.data;
     },
 
-    approveToolApproval: async (approvalId) => {
+    approveToolApproval: async (approvalId, scope = "once") => {
       const response = await requestJson<AnyRecord, AnyRecord>({
         path: `/v1/tool-approvals/${encodeURIComponent(approvalId)}/approve`,
         method: "POST",
-        body: { decidedBy: "dashboard" }
+        body: { decidedBy: "dashboard", scope }
       });
       if (!response.ok) return null;
       return response.data;

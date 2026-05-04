@@ -12,6 +12,7 @@ enum BrowserCDPError: Error, LocalizedError, Sendable, Equatable {
     case noPage
     case pageNotFound
     case selectorNotFound(String)
+    case invalidEndpoint(String)
     case cdpFailed(String)
     case invalidResponse
 
@@ -31,6 +32,8 @@ enum BrowserCDPError: Error, LocalizedError, Sendable, Equatable {
             return "Browser page not found."
         case .selectorNotFound(let selector):
             return "Selector not found: \(selector)"
+        case .invalidEndpoint(let endpoint):
+            return "Invalid browser CDP endpoint: \(endpoint)"
         case .cdpFailed(let message):
             return "Browser CDP command failed: \(message)"
         case .invalidResponse:
@@ -54,6 +57,8 @@ enum BrowserCDPError: Error, LocalizedError, Sendable, Equatable {
             return "browser_page_not_found"
         case .selectorNotFound:
             return "browser_selector_not_found"
+        case .invalidEndpoint:
+            return "browser_invalid_endpoint"
         case .cdpFailed:
             return "browser_cdp_failed"
         case .invalidResponse:
@@ -74,12 +79,66 @@ struct BrowserLaunchResult: @unchecked Sendable {
     var profilePath: String
 }
 
+struct BrowserCDPEndpoint: Sendable, Equatable {
+    var baseURL: URL
+
+    var port: Int {
+        baseURL.port ?? (baseURL.scheme == "https" ? 443 : 80)
+    }
+
+    static func parse(_ rawValue: String) throws -> BrowserCDPEndpoint {
+        let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            throw BrowserCDPError.invalidEndpoint(rawValue)
+        }
+
+        let withScheme: String
+        if trimmed.contains("://") {
+            withScheme = trimmed
+        } else {
+            withScheme = "http://\(trimmed)"
+        }
+
+        guard let rawURL = URL(string: withScheme),
+              let scheme = normalizedScheme(rawURL.scheme),
+              let host = rawURL.host,
+              !host.isEmpty
+        else {
+            throw BrowserCDPError.invalidEndpoint(rawValue)
+        }
+
+        var components = URLComponents()
+        components.scheme = scheme
+        components.host = host
+        components.port = rawURL.port
+        guard let baseURL = components.url else {
+            throw BrowserCDPError.invalidEndpoint(rawValue)
+        }
+        return BrowserCDPEndpoint(baseURL: baseURL)
+    }
+
+    private static func normalizedScheme(_ scheme: String?) -> String? {
+        switch scheme?.lowercased() {
+        case "http":
+            return "http"
+        case "https":
+            return "https"
+        case "ws":
+            return "http"
+        case "wss":
+            return "https"
+        default:
+            return nil
+        }
+    }
+}
+
 protocol BrowserProcessLaunching: Sendable {
     func launch(config: CoreConfig.Browser, profileURL: URL) async throws -> BrowserLaunchResult
 }
 
 protocol BrowserCDPTransport: Sendable {
-    func newPage(port: Int, url: String) async throws -> BrowserPageSnapshot
+    func newPage(endpoint: BrowserCDPEndpoint, url: String) async throws -> BrowserPageSnapshot
     func command(pageID: String, method: String, params: JSONValue) async throws -> JSONValue
     func close(pageID: String) async
 }
@@ -157,9 +216,14 @@ struct ChromiumProcessLauncher: BrowserProcessLaunching {
 actor URLSessionBrowserCDPTransport: BrowserCDPTransport {
     private var clients: [String: CDPWebSocketClient] = [:]
 
-    func newPage(port: Int, url: String) async throws -> BrowserPageSnapshot {
+    func newPage(endpoint: BrowserCDPEndpoint, url: String) async throws -> BrowserPageSnapshot {
         let encodedURL = url.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? "about:blank"
-        var request = URLRequest(url: URL(string: "http://127.0.0.1:\(port)/json/new?\(encodedURL)")!)
+        var components = URLComponents(url: endpoint.baseURL.appendingPathComponent("json/new"), resolvingAgainstBaseURL: false)
+        components?.percentEncodedQuery = encodedURL
+        guard let requestURL = components?.url else {
+            throw BrowserCDPError.invalidResponse
+        }
+        var request = URLRequest(url: requestURL)
         request.httpMethod = "PUT"
         let (data, response) = try await SloppyURLSessionFactory.shared.data(for: request)
         if let http = response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
@@ -214,7 +278,8 @@ public actor BrowserCDPService {
     private struct BrowserSession {
         var id: String
         var sessionID: String
-        var process: Process
+        var process: Process?
+        var endpoint: BrowserCDPEndpoint
         var port: Int
         var profilePath: String
         var pages: [String: BrowserPageSnapshot]
@@ -248,7 +313,7 @@ public actor BrowserCDPService {
 
     func open(sessionID: String, url: String?) async throws -> JSONValue {
         let session = try await ensureSession(sessionID: sessionID)
-        let page = try await transport.newPage(port: session.port, url: normalizedURL(url))
+        let page = try await transport.newPage(endpoint: session.endpoint, url: normalizedURL(url))
         var updated = session
         updated.pages[page.pageId] = page
         sessionsByAgentSession[sessionID] = updated
@@ -330,8 +395,8 @@ public actor BrowserCDPService {
         for pageID in session.pages.keys {
             await transport.close(pageID: pageID)
         }
-        if session.process.isRunning {
-            session.process.terminate()
+        if session.process?.isRunning == true {
+            session.process?.terminate()
         }
         sessionsByAgentSession.removeValue(forKey: sessionID)
         return .object(["running": .bool(false), "browserSessionId": .string(session.id)])
@@ -343,35 +408,64 @@ public actor BrowserCDPService {
 
     func shutdown() {
         for (_, session) in sessionsByAgentSession {
-            if session.process.isRunning {
-                session.process.terminate()
+            if session.process?.isRunning == true {
+                session.process?.terminate()
             }
         }
         sessionsByAgentSession.removeAll()
     }
 
     private func ensureSession(sessionID: String) async throws -> BrowserSession {
-        if let session = sessionsByAgentSession[sessionID], session.process.isRunning {
+        if let session = sessionsByAgentSession[sessionID], sessionIsRunning(session) {
             return session
         }
         guard config.enabled else {
             throw BrowserCDPError.disabled
         }
+
+        if let externalEndpoint = try configuredEndpoint() {
+            let session = BrowserSession(
+                id: "browser-\(UUID().uuidString.lowercased())",
+                sessionID: sessionID,
+                process: nil,
+                endpoint: externalEndpoint,
+                port: externalEndpoint.port,
+                profilePath: "",
+                pages: [:]
+            )
+            sessionsByAgentSession[sessionID] = session
+            return session
+        }
+
         guard !config.executablePath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             throw BrowserCDPError.executableMissing
         }
         let profileURL = resolvedProfileURL(config: config)
         let launch = try await launcher.launch(config: config, profileURL: profileURL)
+        let endpoint = try BrowserCDPEndpoint.parse("http://127.0.0.1:\(launch.port)")
         let session = BrowserSession(
             id: "browser-\(UUID().uuidString.lowercased())",
             sessionID: sessionID,
             process: launch.process,
+            endpoint: endpoint,
             port: launch.port,
             profilePath: launch.profilePath,
             pages: [:]
         )
         sessionsByAgentSession[sessionID] = session
         return session
+    }
+
+    private func configuredEndpoint() throws -> BrowserCDPEndpoint? {
+        let rawEndpoint = config.cdpEndpoint.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !rawEndpoint.isEmpty else {
+            return nil
+        }
+        return try BrowserCDPEndpoint.parse(rawEndpoint)
+    }
+
+    private func sessionIsRunning(_ session: BrowserSession) -> Bool {
+        session.process?.isRunning ?? true
     }
 
     private func resolvedProfileURL(config: CoreConfig.Browser) -> URL {
@@ -464,9 +558,10 @@ public actor BrowserCDPService {
     private func sessionPayload(_ session: BrowserSession, activePage: BrowserPageSnapshot?) -> JSONValue {
         .object([
             "browserSessionId": .string(session.id),
-            "running": .bool(session.process.isRunning),
-            "pid": .number(Double(session.process.processIdentifier)),
+            "running": .bool(sessionIsRunning(session)),
+            "pid": session.process.map { .number(Double($0.processIdentifier)) } ?? .null,
             "port": .number(Double(session.port)),
+            "cdpEndpoint": .string(session.endpoint.baseURL.absoluteString),
             "profilePath": .string(session.profilePath),
             "pageId": activePage.map { .string($0.pageId) } ?? .null,
             "url": activePage.map { .string($0.url) } ?? .null,

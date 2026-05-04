@@ -237,6 +237,8 @@ public actor CoreService {
     var sessionWorkingDirectories: [String: String] = [:]
     /// When set, only these tool IDs may execute for the session (subagent isolation overlay).
     var sessionSubagentToolAllowList: [String: Set<String>] = [:]
+    /// Tool approvals granted for the lifetime of an agent session/channel, keyed by agent and session scope.
+    var toolApprovalSessionAllowances: [String: Set<String>] = [:]
     /// Prevents overlapping memory checkpoints per agent/session pair.
     var memoryCheckpointLocks: Set<String> = []
     public let notificationService: NotificationService
@@ -483,8 +485,7 @@ public actor CoreService {
                     agentID: agentID,
                     sessionID: sessionID,
                     request: request,
-                    recordSessionEvents: false,
-                    requireApproval: true
+                    recordSessionEvents: false
                 )
             }
             await self.sessionOrchestrator.updateResponseChunkObserver { [weak self] agentID, sessionID, chunk in

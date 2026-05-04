@@ -1835,6 +1835,7 @@ body.agent-chat-no-page-scroll .page {
 .agent-chat-tool-approval-actions {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 8px;
 }
 
@@ -1846,6 +1847,10 @@ body.agent-chat-no-page-scroll .page {
 
 .agent-chat-tool-approval-reject {
   color: var(--muted);
+}
+
+.agent-chat-tool-approval-session {
+  color: var(--text);
 }
 
 .agent-chat-tool-approval-approve {

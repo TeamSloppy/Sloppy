@@ -17,6 +17,7 @@ func toolsStoreAutoCreatesDefaultPolicy() throws {
     #expect(policy.version == 1)
     #expect(policy.defaultPolicy == .allow)
     #expect(policy.tools.isEmpty)
+    #expect(policy.approval.enabled == false)
 
     let toolsFile = agentDirectory.appendingPathComponent("tools/tools.json")
     #expect(FileManager.default.fileExists(atPath: toolsFile.path))
@@ -135,4 +136,5 @@ func toolsStoreLoadsLegacyGuardrailsWithLoopDefaults() throws {
     #expect(policy.guardrails.maxIdenticalToolCallsPerWindow == 6)
     #expect(policy.guardrails.maxRepeatedNonRetryableFailures == 2)
     #expect(policy.guardrails.maxExecTimeoutMs == 120_000)
+    #expect(policy.approval.enabled == false)
 }

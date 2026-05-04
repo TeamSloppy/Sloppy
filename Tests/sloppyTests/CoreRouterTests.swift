@@ -1843,6 +1843,7 @@ func agentToolsEndpointsReadAndUpdate() async throws {
     let fetched = try decoder.decode(AgentToolsPolicy.self, from: getResponse.body)
     #expect(fetched.version == 1)
     #expect(fetched.defaultPolicy == .allow)
+    #expect(fetched.approval.enabled == false)
 
     let updateRequest = AgentToolsUpdateRequest(
         version: 1,
@@ -1851,6 +1852,7 @@ func agentToolsEndpointsReadAndUpdate() async throws {
             "agents.list": true,
             "sessions.list": true
         ],
+        approval: AgentToolApprovalSettings(enabled: true),
         guardrails: AgentToolsGuardrails()
     )
     let updateBody = try JSONEncoder().encode(updateRequest)
@@ -1859,6 +1861,7 @@ func agentToolsEndpointsReadAndUpdate() async throws {
 
     let updated = try decoder.decode(AgentToolsPolicy.self, from: updateResponse.body)
     #expect(updated.defaultPolicy == .deny)
+    #expect(updated.approval.enabled == true)
     #expect(updated.tools["agents.list"] == true)
     #expect(updated.tools["sessions.list"] == true)
 

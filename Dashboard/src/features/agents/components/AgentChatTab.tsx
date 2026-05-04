@@ -2087,6 +2087,7 @@ function AgentChatToolApprovalBanner({
   resolvingId = null,
   statusText = "",
   onApprove,
+  onApproveForSession,
   onReject
 }) {
   if (!Array.isArray(approvals) || approvals.length === 0) {
@@ -2123,6 +2124,9 @@ function AgentChatToolApprovalBanner({
       <div className="agent-chat-tool-approval-actions">
         <button type="button" className="agent-chat-tool-approval-reject" onClick={() => onReject?.(approval.id)} disabled={isWorking}>
           Reject
+        </button>
+        <button type="button" className="agent-chat-tool-approval-session" onClick={() => onApproveForSession?.(approval.id)} disabled={isWorking}>
+          Allow for this session
         </button>
         <button type="button" className="agent-chat-tool-approval-approve" onClick={() => onApprove?.(approval.id)} disabled={isWorking}>
           Approve
@@ -3079,20 +3083,20 @@ export function AgentChatTab({
     };
   }, [refreshPendingToolApprovals, activeSessionId]);
 
-  async function resolvePendingToolApproval(approvalId, approved) {
+  async function resolvePendingToolApproval(approvalId, approved, scope = "once") {
     if (!approvalId || resolvingToolApprovalId) {
       return;
     }
     setResolvingToolApprovalId(approvalId);
     setToolApprovalStatusText("");
     const record = approved
-      ? await approveToolApproval(approvalId)
+      ? await approveToolApproval(approvalId, scope)
       : await rejectToolApproval(approvalId);
     setResolvingToolApprovalId(null);
 
     if (record) {
       setPendingToolApprovals((prev) => prev.filter((approval) => approval?.id !== approvalId));
-      setToolApprovalStatusText(approved ? "Approved." : "Rejected.");
+      setToolApprovalStatusText(approved && scope === "session" ? "Allowed for this session." : approved ? "Approved." : "Rejected.");
       window.setTimeout(() => setToolApprovalStatusText(""), 1_500);
     } else {
       await refreshPendingToolApprovals().catch(() => {});
@@ -5460,6 +5464,7 @@ export function AgentChatTab({
                   resolvingId={resolvingToolApprovalId}
                   statusText={toolApprovalStatusText}
                   onApprove={(approvalId) => void resolvePendingToolApproval(approvalId, true)}
+                  onApproveForSession={(approvalId) => void resolvePendingToolApproval(approvalId, true, "session")}
                   onReject={(approvalId) => void resolvePendingToolApproval(approvalId, false)}
                 />
 

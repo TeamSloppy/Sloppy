@@ -5,6 +5,108 @@ import Testing
 @testable import sloppy
 
 @Test
+func toolApprovalIsDisabledByDefaultForRuntimeTools() async throws {
+    let service = CoreService(config: .test, persistenceBuilder: InMemoryCorePersistenceBuilder())
+    let session = try await makeApprovalSession(service: service, agentID: "approval-default-off")
+
+    let result = await service.invokeToolFromRuntime(
+        agentID: "approval-default-off",
+        sessionID: session.id,
+        request: ToolInvocationRequest(
+            tool: "runtime.exec",
+            arguments: [
+                "command": .string("/bin/echo"),
+                "arguments": .array([.string("no-approval")])
+            ]
+        ),
+        recordSessionEvents: false
+    )
+
+    #expect(result.ok == true)
+    #expect(await service.listPendingToolApprovals().isEmpty)
+}
+
+@Test
+func toolsPolicyCanEnableToolApproval() async throws {
+    let service = CoreService(config: .test, persistenceBuilder: InMemoryCorePersistenceBuilder())
+    let session = try await makeApprovalSession(service: service, agentID: "approval-policy-on")
+    _ = try await service.updateAgentToolsPolicy(
+        agentID: "approval-policy-on",
+        request: AgentToolsUpdateRequest(approval: AgentToolApprovalSettings(enabled: true))
+    )
+
+    let invocation = Task {
+        await service.invokeToolFromRuntime(
+            agentID: "approval-policy-on",
+            sessionID: session.id,
+            request: ToolInvocationRequest(
+                tool: "runtime.exec",
+                arguments: [
+                    "command": .string("/bin/echo"),
+                    "arguments": .array([.string("policy-approved")])
+                ]
+            ),
+            recordSessionEvents: false
+        )
+    }
+
+    let pending = try await waitForPendingToolApproval(service)
+    #expect(pending.tool == "runtime.exec")
+
+    let approved = await service.approveToolApproval(id: pending.id, decidedBy: "test")
+    #expect(approved?.status == .approved)
+
+    let result = await invocation.value
+    #expect(result.ok == true)
+}
+
+@Test
+func sessionScopedToolApprovalSkipsNextSameToolApproval() async throws {
+    let service = CoreService(config: .test, persistenceBuilder: InMemoryCorePersistenceBuilder())
+    let session = try await makeApprovalSession(service: service, agentID: "approval-session-allow")
+    _ = try await service.updateAgentToolsPolicy(
+        agentID: "approval-session-allow",
+        request: AgentToolsUpdateRequest(approval: AgentToolApprovalSettings(enabled: true))
+    )
+
+    let firstInvocation = Task {
+        await service.invokeToolFromRuntime(
+            agentID: "approval-session-allow",
+            sessionID: session.id,
+            request: ToolInvocationRequest(
+                tool: "runtime.exec",
+                arguments: [
+                    "command": .string("/bin/echo"),
+                    "arguments": .array([.string("first")])
+                ]
+            ),
+            recordSessionEvents: false
+        )
+    }
+
+    let pending = try await waitForPendingToolApproval(service)
+    let approved = await service.approveToolApproval(id: pending.id, decidedBy: "test", scope: .session)
+    #expect(approved?.status == .approved)
+    #expect((await firstInvocation.value).ok == true)
+
+    let second = await service.invokeToolFromRuntime(
+        agentID: "approval-session-allow",
+        sessionID: session.id,
+        request: ToolInvocationRequest(
+            tool: "runtime.exec",
+            arguments: [
+                "command": .string("/bin/echo"),
+                "arguments": .array([.string("second")])
+            ]
+        ),
+        recordSessionEvents: false
+    )
+
+    #expect(second.ok == true)
+    #expect(await service.listPendingToolApprovals().isEmpty)
+}
+
+@Test
 func riskyToolWaitsForApprovalBeforeExecution() async throws {
     let service = CoreService(config: .test, persistenceBuilder: InMemoryCorePersistenceBuilder())
     let session = try await makeApprovalSession(service: service, agentID: "approval-waits")

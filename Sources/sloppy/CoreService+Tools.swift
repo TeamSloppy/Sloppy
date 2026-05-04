@@ -188,7 +188,7 @@ extension CoreService {
                     channelID: nil,
                     topicID: nil,
                     request: request,
-                    requireApproval: requireApproval
+                    requireApproval: requireApproval || effectivePolicy.approval.enabled
                 ), let deniedResult = toolApprovalDeniedResult(tool: request.tool, approval: approval) {
                     result = deniedResult
                     break
@@ -415,7 +415,7 @@ extension CoreService {
                     channelID: channelID,
                     topicID: topicID,
                     request: request,
-                    requireApproval: requireApproval
+                    requireApproval: requireApproval || effectivePolicy.approval.enabled
                 ), let deniedResult = toolApprovalDeniedResult(tool: request.tool, approval: approval) {
                     result = deniedResult
                     break

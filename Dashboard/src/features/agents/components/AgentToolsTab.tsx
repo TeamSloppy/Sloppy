@@ -91,6 +91,9 @@ function defaultDraft() {
     version: 1,
     defaultPolicy: "allow",
     tools: {},
+    approval: {
+      enabled: false
+    },
     guardrails: {
       maxReadBytes: 524288,
       maxWriteBytes: 524288,
@@ -243,6 +246,10 @@ export function AgentToolsTab({ agentId }) {
         version: Number(policy.version || 1),
         defaultPolicy: String(policy.defaultPolicy || "allow"),
         tools: typeof policy.tools === "object" && policy.tools ? policy.tools : {},
+        approval: {
+          ...defaultDraft().approval,
+          ...(policy.approval || {})
+        },
         guardrails: {
           ...defaultDraft().guardrails,
           ...(policy.guardrails || {})
@@ -305,6 +312,16 @@ export function AgentToolsTab({ agentId }) {
     }));
   }
 
+  function updateApproval(field, value) {
+    setDraft((previous) => ({
+      ...previous,
+      approval: {
+        ...previous.approval,
+        [field]: value
+      }
+    }));
+  }
+
   function isToolEnabled(toolId, state = draft) {
     const explicitlyEnabled = state.tools?.[toolId];
     if (typeof explicitlyEnabled === "boolean") {
@@ -347,6 +364,9 @@ export function AgentToolsTab({ agentId }) {
       version: 1,
       defaultPolicy: draft.defaultPolicy === "deny" ? "deny" : "allow",
       tools: draft.tools,
+      approval: {
+        enabled: Boolean(draft.approval?.enabled)
+      },
       guardrails: {
         maxReadBytes: Number(draft.guardrails.maxReadBytes),
         maxWriteBytes: Number(draft.guardrails.maxWriteBytes),
@@ -420,6 +440,28 @@ export function AgentToolsTab({ agentId }) {
             {activePresetMeta && (
               <p className="placeholder-text" style={{ marginTop: 6 }}>{activePresetMeta.description}</p>
             )}
+          </section>
+
+          <section className="agent-tools-panel">
+            <div className="agent-tools-panel-head">
+              <h4>Tool Approval</h4>
+              <p>Ask before executing risky tools such as command execution, writes, cron, MCP mutations, and delegation.</p>
+            </div>
+
+            <label className="agent-tools-guardrail agent-tools-guardrail-toggle">
+              <span className="agent-tools-guardrail-copy">
+                <span className="agent-tools-guardrail-title">Require Tool Approval</span>
+                <span className="agent-tools-guardrail-note">Off by default. When enabled, risky tool calls wait for a human decision.</span>
+              </span>
+              <span className="agent-tools-switch">
+                <input
+                  type="checkbox"
+                  checked={Boolean(draft.approval?.enabled)}
+                  onChange={(event) => updateApproval("enabled", event.target.checked)}
+                />
+                <span className="agent-tools-switch-track" />
+              </span>
+            </label>
           </section>
 
           <section className="agent-tools-panel">

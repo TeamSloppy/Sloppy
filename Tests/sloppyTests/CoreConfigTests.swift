@@ -537,6 +537,7 @@ func missingBrowserConfigFallsBackToDefaults() throws {
 
     #expect(decoded.browser.enabled == false)
     #expect(decoded.browser.executablePath == "")
+    #expect(decoded.browser.cdpEndpoint == "")
     #expect(decoded.browser.profileName == "default")
     #expect(decoded.browser.profilePath == nil)
     #expect(decoded.browser.headless == false)
@@ -550,6 +551,7 @@ func browserConfigRoundTrips() throws {
     config.browser = .init(
         enabled: true,
         executablePath: "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+        cdpEndpoint: "http://127.0.0.1:9222",
         profileName: "agent",
         profilePath: "/tmp/sloppy-browser-profile",
         headless: true,
@@ -562,6 +564,7 @@ func browserConfigRoundTrips() throws {
 
     #expect(decoded.browser.enabled == true)
     #expect(decoded.browser.executablePath == "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome")
+    #expect(decoded.browser.cdpEndpoint == "http://127.0.0.1:9222")
     #expect(decoded.browser.profileName == "agent")
     #expect(decoded.browser.profilePath == "/tmp/sloppy-browser-profile")
     #expect(decoded.browser.headless == true)

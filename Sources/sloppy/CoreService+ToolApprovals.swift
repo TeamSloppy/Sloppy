@@ -10,8 +10,19 @@ extension CoreService: ToolApprovalBridge {
     }
 
     public func approveToolApproval(id: String, decidedBy: String?) async -> ToolApprovalRecord? {
+        await approveToolApproval(id: id, decidedBy: decidedBy, scope: .once)
+    }
+
+    public func approveToolApproval(
+        id: String,
+        decidedBy: String?,
+        scope: ToolApprovalDecisionScope
+    ) async -> ToolApprovalRecord? {
         guard let record = await toolApprovalService.approve(id: id, decidedBy: decidedBy) else {
             return nil
+        }
+        if scope == .session {
+            rememberToolApprovalSessionAllowance(record)
         }
         _ = await channelDelivery.updateToolApproval(record)
         return record
@@ -41,6 +52,14 @@ extension CoreService: ToolApprovalBridge {
         requireApproval: Bool
     ) async -> ToolApprovalWaitResult? {
         guard requireApproval, requiresHumanApproval(toolID: request.tool, arguments: request.arguments) else {
+            return nil
+        }
+        if isToolApprovalAllowedForSession(
+            agentID: agentID,
+            sessionID: sessionID,
+            channelID: channelID,
+            toolID: request.tool
+        ) {
             return nil
         }
 
@@ -153,5 +172,47 @@ extension CoreService: ToolApprovalBridge {
         }
 
         return false
+    }
+
+    private func rememberToolApprovalSessionAllowance(_ record: ToolApprovalRecord) {
+        guard let scopeID = toolApprovalSessionScopeID(sessionID: record.sessionId, channelID: record.channelId) else {
+            return
+        }
+        let key = toolApprovalSessionAllowanceKey(agentID: record.agentId, scopeID: scopeID)
+        var allowedTools = toolApprovalSessionAllowances[key] ?? []
+        allowedTools.insert("*")
+        toolApprovalSessionAllowances[key] = allowedTools
+    }
+
+    private func isToolApprovalAllowedForSession(
+        agentID: String,
+        sessionID: String?,
+        channelID: String?,
+        toolID: String
+    ) -> Bool {
+        guard let scopeID = toolApprovalSessionScopeID(sessionID: sessionID, channelID: channelID) else {
+            return false
+        }
+        let key = toolApprovalSessionAllowanceKey(agentID: agentID, scopeID: scopeID)
+        let allowedTools = toolApprovalSessionAllowances[key] ?? []
+        return allowedTools.contains("*") || allowedTools.contains(normalizedToolApprovalToolID(toolID))
+    }
+
+    private func toolApprovalSessionScopeID(sessionID: String?, channelID: String?) -> String? {
+        if let sessionID = sessionID?.trimmingCharacters(in: .whitespacesAndNewlines), !sessionID.isEmpty {
+            return "session:\(sessionID)"
+        }
+        if let channelID = channelID?.trimmingCharacters(in: .whitespacesAndNewlines), !channelID.isEmpty {
+            return "channel:\(channelID)"
+        }
+        return nil
+    }
+
+    private func toolApprovalSessionAllowanceKey(agentID: String, scopeID: String) -> String {
+        "\(agentID)\n\(scopeID)"
+    }
+
+    private func normalizedToolApprovalToolID(_ toolID: String) -> String {
+        toolID.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
     }
 }

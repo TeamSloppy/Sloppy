@@ -326,6 +326,7 @@ const EMPTY_CONFIG = {
   browser: {
     enabled: false,
     executablePath: "",
+    cdpEndpoint: "",
     profileName: "default",
     profilePath: "",
     headless: false,
@@ -741,6 +742,7 @@ function normalizeConfig(config) {
 
   normalized.browser.enabled = Boolean(config?.browser?.enabled);
   normalized.browser.executablePath = String(config?.browser?.executablePath || "");
+  normalized.browser.cdpEndpoint = String(config?.browser?.cdpEndpoint || "");
   normalized.browser.profileName = String(config?.browser?.profileName || "default").trim() || "default";
   normalized.browser.profilePath = String(config?.browser?.profilePath || "");
   normalized.browser.headless = Boolean(config?.browser?.headless);

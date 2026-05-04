@@ -5,6 +5,7 @@ function ensureBrowser(draft) {
     draft.browser = {
       enabled: false,
       executablePath: "",
+      cdpEndpoint: "",
       profileName: "default",
       profilePath: "",
       headless: false,
@@ -22,6 +23,7 @@ export function BrowserEditor({ draftConfig, mutateDraft, parseLines }) {
   const browser = draftConfig.browser || {
     enabled: false,
     executablePath: "",
+    cdpEndpoint: "",
     profileName: "default",
     profilePath: "",
     headless: false,
@@ -33,7 +35,7 @@ export function BrowserEditor({ draftConfig, mutateDraft, parseLines }) {
     <section className="entry-editor-card">
       <h3>Browser Control</h3>
       <p className="placeholder-text">
-        Configure a Chromium-compatible browser for agent <code>browser.*</code> tools. Sloppy uses a managed profile by default.
+        Configure a Chromium-compatible browser for agent <code>browser.*</code> tools. Sloppy can launch a managed browser or connect to an existing CDP endpoint.
       </p>
       <div className="entry-form-grid">
         <label className="entry-toggle-row" style={{ gridColumn: "1 / -1" }}>
@@ -61,7 +63,23 @@ export function BrowserEditor({ draftConfig, mutateDraft, parseLines }) {
             }
           />
           <span className="entry-form-hint">
-            Use Chrome, Chromium, Edge, Brave, or another browser with Chrome DevTools Protocol support.
+            Use Chrome, Chromium, Edge, Brave, or another browser with Chrome DevTools Protocol support. Optional when CDP endpoint is set.
+          </span>
+        </label>
+
+        <label style={{ gridColumn: "1 / -1" }}>
+          CDP Endpoint
+          <input
+            placeholder="http://127.0.0.1:9222"
+            value={browser.cdpEndpoint || ""}
+            onChange={(event) =>
+              mutateDraft((draft) => {
+                ensureBrowser(draft).cdpEndpoint = event.target.value;
+              })
+            }
+          />
+          <span className="entry-form-hint">
+            Connect to an already running browser started with <code>--remote-debugging-port</code>. Leave empty to let Sloppy launch the browser.
           </span>
         </label>
 

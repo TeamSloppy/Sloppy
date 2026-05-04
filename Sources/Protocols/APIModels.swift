@@ -2100,18 +2100,46 @@ public struct AgentToolsPolicy: Codable, Sendable, Equatable {
     public var version: Int
     public var defaultPolicy: AgentPolicyDefault
     public var tools: [String: Bool]
+    public var approval: AgentToolApprovalSettings
     public var guardrails: AgentToolsGuardrails
 
     public init(
         version: Int = 1,
         defaultPolicy: AgentPolicyDefault = .allow,
         tools: [String: Bool] = [:],
+        approval: AgentToolApprovalSettings = .init(),
         guardrails: AgentToolsGuardrails = .init()
     ) {
         self.version = version
         self.defaultPolicy = defaultPolicy
         self.tools = tools
+        self.approval = approval
         self.guardrails = guardrails
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case version
+        case defaultPolicy
+        case tools
+        case approval
+        case guardrails
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.version = try container.decodeIfPresent(Int.self, forKey: .version) ?? 1
+        self.defaultPolicy = try container.decodeIfPresent(AgentPolicyDefault.self, forKey: .defaultPolicy) ?? .allow
+        self.tools = try container.decodeIfPresent([String: Bool].self, forKey: .tools) ?? [:]
+        self.approval = try container.decodeIfPresent(AgentToolApprovalSettings.self, forKey: .approval) ?? .init()
+        self.guardrails = try container.decodeIfPresent(AgentToolsGuardrails.self, forKey: .guardrails) ?? .init()
+    }
+}
+
+public struct AgentToolApprovalSettings: Codable, Sendable, Equatable {
+    public var enabled: Bool
+
+    public init(enabled: Bool = false) {
+        self.enabled = enabled
     }
 }
 
@@ -2119,18 +2147,38 @@ public struct AgentToolsUpdateRequest: Codable, Sendable {
     public var version: Int?
     public var defaultPolicy: AgentPolicyDefault
     public var tools: [String: Bool]
+    public var approval: AgentToolApprovalSettings
     public var guardrails: AgentToolsGuardrails
 
     public init(
         version: Int? = nil,
         defaultPolicy: AgentPolicyDefault = .allow,
         tools: [String: Bool] = [:],
+        approval: AgentToolApprovalSettings = .init(),
         guardrails: AgentToolsGuardrails = .init()
     ) {
         self.version = version
         self.defaultPolicy = defaultPolicy
         self.tools = tools
+        self.approval = approval
         self.guardrails = guardrails
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case version
+        case defaultPolicy
+        case tools
+        case approval
+        case guardrails
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.version = try container.decodeIfPresent(Int.self, forKey: .version)
+        self.defaultPolicy = try container.decodeIfPresent(AgentPolicyDefault.self, forKey: .defaultPolicy) ?? .allow
+        self.tools = try container.decodeIfPresent([String: Bool].self, forKey: .tools) ?? [:]
+        self.approval = try container.decodeIfPresent(AgentToolApprovalSettings.self, forKey: .approval) ?? .init()
+        self.guardrails = try container.decodeIfPresent(AgentToolsGuardrails.self, forKey: .guardrails) ?? .init()
     }
 }
 
@@ -2220,9 +2268,29 @@ public struct ToolApprovalRecord: Codable, Sendable, Equatable, Identifiable {
 
 public struct ToolApprovalDecisionRequest: Codable, Sendable, Equatable {
     public var decidedBy: String?
+    public var scope: ToolApprovalDecisionScope
 
-    public init(decidedBy: String? = nil) {
+    public init(decidedBy: String? = nil, scope: ToolApprovalDecisionScope = .once) {
         self.decidedBy = decidedBy
+        self.scope = scope
+    }
+}
+
+public enum ToolApprovalDecisionScope: String, Codable, Sendable, Equatable, CaseIterable {
+    case once
+    case session
+}
+
+extension ToolApprovalDecisionRequest {
+    enum CodingKeys: String, CodingKey {
+        case decidedBy
+        case scope
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.decidedBy = try container.decodeIfPresent(String.self, forKey: .decidedBy)
+        self.scope = try container.decodeIfPresent(ToolApprovalDecisionScope.self, forKey: .scope) ?? .once
     }
 }
 

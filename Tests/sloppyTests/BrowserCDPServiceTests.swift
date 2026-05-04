@@ -21,7 +21,28 @@ struct BrowserCDPServiceTests {
         #expect(object["browserSessionId"]?.asString?.hasPrefix("browser-") == true)
         #expect(object["pageId"]?.asString == "page-1")
         #expect(object["url"]?.asString == "https://example.com")
+        #expect(object["cdpEndpoint"]?.asString == "http://127.0.0.1:9222")
         #expect(object["profilePath"]?.asString?.hasSuffix("/.browser-profiles/tests") == true)
+    }
+
+    @Test("open can use configured external CDP endpoint without launching browser")
+    func openUsesConfiguredCDPEndpoint() async throws {
+        let transport = FakeBrowserCDPTransport()
+        let service = BrowserCDPService(
+            config: .init(enabled: true, cdpEndpoint: "127.0.0.1:9223"),
+            workspaceRootURL: FileManager.default.temporaryDirectory,
+            launcher: FailingBrowserProcessLauncher(),
+            transport: transport
+        )
+
+        let payload = try await service.open(sessionID: "session-external", url: "https://example.com")
+        let object = payload.asObject ?? [:]
+
+        #expect(object["running"]?.asBool == true)
+        #expect(object["pid"] == .null)
+        #expect(object["port"]?.asInt == 9223)
+        #expect(object["cdpEndpoint"]?.asString == "http://127.0.0.1:9223")
+        #expect(await transport.lastEndpointURL()?.absoluteString == "http://127.0.0.1:9223")
     }
 
     @Test("navigate click type and screenshot use fake CDP transport")
@@ -96,15 +117,27 @@ private struct FakeBrowserProcessLauncher: BrowserProcessLaunching {
     }
 }
 
+private struct FailingBrowserProcessLauncher: BrowserProcessLaunching {
+    func launch(config _: CoreConfig.Browser, profileURL _: URL) async throws -> BrowserLaunchResult {
+        throw BrowserCDPError.launchFailed("launcher should not be called")
+    }
+}
+
 private actor FakeBrowserCDPTransport: BrowserCDPTransport {
     private var counter = 0
+    private var lastEndpoint: BrowserCDPEndpoint?
     private var pages: [String: BrowserPageSnapshot] = [:]
 
-    func newPage(port _: Int, url: String) async throws -> BrowserPageSnapshot {
+    func newPage(endpoint: BrowserCDPEndpoint, url: String) async throws -> BrowserPageSnapshot {
+        lastEndpoint = endpoint
         counter += 1
         let page = BrowserPageSnapshot(pageId: "page-\(counter)", url: url, title: "Fake")
         pages[page.pageId] = page
         return page
+    }
+
+    func lastEndpointURL() -> URL? {
+        lastEndpoint?.baseURL
     }
 
     func command(pageID: String, method: String, params: JSONValue) async throws -> JSONValue {

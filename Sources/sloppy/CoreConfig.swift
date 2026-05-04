@@ -653,6 +653,7 @@ public struct CoreConfig: Codable, Sendable {
     public struct Browser: Codable, Sendable, Equatable {
         public var enabled: Bool
         public var executablePath: String
+        public var cdpEndpoint: String
         public var profileName: String
         public var profilePath: String?
         public var headless: Bool
@@ -662,6 +663,7 @@ public struct CoreConfig: Codable, Sendable {
         private enum CodingKeys: String, CodingKey {
             case enabled
             case executablePath
+            case cdpEndpoint
             case profileName
             case profilePath
             case headless
@@ -672,6 +674,7 @@ public struct CoreConfig: Codable, Sendable {
         public init(
             enabled: Bool = false,
             executablePath: String = "",
+            cdpEndpoint: String = "",
             profileName: String = "default",
             profilePath: String? = nil,
             headless: Bool = false,
@@ -680,6 +683,7 @@ public struct CoreConfig: Codable, Sendable {
         ) {
             self.enabled = enabled
             self.executablePath = executablePath
+            self.cdpEndpoint = cdpEndpoint
             self.profileName = profileName
             self.profilePath = profilePath
             self.headless = headless
@@ -691,6 +695,7 @@ public struct CoreConfig: Codable, Sendable {
             let container = try decoder.container(keyedBy: CodingKeys.self)
             enabled = try container.decodeIfPresent(Bool.self, forKey: .enabled) ?? false
             executablePath = try container.decodeIfPresent(String.self, forKey: .executablePath) ?? ""
+            cdpEndpoint = try container.decodeIfPresent(String.self, forKey: .cdpEndpoint) ?? ""
             let decodedProfileName = try container.decodeIfPresent(String.self, forKey: .profileName) ?? "default"
             profileName = decodedProfileName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                 ? "default"

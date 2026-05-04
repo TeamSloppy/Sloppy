@@ -576,6 +576,7 @@ final class AgentCatalogFileStore {
             version: 1,
             defaultPolicy: .allow,
             tools: [:],
+            approval: .init(enabled: false),
             guardrails: .init()
         )
         let encoder = JSONEncoder()

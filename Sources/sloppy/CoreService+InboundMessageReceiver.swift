@@ -524,8 +524,7 @@ extension CoreService {
                     agentID: agentID,
                     channelID: channelId,
                     request: toolRequest,
-                    topicID: topicId,
-                    requireApproval: true
+                    topicID: topicId
                 )
             }
         } else {

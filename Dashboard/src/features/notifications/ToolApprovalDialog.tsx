@@ -71,16 +71,16 @@ export function ToolApprovalDialog({
     return () => { cancelled = true; };
   }, [approvalId]);
 
-  async function resolve(approved: boolean) {
+  async function resolve(approved: boolean, scope: "once" | "session" = "once") {
     setWorking(true);
     setStatus("");
     const record = approved
-      ? await approveToolApproval(approvalId)
+      ? await approveToolApproval(approvalId, scope)
       : await rejectToolApproval(approvalId);
     setWorking(false);
 
     if (record) {
-      setStatus(approved ? "Approved." : "Rejected.");
+      setStatus(approved && scope === "session" ? "Allowed for this session." : approved ? "Approved." : "Rejected.");
       onResolved?.();
       setTimeout(onClose, 700);
     } else {
@@ -173,6 +173,14 @@ export function ToolApprovalDialog({
               style={{ color: "var(--text-muted)" }}
             >
               Reject
+            </button>
+            <button
+              type="button"
+              className="tg-modal-cancel hover-levitate"
+              onClick={() => void resolve(true, "session")}
+              disabled={working}
+            >
+              Allow for this session
             </button>
             <button
               type="button"

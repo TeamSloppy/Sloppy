@@ -119,7 +119,11 @@ struct ChannelsAPIRouter: APIRouter {
         router.post("/v1/tool-approvals/:approvalId/approve", metadata: RouteMetadata(summary: "Approve tool call", description: "Approves a pending risky tool call", tags: ["Tools"])) { request in
             let approvalId = request.pathParam("approvalId") ?? ""
             let payload = request.body.flatMap { CoreRouter.decode($0, as: ToolApprovalDecisionRequest.self) }
-            guard let record = await service.approveToolApproval(id: approvalId, decidedBy: payload?.decidedBy) else {
+            guard let record = await service.approveToolApproval(
+                id: approvalId,
+                decidedBy: payload?.decidedBy,
+                scope: payload?.scope ?? .once
+            ) else {
                 return CoreRouter.json(status: HTTPStatus.notFound, payload: ["error": "not_found"])
             }
             return CoreRouter.encodable(status: HTTPStatus.ok, payload: record)
