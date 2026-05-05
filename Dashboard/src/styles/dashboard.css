@@ -561,6 +561,133 @@
   shape-rendering: crispEdges;
 }
 
+.agent-pet-sheet {
+  width: 100%;
+  aspect-ratio: 1;
+  background-repeat: no-repeat;
+  background-size: 400% 600%;
+  image-rendering: pixelated;
+  filter: drop-shadow(0 16px 18px rgba(0, 0, 0, 0.22));
+}
+
+.agent-pet-sheet--icon {
+  width: 100%;
+  height: 100%;
+  aspect-ratio: auto;
+  filter: none;
+}
+
+.agent-pet-terminal-face {
+  font-family: var(--font-mono, monospace);
+  color: var(--text-primary);
+}
+
+.agent-pet-evolution {
+  display: grid;
+  gap: 8px;
+}
+
+.agent-pet-evolution-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.agent-pet-evolution-meter {
+  height: 8px;
+}
+
+.agent-pet-create-section {
+  gap: 12px;
+}
+
+.agent-pet-create-head,
+.agent-pet-preview-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.agent-pet-create-face {
+  font-family: var(--font-mono, monospace);
+  color: var(--text-primary);
+  white-space: nowrap;
+}
+
+.agent-pet-mode-row {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.agent-pet-mode-button {
+  min-height: 34px;
+}
+
+.agent-pet-mode-button.is-active {
+  border-color: var(--accent);
+  color: var(--text-primary);
+}
+
+.agent-pet-preview {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+.agent-pet-preview .agent-pet-sprite {
+  width: 54px;
+}
+
+.agent-pet-generation-progress {
+  display: grid;
+  gap: 6px;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.agent-pet-generation-progress-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.agent-pet-generation-progress-meter {
+  height: 5px;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid var(--border-subtle);
+}
+
+.agent-pet-generation-progress-meter > div {
+  height: 100%;
+  background: var(--accent);
+  transition: width 180ms ease;
+}
+
+.agent-pet-generated-prompt {
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.agent-pet-generated-prompt summary {
+  cursor: pointer;
+  color: var(--text-primary);
+}
+
+.agent-pet-generated-prompt p {
+  margin: 8px 0 0;
+  line-height: 1.45;
+  white-space: pre-wrap;
+}
+
 .agent-pet-png-stack {
   position: relative;
   width: 100%;

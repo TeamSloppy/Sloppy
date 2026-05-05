@@ -32,10 +32,7 @@ function useBoard() {
         if (name && agentId) {
           const agent = agentById.get(agentId);
           if (agent?.pet?.parts) {
-            petMap[name] = {
-              parts: agent.pet.parts,
-              genomeHex: agent.pet.genomeHex
-            };
+            petMap[name] = agent.pet;
           }
         }
       }
@@ -84,7 +81,7 @@ function AgentStack({ actorNames, teams = [], actorPetByName, teamMembersByName 
       {visible.map(({ name, pet }) => (
         <div key={name} className="project-agent-icon">
           {pet?.parts ? (
-            <AgentPetIcon parts={pet.parts} genomeHex={pet.genomeHex} />
+            <AgentPetIcon pet={pet} parts={pet.parts} genomeHex={pet.genomeHex} />
           ) : (
             name.slice(0, 2).toUpperCase()
           )}

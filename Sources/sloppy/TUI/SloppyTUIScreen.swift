@@ -52,6 +52,7 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
     private static let baseSlashCommands = [
         SloppyTUISlashCommand("help", "Show TUI commands"),
         SloppyTUISlashCommand("status", "Show session status"),
+        SloppyTUISlashCommand("pet", "Toggle Sloppie pet and show terminal face status"),
         SloppyTUISlashCommand("agents", "Switch agent"),
         SloppyTUISlashCommand("sessions", "Switch session"),
         SloppyTUISlashCommand("resume", "Resume a previous conversation"),
@@ -100,7 +101,7 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
     private var localCards: [SloppyTUILocalCard] = []
     private var pendingContext: String?
     private var pendingUploads: [AgentAttachmentUpload] = []
-    private var chatMode: AgentChatMode = .ask
+    private var chatMode: AgentChatMode = .build
     private var selectedModel = "default"
     private var reasoningEffort: ReasoningEffort?
     private var skillSlashCommands: [SloppyTUISlashCommand] = []
@@ -119,9 +120,12 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
     private var projectFileRootURL: URL?
     private var projectFileSearchSelection = 0
     private var suppressedProjectFileToken: String?
+    private var projectFileIndexGeneration = 0
+    private var projectFileSearchCache: (generation: Int, token: String, items: [SloppyTUIPickerItem])?
     private var liveAssistantDraft: String?
     private var thinkingFrame = 0
     private var thinkingWord = "thinking"
+    private var petMood: AgentPetAnimationState = .idle
     private var welcomeDismissed = false
     private var isPosting = false
     private var exitAfterModelSelection = false
@@ -160,6 +164,11 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
         editor.onChange = { [weak self] value in
             self?.persistDraft(value)
             self?.projectFileSearchSelection = 0
+            self?.projectFileSearchCache = nil
+            if let suppressed = self?.suppressedProjectFileToken,
+               self?.currentProjectFileToken()?.rawToken != suppressed {
+                self?.suppressedProjectFileToken = nil
+            }
         }
         let draftKey = SloppyTUIStateStore.draftKey(
             projectId: project.id,
@@ -360,9 +369,15 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
     }
 
     private func handleProjectFileSearchInput(_ input: TerminalInput) -> Bool {
-        guard let picker = projectFileSearchPicker() else { return false }
         guard case let .key(key, _) = input else { return false }
+        switch key {
+        case .arrowUp, .arrowDown, .enter, .tab, .escape:
+            break
+        default:
+            return false
+        }
 
+        guard let picker = projectFileSearchPicker() else { return false }
         switch key {
         case .arrowUp:
             projectFileSearchSelection = max(0, projectFileSearchSelection - 1)
@@ -376,7 +391,7 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
             applyProjectFileSearchItem(picker.items[picker.selectedIndex])
             return true
         case .escape:
-            suppressedProjectFileToken = currentProjectFileToken()?.token
+            suppressedProjectFileToken = currentProjectFileToken()?.rawToken
             requestRender()
             return true
         default:
@@ -492,25 +507,36 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
     private func projectFileSearchPicker() -> SloppyTUIPicker? {
         guard let index = projectFileIndex,
               let token = currentProjectFileToken(),
-              token.token != suppressedProjectFileToken
+              token.rawToken != suppressedProjectFileToken
         else {
             return nil
         }
 
-        let entries = index.search(String(token.token.dropFirst()), limit: 30)
-        guard !entries.isEmpty else {
+        let query = token.path
+        guard shouldSearchProjectFiles(query: query) else {
+            return nil
+        }
+        guard !isExactIndexedFilePath(query, in: index) else {
+            return nil
+        }
+        guard !(query.hasSuffix("/") && isExactIndexedDirectoryPath(query, in: index)) else {
             return nil
         }
 
-        let items = entries.map { entry in
-            let value = entry.type == .directory ? entry.path + "/" : entry.path
-            return SloppyTUIPickerItem(
-                value: value,
-                label: value,
-                description: entry.type == .directory ? "directory" : "file",
-                isCurrent: false
-            )
+        let items: [SloppyTUIPickerItem]
+        if let cached = projectFileSearchCache,
+           cached.generation == projectFileIndexGeneration,
+           cached.token == token.rawToken {
+            items = cached.items
+        } else {
+            let entries = index.completionSearch(query, limit: 30)
+            guard !entries.isEmpty else {
+                return nil
+            }
+            items = entries.map(projectFilePickerItem)
+            projectFileSearchCache = (projectFileIndexGeneration, token.rawToken, items)
         }
+
         if projectFileSearchSelection >= items.count {
             projectFileSearchSelection = max(0, items.count - 1)
         }
@@ -519,6 +545,54 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
             title: "Attach project path",
             items: items,
             selectedIndex: projectFileSearchSelection
+        )
+    }
+
+    private func shouldSearchProjectFiles(query: String) -> Bool {
+        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            return false
+        }
+        if trimmed.hasSuffix("/") {
+            return true
+        }
+        return trimmed.count >= 2
+    }
+
+    private func isExactIndexedFilePath(_ query: String, in index: ProjectFileIndex) -> Bool {
+        let normalized = query
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        guard !normalized.isEmpty else {
+            return false
+        }
+        return index.entries.contains { entry in
+            entry.type == .file && entry.path == normalized
+        }
+    }
+
+    private func isExactIndexedDirectoryPath(_ query: String, in index: ProjectFileIndex) -> Bool {
+        let normalized = query
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        guard !normalized.isEmpty else {
+            return false
+        }
+        return index.entries.contains { entry in
+            entry.type == .directory && entry.path == normalized
+        }
+    }
+
+    private func projectFilePickerItem(entry: ProjectFileIndexEntry) -> SloppyTUIPickerItem {
+        let value = entry.type == .directory ? entry.path + "/" : entry.path
+        let displayPath = value.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        let name = (displayPath as NSString).lastPathComponent + (entry.type == .directory ? "/" : "")
+        let parent = (displayPath as NSString).deletingLastPathComponent
+        return SloppyTUIPickerItem(
+            value: value,
+            label: name,
+            description: parent == "." ? "" : parent,
+            isCurrent: false
         )
     }
 
@@ -535,36 +609,25 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
         var line = lines[token.line]
         let start = line.index(line.startIndex, offsetBy: token.startColumn)
         let end = line.index(line.startIndex, offsetBy: token.endColumn)
-        line.replaceSubrange(start..<end, with: "@\(item.value) ")
+        let insertedToken = "@\(SloppyTUIProjectPathTokens.escapedTokenValue(item.value))"
+        line.replaceSubrange(start..<end, with: insertedToken + " ")
         lines[token.line] = line
-        suppressedProjectFileToken = nil
+        editor.handle(input: .key(.escape))
         projectFileSearchSelection = 0
         editor.setText(lines.joined(separator: "\n"))
+        suppressedProjectFileToken = insertedToken
         requestRender()
     }
 
-    private func currentProjectFileToken() -> (token: String, line: Int, startColumn: Int, endColumn: Int)? {
+    private func currentProjectFileToken() -> SloppyTUIProjectPathTokens.Token? {
         let text = editor.getText()
         let cursor = editor.getCursor()
         let lines = text.components(separatedBy: "\n")
-        guard lines.indices.contains(cursor.line) else {
-            return nil
-        }
-
-        let line = lines[cursor.line]
-        let endColumn = min(cursor.col, line.count)
-        let end = line.index(line.startIndex, offsetBy: endColumn)
-        let beforeCursor = String(line[..<end])
-        let start = beforeCursor.rangeOfCharacter(
-            from: .whitespacesAndNewlines,
-            options: .backwards
-        )?.upperBound ?? beforeCursor.startIndex
-        let token = String(beforeCursor[start...])
-        guard token.hasPrefix("@") else {
-            return nil
-        }
-        let startColumn = beforeCursor.distance(from: beforeCursor.startIndex, to: start)
-        return (token, cursor.line, startColumn, endColumn)
+        return SloppyTUIProjectPathTokens.tokenBeforeCursor(
+            lines: lines,
+            cursorLine: cursor.line,
+            cursorColumn: cursor.col
+        )
     }
 
     private func applyCommandPaletteSelection(_ command: SloppyTUISlashCommand) {
@@ -647,8 +710,10 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
             pendingContext = nil
             pendingUploads.removeAll()
             await reloadSession()
+            petMood = .happy
         } catch {
             liveAssistantDraft = nil
+            petMood = .sad
             appendLocalCard("Message failed: \(String(describing: error))")
         }
         isPosting = false
@@ -668,6 +733,8 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
             showHelp()
         case "status":
             await showStatus()
+        case "pet":
+            showPetStatus(toggle: true)
         case "agents", "agent":
             await showAgentPicker()
         case "sessions", "session", "resume":
@@ -1009,7 +1076,33 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
         - resume: `sloppy -s \(session.id)`
         - model: `\(model)`
         - provider: `\(providerLabel(from: model))`
+        - pet: \(petStatusSummary())
         """, autoDismissAfter: 20)
+    }
+
+    private func showPetStatus(toggle: Bool) {
+        if toggle {
+            state.petEnabled.toggle()
+            stateStore.save(state)
+        }
+        appendLocalCard("""
+        ## Sloppie pet
+        - status: `\(state.petEnabled ? "on" : "off")`
+        - face: `\(terminalPetFace())`
+        - species: `\(agent.pet?.visual?.displayName ?? "legacy sloppie")`
+        - stage: `\(agent.pet?.visual?.currentStage ?? 1)/\(agent.pet?.visual?.stageCount ?? 3)`
+        - xp: `\(agent.pet?.evolution?.totalXp ?? 0)`
+        """, autoDismissAfter: 12)
+        refreshStaticChrome()
+    }
+
+    private func petStatusSummary() -> String {
+        guard state.petEnabled else {
+            return "`off`"
+        }
+        let visual = agent.pet?.visual
+        let stage = visual.map { "\($0.currentStage)/\($0.stageCount)" } ?? "1/3"
+        return "`\(terminalPetFace())` \(visual?.displayName ?? "Sloppie") stage \(stage)"
     }
 
     private func showAgentPicker() async {
@@ -1617,9 +1710,15 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
                 projectFileRootURL = rootURL
 
                 let rootPath = rootURL.standardizedFileURL.path
-                let store = ProjectFileIndexStore(workspaceRoot: runtime.workspaceRoot)
-                if let cached = store.load(projectId: project.id, rootPath: rootPath) {
+                let workspaceRoot = runtime.workspaceRoot
+                let projectID = project.id
+                let cached = await Task.detached(priority: .utility) {
+                    ProjectFileIndexStore(workspaceRoot: workspaceRoot).load(projectId: projectID, rootPath: rootPath)
+                }.value
+                if let cached {
                     applyProjectFileIndex(cached)
+                    scheduleProjectFileReindex(afterNanoseconds: 5_000_000_000)
+                    return
                 }
 
                 rebuildProjectFileIndex(rootURL: rootURL)
@@ -1630,7 +1729,7 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
         }
     }
 
-    private func scheduleProjectFileReindex() {
+    private func scheduleProjectFileReindex(afterNanoseconds delay: UInt64 = 1_200_000_000) {
         guard let rootURL = projectFileRootURL else {
             loadProjectFileIndex()
             return
@@ -1638,7 +1737,7 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
 
         projectFileReindexTask?.cancel()
         projectFileReindexTask = Task { [weak self] in
-            try? await Task.sleep(nanoseconds: 350_000_000)
+            try? await Task.sleep(nanoseconds: delay)
             guard !Task.isCancelled else { return }
             self?.rebuildProjectFileIndex(rootURL: rootURL)
         }
@@ -1649,19 +1748,29 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
         let projectID = project.id
         let workspaceRoot = runtime.workspaceRoot
         projectFileReindexTask = Task { [weak self] in
-            let index = await Task.detached(priority: .utility) {
+            let buildTask = Task.detached(priority: .utility) {
                 let index = ProjectFileIndex.build(projectId: projectID, rootURL: rootURL)
+                guard !Task.isCancelled else {
+                    return nil as ProjectFileIndex?
+                }
                 ProjectFileIndexStore(workspaceRoot: workspaceRoot).save(index)
-                return index
-            }.value
+                return index as ProjectFileIndex?
+            }
+            let index = await withTaskCancellationHandler {
+                await buildTask.value
+            } onCancel: {
+                buildTask.cancel()
+            }
 
-            guard !Task.isCancelled else { return }
+            guard !Task.isCancelled, let index else { return }
             self?.applyProjectFileIndex(index)
         }
     }
 
     private func applyProjectFileIndex(_ index: ProjectFileIndex?) {
         projectFileIndex = index
+        projectFileIndexGeneration += 1
+        projectFileSearchCache = nil
         requestRender()
     }
 
@@ -1703,10 +1812,11 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
                     .filter { $0.kind == .attachment }
                     .compactMap(\.attachment)
                 if !body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    let displayBody = SloppyTUITimelineDisplay.messageText(role: message.role, text: body)
                     if message.role == .assistant, SloppyTUITheme.isModelProviderError(body) {
                         blocks.append(.error(body))
                     } else {
-                        blocks.append(.message(role: message.role, text: body))
+                        blocks.append(.message(role: message.role, text: displayBody))
                     }
                 }
                 if !thinking.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -2080,17 +2190,34 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
         )
         let context = pendingContext == nil ? "" : "  context: queued"
         let attachments = pendingUploads.isEmpty ? "" : "  attachments: \(pendingUploads.count)"
+        let pet = state.petEnabled ? "  pet: \(terminalPetFace())" : ""
         status.text = SloppyTUITheme.status(
             statusLine ?? SloppyTUITheme.sessionStatusLine(
                 mode: chatMode,
                 model: selectedModel,
-                context: context,
+                context: context + pet,
                 attachments: attachments,
                 sessionID: session.id
             ),
             isBusy: statusLine != nil
         )
         requestRender()
+    }
+
+    private func terminalPetFace() -> String {
+        guard let faceSet = agent.pet?.visual?.terminalFaceSet else {
+            return "(o_o)"
+        }
+        switch petMood {
+        case .happy, .interacted:
+            return faceSet.happy
+        case .sad:
+            return faceSet.sad
+        case .sleep:
+            return faceSet.sleep
+        default:
+            return faceSet.idle
+        }
     }
 
     private func refreshSelectedModel() async {
@@ -2357,11 +2484,8 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
             parts.append("\n[Attached files]\n\(list)")
         }
 
-        let tokens = raw.split(whereSeparator: { $0.isWhitespace }).map(String.init)
-        let fileTokens = tokens
-            .filter { $0.hasPrefix("@") && $0.count > 1 }
-            .map { String($0.dropFirst()) }
-        for path in fileTokens.prefix(8) {
+        let paths = SloppyTUIProjectPathTokens.attachmentPaths(in: raw)
+        for path in paths.prefix(8) {
             parts.append("\n\(await projectPathContext(for: path))")
         }
         return parts.joined(separator: "\n")
@@ -2400,12 +2524,15 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
                 projectFileRootURL = rootURL
             }
 
-            let entries = try ProjectFileIndex.directoryManifest(
-                projectId: project.id,
-                rootURL: rootURL,
-                path: path,
-                limit: manifestLimit
-            )
+            let projectID = project.id
+            let entries = try await Task.detached(priority: .utility) {
+                try ProjectFileIndex.directoryManifest(
+                    projectId: projectID,
+                    rootURL: rootURL,
+                    path: path,
+                    limit: manifestLimit
+                )
+            }.value
             let normalized = path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
             let lines = entries.map { entry in
                 let suffix = entry.type == .directory ? "/" : ""

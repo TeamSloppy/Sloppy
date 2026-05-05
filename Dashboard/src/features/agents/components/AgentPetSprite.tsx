@@ -123,6 +123,74 @@ function filterStyle(f: string | undefined): React.CSSProperties | undefined {
   return f ? ({ filter: f } as React.CSSProperties) : undefined;
 }
 
+function frameRangeFor(asset: any, state: string) {
+  const ranges = asset?.stateFrameRanges || {};
+  return ranges[state] || ranges.idle || { start: 0, end: 0, fps: 0, loop: true };
+}
+
+function useSpriteSheetFrame(asset: any, state: string, animated: boolean) {
+  const range = frameRangeFor(asset, state);
+  const start = Number(range.start || 0);
+  const end = Number(range.end ?? start);
+  const fps = Number(range.fps || 0);
+  const loop = range.loop !== false;
+  const [frame, setFrame] = useState(start);
+
+  useEffect(() => {
+    setFrame(start);
+    if (!animated || fps <= 0 || end <= start) return;
+    const timer = window.setInterval(() => {
+      setFrame((current) => {
+        if (current >= end) {
+          return loop ? start : end;
+        }
+        return current + 1;
+      });
+    }, Math.max(80, Math.round(1000 / fps)));
+    return () => window.clearInterval(timer);
+  }, [animated, end, fps, loop, start]);
+
+  return frame;
+}
+
+function stageAssetFor(pet: any, state: string) {
+  const visual = pet?.visual;
+  const assets = Array.isArray(pet?.stageAssets) ? pet.stageAssets : [];
+  if (!visual || assets.length === 0) return null;
+  const stage = Number(visual.currentStage || 1);
+  return assets.find((item: any) => Number(item.stage) === stage) || assets[0];
+}
+
+function SpriteSheetPet({
+  pet,
+  state = "idle",
+  animated = true,
+  icon = false
+}: {
+  pet: any;
+  state?: string;
+  animated?: boolean;
+  icon?: boolean;
+}) {
+  const asset = stageAssetFor(pet, state);
+  const frame = useSpriteSheetFrame(asset, state, animated);
+  if (!asset?.spriteSheetPath) return null;
+
+  const col = frame % 4;
+  const row = Math.floor(frame / 4);
+  return (
+    <div
+      className={icon ? "agent-pet-sheet agent-pet-sheet--icon" : "agent-pet-sheet"}
+      style={{
+        backgroundImage: `url("${asset.spriteSheetPath}")`,
+        backgroundPosition: `${(col / 3) * 100}% ${(row / 5) * 100}%`
+      }}
+      title={pet?.visual?.displayName || "Sloppie"}
+      aria-hidden="true"
+    />
+  );
+}
+
 function SvgSprite({ parts, animated, genomeHex }: { parts?: any; animated: boolean; genomeHex?: string }) {
   const pixelSize = 4;
   const head = resolvePart(HEADS, parts?.headId, "head_vladimir");
@@ -224,17 +292,29 @@ function PngSprite({
 }
 
 export function AgentPetSprite({
+  pet,
   parts,
   genomeHex,
   className = "",
   animated = true,
+  state = "idle",
 }: {
+  pet?: any;
   parts?: any;
   genomeHex?: string;
   className?: string;
   animated?: boolean;
+  state?: string;
 }) {
   const manifest = useManifest();
+  if (pet?.visual && Array.isArray(pet.stageAssets) && pet.stageAssets.length > 0) {
+    return (
+      <div className={`agent-pet-sprite ${className}`.trim()} aria-hidden="true">
+        <SpriteSheetPet pet={pet} state={state} animated={animated} />
+      </div>
+    );
+  }
+
   const headId = resolveSpritePartId(HEADS, parts?.headId, "head_vladimir", manifest);
   const bodyId = resolveSpritePartId(BODIES, parts?.bodyId, "body-core", manifest);
   const legsId = resolveSpritePartId(LEGS, parts?.legsId, "legs-stub", manifest);
@@ -290,15 +370,25 @@ function PngIcon({ parts, manifest, genomeHex }: { parts?: any; manifest: Sprite
 }
 
 export function AgentPetIcon({
+  pet,
   parts,
   genomeHex,
   className = "",
 }: {
+  pet?: any;
   parts?: any;
   genomeHex?: string;
   className?: string;
 }) {
   const manifest = useManifest();
+  if (pet?.visual && Array.isArray(pet.stageAssets) && pet.stageAssets.length > 0) {
+    return (
+      <div className={`agent-pet-icon ${className}`.trim()} aria-hidden="true">
+        <SpriteSheetPet pet={pet} state="avatar" animated={false} icon />
+      </div>
+    );
+  }
+
   const headId = resolveSpritePartId(HEADS, parts?.headId, "head_vladimir", manifest);
   const faceId = resolveSpritePartId(FACES, parts?.faceId, "face-default", manifest);
   const usePng = usePngAvailable(manifest, [headId, faceId]);

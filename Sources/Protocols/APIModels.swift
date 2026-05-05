@@ -1018,19 +1018,22 @@ public struct AgentCreateRequest: Codable, Sendable {
     public var role: String
     public var isSystem: Bool
     public var runtime: AgentRuntimeConfig?
+    public var petDraftId: String?
 
     public init(
         id: String,
         displayName: String,
         role: String,
         isSystem: Bool = false,
-        runtime: AgentRuntimeConfig? = nil
+        runtime: AgentRuntimeConfig? = nil,
+        petDraftId: String? = nil
     ) {
         self.id = id
         self.displayName = displayName
         self.role = role
         self.isSystem = isSystem
         self.runtime = runtime
+        self.petDraftId = petDraftId
     }
 }
 
@@ -1138,6 +1141,120 @@ public struct AgentPetStats: Codable, Sendable, Equatable {
     }
 }
 
+public struct AgentPetTerminalFaceSet: Codable, Sendable, Equatable {
+    public var idle: String
+    public var happy: String
+    public var sad: String
+    public var sleep: String
+
+    public init(
+        idle: String,
+        happy: String,
+        sad: String,
+        sleep: String
+    ) {
+        self.idle = idle
+        self.happy = happy
+        self.sad = sad
+        self.sleep = sleep
+    }
+}
+
+public enum AgentPetAnimationState: String, Codable, Sendable, Equatable, CaseIterable {
+    case idle
+    case walk
+    case happy
+    case sad
+    case interacted
+    case sleep
+    case avatar
+}
+
+public struct AgentPetFrameSize: Codable, Sendable, Equatable {
+    public var width: Int
+    public var height: Int
+
+    public init(width: Int, height: Int) {
+        self.width = width
+        self.height = height
+    }
+}
+
+public struct AgentPetFrameRange: Codable, Sendable, Equatable {
+    public var start: Int
+    public var end: Int
+    public var fps: Int
+    public var loop: Bool
+
+    public init(start: Int, end: Int, fps: Int, loop: Bool) {
+        self.start = start
+        self.end = end
+        self.fps = fps
+        self.loop = loop
+    }
+}
+
+public struct AgentPetStageAsset: Codable, Sendable, Equatable {
+    public var stage: Int
+    public var spriteSheetPath: String
+    public var frameSize: AgentPetFrameSize
+    public var stateFrameRanges: [String: AgentPetFrameRange]
+
+    public init(
+        stage: Int,
+        spriteSheetPath: String,
+        frameSize: AgentPetFrameSize = AgentPetFrameSize(width: 256, height: 256),
+        stateFrameRanges: [String: AgentPetFrameRange]
+    ) {
+        self.stage = stage
+        self.spriteSheetPath = spriteSheetPath
+        self.frameSize = frameSize
+        self.stateFrameRanges = stateFrameRanges
+    }
+}
+
+public struct AgentPetVisualSummary: Codable, Sendable, Equatable {
+    public var speciesId: String
+    public var displayName: String
+    public var source: String
+    public var assetBaseURL: String
+    public var currentStage: Int
+    public var stageCount: Int
+    public var terminalFaceSet: AgentPetTerminalFaceSet
+
+    public init(
+        speciesId: String,
+        displayName: String,
+        source: String,
+        assetBaseURL: String,
+        currentStage: Int,
+        stageCount: Int,
+        terminalFaceSet: AgentPetTerminalFaceSet
+    ) {
+        self.speciesId = speciesId
+        self.displayName = displayName
+        self.source = source
+        self.assetBaseURL = assetBaseURL
+        self.currentStage = currentStage
+        self.stageCount = stageCount
+        self.terminalFaceSet = terminalFaceSet
+    }
+}
+
+public struct AgentPetEvolutionSummary: Codable, Sendable, Equatable {
+    public var totalXp: Int
+    public var stageXp: Int
+    public var nextStageXp: Int?
+    public var isMaxStage: Bool
+
+    public init(totalXp: Int, stageXp: Int, nextStageXp: Int?, isMaxStage: Bool) {
+        self.totalXp = totalXp
+        self.stageXp = stageXp
+        self.nextStageXp = nextStageXp
+        self.isMaxStage = isMaxStage
+    }
+}
+
 public struct AgentPetProgressCounters: Codable, Sendable, Equatable {
     public var directMessageCount: Int
     public var externalMessageCount: Int
@@ -1194,6 +1311,7 @@ public struct AgentPetProgressWatermark: Codable, Sendable, Equatable {
 public struct AgentPetProgressState: Codable, Sendable, Equatable {
     public var version: Int
     public var currentStats: AgentPetStats
+    public var totalXp: Int
     public var counters: AgentPetProgressCounters
     public var dailyChannelGainBuckets: [String: AgentPetStats]
     public var dailyGlobalGainBuckets: [String: AgentPetStats]
@@ -1201,9 +1319,22 @@ public struct AgentPetProgressState: Codable, Sendable, Equatable {
     public var createdAt: Date
     public var updatedAt: Date
 
+    enum CodingKeys: String, CodingKey {
+        case version
+        case currentStats
+        case totalXp
+        case counters
+        case dailyChannelGainBuckets
+        case dailyGlobalGainBuckets
+        case processedWatermark
+        case createdAt
+        case updatedAt
+    }
+
     public init(
         version: Int = 1,
         currentStats: AgentPetStats,
+        totalXp: Int = 0,
         counters: AgentPetProgressCounters = .init(),
         dailyChannelGainBuckets: [String: AgentPetStats] = [:],
         dailyGlobalGainBuckets: [String: AgentPetStats] = [:],
@@ -1213,12 +1344,26 @@ public struct AgentPetProgressState: Codable, Sendable, Equatable {
     ) {
         self.version = version
         self.currentStats = currentStats
+        self.totalXp = totalXp
         self.counters = counters
         self.dailyChannelGainBuckets = dailyChannelGainBuckets
         self.dailyGlobalGainBuckets = dailyGlobalGainBuckets
         self.processedWatermark = processedWatermark
         self.createdAt = createdAt
         self.updatedAt = updatedAt
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        version = try container.decodeIfPresent(Int.self, forKey: .version) ?? 1
+        currentStats = try container.decode(AgentPetStats.self, forKey: .currentStats)
+        totalXp = try container.decodeIfPresent(Int.self, forKey: .totalXp) ?? 0
+        counters = try container.decodeIfPresent(AgentPetProgressCounters.self, forKey: .counters) ?? .init()
+        dailyChannelGainBuckets = try container.decodeIfPresent([String: AgentPetStats].self, forKey: .dailyChannelGainBuckets) ?? [:]
+        dailyGlobalGainBuckets = try container.decodeIfPresent([String: AgentPetStats].self, forKey: .dailyGlobalGainBuckets) ?? [:]
+        processedWatermark = try container.decodeIfPresent(AgentPetProgressWatermark.self, forKey: .processedWatermark) ?? .init()
+        createdAt = try container.decodeIfPresent(Date.self, forKey: .createdAt) ?? Date()
+        updatedAt = try container.decodeIfPresent(Date.self, forKey: .updatedAt) ?? createdAt
     }
 }
 
@@ -1231,6 +1376,9 @@ public struct AgentPetSummary: Codable, Sendable, Equatable {
     public var baseStats: AgentPetStats
     public var currentStats: AgentPetStats
     public var transferable: Bool
+    public var visual: AgentPetVisualSummary?
+    public var evolution: AgentPetEvolutionSummary?
+    public var stageAssets: [AgentPetStageAsset]
 
     enum CodingKeys: String, CodingKey {
         case petId
@@ -1241,6 +1389,9 @@ public struct AgentPetSummary: Codable, Sendable, Equatable {
         case baseStats
         case currentStats
         case transferable
+        case visual
+        case evolution
+        case stageAssets
     }
 
     public init(
@@ -1251,7 +1402,10 @@ public struct AgentPetSummary: Codable, Sendable, Equatable {
         rarity: AgentPetRarityTier,
         baseStats: AgentPetStats,
         currentStats: AgentPetStats? = nil,
-        transferable: Bool = true
+        transferable: Bool = true,
+        visual: AgentPetVisualSummary? = nil,
+        evolution: AgentPetEvolutionSummary? = nil,
+        stageAssets: [AgentPetStageAsset] = []
     ) {
         self.petId = petId
         self.genomeHex = genomeHex
@@ -1261,6 +1415,9 @@ public struct AgentPetSummary: Codable, Sendable, Equatable {
         self.baseStats = baseStats
         self.currentStats = currentStats ?? baseStats
         self.transferable = transferable
+        self.visual = visual
+        self.evolution = evolution
+        self.stageAssets = stageAssets
     }
 
     public init(from decoder: Decoder) throws {
@@ -1273,6 +1430,66 @@ public struct AgentPetSummary: Codable, Sendable, Equatable {
         baseStats = try container.decode(AgentPetStats.self, forKey: .baseStats)
         currentStats = try container.decodeIfPresent(AgentPetStats.self, forKey: .currentStats) ?? baseStats
         transferable = try container.decodeIfPresent(Bool.self, forKey: .transferable) ?? true
+        visual = try container.decodeIfPresent(AgentPetVisualSummary.self, forKey: .visual)
+        evolution = try container.decodeIfPresent(AgentPetEvolutionSummary.self, forKey: .evolution)
+        stageAssets = try container.decodeIfPresent([AgentPetStageAsset].self, forKey: .stageAssets) ?? []
+    }
+}
+
+public enum AgentPetGenerationMode: String, Codable, Sendable, Equatable {
+    case wish
+    case prompt
+}
+
+public struct AgentPetGenerationRequest: Codable, Sendable {
+    public var mode: AgentPetGenerationMode
+    public var prompt: String?
+    public var model: String?
+
+    public init(mode: AgentPetGenerationMode, prompt: String? = nil, model: String? = nil) {
+        self.mode = mode
+        self.prompt = prompt
+        self.model = model
+    }
+}
+
+public struct AgentPetGenerationResponse: Codable, Sendable, Equatable {
+    public var draftId: String
+    public var visual: AgentPetVisualSummary
+    public var evolution: AgentPetEvolutionSummary
+    public var generatedPrompt: String
+    public var assetURLs: [String]
+    public var stageAssets: [AgentPetStageAsset]
+    public var terminalFaceSet: AgentPetTerminalFaceSet
+
+    public init(
+        draftId: String,
+        visual: AgentPetVisualSummary,
+        evolution: AgentPetEvolutionSummary,
+        generatedPrompt: String,
+        assetURLs: [String],
+        stageAssets: [AgentPetStageAsset],
+        terminalFaceSet: AgentPetTerminalFaceSet
+    ) {
+        self.draftId = draftId
+        self.visual = visual
+        self.evolution = evolution
+        self.generatedPrompt = generatedPrompt
+        self.assetURLs = assetURLs
+        self.stageAssets = stageAssets
+        self.terminalFaceSet = terminalFaceSet
+    }
+}
+
+public struct AgentPetImageGenerationStatusResponse: Codable, Sendable, Equatable {
+    public var available: Bool
+    public var providers: [String]
+    public var message: String
+
+    public init(available: Bool, providers: [String], message: String) {
+        self.available = available
+        self.providers = providers
+        self.message = message
     }
 }
 

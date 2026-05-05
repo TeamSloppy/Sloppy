@@ -566,6 +566,9 @@ export function ChannelSessionView({ sessionId, onNavigateBack }) {
     const primaryAgentParts = linkedAgents.length > 0
       ? agentById.get(linkedAgents[0].id)?.pet?.parts ?? null
       : null;
+    const primaryAgentPet = linkedAgents.length > 0
+      ? agentById.get(linkedAgents[0].id)?.pet ?? null
+      : null;
 
     const primaryAgentGenomeHex =
       linkedAgents.length > 0 ? agentById.get(linkedAgents[0].id)?.pet?.genomeHex : undefined;
@@ -575,6 +578,7 @@ export function ChannelSessionView({ sessionId, onNavigateBack }) {
       channelTitle: projectMeta?.channelTitle || channelId || "Channel",
       projectName: projectMeta?.projectName || "",
       linkedAgents,
+      primaryAgentPet,
       primaryAgentParts,
       primaryAgentGenomeHex
     };
@@ -723,6 +727,7 @@ export function ChannelSessionView({ sessionId, onNavigateBack }) {
             {channelMeta.primaryAgentParts ? (
               <AgentPetIcon
                 className="channel-session-avatar-pet"
+                pet={channelMeta.primaryAgentPet}
                 parts={channelMeta.primaryAgentParts}
                 genomeHex={channelMeta.primaryAgentGenomeHex}
               />

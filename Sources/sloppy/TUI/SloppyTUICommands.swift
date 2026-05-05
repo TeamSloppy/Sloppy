@@ -31,6 +31,9 @@ final class SloppyTUIAutocompleteProvider: AutocompleteProvider {
     }
 
     func getSuggestions(lines: [String], cursorLine: Int, cursorCol: Int) -> AutocompleteSuggestion? {
+        guard !isAttachmentTokenAtCursor(lines: lines, cursorLine: cursorLine, cursorCol: cursorCol) else {
+            return nil
+        }
         return base.getSuggestions(lines: lines, cursorLine: cursorLine, cursorCol: cursorCol)
     }
 
@@ -67,6 +70,9 @@ final class SloppyTUIAutocompleteProvider: AutocompleteProvider {
     }
 
     func forceFileSuggestions(lines: [String], cursorLine: Int, cursorCol: Int) -> AutocompleteSuggestion? {
+        guard !isAttachmentTokenAtCursor(lines: lines, cursorLine: cursorLine, cursorCol: cursorCol) else {
+            return nil
+        }
         return base.forceFileSuggestions(lines: lines, cursorLine: cursorLine, cursorCol: cursorCol)
     }
 
@@ -78,5 +84,20 @@ final class SloppyTUIAutocompleteProvider: AutocompleteProvider {
         let prefixIndex = currentLine.index(currentLine.startIndex, offsetBy: min(cursorCol, currentLine.count))
         let textBeforeCursor = String(currentLine[..<prefixIndex])
         return textBeforeCursor.trimmingCharacters(in: .whitespaces).hasPrefix("/")
+    }
+
+    private func isAttachmentTokenAtCursor(lines: [String], cursorLine: Int, cursorCol: Int) -> Bool {
+        guard lines.indices.contains(cursorLine) else {
+            return false
+        }
+
+        let currentLine = lines[cursorLine]
+        let prefixIndex = currentLine.index(currentLine.startIndex, offsetBy: min(cursorCol, currentLine.count))
+        let textBeforeCursor = String(currentLine[..<prefixIndex])
+        let tokenStart = textBeforeCursor.rangeOfCharacter(
+            from: .whitespacesAndNewlines,
+            options: .backwards
+        )?.upperBound ?? textBeforeCursor.startIndex
+        return textBeforeCursor[tokenStart...].hasPrefix("@")
     }
 }

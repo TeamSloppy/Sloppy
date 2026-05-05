@@ -96,6 +96,27 @@ func projectFileIndexSearchDirectoryQueryReturnsDirectoryAndDescendants() throws
 }
 
 @Test
+func projectFileIndexCompletionSearchReturnsDirectChildrenForPathPrefixes() throws {
+    let index = ProjectFileIndex(
+        projectId: "p1",
+        rootPath: "/tmp/p1",
+        entries: [
+            ProjectFileIndexEntry(path: "src", type: .directory),
+            ProjectFileIndexEntry(path: "src/AppMain.swift", type: .file),
+            ProjectFileIndexEntry(path: "src/Nested", type: .directory),
+            ProjectFileIndexEntry(path: "src/Nested/Helper.swift", type: .file),
+            ProjectFileIndexEntry(path: "Tests/AppMainTests.swift", type: .file),
+        ]
+    )
+
+    let srcChildren = index.completionSearch("src/", limit: 10).map(\.path)
+    #expect(srcChildren == ["src/Nested", "src/AppMain.swift"])
+
+    let prefixed = index.completionSearch("src/App", limit: 10).map(\.path)
+    #expect(prefixed == ["src/AppMain.swift"])
+}
+
+@Test
 func projectFileIndexDirectoryManifestValidatesDirectoryAndReturnsBoundedTree() throws {
     let root = try temporaryIndexRoot()
     defer { try? FileManager.default.removeItem(at: root) }

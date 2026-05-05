@@ -63,7 +63,7 @@ struct ProjectFileIndex: Codable, Equatable, Sendable {
         }
 
         if normalized.isEmpty {
-            return Array(entries.sorted(by: Self.sortForDisplay).prefix(maxResults))
+            return Array(entries.prefix(maxResults))
         }
 
         let lowerQuery = normalized.lowercased()
@@ -71,7 +71,10 @@ struct ProjectFileIndex: Codable, Equatable, Sendable {
         let directoryPath = directoryQuery ? String(normalized.dropLast()) : normalized
         let lowerDirectoryPath = directoryPath.lowercased()
 
-        let matches = entries.compactMap { entry -> (entry: ProjectFileIndexEntry, rank: (Int, Int, Int, String))? in
+        var best: [(entry: ProjectFileIndexEntry, rank: (Int, Int, Int, String))] = []
+        best.reserveCapacity(maxResults)
+
+        for entry in entries {
             let rank: (Int, Int, Int, String)?
             if directoryQuery {
                 rank = Self.directorySearchRank(
@@ -83,20 +86,23 @@ struct ProjectFileIndex: Codable, Equatable, Sendable {
                 rank = Self.searchRank(entry: entry, query: normalized, lowerQuery: lowerQuery)
             }
             guard let rank else {
-                return nil
+                continue
             }
-            return (entry, rank)
+            Self.insertTopMatch((entry, rank), into: &best, limit: maxResults)
         }
 
-        return matches
-            .sorted { lhs, rhs in
-                if lhs.rank.0 != rhs.rank.0 { return lhs.rank.0 < rhs.rank.0 }
-                if lhs.rank.1 != rhs.rank.1 { return lhs.rank.1 < rhs.rank.1 }
-                if lhs.rank.2 != rhs.rank.2 { return lhs.rank.2 < rhs.rank.2 }
-                return lhs.rank.3.localizedCaseInsensitiveCompare(rhs.rank.3) == .orderedAscending
-            }
-            .prefix(maxResults)
-            .map(\.entry)
+        return best.map(\.entry)
+    }
+
+    func completionSearch(_ query: String, limit: Int) -> [ProjectFileIndexEntry] {
+        let normalized = Self.normalizedQuery(query)
+        guard !normalized.isEmpty else {
+            return search(normalized, limit: limit)
+        }
+        guard normalized.contains("/") else {
+            return search(normalized, limit: limit)
+        }
+        return pathCompletionSearch(normalized, limit: limit)
     }
 
     func directoryManifest(path: String, limit: Int) -> [ProjectFileIndexEntry] {
@@ -190,11 +196,87 @@ struct ProjectFileIndex: Codable, Equatable, Sendable {
         return nil
     }
 
+    private func pathCompletionSearch(_ normalized: String, limit: Int) -> [ProjectFileIndexEntry] {
+        let maxResults = max(1, limit)
+        let hasTrailingSlash = normalized.hasSuffix("/")
+        let trimmed = hasTrailingSlash ? String(normalized.dropLast()) : normalized
+        let parentPath: String
+        let childPrefix: String
+
+        if hasTrailingSlash {
+            parentPath = trimmed
+            childPrefix = ""
+        } else {
+            let parent = (trimmed as NSString).deletingLastPathComponent
+            parentPath = parent == "." ? "" : parent
+            childPrefix = (trimmed as NSString).lastPathComponent
+        }
+
+        let lowerChildPrefix = childPrefix.lowercased()
+        let entryPrefix = parentPath.isEmpty ? "" : parentPath + "/"
+        var matches: [ProjectFileIndexEntry] = []
+        matches.reserveCapacity(maxResults)
+
+        for entry in entries {
+            guard entry.path.hasPrefix(entryPrefix) else {
+                continue
+            }
+
+            let suffix = String(entry.path.dropFirst(entryPrefix.count))
+            guard !suffix.isEmpty, !suffix.contains("/") else {
+                continue
+            }
+
+            if !lowerChildPrefix.isEmpty,
+               !suffix.lowercased().hasPrefix(lowerChildPrefix) {
+                continue
+            }
+
+            matches.append(entry)
+            if matches.count >= maxResults * 4 {
+                break
+            }
+        }
+
+        return matches
+            .sorted(by: Self.sortForDisplay)
+            .prefix(maxResults)
+            .map(\.self)
+    }
+
     private static func sortForDisplay(_ lhs: ProjectFileIndexEntry, _ rhs: ProjectFileIndexEntry) -> Bool {
         if lhs.type != rhs.type {
             return lhs.type == .directory
         }
         return lhs.path.localizedCaseInsensitiveCompare(rhs.path) == .orderedAscending
+    }
+
+    private static func insertTopMatch(
+        _ candidate: (entry: ProjectFileIndexEntry, rank: (Int, Int, Int, String)),
+        into best: inout [(entry: ProjectFileIndexEntry, rank: (Int, Int, Int, String))],
+        limit: Int
+    ) {
+        if best.count == limit, let last = best.last, !isRank(candidate.rank, betterThan: last.rank) {
+            return
+        }
+
+        let index = best.firstIndex { current in
+            isRank(candidate.rank, betterThan: current.rank)
+        } ?? best.endIndex
+        best.insert(candidate, at: index)
+        if best.count > limit {
+            best.removeLast(best.count - limit)
+        }
+    }
+
+    private static func isRank(
+        _ lhs: (Int, Int, Int, String),
+        betterThan rhs: (Int, Int, Int, String)
+    ) -> Bool {
+        if lhs.0 != rhs.0 { return lhs.0 < rhs.0 }
+        if lhs.1 != rhs.1 { return lhs.1 < rhs.1 }
+        if lhs.2 != rhs.2 { return lhs.2 < rhs.2 }
+        return lhs.3.localizedCaseInsensitiveCompare(rhs.3) == .orderedAscending
     }
 
     private static func typeRank(_ type: ProjectFileEntry.EntryType) -> Int {
@@ -260,6 +342,10 @@ private struct ProjectFileIndexBuilder {
     }
 
     private mutating func walk(directoryURL: URL, relativeDirectory: String, result: inout [ProjectFileIndexEntry]) {
+        guard !Task.isCancelled else {
+            truncated = true
+            return
+        }
         guard result.count < limit else {
             truncated = true
             return
@@ -272,6 +358,10 @@ private struct ProjectFileIndexBuilder {
         )) ?? []
 
         for url in urls.sorted(by: { $0.lastPathComponent.localizedCaseInsensitiveCompare($1.lastPathComponent) == .orderedAscending }) {
+            guard !Task.isCancelled else {
+                truncated = true
+                return
+            }
             guard result.count < limit else {
                 truncated = true
                 return

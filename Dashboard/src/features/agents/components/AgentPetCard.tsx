@@ -21,6 +21,11 @@ export function AgentPetCard({ pet }: { pet?: any }) {
 
   const currentStats = pet.currentStats || pet.baseStats || {};
   const baseStats = pet.baseStats || {};
+  const visual = pet.visual || null;
+  const evolution = pet.evolution || {};
+  const totalXp = Number(evolution.totalXp || 0);
+  const nextStageXp = Number(evolution.nextStageXp || 0);
+  const progress = nextStageXp > 0 ? Math.max(0, Math.min((totalXp / nextStageXp) * 100, 100)) : 100;
 
   return (
     <section className="dashboard-section agent-pet-section">
@@ -31,14 +36,32 @@ export function AgentPetCard({ pet }: { pet?: any }) {
 
       <div className="agent-pet-card">
         <div className="agent-pet-stage">
-          <AgentPetSprite parts={pet.parts} genomeHex={pet.genomeHex} />
+          <AgentPetSprite pet={pet} parts={pet.parts} genomeHex={pet.genomeHex} />
           <div className="agent-pet-stage-meta">
-            <span className="agent-pet-id">{pet.petId || "pet-unknown"}</span>
+            <span className="agent-pet-id">{visual?.displayName || pet.petId || "pet-unknown"}</span>
             <span className="agent-pet-genome">Genome {pet.genomeHex || "0000000000000000"}</span>
+            {visual && (
+              <>
+                <span className="agent-pet-genome">Stage {visual.currentStage}/{visual.stageCount}</span>
+                <span className="agent-pet-terminal-face">{visual.terminalFaceSet?.idle || "(o_o)"}</span>
+              </>
+            )}
           </div>
         </div>
 
         <div className="agent-pet-panel">
+          {visual && (
+            <div className="agent-pet-evolution">
+              <div className="agent-pet-evolution-head">
+                <span>{totalXp} XP</span>
+                <span>{evolution.isMaxStage ? "Max stage" : `Next ${nextStageXp} XP`}</span>
+              </div>
+              <div className="agent-pet-stat-meter agent-pet-evolution-meter">
+                <div className="agent-pet-stat-fill" style={{ width: `${progress}%` }} />
+              </div>
+            </div>
+          )}
+
           <div className="agent-pet-parts">
             <span>Head: {formatPart(pet.parts?.headId)}</span>
             <span>Body: {formatPart(pet.parts?.bodyId)}</span>

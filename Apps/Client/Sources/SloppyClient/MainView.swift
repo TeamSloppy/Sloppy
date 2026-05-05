@@ -110,6 +110,7 @@ struct MainView: View {
         } detail: {
             chatScreen(showsSidebarControl: false)
         }
+        .navigationSplitViewSeparators(.hidden)
     }
 
     @ViewBuilder
@@ -188,17 +189,20 @@ struct MainView: View {
     }
 
     private func dismissMobileSidebar() {
+        guard isMobileSidebarPresented else {
+            return
+        }
         isMobileSidebarPresented = false
     }
 
     private func selectNewChat() {
-        selectedSidebarItem = .chats
+        updateSelectedSidebarItem(.chats)
         dismissMobileSidebar()
         navigateChat(.blank)
     }
 
     private func selectProject(_ project: APIProjectRecord) {
-        selectedSidebarItem = .project(project.id)
+        updateSelectedSidebarItem(.project(project.id))
         dismissMobileSidebar()
         navigateChat(
             .project(
@@ -215,7 +219,7 @@ struct MainView: View {
         task: APIProjectTask,
         fallbackAgentId: String?
     ) {
-        selectedSidebarItem = .task(projectId: projectId, taskId: task.id)
+        updateSelectedSidebarItem(.task(projectId: projectId, taskId: task.id))
         dismissMobileSidebar()
         navigateChat(
             .task(
@@ -226,6 +230,13 @@ struct MainView: View {
                 agentId: task.actorId ?? fallbackAgentId
             )
         )
+    }
+
+    private func updateSelectedSidebarItem(_ selection: MainSidebarSelection) {
+        guard selectedSidebarItem != selection else {
+            return
+        }
+        selectedSidebarItem = selection
     }
 
     private func navigateChat(_ context: ChatNavigationRequest.Context) {

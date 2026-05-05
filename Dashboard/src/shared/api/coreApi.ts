@@ -121,6 +121,8 @@ export interface CoreApi {
   deleteProjectTask: (projectId: string, taskId: string) => Promise<AnyRecord | null>;
   fetchArchivedTasks: (projectId: string) => Promise<AnyRecord[] | null>;
   fetchAgents: (options?: { includeSystem?: boolean }) => Promise<AnyRecord[] | null>;
+  fetchPetImageGenerationStatus: () => Promise<AnyRecord | null>;
+  generatePet: (payload: AnyRecord) => Promise<AnyRecord | null>;
   fetchAgent: (agentId: string) => Promise<AnyRecord | null>;
   fetchAgentTasks: (agentId: string) => Promise<AnyRecord[] | null>;
   fetchAgentMemories: (agentId: string, query?: AgentMemoryQuery) => Promise<AnyRecord | null>;
@@ -864,6 +866,28 @@ export function createCoreApi(): CoreApi {
         options?.includeSystem === true ? "/v1/agents" : "/v1/agents?system=false";
       const response = await requestJson<AnyRecord[]>({ path });
       if (!response.ok || !Array.isArray(response.data)) {
+        return null;
+      }
+      return response.data;
+    },
+
+    fetchPetImageGenerationStatus: async () => {
+      const response = await requestJson<AnyRecord>({
+        path: "/v1/pets/image-generation-status"
+      });
+      if (!response.ok) {
+        return null;
+      }
+      return response.data;
+    },
+
+    generatePet: async (payload) => {
+      const response = await requestJson<AnyRecord, AnyRecord>({
+        path: "/v1/pets/generate",
+        method: "POST",
+        body: payload
+      });
+      if (!response.ok) {
         return null;
       }
       return response.data;

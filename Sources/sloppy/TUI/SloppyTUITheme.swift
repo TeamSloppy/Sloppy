@@ -394,7 +394,9 @@ enum SloppyTUITheme {
         for index in start..<end {
             let item = picker.items[index]
             let raw: String
-            if paletteWidth < 32 {
+            if picker.kind == .projectFile {
+                raw = projectFilePickerLine(item: item, width: paletteWidth, styled: index != picker.selectedIndex)
+            } else if paletteWidth < 32 {
                 let marker = item.isCurrent ? "✓ " : "  "
                 raw = "  " + marker + truncateEnd(item.label, maxWidth: max(1, paletteWidth - 4))
             } else {
@@ -416,6 +418,34 @@ enum SloppyTUITheme {
             lines.append(indent + padded(info, width: paletteWidth))
         }
         return lines
+    }
+
+    private static func projectFilePickerLine(item: SloppyTUIPickerItem, width: Int, styled: Bool) -> String {
+        let isDirectory = item.value.hasSuffix("/")
+        let icon = isDirectory ? "▣" : "◇"
+        let name = item.label
+        let parent = item.description ?? ""
+        let prefix = "  \(icon) "
+        let gap = parent.isEmpty ? "" : "  "
+        let reserved = VisibleWidth.measure(prefix + gap)
+        let available = max(1, width - reserved)
+
+        if parent.isEmpty || available < 28 {
+            let text = prefix + truncateEnd(name, maxWidth: max(1, width - VisibleWidth.measure(prefix)))
+            return styled ? foreground(text) : text
+        }
+
+        let minimumNameWidth = min(max(12, width / 4), max(1, available))
+        let idealNameWidth = min(max(minimumNameWidth, VisibleWidth.measure(name)), max(1, available / 2))
+        let parentWidth = max(1, available - idealNameWidth)
+        let renderedName = truncateEnd(name, maxWidth: idealNameWidth)
+            .padding(toLength: idealNameWidth, withPad: " ", startingAt: 0)
+        let renderedParent = truncateStart(parent, maxWidth: parentWidth)
+
+        if styled {
+            return foreground(prefix + renderedName + gap) + muted(renderedParent)
+        }
+        return prefix + renderedName + gap + renderedParent
     }
 
     static func overlayModal(

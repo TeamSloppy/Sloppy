@@ -20,6 +20,9 @@ func userAgentGetsPetAndSystemAgentDoesNot() throws {
 
     #expect(user.pet != nil)
     #expect(user.pet?.currentStats == user.pet?.baseStats)
+    #expect(user.pet?.visual != nil)
+    #expect(user.pet?.evolution?.totalXp == 0)
+    #expect(user.pet?.stageAssets.count == 3)
     #expect(system.pet == nil)
 
     let userPetState = root.appendingPathComponent("pet-user", isDirectory: true).appendingPathComponent("pet-state.json")
@@ -55,7 +58,45 @@ func legacyAgentGetsBackfilledPetOnRead() throws {
     let hydrated = try store.getAgent(id: "legacy-agent")
     #expect(hydrated.pet != nil)
     #expect(hydrated.pet?.currentStats == hydrated.pet?.baseStats)
+    #expect(hydrated.pet?.visual != nil)
     #expect(FileManager.default.fileExists(atPath: agentDirectory.appendingPathComponent("pet-state.json").path))
+}
+
+@Test
+func generatedPetDraftAttachesToCreatedAgent() throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+    let store = AgentCatalogFileStore(agentsRootURL: root)
+    let draft = AgentPetFactory.makePetDraft(
+        request: AgentPetGenerationRequest(mode: .prompt, prompt: "a spark fox with a debugging bolt")
+    )
+    try store.writePetDraft(draft)
+
+    let agent = try store.createAgent(
+        AgentCreateRequest(
+            id: "draft-pet-agent",
+            displayName: "Draft Pet Agent",
+            role: "Debugger",
+            petDraftId: draft.draftId
+        ),
+        availableModels: [ProviderModelOption(id: "gpt-5.4-mini", title: "gpt-5.4 mini")]
+    )
+
+    #expect(agent.pet?.petId == draft.generated.summary.petId)
+    #expect(agent.pet?.visual?.source == "prompt")
+    #expect(agent.pet?.visual?.terminalFaceSet.idle.isEmpty == false)
+    let archivedDraft = root
+        .appendingPathComponent("draft-pet-agent", isDirectory: true)
+        .appendingPathComponent(".sloppy/pets/\(draft.generated.summary.petId)/draft.json")
+    #expect(FileManager.default.fileExists(atPath: archivedDraft.path))
+}
+
+@Test
+func petEvolutionStageThresholdsMatchPlan() {
+    #expect(AgentPetFactory.stage(for: 0) == 1)
+    #expect(AgentPetFactory.stage(for: 119) == 1)
+    #expect(AgentPetFactory.stage(for: 120) == 2)
+    #expect(AgentPetFactory.stage(for: 319) == 2)
+    #expect(AgentPetFactory.stage(for: 320) == 3)
 }
 
 @Test

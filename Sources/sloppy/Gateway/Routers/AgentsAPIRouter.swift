@@ -9,6 +9,28 @@ struct AgentsAPIRouter: APIRouter {
     }
 
     func configure(on router: CoreRouterRegistrar) {
+        router.get("/v1/pets/image-generation-status", metadata: RouteMetadata(summary: "Pet image generation status", description: "Returns raster pet generation availability", tags: ["Pets"])) { _ in
+            let status = await service.petImageGenerationStatus()
+            return CoreRouter.encodable(status: HTTPStatus.ok, payload: status)
+        }
+
+        router.post("/v1/pets/generate", metadata: RouteMetadata(summary: "Generate pet draft", description: "Creates a draft Sloppie pet visual before agent creation", tags: ["Pets"])) { request in
+            guard let body = request.body,
+                  let payload = CoreRouter.decode(body, as: AgentPetGenerationRequest.self)
+            else {
+                return CoreRouter.json(status: HTTPStatus.badRequest, payload: ["error": ErrorCode.invalidBody])
+            }
+
+            do {
+                let response = try await service.generatePetDraft(payload)
+                return CoreRouter.encodable(status: HTTPStatus.created, payload: response)
+            } catch CoreService.AgentStorageError.invalidPayload {
+                return CoreRouter.json(status: HTTPStatus.badRequest, payload: ["error": ErrorCode.invalidBody])
+            } catch {
+                return CoreRouter.json(status: HTTPStatus.internalServerError, payload: ["error": ErrorCode.agentCreateFailed])
+            }
+        }
+
         router.get("/v1/agents", metadata: RouteMetadata(summary: "List agents", description: "Returns a list of all available agents", tags: ["Agents"])) { request in
             let includeSystem = request.queryParam("system").map { $0 != "false" } ?? true
             do {

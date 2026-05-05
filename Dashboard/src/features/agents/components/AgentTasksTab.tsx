@@ -99,7 +99,7 @@ function groupItemsByStatus(rawItems: any[]): { status: string; items: any[] }[]
   return out;
 }
 
-type AgentDirEntry = { displayName: string; pet?: { parts?: unknown } };
+type AgentDirEntry = { displayName: string; pet?: any };
 
 export function AgentTasksTab({ agentId }: { agentId: string }) {
   const [items, setItems] = useState<any[]>([]);
@@ -210,7 +210,7 @@ export function AgentTasksTab({ agentId }: { agentId: string }) {
                       <span className="agent-kanban-assignee">
                         {petParts ? (
                           <span className="agent-kanban-sloppie">
-                            <AgentPetIcon parts={petParts} genomeHex={assignee?.pet?.genomeHex} />
+                            <AgentPetIcon pet={assignee?.pet} parts={petParts} genomeHex={assignee?.pet?.genomeHex} />
                           </span>
                         ) : (
                           <span className="agent-kanban-sloppie-fallback" aria-hidden="true">

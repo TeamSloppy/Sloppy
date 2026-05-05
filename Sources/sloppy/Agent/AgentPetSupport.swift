@@ -51,10 +51,31 @@ struct AgentPetGeneratedRecord {
     let state: AgentPetProgressState
 }
 
+struct AgentPetDraftRecord: Codable, Sendable {
+    let draftId: String
+    let generatedPrompt: String
+    let generated: AgentPetGeneratedRecord
+    let response: AgentPetGenerationResponse
+    let createdAt: Date
+}
+
+extension AgentPetGeneratedRecord: Codable, Sendable {}
+
 private struct AgentPetPartCatalogEntry {
     let id: String
     let rarity: AgentPetRarityTier
     let weight: Int
+}
+
+private struct AgentPetPreset {
+    let speciesId: String
+    let displayName: String
+    let source: String
+    let assetBaseURL: String
+    let terminalFaceSet: AgentPetTerminalFaceSet
+    let parts: AgentPetParts
+    let partRarities: AgentPetPartRarities
+    let rarity: AgentPetRarityTier
 }
 
 private struct SplitMix64 {
@@ -87,6 +108,51 @@ private struct SplitMix64 {
 }
 
 enum AgentPetFactory {
+    static let stageThresholds = [0, 120, 320]
+
+    private static let stageFrameRanges: [String: AgentPetFrameRange] = [
+        AgentPetAnimationState.idle.rawValue: .init(start: 0, end: 3, fps: 6, loop: true),
+        AgentPetAnimationState.walk.rawValue: .init(start: 4, end: 7, fps: 8, loop: true),
+        AgentPetAnimationState.happy.rawValue: .init(start: 8, end: 11, fps: 7, loop: true),
+        AgentPetAnimationState.sad.rawValue: .init(start: 12, end: 15, fps: 5, loop: true),
+        AgentPetAnimationState.interacted.rawValue: .init(start: 16, end: 18, fps: 8, loop: false),
+        AgentPetAnimationState.sleep.rawValue: .init(start: 19, end: 21, fps: 3, loop: true),
+        AgentPetAnimationState.avatar.rawValue: .init(start: 22, end: 22, fps: 0, loop: false)
+    ]
+
+    private static let presets: [AgentPetPreset] = [
+        .init(
+            speciesId: "aurora-bun",
+            displayName: "Aurora Bun",
+            source: "preset",
+            assetBaseURL: "/pets/presets/aurora-bun",
+            terminalFaceSet: .init(idle: "/(o_o)\\", happy: "/(^v^)\\", sad: "/(._.)\\", sleep: "/(-_-)\\"),
+            parts: .init(headId: "head_kisya", bodyId: "body-puff", legsId: "legs-bouncer", faceId: "face-grin", accessoryId: "acc-scarf"),
+            partRarities: .init(head: .common, body: .common, legs: .common, face: .uncommon, accessory: .common),
+            rarity: .common
+        ),
+        .init(
+            speciesId: "spark-fox",
+            displayName: "Spark Fox",
+            source: "preset",
+            assetBaseURL: "/pets/presets/spark-fox",
+            terminalFaceSet: .init(idle: "/(•_•)\\", happy: "/(^_^)\\", sad: "/(u_u)\\", sleep: "/(-.-)\\"),
+            parts: .init(headId: "head_bipbop", bodyId: "body-terminal", legsId: "legs-sprinter", faceId: "face-scan", accessoryId: "acc-bolt"),
+            partRarities: .init(head: .uncommon, body: .uncommon, legs: .uncommon, face: .common, accessory: .legendary),
+            rarity: .rare
+        ),
+        .init(
+            speciesId: "moss-moth",
+            displayName: "Moss Moth",
+            source: "preset",
+            assetBaseURL: "/pets/presets/moss-moth",
+            terminalFaceSet: .init(idle: "\\(o.o)/", happy: "\\(^.^)/", sad: "\\(._.)/", sleep: "\\(-.-)/"),
+            parts: .init(headId: "head_ada", bodyId: "body-relay", legsId: "legs-hover", faceId: "face-star", accessoryId: "acc-wings"),
+            partRarities: .init(head: .common, body: .rare, legs: .rare, face: .rare, accessory: .rare),
+            rarity: .rare
+        )
+    ]
+
     private static let heads: [AgentPetPartCatalogEntry] = [
         .init(id: "head_vladimir", rarity: .common, weight: 28),
         .init(id: "head_kisya", rarity: .common, weight: 26),
@@ -149,6 +215,7 @@ enum AgentPetFactory {
 
     static func makePet(genome: UInt64, createdAt: Date = Date()) -> AgentPetGeneratedRecord {
         var rng = SplitMix64(seed: genome)
+        let preset = presets[Int(rng.next() % UInt64(presets.count))]
         let head = weightedPick(from: heads, using: &rng)
         let body = weightedPick(from: bodies, using: &rng)
         let legs = weightedPick(from: legs, using: &rng)
@@ -170,14 +237,207 @@ enum AgentPetFactory {
             rarity: overallRarity(from: partRarities),
             baseStats: baseStats,
             currentStats: baseStats,
-            transferable: true
+            transferable: true,
+            visual: visualSummary(for: preset, totalXp: 0),
+            evolution: evolutionSummary(totalXp: 0),
+            stageAssets: stageAssets(for: preset)
         )
         let state = AgentPetProgressState(
             currentStats: baseStats,
+            totalXp: 0,
             createdAt: createdAt,
             updatedAt: createdAt
         )
         return AgentPetGeneratedRecord(summary: summary, state: state)
+    }
+
+    static func makePetDraft(
+        request: AgentPetGenerationRequest,
+        createdAt: Date = Date()
+    ) -> AgentPetDraftRecord {
+        let seed = draftSeed(for: request, createdAt: createdAt)
+        var rng = SplitMix64(seed: seed)
+        var preset = presets[Int(rng.next() % UInt64(presets.count))]
+        if request.mode == .prompt, let prompt = request.prompt?.lowercased() {
+            if prompt.contains("fox") || prompt.contains("spark") {
+                preset = presets.first { $0.speciesId == "spark-fox" } ?? preset
+            } else if prompt.contains("moth") || prompt.contains("wing") {
+                preset = presets.first { $0.speciesId == "moss-moth" } ?? preset
+            } else if prompt.contains("bun") || prompt.contains("rabbit") || prompt.contains("ear") {
+                preset = presets.first { $0.speciesId == "aurora-bun" } ?? preset
+            }
+        }
+
+        let baseStats = AgentPetStats(
+            wisdom: 20 + Int(rng.next() % 16),
+            debugging: 20 + Int(rng.next() % 16),
+            patience: 20 + Int(rng.next() % 16),
+            snark: 16 + Int(rng.next() % 12),
+            chaos: 16 + Int(rng.next() % 12)
+        ).clamped()
+        let draftId = "draft_" + String(UUID().uuidString.lowercased().prefix(12))
+        let genome = String(format: "%016llx", seed)
+        let summary = AgentPetSummary(
+            petId: "pet_" + String(UUID().uuidString.lowercased().prefix(12)),
+            genomeHex: genome,
+            parts: preset.parts,
+            partRarities: preset.partRarities,
+            rarity: preset.rarity,
+            baseStats: baseStats,
+            currentStats: baseStats,
+            transferable: true,
+            visual: visualSummary(for: preset, totalXp: 0, source: request.mode.rawValue),
+            evolution: evolutionSummary(totalXp: 0),
+            stageAssets: stageAssets(for: preset)
+        )
+        let state = AgentPetProgressState(
+            currentStats: baseStats,
+            totalXp: 0,
+            createdAt: createdAt,
+            updatedAt: createdAt
+        )
+        let generatedPrompt = promptText(for: preset, request: request)
+        let assets = stageAssets(for: preset)
+        let response = AgentPetGenerationResponse(
+            draftId: draftId,
+            visual: summary.visual ?? visualSummary(for: preset, totalXp: 0, source: request.mode.rawValue),
+            evolution: summary.evolution ?? evolutionSummary(totalXp: 0),
+            generatedPrompt: generatedPrompt,
+            assetURLs: assets.map(\.spriteSheetPath),
+            stageAssets: assets,
+            terminalFaceSet: preset.terminalFaceSet
+        )
+        return AgentPetDraftRecord(
+            draftId: draftId,
+            generatedPrompt: generatedPrompt,
+            generated: AgentPetGeneratedRecord(summary: summary, state: state),
+            response: response,
+            createdAt: createdAt
+        )
+    }
+
+    static func summary(
+        _ summary: AgentPetSummary,
+        applying state: AgentPetProgressState
+    ) -> AgentPetSummary {
+        var visual = summary.visual
+        var stageAssets = summary.stageAssets
+        if visual == nil || stageAssets.isEmpty {
+            let preset = preset(for: summary.genomeHex)
+            visual = visualSummary(
+                for: preset,
+                totalXp: state.totalXp,
+                source: visual?.source ?? preset.source
+            )
+            stageAssets = stageAssets.isEmpty ? Self.stageAssets(for: preset) : stageAssets
+        }
+        if let existing = visual {
+            visual = AgentPetVisualSummary(
+                speciesId: existing.speciesId,
+                displayName: existing.displayName,
+                source: existing.source,
+                assetBaseURL: existing.assetBaseURL,
+                currentStage: stage(for: state.totalXp),
+                stageCount: existing.stageCount,
+                terminalFaceSet: existing.terminalFaceSet
+            )
+        }
+        return AgentPetSummary(
+            petId: summary.petId,
+            genomeHex: summary.genomeHex,
+            parts: summary.parts,
+            partRarities: summary.partRarities,
+            rarity: summary.rarity,
+            baseStats: summary.baseStats,
+            currentStats: state.currentStats,
+            transferable: summary.transferable,
+            visual: visual,
+            evolution: evolutionSummary(totalXp: state.totalXp),
+            stageAssets: stageAssets
+        )
+    }
+
+    private static func preset(for genomeHex: String) -> AgentPetPreset {
+        let value = UInt64(genomeHex, radix: 16) ?? UInt64(bitPattern: Int64(genomeHex.hashValue))
+        return presets[Int(value % UInt64(presets.count))]
+    }
+
+    private static func stageAssets(for preset: AgentPetPreset) -> [AgentPetStageAsset] {
+        (1...stageThresholds.count).map { stage in
+            AgentPetStageAsset(
+                stage: stage,
+                spriteSheetPath: "\(preset.assetBaseURL)/\(stage).png",
+                stateFrameRanges: stageFrameRanges
+            )
+        }
+    }
+
+    private static func visualSummary(
+        for preset: AgentPetPreset,
+        totalXp: Int,
+        source: String? = nil
+    ) -> AgentPetVisualSummary {
+        AgentPetVisualSummary(
+            speciesId: preset.speciesId,
+            displayName: preset.displayName,
+            source: source ?? preset.source,
+            assetBaseURL: preset.assetBaseURL,
+            currentStage: stage(for: totalXp),
+            stageCount: stageThresholds.count,
+            terminalFaceSet: preset.terminalFaceSet
+        )
+    }
+
+    static func evolutionSummary(totalXp: Int) -> AgentPetEvolutionSummary {
+        let stage = stage(for: totalXp)
+        let stageStart = stageThresholds[max(0, stage - 1)]
+        let next = stage < stageThresholds.count ? stageThresholds[stage] : nil
+        return AgentPetEvolutionSummary(
+            totalXp: max(totalXp, 0),
+            stageXp: max(totalXp - stageStart, 0),
+            nextStageXp: next,
+            isMaxStage: next == nil
+        )
+    }
+
+    static func stage(for totalXp: Int) -> Int {
+        if totalXp >= stageThresholds[2] {
+            return 3
+        }
+        if totalXp >= stageThresholds[1] {
+            return 2
+        }
+        return 1
+    }
+
+    private static func promptText(for preset: AgentPetPreset, request: AgentPetGenerationRequest) -> String {
+        let constraints = request.prompt?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let traits = [
+            "soft luminous markings",
+            "curious helper energy",
+            "round readable silhouette",
+            "tiny signature accessory"
+        ]
+        let randomTrait = traits[Int(UInt64(bitPattern: Int64(preset.speciesId.hashValue)) % UInt64(traits.count))]
+        let userConstraints = constraints?.isEmpty == false ? "\nUser constraints: \(constraints!)" : ""
+        return """
+        Original cute pixel-art digital pet companion, not a robot. Species: \(preset.displayName).
+        Keep the same character readable across 3 evolution stages with \(randomTrait), using distinct stage silhouettes for baby, grown, and final forms.
+        Style: crisp pixel art, limited cohesive palette, thick dark outline, soft off-white highlights, nearest-neighbor edges, compact readable monster-pet proportions.
+        Transparent background. Exact sprite sheet grid 4 columns x 6 rows, 256x256 cells, 1024x1536 sheet.
+        Frame layout: idle 0-3, walk 4-7, happy 8-11, sad 12-15, interacted 16-18, sleep 19-21, avatar 22, frame 23 unused.
+        No text, watermark, UI, hand-drawn sketch style, painterly rendering, smooth vector art, gradients, blurry anti-aliased edges, or rainbow palette.
+        Include compact ASCII faces preserving silhouette/features: idle \(preset.terminalFaceSet.idle), happy \(preset.terminalFaceSet.happy), sad \(preset.terminalFaceSet.sad), sleep \(preset.terminalFaceSet.sleep).\(userConstraints)
+        """
+    }
+
+    private static func draftSeed(for request: AgentPetGenerationRequest, createdAt: Date) -> UInt64 {
+        var hasher = Hasher()
+        hasher.combine(request.mode.rawValue)
+        hasher.combine(request.prompt)
+        hasher.combine(request.model)
+        hasher.combine(createdAt.timeIntervalSince1970)
+        return UInt64(bitPattern: Int64(hasher.finalize()))
     }
 
     private static func weightedPick(from entries: [AgentPetPartCatalogEntry], using rng: inout SplitMix64) -> AgentPetPartCatalogEntry {
@@ -357,6 +617,7 @@ enum AgentPetProgressionEngine {
         }
 
         state.currentStats = (state.currentStats + cappedDelta).clamped()
+        state.totalXp = max(0, state.totalXp + cappedDelta.xpValue)
         state.dailyChannelGainBuckets[channelBucketKey] = existingChannelGain + cappedDelta
         state.dailyGlobalGainBuckets[dayKey] = existingGlobalGain + cappedDelta
         if !negativeDelta.isZero {
@@ -613,6 +874,10 @@ private enum AgentPetDateFormatter {
 }
 
 extension AgentPetStats {
+    var xpValue: Int {
+        max(wisdom, 0) + max(debugging, 0) + max(patience, 0) + max(snark, 0) + max(chaos, 0)
+    }
+
     var isZero: Bool {
         wisdom == 0 && debugging == 0 && patience == 0 && snark == 0 && chaos == 0
     }

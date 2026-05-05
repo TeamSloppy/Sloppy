@@ -38,7 +38,7 @@ struct SloppyClientApp: App {
                 instructions: "Inspect the live Sloppy client AdaEngine runtime.",
                 traceRecorder: nil
             )),
-            AdaUIDebug3DPlugin(presentation: .primaryWindowOverlay, isEnabled: true)
+            AdaUIDebug3DPlugin(presentation: .separateWindow, isEnabled: false)
         )
         #else
         baseScene.addPlugins(

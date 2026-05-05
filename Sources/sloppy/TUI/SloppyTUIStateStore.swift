@@ -13,10 +13,25 @@ struct SloppyTUIState: Codable, Sendable {
 
     var selections: [String: Selection]
     var drafts: [String: String]
+    var petEnabled: Bool
 
-    init(selections: [String: Selection] = [:], drafts: [String: String] = [:]) {
+    enum CodingKeys: String, CodingKey {
+        case selections
+        case drafts
+        case petEnabled
+    }
+
+    init(selections: [String: Selection] = [:], drafts: [String: String] = [:], petEnabled: Bool = true) {
         self.selections = selections
         self.drafts = drafts
+        self.petEnabled = petEnabled
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        selections = try container.decodeIfPresent([String: Selection].self, forKey: .selections) ?? [:]
+        drafts = try container.decodeIfPresent([String: String].self, forKey: .drafts) ?? [:]
+        petEnabled = try container.decodeIfPresent(Bool.self, forKey: .petEnabled) ?? true
     }
 }
 
