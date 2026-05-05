@@ -222,3 +222,49 @@ func channelSessionStorePersistsTechnicalEventsWithoutAffectingMessageCounters()
     let eventTypes = detail.events.map(\.type)
     #expect(eventTypes == [.sessionOpened, .userMessage, .thinking, .toolCall, .toolResult, .assistantMessage])
 }
+
+@Test
+func channelSessionStoreReturnsMessageHistoryForDateRangeOnly() async throws {
+    let workspaceRootURL = FileManager.default.temporaryDirectory
+        .appendingPathComponent("channel-session-range-\(UUID().uuidString)", isDirectory: true)
+    let store = ChannelSessionFileStore(workspaceRootURL: workspaceRootURL)
+
+    let dayStart = Date(timeIntervalSince1970: 1_800_000_000)
+    _ = try await store.recordUserMessage(
+        channelId: "daily",
+        userId: "user-1",
+        content: "Yesterday context",
+        createdAt: dayStart.addingTimeInterval(-60)
+    )
+    _ = try await store.recordUserMessage(
+        channelId: "daily",
+        userId: "user-1",
+        content: "Today starts here",
+        createdAt: dayStart
+    )
+    _ = try await store.recordThinking(
+        channelId: "daily",
+        content: "Technical event should be ignored.",
+        createdAt: dayStart.addingTimeInterval(30)
+    )
+    _ = try await store.recordAssistantMessage(
+        channelId: "daily",
+        content: "Today assistant reply",
+        createdAt: dayStart.addingTimeInterval(60)
+    )
+    _ = try await store.recordUserMessage(
+        channelId: "daily",
+        userId: "user-1",
+        content: "Tomorrow context",
+        createdAt: dayStart.addingTimeInterval(86_400)
+    )
+
+    let history = try await store.getMessageHistory(
+        channelId: "daily",
+        from: dayStart,
+        to: dayStart.addingTimeInterval(86_400)
+    )
+
+    #expect(history.map(\.content) == ["Today starts here", "Today assistant reply"])
+    #expect(history.map(\.userId) == ["user-1", "assistant"])
+}

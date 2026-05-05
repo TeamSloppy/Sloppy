@@ -360,6 +360,36 @@ actor ChannelSessionFileStore {
         }
     }
 
+    func getMessageHistory(
+        channelId: String,
+        from startDate: Date,
+        to endDate: Date
+    ) throws -> [ChannelMessageEntry] {
+        guard startDate < endDate else {
+            return []
+        }
+        guard let openSession = try currentOpenSession(channelId: channelId) else {
+            return []
+        }
+
+        let events = try loadSession(sessionID: openSession.sessionId)
+        return events
+            .filter { event in
+                (event.type == .userMessage || event.type == .assistantMessage) &&
+                    event.createdAt >= startDate &&
+                    event.createdAt < endDate
+            }
+            .sorted { $0.createdAt < $1.createdAt }
+            .map { event in
+                ChannelMessageEntry(
+                    id: event.id,
+                    userId: event.userId,
+                    content: event.content,
+                    createdAt: event.createdAt
+                )
+            }
+    }
+
     func hasPendingInputRequest(channelId: String) throws -> Bool {
         try pendingInputRequest(channelId: channelId) != nil
     }

@@ -408,6 +408,9 @@ private actor ResponseCollector {
 }
 
 extension CoreService {
+    static let inboundChannelContextBootstrapMarker = "[inbound_channel_context_bootstrap_v1]"
+    static let inboundTodayHistoryMaxCharacters = 12_000
+
     func offerInboundChannelPluginMessage(
         channelId: String,
         userId: String,
@@ -481,6 +484,11 @@ extension CoreService {
         let bindingChannelId = ChannelGatewayScope.parse(channelId).baseChannelId
         let board = try? getActorBoard()
         let linkedAgentID = linkedAgentID(forChannelID: bindingChannelId, board: board)
+        await ensureInboundChannelContextBootstrap(
+            channelId: channelId,
+            linkedAgentID: linkedAgentID,
+            topicId: topicId
+        )
         let mode = await channelChatModeStore.get(channelId: bindingChannelId)
         let modeContent = AgentSessionOrchestrator.runtimeContent(contentForModel, mode: mode)
         let contentForRuntime = contentWithFriendReminderIfNeeded(
@@ -654,6 +662,171 @@ extension CoreService {
                 topicId: topicId
             )
         }
+    }
+
+    func ensureInboundChannelContextBootstrap(
+        channelId: String,
+        linkedAgentID: String?,
+        topicId: String?,
+        now: Date = Date(),
+        calendar: Calendar = .current,
+        maxHistoryCharacters: Int = CoreService.inboundTodayHistoryMaxCharacters
+    ) async {
+        if let existing = await runtime.channelBootstrapContent(channelId: channelId),
+           !existing.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return
+        }
+
+        let bootstrap = await buildInboundChannelContextBootstrap(
+            channelId: channelId,
+            linkedAgentID: linkedAgentID,
+            topicId: topicId,
+            now: now,
+            calendar: calendar,
+            maxHistoryCharacters: maxHistoryCharacters
+        )
+        let trimmed = bootstrap.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            return
+        }
+
+        await runtime.setChannelBootstrap(channelId: channelId, content: bootstrap)
+        logger.info(
+            "Inbound channel context bootstrap restored",
+            metadata: [
+                "channel_id": .string(channelId),
+                "linked_agent_id": .string(linkedAgentID ?? ""),
+                "bootstrap_chars": .stringConvertible(bootstrap.count)
+            ]
+        )
+    }
+
+    func buildInboundChannelContextBootstrap(
+        channelId: String,
+        linkedAgentID: String?,
+        topicId: String?,
+        now: Date = Date(),
+        calendar: Calendar = .current,
+        maxHistoryCharacters: Int = CoreService.inboundTodayHistoryMaxCharacters
+    ) async -> String {
+        var parts: [String] = [
+            Self.inboundChannelContextBootstrapMarker,
+            "Channel context restored.",
+            "Channel: \(channelId)"
+        ]
+
+        if let linkedAgentID,
+           let config = try? getAgentConfig(agentID: linkedAgentID) {
+            parts.append("Agent: \(linkedAgentID)")
+            if !config.role.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                parts.append("\n[Agent role]\n\(config.role)")
+            }
+            appendAgentDocuments(config.documents, to: &parts)
+        }
+
+        let scoped = ChannelGatewayScope.parse(channelId)
+        if let project = await projectForChannel(channelId: scoped.baseChannelId, topicId: scoped.topicKey ?? topicId),
+           let projectContext = await projectBootstrapMarkdownForAgentSession(projectID: project.id),
+           !projectContext.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            parts.append(projectContext)
+        }
+
+        if let historyContext = await todayChannelHistoryContext(
+            channelId: channelId,
+            now: now,
+            calendar: calendar,
+            maxCharacters: maxHistoryCharacters
+        ) {
+            parts.append(historyContext)
+        }
+
+        return parts.joined(separator: "\n\n")
+    }
+
+    private func appendAgentDocuments(_ documents: AgentDocumentBundle, to parts: inout [String]) {
+        let sections: [(String, String)] = [
+            ("[AGENTS.md]", documents.agentsMarkdown),
+            ("[USER.md]", documents.userMarkdown),
+            ("[IDENTITY.md]", documents.identityMarkdown),
+            ("[SOUL.md]", documents.soulMarkdown),
+            ("[MEMORY.md]", documents.memoryMarkdown)
+        ]
+
+        for (title, content) in sections {
+            let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else {
+                continue
+            }
+            parts.append("\(title)\n\(content)")
+        }
+    }
+
+    func todayChannelHistoryContext(
+        channelId: String,
+        now: Date = Date(),
+        calendar: Calendar = .current,
+        maxCharacters: Int = CoreService.inboundTodayHistoryMaxCharacters
+    ) async -> String? {
+        guard maxCharacters > 0 else {
+            return nil
+        }
+
+        let dayStart = calendar.startOfDay(for: now)
+        guard let nextDayStart = calendar.date(byAdding: .day, value: 1, to: dayStart) else {
+            return nil
+        }
+        let history: [ChannelMessageEntry]
+        do {
+            history = try await channelSessionStore.getMessageHistory(
+                channelId: channelId,
+                from: dayStart,
+                to: nextDayStart
+            )
+        } catch {
+            logger.warning("Failed to restore today's channel history for \(channelId): \(error)")
+            return nil
+        }
+        guard !history.isEmpty else {
+            return nil
+        }
+
+        let formatter = ISO8601DateFormatter()
+        let header = """
+        [Today channel history]
+        The following messages are from today in this channel. Use them to preserve continuity after process restart.
+        """
+        let footer = "[End of today channel history]"
+        var selected: [String] = []
+        var total = header.count + footer.count + 2
+
+        for entry in history.reversed() {
+            let speaker = entry.userId == "assistant" ? "Assistant" : "User \(entry.userId)"
+            let content = entry.content.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !content.isEmpty else {
+                continue
+            }
+            let line = "\(formatter.string(from: entry.createdAt)) \(speaker): \(content)"
+            let lineCost = line.count + 1
+            if total + lineCost > maxCharacters {
+                if selected.isEmpty {
+                    let available = max(0, maxCharacters - total - "\(formatter.string(from: entry.createdAt)) \(speaker): ".count - 14)
+                    guard available > 0 else {
+                        break
+                    }
+                    let suffix = String(content.suffix(available))
+                    selected.insert("\(formatter.string(from: entry.createdAt)) \(speaker): ...\(suffix)", at: 0)
+                }
+                break
+            }
+            selected.insert(line, at: 0)
+            total += lineCost
+        }
+
+        guard !selected.isEmpty else {
+            return nil
+        }
+
+        return ([header] + selected + [footer]).joined(separator: "\n")
     }
 
     fileprivate func contentWithFriendReminderIfNeeded(_ content: String, linkedAgentID: String?) -> String {
