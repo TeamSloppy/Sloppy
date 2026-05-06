@@ -1931,7 +1931,25 @@ body.agent-chat-no-page-scroll .page {
 }
 
 .agent-chat-path-dropdown-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
   font-style: italic;
+}
+
+.agent-chat-path-dropdown-spinner {
+  width: 13px;
+  height: 13px;
+  border: 2px solid color-mix(in srgb, var(--muted) 35%, transparent);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: agent-chat-path-spin 0.75s linear infinite;
+}
+
+@keyframes agent-chat-path-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 @media (max-width: 1200px) {

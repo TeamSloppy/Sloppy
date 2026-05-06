@@ -1786,6 +1786,7 @@ function AgentChatEvents({
   const scrollRef = useRef(null);
   const wasNearBottomRef = useRef(true);
   const [timeNowMs, setTimeNowMs] = useState(() => Date.now());
+  const [emptySessionTips] = useState(() => rotatedEmptySessionTips());
 
   useEffect(() => {
     const el = scrollRef.current;
@@ -1917,7 +1918,7 @@ function AgentChatEvents({
         <section className="agent-chat-empty-tips" aria-label="Session tips">
           <strong>No messages yet.</strong>
           <div className="agent-chat-empty-tip-list">
-            {EMPTY_SESSION_TIPS.map((tip) => (
+            {emptySessionTips.map((tip) => (
               <p key={tip.text} className="placeholder-text">
                 <span className="material-symbols-rounded" aria-hidden="true">
                   {tip.icon}
@@ -2484,7 +2485,10 @@ function AgentChatComposer({
         {pathSearchError ? (
           <p className="agent-chat-task-dropdown-empty">{pathSearchError}</p>
         ) : pathSearchLoading ? (
-          <p className="agent-chat-task-dropdown-empty agent-chat-path-dropdown-status">Loading…</p>
+          <p className="agent-chat-task-dropdown-empty agent-chat-path-dropdown-status">
+            <span className="agent-chat-path-dropdown-spinner" aria-hidden="true" />
+            Indexing files... suggestions will appear in a moment.
+          </p>
         ) : pathSuggestions.length === 0 ? (
           <p className="agent-chat-task-dropdown-empty">No paths found</p>
         ) : (
@@ -2986,6 +2990,26 @@ const EMPTY_SESSION_TIPS = [
   { icon: "keyboard_command_key", text: "In the TUI, /undo and /redo restore file edits from the last completed turn." },
   { icon: "unfold_more", text: "Scroll the conversation to inspect earlier tool runs; new output only auto-pins when you are near the bottom." },
 ];
+const EMPTY_SESSION_TIP_CURSOR_KEY = "sloppy.agentChat.emptyTipCursor";
+
+function rotatedEmptySessionTips() {
+  const tips = EMPTY_SESSION_TIPS;
+  if (tips.length === 0) {
+    return [];
+  }
+  let offset = 0;
+  if (typeof window !== "undefined") {
+    try {
+      const stored = Number.parseInt(window.localStorage.getItem(EMPTY_SESSION_TIP_CURSOR_KEY) || "0", 10);
+      offset = Number.isFinite(stored) ? stored : 0;
+      window.localStorage.setItem(EMPTY_SESSION_TIP_CURSOR_KEY, String(offset + 1));
+    } catch {
+      offset = 0;
+    }
+  }
+  const start = ((offset % tips.length) + tips.length) % tips.length;
+  return tips.map((_, index) => tips[(start + index) % tips.length]);
+}
 
 function useTypingInterpolation() {
   const [text, setText] = useState("");

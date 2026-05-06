@@ -14,17 +14,25 @@ struct SloppyTUIState: Codable, Sendable {
     var selections: [String: Selection]
     var drafts: [String: String]
     var petEnabled: Bool
+    var welcomeTipCursor: Int
 
     enum CodingKeys: String, CodingKey {
         case selections
         case drafts
         case petEnabled
+        case welcomeTipCursor
     }
 
-    init(selections: [String: Selection] = [:], drafts: [String: String] = [:], petEnabled: Bool = true) {
+    init(
+        selections: [String: Selection] = [:],
+        drafts: [String: String] = [:],
+        petEnabled: Bool = true,
+        welcomeTipCursor: Int = 0
+    ) {
         self.selections = selections
         self.drafts = drafts
         self.petEnabled = petEnabled
+        self.welcomeTipCursor = welcomeTipCursor
     }
 
     init(from decoder: Decoder) throws {
@@ -32,6 +40,7 @@ struct SloppyTUIState: Codable, Sendable {
         selections = try container.decodeIfPresent([String: Selection].self, forKey: .selections) ?? [:]
         drafts = try container.decodeIfPresent([String: String].self, forKey: .drafts) ?? [:]
         petEnabled = try container.decodeIfPresent(Bool.self, forKey: .petEnabled) ?? true
+        welcomeTipCursor = try container.decodeIfPresent(Int.self, forKey: .welcomeTipCursor) ?? 0
     }
 }
 

@@ -143,6 +143,7 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
     private var session: AgentSessionSummary
     private let stateStore: SloppyTUIStateStore
     private var state: SloppyTUIState
+    private let welcomeTipCursor: Int
     private let initialAction: SloppyTUIInitialAction
     private weak var tui: TUI?
     private weak var terminal: Terminal?
@@ -174,6 +175,7 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
     private var pendingPlanInputRequest: PlanInputRequest?
     private var projectFileIndex: ProjectFileIndex?
     private var projectFileRootURL: URL?
+    private var projectFileIndexLoading = false
     private var projectFileSearchSelection = 0
     private var suppressedProjectFileSearch: SloppyTUIProjectPathSearchSuppression?
     private var projectFileIndexGeneration = 0
@@ -208,6 +210,7 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
         session: AgentSessionSummary,
         stateStore: SloppyTUIStateStore,
         state: SloppyTUIState,
+        welcomeTipCursor: Int = 0,
         initialAction: SloppyTUIInitialAction = .none,
         tui: TUI,
         terminal: Terminal
@@ -218,6 +221,7 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
         self.session = session
         self.stateStore = stateStore
         self.state = state
+        self.welcomeTipCursor = welcomeTipCursor
         self.initialAction = initialAction
         self.tui = tui
         self.terminal = terminal
@@ -366,6 +370,7 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
                 agent: agent.displayName,
                 model: selectedModel,
                 mode: chatMode,
+                tipOffset: welcomeTipCursor,
                 includeFooter: false
             )
             return centerWelcome(raw, height: height)
@@ -496,6 +501,9 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
             requestRender()
             return true
         case .enter, .tab:
+            guard !picker.items[picker.selectedIndex].value.isEmpty else {
+                return true
+            }
             applyProjectFileSearchItem(picker.items[picker.selectedIndex])
             return true
         case .escape:
@@ -664,9 +672,7 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
         guard SloppyTUIAutocompleteFeatureFlags.projectPathAutocompleteEnabled else {
             return nil
         }
-        guard let index = projectFileIndex,
-              let token = currentProjectFileToken()
-        else {
+        guard let token = currentProjectFileToken() else {
             return nil
         }
         guard suppressedProjectFileSearch?.matches(token) != true else {
@@ -676,6 +682,24 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
         let query = token.path
         guard shouldSearchProjectFiles(query: query) else {
             return nil
+        }
+        guard let index = projectFileIndex else {
+            guard projectFileIndexLoading else {
+                return nil
+            }
+            return SloppyTUIPicker(
+                kind: .projectFile,
+                title: "Indexing project files",
+                items: [
+                    SloppyTUIPickerItem(
+                        value: "",
+                        label: "Collecting files...",
+                        description: "Path suggestions will appear in a moment.",
+                        isCurrent: false
+                    ),
+                ],
+                selectedIndex: 0
+            )
         }
         guard !isExactIndexedFilePath(query, in: index) else {
             return nil
@@ -2076,6 +2100,8 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
 
     private func loadProjectFileIndex() {
         projectFileIndexTask?.cancel()
+        projectFileIndexLoading = true
+        requestRender()
         projectFileIndexTask = Task { [weak self] in
             guard let self else { return }
             do {
@@ -2118,6 +2144,8 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
 
     private func rebuildProjectFileIndex(rootURL: URL) {
         projectFileReindexTask?.cancel()
+        projectFileIndexLoading = true
+        requestRender()
         let projectID = project.id
         let workspaceRoot = runtime.workspaceRoot
         projectFileReindexTask = Task { [weak self] in
@@ -2142,6 +2170,7 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
 
     private func applyProjectFileIndex(_ index: ProjectFileIndex?) {
         projectFileIndex = index
+        projectFileIndexLoading = false
         projectFileIndexGeneration += 1
         projectFileSearchCache = nil
         requestRender()

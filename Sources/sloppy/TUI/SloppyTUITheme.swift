@@ -150,6 +150,7 @@ enum SloppyTUITheme {
         agent: String,
         model: String,
         mode: AgentChatMode,
+        tipOffset: Int = 0,
         includeFooter: Bool = true
     ) -> [String] {
         let contentWidth = max(1, min(max(1, width - 4), 112))
@@ -165,7 +166,7 @@ enum SloppyTUITheme {
         lines.append(indent + welcomeMetaLine(width: contentWidth, project: project, agent: agent, model: model, mode: mode))
         lines.append(indent + welcomeShortcutsLine(width: contentWidth))
         lines.append("")
-        lines.append(contentsOf: welcomeTipLines(width: width, contentWidth: contentWidth))
+        lines.append(contentsOf: welcomeTipLines(width: width, contentWidth: contentWidth, offset: tipOffset))
         lines.append("")
         if includeFooter {
             lines.append(welcomeFooter(width: width, cwd: cwd))
@@ -632,7 +633,7 @@ enum SloppyTUITheme {
         return "  " + padded(text, width: max(1, width - 2))
     }
 
-    private static func welcomeTipLines(width: Int, contentWidth: Int) -> [String] {
+    private static func welcomeTipLines(width: Int, contentWidth: Int, offset: Int) -> [String] {
         let compact = contentWidth < 58
         let tips: [String] = compact
             ? [
@@ -648,7 +649,9 @@ enum SloppyTUITheme {
                 "Use /btw for a side question without disturbing the main task.",
                 "Use /diff or /context diff when you want the agent to inspect local changes.",
             ]
-        let visibleTips = Array(tips.prefix(compact ? 3 : 4))
+        let count = min(tips.count, compact ? 3 : 4)
+        let start = tips.isEmpty ? 0 : ((offset % tips.count) + tips.count) % tips.count
+        let visibleTips = (0..<count).map { tips[(start + $0) % tips.count] }
         return visibleTips.map { tip in
             center(yellow("Tip") + muted("  ") + foreground(tip), width: width)
         }

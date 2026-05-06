@@ -59,6 +59,7 @@ struct SloppyTUIApp {
 
         var nextState = state
         nextState.selections[selectionKey] = .init(agentId: agent.id, sessionId: session.id)
+        nextState.welcomeTipCursor = state.welcomeTipCursor + 1
         stateStore.save(nextState)
 
         try await withCheckedThrowingContinuation { continuation in
@@ -70,6 +71,7 @@ struct SloppyTUIApp {
                     session: session,
                     stateStore: stateStore,
                     state: nextState,
+                    welcomeTipCursor: state.welcomeTipCursor,
                     initialAction: initialAction,
                     continuation: continuation
                 )
@@ -87,6 +89,7 @@ struct SloppyTUIApp {
         session: AgentSessionSummary,
         stateStore: SloppyTUIStateStore,
         state: SloppyTUIState,
+        welcomeTipCursor: Int,
         initialAction: SloppyTUIInitialAction,
         continuation: CheckedContinuation<Void, Error>
     ) throws {
@@ -101,6 +104,7 @@ struct SloppyTUIApp {
                 session: session,
                 stateStore: stateStore,
                 state: state,
+                welcomeTipCursor: welcomeTipCursor,
                 initialAction: initialAction,
                 tui: tui,
                 terminal: terminal
