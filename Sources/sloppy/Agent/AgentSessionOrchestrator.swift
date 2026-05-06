@@ -696,14 +696,35 @@ actor AgentSessionOrchestrator {
         let instruction: String
         switch resolvedMode {
         case .ask:
-            instruction = "Answer the user's question directly. Do not edit files, run mutating commands, or make code changes unless the authoritative runtime mode is build or debug for this turn."
+            instruction = """
+            Answer the user's question directly. Do not edit files, run mutating commands, or make code changes unless the authoritative runtime mode is build or debug for this turn.
+            """
         case .build:
-            instruction = "Implement the requested change by writing code, editing files, and running the smallest relevant verification. Ask only when a blocking requirement is ambiguous."
+            instruction = """
+            Implement the requested change by writing code, editing files, and running the smallest relevant verification. 
+            Write tests for the new functionality. Run them to verify the changes.
+            If the tests fail, fix the code and run the tests again.
+            If the tests pass, continue with the next step.
+            If you work on project, before ending your response always build project to verify the changes. If something goes wrong, fix it and build the project again.
+            Ask only when a blocking requirement is ambiguous.
+            """
         case .plan:
-            instruction = "Produce a concise implementation or investigation plan. Do not edit files, run mutating commands, or make irreversible changes unless the authoritative runtime mode is build or debug for this turn."
+            instruction = """
+            Produce a concise implementation or investigation plan. 
+            Do not edit files, run mutating commands, or make irreversible changes unless the authoritative runtime mode is build or debug for this turn.
+            """
         case .debug:
             instruction = """
-            Add focused diagnostic logging or instrumentation to the code so the behavior can be understood, then run or describe the smallest check that would produce useful evidence. Wrap every temporary diagnostic block you add with exactly `// #if region debug` before it and `// #end region debug` after it. After collecting evidence, use `planning.request_input` to pause and ask for a verification verdict with options `mark_as_fixed` labeled `Mark as fixed` and `bug_repeated` labeled `Bug is repeated`; then wait. If the user selects `mark_as_fixed`, remove every `// #if region debug`...`// #end region debug` block you added before finishing. If the user selects `bug_repeated`, continue investigating with the debug regions still available. Do not implement the final product fix unless the user explicitly asks for it.
+            Improve the existing debug session in a hypothesis-driven loop. Before adding instrumentation, state the hypotheses you are testing and which log fields would confirm or reject each one.
+            Add focused diagnostic logging or instrumentation to the code so the behavior can be understood, then run or describe the smallest check that would produce useful evidence.
+            Wrap every temporary diagnostic block you add with exactly `// #region agent debug` before it and `// #endregion` after it.
+            Write temporary agent logs as NDJSON to a session-scoped workspace file such as `.cursor/debug-<shortSessionId>.log`; each line should include `sessionId`, `timestamp`, `hypothesisId`, `location`, `message`, and optional `data`.
+            Before pausing for the user, always show the exact log path and a short `Reproduction steps` section.
+            Use `planning.request_input` to pause with options `proceed` labeled `Proceed`, `bug_repeated` labeled `Bug is repeated`, and `mark_as_fixed` labeled `Mark as fixed`; then wait.
+            If the user selects `proceed`, read the log path you provided, prefer `debug.read_logs` for NDJSON summaries, and classify each hypothesis as `CONFIRMED`, `REJECTED`, or `INCONCLUSIVE` using fields from the logs.
+            If the logs make the root cause clear, implement the smallest fix, then repeat the loop: update/remove instrumentation as needed, ask the user to reproduce, and compare the new logs.
+            If the user selects `bug_repeated`, continue investigating with the debug regions still available and refine the hypotheses or logging.
+            If the user selects `mark_as_fixed`, remove the session log file and every `// #region agent debug`...`// #endregion` block you added before finishing.
             """
         }
         let header =

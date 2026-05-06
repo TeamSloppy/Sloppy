@@ -67,6 +67,8 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
         SloppyTUISlashCommand("new", "Create a new session"),
         SloppyTUISlashCommand("clear", "Clear local cards"),
         SloppyTUISlashCommand("stop", "Interrupt the current run"),
+        SloppyTUISlashCommand("restore", "Restart the current session after a failed run"),
+        SloppyTUISlashCommand("up", "Alias for restore"),
         SloppyTUISlashCommand("undo", "Undo file changes from the last completed turn"),
         SloppyTUISlashCommand("redo", "Redo the last undone turn"),
         SloppyTUISlashCommand("btw", "Ask a quick side question without interrupting the main conversation", argument: "message"),
@@ -100,6 +102,8 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
         "new",
         "clear",
         "stop",
+        "restore",
+        "up",
         "undo",
         "redo",
         "btw",
@@ -167,6 +171,7 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
     private var lastChangeBatch: ProjectWorkingTreeChangeBatch?
     private var lastRenderedSessionEventIDs: Set<String> = []
     private var activePicker: SloppyTUIPicker?
+    private var pendingPlanInputRequest: PlanInputRequest?
     private var projectFileIndex: ProjectFileIndex?
     private var projectFileRootURL: URL?
     private var projectFileSearchSelection = 0
@@ -182,7 +187,7 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
     private var transientNoticeLine: String?
     private var transientNoticeTask: Task<Void, Never>?
     private var transcriptExpanded = false
-    private var undoManager = SloppyTUIUndoManager()
+    private var sessionUndoManagers = SloppyTUISessionUndoManagers()
     private var thinkingFrame = 0
     private var thinkingWord = "thinking"
     private var petMood: AgentPetAnimationState = .idle
@@ -420,6 +425,14 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
             }
             return true
         case .escape:
+            if picker.kind == .planInput {
+                activePicker = nil
+                requestRender()
+                Task { @MainActor in
+                    await self.cancelPlanInputRequest()
+                }
+                return true
+            }
             activePicker = nil
             if exitAfterModelSelection && picker.kind == .model {
                 onExit?()
@@ -911,6 +924,8 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
             renderTimeline()
         case "stop":
             await stopCurrentRun()
+        case "restore", "up":
+            await restoreCurrentSession(extraInstruction: args.joined(separator: " "))
         case "undo":
             await undoLastTurn()
         case "redo":
@@ -1075,21 +1090,36 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
         )
     }
 
-    private func makeUndoBaseline() async -> SloppyTUIUndoManager.Baseline? {
+    private func restoreCurrentSession(extraInstruction: String) async {
+        guard !isPosting else {
+            appendLocalCard("A message is already in flight. Use `/stop` if you need to interrupt it before restoring.")
+            return
+        }
+
+        let trimmedExtra = extraInstruction.trimmingCharacters(in: .whitespacesAndNewlines)
+        let extra = trimmedExtra.isEmpty ? "" : "\n\nAdditional recovery instruction:\n\(trimmedExtra)"
+        await sendMessage("""
+        Restore this session after the previous run failed, lost network access, or was interrupted. Continue the last unfinished user task from the current session transcript.
+
+        Do not start a new task and do not repeat completed work. Inspect the latest session context and tool results if needed, then continue from the last reliable point. If the failure was transient, retry the failed operation and proceed normally.\(extra)
+        """)
+    }
+
+    private func makeUndoBaseline() async -> SloppyTUISessionUndoManagers.Baseline? {
         do {
             let rootURL = try await runtime.service.resolveProjectWorkspaceRoot(projectID: project.id)
-            return undoManager.makeBaseline(rootURL: rootURL)
+            return sessionUndoManagers.makeBaseline(sessionID: session.id, rootURL: rootURL)
         } catch {
             return nil
         }
     }
 
-    private func recordUndoPointIfNeeded(_ baseline: SloppyTUIUndoManager.Baseline?) {
+    private func recordUndoPointIfNeeded(_ baseline: SloppyTUISessionUndoManagers.Baseline?) {
         guard let baseline else {
             return
         }
 
-        switch undoManager.recordChanges(rootURL: baseline.rootURL, baseline: baseline) {
+        switch sessionUndoManagers.recordChanges(baseline) {
         case .recorded:
             break
         case .noChanges:
@@ -1118,9 +1148,9 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
             let result: SloppyTUIUndoManager.ApplyResult
             switch direction {
             case .undo:
-                result = try undoManager.undo(rootURL: rootURL)
+                result = try sessionUndoManagers.undo(sessionID: session.id, rootURL: rootURL)
             case .redo:
-                result = try undoManager.redo(rootURL: rootURL)
+                result = try sessionUndoManagers.redo(sessionID: session.id, rootURL: rootURL)
             }
             appendLocalCard(undoRedoSummary(result), autoDismissAfter: 10)
             scheduleProjectFileReindex()
@@ -1547,6 +1577,8 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
             await beginProviderSetup(item.value)
         case .projectFile:
             applyProjectFileSearchItem(item)
+        case .planInput:
+            await answerPlanInput(with: item)
         }
     }
 
@@ -2133,6 +2165,14 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
         var blocks: [SloppyTUITimelineBlock] = []
         var children: [SloppyTUISubSessionCard] = []
         let events = detail?.events ?? []
+        let answeredInputRequestIDs = Set(events.compactMap { event -> String? in
+            event.type == .inputResponse ? event.inputResponse?.requestId : nil
+        })
+        let pendingInputRequest = events.compactMap { event -> PlanInputRequest? in
+            event.type == .inputRequest ? event.inputRequest : nil
+        }.last { request in
+            !answeredInputRequestIDs.contains(request.id)
+        }
         lastRenderedSessionEventIDs = Set(events.map(\.id))
         for event in events {
             if let message = event.message {
@@ -2184,10 +2224,15 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
                     durationMs: toolResult.durationMs,
                     details: toolResultDisplay(toolResult)
                 ))
+            } else if event.type == .inputRequest, let inputRequest = event.inputRequest {
+                if !answeredInputRequestIDs.contains(inputRequest.id) {
+                    blocks.append(.inputRequest(inputRequest))
+                }
             }
         }
         sessionCards = blocks
         subSessionCards = children
+        updatePendingPlanInputRequest(pendingInputRequest)
         renderTimeline()
     }
 
@@ -2366,6 +2411,8 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
                 lines.append(SloppyTUITheme.attachmentLine(name: name, mimeType: mimeType, sizeBytes: sizeBytes, width: width))
             case .subSession(let childSessionId, let title):
                 lines.append(SloppyTUITheme.subSessionLine(title: title, childSessionId: childSessionId, width: width))
+            case .inputRequest(let request):
+                lines.append(contentsOf: renderMarkdown(SloppyTUIPlanInputPicker.requestText(request), width: width))
             case .toolCall(let tool, let reason, let summary, let details):
                 lines.append(SloppyTUITheme.toolCallLine(tool: tool, reason: reason, summary: summary, width: width))
                 if transcriptExpanded, let details, !details.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -2400,6 +2447,92 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
         default:
             return false
         }
+    }
+
+    private func updatePendingPlanInputRequest(_ request: PlanInputRequest?) {
+        let previousRequestID = pendingPlanInputRequest?.id
+        let previousSelectedIndex = activePicker?.kind == .planInput ? activePicker?.selectedIndex ?? 0 : 0
+        pendingPlanInputRequest = request
+
+        guard let request else {
+            if activePicker?.kind == .planInput {
+                activePicker = nil
+                refreshStaticChrome()
+            }
+            return
+        }
+
+        guard activePicker == nil || activePicker?.kind == .planInput else {
+            return
+        }
+
+        let selectedIndex = previousRequestID == request.id ? previousSelectedIndex : 0
+        activePicker = SloppyTUIPlanInputPicker.picker(for: request, selectedIndex: selectedIndex)
+        refreshStaticChrome(statusLine: "select answer with arrows, Enter to submit, Esc to cancel")
+    }
+
+    private func answerPlanInput(with item: SloppyTUIPickerItem) async {
+        guard let request = pendingPlanInputRequest,
+              let payload = SloppyTUIPlanInputPicker.answerRequest(for: item, request: request)
+        else {
+            appendLocalCard("Could not read the pending input request.", autoDismissAfter: 8)
+            return
+        }
+        await submitPlanInput(request: request, payload: payload, busyLabel: "Submitting input answer...")
+    }
+
+    private func cancelPlanInputRequest() async {
+        guard let request = pendingPlanInputRequest else {
+            return
+        }
+        let payload = PlanInputAnswerRequest(status: .cancelled, answers: [], userId: "tui")
+        await submitPlanInput(request: request, payload: payload, busyLabel: "Cancelling input request...")
+    }
+
+    private func submitPlanInput(
+        request: PlanInputRequest,
+        payload: PlanInputAnswerRequest,
+        busyLabel: String
+    ) async {
+        guard !isPosting else {
+            appendLocalCard("A message is already in flight. Use `/stop` if you need to interrupt it.")
+            return
+        }
+
+        isPosting = true
+        taskStartedAt = Date()
+        lastTaskElapsed = nil
+        liveRunStatusLine = busyLabel
+        startThinkingAnimation()
+        refreshStaticChrome(statusLine: busyLabel)
+        let undoBaseline = await makeUndoBaseline()
+        do {
+            _ = try await runtime.service.answerAgentPlanInput(
+                agentID: agent.id,
+                sessionID: session.id,
+                requestID: request.id,
+                payload: payload
+            )
+            pendingPlanInputRequest = nil
+            activePicker = nil
+            recordUndoPointIfNeeded(undoBaseline)
+            await reloadSession()
+            petMood = payload.status == .answered ? .happy : petMood
+        } catch {
+            petMood = .sad
+            pendingPlanInputRequest = request
+            activePicker = SloppyTUIPlanInputPicker.picker(for: request)
+            appendLocalCard("Input answer failed: \(String(describing: error))")
+        }
+        if let taskStartedAt {
+            lastTaskElapsed = Date().timeIntervalSince(taskStartedAt)
+        }
+        taskStartedAt = nil
+        isPosting = false
+        stopThinkingAnimation()
+        liveRunStatusLine = nil
+        refreshStaticChrome()
+        renderTimeline()
     }
 
     private func compactToolGroupEnd(startingAt startIndex: Int, in blocks: [SloppyTUITimelineBlock]) -> Int {

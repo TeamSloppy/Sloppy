@@ -153,6 +153,7 @@ For git context:
 | `/new` | Create a new session |
 | `/clear` | Clear local TUI cards |
 | `/stop` | Interrupt the current run |
+| `/restore`, `/up` | Restart the current session after a failed or interrupted run |
 | `/undo` | Undo file changes from the last completed TUI turn |
 | `/redo` | Redo the last undone TUI turn |
 | `/btw <message>` | Ask a side question without changing the current main message flow |
@@ -176,6 +177,10 @@ For git context:
 | `/quit` or `/exit` | Exit the TUI |
 
 Skill-provided slash commands also appear in the command palette and are forwarded to the agent when invoked.
+
+`/restore` and `/up` send a recovery message into the active session transcript. Use them after a transient failure, such as a lost network request, when you want the agent to continue the previous unfinished task without creating a new session.
+
+Undo and redo history is scoped to the active session during the current TUI run. Switching sessions restores that session's own undo stack without mixing changes from other chats.
 
 ## State and Persistence
 

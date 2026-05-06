@@ -272,6 +272,52 @@ struct SloppyTUIUndoManager {
     ]
 }
 
+struct SloppyTUISessionUndoManagers {
+    struct Baseline {
+        var sessionID: String
+        var baseline: SloppyTUIUndoManager.Baseline
+    }
+
+    private var managers: [String: SloppyTUIUndoManager] = [:]
+
+    func makeBaseline(sessionID: String, rootURL: URL) -> Baseline {
+        let manager = managers[sessionID] ?? SloppyTUIUndoManager()
+        return Baseline(
+            sessionID: sessionID,
+            baseline: manager.makeBaseline(rootURL: rootURL)
+        )
+    }
+
+    mutating func recordChanges(_ baseline: Baseline) -> SloppyTUIUndoManager.RecordResult {
+        var manager = managers[baseline.sessionID] ?? SloppyTUIUndoManager()
+        let result = manager.recordChanges(rootURL: baseline.baseline.rootURL, baseline: baseline.baseline)
+        managers[baseline.sessionID] = manager
+        return result
+    }
+
+    mutating func undo(sessionID: String, rootURL: URL) throws -> SloppyTUIUndoManager.ApplyResult {
+        var manager = managers[sessionID] ?? SloppyTUIUndoManager()
+        let result = try manager.undo(rootURL: rootURL)
+        managers[sessionID] = manager
+        return result
+    }
+
+    mutating func redo(sessionID: String, rootURL: URL) throws -> SloppyTUIUndoManager.ApplyResult {
+        var manager = managers[sessionID] ?? SloppyTUIUndoManager()
+        let result = try manager.redo(rootURL: rootURL)
+        managers[sessionID] = manager
+        return result
+    }
+
+    func canUndo(sessionID: String) -> Bool {
+        managers[sessionID]?.canUndo ?? false
+    }
+
+    func canRedo(sessionID: String) -> Bool {
+        managers[sessionID]?.canRedo ?? false
+    }
+}
+
 private struct Transaction: Equatable {
     var paths: [String]
     var before: [String: FileState]

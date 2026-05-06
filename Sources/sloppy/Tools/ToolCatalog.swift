@@ -74,6 +74,15 @@ enum ToolCatalog {
             ]),
             "required": .array([.string("path")])
         ]),
+        "debug.read_logs": .object([
+            "type": .string("object"),
+            "properties": .object([
+                "path": .object(["type": .string("string")]),
+                "sessionId": .object(["type": .string("string")]),
+                "maxBytes": .object(["type": .string("number")])
+            ]),
+            "required": .array([.string("path")])
+        ]),
         "files.write": .object([
             "type": .string("object"),
             "properties": .object([

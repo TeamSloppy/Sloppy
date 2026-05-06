@@ -3,7 +3,7 @@ import TauTUI
 
 enum SloppyTUIAutocompleteFeatureFlags {
     static let editorAutocompleteEnabled = false
-    static let projectPathAutocompleteEnabled = false
+    static let projectPathAutocompleteEnabled = true
 }
 
 struct SloppyTUISlashCommand: SlashCommand {
@@ -83,28 +83,16 @@ struct SloppyTUIDoubleEscapeDetector {
 
 final class SloppyTUIAutocompleteProvider: AutocompleteProvider {
     private let base: CombinedAutocompleteProvider
-    private static let debugEnabled = true
 
     init(basePath: String) {
         self.base = CombinedAutocompleteProvider(basePath: basePath)
-        Self.debug("init basePath=\(basePath)")
-    }
-
-    private static func debug(_ message: @autoclosure () -> String) {
-        guard debugEnabled else { return }
-        FileHandle.standardError.write(Data(("[SloppyTUIAutocompleteProvider] \(message())\n").utf8))
     }
 
     func getSuggestions(lines: [String], cursorLine: Int, cursorCol: Int) -> AutocompleteSuggestion? {
-        let attachmentToken = isAttachmentTokenAtCursor(lines: lines, cursorLine: cursorLine, cursorCol: cursorCol)
-        Self.debug("getSuggestions cursor=\(cursorLine):\(cursorCol) attachmentToken=\(attachmentToken) line=\(Self.debugLine(lines, cursorLine))")
-        guard !attachmentToken else {
-            Self.debug("getSuggestions -> nil because attachment token is active")
+        guard !isAttachmentTokenAtCursor(lines: lines, cursorLine: cursorLine, cursorCol: cursorCol) else {
             return nil
         }
-        let suggestion = base.getSuggestions(lines: lines, cursorLine: cursorLine, cursorCol: cursorCol)
-        Self.debug("getSuggestions -> \(Self.debugSuggestion(suggestion))")
-        return suggestion
+        return base.getSuggestions(lines: lines, cursorLine: cursorLine, cursorCol: cursorCol)
     }
 
     func applyCompletion(
@@ -114,20 +102,16 @@ final class SloppyTUIAutocompleteProvider: AutocompleteProvider {
         item: AutocompleteItem,
         prefix: String
     ) -> (lines: [String], cursorLine: Int, cursorCol: Int) {
-        Self.debug("applyCompletion prefix=\(prefix.debugDescription) itemValue=\(item.value.debugDescription) cursor=\(cursorLine):\(cursorCol) lineBefore=\(Self.debugLine(lines, cursorLine))")
         guard prefix.hasPrefix("@") else {
-            let result = base.applyCompletion(
+            return base.applyCompletion(
                 lines: lines,
                 cursorLine: cursorLine,
                 cursorCol: cursorCol,
                 item: item,
                 prefix: prefix
             )
-            Self.debug("applyCompletion delegatedToBase -> cursor=\(result.cursorLine):\(result.cursorCol) lineAfter=\(Self.debugLine(result.lines, result.cursorLine))")
-            return result
         }
         guard lines.indices.contains(cursorLine) else {
-            Self.debug("applyCompletion aborted because cursorLine is out of bounds")
             return (lines, cursorLine, cursorCol)
         }
 
@@ -139,37 +123,27 @@ final class SloppyTUIAutocompleteProvider: AutocompleteProvider {
         let end = currentLine.index(start, offsetBy: safePrefixCount)
         let value = item.value.hasPrefix("@") ? String(item.value.dropFirst()) : item.value
         let replacement = "@\(SloppyTUIProjectPathTokens.escapedTokenValue(value)) "
-        Self.debug("applyCompletion tokenReplacement start=\(startOffset) end=\(cursorCol) safePrefixCount=\(safePrefixCount) replacement=\(replacement.debugDescription)")
         currentLine.replaceSubrange(start..<end, with: replacement)
         mutableLines[cursorLine] = currentLine
         let newCursor = cursorCol - safePrefixCount + replacement.count
-        Self.debug("applyCompletion result cursor=\(cursorLine):\(max(0, newCursor)) lineAfter=\(currentLine.debugDescription)")
         return (mutableLines, cursorLine, max(0, newCursor))
     }
 
     func forceFileSuggestions(lines: [String], cursorLine: Int, cursorCol: Int) -> AutocompleteSuggestion? {
-        let attachmentToken = isAttachmentTokenAtCursor(lines: lines, cursorLine: cursorLine, cursorCol: cursorCol)
-        Self.debug("forceFileSuggestions cursor=\(cursorLine):\(cursorCol) attachmentToken=\(attachmentToken) line=\(Self.debugLine(lines, cursorLine))")
-        guard !attachmentToken else {
-            Self.debug("forceFileSuggestions -> nil because attachment token is active")
+        guard !isAttachmentTokenAtCursor(lines: lines, cursorLine: cursorLine, cursorCol: cursorCol) else {
             return nil
         }
-        let suggestion = base.forceFileSuggestions(lines: lines, cursorLine: cursorLine, cursorCol: cursorCol)
-        Self.debug("forceFileSuggestions -> \(Self.debugSuggestion(suggestion))")
-        return suggestion
+        return base.forceFileSuggestions(lines: lines, cursorLine: cursorLine, cursorCol: cursorCol)
     }
 
     func shouldTriggerFileCompletion(lines: [String], cursorLine: Int, cursorCol: Int) -> Bool {
         guard lines.indices.contains(cursorLine) else {
-            Self.debug("shouldTriggerFileCompletion -> false because cursorLine is out of bounds")
             return false
         }
         let currentLine = lines[cursorLine]
         let prefixIndex = currentLine.index(currentLine.startIndex, offsetBy: min(cursorCol, currentLine.count))
         let textBeforeCursor = String(currentLine[..<prefixIndex])
-        let result = textBeforeCursor.trimmingCharacters(in: .whitespaces).hasPrefix("/")
-        Self.debug("shouldTriggerFileCompletion cursor=\(cursorLine):\(cursorCol) textBeforeCursor=\(textBeforeCursor.debugDescription) -> \(result)")
-        return result
+        return textBeforeCursor.trimmingCharacters(in: .whitespaces).hasPrefix("/")
     }
 
     private func isAttachmentTokenAtCursor(lines: [String], cursorLine: Int, cursorCol: Int) -> Bool {
@@ -178,20 +152,6 @@ final class SloppyTUIAutocompleteProvider: AutocompleteProvider {
             cursorLine: cursorLine,
             cursorColumn: cursorCol
         )
-        if let token {
-            Self.debug("isAttachmentTokenAtCursor -> true token=raw:\(token.rawToken.debugDescription) path:\(token.path.debugDescription) span=\(token.line):\(token.startColumn)-\(token.endColumn)")
-        }
         return token != nil
-    }
-
-    private static func debugLine(_ lines: [String], _ line: Int) -> String {
-        guard lines.indices.contains(line) else { return "<line-out-of-range>" }
-        return lines[line].debugDescription
-    }
-
-    private static func debugSuggestion(_ suggestion: AutocompleteSuggestion?) -> String {
-        guard let suggestion else { return "nil" }
-        let values = suggestion.items.prefix(5).map(\.value)
-        return "prefix=\(suggestion.prefix.debugDescription) items=\(suggestion.items.count) sample=\(values)"
     }
 }

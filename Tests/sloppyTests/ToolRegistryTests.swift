@@ -18,6 +18,7 @@ struct ToolRegistryTests {
             "computer.click", "computer.type", "computer.key", "computer.screenshot",
             "browser.open", "browser.navigate", "browser.click", "browser.type",
             "browser.screenshot", "browser.status", "browser.close",
+            "debug.read_logs",
             "web.search", "web.fetch",
             "branches.spawn",
             "workers.spawn", "agents.delegate_task", "workers.route",
@@ -76,6 +77,7 @@ struct ToolRegistryTests {
         #expect(ToolCatalog.knownToolIDs.contains("mcp.call_tool"))
         #expect(ToolCatalog.knownToolIDs.contains("browser.open"))
         #expect(ToolCatalog.knownToolIDs.contains("browser.screenshot"))
+        #expect(ToolCatalog.knownToolIDs.contains("debug.read_logs"))
     }
 
     @Test("allTools returns unique tools with valid names and parameters")

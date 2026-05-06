@@ -70,3 +70,14 @@
   justify-content: flex-end;
   gap: 8px;
 }
+
+.plan-input-panel--debug {
+  border-color: rgba(244, 114, 182, 0.38);
+}
+
+.plan-input-panel__debug-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}

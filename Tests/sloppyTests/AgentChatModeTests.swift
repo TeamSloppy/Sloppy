@@ -37,11 +37,20 @@ func agentChatModeRuntimeInstructionsMatchModeSemantics() {
     #expect(plan.contains("Do not edit files"))
     #expect(debug.contains("Add focused diagnostic logging"))
     #expect(debug.contains("instrumentation"))
-    #expect(debug.contains("// #if region debug"))
-    #expect(debug.contains("// #end region debug"))
+    #expect(debug.contains("// #region agent debug"))
+    #expect(debug.contains("// #endregion"))
+    #expect(debug.contains(".cursor/debug-<shortSessionId>.log"))
+    #expect(debug.contains("Reproduction steps"))
+    #expect(debug.contains("debug.read_logs"))
     #expect(debug.contains("planning.request_input"))
+    #expect(debug.contains("proceed"))
+    #expect(debug.contains("Proceed"))
+    #expect(debug.contains("CONFIRMED"))
+    #expect(debug.contains("REJECTED"))
+    #expect(debug.contains("INCONCLUSIVE"))
     #expect(debug.contains("mark_as_fixed"))
     #expect(debug.contains("Bug is repeated"))
+    #expect(debug.contains("remove the session log file"))
 }
 
 @Test

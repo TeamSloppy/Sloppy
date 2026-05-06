@@ -17,6 +17,7 @@ type PlanInputQuestion = {
 
 type PlanInputRequest = {
   id?: string;
+  mode?: string;
   title?: string;
   questions?: PlanInputQuestion[];
 };
@@ -31,6 +32,12 @@ export function PlanInputPanel({ request, disabled = false, onSubmit }: PlanInpu
   const questions = useMemo(
     () => (Array.isArray(request?.questions) ? request.questions : []).filter((q) => String(q?.id || "").trim()),
     [request]
+  );
+  const debugQuestion = questions.length === 1 && request?.mode === "debug" ? questions[0] : null;
+  const isDebugActionRequest = Boolean(
+    debugQuestion
+      && Array.isArray(debugQuestion.options)
+      && ["proceed", "bug_repeated", "mark_as_fixed"].every((id) => debugQuestion.options?.some((option) => option.id === id))
   );
   const [selectedByQuestion, setSelectedByQuestion] = useState<Record<string, string>>({});
   const [customByQuestion, setCustomByQuestion] = useState<Record<string, string>>({});
@@ -66,6 +73,57 @@ export function PlanInputPanel({ request, disabled = false, onSubmit }: PlanInpu
     } finally {
       setIsSubmitting(false);
     }
+  }
+
+  async function submitDebugOption(questionId: string, optionId: string) {
+    if (isSubmitting || disabled) return;
+    setErrorText("");
+    setIsSubmitting(true);
+    try {
+      await onSubmit({
+        status: "answered",
+        userId: "dashboard",
+        answers: [{ questionId, selectedOptionId: optionId }]
+      });
+    } catch {
+      setErrorText("Could not submit answer.");
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
+  if (isDebugActionRequest && debugQuestion) {
+    const questionId = String(debugQuestion.id || "");
+    const orderedOptions = ["proceed", "bug_repeated", "mark_as_fixed"]
+      .map((id) => debugQuestion.options?.find((option) => option.id === id))
+      .filter(Boolean) as PlanInputOption[];
+    return (
+      <section className="plan-input-panel plan-input-panel--debug" aria-label="Debug input request">
+        <div className="plan-input-panel__head">
+          <span className="material-symbols-rounded" aria-hidden="true">bug_report</span>
+          <strong>{request.title || "Debug checkpoint"}</strong>
+        </div>
+        <div className="plan-input-panel__question">
+          {debugQuestion.header ? <span className="plan-input-panel__header">{debugQuestion.header}</span> : null}
+          <p>{debugQuestion.question}</p>
+          <div className="plan-input-panel__debug-actions">
+            {orderedOptions.map((option) => (
+              <button
+                key={option.id}
+                type="button"
+                className={`btn btn-sm ${option.id === "mark_as_fixed" ? "btn-secondary" : "btn-primary"}`}
+                disabled={disabled || isSubmitting}
+                onClick={() => void submitDebugOption(questionId, String(option.id || ""))}
+                title={option.description || option.label || option.id}
+              >
+                {option.label || option.id}
+              </button>
+            ))}
+          </div>
+        </div>
+        {errorText ? <p className="plan-input-panel__error">{errorText}</p> : null}
+      </section>
+    );
   }
 
   return (

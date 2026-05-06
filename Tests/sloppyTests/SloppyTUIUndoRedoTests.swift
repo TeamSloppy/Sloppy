@@ -115,6 +115,35 @@ func tuiUndoRedoSkipsOversizedChangedFile() throws {
     #expect(!manager.canUndo)
 }
 
+@Test
+func tuiUndoRedoHistoryIsScopedBySession() throws {
+    let root = try makeUndoRedoRoot()
+    defer { try? FileManager.default.removeItem(at: root) }
+    let firstURL = root.appendingPathComponent("first.txt")
+    let secondURL = root.appendingPathComponent("second.txt")
+    try Data("one-before".utf8).write(to: firstURL)
+    try Data("two-before".utf8).write(to: secondURL)
+
+    var managers = SloppyTUISessionUndoManagers()
+    let firstBaseline = managers.makeBaseline(sessionID: "session-one", rootURL: root)
+    try Data("one-after".utf8).write(to: firstURL)
+    _ = managers.recordChanges(firstBaseline)
+
+    let secondBaseline = managers.makeBaseline(sessionID: "session-two", rootURL: root)
+    try Data("two-after".utf8).write(to: secondURL)
+    _ = managers.recordChanges(secondBaseline)
+
+    #expect(managers.canUndo(sessionID: "session-one"))
+    #expect(managers.canUndo(sessionID: "session-two"))
+
+    _ = try managers.undo(sessionID: "session-two", rootURL: root)
+    #expect(try String(contentsOf: secondURL, encoding: .utf8) == "two-before")
+    #expect(try String(contentsOf: firstURL, encoding: .utf8) == "one-after")
+
+    _ = try managers.undo(sessionID: "session-one", rootURL: root)
+    #expect(try String(contentsOf: firstURL, encoding: .utf8) == "one-before")
+}
+
 private func makeUndoRedoRoot() throws -> URL {
     let root = FileManager.default.temporaryDirectory
         .appendingPathComponent("sloppy-tui-undo-redo-\(UUID().uuidString)", isDirectory: true)
