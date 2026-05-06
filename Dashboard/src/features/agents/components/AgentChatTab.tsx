@@ -1914,7 +1914,19 @@ function AgentChatEvents({
       {isLoadingSession ? (
         <p className="placeholder-text">Loading session...</p>
       ) : displayGroups.length === 0 && !isSending ? (
-        <p className="placeholder-text">No messages yet.</p>
+        <section className="agent-chat-empty-tips" aria-label="Session tips">
+          <strong>No messages yet.</strong>
+          <div className="agent-chat-empty-tip-list">
+            {EMPTY_SESSION_TIPS.map((tip) => (
+              <p key={tip.text} className="placeholder-text">
+                <span className="material-symbols-rounded" aria-hidden="true">
+                  {tip.icon}
+                </span>
+                {tip.text}
+              </p>
+            ))}
+          </div>
+        </section>
       ) : (
         <>
           {displayGroups.map((timelineItem, index) => {
@@ -2966,6 +2978,14 @@ Prepare for human/code review: list relevant file paths, note key excerpts or sy
 
 const ANALYSIS_PREP_AGENT_PROMPT =
   "Prepare this workspace/session for analysis: list the most relevant files for the current problem, give short notes per file, and surface any errors you encounter with full detail (command, cwd, stderr).";
+
+const EMPTY_SESSION_TIPS = [
+  { icon: "alternate_email", text: "Type @ to search and attach project files as context." },
+  { icon: "terminal", text: "Use /help to see chat commands; /diff and /context diff are handy before asking for a review." },
+  { icon: "pets", text: "Agents have Sloppie pets. Open an agent card to see its current pet state." },
+  { icon: "keyboard_command_key", text: "In the TUI, /undo and /redo restore file edits from the last completed turn." },
+  { icon: "unfold_more", text: "Scroll the conversation to inspect earlier tool runs; new output only auto-pins when you are near the bottom." },
+];
 
 function useTypingInterpolation() {
   const [text, setText] = useState("");

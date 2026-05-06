@@ -1012,6 +1012,12 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
         - Option+Up/Down or Ctrl+Up/Down scroll by a few lines.
         - Option+Home / Ctrl+Home jumps to the start of history.
         - Option+End / Ctrl+End jumps back to the bottom.
+
+        ## Tips
+        - `/pet` toggles the terminal Sloppie and shows its face/status.
+        - `/undo` and `/redo` are scoped to the current session during this TUI run.
+        - `/btw <message>` asks a quick side question without interrupting the main flow.
+        - `/diff` previews local changes; `/context diff` attaches them to the next message.
         """)
     }
 

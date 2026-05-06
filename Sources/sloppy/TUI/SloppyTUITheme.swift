@@ -165,7 +165,7 @@ enum SloppyTUITheme {
         lines.append(indent + welcomeMetaLine(width: contentWidth, project: project, agent: agent, model: model, mode: mode))
         lines.append(indent + welcomeShortcutsLine(width: contentWidth))
         lines.append("")
-        lines.append(center(yellow("Tip") + muted("  Use ") + foreground("/model") + muted(" to switch models with arrow keys."), width: width))
+        lines.append(contentsOf: welcomeTipLines(width: width, contentWidth: contentWidth))
         lines.append("")
         if includeFooter {
             lines.append(welcomeFooter(width: width, cwd: cwd))
@@ -630,6 +630,28 @@ enum SloppyTUITheme {
             text = foreground("tab") + muted(" mode") + muted("     ") + foreground("/model") + muted(" models") + muted("     ") + foreground("/help") + muted(" commands")
         }
         return "  " + padded(text, width: max(1, width - 2))
+    }
+
+    private static func welcomeTipLines(width: Int, contentWidth: Int) -> [String] {
+        let compact = contentWidth < 58
+        let tips: [String] = compact
+            ? [
+                "/help lists commands and scroll keys.",
+                "Use /pet to toggle your Sloppie.",
+                "/undo and /redo are per-session.",
+            ]
+            : [
+                "PageUp / PageDown scroll history; Option+End jumps back to the latest message.",
+                "Use /pet to toggle your terminal Sloppie and peek at its current mood.",
+                "/undo and /redo restore file changes from the last completed TUI turn.",
+                "Type @path to attach project files as explicit context with autocomplete.",
+                "Use /btw for a side question without disturbing the main task.",
+                "Use /diff or /context diff when you want the agent to inspect local changes.",
+            ]
+        let visibleTips = Array(tips.prefix(compact ? 3 : 4))
+        return visibleTips.map { tip in
+            center(yellow("Tip") + muted("  ") + foreground(tip), width: width)
+        }
     }
 
     private static func welcomeFooter(width: Int, cwd: String) -> String {

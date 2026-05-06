@@ -1735,6 +1735,40 @@ body.agent-chat-no-page-scroll .page {
   padding: 10px 12px;
 }
 
+.agent-chat-empty-tips {
+  display: grid;
+  gap: 12px;
+  max-width: 680px;
+  padding: 18px 20px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-1);
+}
+
+.agent-chat-empty-tips strong {
+  font-size: 0.95rem;
+  color: var(--text);
+}
+
+.agent-chat-empty-tip-list {
+  display: grid;
+  gap: 9px;
+}
+
+.agent-chat-empty-tip-list p {
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr);
+  gap: 8px;
+  align-items: start;
+  margin: 0;
+  line-height: 1.4;
+}
+
+.agent-chat-empty-tip-list .material-symbols-rounded {
+  font-size: 18px;
+  color: var(--muted);
+}
+
 .agent-chat-compose-sticky-wrap {
   flex-shrink: 0;
 }
