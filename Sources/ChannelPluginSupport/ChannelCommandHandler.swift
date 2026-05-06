@@ -49,7 +49,8 @@ public struct ChannelCommandHandler: Sendable {
         BotCommand(name: "whoami", description: "Show channel and user info"),
         BotCommand(name: "task", description: "Create a task via Sloppy", argument: "description"),
         BotCommand(name: "model", description: "Show or switch model", argument: "model_id"),
-        BotCommand(name: "mode", description: "Set chat mode", argument: "ask|build|plan|debug"),
+        BotCommand(name: "ask", description: "Ask a question without code changes", argument: "message", surfaces: [.telegram, .discord]),
+        BotCommand(name: "plan", description: "Create a plan without code changes", argument: "message", surfaces: [.telegram, .discord]),
         BotCommand(name: "channel_link", description: "Link this channel or topic to a project"),
         BotCommand(name: "context", description: "Show token usage and context info"),
         BotCommand(name: "abort", description: "Abort current agent processing"),
@@ -128,6 +129,18 @@ public struct ChannelCommandHandler: Sendable {
         }
 
         if lower == "/model" || lower.hasPrefix("/model ") {
+            return nil
+        }
+
+        if lower == "/ask" || lower.hasPrefix("/ask ") {
+            return nil
+        }
+
+        if lower == "/plan" || lower.hasPrefix("/plan ") {
+            return nil
+        }
+
+        if lower == "/mode" || lower.hasPrefix("/mode ") {
             return nil
         }
 

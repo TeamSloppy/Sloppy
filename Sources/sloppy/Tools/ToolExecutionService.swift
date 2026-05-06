@@ -24,7 +24,7 @@ final class ToolExecutionService: @unchecked Sendable {
     var skillsService: (any SkillsToolService)?
     /// `(agentID, field, markdown)` — used to build per-invocation `ToolContext.applyAgentMarkdown`.
     var applyAgentMarkdown: ((String, AgentMarkdownDocumentField, String) async throws -> Void)?
-    var delegateSubagent: (@Sendable (String, String, String, String?, [String]?, String?) async -> String?)?
+    var delegateSubagent: (@Sendable (String, String, String, String?, [String]?, String?, String?) async -> String?)?
 
     init(
         workspaceRootURL: URL,

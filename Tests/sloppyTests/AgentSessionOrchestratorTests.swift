@@ -104,6 +104,89 @@ private actor FixedOutputModelProvider: ModelProvider {
     }
 }
 
+private struct ToolCallingLanguageModel: LanguageModel {
+    typealias UnavailableReason = Never
+    let toolName: String
+    let finalText: String
+
+    func respond<Content>(
+        within session: LanguageModelSession,
+        to prompt: Prompt,
+        generating type: Content.Type,
+        includeSchemaInPrompt: Bool,
+        options: GenerationOptions
+    ) async throws -> LanguageModelSession.Response<Content> where Content: Generable {
+        guard type == String.self else { fatalError("ToolCallingLanguageModel: only String supported") }
+
+        var entries: [Transcript.Entry] = []
+        if let delegate = session.toolExecutionDelegate {
+            let toolCall = Transcript.ToolCall(
+                id: UUID().uuidString,
+                toolName: toolName,
+                arguments: GeneratedContent("")
+            )
+            await delegate.didGenerateToolCalls([toolCall], in: session)
+            let decision = await delegate.toolCallDecision(for: toolCall, in: session)
+            if case .provideOutput(let segments) = decision {
+                let output = Transcript.ToolOutput(id: toolCall.id, toolName: toolCall.toolName, segments: segments)
+                await delegate.didExecuteToolCall(toolCall, output: output, in: session)
+                entries.append(.toolCalls(Transcript.ToolCalls([toolCall])))
+                entries.append(.toolOutput(output))
+            }
+        }
+
+        return LanguageModelSession.Response(
+            content: finalText as! Content,
+            rawContent: GeneratedContent(finalText),
+            transcriptEntries: ArraySlice(entries)
+        )
+    }
+
+    func streamResponse<Content>(
+        within session: LanguageModelSession,
+        to prompt: Prompt,
+        generating type: Content.Type,
+        includeSchemaInPrompt: Bool,
+        options: GenerationOptions
+    ) -> sending LanguageModelSession.ResponseStream<Content> where Content: Generable {
+        let stream = AsyncThrowingStream<LanguageModelSession.ResponseStream<Content>.Snapshot, any Error> { continuation in
+            Task {
+                do {
+                    let response = try await respond(
+                        within: session,
+                        to: prompt,
+                        generating: type,
+                        includeSchemaInPrompt: includeSchemaInPrompt,
+                        options: options
+                    )
+                    continuation.yield(.init(content: response.content.asPartiallyGenerated(), rawContent: response.rawContent))
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+        }
+        return LanguageModelSession.ResponseStream(stream: stream)
+    }
+}
+
+private actor ToolCallingModelProvider: ModelProvider {
+    let id: String = "tool-calling"
+    let supportedModels: [String]
+    private let toolName: String
+    private let finalText: String
+
+    init(models: [String], toolName: String, finalText: String = "Tool result inspected.") {
+        self.supportedModels = models
+        self.toolName = toolName
+        self.finalText = finalText
+    }
+
+    func createLanguageModel(for modelName: String) async throws -> any LanguageModel {
+        ToolCallingLanguageModel(toolName: toolName, finalText: finalText)
+    }
+}
+
 private func makeAgentSessionFixture(
     agentID: String,
     selectedModel: String,
@@ -311,6 +394,137 @@ func agentSessionOrchestratorAppendsFriendReminderToRuntimeUserMessage() async t
     let prompt = await provider.requestedPromptsSnapshot().last ?? ""
     #expect(prompt.contains("User request:\nДа, исправь это как можно скорее"))
     #expect(prompt.contains("#[FRIEND_REMINDER.md]\n- Do not use mcps\n- always run git pull"))
+}
+
+@Test
+func nativeAgentSessionPromptIncludesAttachmentPaths() async throws {
+    let availableModels = [
+        ProviderModelOption(id: "openai:gpt-5.4-mini", title: "openai:gpt-5.4-mini", capabilities: ["tools"])
+    ]
+    let agentID = "attachment-native-agent"
+    let (catalogStore, sessionStore, agentsRootURL) = try makeAgentSessionFixture(
+        agentID: agentID,
+        selectedModel: "openai:gpt-5.4-mini",
+        availableModels: availableModels
+    )
+    let provider = SessionCapturingModelProvider(models: availableModels.map(\.id))
+    let runtime = RuntimeSystem(modelProvider: provider, defaultModel: "openai:gpt-5.4-mini")
+    let orchestrator = AgentSessionOrchestrator(
+        runtime: runtime,
+        sessionStore: sessionStore,
+        agentCatalogStore: catalogStore,
+        availableModels: availableModels
+    )
+
+    let session = try await orchestrator.createSession(agentID: agentID, request: AgentSessionCreateRequest())
+    let content = Data("hello attachment".utf8).base64EncodedString()
+    _ = try await orchestrator.postMessage(
+        agentID: agentID,
+        sessionID: session.id,
+        request: AgentSessionPostMessageRequest(
+            userId: "dashboard",
+            content: "Inspect the attached file",
+            attachments: [
+                AgentAttachmentUpload(
+                    name: "notes.txt",
+                    mimeType: "text/plain",
+                    sizeBytes: 16,
+                    contentBase64: content
+                )
+            ]
+        )
+    )
+
+    let prompt = await provider.requestedPromptsSnapshot().last ?? ""
+    let expectedAssetDirectory = agentsRootURL
+        .appendingPathComponent(agentID, isDirectory: true)
+        .appendingPathComponent("sessions", isDirectory: true)
+        .appendingPathComponent("\(session.id).assets", isDirectory: true)
+        .path
+    #expect(prompt.contains("[Attachment context]"))
+    #expect(prompt.contains("notes.txt"))
+    #expect(prompt.contains("Path: \(expectedAssetDirectory)/"))
+    #expect(prompt.contains("files.read"))
+    #expect(prompt.contains("runtime.exec"))
+}
+
+@Test
+func attachmentsDoNotCreateInitialSearchingStatus() async throws {
+    let availableModels = [
+        ProviderModelOption(id: "openai:gpt-5.4-mini", title: "openai:gpt-5.4-mini", capabilities: ["tools"])
+    ]
+    let agentID = "attachment-no-search-agent"
+    let (catalogStore, sessionStore, _) = try makeAgentSessionFixture(
+        agentID: agentID,
+        selectedModel: "openai:gpt-5.4-mini",
+        availableModels: availableModels
+    )
+    let provider = SessionCapturingModelProvider(models: availableModels.map(\.id))
+    let runtime = RuntimeSystem(modelProvider: provider, defaultModel: "openai:gpt-5.4-mini")
+    let orchestrator = AgentSessionOrchestrator(
+        runtime: runtime,
+        sessionStore: sessionStore,
+        agentCatalogStore: catalogStore,
+        availableModels: availableModels
+    )
+
+    let session = try await orchestrator.createSession(agentID: agentID, request: AgentSessionCreateRequest())
+    let response = try await orchestrator.postMessage(
+        agentID: agentID,
+        sessionID: session.id,
+        request: AgentSessionPostMessageRequest(
+            userId: "dashboard",
+            content: "search this attachment",
+            attachments: [
+                AgentAttachmentUpload(
+                    name: "payload.json",
+                    mimeType: "application/json",
+                    sizeBytes: 2,
+                    contentBase64: Data("{}".utf8).base64EncodedString()
+                )
+            ]
+        )
+    )
+
+    let searchingStatuses = response.appendedEvents.compactMap(\.runStatus).filter { $0.stage == .searching }
+    #expect(searchingStatuses.isEmpty)
+}
+
+@Test
+func toolCallsStillCreateExecutingToolSearchingStatus() async throws {
+    let availableModels = [
+        ProviderModelOption(id: "openai:gpt-5.4-mini", title: "openai:gpt-5.4-mini", capabilities: ["tools"])
+    ]
+    let agentID = "tool-search-status-agent"
+    let (catalogStore, sessionStore, agentsRootURL) = try makeAgentSessionFixture(
+        agentID: agentID,
+        selectedModel: "openai:gpt-5.4-mini",
+        availableModels: availableModels
+    )
+    let provider = ToolCallingModelProvider(models: availableModels.map(\.id), toolName: "files.read")
+    let runtime = RuntimeSystem(modelProvider: provider, defaultModel: "openai:gpt-5.4-mini")
+    let orchestrator = AgentSessionOrchestrator(
+        runtime: runtime,
+        sessionStore: sessionStore,
+        agentCatalogStore: catalogStore,
+        availableModels: availableModels,
+        toolInvoker: { _, _, request, _ in
+            ToolInvocationResult(tool: request.tool, ok: true, data: .object(["content": .string("ok")]))
+        }
+    )
+
+    let session = try await orchestrator.createSession(agentID: agentID, request: AgentSessionCreateRequest())
+    _ = try await orchestrator.postMessage(
+        agentID: agentID,
+        sessionID: session.id,
+        request: AgentSessionPostMessageRequest(userId: "dashboard", content: "Read the file with a tool")
+    )
+
+    let verificationStore = AgentSessionFileStore(agentsRootURL: agentsRootURL)
+    let detail = try verificationStore.loadSession(agentID: agentID, sessionID: session.id)
+    let searchingStatuses = detail.events.compactMap(\.runStatus).filter { $0.stage == .searching }
+    #expect(searchingStatuses.contains { $0.label == "Executing tool" && $0.details == "Tool: files.read" })
+    #expect(detail.events.contains { $0.toolCall?.tool == "files.read" })
 }
 
 @Test

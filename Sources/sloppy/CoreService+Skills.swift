@@ -104,7 +104,8 @@ extension CoreService {
                 userInvocable: userInvocable,
                 allowedTools: allowedTools,
                 context: contextValue,
-                agent: agentValue
+                agent: agentValue,
+                localPath: downloadedSkill.localPath
             )
 
             await sessionOrchestrator.notifySkillsChanged(agentID: normalizedAgentID)

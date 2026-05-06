@@ -57,7 +57,7 @@ struct ToolContext: @unchecked Sendable {
     /// When set, updates `USER.md` / `MEMORY.md` through the same validation path as the HTTP API.
     let applyAgentMarkdown: ((AgentMarkdownDocumentField, String) async throws -> Void)?
     /// Runs an isolated subagent session; set by `CoreService.configureToolExecutionServices`.
-    let delegateSubagent: (@Sendable (String, String, String, String?, [String]?, String?) async -> String?)?
+    let delegateSubagent: (@Sendable (String, String, String, String?, [String]?, String?, String?) async -> String?)?
 
     init(
         agentID: String,
@@ -82,7 +82,7 @@ struct ToolContext: @unchecked Sendable {
         lspManager: LSPServerManager?,
         browserService: BrowserCDPService? = nil,
         applyAgentMarkdown: ((AgentMarkdownDocumentField, String) async throws -> Void)?,
-        delegateSubagent: (@Sendable (String, String, String, String?, [String]?, String?) async -> String?)?
+        delegateSubagent: (@Sendable (String, String, String, String?, [String]?, String?, String?) async -> String?)?
     ) {
         self.agentID = agentID
         self.sessionID = sessionID

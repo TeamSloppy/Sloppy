@@ -34,6 +34,10 @@ import { oneDark } from "react-syntax-highlighter/dist/esm/styles/prism";
 import { filterModelsByQuery } from "../utils/aggregateProviderModels";
 
 const INLINE_ATTACHMENT_MAX_BYTES = 2 * 1024 * 1024;
+const ACTIVE_RUN_STATUS_REFRESH_AFTER_MS = 30 * 1000;
+const STREAM_TYPING_INTERVAL_MS = 32;
+const STREAM_TYPING_CHARS_PER_SECOND = 90;
+const STREAM_TYPING_MAX_CATCHUP_MS = 850;
 const TASK_TAG_PATTERN = /#([A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?)/g;
 /** e.g. `ID: ADAWEBSITE-5` */
 const TASK_ID_LABEL_PATTERN = /\bID\s*:\s*([A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?)/gi;
@@ -1064,6 +1068,10 @@ function isSearchingRunStatusShimmerActive(events, eventIndex, stage) {
     return false;
   }
   const safe = Array.isArray(events) ? events : [];
+  const currentStatus = safe[eventIndex]?.runStatus;
+  if (String(currentStatus?.label || "").toLowerCase() !== "executing tool") {
+    return false;
+  }
   let lastRunStatusIdx = -1;
   for (let i = safe.length - 1; i >= 0; i -= 1) {
     const ev = safe[i];
@@ -1088,7 +1096,7 @@ function isSearchingRunStatusShimmerActive(events, eventIndex, stage) {
       return false;
     }
   }
-  return true;
+  return sawToolCall;
 }
 
 function buildTechnicalRecord(
@@ -2959,6 +2967,87 @@ Prepare for human/code review: list relevant file paths, note key excerpts or sy
 const ANALYSIS_PREP_AGENT_PROMPT =
   "Prepare this workspace/session for analysis: list the most relevant files for the current problem, give short notes per file, and surface any errors you encounter with full detail (command, cwd, stderr).";
 
+function useTypingInterpolation() {
+  const [text, setText] = useState("");
+  const displayedRef = useRef("");
+  const targetRef = useRef("");
+  const timerRef = useRef<number | null>(null);
+
+  const stop = useCallback(() => {
+    if (timerRef.current != null && typeof window !== "undefined") {
+      window.clearInterval(timerRef.current);
+    }
+    timerRef.current = null;
+  }, []);
+
+  const step = useCallback(() => {
+    const current = displayedRef.current;
+    const target = targetRef.current;
+    if (current === target) {
+      stop();
+      return;
+    }
+    if (!target.startsWith(current)) {
+      displayedRef.current = target;
+      setText(target);
+      stop();
+      return;
+    }
+
+    const remaining = target.length - current.length;
+    const baseChars = Math.max(1, Math.ceil((STREAM_TYPING_CHARS_PER_SECOND * STREAM_TYPING_INTERVAL_MS) / 1000));
+    const catchupTicks = Math.max(1, Math.ceil(STREAM_TYPING_MAX_CATCHUP_MS / STREAM_TYPING_INTERVAL_MS));
+    const catchupChars = Math.max(baseChars, Math.ceil(remaining / catchupTicks));
+    const next = target.slice(0, current.length + Math.min(remaining, catchupChars));
+    displayedRef.current = next;
+    setText(next);
+    if (next === target) {
+      stop();
+    }
+  }, [stop]);
+
+  const start = useCallback(() => {
+    if (typeof window === "undefined") {
+      displayedRef.current = targetRef.current;
+      setText(targetRef.current);
+      return;
+    }
+    if (timerRef.current == null) {
+      timerRef.current = window.setInterval(step, STREAM_TYPING_INTERVAL_MS);
+    }
+    step();
+  }, [step]);
+
+  const setImmediate = useCallback((value) => {
+    const next = String(value || "");
+    stop();
+    targetRef.current = next;
+    displayedRef.current = next;
+    setText(next);
+  }, [stop]);
+
+  const push = useCallback((value) => {
+    const next = String(value || "");
+    if (!next) {
+      setImmediate("");
+      return;
+    }
+
+    const displayed = displayedRef.current;
+    if (!next.startsWith(displayed) || next.length <= displayed.length) {
+      setImmediate(next);
+      return;
+    }
+
+    targetRef.current = next;
+    start();
+  }, [setImmediate, start]);
+
+  useEffect(() => stop, [stop]);
+
+  return { text, push, setImmediate };
+}
+
 export function AgentChatTab({
   agentId,
   initialSessionId = null,
@@ -2990,7 +3079,6 @@ export function AgentChatTab({
   const [toolApprovalStatusText, setToolApprovalStatusText] = useState("");
   const [resolvingToolApprovalId, setResolvingToolApprovalId] = useState(null);
   const [optimisticUserEvent, setOptimisticUserEvent] = useState(null);
-  const [optimisticAssistantText, setOptimisticAssistantText] = useState("");
   const [replyTarget, setReplyTarget] = useState(null);
   const [reasoningEffort, setReasoningEffort] = useState(DEFAULT_REASONING_EFFORT);
   const [chatMode, setChatMode] = useState(() => readStoredChatMode(agentId, projectId, modeStorageScope));
@@ -3024,7 +3112,16 @@ export function AgentChatTab({
   });
   const [subagentSession, setSubagentSession] = useState(null);
   const [subagentExpandedRecordIds, setSubagentExpandedRecordIds] = useState({});
-  const [subagentOptimisticAssistantText, setSubagentOptimisticAssistantText] = useState("");
+  const {
+    text: optimisticAssistantText,
+    push: pushOptimisticAssistantText,
+    setImmediate: setOptimisticAssistantTextImmediate
+  } = useTypingInterpolation();
+  const {
+    text: subagentOptimisticAssistantText,
+    push: pushSubagentOptimisticAssistantText,
+    setImmediate: setSubagentOptimisticAssistantTextImmediate
+  } = useTypingInterpolation();
   const fileInputRef = useRef(null);
   const composeInputRef = useRef(null);
   const shareMenuRef = useRef(null);
@@ -3040,6 +3137,7 @@ export function AgentChatTab({
   const prevAgentIdForDraftRef = useRef(agentId);
   const subagentSessionIdRef = useRef("");
   const sessionSyncRef = useRef({ sessionId: null, timerId: null, inflight: false, queued: false });
+  const staleRunStatusRefreshRef = useRef("");
   /** Tracks last seen `initialSessionId` from the route so we only follow URL when it actually changes (not on sidebar clicks). */
   const prevRouteInitialSessionIdRef = useRef(undefined);
   const taskRecordCacheRef = useRef(new Map());
@@ -3570,7 +3668,7 @@ export function AgentChatTab({
       setActiveSession(null);
       setPendingFiles([]);
       setOptimisticUserEvent(null);
-      setOptimisticAssistantText("");
+      setOptimisticAssistantTextImmediate("");
       setReplyTarget(null);
       setExpandedRecordIds({});
       setSelectedModel("");
@@ -3588,7 +3686,7 @@ export function AgentChatTab({
       });
       setSubagentSession(null);
       setSubagentExpandedRecordIds({});
-      setSubagentOptimisticAssistantText("");
+      setSubagentOptimisticAssistantTextImmediate("");
       streamCleanupRef.current?.();
       streamCleanupRef.current = () => { };
       subagentStreamCleanupRef.current?.();
@@ -3765,7 +3863,7 @@ export function AgentChatTab({
     });
     setSubagentSession(null);
     setSubagentExpandedRecordIds({});
-    setSubagentOptimisticAssistantText("");
+    setSubagentOptimisticAssistantTextImmediate("");
 
     try {
       const detail = await fetchAgentSession(agentId, normalizedSessionId);
@@ -3816,7 +3914,7 @@ export function AgentChatTab({
     });
     setSubagentSession(null);
     setSubagentExpandedRecordIds({});
-    setSubagentOptimisticAssistantText("");
+    setSubagentOptimisticAssistantTextImmediate("");
   }
 
   async function refreshSessions(preferredSessionId = null) {
@@ -4098,7 +4196,7 @@ export function AgentChatTab({
     if (kind === "session_delta") {
       const deltaText = String(update.message || "");
       if (deltaText.trim().length > 0) {
-        setOptimisticAssistantText(deltaText);
+        pushOptimisticAssistantText(deltaText);
       }
       return;
     }
@@ -4111,10 +4209,10 @@ export function AgentChatTab({
         setStatusText(`Status: ${streamEvent.runStatus.label || streamEvent.runStatus.stage}${detailsText}`);
 
         if (streamEvent.runStatus.stage === "responding" && streamEvent.runStatus.expandedText) {
-          setOptimisticAssistantText(String(streamEvent.runStatus.expandedText));
+          pushOptimisticAssistantText(String(streamEvent.runStatus.expandedText));
         }
         if (isTerminalRunStage(streamEvent.runStatus.stage)) {
-          setOptimisticAssistantText("");
+          setOptimisticAssistantTextImmediate("");
           setIsStopping(false);
         }
       }
@@ -4122,7 +4220,7 @@ export function AgentChatTab({
       if (streamEvent.type === "message" && streamEvent.message?.role === "assistant") {
         const streamedText = segmentsToPlainText(streamEvent.message.segments || []);
         if (streamedText) {
-          setOptimisticAssistantText(streamedText);
+          setOptimisticAssistantTextImmediate(streamedText);
         }
       }
       if (streamEvent.type === "message" && streamEvent.message?.role === "user") {
@@ -4220,7 +4318,7 @@ export function AgentChatTab({
     if (kind === "session_delta") {
       const deltaText = String(update.message || "");
       if (deltaText.trim().length > 0) {
-        setSubagentOptimisticAssistantText(deltaText);
+        pushSubagentOptimisticAssistantText(deltaText);
       }
       return;
     }
@@ -4229,16 +4327,16 @@ export function AgentChatTab({
       applySubagentStreamEvent(summary, streamEvent);
       if (streamEvent.type === "run_status" && streamEvent.runStatus) {
         if (streamEvent.runStatus.stage === "responding" && streamEvent.runStatus.expandedText) {
-          setSubagentOptimisticAssistantText(String(streamEvent.runStatus.expandedText));
+          pushSubagentOptimisticAssistantText(String(streamEvent.runStatus.expandedText));
         }
         if (streamEvent.runStatus.stage === "done" || streamEvent.runStatus.stage === "interrupted") {
-          setSubagentOptimisticAssistantText("");
+          setSubagentOptimisticAssistantTextImmediate("");
         }
       }
       if (streamEvent.type === "message" && streamEvent.message?.role === "assistant") {
         const streamedText = segmentsToPlainText(streamEvent.message.segments || []);
         if (streamedText) {
-          setSubagentOptimisticAssistantText(streamedText);
+          setSubagentOptimisticAssistantTextImmediate(streamedText);
         }
       }
     }
@@ -4540,7 +4638,7 @@ export function AgentChatTab({
         segments: localMessageSegments
       }
     });
-    setOptimisticAssistantText("");
+    setOptimisticAssistantTextImmediate("");
     setIsSending(true);
     setStatusText("Thinking...");
     setInputText("");
@@ -4620,7 +4718,7 @@ export function AgentChatTab({
       runStateRef.current.abortController = null;
       runStateRef.current.sessionId = null;
       setOptimisticUserEvent(null);
-      setOptimisticAssistantText("");
+      setOptimisticAssistantTextImmediate("");
       setIsSending(false);
       composeInputRef.current?.focus();
     }
@@ -4663,7 +4761,7 @@ export function AgentChatTab({
     }
 
     setOptimisticUserEvent(null);
-    setOptimisticAssistantText("");
+    setOptimisticAssistantTextImmediate("");
     setIsSending(false);
   }
 
@@ -4871,7 +4969,7 @@ export function AgentChatTab({
     setIsDebugMenuOpen(false);
     setIsSending(true);
     setStatusText("Thinking...");
-    setOptimisticAssistantText("");
+    setOptimisticAssistantTextImmediate("");
     runStateRef.current.sessionId = sessionId;
     runStateRef.current.abortController = new AbortController();
     setOptimisticUserEvent({
@@ -4913,7 +5011,7 @@ export function AgentChatTab({
       runStateRef.current.abortController = null;
       runStateRef.current.sessionId = null;
       setOptimisticUserEvent(null);
-      setOptimisticAssistantText("");
+      setOptimisticAssistantTextImmediate("");
       setIsSending(false);
     }
   }
@@ -4992,6 +5090,24 @@ export function AgentChatTab({
       setIsStopping(false);
     }
   }, [hasActiveSessionWork, isStopping, latestRunStatus?.stage]);
+  useEffect(() => {
+    if (!activeSessionId || isSending || !isActiveRunStage(latestRunStatus?.stage)) {
+      return;
+    }
+
+    const createdMs = new Date(latestRunStatus?.createdAt || 0).getTime();
+    if (!Number.isFinite(createdMs) || Date.now() - createdMs < ACTIVE_RUN_STATUS_REFRESH_AFTER_MS) {
+      return;
+    }
+
+    const refreshKey = `${activeSessionId}:${latestRunStatus?.id || ""}:${latestRunStatus?.stage || ""}:${latestRunStatus?.createdAt || ""}`;
+    if (staleRunStatusRefreshRef.current === refreshKey) {
+      return;
+    }
+
+    staleRunStatusRefreshRef.current = refreshKey;
+    scheduleSessionSync(activeSessionId, 0);
+  }, [activeSessionId, isSending, latestRunStatus?.createdAt, latestRunStatus?.id, latestRunStatus?.stage]);
   const busySessionIds = useMemo(() => {
     const next = new Set();
     if (activeSessionId && isActiveSessionBusy) {

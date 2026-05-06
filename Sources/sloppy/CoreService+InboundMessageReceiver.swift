@@ -409,17 +409,18 @@ private actor ResponseCollector {
 
 extension CoreService {
     static let inboundChannelContextBootstrapMarker = "[inbound_channel_context_bootstrap_v1]"
-    static let inboundTodayHistoryMaxCharacters = 12_000
+    static let inboundRecentHistoryMaxCharacters = 12_000
 
     func offerInboundChannelPluginMessage(
         channelId: String,
         userId: String,
         contentForModel: String,
-        topicId: String?
+        topicId: String?,
+        mode: AgentChatMode? = nil
     ) async {
         var slot = inboundChannelPluginQueues[channelId] ?? InboundChannelPluginQueueSlot()
         if slot.processing {
-            slot.fifo.append((userId, contentForModel, topicId))
+            slot.fifo.append((userId: userId, content: contentForModel, topicId: topicId, mode: mode))
             inboundChannelPluginQueues[channelId] = slot
             await deliverToChannelPlugin(
                 channelId: channelId,
@@ -436,7 +437,8 @@ extension CoreService {
                 channelId: channelId,
                 initialUserId: userId,
                 initialContent: contentForModel,
-                initialTopicId: topicId
+                initialTopicId: topicId,
+                initialMode: mode
             )
         }
     }
@@ -445,17 +447,20 @@ extension CoreService {
         channelId: String,
         initialUserId: String,
         initialContent: String,
-        initialTopicId: String?
+        initialTopicId: String?,
+        initialMode: AgentChatMode?
     ) async {
         var userId = initialUserId
         var content = initialContent
         var topicId = initialTopicId
+        var mode = initialMode
         while true {
             await executeSingleInboundChannelPluginTurn(
                 channelId: channelId,
                 userId: userId,
                 contentForModel: content,
-                topicId: topicId
+                topicId: topicId,
+                mode: mode
             )
             guard var slot = inboundChannelPluginQueues[channelId] else {
                 return
@@ -470,6 +475,7 @@ extension CoreService {
             userId = next.userId
             content = next.content
             topicId = next.topicId
+            mode = next.mode
         }
     }
 
@@ -477,7 +483,8 @@ extension CoreService {
         channelId: String,
         userId: String,
         contentForModel: String,
-        topicId: String?
+        topicId: String?,
+        mode forcedMode: AgentChatMode?
     ) async {
         await channelStreamCancelRegistry.clearCancel(channelId: channelId)
 
@@ -489,7 +496,7 @@ extension CoreService {
             linkedAgentID: linkedAgentID,
             topicId: topicId
         )
-        let mode = await channelChatModeStore.get(channelId: bindingChannelId)
+        let mode = forcedMode ?? .build
         let modeContent = AgentSessionOrchestrator.runtimeContent(contentForModel, mode: mode)
         let contentForRuntime = contentWithFriendReminderIfNeeded(
             modeContent,
@@ -668,9 +675,7 @@ extension CoreService {
         channelId: String,
         linkedAgentID: String?,
         topicId: String?,
-        now: Date = Date(),
-        calendar: Calendar = .current,
-        maxHistoryCharacters: Int = CoreService.inboundTodayHistoryMaxCharacters
+        maxHistoryCharacters: Int = CoreService.inboundRecentHistoryMaxCharacters
     ) async {
         if let existing = await runtime.channelBootstrapContent(channelId: channelId),
            !existing.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -681,8 +686,6 @@ extension CoreService {
             channelId: channelId,
             linkedAgentID: linkedAgentID,
             topicId: topicId,
-            now: now,
-            calendar: calendar,
             maxHistoryCharacters: maxHistoryCharacters
         )
         let trimmed = bootstrap.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -705,9 +708,7 @@ extension CoreService {
         channelId: String,
         linkedAgentID: String?,
         topicId: String?,
-        now: Date = Date(),
-        calendar: Calendar = .current,
-        maxHistoryCharacters: Int = CoreService.inboundTodayHistoryMaxCharacters
+        maxHistoryCharacters: Int = CoreService.inboundRecentHistoryMaxCharacters
     ) async -> String {
         var parts: [String] = [
             Self.inboundChannelContextBootstrapMarker,
@@ -731,10 +732,8 @@ extension CoreService {
             parts.append(projectContext)
         }
 
-        if let historyContext = await todayChannelHistoryContext(
+        if let historyContext = await recentChannelHistoryContext(
             channelId: channelId,
-            now: now,
-            calendar: calendar,
             maxCharacters: maxHistoryCharacters
         ) {
             parts.append(historyContext)
@@ -761,29 +760,19 @@ extension CoreService {
         }
     }
 
-    func todayChannelHistoryContext(
+    func recentChannelHistoryContext(
         channelId: String,
-        now: Date = Date(),
-        calendar: Calendar = .current,
-        maxCharacters: Int = CoreService.inboundTodayHistoryMaxCharacters
+        maxCharacters: Int = CoreService.inboundRecentHistoryMaxCharacters
     ) async -> String? {
         guard maxCharacters > 0 else {
             return nil
         }
 
-        let dayStart = calendar.startOfDay(for: now)
-        guard let nextDayStart = calendar.date(byAdding: .day, value: 1, to: dayStart) else {
-            return nil
-        }
         let history: [ChannelMessageEntry]
         do {
-            history = try await channelSessionStore.getMessageHistory(
-                channelId: channelId,
-                from: dayStart,
-                to: nextDayStart
-            )
+            history = try await channelSessionStore.getMessageHistory(channelId: channelId, limit: 200)
         } catch {
-            logger.warning("Failed to restore today's channel history for \(channelId): \(error)")
+            logger.warning("Failed to restore recent channel history for \(channelId): \(error)")
             return nil
         }
         guard !history.isEmpty else {
@@ -792,10 +781,10 @@ extension CoreService {
 
         let formatter = ISO8601DateFormatter()
         let header = """
-        [Today channel history]
-        The following messages are from today in this channel. Use them to preserve continuity after process restart.
+        [Recent channel history]
+        The following messages are from the current open channel session. Use them to preserve continuity after process restart.
         """
-        let footer = "[End of today channel history]"
+        let footer = "[End of recent channel history]"
         var selected: [String] = []
         var total = header.count + footer.count + 2
 
@@ -980,6 +969,14 @@ extension CoreService: InboundMessageReceiver {
 
         let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
         let lower = trimmed.lowercased()
+        let oneShotModeCommand = inboundOneShotChatModeCommand(content)
+        if let oneShotModeCommand, oneShotModeCommand.message.isEmpty {
+            let usage = oneShotModeCommand.mode == .ask
+                ? "Usage: /ask <question>"
+                : "Usage: /plan <request>"
+            await deliverToChannelPlugin(channelId: sessionChannelId, content: usage, topicId: topicId)
+            return true
+        }
 
         if lower == "/abort" {
             await channelStreamCancelRegistry.requestCancel(channelId: sessionChannelId)
@@ -1028,7 +1025,7 @@ extension CoreService: InboundMessageReceiver {
             }
 
             if var slot = inboundChannelPluginQueues[sessionChannelId], slot.processing {
-                slot.fifo.insert((userId, btwTail, topicId), at: 0)
+                slot.fifo.insert((userId: userId, content: btwTail, topicId: topicId, mode: nil), at: 0)
                 inboundChannelPluginQueues[sessionChannelId] = slot
                 return true
             }
@@ -1090,10 +1087,29 @@ extension CoreService: InboundMessageReceiver {
         await offerInboundChannelPluginMessage(
             channelId: sessionChannelId,
             userId: userId,
-            contentForModel: trimmed,
-            topicId: topicId
+            contentForModel: oneShotModeCommand?.message ?? trimmed,
+            topicId: topicId,
+            mode: oneShotModeCommand?.mode
         )
         return true
+    }
+
+    func inboundOneShotChatModeCommand(_ content: String) -> (mode: AgentChatMode, message: String)? {
+        let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
+        let lower = trimmed.lowercased()
+        let command: String
+        let mode: AgentChatMode
+        if lower == "/ask" || lower.hasPrefix("/ask ") {
+            command = "/ask"
+            mode = .ask
+        } else if lower == "/plan" || lower.hasPrefix("/plan ") {
+            command = "/plan"
+            mode = .plan
+        } else {
+            return nil
+        }
+        let message = String(trimmed.dropFirst(command.count)).trimmingCharacters(in: .whitespacesAndNewlines)
+        return (mode, message)
     }
 
     private func customPlanInputAnswers(

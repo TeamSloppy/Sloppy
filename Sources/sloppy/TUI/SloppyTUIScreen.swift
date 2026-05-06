@@ -10,6 +10,13 @@ private enum SloppyTUIAttachmentLimits {
     static let maxBytes = 25 * 1024 * 1024
 }
 
+private enum SloppyTUIStreamTyping {
+    static let intervalNanoseconds: UInt64 = 32_000_000
+    static let intervalSeconds = 0.032
+    static let charactersPerSecond = 90.0
+    static let maxCatchupSeconds = 0.85
+}
+
 private extension Array where Element == String {
     func trimmingEmptyEdges() -> [String] {
         var startIndex = self.startIndex
@@ -55,6 +62,7 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
         SloppyTUISlashCommand("pet", "Toggle Sloppie pet and show terminal face status"),
         SloppyTUISlashCommand("agents", "Switch agent"),
         SloppyTUISlashCommand("sessions", "Switch session"),
+        SloppyTUISlashCommand("subagents", "Open a child subagent session"),
         SloppyTUISlashCommand("resume", "Resume a previous conversation"),
         SloppyTUISlashCommand("new", "Create a new session"),
         SloppyTUISlashCommand("clear", "Clear local cards"),
@@ -99,6 +107,7 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
 
     private var sessionCards: [SloppyTUITimelineBlock] = []
     private var localCards: [SloppyTUILocalCard] = []
+    private var subSessionCards: [SloppyTUISubSessionCard] = []
     private var pendingContext: String?
     private var pendingUploads: [AgentAttachmentUpload] = []
     private var chatMode: AgentChatMode = .build
@@ -123,6 +132,12 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
     private var projectFileIndexGeneration = 0
     private var projectFileSearchCache: (generation: Int, token: String, items: [SloppyTUIPickerItem])?
     private var liveAssistantDraft: String?
+    private var liveAssistantTarget: String?
+    private var liveAssistantInterpolationTask: Task<Void, Never>?
+    private var liveRunStatusLine: String?
+    private var taskStartedAt: Date?
+    private var lastTaskElapsed: TimeInterval?
+    private var transcriptExpanded = false
     private var thinkingFrame = 0
     private var thinkingWord = "thinking"
     private var petMood: AgentPetAnimationState = .idle
@@ -229,6 +244,9 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
             return
         }
         if handleModeCycle(input) {
+            return
+        }
+        if handleTranscriptInput(input) {
             return
         }
         if handleTimelineScroll(input) {
@@ -408,12 +426,8 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
 
     private func handleAttachmentInput(_ input: TerminalInput) -> Bool {
         switch input {
-        case .paste(let text):
-            guard !isEditingSingleLineSlashCommand else { return false }
-            let urls = attachmentURLs(fromPastedText: text)
-            guard !urls.isEmpty else { return false }
-            addPendingAttachmentFiles(urls)
-            return true
+        case .paste:
+            return false
         case .key(.character("v"), let modifiers) where modifiers.contains(.control):
             if isEditingSingleLineSlashCommand, pasteClipboardTextIntoEditor() {
                 return true
@@ -454,6 +468,30 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
         chatMode = chatMode.next
         refreshStaticChrome()
         return true
+    }
+
+    private func handleTranscriptInput(_ input: TerminalInput) -> Bool {
+        guard case let .key(key, modifiers) = input else {
+            return false
+        }
+
+        switch key {
+        case .character("o") where modifiers.contains(.control):
+            transcriptExpanded.toggle()
+            refreshStaticChrome()
+            renderTimeline()
+            return true
+        case .character("O") where modifiers.contains(.control):
+            transcriptExpanded.toggle()
+            refreshStaticChrome()
+            renderTimeline()
+            return true
+        case .arrowRight where modifiers.contains(.control) && transcriptExpanded:
+            Task { @MainActor in await self.openLatestSubSession() }
+            return true
+        default:
+            return false
+        }
     }
 
     private func handleTimelineScroll(_ input: TerminalInput) -> Bool {
@@ -725,10 +763,13 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
         }
 
         isPosting = true
-        liveAssistantDraft = ""
+        taskStartedAt = Date()
+        lastTaskElapsed = nil
+        setLiveAssistantDraftImmediately("")
+        liveRunStatusLine = "Thinking - Planning response strategy."
         startThinkingAnimation()
         renderTimeline()
-        refreshStaticChrome(statusLine: "sending...")
+        refreshStaticChrome()
         let uploads = pendingUploads
         let content = await messageContentWithInlineAttachments(value, uploads: uploads)
         do {
@@ -755,13 +796,18 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
             await reloadSession()
             petMood = .happy
         } catch {
-            liveAssistantDraft = nil
+            clearLiveAssistantDraft()
             petMood = .sad
             appendLocalCard("Message failed: \(String(describing: error))")
         }
+        if let taskStartedAt {
+            lastTaskElapsed = Date().timeIntervalSince(taskStartedAt)
+        }
+        taskStartedAt = nil
         isPosting = false
         stopThinkingAnimation()
-        liveAssistantDraft = nil
+        clearLiveAssistantDraft()
+        liveRunStatusLine = nil
         refreshStaticChrome()
         renderTimeline()
     }
@@ -780,6 +826,8 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
             showPetStatus(toggle: true)
         case "agents", "agent":
             await showAgentPicker()
+        case "subagents", "children":
+            showSubSessionPicker()
         case "sessions", "session", "resume":
             await showSessionPicker()
         case "new":
@@ -854,7 +902,9 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
         ## TUI commands
         \(commandLines)
 
+        Paste file paths normally to send them as text. Press Ctrl+V to attach files or images from the macOS clipboard.
         Use `@path` in a message to inline a project file as explicit context. Tab completes slash commands.
+        Press Ctrl+O to toggle the full tool-call transcript. In the expanded transcript, Ctrl+Right enters the newest subagent session.
 
         ## History scroll
         - PageUp / PageDown scroll by pages.
@@ -1200,6 +1250,47 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
         refreshStaticChrome(statusLine: "select session with arrows, Enter to open, Esc to cancel")
     }
 
+    private func showSubSessionPicker() {
+        let children = orderedSubSessions()
+        guard !children.isEmpty else {
+            appendLocalCard("No subagent sessions have been spawned from this session yet.", autoDismissAfter: 8)
+            return
+        }
+
+        activePicker = SloppyTUIPicker(
+            kind: .subSession,
+            title: "Open subagent session",
+            items: children.map { item in
+                SloppyTUIPickerItem(
+                    value: item.childSessionId,
+                    label: item.title,
+                    description: item.childSessionId,
+                    isCurrent: false
+                )
+            },
+            selectedIndex: 0
+        )
+        refreshStaticChrome(statusLine: "select subagent with arrows, Enter to enter, Esc to cancel")
+    }
+
+    private func openLatestSubSession() async {
+        guard let child = orderedSubSessions().first else {
+            appendLocalCard("No subagent session to enter yet.", autoDismissAfter: 6)
+            return
+        }
+        await switchSession(child.childSessionId)
+    }
+
+    private func orderedSubSessions() -> [SloppyTUISubSessionCard] {
+        var seen: Set<String> = []
+        return subSessionCards.reversed().compactMap { item in
+            guard seen.insert(item.childSessionId).inserted else {
+                return nil
+            }
+            return item
+        }
+    }
+
     private func switchModel(_ model: String?) async {
         guard let model, !model.isEmpty else {
             await showModelPicker()
@@ -1253,6 +1344,8 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
         case .agent:
             await switchAgent(item.value)
         case .session:
+            await switchSession(item.value)
+        case .subSession:
             await switchSession(item.value)
         case .provider:
             if item.value == SloppyTUIProviderDefinition.addNewProviderValue {
@@ -1460,7 +1553,10 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
     }
 
     private func switchSession(_ sessionID: String) async {
-        let sessions = (try? await runtime.service.listAgentSessions(agentID: agent.id, projectID: project.id)) ?? []
+        var sessions = (try? await runtime.service.listAgentSessions(agentID: agent.id, projectID: project.id)) ?? []
+        if !sessions.contains(where: { $0.id == sessionID }) {
+            sessions = (try? await runtime.service.listAgentSessions(agentID: agent.id)) ?? sessions
+        }
         guard let nextSession = sessions.first(where: { $0.id == sessionID }) else {
             appendLocalCard("Session `\(sessionID)` is no longer available for `\(agent.displayName)`.")
             return
@@ -1702,16 +1798,23 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
                     guard !Task.isCancelled else { break }
                     await MainActor.run {
                         if update.kind == .sessionDelta, let message = update.message {
-                            self.liveAssistantDraft = message
-                            self.renderTimeline()
+                            self.updateLiveAssistantDraftTarget(message)
                         } else if update.kind == .sessionEvent, let event = update.event {
+                            if let status = event.runStatus {
+                                if status.stage == .done || status.stage == .interrupted {
+                                    self.liveRunStatusLine = nil
+                                } else {
+                                    self.liveRunStatusLine = self.runStatusLine(status)
+                                }
+                                self.refreshStaticChrome()
+                            }
                             if self.isFinalAssistantMessage(event) {
-                                self.liveAssistantDraft = nil
+                                self.clearLiveAssistantDraft()
                                 self.stopThinkingAnimation()
                             }
                             Task { await self.reloadSession() }
                         } else if update.kind == .sessionClosed {
-                            self.liveAssistantDraft = nil
+                            self.clearLiveAssistantDraft()
                             self.stopThinkingAnimation()
                             self.appendLocalCard(update.message ?? "Session closed.")
                         }
@@ -1839,6 +1942,7 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
     private func reloadSession() async {
         let detail = try? await runtime.service.getAgentSession(agentID: agent.id, sessionID: session.id)
         var blocks: [SloppyTUITimelineBlock] = []
+        var children: [SloppyTUISubSessionCard] = []
         let events = detail?.events ?? []
         lastRenderedSessionEventIDs = Set(events.map(\.id))
         for event in events {
@@ -1868,6 +1972,13 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
                 for attachment in attachments {
                     blocks.append(.attachment(name: attachment.name, mimeType: attachment.mimeType, sizeBytes: attachment.sizeBytes))
                 }
+            } else if let subSession = event.subSession {
+                let card = SloppyTUISubSessionCard(
+                    childSessionId: subSession.childSessionId,
+                    title: subSession.title
+                )
+                children.append(card)
+                blocks.append(.subSession(childSessionId: card.childSessionId, title: card.title))
             } else if let toolCall = event.toolCall {
                 let display = toolCallDisplay(tool: toolCall.tool, arguments: toolCall.arguments)
                 blocks.append(.toolCall(
@@ -1887,6 +1998,7 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
             }
         }
         sessionCards = blocks
+        subSessionCards = children
         renderTimeline()
     }
 
@@ -2034,10 +2146,20 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
         }
 
         var lines: [String] = []
-        for block in blocks {
+        var index = 0
+        while index < blocks.count {
+            let block = blocks[index]
             if !lines.isEmpty {
                 lines.append("")
             }
+
+            if !transcriptExpanded, isToolTranscriptBlock(block) {
+                let endIndex = compactToolGroupEnd(startingAt: index, in: blocks)
+                appendCompactToolGroup(Array(blocks[index..<endIndex]), to: &lines, width: width)
+                index = endIndex
+                continue
+            }
+
             switch block {
             case .message(let role, let text):
                 if role == .user {
@@ -2053,19 +2175,68 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
                 lines.append(contentsOf: SloppyTUITheme.thinkingLines(text, width: width))
             case .attachment(let name, let mimeType, let sizeBytes):
                 lines.append(SloppyTUITheme.attachmentLine(name: name, mimeType: mimeType, sizeBytes: sizeBytes, width: width))
+            case .subSession(let childSessionId, let title):
+                lines.append(SloppyTUITheme.subSessionLine(title: title, childSessionId: childSessionId, width: width))
             case .toolCall(let tool, let reason, let summary, let details):
                 lines.append(SloppyTUITheme.toolCallLine(tool: tool, reason: reason, summary: summary, width: width))
-                if let details, !details.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                if transcriptExpanded, let details, !details.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     lines.append(contentsOf: renderMarkdown(details, width: width))
                 }
             case .toolResult(let tool, let ok, let error, let durationMs, let details):
                 lines.append(SloppyTUITheme.toolResultLine(tool: tool, ok: ok, error: error, durationMs: durationMs, width: width))
-                if let details, !details.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                if transcriptExpanded, let details, !details.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     lines.append(contentsOf: renderMarkdown(details, width: width))
                 }
             }
+            index += 1
+        }
+
+        if transcriptExpanded || blocks.contains(where: isToolTranscriptBlock) {
+            if !lines.isEmpty {
+                lines.append("")
+            }
+            lines.append(SloppyTUITheme.transcriptHintLine(
+                expanded: transcriptExpanded,
+                childSessionCount: subSessionCards.count,
+                width: width
+            ))
         }
         return lines
+    }
+
+    private func isToolTranscriptBlock(_ block: SloppyTUITimelineBlock) -> Bool {
+        switch block {
+        case .toolCall, .toolResult:
+            return true
+        default:
+            return false
+        }
+    }
+
+    private func compactToolGroupEnd(startingAt startIndex: Int, in blocks: [SloppyTUITimelineBlock]) -> Int {
+        var index = startIndex
+        while index < blocks.count, isToolTranscriptBlock(blocks[index]) {
+            index += 1
+        }
+        return index
+    }
+
+    private func appendCompactToolGroup(_ blocks: [SloppyTUITimelineBlock], to lines: inout [String], width: Int) {
+        let visibleLimit = 4
+        for block in blocks.prefix(visibleLimit) {
+            switch block {
+            case .toolCall(let tool, let reason, let summary, _):
+                lines.append(SloppyTUITheme.toolCallLine(tool: tool, reason: reason, summary: summary, width: width))
+            case .toolResult(let tool, let ok, let error, let durationMs, _):
+                lines.append(SloppyTUITheme.toolResultLine(tool: tool, ok: ok, error: error, durationMs: durationMs, width: width))
+            default:
+                break
+            }
+        }
+        let hiddenCount = blocks.count - visibleLimit
+        if hiddenCount > 0 {
+            lines.append(SloppyTUITheme.toolOverflowLine(hiddenCount: hiddenCount, width: width))
+        }
     }
 
     private func visibleTimelineLines(_ lines: [String], height: Int) -> [String] {
@@ -2128,6 +2299,94 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
             theme: timeline.theme
         )
         return component.render(width: width)
+    }
+
+    private func updateLiveAssistantDraftTarget(_ target: String) {
+        guard !target.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return
+        }
+
+        let current = liveAssistantDraft ?? ""
+        if !target.hasPrefix(current) || target.count <= current.count {
+            setLiveAssistantDraftImmediately(target)
+            return
+        }
+
+        liveAssistantTarget = target
+        if liveAssistantDraft == nil {
+            liveAssistantDraft = ""
+        }
+        startLiveAssistantInterpolation()
+    }
+
+    private func setLiveAssistantDraftImmediately(_ value: String) {
+        liveAssistantInterpolationTask?.cancel()
+        liveAssistantInterpolationTask = nil
+        liveAssistantTarget = value
+        liveAssistantDraft = value
+        renderTimeline()
+    }
+
+    private func clearLiveAssistantDraft() {
+        liveAssistantInterpolationTask?.cancel()
+        liveAssistantInterpolationTask = nil
+        liveAssistantTarget = nil
+        liveAssistantDraft = nil
+        renderTimeline()
+    }
+
+    private func startLiveAssistantInterpolation() {
+        guard liveAssistantInterpolationTask == nil else {
+            advanceLiveAssistantInterpolation()
+            return
+        }
+
+        liveAssistantInterpolationTask = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: SloppyTUIStreamTyping.intervalNanoseconds)
+                guard !Task.isCancelled else { break }
+                await MainActor.run {
+                    self?.advanceLiveAssistantInterpolation()
+                }
+            }
+        }
+        advanceLiveAssistantInterpolation()
+    }
+
+    private func advanceLiveAssistantInterpolation() {
+        guard let target = liveAssistantTarget, let current = liveAssistantDraft else {
+            liveAssistantInterpolationTask?.cancel()
+            liveAssistantInterpolationTask = nil
+            return
+        }
+        guard current != target else {
+            liveAssistantInterpolationTask?.cancel()
+            liveAssistantInterpolationTask = nil
+            return
+        }
+        guard target.hasPrefix(current) else {
+            setLiveAssistantDraftImmediately(target)
+            return
+        }
+
+        let remaining = target.count - current.count
+        let baseCharacters = max(
+            1,
+            Int(ceil(SloppyTUIStreamTyping.charactersPerSecond * SloppyTUIStreamTyping.intervalSeconds))
+        )
+        let catchupTicks = max(
+            1,
+            Int(ceil(SloppyTUIStreamTyping.maxCatchupSeconds / SloppyTUIStreamTyping.intervalSeconds))
+        )
+        let catchupCharacters = max(baseCharacters, Int(ceil(Double(remaining) / Double(catchupTicks))))
+        let nextCount = current.count + min(remaining, catchupCharacters)
+        let next = String(target.prefix(nextCount))
+        liveAssistantDraft = next
+        renderTimeline()
+        if next == target {
+            liveAssistantInterpolationTask?.cancel()
+            liveAssistantInterpolationTask = nil
+        }
     }
 
     private func startThinkingAnimation() {
@@ -2234,17 +2493,44 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
         let context = pendingContext == nil ? "" : "  context: queued"
         let attachments = pendingUploads.isEmpty ? "" : "  attachments: \(pendingUploads.count)"
         let pet = state.petEnabled ? "  pet: \(terminalPetFace())" : ""
+        let transcript = transcriptExpanded ? "  transcript: full" : ""
+        let elapsed = elapsedStatusContext()
+        let defaultStatus = SloppyTUITheme.sessionStatusLine(
+            mode: chatMode,
+            model: selectedModel,
+            context: context + pet + transcript + elapsed.idleSuffix,
+            attachments: attachments,
+            sessionID: session.id
+        )
+        let busyStatus = (statusLine ?? liveRunStatusLine).map { $0 + elapsed.busySuffix }
         status.text = SloppyTUITheme.status(
-            statusLine ?? SloppyTUITheme.sessionStatusLine(
-                mode: chatMode,
-                model: selectedModel,
-                context: context + pet,
-                attachments: attachments,
-                sessionID: session.id
-            ),
-            isBusy: statusLine != nil
+            busyStatus ?? defaultStatus,
+            isBusy: busyStatus != nil
         )
         requestRender()
+    }
+
+    private func elapsedStatusContext() -> (busySuffix: String, idleSuffix: String) {
+        if let taskStartedAt {
+            let elapsed = SloppyTUITheme.elapsed(Date().timeIntervalSince(taskStartedAt))
+            return ("  elapsed: \(elapsed)", "  elapsed: \(elapsed)")
+        }
+        if let lastTaskElapsed {
+            return ("", "  last run: \(SloppyTUITheme.elapsed(lastTaskElapsed))")
+        }
+        return ("", "")
+    }
+
+    private func runStatusLine(_ status: AgentRunStatusEvent) -> String {
+        let label = status.label.trimmingCharacters(in: .whitespacesAndNewlines)
+        let details = status.details?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if !label.isEmpty, !details.isEmpty {
+            return "\(label) - \(details)"
+        }
+        if !label.isEmpty {
+            return label
+        }
+        return status.stage.rawValue
     }
 
     private func terminalPetFace() -> String {
@@ -2477,6 +2763,14 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
             return
         }
 
+        if let text = pasteboard.string(forType: .string) {
+            let urls = attachmentURLs(fromPastedText: text)
+            if !urls.isEmpty {
+                addPendingAttachmentFiles(urls)
+                return
+            }
+        }
+
         if let pngData = pasteboard.data(forType: NSPasteboard.PasteboardType("public.png")) {
             addPendingClipboardImage(data: pngData, mimeType: "image/png", extension: "png")
             return
@@ -2487,7 +2781,7 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
             addPendingClipboardImage(data: pngData, mimeType: "image/png", extension: "png")
             return
         }
-        appendLocalCard("Clipboard does not contain a file or image.")
+        appendLocalCard("Clipboard does not contain a file, image, or file path.")
         #else
         appendLocalCard("Clipboard image paste is only available on macOS.")
         #endif

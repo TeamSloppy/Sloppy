@@ -43,18 +43,7 @@ extension CoreService {
         let lower = trimmed.lowercased()
         guard lower == "/mode" || lower.hasPrefix("/mode ") else { return nil }
 
-        let bindingId = ChannelGatewayScope.parse(channelId).baseChannelId
-        let tail = trimmed.dropFirst("/mode".count).trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        guard !tail.isEmpty else {
-            let current = await channelChatModeStore.get(channelId: bindingId)
-            return "Current mode: \(current.rawValue). Usage: /mode ask|build|plan|debug"
-        }
-        guard let mode = AgentChatMode(rawValue: tail) else {
-            return "Unknown mode `\(tail)`. Use ask, build, plan, or debug."
-        }
-        await channelChatModeStore.set(channelId: bindingId, mode: mode)
-        await runtime.invalidateChannelSession(channelId: channelId)
-        return "Mode set to \(mode.rawValue)."
+        return "Chat mode is no longer changed with /mode. Regular messages run in build mode. Use /ask <question> for a no-code answer or /plan <request> for a no-code plan."
     }
 
     func handleContextCommand(channelId: String, content: String) async -> String? {

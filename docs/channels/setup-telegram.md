@@ -155,7 +155,11 @@ Once connected, the following slash commands are available in the Telegram chat:
 | `/whoami` | Show channel, user, and platform info |
 | `/task <description>` | Create a task via Sloppy |
 | `/model [model_id]` | Show or switch the channel model |
+| `/ask <question>` | Answer once without code changes |
+| `/plan <request>` | Plan once without code changes |
 | `/context` | Show token usage and context info |
 | `/abort` | Abort current agent processing |
+
+Regular messages use build mode by default. `/ask` and `/plan` apply only to one message and do not persist a mode change.
 
 Any other text is forwarded to the linked Sloppy channel as a regular message.

@@ -133,6 +133,21 @@ actor SkillsGitHubClient {
             throw ClientError.contentNotFound
         }
 
+        let entrypoint = resolveSkillEntrypoint(
+            destination: destination,
+            downloadedFiles: downloadedFiles,
+            repo: normalizedRepo
+        )
+        if let entrypoint {
+            skillFrontmatter = entrypoint.frontmatter ?? skillFrontmatter
+            if let fmName = entrypoint.frontmatter?.name, !fmName.isEmpty {
+                skillName = fmName
+            }
+            if let fmDesc = entrypoint.frontmatter?.description, !fmDesc.isEmpty {
+                skillDescription = fmDesc
+            }
+        }
+
         return DownloadedSkill(
             owner: normalizedOwner,
             repo: normalizedRepo,
@@ -140,7 +155,7 @@ actor SkillsGitHubClient {
             description: skillDescription,
             version: ref ?? "default",
             files: downloadedFiles,
-            localPath: destination.path,
+            localPath: entrypoint?.directory.path ?? destination.path,
             frontmatter: skillFrontmatter
         )
     }
@@ -321,6 +336,50 @@ actor SkillsGitHubClient {
 
         return nil
     }
+
+    private func resolveSkillEntrypoint(destination: URL, downloadedFiles: [String], repo: String) -> SkillEntrypoint? {
+        let skillFiles = downloadedFiles
+            .filter { URL(fileURLWithPath: $0).lastPathComponent.lowercased() == "skill.md" }
+            .sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
+
+        guard !skillFiles.isEmpty else {
+            return nil
+        }
+
+        let normalizedRepo = repo.lowercased()
+        let selectedPath =
+            skillFiles.first { $0.lowercased() == "skill.md" } ??
+            skillFiles.first { path in
+                path.lowercased() == "skills/\(normalizedRepo)/skill.md"
+            } ??
+            skillFiles.first { path in
+                path.lowercased() == "\(normalizedRepo)/skill.md"
+            } ??
+            skillFiles.first { path in
+                let components = path
+                    .split(separator: "/")
+                    .map { String($0).lowercased() }
+                guard components.last == "skill.md" else { return false }
+                return zip(components, components.dropFirst()).contains { lhs, rhs in
+                    lhs == "skills" && rhs == normalizedRepo
+                }
+            } ??
+            (skillFiles.count == 1 ? skillFiles[0] : nil)
+
+        guard let selectedPath else {
+            return nil
+        }
+
+        let skillFile = destination.appendingPathComponent(selectedPath)
+        let directory = skillFile.deletingLastPathComponent()
+        let frontmatter: SkillFrontmatter?
+        if let markdown = try? String(contentsOf: skillFile, encoding: .utf8) {
+            frontmatter = Self.parseFrontmatter(from: markdown)
+        } else {
+            frontmatter = nil
+        }
+        return SkillEntrypoint(directory: directory, frontmatter: frontmatter)
+    }
 }
 
 // MARK: - Supporting Types
@@ -356,6 +415,11 @@ extension SkillsGitHubClient {
         var agent: String?
     }
 
+    struct SkillEntrypoint {
+        var directory: URL
+        var frontmatter: SkillFrontmatter?
+    }
+
     struct DownloadedSkill {
         let owner: String
         let repo: String
@@ -384,15 +448,50 @@ extension SkillsGitHubClient {
         guard let end = endIndex else { return nil }
 
         var fm = SkillFrontmatter()
-        for i in 1..<end {
+        var i = 1
+        while i < end {
             let line = lines[i]
-            guard let colonIndex = line.firstIndex(of: ":") else { continue }
+            guard let colonIndex = line.firstIndex(of: ":") else {
+                i += 1
+                continue
+            }
             let key = line[line.startIndex..<colonIndex]
                 .trimmingCharacters(in: .whitespaces)
                 .lowercased()
                 .replacingOccurrences(of: "-", with: "_")
-            let value = line[line.index(after: colonIndex)...]
+            var value = line[line.index(after: colonIndex)...]
                 .trimmingCharacters(in: .whitespaces)
+            i += 1
+
+            if value == ">" || value == "|" {
+                let blockStyle = value
+                var blockLines: [String] = []
+                while i < end {
+                    let nextLine = lines[i]
+                    if nextLine.trimmingCharacters(in: .whitespaces).isEmpty {
+                        blockLines.append("")
+                        i += 1
+                        continue
+                    }
+                    guard nextLine.first?.isWhitespace == true else {
+                        break
+                    }
+                    blockLines.append(nextLine.trimmingCharacters(in: .whitespaces))
+                    i += 1
+                }
+                if blockStyle == ">" {
+                    value = blockLines
+                        .joined(separator: " ")
+                        .replacingOccurrences(
+                            of: #"\s+"#,
+                            with: " ",
+                            options: .regularExpression
+                        )
+                        .trimmingCharacters(in: .whitespacesAndNewlines)
+                } else {
+                    value = blockLines.joined(separator: "\n")
+                }
+            }
 
             switch key {
             case "name":

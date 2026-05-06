@@ -829,7 +829,8 @@ extension CoreService {
         objective: String,
         workingDirectory: String?,
         toolsetNames: [String]?,
-        selectedModel: String? = nil
+        selectedModel: String? = nil,
+        parentSessionID: String? = nil
     ) async -> String? {
         let knownIDs = await ToolCatalog.knownToolIDs(mcpRegistry: mcpRegistry)
         guard let policy = try? await toolsAuthorization.policy(agentID: agentID) else {
@@ -864,7 +865,7 @@ extension CoreService {
         do {
             session = try await createAgentSession(
                 agentID: agentID,
-                request: AgentSessionCreateRequest(title: sessionTitle)
+                request: AgentSessionCreateRequest(title: sessionTitle, parentSessionId: parentSessionID)
             )
         } catch {
             logger.warning(
@@ -872,6 +873,23 @@ extension CoreService {
                 metadata: ["agent_id": .string(agentID), "task_id": .string(taskID), "error": .string(error.localizedDescription)]
             )
             return nil
+        }
+
+        if let parentSessionID = parentSessionID.flatMap(normalizedSessionID) {
+            let event = AgentSessionEvent(
+                agentId: agentID,
+                sessionId: parentSessionID,
+                type: .subSession,
+                subSession: AgentSubSessionEvent(
+                    childSessionId: session.id,
+                    title: session.title
+                )
+            )
+            _ = try? await appendAgentSessionEvents(
+                agentID: agentID,
+                sessionID: parentSessionID,
+                request: AgentSessionAppendEventsRequest(events: [event])
+            )
         }
 
         if let workingDirectory {

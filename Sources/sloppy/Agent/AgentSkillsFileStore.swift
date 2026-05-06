@@ -139,7 +139,8 @@ final class AgentSkillsFileStore {
         userInvocable: Bool = true,
         allowedTools: [String] = [],
         context: SkillContext? = nil,
-        agent: String? = nil
+        agent: String? = nil,
+        localPath: String? = nil
     ) throws -> InstalledSkill {
         let normalizedAgentID = try normalizedAgentID(agentID)
 
@@ -158,6 +159,20 @@ final class AgentSkillsFileStore {
         }
 
         try fileManager.createDirectory(at: skillDirectory, withIntermediateDirectories: true)
+        let storedLocalPath: String
+        if let localPath = localPath?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !localPath.isEmpty {
+            let standardizedSkillDirectory = skillDirectory.standardizedFileURL.path
+            let standardizedLocalPath = URL(fileURLWithPath: localPath).standardizedFileURL.path
+            guard standardizedLocalPath == standardizedSkillDirectory ||
+                  standardizedLocalPath.hasPrefix(standardizedSkillDirectory + "/")
+            else {
+                throw StoreError.storageFailure
+            }
+            storedLocalPath = standardizedLocalPath
+        } else {
+            storedLocalPath = skillDirectory.path
+        }
 
         let skill = InstalledSkill(
             id: skillID,
@@ -165,7 +180,7 @@ final class AgentSkillsFileStore {
             repo: repo,
             name: name,
             description: description,
-            localPath: skillDirectory.path,
+            localPath: storedLocalPath,
             userInvocable: userInvocable,
             allowedTools: allowedTools,
             context: context,
@@ -201,6 +216,13 @@ final class AgentSkillsFileStore {
     func getSkillPath(agentID: String, skillID: String) throws -> String {
         let normalizedAgentID = try normalizedAgentID(agentID)
         let normalizedSkillID = try normalizedSkillID(skillID)
+
+        if let skill = try? getSkill(agentID: normalizedAgentID, skillID: normalizedSkillID) {
+            let localPath = skill.localPath.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !localPath.isEmpty {
+                return localPath
+            }
+        }
 
         guard let skillDirectory = skillDirectoryURL(agentID: normalizedAgentID, skillID: normalizedSkillID) else {
             throw StoreError.agentNotFound

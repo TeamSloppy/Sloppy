@@ -50,7 +50,7 @@ func inboundChannelTurnRestoresTodayHistoryIntoBootstrap() async throws {
     let restored = await waitForInboundBootstrap(service: service, channelId: "telegram-main")
     let bootstrap = try #require(restored)
     #expect(bootstrap.contains(CoreService.inboundChannelContextBootstrapMarker))
-    #expect(bootstrap.contains("[Today channel history]"))
+    #expect(bootstrap.contains("[Recent channel history]"))
     #expect(bootstrap.contains("Morning decision: use today's context."))
     #expect(bootstrap.contains("[AGENTS.md]"))
     #expect(bootstrap.contains("External channel responder."))
@@ -61,7 +61,7 @@ func inboundChannelTurnRestoresTodayHistoryIntoBootstrap() async throws {
 }
 
 @Test
-func inboundTodayHistoryBootstrapKeepsFreshTailWhenBudgetIsTight() async throws {
+func inboundRecentHistoryBootstrapKeepsFreshTailWhenBudgetIsTight() async throws {
     let service = CoreService(config: CoreConfig.test, persistenceBuilder: InMemoryCorePersistenceBuilder())
     var calendar = Calendar(identifier: .gregorian)
     calendar.timeZone = TimeZone(secondsFromGMT: 0) ?? .gmt
@@ -77,16 +77,44 @@ func inboundTodayHistoryBootstrapKeepsFreshTailWhenBudgetIsTight() async throws 
         )
     }
 
-    let context = try #require(await service.todayChannelHistoryContext(
+    let context = try #require(await service.recentChannelHistoryContext(
         channelId: "busy-channel",
-        now: now,
-        calendar: calendar,
         maxCharacters: 900
     ))
 
     #expect(context.count <= 900)
     #expect(context.contains("message-11"))
     #expect(!context.contains("message-0"))
+}
+
+@Test
+func inboundRecentHistoryBootstrapSurvivesLocalMidnightBoundary() async throws {
+    let service = CoreService(config: CoreConfig.test, persistenceBuilder: InMemoryCorePersistenceBuilder())
+    var calendar = Calendar(identifier: .gregorian)
+    calendar.timeZone = TimeZone(secondsFromGMT: 0) ?? .gmt
+    let today = Date(timeIntervalSince1970: 1_800_010_000)
+    let todayStart = calendar.startOfDay(for: today)
+
+    _ = try await service.channelSessionStore.recordUserMessage(
+        channelId: "overnight-channel",
+        userId: "user-1",
+        content: "Before midnight decision survives.",
+        createdAt: todayStart.addingTimeInterval(-120)
+    )
+    _ = try await service.channelSessionStore.recordUserMessage(
+        channelId: "overnight-channel",
+        userId: "user-1",
+        content: "After midnight question.",
+        createdAt: todayStart.addingTimeInterval(120)
+    )
+
+    let context = try #require(await service.recentChannelHistoryContext(
+        channelId: "overnight-channel",
+        maxCharacters: 2_000
+    ))
+
+    #expect(context.contains("Before midnight decision survives."))
+    #expect(context.contains("After midnight question."))
 }
 
 private func waitForInboundBootstrap(service: CoreService, channelId: String) async -> String? {

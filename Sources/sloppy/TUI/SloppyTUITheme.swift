@@ -132,6 +132,17 @@ enum SloppyTUITheme {
         muted("mode: ") + modeTitle(mode) + muted("  model: \(model)\(context)\(attachments)  last: \(shortID(sessionID))")
     }
 
+    static func elapsed(_ seconds: TimeInterval) -> String {
+        let total = max(0, Int(seconds.rounded(.down)))
+        let hours = total / 3600
+        let minutes = (total % 3600) / 60
+        let seconds = total % 60
+        if hours > 0 {
+            return String(format: "%d:%02d:%02d", hours, minutes, seconds)
+        }
+        return String(format: "%02d:%02d", minutes, seconds)
+    }
+
     static func welcomeScreen(
         width: Int,
         cwd: String,
@@ -289,7 +300,7 @@ enum SloppyTUITheme {
         let args = summaryText?.isEmpty == false ? muted(" · \(summaryText!)") : ""
         let suffix = reason?.trimmingCharacters(in: .whitespacesAndNewlines)
         let reasonText = suffix?.isEmpty == false ? muted(" · \(suffix!)") : ""
-        let line = " " + blue("tool") + foreground(" \(tool)") + args + reasonText
+        let line = fittedLine(" " + blue("tool") + foreground(" \(tool)") + args + reasonText, width: width)
         return applyBackground(padded(line, width: width), width: width, background: toolBackground)
     }
 
@@ -298,13 +309,34 @@ enum SloppyTUITheme {
         let duration = durationMs.map { muted(" · \($0)ms") } ?? ""
         let errorText = error?.trimmingCharacters(in: .whitespacesAndNewlines)
         let suffix = errorText?.isEmpty == false ? muted(" · \(errorText!)") : ""
-        let line = " " + status + foreground(" \(tool)") + duration + suffix
+        let line = fittedLine(" " + status + foreground(" \(tool)") + duration + suffix, width: width)
         return applyBackground(padded(line, width: width), width: width, background: toolBackground)
+    }
+
+    static func toolOverflowLine(hiddenCount: Int, width: Int) -> String {
+        let suffix = hiddenCount == 1 ? "1 tool event" : "\(hiddenCount) tool events"
+        let line = fittedLine(" " + muted("... +\(suffix) (ctrl+o to expand)"), width: width)
+        return applyBackground(padded(line, width: width), width: width, background: toolBackground)
+    }
+
+    static func subSessionLine(title: String, childSessionId: String, width: Int) -> String {
+        let line = fittedLine(
+            " " + green("subagent") + foreground(" \(title)") + muted(" · \(shortID(childSessionId)) · ctrl+o, then ctrl+right to enter"),
+            width: width
+        )
+        return applyBackground(padded(line, width: width), width: width, background: toolBackground)
+    }
+
+    static func transcriptHintLine(expanded: Bool, childSessionCount: Int, width: Int) -> String {
+        let mode = expanded ? "detailed transcript" : "compact transcript"
+        let childHint = childSessionCount > 0 && expanded ? " · ctrl+right enters latest subagent" : ""
+        let line = fittedLine(" " + muted("\(mode) · ctrl+o toggles\(childHint)"), width: width)
+        return applyPanelBackground(padded(line, width: width), width: width)
     }
 
     static func attachmentLine(name: String, mimeType: String, sizeBytes: Int, width: Int) -> String {
         let size = formattedBytes(sizeBytes)
-        let line = " " + green("attached") + foreground(" ") + yellow(name) + muted("  \(mimeType), \(size)")
+        let line = fittedLine(" " + green("attached") + foreground(" ") + yellow(name) + muted("  \(mimeType), \(size)"), width: width)
         return applyBackground(padded(line, width: width), width: width, background: attachmentBackground)
     }
 
@@ -487,7 +519,8 @@ enum SloppyTUITheme {
     }
 
     static func normalize(lines: [String], width: Int, height: Int) -> [String] {
-        let normalized = lines.prefix(height).map { line in
+        let normalized = lines.prefix(height).map { rawLine in
+            let line = fittedLine(rawLine, width: width)
             let visible = VisibleWidth.measure(line)
             guard visible < width else { return line }
             return line + String(repeating: " ", count: width - visible)
@@ -621,6 +654,22 @@ enum SloppyTUITheme {
         return text + String(repeating: " ", count: width - visible)
     }
 
+    static func fittedLine(_ text: String, width: Int) -> String {
+        guard width > 0 else { return "" }
+        guard VisibleWidth.measure(text) > width else { return text }
+
+        let ellipsis = "…"
+        let ellipsisWidth = VisibleWidth.measure(ellipsis)
+        let contentWidth = max(0, width - ellipsisWidth)
+        let truncated = truncateVisible(text, maxWidth: contentWidth)
+        let reset = text.contains("\u{001B}") ? "\u{001B}[0m" : ""
+        let result = truncated + ellipsis + reset
+        guard VisibleWidth.measure(result) <= width else {
+            return truncateVisible(result, maxWidth: width)
+        }
+        return result
+    }
+
     private static func compactModel(_ model: String) -> String {
         let raw = model.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !raw.isEmpty else { return "default" }
@@ -647,15 +696,23 @@ enum SloppyTUITheme {
     }
 
     private static func truncateEnd(_ text: String, maxWidth: Int) -> String {
-        guard maxWidth > 1, VisibleWidth.measure(text) > maxWidth else { return text }
-        let limit = max(1, maxWidth - 1)
-        return String(text.prefix(limit)) + "…"
+        fittedLine(text, width: maxWidth)
     }
 
     private static func truncateStart(_ text: String, maxWidth: Int) -> String {
         guard maxWidth > 1, VisibleWidth.measure(text) > maxWidth else { return text }
-        let limit = max(1, maxWidth - 1)
-        return "…" + String(text.suffix(limit))
+        let ellipsis = "…"
+        let limit = max(0, maxWidth - VisibleWidth.measure(ellipsis))
+        var result = ""
+        var visible = 0
+        for character in text.reversed() {
+            let next = String(character)
+            let nextWidth = VisibleWidth.measure(next)
+            guard visible + nextWidth <= limit else { break }
+            result = next + result
+            visible += nextWidth
+        }
+        return ellipsis + result
     }
 
     private static func highlightedFileReferences(in line: String) -> String {
@@ -716,6 +773,30 @@ enum SloppyTUITheme {
             }
             visibleOffset += 1
             index = line.index(after: index)
+        }
+        return result
+    }
+
+    private static func truncateVisible(_ text: String, maxWidth: Int) -> String {
+        guard maxWidth > 0 else { return "" }
+
+        var result = ""
+        var visible = 0
+        var index = text.startIndex
+        while index < text.endIndex {
+            if text[index] == "\u{001B}" {
+                let escapeEnd = ansiEscapeEnd(in: text, from: index)
+                result += String(text[index..<escapeEnd])
+                index = escapeEnd
+                continue
+            }
+
+            let character = String(text[index])
+            let characterWidth = VisibleWidth.measure(character)
+            guard visible + characterWidth <= maxWidth else { break }
+            result += character
+            visible += characterWidth
+            index = text.index(after: index)
         }
         return result
     }

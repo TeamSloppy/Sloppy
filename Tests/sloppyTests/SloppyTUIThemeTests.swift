@@ -1,4 +1,5 @@
 import Testing
+import TauTUI
 @testable import sloppy
 
 @Test
@@ -29,6 +30,68 @@ func composerDoesNotHighlightAutocompleteAfterEditorBorder() {
 
     #expect(highlighted[1].contains("\u{001B}[38;2;103;232;249m"))
     #expect(highlighted[3] == lines[3])
+}
+
+@Test
+func normalizeTruncatesOverwideStyledLines() {
+    let width = 32
+    let line = "\u{001B}[38;2;250;204;21m" + String(repeating: "x", count: 96) + "\u{001B}[39m"
+
+    let normalized = SloppyTUITheme.normalize(lines: [line], width: width, height: 1)
+
+    #expect(normalized.count == 1)
+    #expect(VisibleWidth.measure(normalized[0]) == width)
+}
+
+@Test
+func chromeRowsFitNarrowTerminalWidth() {
+    let width = 40
+    let rows = [
+        SloppyTUITheme.composerMetaLine(
+            width: width,
+            mode: .plan,
+            model: "anthropic:claude-sonnet-4-6",
+            agent: "Yadev",
+            provider: "anthropic"
+        ),
+        SloppyTUITheme.toolCallLine(
+            tool: "runtime.exec",
+            reason: String(repeating: "reason", count: 12),
+            summary: String(repeating: "/Users/vlad-prusakov/Developer/Sloppy/", count: 4),
+            width: width
+        ),
+        SloppyTUITheme.toolResultLine(
+            tool: "runtime.exec",
+            ok: false,
+            error: String(repeating: "Rendered line exceeds width ", count: 6),
+            durationMs: 123,
+            width: width
+        ),
+        SloppyTUITheme.attachmentLine(
+            name: String(repeating: "screenshot-", count: 10) + ".png",
+            mimeType: "image/png",
+            sizeBytes: 12_345,
+            width: width
+        ),
+        SloppyTUITheme.toolOverflowLine(hiddenCount: 42, width: width),
+        SloppyTUITheme.subSessionLine(
+            title: String(repeating: "subagent-session-", count: 6),
+            childSessionId: String(repeating: "abcdef", count: 6),
+            width: width
+        ),
+        SloppyTUITheme.transcriptHintLine(expanded: true, childSessionCount: 3, width: width),
+    ]
+
+    for row in rows {
+        #expect(VisibleWidth.measure(row) <= width)
+    }
+}
+
+@Test
+func elapsedFormatsShortAndLongRuns() {
+    #expect(SloppyTUITheme.elapsed(0) == "00:00")
+    #expect(SloppyTUITheme.elapsed(65) == "01:05")
+    #expect(SloppyTUITheme.elapsed(3_661) == "1:01:01")
 }
 
 private func stripANSI(_ line: String) -> String {

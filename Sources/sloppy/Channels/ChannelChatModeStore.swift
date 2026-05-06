@@ -20,7 +20,7 @@ actor ChannelChatModeStore {
     }
 
     func get(channelId: String) -> AgentChatMode {
-        modes[channelId] ?? .ask
+        modes[channelId] ?? .build
     }
 
     func set(channelId: String, mode: AgentChatMode) {

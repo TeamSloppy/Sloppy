@@ -36,6 +36,26 @@ func channelCommandHandler_forwardsBtwToSloppy() {
 }
 
 @Test
+func channelCommandHandler_forwardsAskPlanAndModeToSloppy() {
+    let handler = ChannelCommandHandler(platformName: "telegram")
+    let context = MessageContext(
+        channelId: "c",
+        userId: "u",
+        platform: "telegram",
+        displayName: "d"
+    )
+    #expect(handler.handle(text: "/ask what changed?", context: context) == nil)
+    #expect(handler.handle(text: "/plan add the endpoint", context: context) == nil)
+    #expect(handler.handle(text: "/mode ask", context: context) == nil)
+    #expect(ChannelCommandHandler.commands(for: .telegram).contains(where: { $0.name == "ask" }))
+    #expect(ChannelCommandHandler.commands(for: .telegram).contains(where: { $0.name == "plan" }))
+    #expect(!ChannelCommandHandler.commands(for: .telegram).contains(where: { $0.name == "mode" }))
+    #expect(ChannelCommandHandler.commands(for: .discord).contains(where: { $0.name == "ask" }))
+    #expect(ChannelCommandHandler.commands(for: .discord).contains(where: { $0.name == "plan" }))
+    #expect(!ChannelCommandHandler.commands(for: .discord).contains(where: { $0.name == "mode" }))
+}
+
+@Test
 func channelCommandHandler_forwardsAddDirToSloppy() {
     let handler = ChannelCommandHandler(platformName: "telegram")
     let context = MessageContext(

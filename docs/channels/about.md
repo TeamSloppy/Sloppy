@@ -134,11 +134,15 @@ Both built-in plugins register a shared set of slash commands. These are handled
 | `/whoami` | Show channel ID, user ID, and platform |
 | `/task <description>` | Create a task via Sloppy |
 | `/model [model_id]` | Show or switch the channel model |
+| `/ask <question>` | Answer once without code changes |
+| `/plan <request>` | Plan once without code changes |
 | `/context` | Show token usage and context info |
 | `/abort` | Abort current agent processing |
 | `/create-skill <description>` | Create a new agent skill |
 | `/create-subagent <description>` | Create a subagent |
 | `/fork <task>` | Fork an operation to a subagent |
+
+Regular Telegram and Discord messages use build mode by default, so the agent may answer, edit code, and use tools. `/ask` and `/plan` apply only to that single message and do not change the channel's future behavior.
 
 ## Streaming
 

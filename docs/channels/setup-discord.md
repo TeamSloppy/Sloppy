@@ -152,10 +152,14 @@ Slash commands are registered globally when the bot connects. They are available
 | `/whoami` | Show channel, user, and platform info |
 | `/task <description>` | Create a task via Sloppy |
 | `/model [model_id]` | Show or switch the channel model |
+| `/ask <question>` | Answer once without code changes |
+| `/plan <request>` | Plan once without code changes |
 | `/context` | Show token usage and context info |
 | `/abort` | Abort current agent processing |
 | `/create-skill <description>` | Create a new agent skill |
 | `/create-subagent <description>` | Create a subagent |
 | `/fork <task>` | Fork an operation to a subagent |
+
+Regular messages use build mode by default. `/ask` and `/plan` apply only to one message and do not persist a mode change.
 
 Regular text messages (non-slash-command) posted in a mapped channel are forwarded to Sloppy as conversation messages.

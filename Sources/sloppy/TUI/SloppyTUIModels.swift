@@ -4,6 +4,7 @@ enum SloppyTUIPickerKind {
     case model
     case agent
     case session
+    case subSession
     case provider
     case providerCatalog
     case projectFile
@@ -28,12 +29,18 @@ struct SloppyTUILocalCard {
     var block: SloppyTUITimelineBlock
 }
 
+struct SloppyTUISubSessionCard: Equatable {
+    var childSessionId: String
+    var title: String
+}
+
 enum SloppyTUITimelineBlock {
     case message(role: AgentMessageRole, text: String)
     case local(String)
     case error(String)
     case thinking(String)
     case attachment(name: String, mimeType: String, sizeBytes: Int)
+    case subSession(childSessionId: String, title: String)
     case toolCall(tool: String, reason: String?, summary: String?, details: String?)
     case toolResult(tool: String, ok: Bool, error: String?, durationMs: Int?, details: String?)
 
@@ -45,6 +52,8 @@ enum SloppyTUITimelineBlock {
             return text
         case .attachment(let name, let mimeType, _):
             return "\(name) \(mimeType)"
+        case .subSession(let childSessionId, let title):
+            return "\(title) \(childSessionId)"
         case .toolCall(let tool, let reason, let summary, let details):
             return ([tool] + [summary, reason, details].compactMap { $0 }).joined(separator: " ")
         case .toolResult(let tool, _, let error, _, let details):

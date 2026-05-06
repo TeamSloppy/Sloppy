@@ -569,7 +569,7 @@ extension CoreService {
             }
             try await self.applyAgentMarkdownFromTool(agentID: agentID, field: field, markdown: markdown)
         }
-        toolExecution.delegateSubagent = { [weak self] agentID, taskID, objective, workingDirectory, toolsetNames, selectedModel in
+        toolExecution.delegateSubagent = { [weak self] agentID, taskID, objective, workingDirectory, toolsetNames, selectedModel, parentSessionID in
             guard let self else { return nil }
             return await self.runSubagentTask(
                 agentID: agentID,
@@ -577,7 +577,8 @@ extension CoreService {
                 objective: objective,
                 workingDirectory: workingDirectory,
                 toolsetNames: toolsetNames,
-                selectedModel: selectedModel
+                selectedModel: selectedModel,
+                parentSessionID: parentSessionID
             )
         }
     }

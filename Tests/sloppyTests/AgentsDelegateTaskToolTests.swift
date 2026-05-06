@@ -8,7 +8,7 @@ import Testing
 @Suite("agents.delegate_task argument validation")
 struct AgentsDelegateTaskToolTests {
 
-    private func makeContext(delegateSubagent: (@Sendable (String, String, String, String?, [String]?, String?) async -> String?)?) -> ToolContext {
+    private func makeContext(delegateSubagent: (@Sendable (String, String, String, String?, [String]?, String?, String?) async -> String?)?) -> ToolContext {
         let guardrails = AgentToolsGuardrails()
         let policy = AgentToolsPolicy(guardrails: guardrails)
         let tmp = FileManager.default.temporaryDirectory
@@ -42,7 +42,7 @@ struct AgentsDelegateTaskToolTests {
     @Test("Rejects goal and non-empty tasks together with hint")
     func rejectsGoalAndTasksTogether() async {
         let tool = AgentsDelegateTaskTool()
-        let context = makeContext(delegateSubagent: { _, _, _, _, _, _ in "ok" })
+        let context = makeContext(delegateSubagent: { _, _, _, _, _, _, _ in "ok" })
         let result = await tool.invoke(
             arguments: [
                 "goal": .string("do a"),
@@ -58,7 +58,7 @@ struct AgentsDelegateTaskToolTests {
     @Test("Accepts goal with empty tasks array")
     func acceptsGoalWithEmptyTasks() async {
         let tool = AgentsDelegateTaskTool()
-        let context = makeContext(delegateSubagent: { _, _, _, _, _, _ in "done" })
+        let context = makeContext(delegateSubagent: { _, _, _, _, _, _, _ in "done" })
         let result = await tool.invoke(
             arguments: [
                 "goal": .string("single task"),
@@ -67,5 +67,24 @@ struct AgentsDelegateTaskToolTests {
             context: context
         )
         #expect(result.ok == true)
+    }
+
+    @Test("Passes current session id to delegated subagent runner")
+    func passesParentSessionIDToRunner() async throws {
+        let tool = AgentsDelegateTaskTool()
+        let context = makeContext(delegateSubagent: { _, _, _, _, _, _, parentSessionID in
+            parentSessionID ?? "missing"
+        })
+        let result = await tool.invoke(
+            arguments: [
+                "goal": .string("single task"),
+            ],
+            context: context
+        )
+
+        let data = try #require(result.data?.asObject)
+        let results = try #require(data["results"]?.asArray)
+        let first = try #require(results.first?.asObject)
+        #expect(first["summary"]?.asString == "session-test")
     }
 }
