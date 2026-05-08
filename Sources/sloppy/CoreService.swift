@@ -298,7 +298,8 @@ public actor CoreService {
         let hasOAuth = oauthService.currentAccessToken() != nil
         let resolvedModels = CoreModelProviderFactory.resolveModelIdentifiers(
             config: config,
-            hasOAuthCredentials: hasOAuth
+            hasOAuthCredentials: hasOAuth,
+            currentDirectory: currentDirectory
         )
         let modelProvider = CoreModelProviderFactory.buildModelProvider(
             config: config,
@@ -312,7 +313,8 @@ public actor CoreService {
             anthropicOAuthTokenRefresh: { try await anthropicOAuthService.ensureValidToken() },
             anthropicSettingsProvider: anthropicSettingsProvider,
             systemInstructions: "You are Sloppy core channel assistant.",
-            proxySession: ProxySessionFactory.makeSession(proxy: config.proxy)
+            proxySession: ProxySessionFactory.makeSession(proxy: config.proxy),
+            currentDirectory: currentDirectory
         )
         let runtimeMemoryStore: any MemoryStore
         let hybridMemoryStore: HybridMemoryStore?
@@ -388,7 +390,11 @@ public actor CoreService {
         let orchestratorCatalogStore = AgentCatalogFileStore(agentsRootURL: self.agentsRootURL)
         let orchestratorSessionStore = AgentSessionFileStore(agentsRootURL: self.agentsRootURL)
         let orchestratorSkillsStore = AgentSkillsFileStore(agentsRootURL: self.agentsRootURL)
-        let initialAvailableAgentModels = Self.availableAgentModels(config: config, hasOAuthCredentials: hasOAuth)
+        let initialAvailableAgentModels = Self.availableAgentModels(
+            config: config,
+            hasOAuthCredentials: hasOAuth,
+            currentDirectory: currentDirectory
+        )
         self.acpSessionManager = ACPSessionManager(
             config: config.acp,
             workspaceRootURL: self.workspaceRootURL,

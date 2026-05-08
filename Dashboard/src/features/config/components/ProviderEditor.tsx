@@ -75,12 +75,16 @@ export function ProviderEditor({
   onSaveProvider,
   onTestProviderConnection,
   providerProbeTesting,
+  openCodeConfig,
+  onUpdateOpenCodeConfig,
+  parseConfigList,
   onSetProviderModelMenuOpen,
   onSetProviderModelMenuRect,
   providerIsConfigured,
   filterProviderModels
 }) {
   const [addMenuOpen, setAddMenuOpen] = useState(false);
+  const [openCodeExpanded, setOpenCodeExpanded] = useState(false);
   const addMenuRef = useRef(null);
 
   useEffect(() => {
@@ -116,6 +120,14 @@ export function ProviderEditor({
       .filter((row) => row.catalogId)
       .map((row) => [row.catalogId, row])
   );
+  const openCodeEnabled = Boolean(openCodeConfig?.enabled);
+  const openCodeUseCommand = openCodeConfig?.useResolvedConfigCommand !== false;
+  const openCodeCommand = String(openCodeConfig?.command || "opencode");
+  const openCodeTimeoutMs = Number.parseInt(String(openCodeConfig?.timeoutMs ?? 5000), 10) || 5000;
+  const openCodeConfigPaths = Array.isArray(openCodeConfig?.configPaths) ? openCodeConfig.configPaths : [];
+  const openCodeIncludeProviders = Array.isArray(openCodeConfig?.includeProviders) ? openCodeConfig.includeProviders : [];
+  const openCodeExcludeProviders = Array.isArray(openCodeConfig?.excludeProviders) ? openCodeConfig.excludeProviders : [];
+  const openCodeAuthPath = String(openCodeConfig?.authPath || "");
 
   function openOrAppendProvider(providerId) {
     const row = providerRowByCatalog.get(providerId);
@@ -187,6 +199,123 @@ export function ProviderEditor({
             );
           })}
         </div>
+      </section>
+
+      <section className={`providers-opencode-card ${openCodeEnabled ? "enabled" : ""}`}>
+        <div className="providers-opencode-head">
+          <button
+            type="button"
+            className="providers-opencode-summary"
+            onClick={() => setOpenCodeExpanded((expanded) => !expanded)}
+            aria-expanded={openCodeExpanded}
+          >
+            <span className="providers-cli-card-icon material-symbols-rounded" aria-hidden>
+              inventory_2
+            </span>
+            <span className="providers-opencode-title">
+              <span className="providers-opencode-heading">OpenCode catalog import</span>
+              <span className={`provider-state ${openCodeEnabled ? "on" : "off"}`}>
+                {openCodeEnabled ? "enabled" : "disabled"}
+              </span>
+            </span>
+            <span className="providers-opencode-subtitle">
+              {openCodeEnabled
+                ? `${openCodeCommand || "opencode"} · ${openCodeUseCommand ? "resolved config" : "local config files"}`
+                : "Import OpenAI-compatible providers from OpenCode"}
+            </span>
+            <span className={`material-symbols-rounded providers-opencode-chevron ${openCodeExpanded ? "open" : ""}`} aria-hidden>
+              expand_more
+            </span>
+          </button>
+          <label className="provider-instance-toggle providers-opencode-toggle">
+            <span className="agent-tools-switch">
+              <input
+                type="checkbox"
+                aria-label="OpenCode catalog import enabled"
+                checked={openCodeEnabled}
+                onChange={(event) => onUpdateOpenCodeConfig?.({ enabled: event.target.checked })}
+              />
+              <span className="agent-tools-switch-track" />
+            </span>
+          </label>
+        </div>
+        {openCodeExpanded ? (
+          <div className="providers-opencode-body">
+            <p className="placeholder-text">
+              Import OpenAI-compatible providers from your OpenCode setup. Models appear as{" "}
+              <code>opencode:&lt;provider-id&gt;/&lt;model-id&gt;</code> in agent model pickers after Sloppy reloads config.
+            </p>
+            <div className="providers-opencode-grid">
+              <label className="providers-opencode-field providers-opencode-field--toggle">
+                <span>Resolved config command</span>
+                <span className="agent-tools-switch">
+                  <input
+                    type="checkbox"
+                    checked={openCodeUseCommand}
+                    onChange={(event) => onUpdateOpenCodeConfig?.({ useResolvedConfigCommand: event.target.checked })}
+                  />
+                  <span className="agent-tools-switch-track" />
+                </span>
+              </label>
+              <label className="providers-opencode-field">
+                Command
+                <input
+                  value={openCodeCommand}
+                  onChange={(event) => onUpdateOpenCodeConfig?.({ command: event.target.value })}
+                  placeholder="opencode"
+                />
+              </label>
+              <label className="providers-opencode-field">
+                Timeout
+                <input
+                  type="number"
+                  min="500"
+                  step="500"
+                  value={openCodeTimeoutMs}
+                  onChange={(event) => onUpdateOpenCodeConfig?.({ timeoutMs: Number.parseInt(event.target.value, 10) || 5000 })}
+                />
+              </label>
+              <label className="providers-opencode-field providers-opencode-wide">
+                Auth path
+                <input
+                  value={openCodeAuthPath}
+                  onChange={(event) => onUpdateOpenCodeConfig?.({ authPath: event.target.value })}
+                  placeholder="~/.local/share/opencode/auth.json"
+                />
+              </label>
+              <label className="providers-opencode-field providers-opencode-wide">
+                Extra config paths
+                <textarea
+                  rows={2}
+                  value={openCodeConfigPaths.join("\n")}
+                  onChange={(event) => onUpdateOpenCodeConfig?.({ configPaths: parseConfigList(event.target.value) })}
+                  placeholder="One path per line"
+                />
+              </label>
+              <label className="providers-opencode-field">
+                Include providers
+                <textarea
+                  rows={3}
+                  value={openCodeIncludeProviders.join("\n")}
+                  onChange={(event) => onUpdateOpenCodeConfig?.({ includeProviders: parseConfigList(event.target.value) })}
+                  placeholder="Optional provider IDs"
+                />
+              </label>
+              <label className="providers-opencode-field">
+                Exclude providers
+                <textarea
+                  rows={3}
+                  value={openCodeExcludeProviders.join("\n")}
+                  onChange={(event) => onUpdateOpenCodeConfig?.({ excludeProviders: parseConfigList(event.target.value) })}
+                  placeholder="Optional provider IDs"
+                />
+              </label>
+            </div>
+            <div className="providers-opencode-note">
+              Sloppy tries <code>opencode debug config</code> first, then local OpenCode config files. Imported credentials stay in memory and are not written as provider rows.
+            </div>
+          </div>
+        ) : null}
       </section>
 
       <div className="providers-section-toolbar">

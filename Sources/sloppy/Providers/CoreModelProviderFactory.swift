@@ -8,6 +8,7 @@ import Protocols
 
 struct ModelProviderBuildConfig: @unchecked Sendable {
     var coreConfig: CoreConfig
+    var modelConfigs: [CoreConfig.ModelConfig]
     var resolvedModels: [String]
     var tools: [any Tool]
     var oauthTokenProvider: (@Sendable () -> String?)?
@@ -29,6 +30,7 @@ protocol ModelProviderFactory: Sendable {
 enum CoreModelProviderFactory {
     private static let factories: [any ModelProviderFactory] = [
         MockModelProviderFactory(),
+        OpenCodeModelProviderFactory(),
         OpenAIModelProviderFactory(),
         OpenRouterModelProviderFactory(),
         OllamaModelProviderFactory(),
@@ -49,10 +51,13 @@ enum CoreModelProviderFactory {
         anthropicSettingsProvider: (@Sendable () -> ClaudeSettingsEnvironment)? = nil,
         geminiOAuthCredentialsProvider: (@Sendable () -> GeminiOAuthCredentials?)? = nil,
         systemInstructions: String? = nil,
-        proxySession: URLSession? = nil
+        proxySession: URLSession? = nil,
+        currentDirectory: String = FileManager.default.currentDirectoryPath
     ) -> (any ModelProvider)? {
+        let modelConfigs = config.effectiveModels(currentDirectory: currentDirectory)
         let buildConfig = ModelProviderBuildConfig(
             coreConfig: config,
+            modelConfigs: modelConfigs,
             resolvedModels: resolvedModels,
             tools: tools,
             oauthTokenProvider: oauthTokenProvider,
@@ -82,9 +87,11 @@ enum CoreModelProviderFactory {
     /// Only models with a recognized provider prefix are included (no unprefixed models).
     static func resolveModelIdentifiers(
         config: CoreConfig,
-        hasOAuthCredentials: Bool = false
+        hasOAuthCredentials: Bool = false,
+        currentDirectory: String = FileManager.default.currentDirectoryPath
     ) -> [String] {
-        var identifiers = config.models.compactMap { resolvedIdentifier(for: $0) }
+        let modelConfigs = config.effectiveModels(currentDirectory: currentDirectory)
+        var identifiers = modelConfigs.compactMap { resolvedIdentifier(for: $0) }
         let hasOpenAI = identifiers.contains { $0.hasPrefix("openai:") }
         let environmentKey = ProcessInfo.processInfo.environment["OPENAI_API_KEY"]?
             .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
@@ -119,7 +126,7 @@ enum CoreModelProviderFactory {
         if modelValue.hasPrefix("openai:") || modelValue.hasPrefix("openrouter:")
             || modelValue.hasPrefix("ollama:")
             || modelValue.hasPrefix("gemini:") || modelValue.hasPrefix("anthropic:")
-            || modelValue.hasPrefix("mock:") {
+            || modelValue.hasPrefix("mock:") || modelValue.hasPrefix("opencode:") {
             return modelValue
         }
 

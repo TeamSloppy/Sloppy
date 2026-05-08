@@ -16,6 +16,7 @@ Sloppy supports multiple LLM providers. Each provider is configured as an entry 
 | Google Gemini | `gemini:` | `https://generativelanguage.googleapis.com` | `GEMINI_API_KEY` | API key |
 | Anthropic | `anthropic:` | `https://api.anthropic.com` | `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN` | OAuth / setup token (see below) |
 | Ollama | `ollama:` | `http://127.0.0.1:11434` | — | None |
+| OpenCode import | `opencode:` | From OpenCode provider config | From OpenCode resolved config/auth | OpenAI-compatible providers |
 
 ## Environment variables
 
@@ -169,6 +170,45 @@ The `models` array supports multiple entries. `sloppy` builds a composite model 
 }
 ```
 
+## Importing providers from OpenCode
+
+Sloppy can import OpenAI-compatible providers and models from your OpenCode setup. This is useful when an organization already publishes a large OpenCode provider catalog.
+
+Enable it in `sloppy.json`:
+
+```json
+{
+  "opencode": {
+    "enabled": true
+  }
+}
+```
+
+When enabled, Sloppy first runs `opencode debug config` and reads the resolved OpenCode config. That includes global/project config plus remote or plugin-provided providers. If the command is unavailable or times out, Sloppy falls back to local OpenCode config files (`~/.config/opencode/opencode.json`, `OPENCODE_CONFIG`, and the nearest project `opencode.json`).
+
+Imported model IDs use this shape:
+
+```text
+opencode:<provider-id>/<model-id>
+```
+
+For example, an OpenCode provider `company` with a model `fast-code` becomes `opencode:company/fast-code` in Sloppy's model picker.
+
+Supported OpenCode providers are those configured with `npm` equal to `@ai-sdk/openai-compatible` or `@ai-sdk/openai`. Sloppy uses `provider.options.baseURL` and `provider.models`; API keys can come from `provider.options.apiKey`, `{env:NAME}` references, or OpenCode's auth file (`~/.local/share/opencode/auth.json`). Imported keys are used in memory and are not written into `sloppy.json`.
+
+Optional filters:
+
+```json
+{
+  "opencode": {
+    "enabled": true,
+    "includeProviders": ["company"],
+    "excludeProviders": ["slow-lab"],
+    "timeoutMs": 5000
+  }
+}
+```
+
 ## Model selection for agents
 
 Each agent has a `selectedModel` field in its config that determines which model it uses. The value includes the provider prefix:
@@ -179,6 +219,7 @@ Each agent has a `selectedModel` field in its config that determines which model
 | Gemini | `gemini:gemini-2.5-flash` |
 | Anthropic | `anthropic:claude-sonnet-4-6` |
 | Ollama | `ollama:qwen3` |
+| OpenCode import | `opencode:company/fast-code` |
 
 Set this via:
 

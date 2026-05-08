@@ -162,6 +162,7 @@
   .agent-tools-textarea-grid,
   .project-details-grid,
   .providers-list,
+  .providers-opencode-grid,
   .provider-modal-form,
   .updates-status-grid {
     grid-template-columns: 1fr;
@@ -253,6 +254,23 @@
 
   .providers-cli-grid {
     grid-template-columns: 1fr;
+  }
+
+  .providers-opencode-head {
+    grid-template-columns: 1fr;
+  }
+
+  .providers-opencode-summary {
+    grid-template-columns: 34px minmax(0, 1fr) auto;
+  }
+
+  .providers-opencode-subtitle {
+    grid-column: 2 / -1;
+  }
+
+  .providers-opencode-toggle {
+    grid-column: 1;
+    justify-self: start;
   }
 
   .provider-list-icon {

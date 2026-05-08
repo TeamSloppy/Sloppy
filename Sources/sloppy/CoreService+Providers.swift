@@ -129,7 +129,8 @@ extension CoreService {
         let hasOAuth = oauthService.currentAccessToken() != nil
         let resolvedModels = CoreModelProviderFactory.resolveModelIdentifiers(
             config: config,
-            hasOAuthCredentials: hasOAuth
+            hasOAuthCredentials: hasOAuth,
+            currentDirectory: workspaceCurrentDirectory
         )
         guard let modelProvider = CoreModelProviderFactory.buildModelProvider(
             config: config,
@@ -141,7 +142,8 @@ extension CoreService {
             anthropicOAuthTokenProvider: { anthropicOAuthService.currentAccessToken() },
             anthropicOAuthTokenRefresh: { try await anthropicOAuthService.ensureValidToken() },
             anthropicSettingsProvider: { ClaudeSettingsEnvironment.load(workspaceRootURL: workspaceRootURL) },
-            proxySession: ProxySessionFactory.makeSession(proxy: config.proxy)
+            proxySession: ProxySessionFactory.makeSession(proxy: config.proxy),
+            currentDirectory: workspaceCurrentDirectory
         ) else {
             throw GenerateError.noModelProvider
         }
@@ -241,7 +243,11 @@ extension CoreService {
     /// Executes one tool call in session context and persists tool_call/tool_result events.
     func availableAgentModels() -> [ProviderModelOption] {
         let hasOAuth = openAIOAuthService.currentAccessToken() != nil
-        let base = Self.availableAgentModels(config: currentConfig, hasOAuthCredentials: hasOAuth)
+        let base = Self.availableAgentModels(
+            config: currentConfig,
+            hasOAuthCredentials: hasOAuth,
+            currentDirectory: workspaceCurrentDirectory
+        )
         guard hasOAuth, !oauthModelCache.isEmpty else { return base }
 
         var seen = Set<String>()
@@ -306,14 +312,19 @@ extension CoreService {
         return model.title.lowercased().contains("anthropic-oauth")
     }
 
-    static func availableAgentModels(config: CoreConfig, hasOAuthCredentials: Bool = false) -> [ProviderModelOption] {
+    static func availableAgentModels(
+        config: CoreConfig,
+        hasOAuthCredentials: Bool = false,
+        currentDirectory: String = FileManager.default.currentDirectoryPath
+    ) -> [ProviderModelOption] {
         var seen: Set<String> = []
         var options: [ProviderModelOption] = []
 
         let candidates = CoreModelProviderFactory.resolveModelIdentifiers(
             config: config,
-            hasOAuthCredentials: hasOAuthCredentials
-        ) + config.models.filter { !$0.disabled }.map(\.model)
+            hasOAuthCredentials: hasOAuthCredentials,
+            currentDirectory: currentDirectory
+        ) + config.effectiveModels(currentDirectory: currentDirectory).filter { !$0.disabled }.map(\.model)
         for raw in candidates {
             let value = raw.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !value.isEmpty else {
@@ -356,6 +367,11 @@ extension CoreService {
         let knowsProvider = resolved.contains { $0.hasPrefix("\(prefix):") }
 
         switch prefix {
+        case "opencode":
+            let resolvedModels = config.effectiveModels().compactMap {
+                CoreModelProviderFactory.resolvedIdentifier(for: $0)
+            }
+            return resolvedModels.contains(trimmed)
         case "openrouter":
             let env = ProcessInfo.processInfo.environment["OPENROUTER_API_KEY"]?
                 .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
@@ -396,28 +412,28 @@ extension CoreService {
     }
 
     nonisolated private static func openRouterHasApiKey(config: CoreConfig) -> Bool {
-        let primary = config.models.first {
+        let primary = config.effectiveModels().first {
             CoreModelProviderFactory.resolvedIdentifier(for: $0)?.hasPrefix("openrouter:") == true
         }
         return !(primary?.apiKey ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     nonisolated private static func openAIHasApiKey(config: CoreConfig) -> Bool {
-        let primary = config.models.first {
+        let primary = config.effectiveModels().first {
             CoreModelProviderFactory.resolvedIdentifier(for: $0)?.hasPrefix("openai:") == true
         }
         return !(primary?.apiKey ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     nonisolated private static func geminiHasApiKey(config: CoreConfig) -> Bool {
-        let primary = config.models.first {
+        let primary = config.effectiveModels().first {
             CoreModelProviderFactory.resolvedIdentifier(for: $0)?.hasPrefix("gemini:") == true
         }
         return !(primary?.apiKey ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     nonisolated private static func anthropicHasApiKey(config: CoreConfig) -> Bool {
-        let primary = config.models.first {
+        let primary = config.effectiveModels().first {
             CoreModelProviderFactory.resolvedIdentifier(for: $0)?.hasPrefix("anthropic:") == true
         }
         return !(primary?.apiKey ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty

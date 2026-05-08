@@ -8,7 +8,7 @@ struct OpenAIModelProviderFactory: ModelProviderFactory {
         let openAIModels = config.resolvedModels.filter { $0.hasPrefix("openai:") }
         guard !openAIModels.isEmpty else { return nil }
 
-        let primaryConfig = config.coreConfig.models.first {
+        let primaryConfig = config.modelConfigs.first {
             CoreModelProviderFactory.resolvedIdentifier(for: $0)?.hasPrefix("openai:") == true
         }
         let primaryIsOAuth = primaryConfig.map(isOpenAIOAuthEntry) ?? false

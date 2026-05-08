@@ -482,12 +482,29 @@ enum SloppyTUITheme {
         let visibleCount = max(1, min(maxVisible, picker.items.count))
         let start = max(0, min(picker.selectedIndex - visibleCount / 2, picker.items.count - visibleCount))
         let end = min(picker.items.count, start + visibleCount)
+        let prompt = picker.supportsSearch
+            ? "type search · Enter apply · Esc cancel"
+            : "Enter apply · Esc cancel"
         var lines = [
-            indent + padded("  " + foreground(AnsiStyling.bold(picker.title)) + "  " + muted("Enter apply · Esc cancel"), width: paletteWidth),
+            indent + padded("  " + foreground(AnsiStyling.bold(picker.title)) + "  " + muted(prompt), width: paletteWidth),
         ]
+        if picker.supportsSearch {
+            let query = picker.searchQuery.isEmpty ? muted("type to filter") : foreground(picker.searchQuery)
+            let count = muted("\(picker.items.count)/\(picker.totalItemCount)")
+            lines.append(indent + padded("  " + muted("Search: ") + query + muted("  matches ") + count, width: paletteWidth))
+        }
 
+        let groupCounts = pickerGroupCounts(picker.items)
+        var lastGroup: String?
         for index in start..<end {
             let item = picker.items[index]
+            if let group = item.group?.trimmingCharacters(in: .whitespacesAndNewlines),
+               !group.isEmpty,
+               group != lastGroup {
+                let suffix = groupCounts[group].map { " (\($0))" } ?? ""
+                lines.append(indent + padded("  " + muted(group + suffix), width: paletteWidth))
+                lastGroup = group
+            }
             let raw: String
             if picker.kind == .projectFile {
                 raw = projectFilePickerLine(item: item, width: paletteWidth, styled: index != picker.selectedIndex)
@@ -508,11 +525,27 @@ enum SloppyTUITheme {
                 lines.append(indent + foreground(line))
             }
         }
+        if picker.items.isEmpty, picker.supportsSearch {
+            lines.append(indent + padded("  " + muted("No matching models"), width: paletteWidth))
+        }
         if picker.items.count > visibleCount {
             let info = "  " + muted("\(picker.selectedIndex + 1)/\(picker.items.count)")
             lines.append(indent + padded(info, width: paletteWidth))
         }
         return lines
+    }
+
+    private static func pickerGroupCounts(_ items: [SloppyTUIPickerItem]) -> [String: Int] {
+        var counts: [String: Int] = [:]
+        for item in items {
+            guard let group = item.group?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !group.isEmpty
+            else {
+                continue
+            }
+            counts[group, default: 0] += 1
+        }
+        return counts
     }
 
     private static func projectFilePickerLine(item: SloppyTUIPickerItem, width: Int, styled: Bool) -> String {

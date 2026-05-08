@@ -75,3 +75,56 @@ func doubleEscapeDetectorResetsOnOtherInput() {
     #expect(!otherResult)
     #expect(!secondResult)
 }
+
+@Test
+func pickerSearchFiltersAcrossLabelDescriptionAndGroup() {
+    let items = [
+        SloppyTUIPickerItem(
+            value: "openrouter:anthropic/claude-sonnet",
+            label: "claude-sonnet",
+            description: "Claude Sonnet",
+            isCurrent: false,
+            group: "OpenRouter / anthropic"
+        ),
+        SloppyTUIPickerItem(
+            value: "opencode:yteam:internal/internal-model",
+            label: "internal-model",
+            description: "tools",
+            isCurrent: false,
+            group: "OpenCode / yteam / internal"
+        ),
+        SloppyTUIPickerItem(
+            value: "openai:gpt-5.4-mini",
+            label: "gpt-5.4-mini",
+            description: "reasoning",
+            isCurrent: false,
+            group: "OpenAI / gpt"
+        ),
+    ]
+
+    let filtered = SloppyTUIPicker.filteredItems(items, query: "yteam tools")
+
+    #expect(filtered.map(\.value) == ["opencode:yteam:internal/internal-model"])
+}
+
+@Test
+func pickerSearchRestoresItemsAfterClearingQuery() {
+    let items = [
+        SloppyTUIPickerItem(value: "openai:gpt-5.4-mini", label: "gpt-5.4-mini", description: nil, isCurrent: false, group: "OpenAI / gpt"),
+        SloppyTUIPickerItem(value: "openai:o4-mini", label: "o4-mini", description: nil, isCurrent: false, group: "OpenAI / o4"),
+    ]
+    var picker = SloppyTUIPicker(
+        kind: .model,
+        title: "Select model",
+        items: items,
+        selectedIndex: 0,
+        allItems: items,
+        supportsSearch: true
+    )
+
+    picker.setSearchQuery("o4")
+    #expect(picker.items.map(\.value) == ["openai:o4-mini"])
+
+    picker.clearSearchQuery()
+    #expect(picker.items.map(\.value) == ["openai:gpt-5.4-mini", "openai:o4-mini"])
+}

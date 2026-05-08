@@ -8,7 +8,7 @@ struct OllamaModelProviderFactory: ModelProviderFactory {
         let ollamaModels = config.resolvedModels.filter { $0.hasPrefix("ollama:") }
         guard !ollamaModels.isEmpty else { return nil }
 
-        let primaryConfig = config.coreConfig.models.first {
+        let primaryConfig = config.modelConfigs.first {
             CoreModelProviderFactory.resolvedIdentifier(for: $0)?.hasPrefix("ollama:") == true
         }
 

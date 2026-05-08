@@ -39,6 +39,62 @@ func coreModelProviderFactoryInfersOpenRouterFromApiHost() {
 }
 
 @Test
+func openCodeImporterParsesOpenAICompatibleProviderModels() {
+    let config: [String: Any] = [
+        "provider": [
+            "company:models": [
+                "name": "Company Models",
+                "npm": "@ai-sdk/openai-compatible",
+                "options": [
+                    "baseURL": "https://models.example.com/v1",
+                    "apiKey": "{env:COMPANY_MODELS_KEY}",
+                ],
+                "models": [
+                    "fast-code": ["name": "Fast Code"],
+                    "deep-code": ["name": "Deep Code"],
+                ],
+            ],
+            "bedrock": [
+                "npm": "@ai-sdk/amazon-bedrock",
+                "models": [
+                    "claude": ["name": "Claude"],
+                ],
+            ],
+        ],
+    ]
+
+    let models = OpenCodeConfigImporter.parseModelConfigs(from: config)
+
+    #expect(models.map(\.model) == [
+        "opencode:company:models/deep-code",
+        "opencode:company:models/fast-code",
+    ])
+    #expect(models.allSatisfy { $0.apiUrl == "https://models.example.com/v1" })
+    #expect(models.allSatisfy { $0.providerCatalogId == "opencode:company:models" })
+}
+
+@Test
+func coreModelProviderFactoryBuildsOpenCodeProvider() {
+    var config = CoreConfig.test
+    config.models = [
+        CoreConfig.ModelConfig(
+            title: "opencode:Company / Fast Code",
+            apiKey: "company-key",
+            apiUrl: "https://models.example.com/v1",
+            model: "opencode:company/fast-code",
+            providerCatalogId: "opencode:company"
+        )
+    ]
+
+    let provider = CoreModelProviderFactory.buildModelProvider(
+        config: config,
+        resolvedModels: ["opencode:company/fast-code"]
+    )
+
+    #expect(provider?.supportedModels == ["opencode:company/fast-code"])
+}
+
+@Test
 func geminiOAuthCredentialsLoadReadsGeminiCLIFile() throws {
     let directory = FileManager.default.temporaryDirectory
         .appendingPathComponent("gemini-oauth-\(UUID().uuidString)", isDirectory: true)

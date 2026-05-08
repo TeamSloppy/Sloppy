@@ -6,7 +6,8 @@ extension CoreService {
         let config = currentConfig
         let modelIds = CoreModelProviderFactory.resolveModelIdentifiers(
             config: config,
-            hasOAuthCredentials: openAIOAuthService.currentAccessToken() != nil
+            hasOAuthCredentials: openAIOAuthService.currentAccessToken() != nil,
+            currentDirectory: workspaceCurrentDirectory
         )
         var providers: Set<String> = []
         for modelId in modelIds {

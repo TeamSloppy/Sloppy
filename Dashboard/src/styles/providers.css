@@ -202,6 +202,133 @@
   line-height: 1.35;
 }
 
+.providers-opencode-card {
+  max-width: 860px;
+  display: grid;
+  gap: 0;
+  border: 1px solid var(--line);
+  background: var(--surface-2);
+  padding: 0;
+}
+
+.providers-opencode-card.enabled {
+  border-color: var(--line-strong);
+}
+
+.providers-opencode-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+}
+
+.providers-opencode-summary {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 34px minmax(0, auto) minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  border: none;
+  background: transparent;
+  color: var(--text);
+  padding: 0;
+  text-align: left;
+}
+
+.providers-opencode-summary:hover {
+  background: transparent;
+}
+
+.providers-opencode-title {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.providers-opencode-heading {
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: var(--text);
+  white-space: nowrap;
+}
+
+.providers-opencode-subtitle {
+  min-width: 0;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.9rem;
+}
+
+.providers-opencode-card .provider-state {
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+  font-size: 0.72rem;
+  padding: 2px 6px;
+  border: 1px solid;
+}
+
+.providers-opencode-toggle {
+  justify-self: end;
+}
+
+.providers-opencode-chevron {
+  color: var(--muted);
+  transition: transform 140ms ease;
+}
+
+.providers-opencode-chevron.open {
+  transform: rotate(180deg);
+}
+
+.providers-opencode-body {
+  display: grid;
+  gap: 12px;
+  border-top: 1px solid var(--line);
+  padding: 12px 14px 14px;
+}
+
+.providers-opencode-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.providers-opencode-field {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  color: var(--muted);
+  font-size: 0.88rem;
+}
+
+.providers-opencode-field--toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 44px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  padding: 0 12px;
+}
+
+.providers-opencode-wide {
+  grid-column: 1 / -1;
+}
+
+.providers-opencode-note {
+  border: 1px solid var(--line);
+  background: var(--surface-3);
+  color: var(--muted);
+  padding: 10px 12px;
+  font-size: 0.9rem;
+  line-height: 1.4;
+}
+
 .providers-presets-grid {
   grid-template-columns: 1fr;
 }

@@ -1,4 +1,5 @@
 import Foundation
+import Protocols
 
 #if canImport(FoundationNetworking)
 import FoundationNetworking

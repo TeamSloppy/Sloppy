@@ -56,7 +56,8 @@ extension CoreService {
         let hasOAuth = oauthSvc.currentAccessToken() != nil
         let resolvedModels = CoreModelProviderFactory.resolveModelIdentifiers(
             config: config,
-            hasOAuthCredentials: hasOAuth
+            hasOAuthCredentials: hasOAuth,
+            currentDirectory: workspaceCurrentDirectory
         )
         let modelProvider = CoreModelProviderFactory.buildModelProvider(
             config: config,
@@ -70,7 +71,8 @@ extension CoreService {
             anthropicOAuthTokenRefresh: { try await anthropicOAuthSvc.ensureValidToken() },
             anthropicSettingsProvider: anthropicSettingsProvider,
             systemInstructions: "You are Sloppy core channel assistant.",
-            proxySession: ProxySessionFactory.makeSession(proxy: config.proxy)
+            proxySession: ProxySessionFactory.makeSession(proxy: config.proxy),
+            currentDirectory: workspaceCurrentDirectory
         )
         let defaultModel = modelProvider?.supportedModels.first ?? resolvedModels.first
         self.modelProvider = modelProvider

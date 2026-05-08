@@ -248,6 +248,16 @@ const EMPTY_CONFIG = {
   auth: { token: "dev-token" },
   onboarding: { completed: false },
   models: [emptyModel()],
+  opencode: {
+    enabled: false,
+    useResolvedConfigCommand: true,
+    command: "opencode",
+    configPaths: [],
+    authPath: "",
+    includeProviders: [],
+    excludeProviders: [],
+    timeoutMs: 5000
+  },
   memory: {
     backend: "sqlite-local-vectors",
     provider: {
@@ -611,6 +621,20 @@ function normalizeConfig(config) {
   normalized.workspace.basePath = config?.workspace?.basePath || normalized.workspace.basePath;
   normalized.auth.token = config?.auth?.token || normalized.auth.token;
   normalized.onboarding.completed = Boolean(config?.onboarding?.completed);
+  normalized.opencode.enabled = Boolean(config?.opencode?.enabled);
+  normalized.opencode.useResolvedConfigCommand = config?.opencode?.useResolvedConfigCommand !== false;
+  normalized.opencode.command = String(config?.opencode?.command || normalized.opencode.command).trim() || "opencode";
+  normalized.opencode.configPaths = Array.isArray(config?.opencode?.configPaths)
+    ? config.opencode.configPaths.map((item) => String(item || "").trim()).filter(Boolean)
+    : [];
+  normalized.opencode.authPath = String(config?.opencode?.authPath || "");
+  normalized.opencode.includeProviders = Array.isArray(config?.opencode?.includeProviders)
+    ? config.opencode.includeProviders.map((item) => String(item || "").trim()).filter(Boolean)
+    : [];
+  normalized.opencode.excludeProviders = Array.isArray(config?.opencode?.excludeProviders)
+    ? config.opencode.excludeProviders.map((item) => String(item || "").trim()).filter(Boolean)
+    : [];
+  normalized.opencode.timeoutMs = parseInteger(config?.opencode?.timeoutMs ?? 5000, 5000);
   normalized.memory.backend = config?.memory?.backend || normalized.memory.backend;
   normalized.memory.provider.mode = String(config?.memory?.provider?.mode || normalized.memory.provider.mode);
   normalized.memory.provider.endpoint = String(config?.memory?.provider?.endpoint || "");
@@ -820,6 +844,13 @@ function parseLines(value) {
   return value
     .split("\n")
     .map((line) => line.trim())
+    .filter(Boolean);
+}
+
+function parseConfigList(value) {
+  return String(value || "")
+    .split(/[\n,]+/)
+    .map((item) => item.trim())
     .filter(Boolean);
 }
 
@@ -2100,6 +2131,31 @@ export function ConfigView({
     });
   }
 
+  function updateOpenCodeConfig(patch) {
+    const nextConfig = clone(draftConfig);
+    nextConfig.opencode = {
+      ...clone(EMPTY_CONFIG.opencode),
+      ...(nextConfig.opencode || {}),
+      ...patch
+    };
+    nextConfig.opencode.command = String(nextConfig.opencode.command || "").trim() || "opencode";
+    nextConfig.opencode.authPath = String(nextConfig.opencode.authPath || "");
+    nextConfig.opencode.configPaths = Array.isArray(nextConfig.opencode.configPaths)
+      ? nextConfig.opencode.configPaths.map((item) => String(item || "").trim()).filter(Boolean)
+      : [];
+    nextConfig.opencode.includeProviders = Array.isArray(nextConfig.opencode.includeProviders)
+      ? nextConfig.opencode.includeProviders.map((item) => String(item || "").trim()).filter(Boolean)
+      : [];
+    nextConfig.opencode.excludeProviders = Array.isArray(nextConfig.opencode.excludeProviders)
+      ? nextConfig.opencode.excludeProviders.map((item) => String(item || "").trim()).filter(Boolean)
+      : [];
+    nextConfig.opencode.timeoutMs = parseInteger(nextConfig.opencode.timeoutMs ?? 5000, 5000);
+    writeProviderDraft(nextConfig);
+    scheduleProviderConfigSave(nextConfig, {
+      successMessage: "OpenCode import settings saved"
+    });
+  }
+
   function renderSettingsContent() {
     if (selectedSettings === "providers") {
       return (
@@ -2140,6 +2196,9 @@ export function ConfigView({
             onSaveProvider={saveProviderFromModal}
             onTestProviderConnection={testProviderConnection}
             providerProbeTesting={providerProbeTesting}
+            openCodeConfig={draftConfig.opencode}
+            onUpdateOpenCodeConfig={updateOpenCodeConfig}
+            parseConfigList={parseConfigList}
             onSetProviderModelMenuOpen={setProviderModelMenuOpen}
             onSetProviderModelMenuRect={setProviderModelMenuRect}
             providerIsConfigured={providerIsConfigured}

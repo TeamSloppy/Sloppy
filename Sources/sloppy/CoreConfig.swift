@@ -79,6 +79,61 @@ public struct CoreConfig: Codable, Sendable {
         }
     }
 
+    public struct OpenCode: Codable, Sendable, Equatable {
+        public var enabled: Bool
+        /// Prefer `opencode debug config`, which includes remote/org/plugin-provided providers.
+        public var useResolvedConfigCommand: Bool
+        public var command: String
+        public var configPaths: [String]
+        public var authPath: String?
+        public var includeProviders: [String]
+        public var excludeProviders: [String]
+        public var timeoutMs: Int
+
+        private enum CodingKeys: String, CodingKey {
+            case enabled
+            case useResolvedConfigCommand
+            case command
+            case configPaths
+            case authPath
+            case includeProviders
+            case excludeProviders
+            case timeoutMs
+        }
+
+        public init(
+            enabled: Bool = false,
+            useResolvedConfigCommand: Bool = true,
+            command: String = "opencode",
+            configPaths: [String] = [],
+            authPath: String? = nil,
+            includeProviders: [String] = [],
+            excludeProviders: [String] = [],
+            timeoutMs: Int = 5_000
+        ) {
+            self.enabled = enabled
+            self.useResolvedConfigCommand = useResolvedConfigCommand
+            self.command = command
+            self.configPaths = configPaths
+            self.authPath = authPath
+            self.includeProviders = includeProviders
+            self.excludeProviders = excludeProviders
+            self.timeoutMs = timeoutMs
+        }
+
+        public init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            enabled = try container.decodeIfPresent(Bool.self, forKey: .enabled) ?? false
+            useResolvedConfigCommand = try container.decodeIfPresent(Bool.self, forKey: .useResolvedConfigCommand) ?? true
+            command = try container.decodeIfPresent(String.self, forKey: .command) ?? "opencode"
+            configPaths = try container.decodeIfPresent([String].self, forKey: .configPaths) ?? []
+            authPath = try container.decodeIfPresent(String.self, forKey: .authPath)
+            includeProviders = try container.decodeIfPresent([String].self, forKey: .includeProviders) ?? []
+            excludeProviders = try container.decodeIfPresent([String].self, forKey: .excludeProviders) ?? []
+            timeoutMs = try container.decodeIfPresent(Int.self, forKey: .timeoutMs) ?? 5_000
+        }
+    }
+
     public struct Listen: Codable, Sendable {
         public var host: String
         public var port: Int
@@ -1204,6 +1259,7 @@ public struct CoreConfig: Codable, Sendable {
     public var auth: Auth
     public var onboarding: Onboarding
     public var models: [ModelConfig]
+    public var opencode: OpenCode
     public var disableModelInference: Bool
     public var memory: Memory
     public var nodes: [String]
@@ -1230,6 +1286,7 @@ public struct CoreConfig: Codable, Sendable {
         auth: Auth,
         onboarding: Onboarding = Onboarding(),
         models: [ModelConfig],
+        opencode: OpenCode = OpenCode(),
         memory: Memory,
         nodes: [String],
         gateways: [String],
@@ -1254,6 +1311,7 @@ public struct CoreConfig: Codable, Sendable {
         self.auth = auth
         self.onboarding = onboarding
         self.models = models
+        self.opencode = opencode
         self.memory = memory
         self.nodes = nodes
         self.gateways = gateways
@@ -1294,6 +1352,7 @@ public struct CoreConfig: Codable, Sendable {
                     model: "qwen3"
                 )
             ],
+            opencode: .init(),
             memory: .init(backend: "sqlite-local-vectors"),
             nodes: ["local"],
             gateways: [],
@@ -1361,6 +1420,7 @@ public struct CoreConfig: Codable, Sendable {
         case auth
         case onboarding
         case models
+        case opencode
         case memory
         case nodes
         case gateways
@@ -1404,6 +1464,7 @@ public struct CoreConfig: Codable, Sendable {
         toolHooks = try container.decodeIfPresent(ToolHooks.self, forKey: .toolHooks) ?? .init()
         sqlitePath = try container.decode(String.self, forKey: .sqlitePath)
         models = try container.decodeIfPresent([ModelConfig].self, forKey: .models) ?? []
+        opencode = try container.decodeIfPresent(OpenCode.self, forKey: .opencode) ?? .init()
         plugins = try container.decodeIfPresent([PluginConfig].self, forKey: .plugins) ?? []
         modelRouting = try container.decodeIfPresent([String: String].self, forKey: .modelRouting) ?? [:]
         disableModelInference = try container.decodeIfPresent(Bool.self, forKey: .disableModelInference) ?? false
@@ -1416,6 +1477,7 @@ public struct CoreConfig: Codable, Sendable {
         try container.encode(auth, forKey: .auth)
         try container.encode(onboarding, forKey: .onboarding)
         try container.encode(models, forKey: .models)
+        try container.encode(opencode, forKey: .opencode)
         try container.encode(memory, forKey: .memory)
         try container.encode(nodes, forKey: .nodes)
         try container.encode(gateways, forKey: .gateways)
@@ -1442,6 +1504,35 @@ public struct CoreConfig: Codable, Sendable {
         let cwd = URL(fileURLWithPath: currentDirectory, isDirectory: true)
         return Self.resolvePath(workspace.basePath, currentDirectory: cwd)
             .appendingPathComponent(workspace.name, isDirectory: true)
+    }
+
+    public func effectiveModels(currentDirectory: String = FileManager.default.currentDirectoryPath) -> [ModelConfig] {
+        guard opencode.enabled else {
+            return models
+        }
+
+        let imported = OpenCodeConfigImporter.importedModelConfigs(
+            settings: opencode,
+            currentDirectory: currentDirectory
+        )
+        guard !imported.isEmpty else {
+            return models
+        }
+
+        var seen = Set(models.map { Self.modelIdentity($0) })
+        var combined = models
+        for model in imported where seen.insert(Self.modelIdentity(model)).inserted {
+            combined.append(model)
+        }
+        return combined
+    }
+
+    private static func modelIdentity(_ model: ModelConfig) -> String {
+        [
+            model.providerCatalogId ?? "",
+            model.apiUrl,
+            model.model,
+        ].joined(separator: "\u{1f}")
     }
 
     public func resolvedSQLiteURL(currentDirectory: String = FileManager.default.currentDirectoryPath) -> URL {

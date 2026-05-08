@@ -7,7 +7,7 @@ struct GeminiModelProviderFactory: ModelProviderFactory {
         let geminiModels = config.resolvedModels.filter { $0.hasPrefix("gemini:") }
         guard !geminiModels.isEmpty else { return nil }
 
-        let primaryConfig = config.coreConfig.models.first {
+        let primaryConfig = config.modelConfigs.first {
             CoreModelProviderFactory.resolvedIdentifier(for: $0)?.hasPrefix("gemini:") == true
         }
 

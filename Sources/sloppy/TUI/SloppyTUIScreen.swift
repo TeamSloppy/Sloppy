@@ -429,8 +429,16 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
 
     private func handleActivePicker(input: TerminalInput) -> Bool {
         guard var picker = activePicker else { return false }
-        guard case let .key(key, _) = input else { return true }
-        guard !picker.items.isEmpty else {
+        if picker.supportsSearch, case .paste(let text) = input {
+            for character in text where !character.isNewline {
+                picker.appendSearchCharacter(character)
+            }
+            activePicker = picker
+            requestRender()
+            return true
+        }
+        guard case let .key(key, modifiers) = input else { return true }
+        guard !picker.items.isEmpty || picker.supportsSearch else {
             activePicker = nil
             requestRender()
             return true
@@ -438,22 +446,53 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
 
         switch key {
         case .arrowUp:
-            picker.selectedIndex = max(0, picker.selectedIndex - 1)
+            picker.selectedIndex = picker.items.isEmpty ? 0 : max(0, picker.selectedIndex - 1)
             activePicker = picker
             requestRender()
             return true
         case .arrowDown:
-            picker.selectedIndex = min(picker.items.count - 1, picker.selectedIndex + 1)
+            picker.selectedIndex = picker.items.isEmpty ? 0 : min(picker.items.count - 1, picker.selectedIndex + 1)
             activePicker = picker
             requestRender()
             return true
         case .enter, .tab:
+            guard picker.items.indices.contains(picker.selectedIndex) else {
+                return true
+            }
             let item = picker.items[picker.selectedIndex]
             activePicker = nil
             requestRender()
             Task { @MainActor in
                 await self.applyPickerItem(item, kind: picker.kind)
             }
+            return true
+        case .backspace:
+            if picker.supportsSearch {
+                picker.removeLastSearchCharacter()
+                activePicker = picker
+                requestRender()
+            }
+            return true
+        case .delete:
+            if picker.supportsSearch {
+                picker.clearSearchQuery()
+                activePicker = picker
+                requestRender()
+            }
+            return true
+        case .character("u") where picker.supportsSearch && modifiers.contains(.control):
+            picker.clearSearchQuery()
+            activePicker = picker
+            requestRender()
+            return true
+        case .character(let character)
+            where picker.supportsSearch
+                && !modifiers.contains(.control)
+                && !modifiers.contains(.option)
+                && !character.isNewline:
+            picker.appendSearchCharacter(character)
+            activePicker = picker
+            requestRender()
             return true
         case .escape:
             if picker.kind == .planInput {
@@ -1655,20 +1694,25 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
                 appendLocalCard("No available models.")
                 return
             }
+            let items = models.map { model in
+                let group = modelPickerGroup(for: model.id)
+                return SloppyTUIPickerItem(
+                    value: model.id,
+                    label: modelPickerLabel(for: model.id, group: group),
+                    description: SloppyTUITheme.modelPickerDescription(model),
+                    isCurrent: model.id == selected,
+                    group: group
+                )
+            }
             activePicker = SloppyTUIPicker(
                 kind: .model,
                 title: "Select model",
-                items: models.map { model in
-                    SloppyTUIPickerItem(
-                        value: model.id,
-                        label: model.id,
-                        description: SloppyTUITheme.modelPickerDescription(model),
-                        isCurrent: model.id == selected
-                    )
-                },
-                selectedIndex: 0
+                items: items,
+                selectedIndex: models.firstIndex(where: { $0.id == selected }) ?? 0,
+                allItems: items,
+                supportsSearch: true
             )
-            refreshStaticChrome(statusLine: "select model with arrows, Enter to apply, Esc to cancel")
+            refreshStaticChrome(statusLine: "type to search models, arrows to select, Enter to apply, Esc to cancel")
         } catch {
             exitAfterModelSelection = false
             appendLocalCard("Could not load models: \(String(describing: error))")
@@ -1781,13 +1825,118 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
     }
 
     private func orderedModelsForPicker(_ models: [ProviderModelOption], selected: String) -> [ProviderModelOption] {
-        guard let selectedIndex = models.firstIndex(where: { $0.id == selected }) else {
-            return models
+        let indexed = models.enumerated().map { index, model in
+            (index: index, model: model, group: modelPickerGroup(for: model.id))
         }
-        var ordered = models
-        let selectedModel = ordered.remove(at: selectedIndex)
-        ordered.insert(selectedModel, at: 0)
-        return ordered
+        guard let selectedGroup = indexed.first(where: { $0.model.id == selected })?.group else {
+            return indexed
+                .sorted { lhs, rhs in
+                    if lhs.group != rhs.group {
+                        return lhs.group.localizedCaseInsensitiveCompare(rhs.group) == .orderedAscending
+                    }
+                    return lhs.index < rhs.index
+                }
+                .map { $0.model }
+        }
+        return indexed
+            .sorted { lhs, rhs in
+                if lhs.group == selectedGroup, rhs.group != selectedGroup { return true }
+                if rhs.group == selectedGroup, lhs.group != selectedGroup { return false }
+                if lhs.group != rhs.group {
+                    return lhs.group.localizedCaseInsensitiveCompare(rhs.group) == .orderedAscending
+                }
+                if lhs.model.id == selected { return true }
+                if rhs.model.id == selected { return false }
+                return lhs.index < rhs.index
+            }
+            .map { $0.model }
+    }
+
+    private func modelPickerGroup(for modelID: String) -> String {
+        let parts = modelID.split(separator: ":", maxSplits: 1, omittingEmptySubsequences: false)
+        let provider = parts.count == 2 ? String(parts[0]) : "configured"
+        let remainder = parts.count == 2 ? String(parts[1]) : modelID
+        var groupParts = [modelPickerProviderTitle(provider)]
+
+        let scopedParts = remainder.split(separator: ":", omittingEmptySubsequences: true).map(String.init)
+        if scopedParts.count > 1 {
+            groupParts.append(scopedParts[0])
+            if let namespace = modelPickerNamespace(from: scopedParts.dropFirst().joined(separator: ":")) {
+                groupParts.append(namespace)
+            }
+        } else if let namespace = modelPickerNamespace(from: remainder) {
+            groupParts.append(namespace)
+        }
+
+        return groupParts.joined(separator: " / ")
+    }
+
+    private func modelPickerProviderTitle(_ provider: String) -> String {
+        switch provider.lowercased() {
+        case "anthropic":
+            return "Anthropic"
+        case "gemini":
+            return "Gemini"
+        case "ollama":
+            return "Ollama"
+        case "openai":
+            return "OpenAI"
+        case "opencode":
+            return "OpenCode"
+        case "openrouter":
+            return "OpenRouter"
+        case "configured":
+            return "Configured"
+        default:
+            return provider
+                .split(separator: "-")
+                .map { segment in
+                    segment.prefix(1).uppercased() + segment.dropFirst()
+                }
+                .joined(separator: " ")
+        }
+    }
+
+    private func modelPickerNamespace(from raw: String) -> String? {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        if let slash = trimmed.firstIndex(of: "/") {
+            let namespace = String(trimmed[..<slash])
+            return namespace.isEmpty ? nil : namespace
+        }
+        let separators: Set<Character> = ["-", "_", "."]
+        let prefix = String(trimmed.prefix { !separators.contains($0) })
+        guard prefix.count >= 2, prefix.count < trimmed.count else {
+            return nil
+        }
+        return prefix
+    }
+
+    private func modelPickerLabel(for modelID: String, group: String) -> String {
+        let providerTitle = group.split(separator: "/").first.map {
+            $0.trimmingCharacters(in: .whitespacesAndNewlines)
+        } ?? ""
+        let providerPrefix = providerTitle.isEmpty ? "" : providerTitle.lowercased() + ":"
+        var label = modelID
+        if let colon = label.firstIndex(of: ":") {
+            label = String(label[label.index(after: colon)...])
+        }
+        let groupParts = group
+            .split(separator: "/")
+            .dropFirst()
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        for part in groupParts {
+            if label.hasPrefix(part + ":") {
+                label = String(label.dropFirst(part.count + 1))
+            } else if label.hasPrefix(part + "/") {
+                label = String(label.dropFirst(part.count + 1))
+            }
+        }
+        if label == modelID, !providerPrefix.isEmpty, modelID.lowercased().hasPrefix(providerPrefix) {
+            label = String(modelID.dropFirst(providerPrefix.count))
+        }
+        return label
     }
 
     private func orderedAgentsForPicker(_ agents: [AgentSummary]) -> [AgentSummary] {

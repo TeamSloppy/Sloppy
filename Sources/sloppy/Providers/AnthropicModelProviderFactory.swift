@@ -7,14 +7,14 @@ struct AnthropicModelProviderFactory: ModelProviderFactory {
         let anthropicModels = config.resolvedModels.filter { $0.hasPrefix("anthropic:") }
         guard !anthropicModels.isEmpty else { return nil }
 
-        let oauthConfig = config.coreConfig.models.first {
+        let oauthConfig = config.modelConfigs.first {
             guard CoreModelProviderFactory.resolvedIdentifier(for: $0)?.hasPrefix("anthropic:") == true else {
                 return false
             }
             return isAnthropicOAuthEntry($0)
         }
 
-        let plainConfig = config.coreConfig.models.first {
+        let plainConfig = config.modelConfigs.first {
             CoreModelProviderFactory.resolvedIdentifier(for: $0)?.hasPrefix("anthropic:") == true
         }
 

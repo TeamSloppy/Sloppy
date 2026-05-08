@@ -16,7 +16,7 @@ struct OpenRouterModelProviderFactory: ModelProviderFactory {
             .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
 
         var rows: [(config: CoreConfig.ModelConfig, resolvedId: String)] = []
-        for model in config.coreConfig.models {
+        for model in config.modelConfigs {
             guard let id = CoreModelProviderFactory.resolvedIdentifier(for: model),
                   id.hasPrefix("openrouter:") else { continue }
             rows.append((model, id))

@@ -16,6 +16,7 @@ struct SloppyTUIPickerItem {
     var label: String
     var description: String?
     var isCurrent: Bool
+    var group: String? = nil
 }
 
 struct SloppyTUIPicker {
@@ -23,6 +24,59 @@ struct SloppyTUIPicker {
     var title: String
     var items: [SloppyTUIPickerItem]
     var selectedIndex: Int
+    var allItems: [SloppyTUIPickerItem]? = nil
+    var searchQuery: String = ""
+    var supportsSearch: Bool = false
+
+    var totalItemCount: Int {
+        allItems?.count ?? items.count
+    }
+
+    mutating func appendSearchCharacter(_ character: Character) {
+        setSearchQuery(searchQuery + String(character))
+    }
+
+    mutating func removeLastSearchCharacter() {
+        guard !searchQuery.isEmpty else { return }
+        var updated = searchQuery
+        updated.removeLast()
+        setSearchQuery(updated)
+    }
+
+    mutating func clearSearchQuery() {
+        setSearchQuery("")
+    }
+
+    mutating func setSearchQuery(_ query: String) {
+        guard supportsSearch, let allItems else { return }
+        let previousValue = items.indices.contains(selectedIndex) ? items[selectedIndex].value : nil
+        searchQuery = query
+        items = Self.filteredItems(allItems, query: query)
+        if let previousValue,
+           let nextIndex = items.firstIndex(where: { $0.value == previousValue }) {
+            selectedIndex = nextIndex
+        } else {
+            selectedIndex = 0
+        }
+    }
+
+    static func filteredItems(_ items: [SloppyTUIPickerItem], query: String) -> [SloppyTUIPickerItem] {
+        let tokens = query
+            .split(whereSeparator: { $0.isWhitespace })
+            .map(String.init)
+        guard !tokens.isEmpty else { return items }
+        return items.filter { item in
+            let haystack = [
+                item.value,
+                item.label,
+                item.description ?? "",
+                item.group ?? "",
+            ].joined(separator: " ")
+            return tokens.allSatisfy { token in
+                haystack.localizedCaseInsensitiveContains(token)
+            }
+        }
+    }
 }
 
 struct SloppyTUILocalCard {
