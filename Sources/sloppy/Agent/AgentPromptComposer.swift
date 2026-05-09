@@ -38,6 +38,7 @@ struct AgentPromptComposer {
         let skillsRules = try templateLoader.loadPartial(named: "skills_rules")
         let memoryRules = try templateLoader.loadPartial(named: "memory_rules")
         let taskPlanningRules = try templateLoader.loadPartial(named: "task_planning_rules")
+        let taskSpecRules = try templateLoader.loadPartial(named: "task_spec_rules")
         let completionReflection = try templateLoader.loadPartial(named: "completion_reflection")
         let cliAwareness = try templateLoader.loadPartial(named: "cli_awareness")
         let documentationAwareness = try templateLoader.loadPartial(named: "documentation_awareness")
@@ -99,6 +100,8 @@ struct AgentPromptComposer {
             memoryRules
             ""
             taskPlanningRules
+            ""
+            taskSpecRules
             ""
             completionReflection
             ""

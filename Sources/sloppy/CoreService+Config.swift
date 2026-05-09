@@ -27,6 +27,7 @@ extension CoreService {
             .appendingPathComponent("agents", isDirectory: true)
         agentCatalogStore.updateAgentsRootURL(agentsRootURL)
         sessionStore.updateAgentsRootURL(agentsRootURL)
+        agentSkillsStore.updateAgentsRootURL(agentsRootURL)
         actorBoardStore.updateWorkspaceRootURL(workspaceRootURL)
         await channelModelStore.updateWorkspaceRootURL(workspaceRootURL)
         await channelChatModeStore.updateWorkspaceRootURL(workspaceRootURL)

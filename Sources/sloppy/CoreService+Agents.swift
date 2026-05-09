@@ -499,6 +499,21 @@ extension CoreService {
         }
     }
 
+    func provisionBuiltInSkillsForAllAgents() {
+        do {
+            for agent in try agentCatalogStore.listAgents() {
+                try agentSkillsStore.ensureSkillsDirectory(agentID: agent.id)
+            }
+        } catch {
+            logger.warning(
+                "Failed to provision built-in skills for existing agents",
+                metadata: [
+                    "error": .string(String(describing: error))
+                ]
+            )
+        }
+    }
+
     public func deleteAgent(agentID: String) async throws {
         do {
             try agentCatalogStore.deleteAgent(id: agentID)

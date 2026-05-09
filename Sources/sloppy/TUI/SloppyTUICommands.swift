@@ -4,6 +4,7 @@ import TauTUI
 enum SloppyTUIAutocompleteFeatureFlags {
     static let editorAutocompleteEnabled = false
     static let projectPathAutocompleteEnabled = true
+    static let projectTaskAutocompleteEnabled = true
 }
 
 struct SloppyTUISlashCommand: SlashCommand {

@@ -238,6 +238,7 @@ private func expectedFallbackBootstrapMessage(
     let workerRules = try renderer.render(template: try loader.loadPartial(named: "worker_rules"), values: [:])
     let toolsInstruction = try renderer.render(template: try loader.loadPartial(named: "tools_instruction"), values: [:])
     let taskPlanningRules = try renderer.render(template: try loader.loadPartial(named: "task_planning_rules"), values: [:])
+    let taskSpecRules = try renderer.render(template: try loader.loadPartial(named: "task_spec_rules"), values: [:])
     let completionReflection = try renderer.render(template: try loader.loadPartial(named: "completion_reflection"), values: [:])
     let agentDirectoryLine = agentDirectoryPath.map { "Agent directory: \($0)\n" } ?? ""
 
@@ -270,6 +271,8 @@ private func expectedFallbackBootstrapMessage(
     \(toolsInstruction)
 
     \(taskPlanningRules)
+
+    \(taskSpecRules)
 
     \(completionReflection)
     """
@@ -565,11 +568,13 @@ func agentSessionBootstrapIncludesInstalledSkillsSummary() async throws {
     #expect(bootstrapMessage.contains("`acme/release-skills`"))
     #expect(bootstrapMessage.contains("release-helper"))
     #expect(bootstrapMessage.contains("Guides release execution"))
+    #expect(bootstrapMessage.contains("`sloppy/task-spec-writer`"))
+    #expect(bootstrapMessage.contains("user-invocable: false"))
     #expect(bootstrapMessage.contains("path: `\(agentsRootURL.appendingPathComponent("skills-agent", isDirectory: true).appendingPathComponent("skills", isDirectory: true).appendingPathComponent("acme/release-skills", isDirectory: true).path)`"))
 }
 
 @Test
-func agentSessionBootstrapRendersEmptySkillsStateWhenAgentHasNoSkills() async throws {
+func agentSessionBootstrapBackfillsBuiltInTaskSpecSkillWhenAgentHasNoSkills() async throws {
     let availableModels = [
         ProviderModelOption(id: "openai:gpt-5.4-mini", title: "openai:gpt-5.4-mini", capabilities: ["tools"])
     ]
@@ -595,7 +600,21 @@ func agentSessionBootstrapRendersEmptySkillsStateWhenAgentHasNoSkills() async th
         $0.userId == "system" && $0.content.contains("[agent_session_context_bootstrap_v1]")
     })?.content ?? ""
 
-    #expect(!bootstrapMessage.contains("[Skills]"))
+    #expect(bootstrapMessage.contains("[Skills]"))
+    #expect(bootstrapMessage.contains("`sloppy/task-spec-writer`"))
+    #expect(bootstrapMessage.contains("task-spec-writer"))
+    #expect(bootstrapMessage.contains("user-invocable: false"))
+    #expect(bootstrapMessage.contains("path: `\(agentsRootURL.appendingPathComponent("skills-empty-agent", isDirectory: true).appendingPathComponent("skills", isDirectory: true).appendingPathComponent("sloppy/task-spec-writer", isDirectory: true).path)`"))
+
+    let verificationSkillsStore = AgentSkillsFileStore(agentsRootURL: agentsRootURL)
+    let installed = try verificationSkillsStore.listSkills(agentID: "skills-empty-agent")
+    #expect(installed.filter { $0.id == BuiltInSkillCatalog.taskSpecWriterID }.count == 1)
+    #expect(FileManager.default.fileExists(atPath: agentsRootURL
+        .appendingPathComponent("skills-empty-agent", isDirectory: true)
+        .appendingPathComponent("skills", isDirectory: true)
+        .appendingPathComponent("sloppy/task-spec-writer", isDirectory: true)
+        .appendingPathComponent("SKILL.md")
+        .path))
 }
 
 @Test
@@ -845,6 +864,37 @@ func agentSessionBootstrapIncludesTaskPlanningRulesPartial() async throws {
 }
 
 @Test
+func agentSessionBootstrapIncludesTaskSpecRulesPartial() async throws {
+    let availableModels = [
+        ProviderModelOption(id: "openai:gpt-5.4-mini", title: "openai:gpt-5.4-mini", capabilities: ["tools"])
+    ]
+    let (catalogStore, sessionStore, _) = try makeAgentSessionFixture(
+        agentID: "task-spec-rules-agent",
+        selectedModel: "openai:gpt-5.4-mini",
+        availableModels: availableModels
+    )
+
+    let runtime = RuntimeSystem()
+    let orchestrator = AgentSessionOrchestrator(
+        runtime: runtime,
+        sessionStore: sessionStore,
+        agentCatalogStore: catalogStore,
+        availableModels: availableModels
+    )
+
+    let session = try await orchestrator.createSession(agentID: "task-spec-rules-agent", request: AgentSessionCreateRequest())
+    let snapshot = await runtime.channelState(channelId: "agent:task-spec-rules-agent:session:\(session.id)")
+    let bootstrapMessage = snapshot?.messages.first(where: {
+        $0.userId == "system" && $0.content.contains("[agent_session_context_bootstrap_v1]")
+    })?.content ?? ""
+
+    #expect(bootstrapMessage.contains("[Task spec rules]"))
+    #expect(bootstrapMessage.contains("Definition of Done"))
+    #expect(bootstrapMessage.contains("RFC/ADR"))
+    #expect(bootstrapMessage.contains("memory.save"))
+}
+
+@Test
 func notifySkillsChangedAppendsSystemMessageToActiveSessions() async throws {
     let availableModels = [
         ProviderModelOption(id: "openai:gpt-5.4-mini", title: "openai:gpt-5.4-mini", capabilities: ["tools"])
@@ -1007,6 +1057,72 @@ func agentSessionBootstrapIncludesConversationHistoryAfterRestart() async throws
     #expect(bootstrapMessage.contains("Tell me about Swift concurrency"))
     #expect(bootstrapMessage.contains("How do actors work?"))
     #expect(bootstrapMessage.contains("[End of previous conversation]"))
+}
+
+@Test
+func agentSessionRefreshesStaleBootstrapWithPersistedHistory() async throws {
+    let agentID = "stale-bootstrap-history-agent"
+    let availableModels = [
+        ProviderModelOption(id: "openai:gpt-5.4-mini", title: "openai:gpt-5.4-mini", capabilities: ["tools"])
+    ]
+    let (catalogStore, sessionStore, agentsRootURL) = try makeAgentSessionFixture(
+        agentID: agentID,
+        selectedModel: "openai:gpt-5.4-mini",
+        availableModels: availableModels
+    )
+
+    let runtime = RuntimeSystem()
+    let orchestrator = AgentSessionOrchestrator(
+        runtime: runtime,
+        sessionStore: sessionStore,
+        agentCatalogStore: catalogStore,
+        availableModels: availableModels
+    )
+
+    let session = try await orchestrator.createSession(
+        agentID: agentID,
+        request: AgentSessionCreateRequest(title: "Stale bootstrap test")
+    )
+    let channelID = "agent:\(agentID):session:\(session.id)"
+    let initialBootstrap = await runtime.channelBootstrapContent(channelId: channelID) ?? ""
+    #expect(!initialBootstrap.contains("[Previous conversation history]"))
+
+    let mutationStore = AgentSessionFileStore(agentsRootURL: agentsRootURL)
+    _ = try mutationStore.appendEvents(
+        agentID: agentID,
+        sessionID: session.id,
+        events: [
+            AgentSessionEvent(
+                agentId: agentID,
+                sessionId: session.id,
+                type: .message,
+                message: AgentSessionMessage(
+                    role: .user,
+                    segments: [.init(kind: .text, text: "Original task: explain the failing session restore")]
+                )
+            ),
+            AgentSessionEvent(
+                agentId: agentID,
+                sessionId: session.id,
+                type: .message,
+                message: AgentSessionMessage(
+                    role: .assistant,
+                    segments: [.init(kind: .text, text: "I found that the restored session needs its JSONL history.")]
+                )
+            )
+        ]
+    )
+
+    _ = try await orchestrator.postMessage(
+        agentID: agentID,
+        sessionID: session.id,
+        request: AgentSessionPostMessageRequest(userId: "dashboard", content: "Continue from there")
+    )
+
+    let refreshedBootstrap = await runtime.channelBootstrapContent(channelId: channelID) ?? ""
+    #expect(refreshedBootstrap.contains("[Previous conversation history]"))
+    #expect(refreshedBootstrap.contains("Original task: explain the failing session restore"))
+    #expect(refreshedBootstrap.contains("I found that the restored session needs its JSONL history."))
 }
 
 @Test

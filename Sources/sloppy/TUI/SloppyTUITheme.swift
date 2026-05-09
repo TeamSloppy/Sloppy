@@ -145,6 +145,20 @@ enum SloppyTUITheme {
         return String(format: "%02d:%02d", minutes, seconds)
     }
 
+    private static func formatTokenCountShort(_ count: Int) -> String {
+        if count >= 1_000_000 { return String(format: "%.1fM", Double(count) / 1_000_000) }
+        if count >= 1_000 { return String(format: "%.1fK", Double(count) / 1_000) }
+        return "\(count)"
+    }
+
+    private static func formatUSD(_ value: Double) -> String {
+        let amount = max(0, value)
+        if amount > 0, amount < 0.01 {
+            return String(format: "$%.4f", amount)
+        }
+        return String(format: "$%.2f", amount)
+    }
+
     static func welcomeScreen(
         width: Int,
         cwd: String,
@@ -187,6 +201,24 @@ enum SloppyTUITheme {
         let providerText = truncateEnd(provider, maxWidth: max(4, width / 5))
         let text = "  " + modeTitle(mode) + muted(" · ") + foreground(modelText) + muted("  ") + muted(agentText) + muted("  ") + muted(providerText)
         return applyPanelBackground(padded(text, width: width), width: width)
+    }
+
+    static func interruptControlLine(width: Int, frame: Int, isInterrupting: Bool) -> String {
+        let bars = interruptBars(frame: frame)
+        let action = isInterrupting ? "interrupting" : "interrupt"
+        let text = "  " + orange(bars) + muted("  ") + foreground("esc") + muted(" \(action)")
+        return applyPanelBackground(padded(fittedLine(text, width: width), width: width), width: width)
+    }
+
+    static func tokenUsageStatus(_ summary: SloppyTUITokenUsageSummary) -> String {
+        var text = formatTokenCountShort(summary.totalTokens)
+        if let percent = summary.usagePercent {
+            text += " (\(percent)%)"
+        }
+        if let costUSD = summary.costUSD {
+            text += " · \(formatUSD(costUSD))"
+        }
+        return muted("tokens: ") + foreground(text)
     }
 
     static func highlightedComposerLines(_ lines: [String]) -> [String] {
@@ -382,9 +414,39 @@ enum SloppyTUITheme {
         backgroundPaddingLine(width: width, background: toolBackground)
     }
 
-    static func subSessionLine(title: String, childSessionId: String, width: Int) -> String {
+    static func subSessionLine(
+        title: String,
+        childSessionId: String,
+        status: SloppyTUISubSessionStatus,
+        frame: Int,
+        width: Int
+    ) -> String {
+        let statusText: String
+        switch status {
+        case .starting:
+            statusText = muted(waitingFrames[frame % waitingFrames.count] + " ") + accentBright("starting")
+        case .running(let label):
+            let detail = label?.trimmingCharacters(in: .whitespacesAndNewlines)
+            let text = detail?.isEmpty == false ? detail ?? "working" : "working"
+            statusText = muted(waitingFrames[frame % waitingFrames.count] + " ") + accentBright(text)
+        case .waiting(let label):
+            let detail = label?.trimmingCharacters(in: .whitespacesAndNewlines)
+            let text = detail?.isEmpty == false ? "waiting: \(detail ?? "")" : "waiting"
+            statusText = yellow(text)
+        case .done:
+            statusText = green("done")
+        case .interrupted(let label):
+            let detail = label?.trimmingCharacters(in: .whitespacesAndNewlines)
+            let text = detail?.isEmpty == false ? "stopped: \(detail ?? "")" : "stopped"
+            statusText = red(text)
+        }
         let line = fittedLine(
-            blockLeftPadding + green("subagent") + foreground(" \(title)") + muted(" · \(shortID(childSessionId)) · ctrl+o, then ctrl+right to enter"),
+            blockLeftPadding
+                + green("subagent")
+                + foreground(" \(title)")
+                + muted(" · ")
+                + statusText
+                + muted(" · \(shortID(childSessionId)) · ctrl+right to enter"),
             width: paddedBlockLineWidth(width)
         )
         return applyBackground(padded(line, width: width), width: width, background: toolBackground)
@@ -392,7 +454,7 @@ enum SloppyTUITheme {
 
     static func transcriptHintLine(expanded: Bool, childSessionCount: Int, width: Int) -> String {
         let mode = expanded ? "detailed transcript" : "compact transcript"
-        let childHint = childSessionCount > 0 && expanded ? " · ctrl+right enters latest subagent" : ""
+        let childHint = childSessionCount > 0 ? " · ctrl+right enters latest subagent" : ""
         let line = fittedLine(" " + muted("\(mode) · ctrl+o toggles\(childHint)"), width: width)
         return applyPanelBackground(padded(line, width: width), width: width)
     }
@@ -614,6 +676,22 @@ enum SloppyTUITheme {
         welcomeFooter(width: width, cwd: cwd)
     }
 
+    private static func interruptBars(frame: Int) -> String {
+        let cells = 12
+        let litCount = 4
+        let cursor = frame % cells
+        return (0..<cells).map { index in
+            let distance = (index - cursor + cells) % cells
+            if distance < litCount {
+                return "█"
+            }
+            if distance == litCount {
+                return "▓"
+            }
+            return "▒"
+        }.joined()
+    }
+
     static func normalize(lines: [String], width: Int, height: Int) -> [String] {
         let normalized = lines.prefix(height).map { rawLine in
             let line = fittedLine(rawLine, width: width)
@@ -711,6 +789,7 @@ enum SloppyTUITheme {
             ? [
                 "/help lists commands and scroll keys.",
                 "Use /pet to toggle your Sloppie.",
+                "Type # to reference project tasks.",
                 "/undo and /redo are per-session.",
             ]
             : [
@@ -718,6 +797,7 @@ enum SloppyTUITheme {
                 "Use /pet to toggle your terminal Sloppie and peek at its current mood.",
                 "/undo and /redo restore file changes from the last completed TUI turn.",
                 "Type @path to attach project files as explicit context with autocomplete.",
+                "Type # to autocomplete active project tasks by id or title.",
                 "Use /btw for a side question without disturbing the main task.",
                 "Use /diff or /context diff when you want the agent to inspect local changes.",
             ]

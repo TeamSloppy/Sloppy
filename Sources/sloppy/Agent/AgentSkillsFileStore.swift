@@ -245,6 +245,96 @@ final class AgentSkillsFileStore {
             let manifest = AgentSkillsManifest()
             try writeManifest(manifest, agentID: normalizedAgentID)
         }
+        try provisionBuiltInSkills(agentID: normalizedAgentID)
+    }
+
+    @discardableResult
+    func provisionBuiltInSkills(agentID: String) throws -> [InstalledSkill] {
+        try BuiltInSkillCatalog.all().map { definition in
+            try provisionBuiltInSkill(agentID: agentID, definition: definition)
+        }
+    }
+
+    @discardableResult
+    private func provisionBuiltInSkill(
+        agentID: String,
+        definition: BuiltInSkillDefinition
+    ) throws -> InstalledSkill {
+        let normalizedAgentID = try normalizedAgentID(agentID)
+        guard resolvedAgentDirectoryURL(agentID: normalizedAgentID) != nil else {
+            throw StoreError.agentNotFound
+        }
+
+        let skillID = "\(definition.owner)/\(definition.repo)"
+        _ = try normalizedSkillID(skillID)
+        guard let skillDirectory = skillDirectoryURL(agentID: normalizedAgentID, skillID: skillID) else {
+            throw StoreError.agentNotFound
+        }
+
+        try fileManager.createDirectory(at: skillDirectory, withIntermediateDirectories: true)
+        for (relativePath, content) in definition.files {
+            let destination = try safeSkillFileURL(relativePath: relativePath, skillDirectory: skillDirectory)
+            try fileManager.createDirectory(
+                at: destination.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+            try Data(content.utf8).write(to: destination, options: .atomic)
+        }
+
+        var manifest = try readManifest(agentID: normalizedAgentID)
+        let installed: InstalledSkill
+        if let index = manifest.installedSkills.firstIndex(where: { $0.id == skillID }) {
+            let existing = manifest.installedSkills[index]
+            installed = InstalledSkill(
+                id: skillID,
+                owner: definition.owner,
+                repo: definition.repo,
+                name: definition.name,
+                description: definition.description,
+                installedAt: existing.installedAt,
+                version: existing.version ?? "built-in",
+                localPath: skillDirectory.standardizedFileURL.path,
+                userInvocable: definition.userInvocable,
+                allowedTools: definition.allowedTools,
+                context: existing.context,
+                agent: existing.agent
+            )
+            manifest.installedSkills[index] = installed
+        } else {
+            installed = InstalledSkill(
+                id: skillID,
+                owner: definition.owner,
+                repo: definition.repo,
+                name: definition.name,
+                description: definition.description,
+                version: "built-in",
+                localPath: skillDirectory.standardizedFileURL.path,
+                userInvocable: definition.userInvocable,
+                allowedTools: definition.allowedTools
+            )
+            manifest.installedSkills.append(installed)
+        }
+
+        try writeManifest(manifest, agentID: normalizedAgentID)
+        return installed
+    }
+
+    private func safeSkillFileURL(relativePath: String, skillDirectory: URL) throws -> URL {
+        let components = relativePath.split(separator: "/").map(String.init)
+        guard !components.isEmpty,
+              components.allSatisfy({ !$0.isEmpty && $0 != "." && $0 != ".." })
+        else {
+            throw StoreError.invalidSkillID
+        }
+
+        let destination = components.reduce(skillDirectory.standardizedFileURL) { partial, component in
+            partial.appendingPathComponent(component)
+        }.standardizedFileURL
+        let root = skillDirectory.standardizedFileURL.path
+        guard destination.path == root || destination.path.hasPrefix(root + "/") else {
+            throw StoreError.invalidSkillID
+        }
+        return destination
     }
 
     // MARK: - Validation

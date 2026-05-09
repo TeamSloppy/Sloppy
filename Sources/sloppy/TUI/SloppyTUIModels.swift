@@ -8,6 +8,7 @@ enum SloppyTUIPickerKind: Equatable {
     case provider
     case providerCatalog
     case projectFile
+    case projectTask
     case planInput
 }
 
@@ -105,6 +106,30 @@ enum SloppyTUIWelcomeVisibility {
 struct SloppyTUISubSessionCard: Equatable {
     var childSessionId: String
     var title: String
+    var status: SloppyTUISubSessionStatus = .starting
+}
+
+struct SloppyTUITokenUsageSummary: Equatable {
+    var promptTokens: Int
+    var completionTokens: Int
+    var totalTokens: Int
+    var contextWindowTokens: Int
+    var costUSD: Double?
+
+    var usagePercent: Int? {
+        guard contextWindowTokens > 0 else {
+            return nil
+        }
+        return min(100, Int(((Double(totalTokens) / Double(contextWindowTokens)) * 100).rounded()))
+    }
+}
+
+enum SloppyTUISubSessionStatus: Equatable {
+    case starting
+    case running(String?)
+    case waiting(String?)
+    case done
+    case interrupted(String?)
 }
 
 enum SloppyTUITimelineBlock {
@@ -114,7 +139,7 @@ enum SloppyTUITimelineBlock {
     case error(String)
     case thinking(String)
     case attachment(name: String, mimeType: String, sizeBytes: Int)
-    case subSession(childSessionId: String, title: String)
+    case subSession(childSessionId: String, title: String, status: SloppyTUISubSessionStatus)
     case inputRequest(PlanInputRequest)
     case toolCall(tool: String, reason: String?, summary: String?, details: String?)
     case toolResult(tool: String, ok: Bool, error: String?, durationMs: Int?, details: String?)
@@ -129,14 +154,40 @@ enum SloppyTUITimelineBlock {
             return text
         case .attachment(let name, let mimeType, _):
             return "\(name) \(mimeType)"
-        case .subSession(let childSessionId, let title):
-            return "\(title) \(childSessionId)"
+        case .subSession(let childSessionId, let title, let status):
+            return "\(title) \(childSessionId) \(status.plainText)"
         case .inputRequest(let request):
             return SloppyTUIPlanInputPicker.requestText(request)
         case .toolCall(let tool, let reason, let summary, let details):
             return ([tool] + [summary, reason, details].compactMap { $0 }).joined(separator: " ")
         case .toolResult(let tool, _, let error, _, let details):
             return ([tool] + [error, details].compactMap { $0 }).joined(separator: " ")
+        }
+    }
+}
+
+extension SloppyTUISubSessionStatus {
+    var plainText: String {
+        switch self {
+        case .starting:
+            return "starting"
+        case .running(let label):
+            if let label, !label.isEmpty {
+                return "working: \(label)"
+            }
+            return "working"
+        case .waiting(let label):
+            if let label, !label.isEmpty {
+                return "waiting: \(label)"
+            }
+            return "waiting"
+        case .done:
+            return "done"
+        case .interrupted(let label):
+            if let label, !label.isEmpty {
+                return "stopped: \(label)"
+            }
+            return "stopped"
         }
     }
 }

@@ -55,6 +55,14 @@ func chromeRowsFitNarrowTerminalWidth() {
             agent: "Yadev",
             provider: "anthropic"
         ),
+        SloppyTUITheme.interruptControlLine(width: width, frame: 3, isInterrupting: false),
+        SloppyTUITheme.tokenUsageStatus(.init(
+            promptTokens: 22_000,
+            completionTokens: 13_000,
+            totalTokens: 35_000,
+            contextWindowTokens: 400_000,
+            costUSD: 0.42
+        )),
         SloppyTUITheme.toolCallLine(
             tool: "runtime.exec",
             reason: String(repeating: "reason", count: 12),
@@ -78,6 +86,8 @@ func chromeRowsFitNarrowTerminalWidth() {
         SloppyTUITheme.subSessionLine(
             title: String(repeating: "subagent-session-", count: 6),
             childSessionId: String(repeating: "abcdef", count: 6),
+            status: .running("Reading files"),
+            frame: 0,
             width: width
         ),
         SloppyTUITheme.transcriptHintLine(expanded: true, childSessionCount: 3, width: width),

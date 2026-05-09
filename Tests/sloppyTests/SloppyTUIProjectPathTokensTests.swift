@@ -128,6 +128,71 @@ func projectPathSearchSuppressionSurvivesTypingInsideSameToken() throws {
     #expect(!suppression.matches(differentToken))
 }
 
+@Test
+func taskReferenceTokenAppearsAfterHash() throws {
+    let token = try #require(SloppyTUITaskReferenceTokens.tokenBeforeCursor(
+        lines: ["please run #SLOP-12"],
+        cursorLine: 0,
+        cursorColumn: "please run #SLOP-12".count
+    ))
+
+    #expect(token.rawToken == "#SLOP-12")
+    #expect(token.query == "SLOP-12")
+}
+
+@Test
+func taskReferenceTokenSupportsEmptyHashQuery() throws {
+    let token = try #require(SloppyTUITaskReferenceTokens.tokenBeforeCursor(
+        lines: ["please run #"],
+        cursorLine: 0,
+        cursorColumn: "please run #".count
+    ))
+
+    #expect(token.rawToken == "#")
+    #expect(token.query == "")
+}
+
+@Test
+func taskReferenceTokenStopsAfterWhitespace() {
+    let token = SloppyTUITaskReferenceTokens.tokenBeforeCursor(
+        lines: ["please run #SLOP-12 next"],
+        cursorLine: 0,
+        cursorColumn: "please run #SLOP-12 next".count
+    )
+
+    #expect(token == nil)
+}
+
+@Test
+func taskReferenceSearchSuppressionSurvivesTypingInsideSameToken() throws {
+    let original = try #require(SloppyTUITaskReferenceTokens.tokenBeforeCursor(
+        lines: ["run #SLOP-12"],
+        cursorLine: 0,
+        cursorColumn: "run #SLOP-12".count
+    ))
+    let suppression = SloppyTUITaskReferenceSearchSuppression(token: original)
+
+    let extended = SloppyTUITaskReferenceTokens.tokenBeforeCursor(
+        lines: ["run #SLOP-123"],
+        cursorLine: 0,
+        cursorColumn: "run #SLOP-123".count
+    )
+    let shortened = SloppyTUITaskReferenceTokens.tokenBeforeCursor(
+        lines: ["run #SLOP"],
+        cursorLine: 0,
+        cursorColumn: "run #SLOP".count
+    )
+    let closed = SloppyTUITaskReferenceTokens.tokenBeforeCursor(
+        lines: ["run #SLOP-12 now"],
+        cursorLine: 0,
+        cursorColumn: "run #SLOP-12 now".count
+    )
+
+    #expect(suppression.matches(extended))
+    #expect(suppression.matches(shortened))
+    #expect(!suppression.matches(closed))
+}
+
 private func temporaryAutocompleteRoot() throws -> URL {
     let root = FileManager.default.temporaryDirectory
         .appendingPathComponent("sloppy-tui-autocomplete-\(UUID().uuidString)", isDirectory: true)

@@ -85,7 +85,7 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
         SloppyTUISlashCommand("diff", "Show uncommitted changes and per-turn diffs"),
         SloppyTUISlashCommand("effort", "Set reasoning effort level", argument: "low|medium|high"),
         SloppyTUISlashCommand("skills", "Show enabled skills"),
-        SloppyTUISlashCommand("editor", "Open integrated editor"),
+        SloppyTUISlashCommand("editor", "Open code editor, optionally choose cursor/xcode/code"),
         SloppyTUISlashCommand("model", "Switch agent model"),
         SloppyTUISlashCommand("context", "Attach changes or git diff", argument: "changes|diff"),
         SloppyTUISlashCommand("tasks", "Show project tasks"),
@@ -163,6 +163,7 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
     private var pendingUploads: [AgentAttachmentUpload] = []
     private var chatMode: AgentChatMode = .build
     private var selectedModel = "default"
+    private var selectedModelContextWindowTokens = 0
     private var reasoningEffort: ReasoningEffort?
     private var skillSlashCommands: [SloppyTUISlashCommand] = []
     private var skillSlashCommandNames: Set<String> = []
@@ -177,6 +178,8 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
     private var lastRenderedSessionEventIDs: Set<String> = []
     private var activePicker: SloppyTUIPicker?
     private var pendingPlanInputRequest: PlanInputRequest?
+    private var tokenUsageSummary: SloppyTUITokenUsageSummary?
+    private var tokenUsageCostUSD: Double?
     private var projectFileIndex: ProjectFileIndex?
     private var projectFileRootURL: URL?
     private var projectFileIndexLoading = false
@@ -184,6 +187,12 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
     private var suppressedProjectFileSearch: SloppyTUIProjectPathSearchSuppression?
     private var projectFileIndexGeneration = 0
     private var projectFileSearchCache: (generation: Int, token: String, items: [SloppyTUIPickerItem])?
+    private var projectTaskSearchSelection = 0
+    private var projectTaskAutocompleteLoading = false
+    private var projectTaskAutocompleteTask: Task<Void, Never>?
+    private var suppressedProjectTaskSearch: SloppyTUITaskReferenceSearchSuppression?
+    private var projectTaskGeneration = 0
+    private var projectTaskSearchCache: (generation: Int, token: String, items: [SloppyTUIPickerItem])?
     private var liveAssistantDraft: String?
     private var liveAssistantTarget: String?
     private var liveAssistantInterpolationTask: Task<Void, Never>?
@@ -202,7 +211,6 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
     private var queuedMessages = SloppyTUIMessageQueue()
     private var isDrainingQueuedMessages = false
     private var isInterruptingRun = false
-    private var doubleEscapeDetector = SloppyTUIDoubleEscapeDetector()
     private var exitAfterModelSelection = false
     private var nextLocalCardID = 0
     private var localCardDismissTasks: [Int: Task<Void, Never>] = [:]
@@ -244,9 +252,15 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
             self?.persistDraft(value)
             self?.projectFileSearchSelection = 0
             self?.projectFileSearchCache = nil
+            self?.projectTaskSearchSelection = 0
+            self?.projectTaskSearchCache = nil
             if let suppressed = self?.suppressedProjectFileSearch,
                !suppressed.matches(self?.currentProjectFileToken()) {
                 self?.suppressedProjectFileSearch = nil
+            }
+            if let suppressed = self?.suppressedProjectTaskSearch,
+               !suppressed.matches(self?.currentProjectTaskToken()) {
+                self?.suppressedProjectTaskSearch = nil
             }
         }
         let draftKey = SloppyTUIStateStore.draftKey(
@@ -271,6 +285,7 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
         streamSession()
         streamChanges()
         loadProjectFileIndex()
+        reloadProjectForTaskAutocompleteIfNeeded()
         if !runtime.config.onboarding.completed {
             appendLocalCard(Self.firstStartBootstrapCard)
         }
@@ -282,6 +297,7 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
         devicePollTask?.cancel()
         thinkingAnimationTask?.cancel()
         projectFileIndexTask?.cancel()
+        projectTaskAutocompleteTask?.cancel()
         projectFileReindexTask?.cancel()
         transientNoticeTask?.cancel()
         transientNoticeTask = nil
@@ -298,19 +314,22 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
         if handleQueuedMessageCancel(input) {
             return
         }
-        if handleDoubleEscapeInterrupt(input) {
-            return
-        }
         if handleActivePicker(input: input) {
             return
         }
         if handleCommandPalette(input: input) {
             return
         }
+        if handleProjectTaskSearchInput(input) {
+            return
+        }
         if handleProjectFileSearchInput(input) {
             return
         }
         if handleAttachmentInput(input) {
+            return
+        }
+        if handleRunInterrupt(input) {
             return
         }
         if handleModeCycle(input) {
@@ -342,18 +361,17 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
         return true
     }
 
-    private func handleDoubleEscapeInterrupt(_ input: TerminalInput) -> Bool {
-        let shouldInterrupt = doubleEscapeDetector.shouldInterrupt(
-            input: input,
-            isInterruptible: isPosting && !isInterruptingRun
-        )
-        guard shouldInterrupt else {
+    private func handleRunInterrupt(_ input: TerminalInput) -> Bool {
+        guard isPosting, !isInterruptingRun else {
+            return false
+        }
+        guard case .key(.escape, let modifiers) = input, modifiers.isEmpty else {
             return false
         }
 
         Task { @MainActor in
             await self.interruptCurrentRun(
-                reason: "TUI double Esc",
+                reason: "TUI Esc",
                 successMessage: "Interrupt requested.",
                 failurePrefix: "Interrupt failed",
                 useNotice: true
@@ -365,6 +383,13 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
     private func renderBaseScreen(width: Int, height: Int) -> [String] {
         let footer = SloppyTUITheme.appFooter(width: width, cwd: runtime.cwd)
         var composer = SloppyTUITheme.highlightedComposerLines(editor.render(width: width))
+        if isPosting {
+            composer.append(SloppyTUITheme.interruptControlLine(
+                width: width,
+                frame: thinkingFrame,
+                isInterrupting: isInterruptingRun
+            ))
+        }
         composer.append(SloppyTUITheme.composerMetaLine(
             width: width,
             mode: chatMode,
@@ -378,6 +403,8 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
             composer.insert(contentsOf: SloppyTUITheme.pickerLines(width: width, picker: picker, maxVisible: 9), at: 0)
         } else if let palette = commandPaletteLines(width: width) {
             composer.insert(contentsOf: palette, at: 0)
+        } else if let picker = projectTaskSearchPicker() {
+            composer.insert(contentsOf: SloppyTUITheme.pickerLines(width: width, picker: picker, maxVisible: 9), at: 0)
         } else if let picker = projectFileSearchPicker() {
             composer.insert(contentsOf: SloppyTUITheme.pickerLines(width: width, picker: picker, maxVisible: 9), at: 0)
         }
@@ -543,6 +570,45 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
         }
     }
 
+    private func handleProjectTaskSearchInput(_ input: TerminalInput) -> Bool {
+        guard SloppyTUIAutocompleteFeatureFlags.projectTaskAutocompleteEnabled else {
+            return false
+        }
+        guard case let .key(key, _) = input else { return false }
+        switch key {
+        case .arrowUp, .arrowDown, .enter, .tab, .escape:
+            break
+        default:
+            return false
+        }
+
+        guard let picker = projectTaskSearchPicker() else { return false }
+        switch key {
+        case .arrowUp:
+            projectTaskSearchSelection = max(0, projectTaskSearchSelection - 1)
+            requestRender()
+            return true
+        case .arrowDown:
+            projectTaskSearchSelection = min(picker.items.count - 1, projectTaskSearchSelection + 1)
+            requestRender()
+            return true
+        case .enter, .tab:
+            guard !picker.items[picker.selectedIndex].value.isEmpty else {
+                return true
+            }
+            applyProjectTaskSearchItem(picker.items[picker.selectedIndex])
+            return true
+        case .escape:
+            if let token = currentProjectTaskToken() {
+                suppressedProjectTaskSearch = SloppyTUITaskReferenceSearchSuppression(token: token)
+            }
+            requestRender()
+            return true
+        default:
+            return false
+        }
+    }
+
     private func handleProjectFileSearchInput(_ input: TerminalInput) -> Bool {
         guard SloppyTUIAutocompleteFeatureFlags.projectPathAutocompleteEnabled else {
             return false
@@ -644,7 +710,7 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
             refreshStaticChrome()
             renderTimeline()
             return true
-        case .arrowRight where modifiers.contains(.control) && transcriptExpanded:
+        case .arrowRight where modifiers.contains(.control):
             Task { @MainActor in await self.openLatestSubSession() }
             return true
         default:
@@ -730,6 +796,173 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
             commands: suggestions,
             selectedIndex: commandPaletteSelection,
             maxVisible: 9
+        )
+    }
+
+    private func projectTaskSearchPicker() -> SloppyTUIPicker? {
+        guard SloppyTUIAutocompleteFeatureFlags.projectTaskAutocompleteEnabled else {
+            return nil
+        }
+        guard let token = currentProjectTaskToken() else {
+            return nil
+        }
+        guard suppressedProjectTaskSearch?.matches(token) != true else {
+            return nil
+        }
+
+        let query = token.query.trimmingCharacters(in: .whitespacesAndNewlines)
+        let activeTasks = project.tasks.filter { task in
+            !task.isArchived && ProjectTaskStatus(rawValue: task.status)?.isTerminal != true
+        }
+        if activeTasks.isEmpty {
+            if projectTaskAutocompleteLoading {
+                return SloppyTUIPicker(
+                    kind: .projectTask,
+                    title: "Loading project tasks",
+                    items: [
+                        SloppyTUIPickerItem(
+                            value: "",
+                            label: "Collecting tasks...",
+                            description: "Task suggestions will appear in a moment.",
+                            isCurrent: false
+                        ),
+                    ],
+                    selectedIndex: 0
+                )
+            }
+            reloadProjectForTaskAutocompleteIfNeeded()
+            return nil
+        }
+
+        let items: [SloppyTUIPickerItem]
+        if let cached = projectTaskSearchCache,
+           cached.generation == projectTaskGeneration,
+           cached.token == token.rawToken {
+            items = cached.items
+        } else {
+            let matches = matchingProjectTasks(activeTasks, query: query, limit: 30)
+            guard !matches.isEmpty else {
+                return nil
+            }
+            items = matches.map(projectTaskPickerItem)
+            projectTaskSearchCache = (projectTaskGeneration, token.rawToken, items)
+        }
+
+        if projectTaskSearchSelection >= items.count {
+            projectTaskSearchSelection = max(0, items.count - 1)
+        }
+        return SloppyTUIPicker(
+            kind: .projectTask,
+            title: "Reference project task",
+            items: items,
+            selectedIndex: projectTaskSearchSelection
+        )
+    }
+
+    private func matchingProjectTasks(_ tasks: [ProjectTask], query: String, limit: Int) -> [ProjectTask] {
+        let tokens = query
+            .split { character in
+                character.isWhitespace || character == "-" || character == "_" || character == "/"
+            }
+            .map(String.init)
+        let ordered = tasks.sorted { lhs, rhs in
+            let lhsRank = projectTaskStatusRank(lhs.status)
+            let rhsRank = projectTaskStatusRank(rhs.status)
+            if lhsRank != rhsRank {
+                return lhsRank < rhsRank
+            }
+            if lhs.updatedAt != rhs.updatedAt {
+                return lhs.updatedAt > rhs.updatedAt
+            }
+            return lhs.id.localizedCaseInsensitiveCompare(rhs.id) == .orderedAscending
+        }
+        guard !tokens.isEmpty else {
+            return Array(ordered.prefix(limit))
+        }
+        return Array(ordered.filter { task in
+            let haystack = [
+                task.id,
+                task.title,
+                task.status,
+                task.priority,
+                task.kind?.rawValue ?? "",
+            ].joined(separator: " ")
+            return tokens.allSatisfy { token in
+                haystack.localizedCaseInsensitiveContains(token)
+            }
+        }.prefix(limit))
+    }
+
+    private func projectTaskStatusRank(_ status: String) -> Int {
+        switch ProjectTaskStatus(rawValue: status) {
+        case .ready:
+            return 0
+        case .backlog:
+            return 1
+        case .inProgress:
+            return 2
+        case .waitingInput:
+            return 3
+        case .needsReview:
+            return 4
+        case .pendingApproval:
+            return 5
+        case .blocked:
+            return 6
+        case .done:
+            return 7
+        case .cancelled:
+            return 8
+        case nil:
+            return 9
+        }
+    }
+
+    private func projectTaskPickerItem(_ task: ProjectTask) -> SloppyTUIPickerItem {
+        SloppyTUIPickerItem(
+            value: task.id,
+            label: "#\(task.id)",
+            description: "[\(task.status)] \(task.title)",
+            isCurrent: false,
+            group: task.priority
+        )
+    }
+
+    private func applyProjectTaskSearchItem(_ item: SloppyTUIPickerItem) {
+        guard let token = currentProjectTaskToken() else {
+            return
+        }
+
+        var lines = editor.getText().components(separatedBy: "\n")
+        guard lines.indices.contains(token.line) else {
+            return
+        }
+
+        var line = lines[token.line]
+        let start = line.index(line.startIndex, offsetBy: token.startColumn)
+        let end = line.index(line.startIndex, offsetBy: token.endColumn)
+        let insertedToken = "#\(item.value)"
+        let suppression = SloppyTUITaskReferenceSearchSuppression(
+            rawToken: insertedToken,
+            line: token.line,
+            startColumn: token.startColumn
+        )
+        line.replaceSubrange(start..<end, with: insertedToken + " ")
+        lines[token.line] = line
+        projectTaskSearchSelection = 0
+        editor.setText(lines.joined(separator: "\n"))
+        suppressedProjectTaskSearch = suppression
+        requestRender()
+    }
+
+    private func currentProjectTaskToken() -> SloppyTUITaskReferenceTokens.Token? {
+        let text = editor.getText()
+        let cursor = editor.getCursor()
+        let lines = text.components(separatedBy: "\n")
+        return SloppyTUITaskReferenceTokens.tokenBeforeCursor(
+            lines: lines,
+            cursorLine: cursor.line,
+            cursorColumn: cursor.col
         )
     }
 
@@ -992,6 +1225,7 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
             }
             recordUndoPointIfNeeded(undoBaseline)
             await reloadSession()
+            await refreshTokenUsage(includeCost: true)
             petMood = .happy
         } catch {
             clearLiveAssistantDraft()
@@ -1107,7 +1341,7 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
         case "skills":
             await showSkills()
         case "editor":
-            openIntegratedEditor()
+            await openCodeEditor(args)
         case "model":
             await switchModel(args.first)
         case "context":
@@ -1158,7 +1392,8 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
 
         Paste file paths normally to send them as text. Press Ctrl+V to attach files or images from the macOS clipboard.
         Use `@path` in a message to inline a project file as explicit context. Tab completes slash commands.
-        Press Ctrl+O to toggle the full tool-call transcript. In the expanded transcript, Ctrl+Right enters the newest subagent session.
+        Use `#` to autocomplete active project tasks by id or title.
+        Press Ctrl+O to toggle the full tool-call transcript. Ctrl+Right enters the newest subagent session.
 
         ## History scroll
         - PageUp / PageDown scroll by pages.
@@ -1168,6 +1403,7 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
         - Option+End / Ctrl+End jumps back to the bottom.
 
         ## Tips
+        - Esc interrupts the current run after picker overlays are closed.
         - `/pet` toggles the terminal Sloppie and shows its face/status.
         - `/undo` and `/redo` are scoped to the current session during this TUI run.
         - `/btw <message>` asks a quick side question without interrupting the main flow.
@@ -1349,9 +1585,10 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
             return
         }
         isInterruptingRun = true
+        requestRender()
         defer {
             isInterruptingRun = false
-            doubleEscapeDetector.reset()
+            requestRender()
         }
         do {
             _ = try await runtime.service.controlAgentSession(
@@ -1531,9 +1768,14 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
         }
     }
 
-    private func openIntegratedEditor() {
-        tui?.setFocus(self)
-        appendLocalCard("Integrated editor is active. Type your message in the composer.", autoDismissAfter: 6)
+    private func openCodeEditor(_ args: [String]) async {
+        do {
+            let result = try await SloppyTUICodeEditorLauncher.open(path: runtime.cwd, preferredEditor: args)
+            appendLocalCard("Opened `\(result.path)` in `\(result.label)`.", autoDismissAfter: 6)
+        } catch {
+            let message = (error as? LocalizedError)?.errorDescription ?? String(describing: error)
+            appendLocalCard("Could not open code editor: \(message)", autoDismissAfter: 10)
+        }
     }
 
     private func showStatus() async {
@@ -1644,7 +1886,7 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
                 SloppyTUIPickerItem(
                     value: item.childSessionId,
                     label: item.title,
-                    description: item.childSessionId,
+                    description: "\(item.status.plainText) · \(item.childSessionId)",
                     isCurrent: false
                 )
             },
@@ -1742,6 +1984,8 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
             await beginProviderSetup(item.value)
         case .projectFile:
             applyProjectFileSearchItem(item)
+        case .projectTask:
+            applyProjectTaskSearchItem(item)
         case .planInput:
             await answerPlanInput(with: item)
         }
@@ -1816,8 +2060,10 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
                 )
             )
             selectedModel = model
+            selectedModelContextWindowTokens = contextWindowTokens(for: model, in: config.availableModels)
             dismissFirstStartBootstrapCard()
             dismissModelSwitchCards()
+            await refreshTokenUsage(includeCost: true)
             appendLocalCard("Model switched to `\(model)`.", autoDismissAfter: 6)
         } catch {
             appendLocalCard("Model switch failed: \(String(describing: error))")
@@ -2096,14 +2342,45 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
         }
     }
 
+    private func reloadProjectForTaskAutocompleteIfNeeded() {
+        guard SloppyTUIAutocompleteFeatureFlags.projectTaskAutocompleteEnabled,
+              projectTaskAutocompleteTask == nil,
+              !projectTaskAutocompleteLoading else {
+            return
+        }
+        projectTaskAutocompleteLoading = true
+        projectTaskAutocompleteTask = Task { [weak self] in
+            guard let self else { return }
+            do {
+                let refreshed = try await runtime.service.getProject(id: project.id)
+                await MainActor.run {
+                    self.project = refreshed
+                    self.projectTaskGeneration += 1
+                    self.projectTaskSearchCache = nil
+                    self.projectTaskAutocompleteLoading = false
+                    self.projectTaskAutocompleteTask = nil
+                    self.requestRender()
+                }
+            } catch {
+                await MainActor.run {
+                    self.projectTaskAutocompleteLoading = false
+                    self.projectTaskAutocompleteTask = nil
+                }
+            }
+        }
+    }
+
     private func showTasks() async {
         do {
-            let project = try await runtime.service.getProject(id: project.id)
-            if project.tasks.isEmpty {
+            let refreshed = try await runtime.service.getProject(id: project.id)
+            project = refreshed
+            projectTaskGeneration += 1
+            projectTaskSearchCache = nil
+            if refreshed.tasks.isEmpty {
                 appendLocalCard("No project tasks.")
                 return
             }
-            appendLocalCard(project.tasks.map { "- `\($0.id)` [\($0.status)] \($0.title)" }.joined(separator: "\n"))
+            appendLocalCard(refreshed.tasks.map { "- `\($0.id)` [\($0.status)] \($0.title)" }.joined(separator: "\n"))
         } catch {
             appendLocalCard("Could not load tasks: \(String(describing: error))")
         }
@@ -2436,6 +2713,7 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
         var blocks: [SloppyTUITimelineBlock] = []
         var children: [SloppyTUISubSessionCard] = []
         let events = detail?.events ?? []
+        let childStatuses = await subSessionStatuses(for: childSessionIDs(in: events))
         let answeredInputRequestIDs = Set(events.compactMap { event -> String? in
             event.type == .inputResponse ? event.inputResponse?.requestId : nil
         })
@@ -2475,10 +2753,11 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
             } else if let subSession = event.subSession {
                 let card = SloppyTUISubSessionCard(
                     childSessionId: subSession.childSessionId,
-                    title: subSession.title
+                    title: subSession.title,
+                    status: childStatuses[subSession.childSessionId] ?? .starting
                 )
                 children.append(card)
-                blocks.append(.subSession(childSessionId: card.childSessionId, title: card.title))
+                blocks.append(.subSession(childSessionId: card.childSessionId, title: card.title, status: card.status))
             } else if let toolCall = event.toolCall {
                 let display = toolCallDisplay(tool: toolCall.tool, arguments: toolCall.arguments)
                 blocks.append(.toolCall(
@@ -2504,7 +2783,117 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
         sessionCards = blocks
         subSessionCards = children
         updatePendingPlanInputRequest(pendingInputRequest)
+        await refreshTokenUsage(includeCost: false)
         renderTimeline()
+    }
+
+    private func childSessionIDs(in events: [AgentSessionEvent]) -> [String] {
+        var seen: Set<String> = []
+        var ids: [String] = []
+        for event in events {
+            guard let childSessionID = event.subSession?.childSessionId,
+                  seen.insert(childSessionID).inserted else {
+                continue
+            }
+            ids.append(childSessionID)
+        }
+        return ids
+    }
+
+    private func subSessionStatuses(for childSessionIDs: [String]) async -> [String: SloppyTUISubSessionStatus] {
+        var statuses: [String: SloppyTUISubSessionStatus] = [:]
+        for childSessionID in childSessionIDs {
+            guard let detail = try? await runtime.service.getAgentSession(agentID: agent.id, sessionID: childSessionID) else {
+                statuses[childSessionID] = .starting
+                continue
+            }
+            statuses[childSessionID] = subSessionStatus(from: detail.events)
+        }
+        return statuses
+    }
+
+    private func subSessionStatus(from events: [AgentSessionEvent]) -> SloppyTUISubSessionStatus {
+        guard !events.isEmpty else {
+            return .starting
+        }
+
+        let answeredInputRequestIDs = Set(events.compactMap { event -> String? in
+            event.type == .inputResponse ? event.inputResponse?.requestId : nil
+        })
+        if let inputRequest = events.compactMap({ event -> PlanInputRequest? in
+            event.type == .inputRequest ? event.inputRequest : nil
+        }).last(where: { request in
+            !answeredInputRequestIDs.contains(request.id)
+        }) {
+            return .waiting(planInputStatusLabel(inputRequest))
+        }
+
+        if let status = events.reversed().compactMap(\.runStatus).first {
+            let label = status.label.trimmingCharacters(in: .whitespacesAndNewlines)
+            let detail = label.isEmpty ? status.details?.trimmingCharacters(in: .whitespacesAndNewlines) : label
+            switch status.stage {
+            case .thinking, .searching, .responding:
+                return .running(detail)
+            case .paused:
+                return .waiting(detail)
+            case .done:
+                return .done
+            case .interrupted:
+                return .interrupted(detail)
+            }
+        }
+
+        let hasAssistantText = events.contains { event in
+            guard event.type == .message,
+                  let message = event.message,
+                  message.role == .assistant else {
+                return false
+            }
+            return message.segments.contains { segment in
+                segment.kind == .text && segment.text?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+            }
+        }
+        return hasAssistantText ? .done : .starting
+    }
+
+    private func planInputStatusLabel(_ request: PlanInputRequest) -> String {
+        if let title = request.title?.trimmingCharacters(in: .whitespacesAndNewlines), !title.isEmpty {
+            return title
+        }
+        if let header = request.questions.first?.header?.trimmingCharacters(in: .whitespacesAndNewlines), !header.isEmpty {
+            return header
+        }
+        return "input needed"
+    }
+
+    private func refreshTokenUsage(includeCost: Bool) async {
+        let usage = await runtime.service.listTokenUsage(channelId: currentSessionChannelID())
+        if includeCost {
+            if let agentUsage = try? await runtime.service.getAgentTokenUsage(agentID: agent.id) {
+                tokenUsageCostUSD = agentUsage.totalCostUSD
+            }
+        }
+        tokenUsageSummary = SloppyTUITokenUsageSummary(
+            promptTokens: usage.totalPromptTokens,
+            completionTokens: usage.totalCompletionTokens,
+            totalTokens: usage.totalTokens,
+            contextWindowTokens: selectedModelContextWindowTokens,
+            costUSD: tokenUsageCostUSD
+        )
+        refreshStaticChrome()
+    }
+
+    private func currentSessionChannelID() -> String {
+        "agent:\(agent.id):session:\(session.id)"
+    }
+
+    private func contextWindowTokens(for modelID: String, in models: [ProviderModelOption]) -> Int {
+        let trimmed = modelID.trimmingCharacters(in: .whitespacesAndNewlines)
+        let option = models.first { $0.id == trimmed } ?? models.first
+        guard let value = option?.contextWindow else {
+            return 0
+        }
+        return CoreService.parseContextWindowString(value)
     }
 
     private func isFinalAssistantMessage(_ event: AgentSessionEvent) -> Bool {
@@ -2686,8 +3075,14 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
                 lines.append(contentsOf: SloppyTUITheme.thinkingLines(text, width: width))
             case .attachment(let name, let mimeType, let sizeBytes):
                 lines.append(SloppyTUITheme.attachmentLine(name: name, mimeType: mimeType, sizeBytes: sizeBytes, width: width))
-            case .subSession(let childSessionId, let title):
-                lines.append(SloppyTUITheme.subSessionLine(title: title, childSessionId: childSessionId, width: width))
+            case .subSession(let childSessionId, let title, let status):
+                lines.append(SloppyTUITheme.subSessionLine(
+                    title: title,
+                    childSessionId: childSessionId,
+                    status: status,
+                    frame: thinkingFrame,
+                    width: width
+                ))
             case .inputRequest(let request):
                 lines.append(contentsOf: renderMarkdown(SloppyTUIPlanInputPicker.requestText(request), width: width))
             case .toolCall(let tool, let reason, let summary, let details):
@@ -2794,6 +3189,7 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
             activePicker = nil
             recordUndoPointIfNeeded(undoBaseline)
             await reloadSession()
+            await refreshTokenUsage(includeCost: true)
             petMood = payload.status == .answered ? .happy : petMood
         } catch {
             petMood = .sad
@@ -3136,11 +3532,12 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
         let queue = queuedMessages.isEmpty ? "" : "  queue: \(queuedMessages.count) ctrl+b cancel"
         let pet = state.petEnabled ? "  pet: \(terminalPetFace())" : ""
         let transcript = transcriptExpanded ? "  transcript: full" : ""
+        let usage = tokenUsageSummary.map { "  " + SloppyTUITheme.tokenUsageStatus($0) } ?? ""
         let elapsed = elapsedStatusContext()
         let defaultStatus = SloppyTUITheme.sessionStatusLine(
             mode: chatMode,
             model: selectedModel,
-            context: context + queue + pet + transcript + elapsed.idleSuffix,
+            context: context + queue + usage + pet + transcript + elapsed.idleSuffix,
             attachments: attachments,
             sessionID: session.id
         )
@@ -3195,6 +3592,10 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
     private func refreshSelectedModel() async {
         let config = try? await runtime.service.getAgentConfig(agentID: agent.id)
         selectedModel = config?.selectedModel ?? "default"
+        selectedModelContextWindowTokens = config.map {
+            contextWindowTokens(for: selectedModel, in: $0.availableModels)
+        } ?? 0
+        await refreshTokenUsage(includeCost: true)
         refreshStaticChrome()
     }
 

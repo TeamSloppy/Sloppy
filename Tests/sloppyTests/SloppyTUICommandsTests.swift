@@ -32,6 +32,41 @@ func slashCommandRouterHandlesSkillCommands() {
 }
 
 @Test
+func codeEditorLauncherParsesConfiguredEditorCommand() {
+    let command = SloppyTUICodeEditorLauncher.configuredCommandLine(environment: [
+        "SLOPPY_CODE_EDITOR": "code --reuse-window",
+        "VISUAL": "vim",
+    ])
+
+    #expect(command == ["code", "--reuse-window"])
+}
+
+@Test
+func codeEditorLauncherSkipsTerminalEditorFallbacks() {
+    let command = SloppyTUICodeEditorLauncher.configuredCommandLine(environment: [
+        "VISUAL": "vim",
+        "EDITOR": "nano",
+    ])
+
+    #expect(command == nil)
+}
+
+@Test
+func codeEditorLauncherUsesExplicitPreferredEditor() {
+    let xcodeLabels = SloppyTUICodeEditorLauncher.candidateCommandLabels(
+        preferredEditor: ["xcode"],
+        environment: ["SLOPPY_CODE_EDITOR": "code --reuse-window"]
+    )
+    let cursorLabels = SloppyTUICodeEditorLauncher.candidateCommandLabels(
+        preferredEditor: ["cursor", "--reuse-window"],
+        environment: [:]
+    )
+
+    #expect(xcodeLabels == ["xcode", "Xcode"])
+    #expect(cursorLabels == ["cursor --reuse-window", "Cursor"])
+}
+
+@Test
 func doubleEscapeDetectorInterruptsOnlyOnSecondNearbyEscape() {
     var detector = SloppyTUIDoubleEscapeDetector(interval: 0.75)
     let first = Date(timeIntervalSince1970: 100)

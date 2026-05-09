@@ -170,7 +170,96 @@ func taskDeleteAcceptsMultipleReferences() async throws {
     #expect(project.tasks.isEmpty)
 }
 
+@Test
+func taskUpdateInvalidStatusReturnsInvalidPayload() async throws {
+    let fixture = try await makeTaskUpdateFixture()
+    let tool = ProjectTaskUpdateTool()
+
+    let result = await tool.invoke(
+        arguments: [
+            "taskId": .string(fixture.taskID),
+            "projectId": .string(fixture.projectID),
+            "status": .string("finished")
+        ],
+        context: fixture.context
+    )
+
+    #expect(result.ok == false)
+    #expect(result.error?.code == "invalid_payload")
+    #expect(result.error?.retryable == false)
+    #expect(result.error?.hint?.contains("Allowed status values") == true)
+}
+
+@Test
+func taskUpdateRequiresCompletionEvidence() async throws {
+    let fixture = try await makeTaskUpdateFixture()
+    let tool = ProjectTaskUpdateTool()
+
+    let result = await tool.invoke(
+        arguments: [
+            "taskId": .string(fixture.taskID),
+            "projectId": .string(fixture.projectID),
+            "status": .string(ProjectTaskStatus.done.rawValue)
+        ],
+        context: fixture.context
+    )
+
+    #expect(result.ok == false)
+    #expect(result.error?.code == "completion_confirmation_required")
+}
+
+@Test
+func taskUpdateCanSetDoneWithCompletionEvidence() async throws {
+    let fixture = try await makeTaskUpdateFixture()
+    let tool = ProjectTaskUpdateTool()
+
+    let result = await tool.invoke(
+        arguments: [
+            "taskId": .string(fixture.taskID),
+            "projectId": .string(fixture.projectID),
+            "status": .string(ProjectTaskStatus.done.rawValue),
+            "completionConfidence": .string(ProjectTaskCompletionConfidence.done.rawValue),
+            "completionNote": .string("Verified the requested change and checked the final state.")
+        ],
+        context: fixture.context
+    )
+
+    #expect(result.ok == true)
+    #expect(result.data?.asObject?["status"]?.asString == ProjectTaskStatus.done.rawValue)
+}
+
 // MARK: - Helper
+
+private func makeTaskUpdateFixture() async throws -> (service: CoreService, context: ToolContext, projectID: String, taskID: String) {
+    let config = CoreConfig.test
+    let service = CoreService(config: config, persistenceBuilder: InMemoryCorePersistenceBuilder())
+    let router = CoreRouter(service: service)
+
+    let projectID = "tool-proj-\(UUID().uuidString)"
+    let createBody = try JSONEncoder().encode(
+        ProjectCreateRequest(id: projectID, name: "Tool Test Project", description: "", channels: [])
+    )
+    let createResp = await router.handle(method: "POST", path: "/v1/projects", body: createBody)
+    #expect(createResp.status == 201)
+
+    let taskBody = try JSONEncoder().encode(
+        ProjectTaskCreateRequest(
+            title: "Task Update Diagnostics",
+            description: "Exercise agent tool update errors",
+            priority: "medium",
+            status: ProjectTaskStatus.inProgress.rawValue
+        )
+    )
+    let taskResp = await router.handle(method: "POST", path: "/v1/projects/\(projectID)/tasks", body: taskBody)
+    #expect(taskResp.status == 200)
+
+    let decoder = JSONDecoder()
+    decoder.dateDecodingStrategy = .iso8601
+    let project = try decoder.decode(ProjectRecord.self, from: taskResp.body)
+    let taskID = try #require(project.tasks.first?.id)
+    let context = makeToolContext(service: service, sessionID: "session-no-channel")
+    return (service, context, projectID, taskID)
+}
 
 private func makeToolContext(service: CoreService, sessionID: String) -> ToolContext {
     let tmpURL = FileManager.default.temporaryDirectory

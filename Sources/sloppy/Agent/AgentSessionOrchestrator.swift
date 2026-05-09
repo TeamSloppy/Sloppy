@@ -80,6 +80,7 @@ actor AgentSessionOrchestrator {
     func updateAgentsRootURL(_ url: URL) {
         sessionStore.updateAgentsRootURL(url)
         agentCatalogStore.updateAgentsRootURL(url)
+        agentSkillsStore?.updateAgentsRootURL(url)
     }
 
     func updateAvailableModels(_ models: [ProviderModelOption]) {
@@ -1096,11 +1097,14 @@ actor AgentSessionOrchestrator {
 
     private func ensureSessionContextLoaded(agentID: String, sessionID: String) async throws {
         let channelID = sessionChannelID(agentID: agentID, sessionID: sessionID)
-        if let existingSnapshot = await runtime.channelState(channelId: channelID),
-           let existingBootstrap = existingSnapshot.messages.first(where: {
-               $0.userId == "system" && $0.content.contains(Self.sessionContextBootstrapMarker)
-           }) {
-            await runtime.setChannelBootstrap(channelId: channelID, content: existingBootstrap.content)
+        let existingSnapshot = await runtime.channelState(channelId: channelID)
+        let existingBootstrapContent = await runtime.channelBootstrapContent(channelId: channelID)
+            ?? existingSnapshot?.messages.last(where: {
+                $0.userId == "system" && $0.content.contains(Self.sessionContextBootstrapMarker)
+            })?.content
+        if let existingBootstrapContent,
+           !bootstrapNeedsConversationHistoryRefresh(existingBootstrapContent, agentID: agentID, sessionID: sessionID) {
+            await runtime.setChannelBootstrap(channelId: channelID, content: existingBootstrapContent)
             logger.debug(
                 "Session context already initialized",
                 metadata: [
@@ -1109,6 +1113,16 @@ actor AgentSessionOrchestrator {
                 ]
             )
             return
+        }
+
+        if existingBootstrapContent != nil {
+            logger.info(
+                "Refreshing session bootstrap with persisted conversation history",
+                metadata: [
+                    "agent_id": .string(agentID),
+                    "session_id": .string(sessionID)
+                ]
+            )
         }
 
         let documents: AgentDocumentBundle
@@ -1195,6 +1209,13 @@ actor AgentSessionOrchestrator {
         await runtime.setChannelBootstrap(channelId: channelID, content: bootstrapContent)
     }
 
+    private func bootstrapNeedsConversationHistoryRefresh(_ bootstrap: String, agentID: String, sessionID: String) -> Bool {
+        guard !bootstrap.contains("[Previous conversation history]") else {
+            return false
+        }
+        return sessionHasPriorMessages(agentID: agentID, sessionID: sessionID)
+    }
+
     private func fallbackSessionBootstrapContextMessage(
         agentID: String,
         sessionID: String,
@@ -1269,6 +1290,16 @@ actor AgentSessionOrchestrator {
                 - Create a new task only when no existing active task substantially overlaps with the requested work.
                 """
         )
+        let taskSpecRulesSection = renderedFallbackPromptPartial(
+            named: "task_spec_rules",
+            fallback:
+                """
+                [Task spec rules]
+                - When creating or materially updating a project task, write the task description as a task brief with goal, context, scope, technical requirements, Definition of Done, tests, RFC/ADR, and memory follow-up.
+                - Definition of Done and Tests / Verification are required for every non-trivial task.
+                - Use `docs/adr/` for repository-level decisions and `.sloppy/adr/` for workspace-private planning artifacts.
+                """
+        )
         let completionReflectionSection = renderedFallbackPromptPartial(
             named: "completion_reflection",
             fallback:
@@ -1318,6 +1349,8 @@ actor AgentSessionOrchestrator {
             toolsInstructionSection
             ""
             taskPlanningRulesSection
+            ""
+            taskSpecRulesSection
             ""
             completionReflectionSection
         }
@@ -1503,6 +1536,7 @@ actor AgentSessionOrchestrator {
         }
 
         do {
+            try agentSkillsStore.provisionBuiltInSkills(agentID: agentID)
             return try agentSkillsStore.listSkills(agentID: agentID)
         } catch {
             logger.warning(

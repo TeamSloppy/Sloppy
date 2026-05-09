@@ -112,10 +112,33 @@ struct ProjectTaskUpdateTool: CoreTool {
                 "status": .string(updatedTask.status),
                 "task": taskJSONValue(updatedTask)
             ]))
-        } catch CoreService.ProjectError.notFound {
-            return toolFailure(tool: name, code: "task_not_found", message: "Task `\(normalizedReference)` was not found.", retryable: false)
+        } catch let error as CoreService.ProjectError {
+            return projectUpdateFailure(error: error, normalizedReference: normalizedReference)
         } catch {
             return toolFailure(tool: name, code: "update_failed", message: "Failed to update task.", retryable: true)
+        }
+    }
+
+    private func projectUpdateFailure(error: CoreService.ProjectError, normalizedReference: String) -> ToolInvocationResult {
+        switch error {
+        case .invalidProjectID:
+            return toolFailure(tool: name, code: "invalid_arguments", message: "Project ID is invalid.", retryable: false)
+        case .invalidChannelID:
+            return toolFailure(tool: name, code: "invalid_arguments", message: "Channel ID is invalid.", retryable: false)
+        case .invalidTaskID:
+            return toolFailure(tool: name, code: "invalid_arguments", message: "Task ID is invalid.", retryable: false)
+        case .invalidPayload:
+            return toolFailure(
+                tool: name,
+                code: "invalid_payload",
+                message: "Task update payload is invalid.",
+                retryable: false,
+                hint: "Allowed fields include title, description, priority, status, kind, loopModeOverride, actorId, and teamId. Allowed status values are pending_approval, backlog, ready, in_progress, waiting_input, done, blocked, needs_review, and cancelled."
+            )
+        case .notFound:
+            return toolFailure(tool: name, code: "task_not_found", message: "Task `\(normalizedReference)` was not found.", retryable: false)
+        case .conflict:
+            return toolFailure(tool: name, code: "project_conflict", message: "Project update conflicted with the current project state.", retryable: false)
         }
     }
 }

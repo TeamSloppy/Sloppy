@@ -458,6 +458,7 @@ public actor CoreService {
                 guard let self else { return nil }
                 return await self.projectBootstrapMarkdownForAgentSession(projectID: projectID)
             }
+            await self.provisionBuiltInSkillsForAllAgents()
             await self.configureToolExecutionServices()
             await self.acpSessionManager.updatePermissionNotificationSink { [weak self] agentID, sessionID, summary in
                 guard let self else { return }

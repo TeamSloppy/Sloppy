@@ -45,6 +45,7 @@ extension CoreService {
         _ = try getAgent(id: normalizedAgentID)
 
         do {
+            try agentSkillsStore.provisionBuiltInSkills(agentID: normalizedAgentID)
             let skills = try agentSkillsStore.listSkills(agentID: normalizedAgentID)
             let skillsPath = agentSkillsStore.skillsDirectoryURL(agentID: normalizedAgentID)?.path ?? ""
             return AgentSkillsResponse(agentId: normalizedAgentID, skills: skills, skillsPath: skillsPath)
@@ -164,6 +165,7 @@ extension CoreService {
         _ = try getAgent(id: normalizedAgentID)
 
         do {
+            try agentSkillsStore.provisionBuiltInSkills(agentID: normalizedAgentID)
             return try agentSkillsStore.listSkills(agentID: normalizedAgentID)
         } catch {
             return []
