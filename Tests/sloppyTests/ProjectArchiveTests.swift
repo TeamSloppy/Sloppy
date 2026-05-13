@@ -162,6 +162,32 @@ func taskEncodesIsArchived() throws {
 }
 
 @Test
+func taskPatchCanSetTagsAndArchiveState() async throws {
+    let config = CoreConfig.test
+    let service = CoreService(config: config, persistenceBuilder: InMemoryCorePersistenceBuilder())
+
+    let createResult = try await service.createProject(
+        ProjectCreateRequest(id: "task-patch-archive", name: "Task Patch Archive", channels: [])
+    )
+    let project = createResult.project
+    let taskProject = try await service.createProjectTask(
+        projectID: project.id,
+        request: ProjectTaskCreateRequest(title: "Patch me", priority: "medium", status: "done")
+    )
+    let taskId = try #require(taskProject.tasks.first?.id)
+
+    let updated = try await service.updateProjectTask(
+        projectID: project.id,
+        taskID: taskId,
+        request: ProjectTaskUpdateRequest(tags: ["frontend", " frontend ", ""], isArchived: true)
+    )
+    let task = try #require(updated.tasks.first(where: { $0.id == taskId }))
+
+    #expect(task.tags == ["frontend"])
+    #expect(task.isArchived == true)
+}
+
+@Test
 func archiveOldTasksMarksCompletedTasksAsArchived() async throws {
     let config = CoreConfig.test
     let service = CoreService(config: config, persistenceBuilder: InMemoryCorePersistenceBuilder())
@@ -202,7 +228,6 @@ func archiveOldTasksMarksCompletedTasksAsArchived() async throws {
 
     let updated = try await service.archiveOldTasks(projectID: projectId)
 
-    let archived = updated.tasks.filter(\.isArchived)
     let active = updated.tasks.filter { !$0.isArchived }
     #expect(active.count >= 1)
 }

@@ -1,4 +1,5 @@
 [Task planning rules]
+- Before creating, listing, or updating project tasks, call `project.current` to confirm the current project when the project is not already explicit. Pass the returned `projectId` explicitly to project task tools.
 - Before creating a new planning task, inspect existing project tasks with `project.task_list`.
 - Compare tasks by intent, goal, scope, and expected outcome, not only by exact title text.
 - If an existing active task covers the same work, update that task with `project.task_update` instead of creating a duplicate.

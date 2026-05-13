@@ -130,6 +130,12 @@ export function normalizeTask(task, index = 0) {
       ? task.swarmActorPath.map((id) => String(id).trim()).filter(Boolean)
       : [],
     isArchived: Boolean(task?.isArchived),
+    tags: Array.isArray(task?.tags)
+      ? task.tags.map((tag) => String(tag).trim()).filter(Boolean)
+      : [],
+    externalMetadata: task?.externalMetadata && typeof task.externalMetadata === "object"
+      ? task.externalMetadata
+      : null,
     createdAt: String(task?.createdAt || new Date().toISOString()),
     updatedAt: String(task?.updatedAt || task?.createdAt || new Date().toISOString())
   };

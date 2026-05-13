@@ -985,6 +985,8 @@ public struct ProjectTaskUpdateRequest: Codable, Sendable {
     public var teamId: String?
     public var parentTaskId: String?
     public var selectedModel: String?
+    public var tags: [String]?
+    public var isArchived: Bool?
     public var changedBy: String?
 
     public init(
@@ -1000,6 +1002,8 @@ public struct ProjectTaskUpdateRequest: Codable, Sendable {
         teamId: String? = nil,
         parentTaskId: String? = nil,
         selectedModel: String? = nil,
+        tags: [String]? = nil,
+        isArchived: Bool? = nil,
         changedBy: String? = nil
     ) {
         self.title = title
@@ -1014,6 +1018,8 @@ public struct ProjectTaskUpdateRequest: Codable, Sendable {
         self.teamId = teamId
         self.parentTaskId = parentTaskId
         self.selectedModel = selectedModel
+        self.tags = tags
+        self.isArchived = isArchived
         self.changedBy = changedBy
     }
 }

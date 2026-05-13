@@ -31,6 +31,7 @@ enum SubagentDelegation {
         "system": ["system.list_tools"],
         "project": [
             "project.list",
+            "project.current",
             "project.create",
             "project.update",
             "project.delete",

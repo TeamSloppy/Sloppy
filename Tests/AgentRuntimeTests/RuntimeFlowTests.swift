@@ -379,6 +379,60 @@ private actor SequencedModelProvider: ModelProvider {
     func requestedReasoningEffortsSnapshot() -> [ReasoningEffort?] { callStore.reasoningEfforts }
 }
 
+// MARK: - FailingModelProvider
+
+private enum FailingModelError: Error, CustomStringConvertible {
+    case providerUnavailable
+
+    var description: String {
+        "provider unavailable"
+    }
+}
+
+private struct FailingMockLanguageModel: LanguageModel {
+    typealias UnavailableReason = Never
+
+    func respond<Content>(
+        within session: LanguageModelSession,
+        to prompt: Prompt,
+        generating type: Content.Type,
+        includeSchemaInPrompt: Bool,
+        options: GenerationOptions
+    ) async throws -> LanguageModelSession.Response<Content> where Content: Generable {
+        throw FailingModelError.providerUnavailable
+    }
+
+    func streamResponse<Content>(
+        within session: LanguageModelSession,
+        to prompt: Prompt,
+        generating type: Content.Type,
+        includeSchemaInPrompt: Bool,
+        options: GenerationOptions
+    ) -> sending LanguageModelSession.ResponseStream<Content> where Content: Generable {
+        LanguageModelSession.ResponseStream(stream: AsyncThrowingStream { continuation in
+            continuation.finish(throwing: FailingModelError.providerUnavailable)
+        })
+    }
+}
+
+private actor FailingModelProvider: ModelProvider {
+    let id: String = "failing"
+    nonisolated var supportedModels: [String] { ["mock-model"] }
+    nonisolated let callStore = MockCallStore()
+
+    func createLanguageModel(for modelName: String) async throws -> any LanguageModel {
+        callStore.recordModel(modelName)
+        return FailingMockLanguageModel()
+    }
+
+    nonisolated func generationOptions(for modelName: String, maxTokens: Int, reasoningEffort: ReasoningEffort?) -> GenerationOptions {
+        callStore.recordEffort(reasoningEffort)
+        return GenerationOptions(maximumResponseTokens: maxTokens)
+    }
+
+    func requestedModelsSnapshot() -> [String] { callStore.models }
+}
+
 // MARK: - PromptCapturingModelProvider
 
 private struct PromptCapturingMockLanguageModel: LanguageModel {
@@ -667,6 +721,55 @@ func respondInlineForwardsReasoningEffortToFallbackCompletion() async {
     )
 
     #expect(await provider.requestedReasoningEffortsSnapshot().last == .low)
+}
+
+@Test
+func respondInlineRepairsEmptyStreamAndCompletion() async {
+    let provider = SequencedModelProvider(outputs: ["   ", "\n", "Recovered final answer."])
+    let system = RuntimeSystem(modelProvider: provider, defaultModel: "mock-model")
+
+    _ = await system.postMessage(
+        channelId: "empty-repair",
+        request: ChannelMessageRequest(userId: "u1", content: "finish the task")
+    )
+
+    let snapshot = await system.channelState(channelId: "empty-repair")
+    let finalMessage = snapshot?.messages.last(where: { $0.userId == "system" })?.content ?? ""
+    #expect(finalMessage == "Recovered final answer.")
+    #expect(await provider.requestedModelsSnapshot() == ["mock-model", "mock-model"])
+}
+
+@Test
+func respondInlineFallsBackWhenEmptyRepairAlsoReturnsEmpty() async {
+    let provider = SequencedModelProvider(outputs: ["   ", "\n", "\t "])
+    let system = RuntimeSystem(modelProvider: provider, defaultModel: "mock-model")
+
+    _ = await system.postMessage(
+        channelId: "empty-repair-fallback",
+        request: ChannelMessageRequest(userId: "u1", content: "finish the task")
+    )
+
+    let snapshot = await system.channelState(channelId: "empty-repair-fallback")
+    let finalMessage = snapshot?.messages.last(where: { $0.userId == "system" })?.content ?? ""
+    #expect(finalMessage == "Model returned an empty response. Please try rephrasing or try again.")
+    #expect(await provider.requestedModelsSnapshot() == ["mock-model", "mock-model"])
+}
+
+@Test
+func respondInlineProviderErrorsBypassEmptyRepair() async {
+    let provider = FailingModelProvider()
+    let system = RuntimeSystem(modelProvider: provider, defaultModel: "mock-model")
+
+    _ = await system.postMessage(
+        channelId: "provider-error-no-repair",
+        request: ChannelMessageRequest(userId: "u1", content: "finish the task")
+    )
+
+    let snapshot = await system.channelState(channelId: "provider-error-no-repair")
+    let finalMessage = snapshot?.messages.last(where: { $0.userId == "system" })?.content ?? ""
+    #expect(finalMessage.contains("Model provider error:"))
+    #expect(finalMessage.contains("providerUnavailable") || finalMessage.contains("provider unavailable"))
+    #expect(await provider.requestedModelsSnapshot() == ["mock-model"])
 }
 
 @Test

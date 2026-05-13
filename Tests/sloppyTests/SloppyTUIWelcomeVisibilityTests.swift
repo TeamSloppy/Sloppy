@@ -5,7 +5,23 @@ import Testing
 func welcomeScreenStaysHiddenWhenAutoDismissLeavesSessionContent() {
     let shouldRender = SloppyTUIWelcomeVisibility.shouldRender(
         welcomeDismissed: false,
+        hasPersistedSession: false,
         hasSessionCards: true,
+        hasLiveAssistantDraft: false,
+        hasQueuedMessages: false,
+        hasLocalCards: false,
+        hasTransientNotice: false
+    )
+
+    #expect(!shouldRender)
+}
+
+@Test
+func welcomeScreenStaysHiddenForPersistedEmptySession() {
+    let shouldRender = SloppyTUIWelcomeVisibility.shouldRender(
+        welcomeDismissed: false,
+        hasPersistedSession: true,
+        hasSessionCards: false,
         hasLiveAssistantDraft: false,
         hasQueuedMessages: false,
         hasLocalCards: false,
@@ -19,6 +35,7 @@ func welcomeScreenStaysHiddenWhenAutoDismissLeavesSessionContent() {
 func welcomeScreenRendersOnlyBeforeAnyTimelineContent() {
     let shouldRender = SloppyTUIWelcomeVisibility.shouldRender(
         welcomeDismissed: false,
+        hasPersistedSession: false,
         hasSessionCards: false,
         hasLiveAssistantDraft: false,
         hasQueuedMessages: false,

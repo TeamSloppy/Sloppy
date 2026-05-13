@@ -7,7 +7,7 @@ struct ProjectTaskListTool: CoreTool {
     let title = "List project tasks"
     let status = "fully_functional"
     let name = "project.task_list"
-    let description = "List tasks for the project associated with the current channel."
+    let description = "List tasks for the project associated with the current channel. If unsure which project is current, call project.current first and pass the returned projectId explicitly."
 
     var parameters: GenerationSchema {
         .objectSchema([

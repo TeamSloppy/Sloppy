@@ -87,6 +87,16 @@ func chromeRowsFitNarrowTerminalWidth() {
             contextWindowTokens: 400_000,
             costUSD: 0.42
         )),
+        SloppyTUITheme.tokenUsageFooterLine(
+            width: width,
+            summary: .init(
+                promptTokens: 22_000,
+                completionTokens: 13_000,
+                totalTokens: 35_000,
+                contextWindowTokens: 400_000,
+                costUSD: 0.42
+            )
+        ),
         SloppyTUITheme.toolCallLine(
             tool: "runtime.exec",
             reason: String(repeating: "reason", count: 12),
@@ -120,6 +130,20 @@ func chromeRowsFitNarrowTerminalWidth() {
     for row in rows {
         #expect(VisibleWidth.measure(row) <= width)
     }
+}
+
+@Test
+func defaultSessionStatusAvoidsComposerMetadataDuplication() {
+    let status = stripANSI(SloppyTUITheme.sessionStatusLine(
+        context: "  queue: 1 ctrl+b cancel",
+        attachments: "",
+        sessionID: "session-abcdef123456"
+    ))
+
+    #expect(!status.contains("mode:"))
+    #expect(!status.contains("model:"))
+    #expect(status.contains("queue: 1"))
+    #expect(status.contains("last:"))
 }
 
 @Test
@@ -236,6 +260,11 @@ func elapsedFormatsShortAndLongRuns() {
 }
 
 @Test
+func shortIDStripsSessionPrefixBeforeTruncating() {
+    #expect(SloppyTUITheme.shortID("session-abcdef123456") == "abcdef12")
+}
+
+@Test
 func sessionDisplayTitleUsesPreviewForDefaultDashboardStyleTitles() {
     let session = AgentSessionSummary(
         id: "session-abcdef123456",
@@ -247,6 +276,7 @@ func sessionDisplayTitleUsesPreviewForDefaultDashboardStyleTitles() {
 
     #expect(SloppyTUITheme.sessionDisplayTitle(session) == "Refactor the TUI session header")
     #expect(SloppyTUITheme.sessionHeaderTitle(session).contains("Refactor the TUI session header"))
+    #expect(SloppyTUITheme.sessionHeaderTitle(session).contains("(abcdef12)"))
 }
 
 @Test

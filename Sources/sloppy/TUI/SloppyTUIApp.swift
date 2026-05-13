@@ -146,32 +146,6 @@ struct SloppyTUIApp {
             preferredID: selection?.agentId,
             agents: agents
         )
-        if let persistedSessionID = selection?.sessionId?.trimmingCharacters(in: .whitespacesAndNewlines),
-           !persistedSessionID.isEmpty,
-           let persistedSession = await resolvePersistedSession(
-                service: service,
-                agentID: agent.id,
-                projectID: projectID,
-                sessionID: persistedSessionID
-           ) {
-            return SloppyTUILaunchSelection(
-                agent: agent,
-                session: persistedSession,
-                hasPersistedSession: true
-            )
-        }
-        if let latestSession = await resolveLatestSession(
-            service: service,
-            agentID: agent.id,
-            projectID: projectID
-        ) {
-            return SloppyTUILaunchSelection(
-                agent: agent,
-                session: latestSession,
-                hasPersistedSession: true
-            )
-        }
-
         return SloppyTUILaunchSelection(
             agent: agent,
             session: Self.makeDraftSession(agent: agent, projectID: projectID),

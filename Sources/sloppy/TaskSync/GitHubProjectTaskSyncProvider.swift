@@ -17,6 +17,24 @@ struct GitHubRepositoryReference: Sendable, Equatable {
     var repo: String
 
     var slug: String { "\(owner)/\(repo)" }
+    var url: String { "https://github.com/\(owner)/\(repo)" }
+}
+
+struct GitHubProjectDiscovery: Sendable, Equatable {
+    var repository: GitHubRepositoryReference
+    var projects: [ProjectTaskSyncLinkedProject]
+    var statusOptions: [String]
+}
+
+private struct GitHubProjectItem: Sendable, Equatable {
+    var project: ProjectTaskSyncLinkedProject
+    var itemId: String?
+    var status: String?
+    var issueId: String
+    var issueNumber: Int
+    var issueURL: String
+    var title: String
+    var body: String
 }
 
 struct GitHubProjectTaskSyncProvider: TaskSyncProvider {
@@ -60,6 +78,7 @@ struct GitHubProjectTaskSyncProvider: TaskSyncProvider {
         return TaskSyncProjectDescriptor(
             providerId: id,
             projectURL: normalizedProjectURL(ref),
+            title: "Project \(ref.number)",
             statusOptions: ["Todo", "In Progress", "Done"]
         )
     }
@@ -69,6 +88,7 @@ struct GitHubProjectTaskSyncProvider: TaskSyncProvider {
         let descriptor = TaskSyncProjectDescriptor(
             providerId: id,
             projectURL: normalizedProjectURL(ref),
+            title: "Project \(ref.number)",
             projectNodeId: token == nil ? nil : try await fetchProjectNodeId(ref: ref, token: token),
             defaultRepo: try defaultRepo.map { try Self.parseRepository($0).slug },
             statusOptions: ["Todo", "In Progress", "Done"]
@@ -76,10 +96,105 @@ struct GitHubProjectTaskSyncProvider: TaskSyncProvider {
         return descriptor
     }
 
+    func discoverProjects(repositoryURL: String, token: String?) async throws -> GitHubProjectDiscovery {
+        guard let token else { throw ProviderError.missingToken }
+        let repo = try Self.parseRepository(repositoryURL)
+        let body: [String: Any] = [
+            "query": """
+            query($owner:String!,$name:String!){
+              repository(owner:$owner,name:$name){
+                projectsV2(first:50){
+                  nodes{
+                    id
+                    title
+                    url
+                    fields(first:50){
+                      nodes{
+                        ... on ProjectV2SingleSelectField {
+                          name
+                          options { name }
+                        }
+                      }
+                    }
+                  }
+                }
+                owner {
+                  __typename
+                  login
+                  ... on Organization {
+                    projectsV2(first:50){
+                      nodes{
+                        id
+                        title
+                        url
+                        fields(first:50){
+                          nodes{
+                            ... on ProjectV2SingleSelectField {
+                              name
+                              options { name }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                  ... on User {
+                    projectsV2(first:50){
+                      nodes{
+                        id
+                        title
+                        url
+                        fields(first:50){
+                          nodes{
+                            ... on ProjectV2SingleSelectField {
+                              name
+                              options { name }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+            """,
+            "variables": ["owner": repo.owner, "name": repo.repo]
+        ]
+        let object = try await graphQL(body: body, token: token)
+        guard let dataObj = object["data"] as? [String: Any],
+              let repositoryObj = dataObj["repository"] as? [String: Any]
+        else {
+            return GitHubProjectDiscovery(repository: repo, projects: [], statusOptions: [])
+        }
+        var projectsById: [String: ProjectTaskSyncLinkedProject] = [:]
+        var statusOptions = Set<String>()
+        appendProjects(from: repositoryObj["projectsV2"], into: &projectsById, statusOptions: &statusOptions)
+        if let ownerObj = repositoryObj["owner"] as? [String: Any] {
+            appendProjects(from: ownerObj["projectsV2"], into: &projectsById, statusOptions: &statusOptions)
+        }
+        let projects = projectsById.values.sorted { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
+        return GitHubProjectDiscovery(
+            repository: repo,
+            projects: projects,
+            statusOptions: Array(statusOptions).sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
+        )
+    }
+
     func importTasks(settings: ProjectTaskSyncSettings, token: String?) async throws -> [TaskSyncExternalTask] {
-        guard token != nil else { throw ProviderError.missingToken }
-        // v1 scaffold keeps import side-effect free until Project item pagination is wired.
-        return []
+        guard let token else { throw ProviderError.missingToken }
+        guard let repoSlug = settings.repositorySlug ?? settings.defaultRepo else { throw ProviderError.invalidRepository }
+        let repo = try Self.parseRepository(repoSlug)
+        let projects = normalizedLinkedProjects(settings)
+        var issues: [String: [GitHubProjectItem]] = [:]
+        for project in projects {
+            let items = try await fetchProjectIssueItems(project: project, repo: repo, token: token)
+            for item in items {
+                issues[item.issueId, default: []].append(item)
+            }
+        }
+        return issues.values.map { mergeItems($0, settings: settings) }
+            .sorted { $0.metadata.externalIssueNumber ?? 0 < $1.metadata.externalIssueNumber ?? 0 }
     }
 
     func createOrUpdateTask(_ task: ProjectTask, settings: ProjectTaskSyncSettings, token: String?) async throws -> TaskExternalMetadata {
@@ -150,6 +265,16 @@ struct GitHubProjectTaskSyncProvider: TaskSyncProvider {
 
     static func parseRepository(_ raw: String) throws -> GitHubRepositoryReference {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let components = URLComponents(string: trimmed),
+           let host = components.host?.lowercased(),
+           host == "github.com" {
+            let parts = components.path.split(separator: "/").map(String.init)
+            guard parts.count >= 2, !parts[0].isEmpty, !parts[1].isEmpty else {
+                throw ProviderError.invalidRepository
+            }
+            let repo = parts[1].hasSuffix(".git") ? String(parts[1].dropLast(4)) : parts[1]
+            return GitHubRepositoryReference(owner: parts[0], repo: repo)
+        }
         let parts = trimmed.split(separator: "/").map(String.init)
         guard parts.count == 2,
               !parts[0].isEmpty,
@@ -159,6 +284,18 @@ struct GitHubProjectTaskSyncProvider: TaskSyncProvider {
         }
         let repo = parts[1].hasSuffix(".git") ? String(parts[1].dropLast(4)) : parts[1]
         return GitHubRepositoryReference(owner: parts[0], repo: repo)
+    }
+
+    static func projectTag(title: String) -> String {
+        let folded = title
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+            .unicodeScalars
+            .map { CharacterSet.alphanumerics.contains($0) ? Character($0) : "-" }
+        let slug = String(folded)
+            .split(separator: "-", omittingEmptySubsequences: true)
+            .joined(separator: "_")
+        return "gh:\(slug.isEmpty ? "project" : slug)"
     }
 
     static func mappedGitHubStatus(sloppyStatus: String, mappings: [String: String]) -> String {
@@ -213,6 +350,258 @@ struct GitHubProjectTaskSyncProvider: TaskSyncProvider {
             return nil
         }
         return projectObj["id"] as? String
+    }
+
+    private func graphQL(body: [String: Any], token: String) async throws -> [String: Any] {
+        var request = URLRequest(url: URL(string: "https://api.github.com/graphql")!)
+        request.httpMethod = "POST"
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+        addHeaders(&request, token: token)
+        let (data, response) = try await transport(request)
+        guard (200..<300).contains(response.statusCode) else {
+            throw ProviderError.githubHTTP(response.statusCode, String(data: data, encoding: .utf8) ?? "")
+        }
+        guard let object = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return [:]
+        }
+        if let errors = object["errors"] {
+            throw ProviderError.githubHTTP(response.statusCode, String(describing: errors))
+        }
+        return object
+    }
+
+    private func appendProjects(
+        from rawProjects: Any?,
+        into projectsById: inout [String: ProjectTaskSyncLinkedProject],
+        statusOptions: inout Set<String>
+    ) {
+        guard let container = rawProjects as? [String: Any],
+              let nodes = container["nodes"] as? [[String: Any]]
+        else { return }
+        for node in nodes {
+            guard let id = node["id"] as? String,
+                  let title = node["title"] as? String
+            else { continue }
+            let options = statusOptionsFromProject(node)
+            options.forEach { statusOptions.insert($0) }
+            projectsById[id] = ProjectTaskSyncLinkedProject(
+                title: title,
+                projectURL: node["url"] as? String ?? "",
+                projectNodeId: id,
+                tag: Self.projectTag(title: title),
+                statusOptions: options
+            )
+        }
+    }
+
+    private func statusOptionsFromProject(_ project: [String: Any]) -> [String] {
+        guard let fields = project["fields"] as? [String: Any],
+              let nodes = fields["nodes"] as? [[String: Any]]
+        else { return [] }
+        var options = Set<String>()
+        for node in nodes {
+            guard (node["name"] as? String)?.lowercased() == "status",
+                  let rawOptions = node["options"] as? [[String: Any]]
+            else { continue }
+            for option in rawOptions {
+                if let name = option["name"] as? String, !name.isEmpty {
+                    options.insert(name)
+                }
+            }
+        }
+        return Array(options).sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
+    }
+
+    private func normalizedLinkedProjects(_ settings: ProjectTaskSyncSettings) -> [ProjectTaskSyncLinkedProject] {
+        if !settings.linkedProjects.isEmpty {
+            return settings.linkedProjects
+        }
+        guard let projectURL = settings.projectURL else { return [] }
+        let title = "Project"
+        return [
+            ProjectTaskSyncLinkedProject(
+                title: title,
+                projectURL: projectURL,
+                projectNodeId: settings.projectNodeId,
+                tag: Self.projectTag(title: title),
+                statusOptions: []
+            )
+        ]
+    }
+
+    private func fetchProjectIssueItems(
+        project: ProjectTaskSyncLinkedProject,
+        repo: GitHubRepositoryReference,
+        token: String
+    ) async throws -> [GitHubProjectItem] {
+        guard let projectId = project.projectNodeId else { return [] }
+        var cursor: String?
+        var results: [GitHubProjectItem] = []
+        repeat {
+            let body: [String: Any] = [
+                "query": """
+                query($projectId:ID!,$cursor:String){
+                  node(id:$projectId){
+                    ... on ProjectV2 {
+                      items(first:100, after:$cursor){
+                        pageInfo { hasNextPage endCursor }
+                        nodes{
+                          id
+                          fieldValues(first:30){
+                            nodes{
+                              ... on ProjectV2ItemFieldSingleSelectValue {
+                                name
+                                field { ... on ProjectV2SingleSelectField { name } }
+                              }
+                            }
+                          }
+                          content{
+                            ... on Issue {
+                              id
+                              number
+                              title
+                              body
+                              url
+                              repository { owner { login } name }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+                """,
+                "variables": [
+                    "projectId": projectId,
+                    "cursor": cursor ?? NSNull()
+                ] as [String: Any]
+            ]
+            let object = try await graphQL(body: body, token: token)
+            guard let dataObj = object["data"] as? [String: Any],
+                  let node = dataObj["node"] as? [String: Any],
+                  let items = node["items"] as? [String: Any]
+            else { break }
+            if let nodes = items["nodes"] as? [[String: Any]] {
+                results.append(contentsOf: nodes.compactMap { parseProjectItem($0, project: project, repo: repo) })
+            }
+            let pageInfo = items["pageInfo"] as? [String: Any]
+            let hasNext = pageInfo?["hasNextPage"] as? Bool ?? false
+            cursor = hasNext ? pageInfo?["endCursor"] as? String : nil
+        } while cursor != nil
+        return results
+    }
+
+    private func parseProjectItem(
+        _ node: [String: Any],
+        project: ProjectTaskSyncLinkedProject,
+        repo: GitHubRepositoryReference
+    ) -> GitHubProjectItem? {
+        guard let content = node["content"] as? [String: Any],
+              let issueId = content["id"] as? String,
+              let number = content["number"] as? NSNumber,
+              let title = content["title"] as? String,
+              let url = content["url"] as? String,
+              let repository = content["repository"] as? [String: Any],
+              let owner = repository["owner"] as? [String: Any],
+              let ownerLogin = owner["login"] as? String,
+              let repoName = repository["name"] as? String,
+              ownerLogin.lowercased() == repo.owner.lowercased(),
+              repoName.lowercased() == repo.repo.lowercased()
+        else { return nil }
+        return GitHubProjectItem(
+            project: project,
+            itemId: node["id"] as? String,
+            status: projectItemStatus(node),
+            issueId: issueId,
+            issueNumber: number.intValue,
+            issueURL: url,
+            title: title,
+            body: content["body"] as? String ?? ""
+        )
+    }
+
+    private func projectItemStatus(_ node: [String: Any]) -> String? {
+        guard let fieldValues = node["fieldValues"] as? [String: Any],
+              let nodes = fieldValues["nodes"] as? [[String: Any]]
+        else { return nil }
+        for value in nodes {
+            let field = value["field"] as? [String: Any]
+            guard (field?["name"] as? String)?.lowercased() == "status",
+                  let name = value["name"] as? String,
+                  !name.isEmpty
+            else { continue }
+            return name
+        }
+        return nil
+    }
+
+    private func mergeItems(_ items: [GitHubProjectItem], settings: ProjectTaskSyncSettings) -> TaskSyncExternalTask {
+        let sorted = items.sorted { $0.project.title.localizedCaseInsensitiveCompare($1.project.title) == .orderedAscending }
+        let first = sorted[0]
+        let memberships = sorted.map { item in
+            TaskExternalProjectMembership(
+                projectNodeId: item.project.projectNodeId,
+                projectURL: item.project.projectURL,
+                projectTitle: item.project.title,
+                tag: item.project.tag,
+                status: item.status,
+                itemId: item.itemId
+            )
+        }
+        let status = Self.mappedSloppyStatus(gitHubStatuses: sorted.compactMap(\.status), mappings: settings.inboundStatusMappings)
+        let metadata = TaskExternalMetadata(
+            providerId: id,
+            externalProjectId: first.project.projectNodeId,
+            externalItemId: first.itemId,
+            externalIssueId: first.issueId,
+            externalIssueNumber: first.issueNumber,
+            externalIssueURL: first.issueURL,
+            origin: "github",
+            syncState: "synced",
+            lastSyncedAt: Date(),
+            projectMemberships: memberships
+        )
+        let tags = Array(Set(["github"] + memberships.map(\.tag))).sorted()
+        return TaskSyncExternalTask(
+            title: first.title,
+            description: first.body,
+            status: status,
+            metadata: metadata,
+            tags: tags
+        )
+    }
+
+    static func mappedSloppyStatus(gitHubStatuses: [String], mappings: [String: String]) -> String {
+        let candidates = gitHubStatuses.map { status -> String in
+            let key = status.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            if let mapped = mappings[key]?.trimmingCharacters(in: .whitespacesAndNewlines), !mapped.isEmpty {
+                return mapped
+            }
+            switch key {
+            case "blocked":
+                return ProjectTaskStatus.blocked.rawValue
+            case "in progress", "doing", "active":
+                return ProjectTaskStatus.inProgress.rawValue
+            case "review", "in review", "needs review":
+                return ProjectTaskStatus.needsReview.rawValue
+            case "done", "closed", "complete", "completed":
+                return ProjectTaskStatus.done.rawValue
+            case "ready":
+                return ProjectTaskStatus.ready.rawValue
+            default:
+                return ProjectTaskStatus.backlog.rawValue
+            }
+        }
+        let priority = [
+            ProjectTaskStatus.blocked.rawValue,
+            ProjectTaskStatus.waitingInput.rawValue,
+            ProjectTaskStatus.needsReview.rawValue,
+            ProjectTaskStatus.inProgress.rawValue,
+            ProjectTaskStatus.ready.rawValue,
+            ProjectTaskStatus.backlog.rawValue,
+            ProjectTaskStatus.done.rawValue
+        ]
+        return priority.first(where: { candidates.contains($0) }) ?? ProjectTaskStatus.backlog.rawValue
     }
 
     private func createIssue(

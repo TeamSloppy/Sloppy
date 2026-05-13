@@ -4,6 +4,8 @@ public enum ANSI {
     // Synchronized output (CSI ?2026) for flicker-free updates.
     public static let syncStart = "\u{001B}[?2026h"
     public static let syncEnd = "\u{001B}[?2026l"
+    public static let disableAutowrap = "\u{001B}[?7l"
+    public static let enableAutowrap = "\u{001B}[?7h"
 
     // Clearing helpers
     public static let resetStyle = "\u{001B}[0m"

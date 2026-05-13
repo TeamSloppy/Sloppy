@@ -92,6 +92,23 @@ extension CoreService {
         }
         await heartbeatRunner?.start()
 
+        if taskSyncRunner == nil {
+            taskSyncRunner = TaskSyncRunner(
+                logger: Logger(label: "sloppy.core.task-sync")
+            ) { [weak self] in
+                guard let self else {
+                    return []
+                }
+                return await self.listTaskSyncSchedules()
+            } executor: { [weak self] projectID in
+                guard let self else {
+                    return
+                }
+                await self.runScheduledTaskSync(projectID: projectID)
+            }
+        }
+        await taskSyncRunner?.start()
+
         await runtime.startVisorSupervision(
             tickIntervalSeconds: currentConfig.visor.tickIntervalSeconds,
             workerTimeoutSeconds: currentConfig.visor.workerTimeoutSeconds,
@@ -121,6 +138,7 @@ extension CoreService {
         await memoryOutboxIndexer?.stop()
         await cronRunner?.stop()
         await heartbeatRunner?.stop()
+        await taskSyncRunner?.stop()
         await acpSessionManager.shutdown()
     }
 

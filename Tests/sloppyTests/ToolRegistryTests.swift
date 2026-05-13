@@ -36,7 +36,7 @@ struct ToolRegistryTests {
             "system.list_tools",
             "planning.request_input", "planning.progress_update",
             "cron",
-            "project.list", "project.create", "project.update", "project.delete",
+            "project.list", "project.current", "project.create", "project.update", "project.delete",
             "project.task_list", "project.task_create", "project.task_get",
             "project.task_update", "project.task_cancel", "project.task_delete", "project.escalate_to_user",
             "actor.discuss_with_actor", "actor.conclude_discussion",
@@ -73,12 +73,21 @@ struct ToolRegistryTests {
     @Test("ToolCatalog.knownToolIDs contains expected tools")
     func toolCatalogKnownToolIDs() {
         #expect(ToolCatalog.knownToolIDs.contains("files.read"))
+        #expect(ToolCatalog.knownToolIDs.contains("project.current"))
         #expect(ToolCatalog.knownToolIDs.contains("project.task_list"))
         #expect(ToolCatalog.knownToolIDs.contains("actor.discuss_with_actor"))
         #expect(ToolCatalog.knownToolIDs.contains("mcp.call_tool"))
         #expect(ToolCatalog.knownToolIDs.contains("browser.open"))
         #expect(ToolCatalog.knownToolIDs.contains("browser.screenshot"))
         #expect(ToolCatalog.knownToolIDs.contains("debug.read_logs"))
+    }
+
+    @Test("ToolCatalog schema advertises project.current arguments")
+    func toolCatalogProjectCurrentSchema() throws {
+        let schema = try #require(ToolCatalog.parameterSchemas["project.current"]?.asObject)
+        let properties = try #require(schema["properties"]?.asObject)
+        #expect(properties.keys.contains("channelId"))
+        #expect(properties.keys.contains("topicId"))
     }
 
     @Test("allTools returns unique tools with valid names and parameters")

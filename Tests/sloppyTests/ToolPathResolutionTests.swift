@@ -364,6 +364,50 @@ struct ToolPathResolutionTests {
         #expect(readResult.data?.asObject?["content"]?.asString == "hello")
     }
 
+    @Test("debug tool invocation creates repo debug directory before command writes logs")
+    func debugToolInvocationCreatesRepoDebugDirectory() async throws {
+        let tmp = FileManager.default.temporaryDirectory
+        let repoRoot = tmp.appendingPathComponent("sloppy-debug-project-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: repoRoot, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: repoRoot) }
+
+        let service = CoreService(config: .test, persistenceBuilder: InMemoryCorePersistenceBuilder())
+        let agentID = "test-debug-dir-agent"
+        _ = try await service.createAgent(
+            AgentCreateRequest(id: agentID, displayName: "Debug Dir Agent", role: "assistant")
+        )
+        _ = try await service.createProject(
+            ProjectCreateRequest(id: "debug-dir", name: "Debug Dir", repoPath: repoRoot.path)
+        )
+        let session = try await service.createAgentSession(
+            agentID: agentID,
+            request: AgentSessionCreateRequest(title: "chat", projectId: "debug-dir")
+        )
+
+        let debugURL = repoRoot.appendingPathComponent(".sloppy/debug", isDirectory: true)
+        #expect(!FileManager.default.fileExists(atPath: debugURL.path))
+
+        let result = await service.invokeToolFromRuntime(
+            agentID: agentID,
+            sessionID: session.id,
+            request: ToolInvocationRequest(tool: "runtime.exec", arguments: [
+                "command": .string("bash"),
+                "arguments": .array([
+                    .string("-lc"),
+                    .string("printf '{\"sessionId\":\"test\"}\\n' > .sloppy/debug/debug-test.log"),
+                ]),
+            ]),
+            recordSessionEvents: false,
+            chatMode: .debug
+        )
+
+        #expect(result.ok == true)
+        #expect(result.data?.asObject?["exitCode"]?.asInt == 0)
+        #expect(FileManager.default.fileExists(atPath: debugURL.path))
+        let logURL = debugURL.appendingPathComponent("debug-test.log")
+        #expect((try? String(contentsOf: logURL, encoding: .utf8)) == #"{"sessionId":"test"}"# + "\n")
+    }
+
     @Test("invokeToolFromRuntime restores project roots for task sessions")
     func invokeToolRestoresProjectRootsForTaskSession() async throws {
         let tmp = FileManager.default.temporaryDirectory

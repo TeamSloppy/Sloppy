@@ -175,16 +175,19 @@ public final class TUI: Container {
 
     private func writeFullRender(_ lines: [String], clear: Bool = false) {
         var buffer = ANSI.syncStart
+        buffer += ANSI.disableAutowrap
         if clear {
             buffer += ANSI.clearScrollbackAndScreen
         }
         buffer += lines.joined(separator: "\r\n")
+        buffer += ANSI.enableAutowrap
         buffer += ANSI.syncEnd
         self.terminal.write(buffer)
     }
 
     private func writePartialRender(lines: [String], from start: Int) {
         var buffer = ANSI.syncStart
+        buffer += ANSI.disableAutowrap
         let lineDiff = start - self.cursorRow
         if lineDiff > 0 {
             buffer += ANSI.cursorDown(lineDiff)
@@ -212,6 +215,7 @@ public final class TUI: Container {
             buffer += ANSI.cursorUp(extraLines)
         }
 
+        buffer += ANSI.enableAutowrap
         buffer += ANSI.syncEnd
         self.terminal.write(buffer)
     }

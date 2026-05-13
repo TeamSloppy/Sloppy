@@ -243,6 +243,26 @@ struct ProjectsAPIRouter: APIRouter {
             }
         }
 
+        router.post("/v1/projects/:projectId/task-sync/discover", metadata: RouteMetadata(summary: "Discover project task sync", description: "Discovers GitHub Projects for a Sloppy project repository", tags: ["Projects"])) { request in
+            let projectId = request.pathParam("projectId") ?? ""
+            let payload = request.body.flatMap { CoreRouter.decode($0, as: ProjectTaskSyncDiscoverRequest.self) }
+                ?? ProjectTaskSyncDiscoverRequest()
+            do {
+                let response = try await service.discoverTaskSync(projectID: projectId, request: payload)
+                return CoreRouter.encodable(status: HTTPStatus.ok, payload: response)
+            } catch CoreService.TaskSyncError.manualRepositoryRequired {
+                return CoreRouter.encodable(
+                    status: HTTPStatus.ok,
+                    payload: ProjectTaskSyncDiscoveryResponse(
+                        manualRepositoryRequired: true,
+                        message: "GitHub repository could not be inferred from this Sloppy project."
+                    )
+                )
+            } catch {
+                return CoreRouter.json(status: HTTPStatus.badRequest, payload: ["error": "task_sync_discover_failed", "message": error.localizedDescription])
+            }
+        }
+
         router.post("/v1/projects/:projectId/task-sync/link", metadata: RouteMetadata(summary: "Link project task sync", description: "Links a project to an external task provider", tags: ["Projects"])) { request in
             let projectId = request.pathParam("projectId") ?? ""
             guard let body = request.body,
@@ -253,6 +273,11 @@ struct ProjectsAPIRouter: APIRouter {
             do {
                 let response = try await service.linkTaskSync(projectID: projectId, request: payload)
                 return CoreRouter.encodable(status: HTTPStatus.ok, payload: response)
+            } catch CoreService.TaskSyncError.manualRepositoryRequired {
+                return CoreRouter.json(status: HTTPStatus.badRequest, payload: [
+                    "error": "manual_repository_required",
+                    "message": "GitHub repository could not be inferred. Provide a repository URL or owner/repo."
+                ])
             } catch {
                 return CoreRouter.json(status: HTTPStatus.badRequest, payload: ["error": "task_sync_link_failed", "message": error.localizedDescription])
             }

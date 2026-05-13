@@ -230,6 +230,7 @@ public actor CoreService {
     var visorScheduler: VisorScheduler?
     var cronRunner: CronRunner?
     var heartbeatRunner: HeartbeatRunner?
+    var taskSyncRunner: TaskSyncRunner?
     var memoryOutboxIndexer: MemoryOutboxIndexer?
     var recoveryManager: RecoveryManager
     var oauthModelCache: [String: ProviderModelOption] = [:]

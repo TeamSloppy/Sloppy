@@ -114,6 +114,7 @@ export interface CoreApi {
   updateProject: (projectId: string, payload: AnyRecord) => Promise<AnyRecord | null>;
   fetchProjectTaskSync: (projectId: string) => Promise<AnyRecord | null>;
   updateProjectTaskSync: (projectId: string, payload: AnyRecord) => Promise<AnyRecord | null>;
+  discoverProjectTaskSync: (projectId: string, payload?: AnyRecord) => Promise<AnyRecord | null>;
   linkProjectTaskSync: (projectId: string, payload: AnyRecord) => Promise<AnyRecord | null>;
   unlinkProjectTaskSync: (projectId: string) => Promise<AnyRecord | null>;
   syncProjectTasksNow: (projectId: string) => Promise<AnyRecord | null>;
@@ -801,6 +802,16 @@ export function createCoreApi(): CoreApi {
       const response = await requestJson<AnyRecord, AnyRecord>({
         path: `/v1/projects/${encodeURIComponent(projectId)}/task-sync`,
         method: "PATCH",
+        body: payload
+      });
+      if (!response.ok) return null;
+      return response.data;
+    },
+
+    discoverProjectTaskSync: async (projectId, payload = {}) => {
+      const response = await requestJson<AnyRecord, AnyRecord>({
+        path: `/v1/projects/${encodeURIComponent(projectId)}/task-sync/discover`,
+        method: "POST",
         body: payload
       });
       if (!response.ok) return null;

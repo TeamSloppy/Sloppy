@@ -74,7 +74,6 @@ struct SloppyTUIBootstrap {
         }
 
         let service = CoreService(config: config, configPath: resolvedConfigPath, currentDirectory: homeDirectory)
-        await service.bootstrapChannelPlugins()
 
         return SloppyTUIRuntime(
             service: service,

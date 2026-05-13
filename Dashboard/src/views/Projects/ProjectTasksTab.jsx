@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from "react";
+import ReactMarkdown from "react-markdown";
 import {
-    ACTIVE_WORKER_STATUSES,
     TASK_STATUSES,
     TASK_PRIORITIES,
     TASK_PRIORITY_LABELS,
@@ -11,8 +11,7 @@ import {
     buildTaskCounts,
     buildSwarmGroups,
     formatRelativeTime,
-    sortTasksByDate,
-    workersForProject
+    sortTasksByDate
 } from "./utils";
 import {
     fetchTaskComments,
@@ -28,6 +27,7 @@ import {
     deleteReviewComment,
     createAgentSession,
     postAgentSessionMessage,
+    fetchAgentSessions,
     fetchAgents,
     fetchArchivedTasks
 } from "../../api";
@@ -170,6 +170,173 @@ function DetailDropdown({ label, icon, color, children }) {
     );
 }
 
+function normalizeBulkTag(value) {
+    return String(value || "").trim().replace(/^#+/, "").trim();
+}
+
+function TaskBulkContextMenu({
+    menu,
+    selectedCount,
+    tagOptions,
+    createModalActors,
+    createModalTeams,
+    busy,
+    onClose,
+    onPanelChange,
+    onMove,
+    onAssign,
+    onTag,
+    onArchive,
+    onDelete
+}) {
+    const [tagDraft, setTagDraft] = useState("");
+    const inputRef = useRef(null);
+
+    useEffect(() => {
+        if (menu?.panel === "tag" && inputRef.current) {
+            inputRef.current.focus();
+        }
+    }, [menu?.panel]);
+
+    if (!menu) {
+        return null;
+    }
+
+    const menuWidth = menu.panel === "tag" ? 280 : 260;
+    const menuHeight = menu.panel === "assignee" ? 360 : menu.panel === "status" ? 330 : 300;
+    const left = Math.min(menu.x, Math.max(8, window.innerWidth - menuWidth - 8));
+    const top = Math.min(menu.y, Math.max(8, window.innerHeight - menuHeight - 8));
+    const normalizedTag = normalizeBulkTag(tagDraft);
+
+    return (
+        <div
+            className="project-task-context-menu"
+            style={{ left, top, width: menuWidth }}
+            role="menu"
+            onMouseDown={(event) => event.stopPropagation()}
+            onClick={(event) => event.stopPropagation()}
+        >
+            <div className="project-task-context-menu-head">
+                {menu.panel === "main" ? (
+                    <>
+                        <strong>{selectedCount} selected</strong>
+                        <button type="button" onClick={onClose} aria-label="Close menu">
+                            <span className="material-symbols-rounded" aria-hidden="true">close</span>
+                        </button>
+                    </>
+                ) : (
+                    <>
+                        <button type="button" onClick={() => onPanelChange("main")} aria-label="Back">
+                            <span className="material-symbols-rounded" aria-hidden="true">arrow_back</span>
+                        </button>
+                        <strong>
+                            {menu.panel === "status" ? "Move to" : menu.panel === "assignee" ? "Assign" : "Set tag"}
+                        </strong>
+                    </>
+                )}
+            </div>
+
+            {menu.panel === "main" ? (
+                <div className="project-task-context-menu-list">
+                    <button type="button" onClick={() => onPanelChange("status")} disabled={busy}>
+                        <span className="material-symbols-rounded" aria-hidden="true">drive_file_move</span>
+                        <span>Move to...</span>
+                        <span className="material-symbols-rounded project-task-context-chevron" aria-hidden="true">chevron_right</span>
+                    </button>
+                    <button type="button" onClick={() => onPanelChange("assignee")} disabled={busy}>
+                        <span className="material-symbols-rounded" aria-hidden="true">assignment_ind</span>
+                        <span>Assign...</span>
+                        <span className="material-symbols-rounded project-task-context-chevron" aria-hidden="true">chevron_right</span>
+                    </button>
+                    <button type="button" onClick={() => onPanelChange("tag")} disabled={busy}>
+                        <span className="material-symbols-rounded" aria-hidden="true">sell</span>
+                        <span>Set tag...</span>
+                        <span className="material-symbols-rounded project-task-context-chevron" aria-hidden="true">chevron_right</span>
+                    </button>
+                    <div className="project-task-context-menu-separator" />
+                    <button type="button" onClick={onArchive} disabled={busy}>
+                        <span className="material-symbols-rounded" aria-hidden="true">archive</span>
+                        <span>Archive selected</span>
+                    </button>
+                    <button type="button" className="danger" onClick={onDelete} disabled={busy}>
+                        <span className="material-symbols-rounded" aria-hidden="true">delete</span>
+                        <span>Delete selected</span>
+                    </button>
+                </div>
+            ) : null}
+
+            {menu.panel === "status" ? (
+                <div className="project-task-context-menu-list">
+                    {TASK_STATUSES.map((status) => (
+                        <button key={status.id} type="button" onClick={() => onMove(status.id)} disabled={busy}>
+                            <span className="tcm-status-dot" style={{ background: TASK_STATUS_COLORS[status.id] }} />
+                            <span>{status.title}</span>
+                        </button>
+                    ))}
+                </div>
+            ) : null}
+
+            {menu.panel === "assignee" ? (
+                <div className="project-task-context-menu-list project-task-context-menu-list--scroll">
+                    <button type="button" onClick={() => onAssign("")} disabled={busy}>
+                        <span className="material-symbols-rounded" aria-hidden="true">person_off</span>
+                        <span>Unassigned</span>
+                    </button>
+                    {createModalActors.length > 0 ? <span className="project-task-context-label">Actors</span> : null}
+                    {createModalActors.map((actor) => (
+                        <button key={actor.id} type="button" onClick={() => onAssign(`actor:${actor.id}`)} disabled={busy}>
+                            <span className="material-symbols-rounded" aria-hidden="true">person</span>
+                            <span>{actor.displayName}</span>
+                            <code>{actor.id}</code>
+                        </button>
+                    ))}
+                    {createModalTeams.length > 0 ? <span className="project-task-context-label">Teams</span> : null}
+                    {createModalTeams.map((team) => (
+                        <button key={team.id} type="button" onClick={() => onAssign(`team:${team.id}`)} disabled={busy}>
+                            <span className="material-symbols-rounded" aria-hidden="true">groups</span>
+                            <span>{team.name}</span>
+                            <code>{team.id}</code>
+                        </button>
+                    ))}
+                </div>
+            ) : null}
+
+            {menu.panel === "tag" ? (
+                <form
+                    className="project-task-context-tag-form"
+                    onSubmit={(event) => {
+                        event.preventDefault();
+                        if (normalizedTag) {
+                            onTag(normalizedTag);
+                            setTagDraft("");
+                        }
+                    }}
+                >
+                    <input
+                        ref={inputRef}
+                        value={tagDraft}
+                        onChange={(event) => setTagDraft(event.target.value)}
+                        placeholder="Tag name"
+                    />
+                    <button type="submit" disabled={busy || !normalizedTag}>
+                        Apply
+                    </button>
+                    {tagOptions.length > 0 ? (
+                        <div className="project-task-context-menu-list project-task-context-menu-list--scroll">
+                            {tagOptions.map((tag) => (
+                                <button key={tag} type="button" onClick={() => onTag(tag)} disabled={busy}>
+                                    <span className="material-symbols-rounded" aria-hidden="true">sell</span>
+                                    <span>{tag}</span>
+                                </button>
+                            ))}
+                        </div>
+                    ) : null}
+                </form>
+            ) : null}
+        </div>
+    );
+}
+
 function CommentsTab({ project, task, createModalActors }) {
     const [comments, setComments] = useState([]);
     const [loading, setLoading] = useState(true);
@@ -280,7 +447,9 @@ function CommentsTab({ project, task, createModalActors }) {
                                         <span className="material-symbols-rounded">delete</span>
                                     </button>
                                 </div>
-                                <div className="td-comment-body">{comment.content}</div>
+                                <div className="td-comment-body markdown-body">
+                                    <ReactMarkdown>{comment.content}</ReactMarkdown>
+                                </div>
                             </div>
                         );
                     })}
@@ -401,6 +570,19 @@ function formatActivityValue(field, value, actors) {
     return value;
 }
 
+function buildAgentSessionURL(agentId, sessionId) {
+    const agent = String(agentId || "").trim();
+    const session = String(sessionId || "").trim();
+    if (!agent || !session || typeof window === "undefined") return "";
+    return `${window.location.origin}/agents/${encodeURIComponent(agent)}/chat/${encodeURIComponent(session)}`;
+}
+
+function buildAgentSessionComment(agentName, action, sessionName, sessionURL) {
+    const safeAgentName = String(agentName || "Agent").trim() || "Agent";
+    const safeSessionName = String(sessionName || "session").trim() || "session";
+    return `${safeAgentName} ${action} session [${safeSessionName}](${sessionURL})`;
+}
+
 function ActivityTab({ project, task, createModalActors }) {
     const [activities, setActivities] = useState([]);
     const [loading, setLoading] = useState(true);
@@ -422,8 +604,19 @@ function ActivityTab({ project, task, createModalActors }) {
         return actor ? actor.displayName : actorId;
     };
 
+    const currentStatus = TASK_STATUSES.find((status) => status.id === task.status);
+    const currentStatusLabel = currentStatus?.title || task.status || "Backlog";
+    const currentStatusColor = TASK_STATUS_COLORS[task.status] || "#94a3b8";
+
     return (
         <div className="td-activity-list">
+            <div className="td-activity-status-card">
+                <span className="td-activity-status-label">Current status</span>
+                <span className="td-activity-status-pill">
+                    <span className="tcm-status-dot" style={{ background: currentStatusColor }} />
+                    {currentStatusLabel}
+                </span>
+            </div>
             <div className="td-activity-item">
                 <span className="td-activity-dot td-activity-dot--created" />
                 <span className="td-activity-text">Task created</span>
@@ -556,6 +749,7 @@ function ReviewTab({ project, task, createModalActors }) {
         setSubmitStatus("Sending review...");
 
         const agentId = selectedActor.linkedAgentId;
+        const sessionTitle = `task-review:${projectId}:${taskId}`;
 
         const lines = [
             `**Code review for task: ${task.title || taskId}**`,
@@ -569,7 +763,15 @@ function ReviewTab({ project, task, createModalActors }) {
         const message = lines.join("\n");
 
         try {
-            const session = await createAgentSession(agentId, {});
+            const sessions = await fetchAgentSessions(agentId).catch(() => null);
+            const existingSession = Array.isArray(sessions)
+                ? sessions.find((s) => String(s?.title || "") === sessionTitle)
+                : null;
+            const session = existingSession || await createAgentSession(agentId, {
+                title: sessionTitle,
+                kind: "chat",
+                projectId
+            });
             if (!session) {
                 setSubmitStatus("Failed to create session.");
                 setSubmitting(false);
@@ -580,6 +782,19 @@ function ReviewTab({ project, task, createModalActors }) {
                 content: message,
                 spawnSubSession: false
             });
+            const sessionId = String(session.id || "").trim();
+            const sessionURL = buildAgentSessionURL(agentId, sessionId);
+            if (sessionId && sessionURL) {
+                await addTaskComment(projectId, taskId, {
+                    content: buildAgentSessionComment(
+                        selectedActor.displayName,
+                        existingSession ? "continue" : "started",
+                        session.title || sessionTitle,
+                        sessionURL
+                    ),
+                    authorActorId: "system"
+                });
+            }
             setSubmitStatus("Review sent.");
         } catch {
             setSubmitStatus("Failed to send review.");
@@ -816,9 +1031,7 @@ function TaskDetailView({
     deleteTaskFromModal,
     createModalActors,
     createModalTeams,
-    onOpenReview,
-    workers = [],
-    onWatchAgentTaskSession
+    onOpenReview
 }) {
     const [activeTab, setActiveTab] = useState("comments");
     const [isMobileTaskDetail, setIsMobileTaskDetail] = useState(() =>
@@ -833,29 +1046,6 @@ function TaskDetailView({
     );
     const hasReviewDiff = Boolean(task.worktreeBranch);
     const canShowReviewTab = hasReviewDiff || task.status === "needs_review";
-
-    const projectWorkers = useMemo(() => workersForProject(project, workers), [project, workers]);
-    const workersForTask = useMemo(
-        () => projectWorkers.filter((w) => String(w.taskId || "") === String(task.id || "")),
-        [projectWorkers, task.id]
-    );
-
-    const activeWorker = workersForTask.find((w) =>
-        ACTIVE_WORKER_STATUSES.has(String(w.status || "").toLowerCase())
-    );
-
-    const stalledSessionWorker =
-        task.status === "blocked" || task.status === "waiting_input"
-            ? workersForTask.find((w) => String(w?.channelId || "").trim())
-            : null;
-
-    const watchChannelId = String(activeWorker?.channelId || stalledSessionWorker?.channelId || "").trim();
-
-    const showWatchSession =
-        Boolean(onWatchAgentTaskSession) &&
-        (Boolean(activeWorker) ||
-            ((task.status === "blocked" || task.status === "waiting_input") &&
-                (Boolean(stalledSessionWorker) || Boolean(String(task.claimedAgentId || "").trim()))));
 
     useEffect(() => {
         if (!canShowReviewTab && activeTab === "review") {
@@ -926,6 +1116,10 @@ function TaskDetailView({
         : editDraft.teamId
             ? `team:${editDraft.teamId}`
             : "";
+    const githubIssueURL = task.externalMetadata?.externalIssueURL || "";
+    const githubIssueLabel = task.externalMetadata?.externalIssueNumber
+        ? `GitHub #${task.externalMetadata.externalIssueNumber}`
+        : "Open GitHub Issue";
 
     return (
         <div
@@ -949,16 +1143,17 @@ function TaskDetailView({
                         <span className="td-breadcrumb-current">{task.title || "Untitled"}</span>
                     </div>
                     <div className="td-header-actions">
-                        {showWatchSession && (
-                            <button
-                                type="button"
+                        {githubIssueURL ? (
+                            <a
                                 className="task-review-open-btn"
-                                onClick={() => onWatchAgentTaskSession(project, task, watchChannelId)}
+                                href={githubIssueURL}
+                                target="_blank"
+                                rel="noreferrer"
                             >
-                                <span className="material-symbols-rounded" aria-hidden="true">visibility</span>
-                                Watch session
-                            </button>
-                        )}
+                                <span className="material-symbols-rounded" aria-hidden="true">open_in_new</span>
+                                {githubIssueLabel}
+                            </a>
+                        ) : null}
                         {task.status === "needs_review" && onOpenReview && (
                             <button
                                 type="button"
@@ -1040,7 +1235,7 @@ function TaskDetailView({
                             onClick={() => setActiveTab("activity")}
                         >
                             <span className="material-symbols-rounded td-tab-icon">history</span>
-                            Activity
+                            History
                         </button>
                         {canShowReviewTab && (
                             <button
@@ -1318,6 +1513,21 @@ function TaskDetailView({
                             <span className="td-prop-value td-prop-value--static">{task.swarmId}</span>
                         </div>
                     )}
+
+                    {githubIssueURL ? (
+                        <div className="td-prop-row">
+                            <span className="td-prop-label">GitHub</span>
+                            <a
+                                className="td-prop-value"
+                                href={githubIssueURL}
+                                target="_blank"
+                                rel="noreferrer"
+                            >
+                                <span className="material-symbols-rounded td-prop-value-icon">open_in_new</span>
+                                <span>{githubIssueLabel}</span>
+                            </a>
+                        </div>
+                    ) : null}
                 </div>
 
                 <div className="td-sidebar-danger">
@@ -1362,11 +1572,11 @@ export function ProjectTasksTab({
     openTaskDetails,
     openCreateTaskModal,
     moveTask,
+    bulkUpdateTasks,
+    bulkDeleteTasks,
     createModalActors,
     createModalTeams,
-    onOpenReview,
-    workers = [],
-    onWatchAgentTaskSession
+    onOpenReview
 }) {
     const [agentDirectory, setAgentDirectory] = useState({});
     const [showArchive, setShowArchive] = useState(false);
@@ -1374,6 +1584,12 @@ export function ProjectTasksTab({
     const [archiveLoading, setArchiveLoading] = useState(false);
     const [dragGhostTask, setDragGhostTask] = useState(null);
     const [dragOverColumnId, setDragOverColumnId] = useState(null);
+    const [tagFilter, setTagFilter] = useState("");
+    const [assigneeFilter, setAssigneeFilter] = useState("");
+    const [selectionMode, setSelectionMode] = useState(false);
+    const [selectedTaskIds, setSelectedTaskIds] = useState(() => new Set());
+    const [contextMenu, setContextMenu] = useState(null);
+    const [bulkBusy, setBulkBusy] = useState(false);
 
     useEffect(() => {
         let cancelled = false;
@@ -1414,9 +1630,216 @@ export function ProjectTasksTab({
         [project.tasks]
     );
 
-    const taskCounts = buildTaskCounts(activeTasks);
-    const swarmGroups = buildSwarmGroups(activeTasks);
+    const tagOptions = useMemo(() => {
+        const tags = new Set();
+        activeTasks.forEach((task) => {
+            (task.tags || []).forEach((tag) => {
+                const normalized = String(tag || "").trim();
+                if (normalized) tags.add(normalized);
+            });
+        });
+        return Array.from(tags).sort((a, b) => a.localeCompare(b));
+    }, [activeTasks]);
+
+    const assigneeOptions = useMemo(() => {
+        const options = new Map();
+        activeTasks.forEach((task) => {
+            if (task.actorId) {
+                const actor = createModalActors.find((a) => a.id === task.actorId);
+                options.set(`actor:${task.actorId}`, `Actor: ${actor?.displayName || task.actorId}`);
+            }
+            if (task.teamId) {
+                const team = createModalTeams.find((t) => t.id === task.teamId);
+                options.set(`team:${task.teamId}`, `Team: ${team?.name || task.teamId}`);
+            }
+            if (task.claimedActorId) {
+                const actor = createModalActors.find((a) => a.id === task.claimedActorId);
+                options.set(`claimedActor:${task.claimedActorId}`, `Claimed actor: ${actor?.displayName || task.claimedActorId}`);
+            }
+            if (task.claimedAgentId) {
+                const agent = agentDirectory[task.claimedAgentId];
+                options.set(`agent:${task.claimedAgentId}`, `Agent: ${agent?.displayName || task.claimedAgentId}`);
+            }
+        });
+        return Array.from(options, ([id, label]) => ({ id, label })).sort((a, b) => a.label.localeCompare(b.label));
+    }, [activeTasks, createModalActors, createModalTeams, agentDirectory]);
+
+    const filteredActiveTasks = useMemo(() => {
+        return activeTasks.filter((task) => {
+            if (tagFilter && !(task.tags || []).includes(tagFilter)) {
+                return false;
+            }
+            if (assigneeFilter) {
+                const matches =
+                    (assigneeFilter.startsWith("actor:") && task.actorId === assigneeFilter.slice("actor:".length)) ||
+                    (assigneeFilter.startsWith("team:") && task.teamId === assigneeFilter.slice("team:".length)) ||
+                    (assigneeFilter.startsWith("claimedActor:") && task.claimedActorId === assigneeFilter.slice("claimedActor:".length)) ||
+                    (assigneeFilter.startsWith("agent:") && task.claimedAgentId === assigneeFilter.slice("agent:".length));
+                if (!matches) return false;
+            }
+            return true;
+        });
+    }, [activeTasks, tagFilter, assigneeFilter]);
+
+    const activeTaskIdSet = useMemo(
+        () => new Set(activeTasks.map((task) => String(task.id || "").trim()).filter(Boolean)),
+        [activeTasks]
+    );
+    const selectedTaskIdList = useMemo(
+        () => Array.from(selectedTaskIds).filter((id) => activeTaskIdSet.has(id)),
+        [selectedTaskIds, activeTaskIdSet]
+    );
+    const selectedTaskCount = selectedTaskIdList.length;
+    const selectedTaskIdSet = useMemo(() => new Set(selectedTaskIdList), [selectedTaskIdList]);
+
+    useEffect(() => {
+        setSelectedTaskIds((previous) => {
+            let changed = false;
+            const next = new Set();
+            previous.forEach((id) => {
+                if (activeTaskIdSet.has(id)) {
+                    next.add(id);
+                } else {
+                    changed = true;
+                }
+            });
+            return changed ? next : previous;
+        });
+    }, [activeTaskIdSet]);
+
+    useEffect(() => {
+        if (!contextMenu) {
+            return;
+        }
+        function closeMenu() {
+            setContextMenu(null);
+        }
+        function handleKeyDown(event) {
+            if (event.key === "Escape") {
+                setContextMenu(null);
+            }
+        }
+        window.addEventListener("mousedown", closeMenu);
+        window.addEventListener("scroll", closeMenu, true);
+        window.addEventListener("resize", closeMenu);
+        window.addEventListener("keydown", handleKeyDown);
+        return () => {
+            window.removeEventListener("mousedown", closeMenu);
+            window.removeEventListener("scroll", closeMenu, true);
+            window.removeEventListener("resize", closeMenu);
+            window.removeEventListener("keydown", handleKeyDown);
+        };
+    }, [contextMenu]);
+
+    const taskCounts = buildTaskCounts(filteredActiveTasks);
+    const swarmGroups = buildSwarmGroups(filteredActiveTasks);
     const selectedTaskId = selectedTask ? String(selectedTask.id || "").trim() : "";
+    const hasTaskFilters = Boolean(tagFilter || assigneeFilter);
+
+    function clearSelection() {
+        setSelectedTaskIds(new Set());
+        setContextMenu(null);
+    }
+
+    function toggleTaskSelection(taskId, forceSelected = null) {
+        const normalized = String(taskId || "").trim();
+        if (!normalized) {
+            return;
+        }
+        setSelectedTaskIds((previous) => {
+            const next = new Set(previous);
+            const shouldSelect = forceSelected == null ? !next.has(normalized) : forceSelected;
+            if (shouldSelect) {
+                next.add(normalized);
+            } else {
+                next.delete(normalized);
+            }
+            return next;
+        });
+    }
+
+    function openTaskContextMenu(event, task) {
+        event.preventDefault();
+        event.stopPropagation();
+        const taskId = String(task?.id || "").trim();
+        if (!taskId) {
+            return;
+        }
+        const taskIds = selectedTaskIdSet.has(taskId) && selectedTaskIdList.length > 0
+            ? selectedTaskIdList
+            : [taskId];
+        setSelectionMode(true);
+        setSelectedTaskIds(new Set(taskIds));
+        setContextMenu({
+            x: event.clientX,
+            y: event.clientY,
+            taskIds,
+            panel: "main"
+        });
+    }
+
+    async function runBulkUpdate(payloadBuilder, successMessage) {
+        const taskIds = contextMenu?.taskIds?.length ? contextMenu.taskIds : selectedTaskIdList;
+        if (!taskIds.length || typeof bulkUpdateTasks !== "function") {
+            return;
+        }
+        setBulkBusy(true);
+        const ok = await bulkUpdateTasks(taskIds, payloadBuilder, successMessage);
+        setBulkBusy(false);
+        if (ok !== false) {
+            clearSelection();
+            setSelectionMode(false);
+        }
+    }
+
+    async function runBulkDelete() {
+        const taskIds = contextMenu?.taskIds?.length ? contextMenu.taskIds : selectedTaskIdList;
+        if (!taskIds.length || typeof bulkDeleteTasks !== "function") {
+            return;
+        }
+        setBulkBusy(true);
+        const ok = await bulkDeleteTasks(taskIds);
+        setBulkBusy(false);
+        if (ok !== false) {
+            clearSelection();
+            setSelectionMode(false);
+        }
+    }
+
+    function assignSelectedTasks(token) {
+        const value = String(token || "").trim();
+        if (!value) {
+            runBulkUpdate({ actorId: "", teamId: "" }, `${selectedTaskCount} task${selectedTaskCount === 1 ? "" : "s"} unassigned.`);
+            return;
+        }
+        if (value.startsWith("actor:")) {
+            runBulkUpdate(
+                { actorId: value.slice("actor:".length), teamId: "" },
+                `${selectedTaskCount} task${selectedTaskCount === 1 ? "" : "s"} assigned.`
+            );
+            return;
+        }
+        if (value.startsWith("team:")) {
+            runBulkUpdate(
+                { actorId: "", teamId: value.slice("team:".length) },
+                `${selectedTaskCount} task${selectedTaskCount === 1 ? "" : "s"} assigned.`
+            );
+        }
+    }
+
+    function tagSelectedTasks(tag) {
+        const normalizedTag = normalizeBulkTag(tag);
+        if (!normalizedTag) {
+            return;
+        }
+        runBulkUpdate((task) => {
+            const existingTags = Array.isArray(task?.tags) ? task.tags : [];
+            const nextTags = existingTags.some((item) => item.toLowerCase() === normalizedTag.toLowerCase())
+                ? existingTags
+                : [...existingTags, normalizedTag];
+            return { tags: nextTags };
+        }, `Tag "${normalizedTag}" applied to ${selectedTaskCount} task${selectedTaskCount === 1 ? "" : "s"}.`);
+    }
 
     if (selectedTask) {
         return (
@@ -1433,8 +1856,6 @@ export function ProjectTasksTab({
                 createModalActors={createModalActors}
                 createModalTeams={createModalTeams}
                 onOpenReview={onOpenReview}
-                workers={workers}
-                onWatchAgentTaskSession={onWatchAgentTaskSession}
             />
         );
     }
@@ -1492,6 +1913,22 @@ export function ProjectTasksTab({
                     <div className="project-kanban-head-actions">
                         <button
                             type="button"
+                            className={`project-task-selection-toggle${selectionMode ? " active" : ""}`}
+                            onClick={() => {
+                                setSelectionMode((value) => !value);
+                                setContextMenu(null);
+                                if (selectionMode) {
+                                    clearSelection();
+                                }
+                            }}
+                        >
+                            <span className="material-symbols-rounded" aria-hidden="true">
+                                {selectionMode ? "check_box" : "check_box_outline_blank"}
+                            </span>
+                            Select
+                        </button>
+                        <button
+                            type="button"
                             className={`project-task-archive-toggle-btn${showArchive ? " active" : ""}`}
                             onClick={handleToggleArchive}
                         >
@@ -1503,6 +1940,118 @@ export function ProjectTasksTab({
                         </button>
                     </div>
                 </div>
+
+                <div className="project-task-filter-bar">
+                    <DetailDropdown
+                        label={tagFilter || "All tags"}
+                        icon="sell"
+                    >
+                        <li
+                            className={`tcm-dropdown-item ${!tagFilter ? "selected" : ""}`}
+                            onMouseDown={(e) => {
+                                e.preventDefault();
+                                setTagFilter("");
+                            }}
+                        >
+                            <span className="material-symbols-rounded tcm-dropdown-item-icon">sell</span>
+                            <span>All tags</span>
+                            {!tagFilter && <span className="tcm-dropdown-check">✓</span>}
+                        </li>
+                        {tagOptions.map((tag) => (
+                            <li
+                                key={tag}
+                                className={`tcm-dropdown-item ${tagFilter === tag ? "selected" : ""}`}
+                                onMouseDown={(e) => {
+                                    e.preventDefault();
+                                    setTagFilter(tag);
+                                }}
+                            >
+                                <span className="material-symbols-rounded tcm-dropdown-item-icon">sell</span>
+                                <span>{tag}</span>
+                                {tagFilter === tag && <span className="tcm-dropdown-check">✓</span>}
+                            </li>
+                        ))}
+                    </DetailDropdown>
+                    <DetailDropdown
+                        label={assigneeOptions.find((option) => option.id === assigneeFilter)?.label || "All assignees"}
+                        icon="person"
+                    >
+                        <li
+                            className={`tcm-dropdown-item ${!assigneeFilter ? "selected" : ""}`}
+                            onMouseDown={(e) => {
+                                e.preventDefault();
+                                setAssigneeFilter("");
+                            }}
+                        >
+                            <span className="material-symbols-rounded tcm-dropdown-item-icon">person</span>
+                            <span>All assignees</span>
+                            {!assigneeFilter && <span className="tcm-dropdown-check">✓</span>}
+                        </li>
+                        {assigneeOptions.map((option) => (
+                            <li
+                                key={option.id}
+                                className={`tcm-dropdown-item ${assigneeFilter === option.id ? "selected" : ""}`}
+                                onMouseDown={(e) => {
+                                    e.preventDefault();
+                                    setAssigneeFilter(option.id);
+                                }}
+                            >
+                                <span className="material-symbols-rounded tcm-dropdown-item-icon">person</span>
+                                <span>{option.label}</span>
+                                {assigneeFilter === option.id && <span className="tcm-dropdown-check">✓</span>}
+                            </li>
+                        ))}
+                    </DetailDropdown>
+                    {hasTaskFilters ? (
+                        <button
+                            type="button"
+                            className="project-task-filter-clear"
+                            onClick={() => {
+                                setTagFilter("");
+                                setAssigneeFilter("");
+                            }}
+                        >
+                            <span className="material-symbols-rounded" aria-hidden="true">filter_alt_off</span>
+                            Clear
+                        </button>
+                    ) : null}
+                </div>
+
+                {selectionMode ? (
+                    <div className="project-task-selection-bar">
+                        <span>
+                            <span className="material-symbols-rounded" aria-hidden="true">checklist</span>
+                            {selectedTaskCount} selected
+                        </span>
+                        <button
+                            type="button"
+                            onClick={() => {
+                                if (selectedTaskCount > 0) {
+                                    runBulkUpdate(
+                                        { isArchived: true },
+                                        `${selectedTaskCount} task${selectedTaskCount === 1 ? "" : "s"} archived.`
+                                    );
+                                }
+                            }}
+                            disabled={selectedTaskCount === 0 || bulkBusy}
+                        >
+                            <span className="material-symbols-rounded" aria-hidden="true">archive</span>
+                            Archive
+                        </button>
+                        <button
+                            type="button"
+                            className="danger"
+                            onClick={runBulkDelete}
+                            disabled={selectedTaskCount === 0 || bulkBusy}
+                        >
+                            <span className="material-symbols-rounded" aria-hidden="true">delete</span>
+                            Delete
+                        </button>
+                        <button type="button" onClick={clearSelection} disabled={selectedTaskCount === 0 || bulkBusy}>
+                            Clear
+                        </button>
+                    </div>
+                ) : null}
 
                 {swarmGroups.length > 0 ? (
                     <section className="project-swarm-overview">
@@ -1535,7 +2084,7 @@ export function ProjectTasksTab({
 
                 <div className="project-kanban-board">
                     {TASK_STATUSES.map((column) => {
-                        const tasks = sortTasksByDate(activeTasks.filter((task) => task.status === column.id)).sort((left, right) => {
+                        const tasks = sortTasksByDate(filteredActiveTasks.filter((task) => task.status === column.id)).sort((left, right) => {
                             if (left.swarmId && right.swarmId && left.swarmId !== right.swarmId) {
                                 return left.swarmId.localeCompare(right.swarmId);
                             }
@@ -1619,7 +2168,7 @@ export function ProjectTasksTab({
                                     ) : null}
                                     {tasks.length === 0 ? (
                                         dragOverColumnId === column.id && dragGhostTask ? null : (
-                                            <p className="placeholder-text">No tasks</p>
+                                            <p className="placeholder-text">{hasTaskFilters ? "No tasks match filters" : "No tasks"}</p>
                                         )
                                     ) : (
                                         tasks.map((task, index) => {
@@ -1632,18 +2181,35 @@ export function ProjectTasksTab({
                                                     ) : null}
                                                     <article
                                                         className={`project-kanban-task project-kanban-task--clickable hover-levitate ${selectedTaskId && selectedTaskId === String(task.id || "").trim() ? "project-kanban-task--selected" : ""
-                                                            }`}
+                                                            } ${selectedTaskIdSet.has(String(task.id || "").trim()) ? "project-kanban-task--multi-selected" : ""}`}
                                                         role="button"
                                                         tabIndex={0}
-                                                        draggable
-                                                        onClick={() => openTaskDetails(task)}
+                                                        draggable={!selectionMode}
+                                                        onClick={(event) => {
+                                                            if (selectionMode || event.metaKey || event.ctrlKey) {
+                                                                event.preventDefault();
+                                                                setSelectionMode(true);
+                                                                toggleTaskSelection(task.id);
+                                                                return;
+                                                            }
+                                                            openTaskDetails(task);
+                                                        }}
+                                                        onContextMenu={(event) => openTaskContextMenu(event, task)}
                                                         onKeyDown={(event) => {
                                                             if (event.key === "Enter" || event.key === " ") {
                                                                 event.preventDefault();
+                                                                if (selectionMode) {
+                                                                    toggleTaskSelection(task.id);
+                                                                    return;
+                                                                }
                                                                 openTaskDetails(task);
                                                             }
                                                         }}
                                                         onDragStart={(event) => {
+                                                            if (selectionMode) {
+                                                                event.preventDefault();
+                                                                return;
+                                                            }
                                                             event.dataTransfer.setData("text/project-task-id", task.id);
                                                             event.dataTransfer.effectAllowed = "move";
                                                             setDragGhostTask(task);
@@ -1655,7 +2221,24 @@ export function ProjectTasksTab({
                                                         }}
                                                     >
                                                         <div className="project-task-card-top">
-                                                            <span className="project-task-id">#{task.id}</span>
+                                                            <span className="project-task-card-left">
+                                                                {selectionMode ? (
+                                                                    <button
+                                                                        type="button"
+                                                                        className="project-task-select-box"
+                                                                        aria-label={selectedTaskIdSet.has(String(task.id || "").trim()) ? "Deselect task" : "Select task"}
+                                                                        onClick={(event) => {
+                                                                            event.stopPropagation();
+                                                                            toggleTaskSelection(task.id);
+                                                                        }}
+                                                                    >
+                                                                        <span className="material-symbols-rounded" aria-hidden="true">
+                                                                            {selectedTaskIdSet.has(String(task.id || "").trim()) ? "check_box" : "check_box_outline_blank"}
+                                                                        </span>
+                                                                    </button>
+                                                                ) : null}
+                                                                <span className="project-task-id">#{task.id}</span>
+                                                            </span>
                                                             <span className="project-task-card-open">
                                                                 <span className="material-symbols-rounded" aria-hidden="true">
                                                                     open_in_new
@@ -1693,6 +2276,15 @@ export function ProjectTasksTab({
                                                                     {TASK_KINDS.find((k) => k.id === task.kind)?.title || task.kind}
                                                                 </span>
                                                             )}
+                                                            {Array.isArray(task.tags) && task.tags.slice(0, 4).map((tag) => (
+                                                                <span key={tag} className="project-task-tag-badge">
+                                                                    <span className="material-symbols-rounded" aria-hidden="true">sell</span>
+                                                                    {tag}
+                                                                </span>
+                                                            ))}
+                                                            {Array.isArray(task.tags) && task.tags.length > 4 ? (
+                                                                <span className="project-task-tag-badge">+{task.tags.length - 4}</span>
+                                                            ) : null}
                                                             {task.externalMetadata?.providerId === "github" ? (
                                                                 task.externalMetadata.externalIssueURL ? (
                                                                     <a
@@ -1806,6 +2398,28 @@ export function ProjectTasksTab({
                         );
                     })}
                 </div>
+
+                <TaskBulkContextMenu
+                    menu={contextMenu}
+                    selectedCount={contextMenu?.taskIds?.length || selectedTaskCount}
+                    tagOptions={tagOptions}
+                    createModalActors={createModalActors}
+                    createModalTeams={createModalTeams}
+                    busy={bulkBusy}
+                    onClose={() => setContextMenu(null)}
+                    onPanelChange={(panel) => setContextMenu((current) => current ? { ...current, panel } : current)}
+                    onMove={(status) => runBulkUpdate(
+                        { status },
+                        `${contextMenu?.taskIds?.length || selectedTaskCount} task${(contextMenu?.taskIds?.length || selectedTaskCount) === 1 ? "" : "s"} moved.`
+                    )}
+                    onAssign={assignSelectedTasks}
+                    onTag={tagSelectedTasks}
+                    onArchive={() => runBulkUpdate(
+                        { isArchived: true },
+                        `${contextMenu?.taskIds?.length || selectedTaskCount} task${(contextMenu?.taskIds?.length || selectedTaskCount) === 1 ? "" : "s"} archived.`
+                    )}
+                    onDelete={runBulkDelete}
+                />
 
                 {showArchive && (
                     <section className="project-task-archive-section">

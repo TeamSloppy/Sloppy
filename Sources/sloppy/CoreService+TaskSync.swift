@@ -3,13 +3,33 @@ import PluginSDK
 import Protocols
 
 extension CoreService {
-    public enum TaskSyncError: Error {
+    public enum TaskSyncError: LocalizedError {
         case invalidProjectID
         case invalidPayload
         case projectNotFound
         case unsupportedProvider
         case tokenMissing
+        case manualRepositoryRequired
         case signatureInvalid
+
+        public var errorDescription: String? {
+            switch self {
+            case .invalidProjectID:
+                return "Invalid project ID."
+            case .invalidPayload:
+                return "Invalid task sync payload."
+            case .projectNotFound:
+                return "Project not found."
+            case .unsupportedProvider:
+                return "Unsupported task sync provider."
+            case .tokenMissing:
+                return "GitHub token missing."
+            case .manualRepositoryRequired:
+                return "GitHub repository could not be inferred. Provide a repository URL or owner/repo."
+            case .signatureInvalid:
+                return "GitHub webhook signature is invalid."
+            }
+        }
     }
 
     public func getTaskSyncSettings(projectID: String) async throws -> ProjectTaskSyncSettings {
@@ -25,17 +45,49 @@ extension CoreService {
         var settings = project.taskSyncSettings
         if let enabled = request.enabled { settings.enabled = enabled }
         if request.providerId != nil { settings.providerId = trimmedOrNil(request.providerId) }
+        if request.repositoryURL != nil { settings.repositoryURL = trimmedOrNil(request.repositoryURL) }
+        if request.repositorySlug != nil { settings.repositorySlug = trimmedOrNil(request.repositorySlug) }
         if request.projectURL != nil { settings.projectURL = trimmedOrNil(request.projectURL) }
         if request.projectNodeId != nil { settings.projectNodeId = trimmedOrNil(request.projectNodeId) }
         if request.defaultRepo != nil { settings.defaultRepo = trimmedOrNil(request.defaultRepo) }
         if let tokenMode = request.tokenMode { settings.tokenMode = tokenMode }
         if let mappings = request.statusMappings { settings.statusMappings = normalizedStatusMappings(mappings) }
+        if let mappings = request.inboundStatusMappings { settings.inboundStatusMappings = normalizedStatusMappings(mappings) }
+        if let linkedProjects = request.linkedProjects { settings.linkedProjects = linkedProjects }
+        if let schedule = request.syncSchedule { settings.syncSchedule = normalizedTaskSyncSchedule(schedule) }
         settings.health = ProjectTaskSyncHealth(status: "configured", checkedAt: Date())
         project.taskSyncSettings = masked(settings, projectID: project.id)
         project.updatedAt = Date()
         await store.saveProject(project)
         await kanbanEventService.push(KanbanEvent(type: .projectUpdated, projectId: project.id))
         return ProjectTaskSyncResponse(project: project, settings: project.taskSyncSettings)
+    }
+
+    public func discoverTaskSync(
+        projectID: String,
+        request: ProjectTaskSyncDiscoverRequest
+    ) async throws -> ProjectTaskSyncDiscoveryResponse {
+        guard request.providerId == "github" else { throw TaskSyncError.unsupportedProvider }
+        let project = try await taskSyncProject(projectID)
+        let tokenMode = request.tokenMode ?? project.taskSyncSettings.tokenMode
+        let token = resolvedTaskSyncToken(projectID: project.id, providerId: request.providerId, tokenMode: tokenMode)
+        guard token != nil else { throw TaskSyncError.tokenMissing }
+        guard let repo = try resolvedGitHubRepository(for: project, manualRepositoryURL: request.repositoryURL) else {
+            return ProjectTaskSyncDiscoveryResponse(
+                manualRepositoryRequired: true,
+                message: "GitHub repository could not be inferred from this Sloppy project."
+            )
+        }
+        let provider = GitHubProjectTaskSyncProvider()
+        let discovery = try await provider.discoverProjects(repositoryURL: repo.slug, token: token)
+        return ProjectTaskSyncDiscoveryResponse(
+            repositoryURL: discovery.repository.url,
+            repositorySlug: discovery.repository.slug,
+            projects: discovery.projects,
+            statusOptions: discovery.statusOptions,
+            manualRepositoryRequired: false,
+            message: discovery.projects.isEmpty ? "No GitHub Projects were found for this repository or owner." : nil
+        )
     }
 
     public func linkTaskSync(
@@ -47,23 +99,56 @@ extension CoreService {
         let tokenMode = request.tokenMode ?? .inherit
         let provider = GitHubProjectTaskSyncProvider()
         let token = resolvedTaskSyncToken(projectID: project.id, providerId: request.providerId, tokenMode: tokenMode)
+        let legacyProjectURL = request.projectURL?.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard token != nil || !(legacyProjectURL ?? "").isEmpty else { throw TaskSyncError.tokenMissing }
         let fallbackRepo = try request.defaultRepo
+            ?? resolvedGitHubRepository(for: project, manualRepositoryURL: request.repositoryURL)?.slug
             ?? defaultGitHubRepoSlug(for: project)
-        let descriptor = try await provider.resolveProject(
-            url: request.projectURL,
-            token: token,
-            defaultRepo: fallbackRepo
-        )
+        guard let repoSlug = fallbackRepo else { throw TaskSyncError.manualRepositoryRequired }
+        let repo = try GitHubProjectTaskSyncProvider.parseRepository(repoSlug)
+        let linkedProjects: [ProjectTaskSyncLinkedProject]
+        let projectURL: String?
+        let projectNodeId: String?
+        if let legacyProjectURL, !legacyProjectURL.isEmpty {
+            let descriptor = try await provider.resolveProject(
+                url: legacyProjectURL,
+                token: token,
+                defaultRepo: repoSlug
+            )
+            let title = descriptor.title ?? "Project"
+            let linked = ProjectTaskSyncLinkedProject(
+                title: title,
+                projectURL: descriptor.projectURL,
+                projectNodeId: descriptor.projectNodeId,
+                tag: GitHubProjectTaskSyncProvider.projectTag(title: title),
+                statusOptions: descriptor.statusOptions
+            )
+            linkedProjects = [linked]
+            projectURL = descriptor.projectURL
+            projectNodeId = descriptor.projectNodeId
+        } else {
+            let discovery = try await provider.discoverProjects(repositoryURL: repo.slug, token: token)
+            linkedProjects = discovery.projects
+            projectURL = discovery.projects.first?.projectURL
+            projectNodeId = discovery.projects.first?.projectNodeId
+        }
         let secret = existingWebhookSecret(projectID: project.id, providerId: request.providerId) ?? UUID().uuidString.replacingOccurrences(of: "-", with: "")
         try saveWebhookSecret(secret, projectID: project.id, providerId: request.providerId)
+        var schedule = request.syncSchedule ?? ProjectTaskSyncSchedule(enabled: true, intervalMinutes: 15)
+        schedule.intervalMinutes = max(1, schedule.intervalMinutes)
         let settings = ProjectTaskSyncSettings(
             enabled: true,
             providerId: request.providerId,
-            projectURL: descriptor.projectURL,
-            projectNodeId: descriptor.projectNodeId,
-            defaultRepo: descriptor.defaultRepo ?? fallbackRepo,
+            repositoryURL: repo.url,
+            repositorySlug: repo.slug,
+            projectURL: projectURL,
+            projectNodeId: projectNodeId,
+            defaultRepo: repo.slug,
             tokenMode: tokenMode,
             statusMappings: normalizedStatusMappings(request.statusMappings ?? [:]),
+            inboundStatusMappings: normalizedStatusMappings(request.inboundStatusMappings ?? request.statusMappings ?? [:]),
+            linkedProjects: linkedProjects,
+            syncSchedule: schedule,
             webhook: ProjectTaskSyncWebhookState(
                 enabled: true,
                 webhookURL: "/v1/task-sync/github/webhook",
@@ -71,8 +156,8 @@ extension CoreService {
                 manualSetupRequired: true
             ),
             health: ProjectTaskSyncHealth(
-                status: descriptor.projectNodeId == nil && token != nil ? "partial" : "linked",
-                message: descriptor.projectNodeId == nil ? "Project URL parsed; GitHub metadata unavailable." : nil,
+                status: linkedProjects.isEmpty ? "partial" : "linked",
+                message: linkedProjects.isEmpty ? "No GitHub Projects were found for \(repo.slug)." : "Linked \(linkedProjects.count) GitHub Project\(linkedProjects.count == 1 ? "" : "s").",
                 checkedAt: Date()
             )
         )
@@ -115,7 +200,7 @@ extension CoreService {
                         project.tasks[index].status = status
                     }
                     project.tasks[index].externalMetadata = external.metadata
-                    project.tasks[index].tags = external.tags
+                    project.tasks[index].tags = mergedTaskSyncTags(existing: project.tasks[index].tags, incoming: external.tags)
                     project.tasks[index].updatedAt = Date()
                     updatedCount += 1
                 } else {
@@ -133,6 +218,7 @@ extension CoreService {
                     importedCount += 1
                 }
             }
+            project.taskSyncSettings.syncSchedule.lastRunAt = Date()
             project.taskSyncSettings.health = ProjectTaskSyncHealth(status: "ok", checkedAt: Date())
             project.updatedAt = Date()
             await store.saveProject(project)
@@ -142,6 +228,29 @@ extension CoreService {
             project.updatedAt = Date()
             await store.saveProject(project)
             return ProjectTaskSyncNowResponse(message: error.localizedDescription)
+        }
+    }
+
+    func listTaskSyncSchedules() async -> [ProjectTaskSyncScheduleEntry] {
+        await store.listProjects().compactMap { project in
+            let settings = project.taskSyncSettings
+            guard settings.enabled,
+                  settings.providerId == "github",
+                  settings.syncSchedule.enabled
+            else { return nil }
+            return ProjectTaskSyncScheduleEntry(
+                projectId: project.id,
+                intervalMinutes: settings.syncSchedule.intervalMinutes,
+                lastRunAt: settings.syncSchedule.lastRunAt
+            )
+        }
+    }
+
+    func runScheduledTaskSync(projectID: String) async {
+        do {
+            _ = try await syncTaskSyncNow(projectID: projectID)
+        } catch {
+            logger.warning("task_sync.scheduled_failed", metadata: ["project_id": .string(projectID), "error": .string(error.localizedDescription)])
         }
     }
 
@@ -228,6 +337,7 @@ extension CoreService {
         else { return }
         var task = project.tasks[index]
         guard task.externalMetadata?.origin != "github" else { return }
+        guard task.externalMetadata?.externalIssueId != nil || task.externalMetadata?.externalIssueNumber != nil else { return }
         let provider = GitHubProjectTaskSyncProvider()
         let token = resolvedTaskSyncToken(projectID: project.id, providerId: "github", tokenMode: project.taskSyncSettings.tokenMode)
         do {
@@ -388,11 +498,40 @@ extension CoreService {
         }
     }
 
+    private func normalizedTaskSyncSchedule(_ schedule: ProjectTaskSyncSchedule) -> ProjectTaskSyncSchedule {
+        ProjectTaskSyncSchedule(
+            enabled: schedule.enabled,
+            intervalMinutes: max(1, schedule.intervalMinutes),
+            lastRunAt: schedule.lastRunAt
+        )
+    }
+
+    private func mergedTaskSyncTags(existing: [String], incoming: [String]) -> [String] {
+        let preserved = existing.filter { !$0.lowercased().hasPrefix("gh:") && $0 != "github" }
+        return Array(Set(preserved + incoming)).sorted()
+    }
+
     private func defaultGitHubRepoSlug(for project: ProjectRecord) throws -> String? {
         guard let repoPath = project.repoPath, !repoPath.isEmpty else { return nil }
         let metadata = GitRepositoryInspector().inspectRepository(at: URL(fileURLWithPath: repoPath))
         if let remote = metadata?.githubRemote {
             return "\(remote.owner)/\(remote.repo)"
+        }
+        return nil
+    }
+
+    private func resolvedGitHubRepository(
+        for project: ProjectRecord,
+        manualRepositoryURL: String?
+    ) throws -> GitHubRepositoryReference? {
+        if let manual = trimmedOrNil(manualRepositoryURL) {
+            return try GitHubProjectTaskSyncProvider.parseRepository(manual)
+        }
+        if let slug = trimmedOrNil(project.taskSyncSettings.repositorySlug) {
+            return try GitHubProjectTaskSyncProvider.parseRepository(slug)
+        }
+        if let repo = try defaultGitHubRepoSlug(for: project) {
+            return try GitHubProjectTaskSyncProvider.parseRepository(repo)
         }
         return nil
     }

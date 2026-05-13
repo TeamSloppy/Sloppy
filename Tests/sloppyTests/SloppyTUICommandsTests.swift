@@ -205,3 +205,23 @@ func launchDraftSessionIsNotPersistedSessionID() {
     #expect(session.projectId == "project-1")
     #expect(!session.id.hasPrefix("session-"))
 }
+
+@Test
+func draftSessionResetKeepsPreviousPersistedSessionAsPendingCheckpoint() {
+    let checkpoint = SloppyTUIDraftSessionReset.pendingCheckpointSessionID(
+        currentSessionID: "session-previous",
+        hasPersistedSession: true
+    )
+
+    #expect(checkpoint == "session-previous")
+}
+
+@Test
+func draftSessionResetDoesNotInventCheckpointForDraftSession() {
+    let checkpoint = SloppyTUIDraftSessionReset.pendingCheckpointSessionID(
+        currentSessionID: "new",
+        hasPersistedSession: false
+    )
+
+    #expect(checkpoint == nil)
+}

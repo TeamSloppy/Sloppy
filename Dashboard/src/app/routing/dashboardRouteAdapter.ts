@@ -159,6 +159,7 @@ export function parseRouteFromPath(pathname: string): DashboardRoute {
   const projectTaskReference = section === "projects" && (projectTab === "tasks" || projectTab === "review") ? sectionArg3 || null : null;
   const agentId = section === "agents" && sectionArg ? sectionArg : null;
   const agentTab = section === "agents" && agentId ? normalizeAgentTab(sectionArg2Lower) : null;
+  const agentInitialChatSessionId = section === "agents" && agentTab === "chat" && sectionArg3 ? sectionArg3 : null;
   const legacySessionAgentId = section === "sessions" && sectionArg2 ? sectionArg : null;
   const sessionId = section === "sessions"
     ? (sectionArg2 ? sectionArg2 : sectionArg || null)
@@ -173,7 +174,7 @@ export function parseRouteFromPath(pathname: string): DashboardRoute {
     projectTaskReference,
     agentId,
     agentTab,
-    agentInitialChatSessionId: null,
+    agentInitialChatSessionId,
     sessionAgentId,
     sessionId,
     chatProjectId: null,
@@ -222,6 +223,9 @@ export function buildPathFromRoute(route: DashboardRoute) {
       nextPathname = `/agents/${encodeURIComponent(route.agentId)}`;
       if (route.agentTab && route.agentTab !== DEFAULT_AGENT_TAB) {
         nextPathname = `${nextPathname}/${route.agentTab}`;
+        if (route.agentTab === "chat" && route.agentInitialChatSessionId) {
+          nextPathname = `${nextPathname}/${encodeURIComponent(route.agentInitialChatSessionId)}`;
+        }
       }
     }
   }

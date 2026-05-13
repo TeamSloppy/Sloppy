@@ -200,8 +200,10 @@ enum SloppyTUITheme {
         return muted(text)
     }
 
-    static func sessionStatusLine(mode: AgentChatMode, model: String, context: String, attachments: String, sessionID: String) -> String {
-        muted("mode: ") + modeTitle(mode) + muted("  model: \(model)\(context)\(attachments)  last: \(shortID(sessionID))")
+    static func sessionStatusLine(context: String, attachments: String, sessionID: String) -> String {
+        let details = (context + attachments).trimmingCharacters(in: .whitespacesAndNewlines)
+        let suffix = details.isEmpty ? "" : "\(details)  "
+        return muted("\(suffix)last: \(shortID(sessionID))")
     }
 
     static func elapsed(_ seconds: TimeInterval) -> String {
@@ -289,6 +291,11 @@ enum SloppyTUITheme {
             text += " · \(formatUSD(costUSD))"
         }
         return muted("tokens: ") + foreground(text)
+    }
+
+    static func tokenUsageFooterLine(width: Int, summary: SloppyTUITokenUsageSummary) -> String {
+        let text = "  " + tokenUsageStatus(summary)
+        return applyPanelBackground(padded(fittedLine(text, width: width), width: width), width: width)
     }
 
     static func highlightedComposerLines(_ lines: [String]) -> [String] {
@@ -1416,8 +1423,14 @@ enum SloppyTUITheme {
     }
 
     static func shortID(_ id: String) -> String {
-        guard id.count > 12 else { return id }
-        return String(id.prefix(8))
+        if id.hasPrefix("session-") {
+            let compact = String(id.dropFirst("session-".count))
+            guard compact.count > 8 else { return compact }
+            return String(compact.prefix(8))
+        }
+        let compact = id
+        guard compact.count > 12 else { return compact }
+        return String(compact.prefix(8))
     }
 
     private static func relativeTime(_ date: Date) -> String {

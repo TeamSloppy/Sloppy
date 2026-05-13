@@ -123,6 +123,13 @@ extension CoreService {
             sessionTitle: sessionDetail.summary.title,
             projectID: sessionDetail.summary.projectId
         )
+        await ensureDebugDirectoryForSessionIfNeeded(
+            chatMode: chatMode,
+            sessionID: normalizedSessionID,
+            sessionTitle: sessionDetail.summary.title,
+            projectID: sessionDetail.summary.projectId,
+            fallbackWorkingDirectory: sessionToolContext.workingDirectory
+        )
 
         var effectivePolicy = authorization.policy
         if authorization.allowed,
@@ -718,6 +725,103 @@ extension CoreService {
 
         let workingDirectory = workingDirectoryURL.path
         return (workingDirectory, sessionToolRoots(forWorkingDirectory: workingDirectory))
+    }
+
+    func ensureDebugDirectoryForSessionIfNeeded(
+        chatMode: AgentChatMode?,
+        sessionID: String,
+        sessionTitle: String,
+        projectID: String?,
+        fallbackWorkingDirectory: String? = nil
+    ) async {
+        guard chatMode == .debug,
+              let rootPath = await debugDirectoryRootForSession(
+                sessionID: sessionID,
+                sessionTitle: sessionTitle,
+                projectID: projectID,
+                fallbackWorkingDirectory: fallbackWorkingDirectory
+              )
+        else {
+            return
+        }
+
+        let debugURL = URL(fileURLWithPath: rootPath, isDirectory: true)
+            .appendingPathComponent(".sloppy", isDirectory: true)
+            .appendingPathComponent("debug", isDirectory: true)
+
+        do {
+            try FileManager.default.createDirectory(at: debugURL, withIntermediateDirectories: true)
+        } catch {
+            logger.warning(
+                "debug.directory_create_failed",
+                metadata: [
+                    "session_id": .string(sessionID),
+                    "path": .string(debugURL.path),
+                    "error": .string(error.localizedDescription)
+                ]
+            )
+        }
+    }
+
+    private func debugDirectoryRootForSession(
+        sessionID: String,
+        sessionTitle: String,
+        projectID: String?,
+        fallbackWorkingDirectory: String?
+    ) async -> String? {
+        if let projectIDRoot = await debugDirectoryRootForProject(projectID: projectID) {
+            return projectIDRoot
+        }
+
+        let trimmedTitle = sessionTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmedTitle.hasPrefix("task-") {
+            let taskID = String(trimmedTitle.dropFirst("task-".count)).trimmingCharacters(in: .whitespacesAndNewlines)
+            if !taskID.isEmpty {
+                let projects = await store.listProjects()
+                for project in projects {
+                    guard project.tasks.contains(where: { $0.id == taskID }),
+                          let repoPath = project.repoPath?.trimmingCharacters(in: .whitespacesAndNewlines),
+                          !repoPath.isEmpty
+                    else {
+                        continue
+                    }
+                    return URL(fileURLWithPath: repoPath, isDirectory: true).standardizedFileURL.path
+                }
+            }
+        }
+
+        if let fallback = fallbackWorkingDirectory?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !fallback.isEmpty {
+            return URL(fileURLWithPath: fallback, isDirectory: true).standardizedFileURL.path
+        }
+
+        if let roots = sessionExtraRoots[sessionID],
+           let firstRoot = roots.first?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !firstRoot.isEmpty {
+            return URL(fileURLWithPath: firstRoot, isDirectory: true).standardizedFileURL.path
+        }
+
+        return nil
+    }
+
+    private func debugDirectoryRootForProject(projectID: String?) async -> String? {
+        guard let trimmedProjectID = projectID?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !trimmedProjectID.isEmpty
+        else {
+            return nil
+        }
+
+        if let normalizedID = normalizedProjectID(trimmedProjectID),
+           let project = await store.project(id: normalizedID),
+           let repoPath = project.repoPath?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !repoPath.isEmpty {
+            return URL(fileURLWithPath: repoPath, isDirectory: true).standardizedFileURL.path
+        }
+
+        guard let workingDirectoryURL = try? await resolveProjectWorkspaceRoot(projectID: trimmedProjectID) else {
+            return nil
+        }
+        return workingDirectoryURL.standardizedFileURL.path
     }
 
     func toolContextForChannel(

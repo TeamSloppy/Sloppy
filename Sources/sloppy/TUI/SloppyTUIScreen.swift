@@ -214,6 +214,7 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
     private var subSessionCards: [SloppyTUISubSessionCard] = []
     private var pendingContext: String?
     private var pendingUploads: [AgentAttachmentUpload] = []
+    private var pendingDraftCheckpointSessionID: String?
     private var chatMode: AgentChatMode = .build
     private var selectedModel = "default"
     private var selectedModelContextWindowTokens = 0
@@ -472,6 +473,9 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
             agent: agent.displayName,
             provider: providerLabel(from: selectedModel)
         ))
+        if let tokenUsageSummary {
+            composer.append(SloppyTUITheme.tokenUsageFooterLine(width: width, summary: tokenUsageSummary))
+        }
         composer.append(footer)
 
         if let picker = activePicker {
@@ -1328,10 +1332,15 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
         guard !hasPersistedSession else {
             return false
         }
+        let checkpointSessionID = pendingDraftCheckpointSessionID
         session = try await runtime.service.createAgentSession(
             agentID: agent.id,
-            request: AgentSessionCreateRequest(projectId: project.id)
+            request: AgentSessionCreateRequest(
+                checkpointSessionId: checkpointSessionID,
+                projectId: project.id
+            )
         )
+        pendingDraftCheckpointSessionID = nil
         hasPersistedSession = true
         persistSelection()
         streamSession()
@@ -1570,21 +1579,45 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
     }
 
     private func createNewSession() async {
-        do {
-            session = try await runtime.service.createAgentSession(
-                agentID: agent.id,
-                request: AgentSessionCreateRequest(
-                    checkpointSessionId: hasPersistedSession ? session.id : nil,
-                    projectId: project.id
-                )
-            )
-            hasPersistedSession = true
-            persistSelection()
-            streamSession()
-            await reloadSession()
-        } catch {
-            appendLocalCard("Could not create session: \(String(describing: error))")
+        resetToDraftSession()
+    }
+
+    private func resetToDraftSession() {
+        if let checkpointSessionID = SloppyTUIDraftSessionReset.pendingCheckpointSessionID(
+            currentSessionID: session.id,
+            hasPersistedSession: hasPersistedSession
+        ) {
+            pendingDraftCheckpointSessionID = checkpointSessionID
         }
+
+        welcomeDismissed = false
+        session = SloppyTUIApp.makeDraftSession(agent: agent, projectID: project.id)
+        hasPersistedSession = false
+        sessionCards = []
+        subSessionCards = []
+        lastRenderedSessionEventIDs = []
+        pendingContext = nil
+        pendingUploads.removeAll()
+        pendingPlanInputRequest = nil
+        tokenUsageSummary = nil
+        tokenUsageCostUSD = nil
+        taskStartedAt = nil
+        lastTaskElapsed = nil
+        liveRunStatusLine = nil
+        activePicker = nil
+        queuedMessages = SloppyTUIMessageQueue()
+        isDrainingQueuedMessages = false
+        sessionUndoManagers = SloppyTUISessionUndoManagers()
+        clearLocalCards()
+        transientNoticeTask?.cancel()
+        transientNoticeTask = nil
+        transientNoticeLine = nil
+        streamTask?.cancel()
+        streamTask = nil
+        clearLiveAssistantDraft()
+        invalidateSessionTimelineCache()
+        persistSelection()
+        renderTimeline()
     }
 
     private func stopCurrentRun() async {
@@ -2422,6 +2455,7 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
             agent = nextAgent
             session = SloppyTUIApp.makeDraftSession(agent: nextAgent, projectID: project.id)
             hasPersistedSession = false
+            pendingDraftCheckpointSessionID = nil
             sessionCards = []
             subSessionCards = []
             invalidateSessionTimelineCache()
@@ -2447,6 +2481,7 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
         }
         session = nextSession
         hasPersistedSession = true
+        pendingDraftCheckpointSessionID = nil
         persistSelection()
         streamSession()
         await reloadSession()
@@ -3798,12 +3833,9 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
         let queue = queuedMessages.isEmpty ? "" : "  queue: \(queuedMessages.count) ctrl+b cancel"
         let pet = state.petEnabled ? "  pet: \(terminalPetFace())" : ""
         let transcript = transcriptExpanded ? "  transcript: full" : ""
-        let usage = tokenUsageSummary.map { "  " + SloppyTUITheme.tokenUsageStatus($0) } ?? ""
         let elapsed = elapsedStatusContext()
         let defaultStatus = SloppyTUITheme.sessionStatusLine(
-            mode: chatMode,
-            model: selectedModel,
-            context: context + queue + usage + pet + transcript + elapsed.idleSuffix,
+            context: context + queue + pet + transcript + elapsed.idleSuffix,
             attachments: attachments,
             sessionID: hasPersistedSession ? session.id : "not created"
         )
@@ -3944,6 +3976,7 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
     private var shouldRenderWelcome: Bool {
         SloppyTUIWelcomeVisibility.shouldRender(
             welcomeDismissed: welcomeDismissed,
+            hasPersistedSession: hasPersistedSession,
             hasSessionCards: !sessionCards.isEmpty,
             hasLiveAssistantDraft: liveAssistantDraft != nil,
             hasQueuedMessages: !queuedMessages.isEmpty,

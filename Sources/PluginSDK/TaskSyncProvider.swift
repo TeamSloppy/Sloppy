@@ -4,6 +4,7 @@ import Protocols
 public struct TaskSyncProjectDescriptor: Sendable, Equatable {
     public var providerId: String
     public var projectURL: String
+    public var title: String?
     public var projectNodeId: String?
     public var defaultRepo: String?
     public var statusOptions: [String]
@@ -11,12 +12,14 @@ public struct TaskSyncProjectDescriptor: Sendable, Equatable {
     public init(
         providerId: String,
         projectURL: String,
+        title: String? = nil,
         projectNodeId: String? = nil,
         defaultRepo: String? = nil,
         statusOptions: [String] = []
     ) {
         self.providerId = providerId
         self.projectURL = projectURL
+        self.title = title
         self.projectNodeId = projectNodeId
         self.defaultRepo = defaultRepo
         self.statusOptions = statusOptions

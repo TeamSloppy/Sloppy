@@ -88,6 +88,7 @@ struct SloppyTUILocalCard {
 enum SloppyTUIWelcomeVisibility {
     static func shouldRender(
         welcomeDismissed: Bool,
+        hasPersistedSession: Bool,
         hasSessionCards: Bool,
         hasLiveAssistantDraft: Bool,
         hasQueuedMessages: Bool,
@@ -95,11 +96,21 @@ enum SloppyTUIWelcomeVisibility {
         hasTransientNotice: Bool
     ) -> Bool {
         !welcomeDismissed
+            && !hasPersistedSession
             && !hasSessionCards
             && !hasLiveAssistantDraft
             && !hasQueuedMessages
             && !hasLocalCards
             && !hasTransientNotice
+    }
+}
+
+enum SloppyTUIDraftSessionReset {
+    static func pendingCheckpointSessionID(
+        currentSessionID: String,
+        hasPersistedSession: Bool
+    ) -> String? {
+        hasPersistedSession ? currentSessionID : nil
     }
 }
 

@@ -41,6 +41,7 @@ extension CoreService {
                             taskID: taskID,
                             task: task,
                             agentID: agentID,
+                            agentDisplayName: node.displayName,
                             comment: comment
                         )
                     }
@@ -78,6 +79,7 @@ extension CoreService {
         taskID: String,
         task: ProjectTask,
         agentID: String,
+        agentDisplayName: String,
         comment: TaskComment
     ) async {
         let sessionTitle = "task-comment:\(projectID):\(taskID)"
@@ -111,6 +113,15 @@ extension CoreService {
             .suffix(10)
             .map { c in "[\(c.authorActorId)]: \(c.content)" }
             .joined(separator: "\n")
+
+        await appendAgentSessionStatusComment(
+            projectID: projectID,
+            taskID: taskID,
+            agentDisplayName: agentDisplayName,
+            agentID: agentID,
+            session: session,
+            isNewSession: existingSession == nil
+        )
 
         let contextPrompt = """
         You are responding to a comment in a task management system.
@@ -169,6 +180,38 @@ extension CoreService {
         )
         comments.append(reply)
         saveTaskComments(comments, projectID: projectID, taskID: taskID)
+    }
+
+    func appendAgentSessionStatusComment(
+        projectID: String,
+        taskID: String,
+        agentDisplayName: String,
+        agentID: String,
+        session: AgentSessionSummary,
+        isNewSession: Bool
+    ) async {
+        var comments = await listTaskComments(projectID: projectID, taskID: taskID)
+        let sessionURL = "/agents/\(dashboardPathComponent(agentID))/chat/\(dashboardPathComponent(session.id))"
+        let trimmedAgentName = agentDisplayName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedSessionName = session.title.trimmingCharacters(in: .whitespacesAndNewlines)
+        let agentName = trimmedAgentName.isEmpty ? agentID : trimmedAgentName
+        let sessionName = trimmedSessionName.isEmpty ? session.id : trimmedSessionName
+        let action = isNewSession ? "started" : "continue"
+        let statusComment = TaskComment(
+            id: UUID().uuidString,
+            taskId: taskID,
+            content: "\(agentName) \(action) session [\(sessionName)](\(sessionURL))",
+            authorActorId: "system"
+        )
+        comments.append(statusComment)
+        saveTaskComments(comments, projectID: projectID, taskID: taskID)
+        await mirrorOutboundCommentIfNeeded(projectID: projectID, taskID: taskID, commentID: statusComment.id)
+    }
+
+    func dashboardPathComponent(_ value: String) -> String {
+        var allowed = CharacterSet.urlPathAllowed
+        allowed.remove(charactersIn: "/?#[]@!$&'()*+,;=")
+        return value.addingPercentEncoding(withAllowedCharacters: allowed) ?? value
     }
 
 }

@@ -113,6 +113,7 @@ struct ToolRegistry: Sendable {
             SystemListToolsTool(),
             CronTool(),
             ProjectListTool(),
+            ProjectCurrentTool(),
             ProjectCreateTool(),
             ProjectUpdateTool(),
             ProjectChannelLinkTool(),

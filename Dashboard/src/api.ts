@@ -48,6 +48,7 @@ export const createProject = coreApi.createProject;
 export const updateProject = coreApi.updateProject;
 export const fetchProjectTaskSync = coreApi.fetchProjectTaskSync;
 export const updateProjectTaskSync = coreApi.updateProjectTaskSync;
+export const discoverProjectTaskSync = coreApi.discoverProjectTaskSync;
 export const linkProjectTaskSync = coreApi.linkProjectTaskSync;
 export const unlinkProjectTaskSync = coreApi.unlinkProjectTaskSync;
 export const syncProjectTasksNow = coreApi.syncProjectTasksNow;

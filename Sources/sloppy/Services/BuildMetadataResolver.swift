@@ -63,9 +63,9 @@ struct GitRepositoryInspector: Sendable {
             upstreamRemoteURL = gitOutput(["config", "--get", "remote.\(remoteName).url"], cwd: repoPath)
             githubRemote = upstreamRemoteURL.flatMap { Self.parseGitHubRemote(url: $0, branch: branchName) }
         } else {
-            upstreamRemoteURL = nil
-            upstreamBranch = nil
-            githubRemote = nil
+            upstreamBranch = currentBranch
+            upstreamRemoteURL = gitOutput(["config", "--get", "remote.origin.url"], cwd: repoPath)
+            githubRemote = upstreamRemoteURL.flatMap { Self.parseGitHubRemote(url: $0, branch: currentBranch ?? "main") }
         }
 
         return GitRepositoryMetadata(

@@ -1,6 +1,7 @@
 import React, { useState, useMemo, useEffect, useRef } from "react";
 import {
     fetchProjectTaskSync,
+    discoverProjectTaskSync,
     linkProjectTaskSync,
     unlinkProjectTaskSync,
     syncProjectTasksNow,
@@ -94,6 +95,55 @@ const TASK_SYNC_STATUS_FIELDS = [
     { id: "cancelled", label: "Cancelled", placeholder: "Done" }
 ];
 
+function SloppyStatusDropdown({ value, onChange }) {
+    const [open, setOpen] = useState(false);
+    const ref = useRef(null);
+    const selected = TASK_SYNC_STATUS_FIELDS.find((field) => field.id === value);
+
+    useEffect(() => {
+        if (!open) return;
+        function handleClick(e) {
+            if (ref.current && !ref.current.contains(e.target)) {
+                setOpen(false);
+            }
+        }
+        document.addEventListener("mousedown", handleClick);
+        return () => document.removeEventListener("mousedown", handleClick);
+    }, [open]);
+
+    return (
+        <div className="actor-team-search-wrap task-sync-status-dropdown" ref={ref}>
+            <button
+                type="button"
+                className="actor-team-search task-sync-status-dropdown-button"
+                onClick={() => setOpen((next) => !next)}
+            >
+                <span>{selected?.label || "Choose status"}</span>
+                <span className="material-symbols-rounded" aria-hidden="true">expand_more</span>
+            </button>
+            {open && (
+                <ul className="actor-team-dropdown">
+                    {TASK_SYNC_STATUS_FIELDS.map((field) => (
+                        <li
+                            key={field.id}
+                            className={`actor-team-dropdown-item ${field.id === value ? "selected" : ""}`}
+                            onMouseDown={(e) => {
+                                e.preventDefault();
+                                onChange(field.id);
+                                setOpen(false);
+                            }}
+                        >
+                            <span className="actor-team-dropdown-name">{field.label}</span>
+                            <span className="actor-team-dropdown-id">{field.id}</span>
+                            {field.id === value && <span className="actor-team-dropdown-check">✓</span>}
+                        </li>
+                    ))}
+                </ul>
+            )}
+        </div>
+    );
+}
+
 function cloneDraft(project) {
     return {
         name: project?.name ?? "",
@@ -123,11 +173,22 @@ function cloneTaskSyncDraft(project) {
     return {
         enabled: Boolean(settings.enabled),
         providerId: settings.providerId || "github",
+        repositoryURL: settings.repositoryURL || "",
+        repositorySlug: settings.repositorySlug || "",
         projectURL: settings.projectURL || "",
         projectNodeId: settings.projectNodeId || "",
         defaultRepo: settings.defaultRepo || "",
         tokenMode: settings.tokenMode || "inherit",
         statusMappings: { ...(settings.statusMappings || {}) },
+        inboundStatusMappings: { ...(settings.inboundStatusMappings || settings.statusMappings || {}) },
+        linkedProjects: Array.isArray(settings.linkedProjects) ? [...settings.linkedProjects] : [],
+        syncSchedule: {
+            enabled: Boolean(settings.syncSchedule?.enabled),
+            intervalMinutes: Number.isFinite(Number(settings.syncSchedule?.intervalMinutes))
+                ? Number(settings.syncSchedule.intervalMinutes)
+                : 15,
+            lastRunAt: settings.syncSchedule?.lastRunAt || null
+        },
         health: settings.health || {},
         webhook: settings.webhook || {}
     };
@@ -159,6 +220,7 @@ export function ProjectSettingsTab({
     const [taskSyncToken, setTaskSyncToken] = useState("");
     const [taskSyncTokenStatus, setTaskSyncTokenStatus] = useState(null);
     const [taskSyncBusy, setTaskSyncBusy] = useState(false);
+    const [taskSyncDiscovery, setTaskSyncDiscovery] = useState(null);
 
     useEffect(() => {
         setDraft(cloneDraft(project));
@@ -202,9 +264,10 @@ export function ProjectSettingsTab({
     }
 
     function sanitizedStatusMappings(mappings) {
-        return TASK_SYNC_STATUS_FIELDS.reduce((acc, field) => {
-            const value = String(mappings?.[field.id] || "").trim();
-            if (value) acc[field.id] = value;
+        return Object.entries(mappings || {}).reduce((acc, [key, value]) => {
+            const normalizedKey = String(key || "").trim().toLowerCase();
+            const normalizedValue = String(value || "").trim();
+            if (normalizedKey && normalizedValue) acc[normalizedKey] = normalizedValue;
             return acc;
         }, {});
     }
@@ -756,20 +819,30 @@ export function ProjectSettingsTab({
             <section className="entry-editor-card">
                 <h3>Heartbeat</h3>
                 <div className="entry-form-grid">
-                    <label>
-                        Enable Heartbeat
-                        <select
-                            value={draft.heartbeat.enabled ? "enabled" : "disabled"}
-                            onChange={(e) =>
-                                mutateDraft((d) => {
-                                    d.heartbeat.enabled = e.target.value === "enabled";
-                                })
-                            }
-                        >
-                            <option value="disabled">Disabled</option>
-                            <option value="enabled">Enabled</option>
-                        </select>
-                    </label>
+                    <div className="task-sync-token-mode-field">
+                        <span className="task-sync-field-label">Enable Heartbeat</span>
+                        <div className="task-sync-token-options">
+                            {[
+                                { id: "disabled", title: "Disabled", icon: "heart_minus" },
+                                { id: "enabled", title: "Enabled", icon: "favorite" }
+                            ].map((option) => {
+                                const active = draft.heartbeat.enabled === (option.id === "enabled");
+                                return (
+                                    <button
+                                        key={option.id}
+                                        type="button"
+                                        className={`task-sync-token-option ${active ? "active" : ""}`}
+                                        onClick={() => mutateDraft((d) => {
+                                            d.heartbeat.enabled = option.id === "enabled";
+                                        })}
+                                    >
+                                        <span className="material-symbols-rounded">{option.icon}</span>
+                                        <strong>{option.title}</strong>
+                                    </button>
+                                );
+                            })}
+                        </div>
+                    </div>
                     <label>
                         Interval (minutes)
                         <input
@@ -970,17 +1043,72 @@ export function ProjectSettingsTab({
     async function runTaskSyncAction(action) {
         setTaskSyncBusy(true);
         setStatusText("");
-        const result = await action();
-        if (result?.project && onReplaceProject) {
-            onReplaceProject(result.project);
+        try {
+            const result = await action();
+            if (result?.project && onReplaceProject) {
+                onReplaceProject(result.project);
+            }
+            return result;
+        } finally {
+            setTaskSyncBusy(false);
         }
-        setTaskSyncBusy(false);
-        return result;
+    }
+
+    const taskSyncStatusOptions = useMemo(() => {
+        const options = new Set();
+        if (Array.isArray(taskSyncDiscovery?.statusOptions)) {
+            taskSyncDiscovery.statusOptions.forEach((option) => {
+                if (option) options.add(String(option));
+            });
+        }
+        if (Array.isArray(taskSyncDraft.linkedProjects)) {
+            taskSyncDraft.linkedProjects.forEach((p) => {
+                if (Array.isArray(p.statusOptions)) {
+                    p.statusOptions.forEach((option) => {
+                        if (option) options.add(String(option));
+                    });
+                }
+            });
+        }
+        Object.keys(taskSyncDraft.inboundStatusMappings || {}).forEach((option) => {
+            if (option) options.add(option);
+        });
+        return Array.from(options).sort((a, b) => a.localeCompare(b));
+    }, [taskSyncDiscovery, taskSyncDraft.linkedProjects, taskSyncDraft.inboundStatusMappings]);
+
+    async function discoverTaskSyncProjects() {
+        const result = await runTaskSyncAction(() => discoverProjectTaskSync(project.id, {
+            providerId: "github",
+            repositoryURL: taskSyncDraft.repositoryURL.trim() || null,
+            tokenMode: taskSyncDraft.tokenMode
+        }));
+        setTaskSyncDiscovery(result || null);
+        if (result) {
+            mutateTaskSync((d) => {
+                d.repositoryURL = result.repositoryURL || d.repositoryURL || "";
+                d.repositorySlug = result.repositorySlug || d.repositorySlug || "";
+                d.defaultRepo = result.repositorySlug || d.defaultRepo || "";
+                d.linkedProjects = Array.isArray(result.projects) ? result.projects : [];
+                d.inboundStatusMappings = d.inboundStatusMappings || {};
+                for (const option of result.statusOptions || []) {
+                    const key = String(option || "").trim().toLowerCase();
+                    if (key && !d.inboundStatusMappings[key]) {
+                        const fallback = TASK_SYNC_STATUS_FIELDS.find((field) => field.placeholder.toLowerCase() === key);
+                        d.inboundStatusMappings[key] = fallback?.id || "";
+                    }
+                }
+            });
+            setStatusText(result.manualRepositoryRequired ? "Repository URL required" : "GitHub Projects discovered");
+        } else {
+            setStatusText("GitHub Projects discovery failed");
+        }
     }
 
     function renderTaskSync() {
         const health = taskSyncDraft.health || {};
         const webhook = taskSyncDraft.webhook || {};
+        const linkedProjects = Array.isArray(taskSyncDraft.linkedProjects) ? taskSyncDraft.linkedProjects : [];
+        const manualRepositoryRequired = Boolean(taskSyncDiscovery?.manualRepositoryRequired);
         return (
             <section className="entry-editor-card">
                 <h3>GitHub Projects</h3>
@@ -1006,22 +1134,39 @@ export function ProjectSettingsTab({
 
                 <div className="entry-form-grid task-sync-form-grid" style={{ marginTop: 16 }}>
                     <label style={{ gridColumn: "1 / -1" }}>
-                        GitHub Project URL
+                        Repository
                         <input
                             type="text"
-                            placeholder="https://github.com/AdaEngine/AdaEngine/projects/2"
-                            value={taskSyncDraft.projectURL}
-                            onChange={(e) => mutateTaskSync((d) => { d.projectURL = e.target.value; })}
+                            placeholder={manualRepositoryRequired ? "https://github.com/org/repo" : "Auto-detected from project git remote"}
+                            value={taskSyncDraft.repositoryURL || taskSyncDraft.repositorySlug}
+                            onChange={(e) => mutateTaskSync((d) => { d.repositoryURL = e.target.value; })}
                         />
                     </label>
                     <label className="task-sync-default-repo-field">
-                        Default repo
+                        Sync interval
                         <input
-                            type="text"
-                            placeholder="AdaEngine/AdaEngine"
-                            value={taskSyncDraft.defaultRepo}
-                            onChange={(e) => mutateTaskSync((d) => { d.defaultRepo = e.target.value; })}
+                            type="number"
+                            min="1"
+                            value={taskSyncDraft.syncSchedule?.intervalMinutes || 15}
+                            onChange={(e) => mutateTaskSync((d) => {
+                                d.syncSchedule = d.syncSchedule || {};
+                                d.syncSchedule.intervalMinutes = Math.max(1, Number(e.target.value) || 15);
+                            })}
                         />
+                    </label>
+                    <label className="task-sync-schedule-toggle">
+                        <span className="task-sync-field-label">Periodic sync</span>
+                        <label className="agent-tools-switch">
+                            <input
+                                type="checkbox"
+                                checked={Boolean(taskSyncDraft.syncSchedule?.enabled)}
+                                onChange={(e) => mutateTaskSync((d) => {
+                                    d.syncSchedule = d.syncSchedule || {};
+                                    d.syncSchedule.enabled = e.target.checked;
+                                })}
+                            />
+                            <span className="agent-tools-switch-track" />
+                        </label>
                     </label>
                     <div className="task-sync-token-mode-field">
                         <span className="task-sync-field-label">Token mode</span>
@@ -1039,26 +1184,51 @@ export function ProjectSettingsTab({
                             ))}
                         </div>
                     </div>
+                    <div className="task-sync-linked-projects">
+                        <span className="task-sync-field-label">Detected GitHub Projects</span>
+                        {linkedProjects.length === 0 ? (
+                            <p className="placeholder-text">No GitHub Projects detected yet.</p>
+                        ) : (
+                            <div className="task-sync-project-list">
+                                {linkedProjects.map((p) => (
+                                    <a
+                                        key={p.projectNodeId || p.projectURL || p.tag}
+                                        className="task-sync-project-chip"
+                                        href={p.projectURL || undefined}
+                                        target="_blank"
+                                        rel="noreferrer"
+                                    >
+                                        <span className="material-symbols-rounded" aria-hidden="true">view_kanban</span>
+                                        <strong>{p.title}</strong>
+                                        <code>{p.tag}</code>
+                                    </a>
+                                ))}
+                            </div>
+                        )}
+                    </div>
                     <div className="task-sync-status-mappings">
                         <span className="task-sync-field-label">Status mappings</span>
                         <div className="task-sync-status-list">
-                            {TASK_SYNC_STATUS_FIELDS.map((field) => (
-                                <label key={field.id} className="task-sync-status-row">
+                            {taskSyncStatusOptions.length === 0 ? (
+                                <p className="placeholder-text">Discover projects to load GitHub Status columns.</p>
+                            ) : taskSyncStatusOptions.map((option) => {
+                                const key = String(option || "").trim().toLowerCase();
+                                return (
+                                <label key={key} className="task-sync-status-row">
                                     <span className="task-sync-status-name">
-                                        <strong>{field.label}</strong>
-                                        <code>{field.id}</code>
+                                        <strong>{option}</strong>
+                                        <code>GitHub Status</code>
                                     </span>
-                                    <input
-                                        type="text"
-                                        placeholder={field.placeholder}
-                                        value={taskSyncDraft.statusMappings?.[field.id] || ""}
-                                        onChange={(e) => mutateTaskSync((d) => {
-                                            d.statusMappings = d.statusMappings || {};
-                                            d.statusMappings[field.id] = e.target.value;
+                                    <SloppyStatusDropdown
+                                        value={taskSyncDraft.inboundStatusMappings?.[key] || ""}
+                                        onChange={(status) => mutateTaskSync((d) => {
+                                            d.inboundStatusMappings = d.inboundStatusMappings || {};
+                                            d.inboundStatusMappings[key] = status;
                                         })}
                                     />
                                 </label>
-                            ))}
+                                );
+                            })}
                         </div>
                     </div>
                 </div>
@@ -1067,19 +1237,32 @@ export function ProjectSettingsTab({
                     <button
                         type="button"
                         className="hover-levitate"
-                        disabled={taskSyncBusy || !taskSyncDraft.projectURL.trim()}
+                        disabled={taskSyncBusy}
+                        onClick={discoverTaskSyncProjects}
+                    >
+                        Discover
+                    </button>
+                    <button
+                        type="button"
+                        className="hover-levitate"
+                        disabled={taskSyncBusy}
                         onClick={async () => {
                             const result = await runTaskSyncAction(() => linkProjectTaskSync(project.id, {
                                 providerId: "github",
-                                projectURL: taskSyncDraft.projectURL.trim(),
-                                defaultRepo: taskSyncDraft.defaultRepo.trim() || null,
+                                repositoryURL: taskSyncDraft.repositoryURL.trim() || taskSyncDraft.repositorySlug.trim() || null,
+                                defaultRepo: taskSyncDraft.defaultRepo.trim() || taskSyncDraft.repositorySlug.trim() || null,
                                 tokenMode: taskSyncDraft.tokenMode,
-                                statusMappings: sanitizedStatusMappings(taskSyncDraft.statusMappings)
+                                inboundStatusMappings: sanitizedStatusMappings(taskSyncDraft.inboundStatusMappings),
+                                statusMappings: sanitizedStatusMappings(taskSyncDraft.statusMappings),
+                                syncSchedule: {
+                                    enabled: Boolean(taskSyncDraft.syncSchedule?.enabled),
+                                    intervalMinutes: Math.max(1, Number(taskSyncDraft.syncSchedule?.intervalMinutes) || 15)
+                                }
                             }));
                             setStatusText(result ? "Task sync linked" : "Task sync link failed");
                         }}
                     >
-                        Link
+                        Link / Save
                     </button>
                     <button
                         type="button"

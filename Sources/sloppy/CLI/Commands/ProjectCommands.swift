@@ -177,9 +177,11 @@ struct ProjectTaskSyncLinkCommand: AsyncParsableCommand {
     static let configuration = CommandConfiguration(commandName: "link", abstract: "Link GitHub Projects task sync.")
 
     @Argument(help: "Project ID") var projectId: String
-    @Option(name: .long, help: "GitHub Project URL") var projectUrl: String
+    @Option(name: .long, help: "Manual GitHub repository URL or owner/repo fallback") var repositoryUrl: String?
+    @Option(name: .long, help: "Legacy GitHub Project URL") var projectUrl: String?
     @Option(name: .long, help: "Default issue repository owner/repo") var defaultRepo: String?
     @Option(name: .long, help: "Token mode: inherit or override") var tokenMode: String = "inherit"
+    @Option(name: .long, help: "Periodic sync interval in minutes") var intervalMinutes: Int = 15
     @Option(name: .long) var url: String?
     @Option(name: .long) var token: String?
     @Option(name: .long) var format: String = "json"
@@ -189,9 +191,14 @@ struct ProjectTaskSyncLinkCommand: AsyncParsableCommand {
         let client = SloppyCLIClient.resolve(url: url, token: token, verbose: verbose)
         var payload: [String: Any] = [
             "providerId": "github",
-            "projectURL": projectUrl,
-            "tokenMode": tokenMode
+            "tokenMode": tokenMode,
+            "syncSchedule": [
+                "enabled": true,
+                "intervalMinutes": max(1, intervalMinutes)
+            ]
         ]
+        if let repositoryUrl { payload["repositoryURL"] = repositoryUrl }
+        if let projectUrl { payload["projectURL"] = projectUrl }
         if let defaultRepo { payload["defaultRepo"] = defaultRepo }
         do {
             let body = try JSONSerialization.data(withJSONObject: payload)

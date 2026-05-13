@@ -371,6 +371,20 @@ extension CoreService {
             )
         }
 
+        if request.mode == .debug {
+            do {
+                let detail = try sessionStore.loadSession(agentID: normalizedAgentID, sessionID: normalizedSessionID)
+                await ensureDebugDirectoryForSessionIfNeeded(
+                    chatMode: request.mode,
+                    sessionID: normalizedSessionID,
+                    sessionTitle: detail.summary.title,
+                    projectID: detail.summary.projectId
+                )
+            } catch {
+                throw mapSessionStoreError(error)
+            }
+        }
+
         do {
             let response = try await sessionOrchestrator.postMessage(
                 agentID: normalizedAgentID,

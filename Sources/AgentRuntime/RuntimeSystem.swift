@@ -320,7 +320,7 @@ public actor RuntimeSystem {
                     if let observationHandler {
                         await observationHandler(.toolResult(result))
                     }
-                    await tracker.toolFinished()
+                    await tracker.toolFinished(result: result)
                     return result
                 }
                 session.toolExecutionDelegate = makeToolExecutionDelegate(
@@ -438,7 +438,7 @@ public actor RuntimeSystem {
                             if let observationHandler {
                                 await observationHandler(.toolResult(result))
                             }
-                            await tracker.toolFinished()
+                            await tracker.toolFinished(result: result)
                             return result
                         }
                         freshSession.toolExecutionDelegate = makeToolExecutionDelegate(
@@ -447,7 +447,7 @@ public actor RuntimeSystem {
                         )
                     }
                     let fallbackResponse = try await freshSession.respond(to: modelUserMessage, options: options)
-                    let fallbackContent = fallbackResponse.content
+                    var fallbackContent = fallbackResponse.content
                     logger.info(
                         "Non-streaming fallback succeeded",
                         metadata: modelCallMetadata(
@@ -460,6 +460,44 @@ public actor RuntimeSystem {
                             outputChars: fallbackContent.count
                         )
                     )
+                    if fallbackContent.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        if await tracker.sawToolTimeout {
+                            fallbackContent = "Tool execution timed out before the model produced a final response. Please review the timed-out tool result and retry when ready."
+                            logger.warning(
+                                "Non-streaming fallback returned empty response after tool timeout",
+                                metadata: modelCallMetadata(
+                                    channelId: channelId,
+                                    model: activeModel,
+                                    reasoningEffort: reasoningEffort,
+                                    promptChars: modelUserMessage.count,
+                                    mode: "non_streaming_fallback_empty_tool_timeout",
+                                    outputChars: fallbackContent.count
+                                )
+                            )
+                        } else if let repaired = await attemptEmptyResponseRepair(
+                            channelId: channelId,
+                            activeModel: activeModel,
+                            modelProvider: modelProvider,
+                            reasoningEffort: reasoningEffort,
+                            originalUserMessage: modelUserMessage,
+                            transcript: freshSession.transcript,
+                            onResponseChunk: nil
+                        ) {
+                            fallbackContent = repaired
+                        } else {
+                            fallbackContent = "Model returned an empty response. Please try rephrasing or try again."
+                            logger.warning(
+                                "Non-streaming fallback returned empty response after repair",
+                                metadata: modelCallMetadata(
+                                    channelId: channelId,
+                                    model: activeModel,
+                                    reasoningEffort: reasoningEffort,
+                                    promptChars: modelUserMessage.count,
+                                    mode: "non_streaming_fallback_empty"
+                                )
+                            )
+                        }
+                    }
                     if let onResponseChunk {
                         _ = await onResponseChunk(fallbackContent)
                     }
@@ -642,19 +680,47 @@ public actor RuntimeSystem {
             }
 
             if latest.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                latest = "Model returned an empty response. Please try rephrasing or try again."
-                logger.warning(
-                    "Model returned empty response after stream + completion",
-                    metadata: modelCallMetadata(
-                        channelId: channelId,
-                        model: activeModel,
-                        reasoningEffort: reasoningEffort,
-                        promptChars: modelUserMessage.count,
-                        mode: "respond_empty_fallback"
+                if await tracker.sawToolTimeout {
+                    latest = "Tool execution timed out before the model produced a final response. Please review the timed-out tool result and retry when ready."
+                    logger.warning(
+                        "Model returned empty response after tool timeout",
+                        metadata: modelCallMetadata(
+                            channelId: channelId,
+                            model: activeModel,
+                            reasoningEffort: reasoningEffort,
+                            promptChars: modelUserMessage.count,
+                            mode: "respond_empty_tool_timeout",
+                            outputChars: latest.count
+                        )
                     )
-                )
-                if let onResponseChunk {
-                    _ = await onResponseChunk(latest)
+                    if let onResponseChunk {
+                        _ = await onResponseChunk(latest)
+                    }
+                } else if let repaired = await attemptEmptyResponseRepair(
+                    channelId: channelId,
+                    activeModel: activeModel,
+                    modelProvider: modelProvider,
+                    reasoningEffort: reasoningEffort,
+                    originalUserMessage: modelUserMessage,
+                    transcript: session.transcript,
+                    onResponseChunk: onResponseChunk
+                ) {
+                    latest = repaired
+                } else {
+                    latest = "Model returned an empty response. Please try rephrasing or try again."
+                    logger.warning(
+                        "Model returned empty response after stream + completion + repair",
+                        metadata: modelCallMetadata(
+                            channelId: channelId,
+                            model: activeModel,
+                            reasoningEffort: reasoningEffort,
+                            promptChars: modelUserMessage.count,
+                            mode: "respond_empty_fallback"
+                        )
+                    )
+                    if let onResponseChunk {
+                        _ = await onResponseChunk(latest)
+                    }
                 }
             }
 
@@ -670,6 +736,154 @@ public actor RuntimeSystem {
                 content: text
             )
         }
+    }
+
+    private func attemptEmptyResponseRepair(
+        channelId: String,
+        activeModel: String,
+        modelProvider: any ModelProvider,
+        reasoningEffort: ReasoningEffort?,
+        originalUserMessage: String,
+        transcript: Transcript,
+        onResponseChunk: (@Sendable (String) async -> Bool)?
+    ) async -> String? {
+        let startedAt = Date()
+        let repairPrompt = await emptyResponseRepairPrompt(
+            channelId: channelId,
+            originalUserMessage: originalUserMessage,
+            transcript: transcript
+        )
+        let options = modelProvider.generationOptions(for: activeModel, maxTokens: 1024, reasoningEffort: reasoningEffort)
+
+        do {
+            let languageModel = try await modelProvider.createLanguageModel(for: activeModel)
+            let repairSession: LanguageModelSession
+            if let instructions = sessionInstructions(channelId: channelId, modelProvider: modelProvider) {
+                repairSession = LanguageModelSession(model: languageModel, tools: [], instructions: instructions)
+            } else {
+                repairSession = LanguageModelSession(model: languageModel, tools: [])
+            }
+
+            let response = try await repairSession.respond(to: repairPrompt, options: options)
+            let repaired = response.content.trimmingCharacters(in: .whitespacesAndNewlines)
+            let succeeded = !repaired.isEmpty
+            logger.info(
+                succeeded ? "Empty model response repair succeeded" : "Empty model response repair returned empty output",
+                metadata: modelCallMetadata(
+                    channelId: channelId,
+                    model: activeModel,
+                    reasoningEffort: reasoningEffort,
+                    promptChars: repairPrompt.count,
+                    mode: "respond_empty_repair",
+                    durationMs: elapsedMilliseconds(since: startedAt),
+                    outputChars: response.content.count,
+                    repairSucceeded: succeeded
+                )
+            )
+
+            guard succeeded else {
+                return nil
+            }
+            if let onResponseChunk {
+                _ = await onResponseChunk(repaired)
+            }
+            return repaired
+        } catch {
+            logger.warning(
+                "Empty model response repair failed",
+                metadata: modelCallMetadata(
+                    channelId: channelId,
+                    model: activeModel,
+                    reasoningEffort: reasoningEffort,
+                    promptChars: repairPrompt.count,
+                    mode: "respond_empty_repair",
+                    durationMs: elapsedMilliseconds(since: startedAt),
+                    repairSucceeded: false,
+                    error: String(describing: error)
+                )
+            )
+            return nil
+        }
+    }
+
+    private func emptyResponseRepairPrompt(
+        channelId: String,
+        originalUserMessage: String,
+        transcript: Transcript
+    ) async -> String {
+        let channelMessages = await formatChannelMessagesForRepair(channelId: channelId)
+        let modelTranscript = formatModelTranscriptForRepair(transcript)
+        return """
+        The previous model turn completed but produced no user-visible final answer.
+
+        Write the final concise response for the user now. Use only the visible transcript, completed tool results, and progress shown below. Do not call tools. Do not claim to run new commands. Do not repeat completed work; summarize the solution or current outcome.
+
+        [Current user message]
+        \(originalUserMessage)
+
+        [Visible channel transcript]
+        \(channelMessages)
+
+        [Model transcript and completed tool context]
+        \(modelTranscript)
+
+        [Final answer]
+        """
+    }
+
+    private func formatChannelMessagesForRepair(channelId: String, maxCharacters: Int = 6_000) async -> String {
+        let messages = await channels.snapshot(channelId: channelId)?.messages ?? []
+        let lines = messages.suffix(20).map { message in
+            "\(message.userId): \(message.content)"
+        }
+        return limitedRepairContext(lines.joined(separator: "\n"), maxCharacters: maxCharacters)
+    }
+
+    private func formatModelTranscriptForRepair(_ transcript: Transcript, maxCharacters: Int = 12_000) -> String {
+        let lines = transcript.suffix(50).map { entry -> String in
+            switch entry {
+            case .instructions:
+                return "instructions: [omitted]"
+            case .prompt(let prompt):
+                return "user: \(Self.textContent(from: prompt.segments))"
+            case .response(let response):
+                return "assistant: \(Self.textContent(from: response.segments))"
+            case .toolCalls(let calls):
+                let names = calls.map(\.toolName).joined(separator: ", ")
+                return "tool calls: \(names)"
+            case .toolOutput(let output):
+                let text = Self.textContent(from: output.segments)
+                return "tool result \(output.toolName): \(text)"
+            }
+        }
+        return limitedRepairContext(lines.joined(separator: "\n"), maxCharacters: maxCharacters)
+    }
+
+    private nonisolated static func textContent(from segments: [Transcript.Segment]) -> String {
+        segments.compactMap { segment -> String? in
+            switch segment {
+            case .text(let text):
+                return text.content
+            case .structure(let structure):
+                return structure.content.jsonString
+            case .image:
+                return "[image]"
+            }
+        }
+        .joined(separator: "\n")
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func limitedRepairContext(_ text: String, maxCharacters: Int) -> String {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            return "(empty)"
+        }
+        guard trimmed.count > maxCharacters else {
+            return trimmed
+        }
+        let start = trimmed.index(trimmed.endIndex, offsetBy: -maxCharacters)
+        return "[truncated]\n" + String(trimmed[start...])
     }
 
     private func userMessageWithAutoRecalledMemory(channelId: String, userMessage: String) async -> String {
@@ -919,6 +1133,7 @@ public actor RuntimeSystem {
         toolId: String? = nil,
         toolResultOK: Bool? = nil,
         transcriptEntries: Int? = nil,
+        repairSucceeded: Bool? = nil,
         error: String? = nil
     ) -> Logger.Metadata {
         var metadata: Logger.Metadata = [
@@ -949,6 +1164,9 @@ public actor RuntimeSystem {
         }
         if let transcriptEntries {
             metadata["transcript_entries"] = .stringConvertible(transcriptEntries)
+        }
+        if let repairSucceeded {
+            metadata["repair_succeeded"] = .string(repairSucceeded ? "true" : "false")
         }
         if let error {
             metadata["error"] = .string(error)
@@ -1452,6 +1670,7 @@ actor StreamActivityTracker {
     private(set) var latestContent: String = ""
     private(set) var chunks: Int = 0
     private(set) var wasCancelledByConsumer: Bool = false
+    private(set) var sawToolTimeout: Bool = false
 
     func touch() {
         lastActivityAt = Date()
@@ -1475,9 +1694,26 @@ actor StreamActivityTracker {
         lastActivityAt = Date()
     }
 
+    func toolFinished(result: ToolInvocationResult) {
+        if Self.isToolTimeout(result) {
+            sawToolTimeout = true
+        }
+        activeToolCalls = max(0, activeToolCalls - 1)
+        lastActivityAt = Date()
+    }
+
     func toolFinished() {
         activeToolCalls = max(0, activeToolCalls - 1)
         lastActivityAt = Date()
+    }
+
+    private nonisolated static func isToolTimeout(_ result: ToolInvocationResult) -> Bool {
+        guard let error = result.error else {
+            return false
+        }
+        let code = error.code.lowercased()
+        let message = error.message.lowercased()
+        return code.contains("timeout") || message.contains("timed out")
     }
 
     var hasActiveTools: Bool {

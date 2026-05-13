@@ -11,8 +11,7 @@ import {
   deleteProjectChannel as deleteProjectChannelRequest,
   createProjectTask as createProjectTaskRequest,
   updateProjectTask as updateProjectTaskRequest,
-  deleteProjectTask as deleteProjectTaskRequest,
-  fetchAgentSessions
+  deleteProjectTask as deleteProjectTaskRequest
 } from "../api";
 import { useKanbanSocket } from "./Projects/useKanbanSocket";
 import { Breadcrumbs } from "../components/Breadcrumbs/Breadcrumbs";
@@ -47,8 +46,7 @@ import {
   displayNameToProjectId,
   parseListInput,
   buildProjectChannels,
-  emptyProjectDraft,
-  parseAgentWorkerChannelId
+  emptyProjectDraft
 } from "./Projects/utils";
 import { ProjectOverviewTab } from "./Projects/ProjectOverviewTab";
 import { ProjectTasksTab } from "./Projects/ProjectTasksTab";
@@ -804,8 +802,7 @@ export function ProjectsView({
   routeProjectTaskReference = null,
   onRouteProjectChange = () => { },
   onSidebarProjectsListChanged = () => { },
-  onNavigateToChannelSession = (_sessionId) => { },
-  onNavigateToAgentChatSession = null
+  onNavigateToChannelSession = (_sessionId) => { }
 }) {
   const [projects, setProjects] = useState([]);
   const [isLoadingProjects, setIsLoadingProjects] = useState(true);
@@ -1158,42 +1155,6 @@ export function ProjectsView({
     onRouteProjectChange(selectedProject.id, "tasks", null);
   }
 
-  async function watchAgentTaskSession(project, task, channelId) {
-    const channel = String(channelId || "").trim();
-    const parsed = channel ? parseAgentWorkerChannelId(channel) : null;
-    let agentId = parsed?.agentId ? String(parsed.agentId).trim() : "";
-    if (!agentId) {
-      agentId = String(task.claimedAgentId || "").trim();
-    }
-    if (!agentId) {
-      setStatusText("Cannot resolve agent for this task.");
-      return;
-    }
-    let sessionId = parsed?.sessionId ? String(parsed.sessionId).trim() : "";
-    if (!sessionId) {
-      try {
-        const sessions = await fetchAgentSessions(agentId);
-        const workerTitle = `task-${task.id}`;
-        const commentTitle = `task-comment:${project.id}:${task.id}`;
-        const match = Array.isArray(sessions)
-          ? sessions.find((s) => { const t = String(s.title || ""); return t === workerTitle || t === commentTitle; })
-          : null;
-        sessionId = match?.id ? String(match.id) : "";
-      } catch {
-        sessionId = "";
-      }
-    }
-    if (!sessionId) {
-      setStatusText("No agent task session found for this task yet.");
-      return;
-    }
-    if (typeof onNavigateToAgentChatSession === "function") {
-      onNavigateToAgentChatSession(agentId, sessionId);
-    } else {
-      setStatusText("Navigation to agent session is not available.");
-    }
-  }
-
   function openCreateProjectModal() {
     setProjectDraft(emptyProjectDraft(projects.length + 1));
     setIsCreateProjectModalOpen(true);
@@ -1517,6 +1478,76 @@ export function ProjectsView({
     replaceProjectInState(updated);
   }
 
+  async function bulkUpdateTasks(taskIds, payloadOrBuilder, successMessage = "Tasks updated.") {
+    if (!selectedProject) {
+      return false;
+    }
+
+    const ids = Array.from(new Set((Array.isArray(taskIds) ? taskIds : [])
+      .map((id) => String(id || "").trim())
+      .filter(Boolean)));
+    if (ids.length === 0) {
+      return false;
+    }
+
+    let latestProject = null;
+    for (const taskId of ids) {
+      const task = selectedProject.tasks.find((candidate) => String(candidate?.id || "").trim() === taskId);
+      const payload = typeof payloadOrBuilder === "function" ? payloadOrBuilder(task) : payloadOrBuilder;
+      const updated = await updateProjectTaskRequest(selectedProject.id, taskId, {
+        ...(payload || {}),
+        changedBy: "user"
+      });
+      if (!updated) {
+        setStatusText(`Failed to update task ${taskId}.`);
+        if (latestProject) {
+          replaceProjectInState(latestProject);
+        }
+        return false;
+      }
+      latestProject = updated;
+    }
+
+    replaceProjectInState(latestProject);
+    setStatusText(successMessage);
+    return true;
+  }
+
+  async function bulkDeleteTasks(taskIds) {
+    if (!selectedProject) {
+      return false;
+    }
+
+    const ids = Array.from(new Set((Array.isArray(taskIds) ? taskIds : [])
+      .map((id) => String(id || "").trim())
+      .filter(Boolean)));
+    if (ids.length === 0) {
+      return false;
+    }
+
+    const accepted = window.confirm(`Delete ${ids.length} selected task${ids.length === 1 ? "" : "s"}?`);
+    if (!accepted) {
+      return false;
+    }
+
+    let latestProject = null;
+    for (const taskId of ids) {
+      const updated = await deleteProjectTaskRequest(selectedProject.id, taskId);
+      if (!updated) {
+        setStatusText(`Failed to delete task ${taskId}.`);
+        if (latestProject) {
+          replaceProjectInState(latestProject);
+        }
+        return false;
+      }
+      latestProject = updated;
+    }
+
+    replaceProjectInState(latestProject);
+    setStatusText(`${ids.length} task${ids.length === 1 ? "" : "s"} deleted.`);
+    return true;
+  }
+
   async function deleteTask(taskId) {
     if (!selectedProject) {
       return;
@@ -1764,11 +1795,12 @@ export function ProjectsView({
           openTaskDetails={openTaskDetails}
           openCreateTaskModal={openCreateTaskModal}
           moveTask={moveTask}
+          bulkUpdateTasks={bulkUpdateTasks}
+          bulkDeleteTasks={bulkDeleteTasks}
           createModalActors={createModalActors}
           createModalTeams={createModalTeams}
           onOpenReview={openReview}
           workers={workers}
-          onWatchAgentTaskSession={watchAgentTaskSession}
         />
       );
     }

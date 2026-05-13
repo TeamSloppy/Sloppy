@@ -475,6 +475,13 @@ enum ToolCatalog {
             "required": .array([.string("seconds")])
         ]),
         "project.list": .object(["type": .string("object")]),
+        "project.current": .object([
+            "type": .string("object"),
+            "properties": .object([
+                "channelId": .object(["type": .string("string")]),
+                "topicId": .object(["type": .string("string")])
+            ])
+        ]),
         "project.create": .object([
             "type": .string("object"),
             "properties": .object([

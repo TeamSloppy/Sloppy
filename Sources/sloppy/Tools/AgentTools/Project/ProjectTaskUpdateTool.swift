@@ -7,7 +7,7 @@ struct ProjectTaskUpdateTool: CoreTool {
     let title = "Update project task"
     let status = "fully_functional"
     let name = "project.task_update"
-    let description = "Update an existing task in the current channel project. Accepts taskId or reference plus partial fields."
+    let description = "Update an existing task in the current channel project. Accepts taskId or reference plus partial fields. If unsure which project is current, call project.current first and pass the returned projectId explicitly."
 
     var parameters: GenerationSchema {
         .objectSchema([

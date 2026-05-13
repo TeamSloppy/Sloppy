@@ -857,6 +857,12 @@ extension CoreService {
         if request.selectedModel != nil {
             task.selectedModel = normalizeOptionalTaskSelectedModel(request.selectedModel)
         }
+        if let tags = request.tags {
+            task.tags = normalizeTaskTags(tags)
+        }
+        if let isArchived = request.isArchived {
+            task.isArchived = isArchived
+        }
         if let status = request.status {
             task.status = try normalizeTaskStatus(status)
             if task.status == ProjectTaskStatus.backlog.rawValue || task.status == ProjectTaskStatus.cancelled.rawValue {
@@ -1230,6 +1236,27 @@ extension CoreService {
             return "Channel"
         }
         return String(trimmed.prefix(160))
+    }
+
+    func normalizeTaskTags(_ raw: [String]) -> [String] {
+        var seen = Set<String>()
+        var tags: [String] = []
+        for value in raw {
+            let tag = String(value.trimmingCharacters(in: .whitespacesAndNewlines).prefix(80))
+            guard !tag.isEmpty else {
+                continue
+            }
+            let key = tag.lowercased()
+            guard !seen.contains(key) else {
+                continue
+            }
+            seen.insert(key)
+            tags.append(tag)
+            if tags.count >= 24 {
+                break
+            }
+        }
+        return tags
     }
 
     func normalizedProjectID(_ raw: String) -> String? {
