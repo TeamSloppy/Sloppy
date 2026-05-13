@@ -33,7 +33,7 @@ struct SloppyTUIApp {
         let agents = (try? await runtime.service.listAgents(includeSystem: false)) ?? []
         let resolved = try await Self.resolveLaunchSelection(
             service: runtime.service,
-            projectID: project.id,
+            project: project,
             requestedSessionID: requestedSessionID,
             selection: selection,
             agents: agents
@@ -121,7 +121,7 @@ struct SloppyTUIApp {
 
     static func resolveLaunchSelection(
         service: CoreService,
-        projectID: String,
+        project: ProjectRecord,
         requestedSessionID: String?,
         selection: SloppyTUIState.Selection?,
         agents: [AgentSummary]
@@ -130,7 +130,7 @@ struct SloppyTUIApp {
            !requestedSessionID.isEmpty {
             let explicit = try await resolveExplicitSession(
                 service: service,
-                projectID: projectID,
+                projectID: project.id,
                 sessionID: requestedSessionID,
                 agents: agents
             )
@@ -144,11 +144,12 @@ struct SloppyTUIApp {
         let agent = try await resolveAgent(
             service: service,
             preferredID: selection?.agentId,
+            projectActorIDs: project.actors,
             agents: agents
         )
         return SloppyTUILaunchSelection(
             agent: agent,
-            session: Self.makeDraftSession(agent: agent, projectID: projectID),
+            session: Self.makeDraftSession(agent: agent, projectID: project.id),
             hasPersistedSession: false
         )
     }
@@ -156,11 +157,19 @@ struct SloppyTUIApp {
     private static func resolveAgent(
         service: CoreService,
         preferredID: String?,
+        projectActorIDs: [String],
         agents: [AgentSummary]
     ) async throws -> AgentSummary {
         if let preferredID,
            let agent = agents.first(where: { $0.id == preferredID }) {
             return agent
+        }
+        if let projectActor = await resolveProjectActorAgent(
+            service: service,
+            projectActorIDs: projectActorIDs,
+            agents: agents
+        ) {
+            return projectActor
         }
         if let first = agents.first {
             return first
@@ -172,6 +181,38 @@ struct SloppyTUIApp {
                 role: "SLOPPY"
             )
         )
+    }
+
+    private static func resolveProjectActorAgent(
+        service: CoreService,
+        projectActorIDs: [String],
+        agents: [AgentSummary]
+    ) async -> AgentSummary? {
+        var board: ActorBoardSnapshot?
+        for rawActorID in projectActorIDs {
+            let actorID = rawActorID.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !actorID.isEmpty else {
+                continue
+            }
+
+            if let directAgent = agents.first(where: { $0.id == actorID }) {
+                return directAgent
+            }
+
+            if board == nil {
+                board = try? await service.getActorBoard()
+            }
+            guard let node = board?.nodes.first(where: { $0.id == actorID }),
+                  node.kind == .agent,
+                  let linkedAgentID = node.linkedAgentId?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !linkedAgentID.isEmpty,
+                  let linkedAgent = agents.first(where: { $0.id == linkedAgentID })
+            else {
+                continue
+            }
+            return linkedAgent
+        }
+        return nil
     }
 
     private static func resolvePersistedSession(
