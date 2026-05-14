@@ -496,6 +496,49 @@ func agentSessionTreatsPlainAssistantAnswerWithoutToolsAsDone() async throws {
 }
 
 @Test
+func agentSessionMarksToollessProgressUpdateAsIncompleteInDebugMode() async throws {
+    let availableModels = [
+        ProviderModelOption(id: "openai:gpt-5.4-mini", title: "openai:gpt-5.4-mini", capabilities: ["tools"])
+    ]
+    let agentID = "toolless-progress-agent"
+    let (catalogStore, sessionStore, _) = try makeAgentSessionFixture(
+        agentID: agentID,
+        selectedModel: "openai:gpt-5.4-mini",
+        availableModels: availableModels
+    )
+    let provider = SequentialOutputModelProvider(
+        models: availableModels.map(\.id),
+        outputs: ["Изучаю контекст создания резолвера во всех точках."]
+    )
+    let runtime = RuntimeSystem(modelProvider: provider, defaultModel: "openai:gpt-5.4-mini")
+    let orchestrator = AgentSessionOrchestrator(
+        runtime: runtime,
+        sessionStore: sessionStore,
+        agentCatalogStore: catalogStore,
+        availableModels: availableModels,
+        toolInvoker: { _, _, request, _ in
+            ToolInvocationResult(tool: request.tool, ok: true, data: .object(["ok": .bool(true)]))
+        }
+    )
+
+    let session = try await orchestrator.createSession(agentID: agentID, request: AgentSessionCreateRequest())
+    let response = try await orchestrator.postMessage(
+        agentID: agentID,
+        sessionID: session.id,
+        request: AgentSessionPostMessageRequest(
+            userId: "dashboard",
+            content: "интересно, как там с теориями?",
+            mode: .debug
+        )
+    )
+
+    let finalStatus = try #require(response.appendedEvents.last(where: { $0.type == .runStatus })?.runStatus)
+    #expect(finalStatus.stage == .interrupted)
+    #expect(finalStatus.label == "Incomplete")
+    #expect(finalStatus.details == "Agent produced only a progress update without using tools.")
+}
+
+@Test
 func agentSessionTreatsToolDrivenTurnWithoutExplicitCompletionAsDoneAfterFinalAnswer() async throws {
     let availableModels = [
         ProviderModelOption(id: "openai:gpt-5.4-mini", title: "openai:gpt-5.4-mini", capabilities: ["tools"])

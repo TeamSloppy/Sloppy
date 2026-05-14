@@ -4564,8 +4564,7 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
         }
 
         do {
-            let file = try await runtime.service.readProjectFile(projectID: project.id, path: path)
-            return "[Attached file: \(file.path)]\n```\n\(file.content)\n```"
+            return try await projectFileReferenceContext(for: path)
         } catch {
             if !shouldTryDirectoryFirst, let manifest = await directoryContextBlock(path: path) {
                 return manifest
@@ -4626,19 +4625,7 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
             return absoluteDirectoryContextBlock(path: url.path) ?? "[Attached directory: \(url.path)/]\n- (empty directory)"
         }
 
-        do {
-            let maxBytes = 2 * 1024 * 1024
-            let data = try Data(contentsOf: url)
-            guard data.count <= maxBytes else {
-                return "[Attachment failed: \(url.path)] File is too large."
-            }
-            guard let text = String(data: data, encoding: .utf8) else {
-                return "[Attachment failed: \(url.path)] Only UTF-8 files are supported."
-            }
-            return "[Attached file: \(url.path)]\n```\n\(text)\n```"
-        } catch {
-            return "[Attachment failed: \(url.path)] \(String(describing: error))"
-        }
+        return fileReferenceContextBlock(displayPath: url.path, url: url)
     }
 
     private func absoluteDirectoryContextBlock(path: String) -> String? {
@@ -4686,6 +4673,60 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
         }
         return nil
     }
+
+    private func projectFileReferenceContext(for rawPath: String) async throws -> String {
+        let rootURL: URL
+        if let projectFileRootURL {
+            rootURL = projectFileRootURL
+        } else {
+            rootURL = try await runtime.service.resolveProjectWorkspaceRoot(projectID: project.id)
+            projectFileRootURL = rootURL
+        }
+
+        let trimmedPath = rawPath.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedPath.isEmpty else {
+            throw SloppyTUIAttachmentReferenceError.invalidPath
+        }
+
+        let fileURL = rootURL.appendingPathComponent(trimmedPath).standardizedFileURL
+        guard isAttachmentURL(fileURL, inside: rootURL) else {
+            throw SloppyTUIAttachmentReferenceError.invalidPath
+        }
+
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: fileURL.path, isDirectory: &isDirectory) else {
+            throw SloppyTUIAttachmentReferenceError.notFound
+        }
+        guard !isDirectory.boolValue else {
+            throw SloppyTUIAttachmentReferenceError.notFile
+        }
+
+        let relativePath = String(fileURL.path.dropFirst(rootURL.standardizedFileURL.path.count))
+            .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        return fileReferenceContextBlock(displayPath: relativePath.isEmpty ? trimmedPath : relativePath, url: fileURL)
+    }
+
+    private func fileReferenceContextBlock(displayPath: String, url: URL) -> String {
+        let values = try? url.resourceValues(forKeys: [.fileSizeKey])
+        return SloppyTUIAttachmentContext.fileReferenceBlock(
+            displayPath: displayPath,
+            absolutePath: url.path,
+            sizeBytes: values?.fileSize
+        )
+    }
+
+    private func isAttachmentURL(_ url: URL, inside rootURL: URL) -> Bool {
+        let root = rootURL.standardizedFileURL
+        let candidate = url.standardizedFileURL
+        let rootPrefix = root.path.hasSuffix("/") ? root.path : root.path + "/"
+        return candidate.path == root.path || candidate.path.hasPrefix(rootPrefix)
+    }
+}
+
+private enum SloppyTUIAttachmentReferenceError: Error {
+    case invalidPath
+    case notFound
+    case notFile
 }
 
 #if canImport(AppKit)

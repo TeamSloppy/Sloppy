@@ -383,7 +383,8 @@ actor AgentSessionOrchestrator {
                     finishedNaturally: result.stopReason != .cancelled,
                     hitTurnLimit: false,
                     toolErrors: [],
-                    lastAssistantText: result.assistantText
+                    lastAssistantText: result.assistantText,
+                    endedWithoutRequiredToolUse: false
                 )
             } catch {
                 throw OrchestratorError.storageFailure
@@ -509,6 +510,12 @@ actor AgentSessionOrchestrator {
                 stage: .interrupted,
                 label: "Incomplete",
                 details: "Agent reached the tool turn limit before producing a final answer."
+            )
+        } else if runtimeOutcome.endedWithoutRequiredToolUse {
+            completionStatus = AgentRunStatusEvent(
+                stage: .interrupted,
+                label: "Incomplete",
+                details: "Agent produced only a progress update without using tools."
             )
         } else {
             completionStatus = AgentRunStatusEvent(
@@ -748,6 +755,7 @@ actor AgentSessionOrchestrator {
         var hitTurnLimit: Bool
         var toolErrors: [ToolInvocationResult]
         var lastAssistantText: String
+        var endedWithoutRequiredToolUse: Bool
     }
 
     static func runtimeContent(_ content: String, mode: AgentChatMode?) -> String {
@@ -1010,6 +1018,14 @@ actor AgentSessionOrchestrator {
         let completionSummary = sessionCompletionSummaryByChannel[channelID]?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let usedTools = toolDrivenSessionRunChannels.contains(channelID)
         let didExplicitlyComplete = completedSessionRunChannels.contains(channelID)
+        let endedWithoutRequiredToolUse = Self.isToollessProgressOnly(
+            mode: mode,
+            assistantText: !streamedAssistantText.isEmpty
+                ? streamedAssistantText
+                : (!assistantTextFromSnapshot.isEmpty ? assistantTextFromSnapshot : completionSummary),
+            usedTools: usedTools,
+            toolInvokerAvailable: toolInvoker != nil
+        )
 
         return SessionRuntimeOutcome(
             assistantText: !streamedAssistantText.isEmpty
@@ -1026,8 +1042,53 @@ actor AgentSessionOrchestrator {
             finishedNaturally: nativeLoopOutcome?.finishedNaturally ?? true,
             hitTurnLimit: nativeLoopOutcome?.hitTurnLimit ?? false,
             toolErrors: nativeLoopOutcome?.toolErrors ?? [],
-            lastAssistantText: nativeLoopOutcome?.lastAssistantText ?? ""
+            lastAssistantText: nativeLoopOutcome?.lastAssistantText ?? "",
+            endedWithoutRequiredToolUse: endedWithoutRequiredToolUse
         )
+    }
+
+    private static func isToollessProgressOnly(
+        mode: AgentChatMode,
+        assistantText: String,
+        usedTools: Bool,
+        toolInvokerAvailable: Bool
+    ) -> Bool {
+        guard toolInvokerAvailable, !usedTools else {
+            return false
+        }
+        guard mode == .build || mode == .debug else {
+            return false
+        }
+        let normalized = assistantText
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        guard !normalized.isEmpty, normalized.count <= 280 else {
+            return false
+        }
+
+        let prefixes = [
+            "изучаю",
+            "сейчас изучу",
+            "теперь изучу",
+            "посмотрю",
+            "сейчас посмотрю",
+            "проверю",
+            "сейчас проверю",
+            "начинаю",
+            "i'll inspect",
+            "i’ll inspect",
+            "i will inspect",
+            "i'll check",
+            "i’ll check",
+            "i will check",
+            "let me inspect",
+            "let me check",
+            "looking into",
+            "i'm going to",
+            "i’m going to",
+            "i am going to"
+        ]
+        return prefixes.contains { normalized.hasPrefix($0) }
     }
 
     private func logSessionRunCompletion(

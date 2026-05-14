@@ -215,12 +215,16 @@ final class AgentCatalogFileStore {
         )
         let documents = try readAgentDocuments(agentID: normalizedAgentID)
         let heartbeatStatus = try readHeartbeatStatus(agentID: normalizedAgentID, isSystem: summary.isSystem)
+        let visibleModels = Self.availableModelsIncludingSelected(
+            configFile.selectedModel,
+            availableModels: availableModels
+        )
 
         return AgentConfigDetail(
             agentId: normalizedAgentID,
             role: summary.role,
             selectedModel: configFile.selectedModel,
-            availableModels: availableModels,
+            availableModels: visibleModels,
             documents: documents,
             heartbeat: configFile.heartbeat ?? AgentHeartbeatSettings(),
             channelSessions: configFile.channelSessions ?? AgentChannelSessionSettings(),
@@ -737,7 +741,7 @@ final class AgentCatalogFileStore {
             try writeAgentConfigFile(decoded, isSystem: summary.isSystem)
         }
         let requiresDefaultModel = runtime.type == .native
-            && (resolvedModel == nil || (selectedModel?.isEmpty ?? true))
+            && (selectedModel?.isEmpty ?? true)
         if requiresDefaultModel {
             decoded = AgentConfigFile(
                 id: decoded.id,
@@ -764,6 +768,19 @@ final class AgentCatalogFileStore {
             try writeAgentConfigFile(decoded, isSystem: summary.isSystem)
         }
         return decoded
+    }
+
+    private static func availableModelsIncludingSelected(
+        _ selectedModel: String?,
+        availableModels: [ProviderModelOption]
+    ) -> [ProviderModelOption] {
+        let selected = selectedModel?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !selected.isEmpty,
+              !availableModels.contains(where: { $0.id == selected })
+        else {
+            return availableModels
+        }
+        return availableModels + [CoreService.providerModelOption(for: selected)]
     }
 
     private func writeAgentConfigFile(_ configFile: AgentConfigFile, isSystem: Bool) throws {
