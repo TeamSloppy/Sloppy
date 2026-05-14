@@ -139,6 +139,8 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
         SloppyTUISlashCommand("skills", "Show enabled skills"),
         SloppyTUISlashCommand("editor", "Open code editor, optionally choose cursor/xcode/code"),
         SloppyTUISlashCommand("model", "Switch agent model"),
+        SloppyTUISlashCommand("keybindings", "Show TUI quick reference"),
+        SloppyTUISlashCommand("shortcuts", "Show TUI quick reference"),
         SloppyTUISlashCommand("context", "Attach changes or git diff", argument: "changes|diff"),
         SloppyTUISlashCommand("tasks", "Show project tasks"),
         SloppyTUISlashCommand("mcps", "Show MCP server statuses"),
@@ -176,6 +178,8 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
         "skills",
         "editor",
         "model",
+        "keybindings",
+        "shortcuts",
         "context",
         "tasks",
         "mcps",
@@ -396,6 +400,9 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
             return
         }
         if handleProjectFileSearchInput(input) {
+            return
+        }
+        if handleGlobalShortcut(input) {
             return
         }
         if handleAttachmentInput(input) {
@@ -748,6 +755,26 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
         default:
             return false
         }
+    }
+
+    private func handleGlobalShortcut(_ input: TerminalInput) -> Bool {
+        guard let action = SloppyTUIGlobalShortcutAction.match(input: input) else {
+            return false
+        }
+
+        switch action {
+        case .modelPicker:
+            Task { @MainActor in await self.switchModel(nil) }
+        case .projectTasks:
+            Task { @MainActor in await self.showTasks() }
+        case .codeEditor:
+            Task { @MainActor in await self.openCodeEditor([]) }
+        case .undo:
+            Task { @MainActor in await self.undoLastTurn() }
+        case .redo:
+            Task { @MainActor in await self.redoLastTurn() }
+        }
+        return true
     }
 
     private var isEditingSingleLineSlashCommand: Bool {
@@ -1436,6 +1463,8 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
         switch command {
         case "help":
             showHelp()
+        case "keybindings", "shortcuts":
+            showQuickReference()
         case "status":
             await showStatus()
         case "pet":
@@ -1526,11 +1555,14 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
     }
 
     private func showHelp() {
+        let quickReference = quickReferenceMarkdown()
         let commandLines = allSlashCommands.map { command -> String in
             let usage = command.argument.map { " <\($0)>" } ?? ""
             return "- `/\(command.name)\(usage)` — \(command.description ?? command.name)"
         }.joined(separator: "\n")
         appendLocalCard("""
+        \(quickReference)
+
         ## TUI commands
         \(commandLines)
 
@@ -1555,6 +1587,18 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
         - `/btw <message>` asks a quick side question without interrupting the main flow.
         - `/diff` previews local changes; `/context diff` attaches them to the next message.
         """)
+    }
+
+    private func showQuickReference() {
+        appendLocalCard("""
+        \(quickReferenceMarkdown())
+
+        Keybinding customization is not available yet.
+        """)
+    }
+
+    private func quickReferenceMarkdown() -> String {
+        SloppyTUITheme.quickReferenceLines(width: terminal?.columns ?? 80).joined(separator: "\n")
     }
 
     private func showMCPServers() async {

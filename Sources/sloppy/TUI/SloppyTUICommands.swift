@@ -29,6 +29,80 @@ struct SloppyTUISlashCommand: SlashCommand {
     }
 }
 
+struct SloppyTUIShortcutDescriptor: Equatable {
+    var key: String
+    var description: String
+
+    init(_ key: String, _ description: String) {
+        self.key = key
+        self.description = description
+    }
+}
+
+enum SloppyTUIShortcutCatalog {
+    static let all: [SloppyTUIShortcutDescriptor] = [
+        SloppyTUIShortcutDescriptor("/", "commands"),
+        SloppyTUIShortcutDescriptor("@", "project paths"),
+        SloppyTUIShortcutDescriptor("#", "project tasks"),
+        SloppyTUIShortcutDescriptor("/btw", "side question"),
+        SloppyTUIShortcutDescriptor("Tab", "cycle mode"),
+        SloppyTUIShortcutDescriptor("Shift+Enter", "newline"),
+        SloppyTUIShortcutDescriptor("Option+Enter", "newline"),
+        SloppyTUIShortcutDescriptor("Esc", "interrupt run"),
+        SloppyTUIShortcutDescriptor("Ctrl+V", "attach clipboard"),
+        SloppyTUIShortcutDescriptor("Ctrl+O", "verbose transcript"),
+        SloppyTUIShortcutDescriptor("Ctrl+B", "cancel queue"),
+        SloppyTUIShortcutDescriptor("Ctrl+P", "parent session"),
+        SloppyTUIShortcutDescriptor("Ctrl+G", "newest subagent"),
+        SloppyTUIShortcutDescriptor("Option+P", "model picker"),
+        SloppyTUIShortcutDescriptor("Ctrl+T", "project tasks"),
+        SloppyTUIShortcutDescriptor("Option+E", "open editor"),
+        SloppyTUIShortcutDescriptor("Option+U", "undo turn"),
+        SloppyTUIShortcutDescriptor("Option+R", "redo turn"),
+    ]
+}
+
+enum SloppyTUIGlobalShortcutAction: Equatable {
+    case modelPicker
+    case projectTasks
+    case codeEditor
+    case undo
+    case redo
+
+    static func match(input: TerminalInput) -> SloppyTUIGlobalShortcutAction? {
+        guard case let .key(.character(character), modifiers) = input else {
+            return nil
+        }
+
+        let key = String(character).lowercased()
+        if modifiers.contains(.control), !modifiers.contains(.option), !modifiers.contains(.command) {
+            switch key {
+            case "t":
+                return .projectTasks
+            default:
+                return nil
+            }
+        }
+
+        if modifiers.contains(.option), !modifiers.contains(.control), !modifiers.contains(.command) {
+            switch key {
+            case "p":
+                return .modelPicker
+            case "e":
+                return .codeEditor
+            case "u":
+                return .undo
+            case "r":
+                return .redo
+            default:
+                return nil
+            }
+        }
+
+        return nil
+    }
+}
+
 enum SloppyTUISlashCommandRouter {
     static func commandName(in raw: String) -> String? {
         let value = raw.trimmingCharacters(in: .whitespacesAndNewlines)

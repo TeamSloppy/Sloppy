@@ -151,6 +151,38 @@ func chromeRowsFitNarrowTerminalWidth() {
 }
 
 @Test
+func quickReferenceRendersWideMulticolumnLayout() {
+    let width = 120
+    let lines = SloppyTUITheme.quickReferenceLines(width: width)
+    let plain = lines.map(stripANSI)
+
+    #expect(plain.first == "## Quick reference")
+    #expect(plain.joined(separator: "\n").contains("`Option+P` model picker"))
+    #expect(plain.joined(separator: "\n").contains("`Ctrl+T` project tasks"))
+    #expect(plain.joined(separator: "\n").contains("`Ctrl+G` newest subagent"))
+    #expect(plain.contains { $0.contains("`/` commands") && $0.contains("`Ctrl+G` newest subagent") })
+
+    for line in lines {
+        #expect(VisibleWidth.measure(line) <= width)
+    }
+}
+
+@Test
+func quickReferenceRendersNarrowSingleColumnLayout() {
+    let width = 34
+    let lines = SloppyTUITheme.quickReferenceLines(width: width)
+    let plain = lines.map(stripANSI)
+
+    #expect(plain.contains("- `/` commands"))
+    #expect(plain.contains("- `Option+R` redo turn"))
+    #expect(!plain.contains { $0.contains("  `") })
+
+    for line in lines {
+        #expect(VisibleWidth.measure(line) <= width)
+    }
+}
+
+@Test
 func defaultSessionStatusAvoidsComposerMetadataDuplication() {
     let status = stripANSI(SloppyTUITheme.sessionStatusLine(
         context: "  queue: 1 ctrl+b cancel",

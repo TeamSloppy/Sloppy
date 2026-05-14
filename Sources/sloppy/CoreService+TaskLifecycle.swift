@@ -892,10 +892,17 @@ extension CoreService {
             )
         }
 
-        if let workingDirectory {
-            let roots = sessionToolRoots(forWorkingDirectory: workingDirectory)
-            sessionExtraRoots[session.id] = roots
+        let inheritedContext = await subagentToolContext(
+            agentID: agentID,
+            parentSessionID: parentSessionID,
+            fallbackWorkingDirectory: workingDirectory
+        )
+        if let workingDirectory = inheritedContext.workingDirectory,
+           !workingDirectory.isEmpty {
             sessionWorkingDirectories[session.id] = workingDirectory
+        }
+        if !inheritedContext.extraRoots.isEmpty {
+            sessionExtraRoots[session.id] = inheritedContext.extraRoots
         }
 
         let channelId = sessionChannelID(agentID: agentID, sessionID: session.id)
@@ -928,12 +935,49 @@ extension CoreService {
         }
 
         let detail = try? getAgentSession(agentID: agentID, sessionID: session.id)
-        let text = latestDelegateFinishSummary(from: detail?.events ?? response.appendedEvents)
-            ?? latestAssistantText(from: response.appendedEvents)
+        let text = delegatedTaskResultText(from: detail?.events ?? response.appendedEvents)
         sessionSubagentToolAllowList.removeValue(forKey: session.id)
         await runtime.clearChannelToolAllowList(channelId: channelId)
         await runtime.invalidateChannelSession(channelId: channelId)
         return text
+    }
+
+    func subagentToolContext(
+        agentID: String,
+        parentSessionID: String?,
+        fallbackWorkingDirectory: String?
+    ) async -> (workingDirectory: String?, extraRoots: [String]) {
+        var workingDirectory: String?
+        var roots: [String] = []
+
+        if let parentSessionID = parentSessionID.flatMap(normalizedSessionID) {
+            if let parentRoots = sessionExtraRoots[parentSessionID] {
+                workingDirectory = sessionWorkingDirectories[parentSessionID]
+                roots = parentRoots
+            } else if let detail = try? getAgentSession(agentID: agentID, sessionID: parentSessionID) {
+                let parentContext = await toolContextForSession(
+                    sessionID: parentSessionID,
+                    sessionTitle: detail.summary.title,
+                    projectID: detail.summary.projectId
+                )
+                workingDirectory = parentContext.workingDirectory
+                roots = parentContext.extraRoots
+            }
+        }
+
+        if let fallback = fallbackWorkingDirectory?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !fallback.isEmpty {
+            let normalizedFallback = URL(fileURLWithPath: fallback, isDirectory: true).standardizedFileURL.path
+            if workingDirectory == nil {
+                workingDirectory = normalizedFallback
+            }
+            roots = appendingUniqueRoots(
+                sessionToolRoots(forWorkingDirectory: normalizedFallback),
+                to: roots
+            )
+        }
+
+        return (workingDirectory, roots)
     }
 
     private func delegatedTaskObjective(_ objective: String) -> String {
@@ -948,6 +992,11 @@ extension CoreService {
 
         \(objective)
         """
+    }
+
+    func delegatedTaskResultText(from events: [AgentSessionEvent]) -> String {
+        latestDelegateFinishSummary(from: events)
+            ?? "[blocked] Delegated subagent did not call `agent_delegate.finish`.\nError: The subagent ended without a structured delegated-task result."
     }
 
     private func latestDelegateFinishSummary(from events: [AgentSessionEvent]) -> String? {
@@ -973,6 +1022,19 @@ extension CoreService {
             return "[\(status)] \(summary)"
         }
         return nil
+    }
+
+    private func appendingUniqueRoots(_ additions: [String], to existing: [String]) -> [String] {
+        var result = existing
+        for root in additions {
+            let trimmed = root.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { continue }
+            let normalized = URL(fileURLWithPath: trimmed, isDirectory: true).standardizedFileURL.path
+            if !result.contains(normalized) {
+                result.append(normalized)
+            }
+        }
+        return result
     }
 
     func createOrReclaimWorktree(repoPath: String, taskId: String) async throws -> GitWorktreeResult {

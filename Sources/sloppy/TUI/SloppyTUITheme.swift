@@ -659,6 +659,57 @@ enum SloppyTUITheme {
         return lines
     }
 
+    static func quickReferenceLines(
+        width: Int,
+        shortcuts: [SloppyTUIShortcutDescriptor] = SloppyTUIShortcutCatalog.all
+    ) -> [String] {
+        let contentWidth = max(1, min(max(1, width), 120))
+        var lines = ["## Quick reference", ""]
+
+        guard !shortcuts.isEmpty else {
+            return lines
+        }
+
+        let columns: Int
+        if contentWidth >= 104 {
+            columns = 3
+        } else if contentWidth >= 68 {
+            columns = 2
+        } else {
+            columns = 1
+        }
+
+        if columns == 1 {
+            lines += shortcuts.map { shortcut in
+                fittedLine("- `\(shortcut.key)` \(shortcut.description)", width: contentWidth)
+            }
+            return lines
+        }
+
+        let gap = 2
+        let columnWidth = max(1, (contentWidth - ((columns - 1) * gap)) / columns)
+        let rowCount = Int(ceil(Double(shortcuts.count) / Double(columns)))
+        for row in 0..<rowCount {
+            var rowText = ""
+            for column in 0..<columns {
+                let index = row + (column * rowCount)
+                guard shortcuts.indices.contains(index) else {
+                    continue
+                }
+
+                let raw = "`\(shortcuts[index].key)` \(shortcuts[index].description)"
+                let cell = fittedLine(raw, width: columnWidth)
+                if column > 0 {
+                    rowText += String(repeating: " ", count: gap)
+                }
+                rowText += padded(cell, width: columnWidth)
+            }
+            lines.append(fittedLine(rowText, width: contentWidth))
+        }
+
+        return lines
+    }
+
     static func pickerLines(width: Int, picker: SloppyTUIPicker, maxVisible: Int) -> [String] {
         let paletteWidth = max(1, min(max(1, width - 4), 96))
         let left = max(0, (width - paletteWidth) / 2)

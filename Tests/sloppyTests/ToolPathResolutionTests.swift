@@ -283,6 +283,50 @@ struct ToolPathResolutionTests {
         #expect(result.ok == true)
     }
 
+    @Test("subagent inherits parent session directories")
+    func subagentInheritsParentSessionDirectories() async throws {
+        let tmp = FileManager.default.temporaryDirectory
+        let firstRoot = tmp.appendingPathComponent("sloppy-parent-root-a-\(UUID().uuidString)", isDirectory: true)
+        let secondRoot = tmp.appendingPathComponent("sloppy-parent-root-b-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: firstRoot, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: secondRoot, withIntermediateDirectories: true)
+        defer {
+            try? FileManager.default.removeItem(at: firstRoot)
+            try? FileManager.default.removeItem(at: secondRoot)
+        }
+
+        let service = CoreService(config: .test, persistenceBuilder: InMemoryCorePersistenceBuilder())
+        let agentID = "test-subagent-root-agent"
+        _ = try await service.createAgent(
+            AgentCreateRequest(id: agentID, displayName: "Subagent Root Agent", role: "assistant")
+        )
+        let parent = try await service.createAgentSession(
+            agentID: agentID,
+            request: AgentSessionCreateRequest(title: "parent")
+        )
+
+        _ = try await service.addAgentSessionDirectory(
+            agentID: agentID,
+            sessionID: parent.id,
+            request: AgentSessionDirectoryRequest(path: firstRoot.path)
+        )
+        _ = try await service.addAgentSessionDirectory(
+            agentID: agentID,
+            sessionID: parent.id,
+            request: AgentSessionDirectoryRequest(path: secondRoot.path)
+        )
+
+        let context = await service.subagentToolContext(
+            agentID: agentID,
+            parentSessionID: parent.id,
+            fallbackWorkingDirectory: firstRoot.path
+        )
+
+        #expect(context.workingDirectory == firstRoot.resolvingSymlinksInPath().path)
+        #expect(context.extraRoots.contains(firstRoot.resolvingSymlinksInPath().path))
+        #expect(context.extraRoots.contains(secondRoot.resolvingSymlinksInPath().path))
+    }
+
     @Test("add channel directory allows channel tools to use outside cwd")
     func addChannelDirectoryAllowsOutsideCwd() async throws {
         let tmp = FileManager.default.temporaryDirectory

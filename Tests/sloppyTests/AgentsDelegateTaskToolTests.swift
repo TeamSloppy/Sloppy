@@ -121,4 +121,48 @@ struct AgentsDelegateTaskToolTests {
         #expect(!result.ok)
         #expect(result.error?.code == "invalid_arguments")
     }
+
+    @Test("Delegated task result requires finish tool")
+    func delegatedTaskResultRequiresFinishTool() async {
+        let service = CoreService(config: .test, persistenceBuilder: InMemoryCorePersistenceBuilder())
+        let events = [
+            AgentSessionEvent(
+                agentId: "test-agent",
+                sessionId: "session-child",
+                type: .message,
+                message: AgentSessionMessage(
+                    role: .assistant,
+                    segments: [.init(kind: .text, text: "I'll search for that now.")]
+                )
+            )
+        ]
+
+        let text = await service.delegatedTaskResultText(from: events)
+        #expect(text.contains("[blocked]"))
+        #expect(text.contains("agent_delegate.finish"))
+    }
+
+    @Test("Delegated task result uses finish tool summary")
+    func delegatedTaskResultUsesFinishToolSummary() async {
+        let service = CoreService(config: .test, persistenceBuilder: InMemoryCorePersistenceBuilder())
+        let events = [
+            AgentSessionEvent(
+                agentId: "test-agent",
+                sessionId: "session-child",
+                type: .toolResult,
+                toolResult: AgentToolResultEvent(
+                    tool: "agent_delegate.finish",
+                    ok: true,
+                    data: .object([
+                        "finished": .bool(true),
+                        "status": .string("completed"),
+                        "summary": .string("Found all usages."),
+                    ])
+                )
+            )
+        ]
+
+        let text = await service.delegatedTaskResultText(from: events)
+        #expect(text == "[completed] Found all usages.")
+    }
 }

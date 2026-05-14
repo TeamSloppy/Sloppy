@@ -15,9 +15,11 @@ func slashCommandRouterIgnoresAbsolutePaths() {
 
 @Test
 func slashCommandRouterHandlesKnownCommandsAndAliases() {
-    let commandNames: Set<String> = ["help", "add-dir", "restore", "up", "undo", "redo"]
+    let commandNames: Set<String> = ["help", "keybindings", "shortcuts", "add-dir", "restore", "up", "undo", "redo"]
 
     #expect(SloppyTUISlashCommandRouter.shouldHandle("/help", commandNames: commandNames, skillCommandNames: []))
+    #expect(SloppyTUISlashCommandRouter.shouldHandle("/keybindings", commandNames: commandNames, skillCommandNames: []))
+    #expect(SloppyTUISlashCommandRouter.shouldHandle("/shortcuts", commandNames: commandNames, skillCommandNames: []))
     #expect(SloppyTUISlashCommandRouter.shouldHandle("/add-dir /tmp/demo", commandNames: commandNames, skillCommandNames: []))
     #expect(SloppyTUISlashCommandRouter.shouldHandle("/restore", commandNames: commandNames, skillCommandNames: []))
     #expect(SloppyTUISlashCommandRouter.shouldHandle("/up", commandNames: commandNames, skillCommandNames: []))
@@ -30,6 +32,25 @@ func slashCommandRouterHandlesSkillCommands() {
     let skillCommandNames: Set<String> = ["ux-pro-max"]
 
     #expect(SloppyTUISlashCommandRouter.shouldHandle("/ux-pro-max make it nicer", commandNames: [], skillCommandNames: skillCommandNames))
+}
+
+@Test
+func globalShortcutMatcherRecognizesSafeHotkeys() {
+    #expect(SloppyTUIGlobalShortcutAction.match(input: .key(.character("p"), modifiers: [.option])) == .modelPicker)
+    #expect(SloppyTUIGlobalShortcutAction.match(input: .key(.character("P"), modifiers: [.option])) == .modelPicker)
+    #expect(SloppyTUIGlobalShortcutAction.match(input: .key(.character("t"), modifiers: [.control])) == .projectTasks)
+    #expect(SloppyTUIGlobalShortcutAction.match(input: .key(.character("e"), modifiers: [.option])) == .codeEditor)
+    #expect(SloppyTUIGlobalShortcutAction.match(input: .key(.character("u"), modifiers: [.option])) == .undo)
+    #expect(SloppyTUIGlobalShortcutAction.match(input: .key(.character("r"), modifiers: [.option])) == .redo)
+}
+
+@Test
+func globalShortcutMatcherLeavesExistingBindingsAlone() {
+    #expect(SloppyTUIGlobalShortcutAction.match(input: .key(.character("g"), modifiers: [.control])) == nil)
+    #expect(SloppyTUIGlobalShortcutAction.match(input: .key(.character("o"), modifiers: [.control])) == nil)
+    #expect(SloppyTUIGlobalShortcutAction.match(input: .key(.tab)) == nil)
+    #expect(SloppyTUIGlobalShortcutAction.match(input: .key(.character("p"), modifiers: [.control])) == nil)
+    #expect(SloppyTUIGlobalShortcutAction.match(input: .key(.character("p"), modifiers: [.option, .control])) == nil)
 }
 
 @Test
