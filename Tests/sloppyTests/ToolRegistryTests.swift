@@ -33,7 +33,7 @@ struct ToolRegistryTests {
             "mcp.install_server", "mcp.uninstall_server",
             "agents.list",
             "channel.history",
-            "system.list_tools",
+            "system.list_tools", "session.complete",
             "planning.request_input", "planning.progress_update",
             "cron",
             "project.list", "project.current", "project.create", "project.update", "project.delete",
@@ -81,6 +81,7 @@ struct ToolRegistryTests {
         #expect(ToolCatalog.knownToolIDs.contains("browser.open"))
         #expect(ToolCatalog.knownToolIDs.contains("browser.screenshot"))
         #expect(ToolCatalog.knownToolIDs.contains("debug.read_logs"))
+        #expect(ToolCatalog.knownToolIDs.contains("session.complete"))
     }
 
     @Test("ToolCatalog schema advertises project.current arguments")

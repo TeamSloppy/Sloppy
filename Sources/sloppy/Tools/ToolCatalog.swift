@@ -58,6 +58,13 @@ enum ToolCatalog {
 
     static let parameterSchemas: [String: JSONValue] = [
         "system.list_tools": .object(["type": .string("object")]),
+        "session.complete": .object([
+            "type": .string("object"),
+            "properties": .object([
+                "summary": .object(["type": .string("string")])
+            ]),
+            "required": .array([.string("summary")])
+        ]),
         "files.list": .object([
             "type": .string("object"),
             "properties": .object([

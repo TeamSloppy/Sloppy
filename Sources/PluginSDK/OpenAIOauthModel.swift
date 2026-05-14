@@ -91,17 +91,25 @@ extension OpenAIOAuthModel {
         var pendingCalls = result.functionCalls
 
         while !pendingCalls.isEmpty, let delegate = session.toolExecutionDelegate {
-            var toolOutputs: [(callId: String, output: String)] = []
-            for call in pendingCalls {
-                let originalName = conversion.nameMap[call.name] ?? call.name
-                let toolCall = Transcript.ToolCall(
+            let toolCalls = pendingCalls.map { call in
+                Transcript.ToolCall(
                     id: call.callId,
-                    toolName: originalName,
+                    toolName: conversion.nameMap[call.name] ?? call.name,
                     arguments: parseGeneratedContent(call.arguments)
                 )
-                await delegate.didGenerateToolCalls([toolCall], in: session)
+            }
+            await delegate.didGenerateToolCalls(toolCalls, in: session)
+
+            var toolOutputs: [(callId: String, output: String)] = []
+            var shouldStop = false
+            for (call, toolCall) in zip(pendingCalls, toolCalls) {
                 let decision = await delegate.toolCallDecision(for: toolCall, in: session)
-                if case .provideOutput(let segments) = decision {
+                switch decision {
+                case .stop:
+                    shouldStop = true
+                case .execute:
+                    continue
+                case .provideOutput(let segments):
                     let outputText = segments.compactMap { segment -> String? in
                         if case .text(let t) = segment { return t.content }
                         return nil
@@ -112,6 +120,12 @@ extension OpenAIOAuthModel {
                     transcriptEntries.append(.toolCalls(Transcript.ToolCalls([toolCall])))
                     transcriptEntries.append(.toolOutput(output))
                 }
+                if shouldStop {
+                    break
+                }
+            }
+            if shouldStop {
+                break
             }
 
             let followUp = try buildFollowUpRequestBody(
@@ -159,17 +173,25 @@ extension OpenAIOAuthModel {
                     var accumulatedEntries: [Transcript.Entry] = []
 
                     while !pendingCalls.isEmpty, let delegate = session.toolExecutionDelegate {
-                        var toolOutputs: [(callId: String, output: String)] = []
-                        for call in pendingCalls {
-                            let originalName = conversion.nameMap[call.name] ?? call.name
-                            let toolCall = Transcript.ToolCall(
+                        let toolCalls = pendingCalls.map { call in
+                            Transcript.ToolCall(
                                 id: call.callId,
-                                toolName: originalName,
+                                toolName: conversion.nameMap[call.name] ?? call.name,
                                 arguments: parseGeneratedContent(call.arguments)
                             )
-                            await delegate.didGenerateToolCalls([toolCall], in: session)
+                        }
+                        await delegate.didGenerateToolCalls(toolCalls, in: session)
+
+                        var toolOutputs: [(callId: String, output: String)] = []
+                        var shouldStop = false
+                        for (call, toolCall) in zip(pendingCalls, toolCalls) {
                             let decision = await delegate.toolCallDecision(for: toolCall, in: session)
-                            if case .provideOutput(let segments) = decision {
+                            switch decision {
+                            case .stop:
+                                shouldStop = true
+                            case .execute:
+                                continue
+                            case .provideOutput(let segments):
                                 let outputText = segments.compactMap { segment -> String? in
                                     if case .text(let t) = segment { return t.content }
                                     return nil
@@ -182,6 +204,12 @@ extension OpenAIOAuthModel {
                                 accumulatedEntries.append(.toolCalls(Transcript.ToolCalls([toolCall])))
                                 accumulatedEntries.append(.toolOutput(output))
                             }
+                            if shouldStop {
+                                break
+                            }
+                        }
+                        if shouldStop {
+                            break
                         }
 
                         let followUp = try buildFollowUpRequestBody(

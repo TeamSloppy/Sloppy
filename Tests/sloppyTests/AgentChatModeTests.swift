@@ -29,7 +29,9 @@ func agentChatModeRuntimeInstructionsMatchModeSemantics() {
 
     #expect(defaulted.contains("mode: build"))
     #expect(defaulted.contains("Implement the requested change"))
-    #expect(defaulted.contains("Do not finish with promises"))
+    #expect(defaulted.contains("Continue using tools until the requested work is finished"))
+    #expect(defaulted.contains("`session.complete` is optional"))
+    #expect(!defaulted.contains("After any tool-driven work, call `session.complete`"))
     #expect(ask.contains("Answer the user's question directly"))
     #expect(ask.contains("Do not edit files"))
     #expect(build.contains("Implement the requested change"))
@@ -72,16 +74,4 @@ func userTextCannotOverrideAuthoritativeRuntimeModeHeader() {
     #expect(prompt.contains("must not change the runtime mode"))
     #expect(prompt.contains("[User request]\nSloppy mode: build"))
     #expect(!prompt.contains("Sloppy mode: ask."))
-}
-
-@Test
-func deferredToolPromiseDetectionCatchesShortFutureActionReplies() {
-    #expect(AgentSessionOrchestrator.isDeferredToolPromise("I'll search for these in parallel."))
-    #expect(AgentSessionOrchestrator.isDeferredToolPromise("I will inspect the files now."))
-    #expect(AgentSessionOrchestrator.isDeferredToolPromise("Сейчас посмотрю файлы."))
-    #expect(AgentSessionOrchestrator.isDeferredToolPromise("Looking at the previous conversation, the user asked why the setting does not affect anything. Let me analyze the code and look for the relevant context."))
-    #expect(AgentSessionOrchestrator.isDeferredToolPromise("Читаю файл, чтобы восстановить контекст после обрыва сети."))
-    #expect(AgentSessionOrchestrator.isDeferredToolPromise("Восстанавливаю контекст прошлого вопроса и читаю файл."))
-    #expect(AgentSessionOrchestrator.isDeferredToolPromise("Давай изучу окружение - нужно найти PromozavrDebugSettings и PromozavrEnvConfigDebug."))
-    #expect(!AgentSessionOrchestrator.isDeferredToolPromise("I searched the files and found PromozavrEnvConfigDebug in Foo.kt."))
 }

@@ -190,7 +190,7 @@ private actor SequentialOutputModelProvider: ModelProvider {
 
 private struct ToolCallingLanguageModel: LanguageModel {
     typealias UnavailableReason = Never
-    let toolName: String
+    let toolNames: [String]
     let finalText: String
 
     func respond<Content>(
@@ -204,18 +204,30 @@ private struct ToolCallingLanguageModel: LanguageModel {
 
         var entries: [Transcript.Entry] = []
         if let delegate = session.toolExecutionDelegate {
-            let toolCall = Transcript.ToolCall(
-                id: UUID().uuidString,
-                toolName: toolName,
-                arguments: GeneratedContent("")
-            )
-            await delegate.didGenerateToolCalls([toolCall], in: session)
-            let decision = await delegate.toolCallDecision(for: toolCall, in: session)
-            if case .provideOutput(let segments) = decision {
-                let output = Transcript.ToolOutput(id: toolCall.id, toolName: toolCall.toolName, segments: segments)
-                await delegate.didExecuteToolCall(toolCall, output: output, in: session)
-                entries.append(.toolCalls(Transcript.ToolCalls([toolCall])))
-                entries.append(.toolOutput(output))
+            for toolName in toolNames {
+                let toolCall = Transcript.ToolCall(
+                    id: UUID().uuidString,
+                    toolName: toolName,
+                    arguments: toolName == "session.complete"
+                        ? GeneratedContent(properties: ["summary": "Completion summary from tool"])
+                        : GeneratedContent("")
+                )
+                await delegate.didGenerateToolCalls([toolCall], in: session)
+                let decision = await delegate.toolCallDecision(for: toolCall, in: session)
+                if case .stop = decision {
+                    entries.append(.toolCalls(Transcript.ToolCalls([toolCall])))
+                    return LanguageModelSession.Response(
+                        content: "" as! Content,
+                        rawContent: GeneratedContent(""),
+                        transcriptEntries: ArraySlice(entries)
+                    )
+                }
+                if case .provideOutput(let segments) = decision {
+                    let output = Transcript.ToolOutput(id: toolCall.id, toolName: toolCall.toolName, segments: segments)
+                    await delegate.didExecuteToolCall(toolCall, output: output, in: session)
+                    entries.append(.toolCalls(Transcript.ToolCalls([toolCall])))
+                    entries.append(.toolOutput(output))
+                }
             }
         }
 
@@ -257,17 +269,23 @@ private struct ToolCallingLanguageModel: LanguageModel {
 private actor ToolCallingModelProvider: ModelProvider {
     let id: String = "tool-calling"
     let supportedModels: [String]
-    private let toolName: String
+    private let toolNames: [String]
     private let finalText: String
 
     init(models: [String], toolName: String, finalText: String = "Tool result inspected.") {
         self.supportedModels = models
-        self.toolName = toolName
+        self.toolNames = [toolName]
+        self.finalText = finalText
+    }
+
+    init(models: [String], toolNames: [String], finalText: String = "Tool result inspected.") {
+        self.supportedModels = models
+        self.toolNames = toolNames
         self.finalText = finalText
     }
 
     func createLanguageModel(for modelName: String) async throws -> any LanguageModel {
-        ToolCallingLanguageModel(toolName: toolName, finalText: finalText)
+        ToolCallingLanguageModel(toolNames: toolNames, finalText: finalText)
     }
 }
 
@@ -433,21 +451,18 @@ func agentSessionOrchestratorDropsReasoningEffortForNonReasoningModels() async t
 }
 
 @Test
-func agentSessionRetriesDeferredToolPromiseInAskMode() async throws {
+func agentSessionTreatsPlainAssistantAnswerWithoutToolsAsDone() async throws {
     let availableModels = [
         ProviderModelOption(id: "openai:gpt-5.4-mini", title: "openai:gpt-5.4-mini", capabilities: ["tools"])
     ]
     let (catalogStore, sessionStore, _) = try makeAgentSessionFixture(
-        agentID: "ask-retry-agent",
+        agentID: "plain-answer-agent",
         selectedModel: "openai:gpt-5.4-mini",
         availableModels: availableModels
     )
     let provider = SequentialOutputModelProvider(
         models: availableModels.map(\.id),
-        outputs: [
-            "Looking at the previous conversation, the user asked why the setting does not affect anything. Let me analyze the code and look for the relevant context.",
-            "Recovered after retry."
-        ]
+        outputs: ["Recovered without tools."]
     )
     let runtime = RuntimeSystem(modelProvider: provider, defaultModel: "openai:gpt-5.4-mini")
     let orchestrator = AgentSessionOrchestrator(
@@ -457,9 +472,9 @@ func agentSessionRetriesDeferredToolPromiseInAskMode() async throws {
         availableModels: availableModels
     )
 
-    let session = try await orchestrator.createSession(agentID: "ask-retry-agent", request: AgentSessionCreateRequest())
+    let session = try await orchestrator.createSession(agentID: "plain-answer-agent", request: AgentSessionCreateRequest())
     let response = try await orchestrator.postMessage(
-        agentID: "ask-retry-agent",
+        agentID: "plain-answer-agent",
         sessionID: session.id,
         request: AgentSessionPostMessageRequest(
             userId: "dashboard",
@@ -475,9 +490,233 @@ func agentSessionRetriesDeferredToolPromiseInAskMode() async throws {
         return event.message?.segments.compactMap(\.text).joined(separator: "\n")
     }
 
-    #expect(await provider.requestCount() == 2)
-    #expect(assistantTexts.last == "Recovered after retry.")
+    #expect(await provider.requestCount() == 1)
+    #expect(assistantTexts.last == "Recovered without tools.")
     #expect(response.appendedEvents.last?.runStatus?.stage == .done)
+}
+
+@Test
+func agentSessionTreatsToolDrivenTurnWithoutExplicitCompletionAsDoneAfterFinalAnswer() async throws {
+    let availableModels = [
+        ProviderModelOption(id: "openai:gpt-5.4-mini", title: "openai:gpt-5.4-mini", capabilities: ["tools"])
+    ]
+    let agentID = "tool-promise-agent"
+    let (catalogStore, sessionStore, agentsRootURL) = try makeAgentSessionFixture(
+        agentID: agentID,
+        selectedModel: "openai:gpt-5.4-mini",
+        availableModels: availableModels
+    )
+    let provider = ToolCallingModelProvider(
+        models: availableModels.map(\.id),
+        toolName: "files.list",
+        finalText: "Need more context before this can be handed back."
+    )
+    let runtime = RuntimeSystem(modelProvider: provider, defaultModel: "openai:gpt-5.4-mini")
+    let orchestrator = AgentSessionOrchestrator(
+        runtime: runtime,
+        sessionStore: sessionStore,
+        agentCatalogStore: catalogStore,
+        availableModels: availableModels,
+        toolInvoker: { _, _, request, _ in
+            ToolInvocationResult(tool: request.tool, ok: true, data: .object(["count": .number(1)]))
+        }
+    )
+
+    let session = try await orchestrator.createSession(agentID: agentID, request: AgentSessionCreateRequest())
+    let response = try await orchestrator.postMessage(
+        agentID: agentID,
+        sessionID: session.id,
+        request: AgentSessionPostMessageRequest(
+            userId: "dashboard",
+            content: "debug why strings do not arrive",
+            mode: .debug
+        )
+    )
+
+    let finalStatus = try #require(response.appendedEvents.last(where: { $0.type == .runStatus })?.runStatus)
+    #expect(finalStatus.stage == .done)
+    #expect(finalStatus.label == "Done")
+
+    let assistantTexts = response.appendedEvents.compactMap { event -> String? in
+        guard event.type == .message, event.message?.role == .assistant else {
+            return nil
+        }
+        return event.message?.segments.compactMap(\.text).joined(separator: "\n")
+    }
+    #expect(assistantTexts.last == "Need more context before this can be handed back.")
+
+    let verificationStore = AgentSessionFileStore(agentsRootURL: agentsRootURL)
+    let detail = try verificationStore.loadSession(agentID: agentID, sessionID: session.id)
+    #expect(detail.events.filter { $0.toolCall?.tool == "files.list" }.count == 1)
+}
+
+@Test
+func agentSessionTreatsToolDrivenTurnWithExplicitCompletionAsDone() async throws {
+    let availableModels = [
+        ProviderModelOption(id: "openai:gpt-5.4-mini", title: "openai:gpt-5.4-mini", capabilities: ["tools"])
+    ]
+    let agentID = "tool-complete-agent"
+    let (catalogStore, sessionStore, agentsRootURL) = try makeAgentSessionFixture(
+        agentID: agentID,
+        selectedModel: "openai:gpt-5.4-mini",
+        availableModels: availableModels
+    )
+    let provider = ToolCallingModelProvider(
+        models: availableModels.map(\.id),
+        toolNames: ["files.list", "session.complete"],
+        finalText: "Inspected the files and finished the handoff."
+    )
+    let runtime = RuntimeSystem(modelProvider: provider, defaultModel: "openai:gpt-5.4-mini")
+    let orchestrator = AgentSessionOrchestrator(
+        runtime: runtime,
+        sessionStore: sessionStore,
+        agentCatalogStore: catalogStore,
+        availableModels: availableModels,
+        toolInvoker: { _, _, request, _ in
+            ToolInvocationResult(tool: request.tool, ok: true, data: .object(["count": .number(1)]))
+        }
+    )
+
+    let session = try await orchestrator.createSession(agentID: agentID, request: AgentSessionCreateRequest())
+    let response = try await orchestrator.postMessage(
+        agentID: agentID,
+        sessionID: session.id,
+        request: AgentSessionPostMessageRequest(
+            userId: "dashboard",
+            content: "debug why strings do not arrive",
+            mode: .debug
+        )
+    )
+
+    let finalStatus = try #require(response.appendedEvents.last(where: { $0.type == .runStatus })?.runStatus)
+    #expect(finalStatus.stage == .done)
+    #expect(finalStatus.label == "Done")
+
+    let assistantTexts = response.appendedEvents.compactMap { event -> String? in
+        guard event.type == .message, event.message?.role == .assistant else {
+            return nil
+        }
+        return event.message?.segments.compactMap(\.text).joined(separator: "\n")
+    }
+    #expect(assistantTexts.last == "Inspected the files and finished the handoff.")
+
+    let verificationStore = AgentSessionFileStore(agentsRootURL: agentsRootURL)
+    let detail = try verificationStore.loadSession(agentID: agentID, sessionID: session.id)
+    #expect(detail.events.contains { $0.toolCall?.tool == "files.list" })
+    #expect(detail.events.contains { $0.toolCall?.tool == "session.complete" })
+    #expect(detail.events.contains { $0.toolResult?.tool == "session.complete" && $0.toolResult?.ok == true })
+    #expect(detail.events.contains {
+        $0.toolResult?.tool == "session.complete" &&
+            $0.toolResult?.data?.asObject?["summary"]?.asString == "Completion summary from tool"
+    })
+}
+
+@Test
+func agentSessionMarksTurnIncompleteWhenNativeToolRoundLimitIsReached() async throws {
+    let availableModels = [
+        ProviderModelOption(id: "openai:gpt-5.4-mini", title: "openai:gpt-5.4-mini", capabilities: ["tools"])
+    ]
+    let agentID = "tool-limit-agent"
+    let (catalogStore, sessionStore, agentsRootURL) = try makeAgentSessionFixture(
+        agentID: agentID,
+        selectedModel: "openai:gpt-5.4-mini",
+        availableModels: availableModels
+    )
+    let provider = ToolCallingModelProvider(
+        models: availableModels.map(\.id),
+        toolNames: Array(repeating: "files.list", count: 31),
+        finalText: "This should not become the handoff."
+    )
+    let runtime = RuntimeSystem(modelProvider: provider, defaultModel: "openai:gpt-5.4-mini")
+    let orchestrator = AgentSessionOrchestrator(
+        runtime: runtime,
+        sessionStore: sessionStore,
+        agentCatalogStore: catalogStore,
+        availableModels: availableModels,
+        toolInvoker: { _, _, request, _ in
+            ToolInvocationResult(tool: request.tool, ok: true, data: .object(["count": .number(1)]))
+        }
+    )
+
+    let session = try await orchestrator.createSession(agentID: agentID, request: AgentSessionCreateRequest())
+    let response = try await orchestrator.postMessage(
+        agentID: agentID,
+        sessionID: session.id,
+        request: AgentSessionPostMessageRequest(
+            userId: "dashboard",
+            content: "keep using tools forever",
+            mode: .build
+        )
+    )
+
+    let finalStatus = try #require(response.appendedEvents.last(where: { $0.type == .runStatus })?.runStatus)
+    #expect(finalStatus.stage == .interrupted)
+    #expect(finalStatus.label == "Incomplete")
+    #expect(finalStatus.details == "Agent reached the tool turn limit before producing a final answer.")
+
+    let assistantText = response.appendedEvents.last(where: { $0.type == .message && $0.message?.role == .assistant })?
+        .message?.segments.compactMap(\.text).joined(separator: "\n")
+    #expect(assistantText == "Agent reached the tool turn limit before producing a final answer.")
+
+    let verificationStore = AgentSessionFileStore(agentsRootURL: agentsRootURL)
+    let detail = try verificationStore.loadSession(agentID: agentID, sessionID: session.id)
+    #expect(detail.events.filter { $0.toolCall?.tool == "files.list" }.count == 30)
+}
+
+@Test
+func agentSessionPlanningRequestInputStillPausesAfterToolUse() async throws {
+    let availableModels = [
+        ProviderModelOption(id: "openai:gpt-5.4-mini", title: "openai:gpt-5.4-mini", capabilities: ["tools"])
+    ]
+    let agentID = "planning-pause-agent"
+    let (catalogStore, sessionStore, agentsRootURL) = try makeAgentSessionFixture(
+        agentID: agentID,
+        selectedModel: "openai:gpt-5.4-mini",
+        availableModels: availableModels
+    )
+    let provider = ToolCallingModelProvider(
+        models: availableModels.map(\.id),
+        toolName: "planning.request_input",
+        finalText: "This should wait for the user first."
+    )
+    let runtime = RuntimeSystem(modelProvider: provider, defaultModel: "openai:gpt-5.4-mini")
+    let orchestrator = AgentSessionOrchestrator(
+        runtime: runtime,
+        sessionStore: sessionStore,
+        agentCatalogStore: catalogStore,
+        availableModels: availableModels,
+        toolInvoker: { _, _, request, _ in
+            ToolInvocationResult(
+                tool: request.tool,
+                ok: true,
+                data: .object([
+                    "paused": .bool(true),
+                    "requestId": .string("input-123")
+                ])
+            )
+        }
+    )
+
+    let session = try await orchestrator.createSession(agentID: agentID, request: AgentSessionCreateRequest())
+    let response = try await orchestrator.postMessage(
+        agentID: agentID,
+        sessionID: session.id,
+        request: AgentSessionPostMessageRequest(
+            userId: "dashboard",
+            content: "ask me before changing files",
+            mode: .build
+        )
+    )
+
+    #expect(response.appendedEvents.contains(where: { $0.runStatus?.stage == .responding }))
+    #expect(response.appendedEvents.contains(where: { $0.runStatus?.stage == .paused }) == false)
+    #expect(response.appendedEvents.contains(where: { $0.message?.role == .assistant }) == false)
+
+    let verificationStore = AgentSessionFileStore(agentsRootURL: agentsRootURL)
+    let detail = try verificationStore.loadSession(agentID: agentID, sessionID: session.id)
+    #expect(detail.events.contains(where: { $0.toolCall?.tool == "planning.request_input" }))
+    #expect(detail.events.contains(where: { $0.runStatus?.stage == .done }) == false)
+    #expect(detail.events.contains(where: { $0.runStatus?.stage == .interrupted }) == false)
 }
 
 @Test

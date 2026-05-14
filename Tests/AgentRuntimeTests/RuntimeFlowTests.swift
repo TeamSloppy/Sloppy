@@ -228,6 +228,18 @@ private actor ToolInvocationCounter {
     }
 }
 
+private actor NativeLoopOutcomeCapture {
+    private var outcome: NativeAgentLoopOutcome?
+
+    func store(_ outcome: NativeAgentLoopOutcome) {
+        self.outcome = outcome
+    }
+
+    func value() -> NativeAgentLoopOutcome? {
+        outcome
+    }
+}
+
 // MARK: - Shared mock infrastructure
 
 private final class MockCallStore: @unchecked Sendable {
@@ -305,6 +317,14 @@ private struct SequencedMockLanguageModel: LanguageModel {
             let toolCall = Transcript.ToolCall(id: UUID().uuidString, toolName: toolName, arguments: GeneratedContent(""))
             await delegate.didGenerateToolCalls([toolCall], in: session)
             let decision = await delegate.toolCallDecision(for: toolCall, in: session)
+            if case .stop = decision {
+                entries.append(.toolCalls(Transcript.ToolCalls([toolCall])))
+                return LanguageModelSession.Response(
+                    content: "" as! Content,
+                    rawContent: GeneratedContent(""),
+                    transcriptEntries: ArraySlice(entries)
+                )
+            }
             if case .provideOutput(let segments) = decision {
                 let output = Transcript.ToolOutput(id: toolCall.id, toolName: toolCall.toolName, segments: segments)
                 await delegate.didExecuteToolCall(toolCall, output: output, in: session)
@@ -543,6 +563,43 @@ func respondInlineAutoToolCallingLoop() async {
     #expect(await invocationCounter.value() == 1)
     #expect(await provider.requestedModelsSnapshot() == ["mock-model"])
     #expect(await provider.requestedReasoningEffortsSnapshot() == [nil])
+}
+
+@Test
+func respondInlineStopsBeforeExecutingToolsWhenToolRoundLimitIsReached() async throws {
+    let provider = SequencedModelProvider(
+        outputs: [
+            "{\"tool\":\"agents.list\",\"arguments\":{},\"reason\":\"loop\"}",
+            "This final answer should not be used."
+        ]
+    )
+    let invocationCounter = ToolInvocationCounter()
+    let outcomeCapture = NativeLoopOutcomeCapture()
+    let system = RuntimeSystem(modelProvider: provider, defaultModel: "mock-model")
+
+    _ = await system.postMessage(
+        channelId: "tool-loop-limit",
+        request: ChannelMessageRequest(userId: "u1", content: "hello"),
+        toolInvoker: { request in
+            await invocationCounter.increment()
+            return ToolInvocationResult(tool: request.tool, ok: true)
+        },
+        nativeLoopConfig: NativeAgentLoopConfig(maxToolRounds: 0),
+        nativeLoopOutcomeHandler: { outcome in
+            await outcomeCapture.store(outcome)
+        }
+    )
+
+    let snapshot = await system.channelState(channelId: "tool-loop-limit")
+    let finalMessage = snapshot?.messages.last(where: { $0.userId == "system" })?.content ?? ""
+    let outcome = try #require(await outcomeCapture.value())
+
+    #expect(finalMessage == "Agent reached the tool turn limit before producing a final answer.")
+    #expect(await invocationCounter.value() == 0)
+    #expect(outcome.toolRoundsUsed == 1)
+    #expect(outcome.maxToolRounds == 0)
+    #expect(outcome.hitTurnLimit)
+    #expect(!outcome.finishedNaturally)
 }
 
 @Test
@@ -1005,10 +1062,14 @@ func persistentSessionInvalidatedOnModelProviderUpdate() async {
 func abortChannelCancelsActiveInlineResponseTask() async {
     let provider = CancellableStreamModelProvider()
     let system = RuntimeSystem(modelProvider: provider, defaultModel: "mock-model")
+    let outcomeCapture = NativeLoopOutcomeCapture()
     let postTask = Task {
         await system.postMessage(
             channelId: "cancel-inline-channel",
-            request: ChannelMessageRequest(userId: "u1", content: "please wait")
+            request: ChannelMessageRequest(userId: "u1", content: "please wait"),
+            nativeLoopOutcomeHandler: { outcome in
+                await outcomeCapture.store(outcome)
+            }
         )
     }
 
@@ -1019,6 +1080,9 @@ func abortChannelCancelsActiveInlineResponseTask() async {
     _ = await postTask.value
 
     #expect(cancelled == 1)
+    let outcome = await outcomeCapture.value()
+    #expect(outcome?.finishedNaturally == false)
+    #expect(outcome?.hitTurnLimit == false)
     let snapshot = await system.channelState(channelId: "cancel-inline-channel")
     #expect(snapshot?.messages.contains(where: { $0.userId == "system" && $0.content == "late response" }) == false)
 }

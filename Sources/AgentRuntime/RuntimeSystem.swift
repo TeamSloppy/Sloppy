@@ -63,6 +63,39 @@ public enum RuntimeResponseObservation: Sendable {
     case usage(TokenUsage)
 }
 
+public struct NativeAgentLoopConfig: Sendable, Equatable {
+    public var maxToolRounds: Int
+
+    public init(maxToolRounds: Int = 30) {
+        self.maxToolRounds = max(0, maxToolRounds)
+    }
+}
+
+public struct NativeAgentLoopOutcome: Sendable, Equatable {
+    public var toolRoundsUsed: Int
+    public var maxToolRounds: Int
+    public var finishedNaturally: Bool
+    public var hitTurnLimit: Bool
+    public var toolErrors: [ToolInvocationResult]
+    public var lastAssistantText: String
+
+    public init(
+        toolRoundsUsed: Int = 0,
+        maxToolRounds: Int = 30,
+        finishedNaturally: Bool = false,
+        hitTurnLimit: Bool = false,
+        toolErrors: [ToolInvocationResult] = [],
+        lastAssistantText: String = ""
+    ) {
+        self.toolRoundsUsed = toolRoundsUsed
+        self.maxToolRounds = maxToolRounds
+        self.finishedNaturally = finishedNaturally
+        self.hitTurnLimit = hitTurnLimit
+        self.toolErrors = toolErrors
+        self.lastAssistantText = lastAssistantText
+    }
+}
+
 public struct BranchExecutionResult: Sendable, Equatable {
     public var branchId: String
     public var workerId: String
@@ -77,6 +110,7 @@ public struct BranchExecutionResult: Sendable, Equatable {
 
 public actor RuntimeSystem {
     public nonisolated let eventBus: EventBus
+    private static let toolRoundLimitMessage = "Agent reached the tool turn limit before producing a final answer."
 
     private let memoryStore: any MemoryStore
     private let channels: ChannelRuntime
@@ -200,7 +234,9 @@ public actor RuntimeSystem {
         request: ChannelMessageRequest,
         onResponseChunk: (@Sendable (String) async -> Bool)? = nil,
         toolInvoker: (@Sendable (ToolInvocationRequest) async -> ToolInvocationResult)? = nil,
-        observationHandler: (@Sendable (RuntimeResponseObservation) async -> Void)? = nil
+        observationHandler: (@Sendable (RuntimeResponseObservation) async -> Void)? = nil,
+        nativeLoopConfig: NativeAgentLoopConfig = NativeAgentLoopConfig(),
+        nativeLoopOutcomeHandler: (@Sendable (NativeAgentLoopOutcome) async -> Void)? = nil
     ) async -> ChannelRouteDecision {
         let ingest = await channels.ingest(channelId: channelId, request: request)
 
@@ -216,7 +252,9 @@ public actor RuntimeSystem {
                     reasoningEffort: request.reasoningEffort,
                     onResponseChunk: onResponseChunk,
                     toolInvoker: toolInvoker,
-                    observationHandler: observationHandler
+                    observationHandler: observationHandler,
+                    nativeLoopConfig: nativeLoopConfig,
+                    nativeLoopOutcomeHandler: nativeLoopOutcomeHandler
                 )
             }
             activeResponseTasks[channelId] = ActiveResponseTask(id: taskID, task: responseTask)
@@ -305,6 +343,8 @@ public actor RuntimeSystem {
         onResponseChunk: (@Sendable (String) async -> Bool)?,
         toolInvoker: (@Sendable (ToolInvocationRequest) async -> ToolInvocationResult)?,
         observationHandler: (@Sendable (RuntimeResponseObservation) async -> Void)?,
+        nativeLoopConfig: NativeAgentLoopConfig,
+        nativeLoopOutcomeHandler: (@Sendable (NativeAgentLoopOutcome) async -> Void)?,
         streamRetries: Int = 2
     ) async {
         let normalizedModel = model?.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -319,6 +359,13 @@ public actor RuntimeSystem {
                 _ = await onResponseChunk(fallback)
             }
             await channels.appendSystemMessage(channelId: channelId, content: fallback)
+            await nativeLoopOutcomeHandler?(
+                NativeAgentLoopOutcome(
+                    maxToolRounds: nativeLoopConfig.maxToolRounds,
+                    finishedNaturally: true,
+                    lastAssistantText: fallback
+                )
+            )
             return
         }
 
@@ -349,7 +396,9 @@ public actor RuntimeSystem {
                 }
                 session.toolExecutionDelegate = makeToolExecutionDelegate(
                     for: session,
-                    toolCallHandler: observingHandler
+                    toolCallHandler: observingHandler,
+                    loopTracker: tracker,
+                    maxToolRounds: nativeLoopConfig.maxToolRounds
                 )
             }
 
@@ -430,6 +479,8 @@ public actor RuntimeSystem {
                         onResponseChunk: onResponseChunk,
                         toolInvoker: toolInvoker,
                         observationHandler: observationHandler,
+                        nativeLoopConfig: nativeLoopConfig,
+                        nativeLoopOutcomeHandler: nativeLoopOutcomeHandler,
                         streamRetries: streamRetries - 1
                     )
                     return
@@ -467,7 +518,9 @@ public actor RuntimeSystem {
                         }
                         freshSession.toolExecutionDelegate = makeToolExecutionDelegate(
                             for: freshSession,
-                            toolCallHandler: observingHandler
+                            toolCallHandler: observingHandler,
+                            loopTracker: tracker,
+                            maxToolRounds: nativeLoopConfig.maxToolRounds
                         )
                     }
                     let fallbackResponse = try await freshSession.respond(to: modelUserMessage, options: options)
@@ -522,10 +575,19 @@ public actor RuntimeSystem {
                             )
                         }
                     }
+                    if await tracker.hitToolRoundLimit {
+                        sessionsByChannel.removeValue(forKey: channelId)
+                        fallbackContent = Self.toolRoundLimitMessage
+                    }
                     if let onResponseChunk {
                         _ = await onResponseChunk(fallbackContent)
                     }
                     await channels.appendSystemMessage(channelId: channelId, content: fallbackContent)
+                    await nativeLoopOutcomeHandler?(await tracker.nativeLoopOutcome(
+                        maxToolRounds: nativeLoopConfig.maxToolRounds,
+                        finishedNaturally: !(await tracker.hitToolRoundLimit),
+                        lastAssistantText: fallbackContent
+                    ))
                     return
                 } catch {
                     logger.warning(
@@ -564,11 +626,18 @@ public actor RuntimeSystem {
                         reasoningEffort: reasoningEffort,
                         onResponseChunk: onResponseChunk,
                         toolInvoker: toolInvoker,
-                        observationHandler: observationHandler
+                        observationHandler: observationHandler,
+                        loopTracker: tracker,
+                        nativeLoopConfig: nativeLoopConfig
                     )
                     if let recovered {
                         await channels.appendSystemMessage(channelId: channelId, content: recovered)
                     }
+                    await nativeLoopOutcomeHandler?(await tracker.nativeLoopOutcome(
+                        maxToolRounds: nativeLoopConfig.maxToolRounds,
+                        finishedNaturally: recovered != nil,
+                        lastAssistantText: recovered ?? ""
+                    ))
                     return
                 }
                 logger.warning(
@@ -646,6 +715,11 @@ public actor RuntimeSystem {
                 if !latest.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     await channels.appendSystemMessage(channelId: channelId, content: latest)
                 }
+                await nativeLoopOutcomeHandler?(await tracker.nativeLoopOutcome(
+                    maxToolRounds: nativeLoopConfig.maxToolRounds,
+                    finishedNaturally: false,
+                    lastAssistantText: latest
+                ))
                 return
             }
 
@@ -664,6 +738,32 @@ public actor RuntimeSystem {
                     streamChunks: streamChunks
                 )
             )
+
+            if await tracker.hitToolRoundLimit {
+                sessionsByChannel.removeValue(forKey: channelId)
+                latest = Self.toolRoundLimitMessage
+                logger.warning(
+                    "Model hit native tool round limit",
+                    metadata: modelCallMetadata(
+                        channelId: channelId,
+                        model: activeModel,
+                        reasoningEffort: reasoningEffort,
+                        promptChars: modelUserMessage.count,
+                        mode: "native_tool_round_limit",
+                        outputChars: latest.count
+                    )
+                )
+                if let onResponseChunk {
+                    _ = await onResponseChunk(latest)
+                }
+                await channels.appendSystemMessage(channelId: channelId, content: latest)
+                await nativeLoopOutcomeHandler?(await tracker.nativeLoopOutcome(
+                    maxToolRounds: nativeLoopConfig.maxToolRounds,
+                    finishedNaturally: false,
+                    lastAssistantText: latest
+                ))
+                return
+            }
 
             if let observationHandler {
                 let reasoningText = modelProvider.reasoningCapture(for: activeModel)?.consume() ?? ""
@@ -721,6 +821,31 @@ public actor RuntimeSystem {
                 if let onResponseChunk {
                     _ = await onResponseChunk(latest)
                 }
+                if await tracker.hitToolRoundLimit {
+                    sessionsByChannel.removeValue(forKey: channelId)
+                    latest = Self.toolRoundLimitMessage
+                    logger.warning(
+                        "Model hit native tool round limit during completion",
+                        metadata: modelCallMetadata(
+                            channelId: channelId,
+                            model: activeModel,
+                            reasoningEffort: reasoningEffort,
+                            promptChars: modelUserMessage.count,
+                            mode: "native_tool_round_limit",
+                            outputChars: latest.count
+                        )
+                    )
+                    if let onResponseChunk {
+                        _ = await onResponseChunk(latest)
+                    }
+                    await channels.appendSystemMessage(channelId: channelId, content: latest)
+                    await nativeLoopOutcomeHandler?(await tracker.nativeLoopOutcome(
+                        maxToolRounds: nativeLoopConfig.maxToolRounds,
+                        finishedNaturally: false,
+                        lastAssistantText: latest
+                    ))
+                    return
+                }
             }
 
             if latest.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -769,6 +894,11 @@ public actor RuntimeSystem {
             }
 
             await channels.appendSystemMessage(channelId: channelId, content: latest)
+            await nativeLoopOutcomeHandler?(await tracker.nativeLoopOutcome(
+                maxToolRounds: nativeLoopConfig.maxToolRounds,
+                finishedNaturally: true,
+                lastAssistantText: latest
+            ))
         } catch is CancellationError {
             sessionsByChannel.removeValue(forKey: channelId)
             logger.info(
@@ -781,6 +911,11 @@ public actor RuntimeSystem {
                     mode: "cancelled"
                 )
             )
+            await nativeLoopOutcomeHandler?(await tracker.nativeLoopOutcome(
+                maxToolRounds: nativeLoopConfig.maxToolRounds,
+                finishedNaturally: false,
+                lastAssistantText: await tracker.latestContent
+            ))
         } catch {
             sessionsByChannel.removeValue(forKey: channelId)
             let text = "Model provider error: \(error)"
@@ -791,6 +926,11 @@ public actor RuntimeSystem {
                 channelId: channelId,
                 content: text
             )
+            await nativeLoopOutcomeHandler?(await tracker.nativeLoopOutcome(
+                maxToolRounds: nativeLoopConfig.maxToolRounds,
+                finishedNaturally: false,
+                lastAssistantText: text
+            ))
         }
     }
 
@@ -1034,7 +1174,9 @@ public actor RuntimeSystem {
 
     private func makeToolExecutionDelegate(
         for session: LanguageModelSession,
-        toolCallHandler: @escaping @Sendable (ToolInvocationRequest) async -> ToolInvocationResult
+        toolCallHandler: @escaping @Sendable (ToolInvocationRequest) async -> ToolInvocationResult,
+        loopTracker: StreamActivityTracker? = nil,
+        maxToolRounds: Int = 30
     ) -> SloppyToolExecutionDelegate {
         var nameMap: [String: String] = [:]
         for tool in session.tools {
@@ -1044,7 +1186,19 @@ public actor RuntimeSystem {
                 nameMap[tool.name] = tool.name
             }
         }
-        return SloppyToolExecutionDelegate(toolNameMap: nameMap, toolCallHandler: toolCallHandler)
+        return SloppyToolExecutionDelegate(
+            toolNameMap: nameMap,
+            generatedToolCallsHandler: { calls in
+                await loopTracker?.recordToolBatch(count: calls.count, maxToolRounds: maxToolRounds)
+            },
+            toolCallDecisionOverride: { _ in
+                if await loopTracker?.hitToolRoundLimit == true {
+                    return .stop
+                }
+                return nil
+            },
+            toolCallHandler: toolCallHandler
+        )
     }
 
     /// Returns cached session for channel, or creates a new one seeded with the bootstrap
@@ -1093,7 +1247,9 @@ public actor RuntimeSystem {
         reasoningEffort: ReasoningEffort?,
         onResponseChunk: (@Sendable (String) async -> Bool)?,
         toolInvoker: (@Sendable (ToolInvocationRequest) async -> ToolInvocationResult)?,
-        observationHandler: (@Sendable (RuntimeResponseObservation) async -> Void)?
+        observationHandler: (@Sendable (RuntimeResponseObservation) async -> Void)?,
+        loopTracker: StreamActivityTracker? = nil,
+        nativeLoopConfig: NativeAgentLoopConfig = NativeAgentLoopConfig()
     ) async -> String? {
         sessionsByChannel.removeValue(forKey: channelId)
 
@@ -1131,7 +1287,9 @@ public actor RuntimeSystem {
             }
             freshSession.toolExecutionDelegate = makeToolExecutionDelegate(
                 for: freshSession,
-                toolCallHandler: observingHandler
+                toolCallHandler: observingHandler,
+                loopTracker: loopTracker,
+                maxToolRounds: nativeLoopConfig.maxToolRounds
             )
         }
 
@@ -1156,6 +1314,11 @@ public actor RuntimeSystem {
             if let onResponseChunk, !latest.isEmpty {
                 _ = await onResponseChunk(latest)
             }
+        }
+
+        if let loopTracker, await loopTracker.hitToolRoundLimit {
+            sessionsByChannel.removeValue(forKey: channelId)
+            return Self.toolRoundLimitMessage
         }
 
         return latest.isEmpty ? nil : latest
@@ -1734,6 +1897,9 @@ actor StreamActivityTracker {
     private(set) var chunks: Int = 0
     private(set) var wasCancelledByConsumer: Bool = false
     private(set) var sawToolTimeout: Bool = false
+    private(set) var toolRoundsUsed: Int = 0
+    private(set) var hitToolRoundLimit: Bool = false
+    private var toolErrors: [ToolInvocationResult] = []
 
     func touch() {
         lastActivityAt = Date()
@@ -1760,6 +1926,9 @@ actor StreamActivityTracker {
     func toolFinished(result: ToolInvocationResult) {
         if Self.isToolTimeout(result) {
             sawToolTimeout = true
+        }
+        if !result.ok {
+            toolErrors.append(result)
         }
         activeToolCalls = max(0, activeToolCalls - 1)
         lastActivityAt = Date()
@@ -1789,5 +1958,29 @@ actor StreamActivityTracker {
 
     func shouldTriggerIdleTimeout(thresholdSeconds: Int) -> Bool {
         activeToolCalls == 0 && Date().timeIntervalSince(lastActivityAt) >= Double(thresholdSeconds)
+    }
+
+    func recordToolBatch(count: Int, maxToolRounds: Int) {
+        guard count > 0 else { return }
+        toolRoundsUsed += 1
+        if toolRoundsUsed > maxToolRounds {
+            hitToolRoundLimit = true
+        }
+        lastActivityAt = Date()
+    }
+
+    func nativeLoopOutcome(
+        maxToolRounds: Int,
+        finishedNaturally: Bool,
+        lastAssistantText: String
+    ) -> NativeAgentLoopOutcome {
+        NativeAgentLoopOutcome(
+            toolRoundsUsed: toolRoundsUsed,
+            maxToolRounds: maxToolRounds,
+            finishedNaturally: finishedNaturally && !hitToolRoundLimit,
+            hitTurnLimit: hitToolRoundLimit,
+            toolErrors: toolErrors,
+            lastAssistantText: lastAssistantText
+        )
     }
 }

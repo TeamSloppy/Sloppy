@@ -10,19 +10,32 @@ import Protocols
 public struct SloppyToolExecutionDelegate: ToolExecutionDelegate {
     public let toolCallHandler: @Sendable (ToolInvocationRequest) async -> ToolInvocationResult
     private let toolNameMap: [String: String]
+    private let generatedToolCallsHandler: (@Sendable ([Transcript.ToolCall]) async -> Void)?
+    private let toolCallDecisionOverride: (@Sendable (Transcript.ToolCall) async -> ToolExecutionDecision?)?
 
     public init(
         toolNameMap: [String: String] = [:],
+        generatedToolCallsHandler: (@Sendable ([Transcript.ToolCall]) async -> Void)? = nil,
+        toolCallDecisionOverride: (@Sendable (Transcript.ToolCall) async -> ToolExecutionDecision?)? = nil,
         toolCallHandler: @escaping @Sendable (ToolInvocationRequest) async -> ToolInvocationResult
     ) {
         self.toolNameMap = toolNameMap
+        self.generatedToolCallsHandler = generatedToolCallsHandler
+        self.toolCallDecisionOverride = toolCallDecisionOverride
         self.toolCallHandler = toolCallHandler
+    }
+
+    public func didGenerateToolCalls(_ toolCalls: [Transcript.ToolCall], in session: LanguageModelSession) async {
+        await generatedToolCallsHandler?(toolCalls)
     }
 
     public func toolCallDecision(
         for toolCall: Transcript.ToolCall,
         in session: LanguageModelSession
     ) async -> ToolExecutionDecision {
+        if let override = await toolCallDecisionOverride?(toolCall) {
+            return override
+        }
         let toolName = toolNameMap[toolCall.toolName] ?? toolCall.toolName
         let request = ToolInvocationRequest(
             tool: toolName,

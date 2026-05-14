@@ -129,6 +129,52 @@ struct SloppyToolExecutionDelegateTests {
         #expect(invoked.tool == "files.read")
     }
 
+    @Test("Generated tool calls handler receives provider batches")
+    func generatedToolCallsHandlerReceivesBatches() async throws {
+        let capture = ToolCallBatchCapture()
+        let delegate = SloppyToolExecutionDelegate(
+            generatedToolCallsHandler: { calls in
+                await capture.store(calls.map(\.toolName))
+            },
+            toolCallHandler: { request in
+                ToolInvocationResult(tool: request.tool, ok: true)
+            }
+        )
+
+        await delegate.didGenerateToolCalls(
+            [
+                Transcript.ToolCall(id: "call-1", toolName: "files.read", arguments: GeneratedContent(properties: [:])),
+                Transcript.ToolCall(id: "call-2", toolName: "files.write", arguments: GeneratedContent(properties: [:])),
+            ],
+            in: makeFakeSession()
+        )
+
+        #expect(try #require(await capture.value) == ["files.read", "files.write"])
+    }
+
+    @Test("Tool decision override can stop before invocation")
+    func toolDecisionOverrideCanStopBeforeInvocation() async throws {
+        let capture = RequestCapture()
+        let delegate = SloppyToolExecutionDelegate(
+            toolCallDecisionOverride: { _ in .stop },
+            toolCallHandler: { request in
+                await capture.store(request)
+                return ToolInvocationResult(tool: request.tool, ok: true)
+            }
+        )
+
+        let decision = await delegate.toolCallDecision(
+            for: Transcript.ToolCall(id: "call-6", toolName: "files.read", arguments: GeneratedContent(properties: [:])),
+            in: makeFakeSession()
+        )
+
+        if case .stop = decision {
+            #expect(await capture.value == nil)
+        } else {
+            Issue.record("Expected stop decision")
+        }
+    }
+
     @Test("Model tool sanitizer emits OpenAI-compatible unique names")
     func modelToolNameSanitizerEmitsProviderSafeNames() {
         let tools: [any Tool] = [
@@ -173,6 +219,12 @@ private actor RequestCapture {
     private var stored: ToolInvocationRequest?
     var value: ToolInvocationRequest? { stored }
     func store(_ request: ToolInvocationRequest) { stored = request }
+}
+
+private actor ToolCallBatchCapture {
+    private var stored: [String]?
+    var value: [String]? { stored }
+    func store(_ names: [String]) { stored = names }
 }
 
 private struct NamedTool: Tool {
