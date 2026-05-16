@@ -1009,14 +1009,15 @@ private func collectEvents(
 private func waitUntil(
     timeoutNanoseconds: UInt64,
     condition: @escaping @Sendable () async -> Bool
-) async {
+) async -> Bool {
     let deadline = Date().addingTimeInterval(Double(timeoutNanoseconds) / 1_000_000_000.0)
     while Date() < deadline {
         if await condition() {
-            return
+            return true
         }
         try? await Task.sleep(nanoseconds: 10_000_000)
     }
+    return await condition()
 }
 
 // MARK: - Persistent session tests
@@ -1073,9 +1074,10 @@ func abortChannelCancelsActiveInlineResponseTask() async {
         )
     }
 
-    await waitUntil(timeoutNanoseconds: 1_000_000_000) {
+    let streamStarted = await waitUntil(timeoutNanoseconds: 10_000_000_000) {
         await provider.hasStarted()
     }
+    #expect(streamStarted)
     let cancelled = await system.abortChannel(channelId: "cancel-inline-channel", reason: "test interrupt")
     _ = await postTask.value
 

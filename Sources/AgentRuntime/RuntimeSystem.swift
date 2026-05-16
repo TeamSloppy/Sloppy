@@ -692,6 +692,11 @@ public actor RuntimeSystem {
                         streamChunks: streamChunks
                     )
                 )
+                await nativeLoopOutcomeHandler?(await tracker.nativeLoopOutcome(
+                    maxToolRounds: nativeLoopConfig.maxToolRounds,
+                    finishedNaturally: false,
+                    lastAssistantText: latest
+                ))
                 return
             }
 

@@ -791,10 +791,20 @@ func agentSessionInterruptPreventsLateNativeToolCallbacksFromAppendingEvents() a
         )
     }
 
-    let firstToolStarted = await waitForAgentSessionCondition(timeoutNanoseconds: 1_000_000_000) {
+    let firstToolStarted = await waitForAgentSessionCondition(timeoutNanoseconds: 10_000_000_000) {
         await gate.starts() == 1
     }
-    #expect(firstToolStarted)
+    guard firstToolStarted else {
+        #expect(firstToolStarted)
+        _ = try? await orchestrator.controlSession(
+            agentID: agentID,
+            sessionID: session.id,
+            request: AgentSessionControlRequest(action: .interruptTree, requestedBy: "dashboard", reason: "Stopped by test")
+        )
+        await gate.release()
+        _ = try? await postTask.value
+        return
+    }
 
     _ = try await orchestrator.controlSession(
         agentID: agentID,
