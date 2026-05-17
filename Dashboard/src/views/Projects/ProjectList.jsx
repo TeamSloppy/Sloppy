@@ -119,7 +119,7 @@ export function ProjectList({
 
   if (projects.length === 0) {
     return (
-      <section className="project-board-list project-board-list--empty">
+      <section className="project-board-list project-board-list--empty" data-tour-id="projects-overview">
         <article className="project-board-empty">
           <div className="project-board-empty-actions">
             {showArchived ? (
@@ -144,7 +144,7 @@ export function ProjectList({
   }
 
   return (
-    <section className="project-grid-list" data-testid="project-list">
+    <section className="project-grid-list" data-testid="project-list" data-tour-id="projects-overview">
       {showArchived && (
         <div className="project-archive-banner" style={{ gridColumn: "1 / -1" }}>
           <span className="material-symbols-rounded" style={{ fontSize: "1rem" }}>archive</span>

@@ -1,3 +1,4 @@
+import Foundation
 import Protocols
 
 enum SloppyTUIPickerKind: Equatable {
@@ -201,6 +202,40 @@ struct SloppyTUIContextUsageSummary: Equatable {
             return nil
         }
         return min(100, (Double(max(0, tokens)) / Double(contextWindowTokens)) * 100)
+    }
+}
+
+struct SloppyTUIExitSummary: Equatable {
+    var sessionID: String
+    var canResume: Bool
+    var toolCallCount: Int
+    var successfulToolCallCount: Int
+    var failedToolCallCount: Int
+    var wallTime: TimeInterval
+    var agentActiveTime: TimeInterval
+    var apiTime: TimeInterval
+    var toolTime: TimeInterval
+
+    var successRate: Double {
+        guard toolCallCount > 0 else {
+            return 0
+        }
+        return (Double(successfulToolCallCount) / Double(toolCallCount)) * 100
+    }
+
+    var apiTimePercent: Double {
+        percent(apiTime, of: agentActiveTime)
+    }
+
+    var toolTimePercent: Double {
+        percent(toolTime, of: agentActiveTime)
+    }
+
+    private func percent(_ value: TimeInterval, of total: TimeInterval) -> Double {
+        guard total > 0 else {
+            return 0
+        }
+        return min(100, max(0, (value / total) * 100))
     }
 }
 

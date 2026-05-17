@@ -58,6 +58,7 @@ actor AgentSessionOrchestrator {
     private var toolDrivenSessionRunChannels: Set<String> = []
     private var completedSessionRunChannels: Set<String> = []
     private var sessionCompletionSummaryByChannel: [String: String] = [:]
+    private var delegatedSubagentSessionIDs: Set<String> = []
 
     init(
         runtime: RuntimeSystem,
@@ -117,6 +118,14 @@ actor AgentSessionOrchestrator {
 
     func updateToolInvoker(_ toolInvoker: ToolInvoker?) {
         self.toolInvoker = toolInvoker
+    }
+
+    func markDelegatedSubagentSession(sessionID: String) {
+        delegatedSubagentSessionIDs.insert(sessionID)
+    }
+
+    func unmarkDelegatedSubagentSession(sessionID: String) {
+        delegatedSubagentSessionIDs.remove(sessionID)
     }
 
     func updateToolInvokerRecordsEvents(_ recordsEvents: Bool) {
@@ -846,7 +855,14 @@ actor AgentSessionOrchestrator {
 
         let messageContent = content.isEmpty ? "User attached files." : content
         let toolInvokerRecordsEvents = self.toolInvokerRecordsEvents
-        let nativeLoopConfig = NativeAgentLoopConfig(maxToolRounds: 60)
+        let nativeLoopConfig = delegatedSubagentSessionIDs.contains(sessionID)
+            ? NativeAgentLoopConfig(
+                maxToolRounds: 60,
+                finalizerToolNames: ["agent_delegate.finish", "agents.delegate_finish"],
+                overBudgetRecoveryBatches: 1,
+                budgetExhaustedMessage: "Subagent tool budget exhausted. Stop calling non-finalizer tools and call `agent_delegate.finish` with the best completed, blocked, or failed outcome you can support from current evidence."
+            )
+            : NativeAgentLoopConfig(maxToolRounds: 60)
         let nativeLoopOutcomeBox = NativeAgentLoopOutcomeBox()
         let routeDecision = await runtime.postMessage(
             channelId: channelID,

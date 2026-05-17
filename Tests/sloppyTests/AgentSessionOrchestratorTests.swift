@@ -210,7 +210,12 @@ private struct ToolCallingLanguageModel: LanguageModel {
                     toolName: toolName,
                     arguments: toolName == "session.complete"
                         ? GeneratedContent(properties: ["summary": "Completion summary from tool"])
-                        : GeneratedContent("")
+                        : (toolName == "agent_delegate.finish"
+                            ? GeneratedContent(properties: [
+                                "status": "completed",
+                                "summary": "Delegated finish summary from tool",
+                            ])
+                            : GeneratedContent(""))
                 )
                 await delegate.didGenerateToolCalls([toolCall], in: session)
                 let decision = await delegate.toolCallDecision(for: toolCall, in: session)
@@ -747,6 +752,75 @@ func agentSessionMarksTurnIncompleteWhenNativeToolRoundLimitIsReached() async th
     let verificationStore = AgentSessionFileStore(agentsRootURL: agentsRootURL)
     let detail = try verificationStore.loadSession(agentID: agentID, sessionID: session.id)
     #expect(detail.events.filter { $0.toolCall?.tool == "files.list" }.count == 60)
+}
+
+@Test
+func delegatedSubagentCanFinishAfterToolBudgetRecovery() async throws {
+    let availableModels = [
+        ProviderModelOption(id: "openai:gpt-5.4-mini", title: "openai:gpt-5.4-mini", capabilities: ["tools"])
+    ]
+    let agentID = "delegated-tool-budget-agent"
+    let (catalogStore, sessionStore, agentsRootURL) = try makeAgentSessionFixture(
+        agentID: agentID,
+        selectedModel: "openai:gpt-5.4-mini",
+        availableModels: availableModels
+    )
+    let provider = ToolCallingModelProvider(
+        models: availableModels.map(\.id),
+        toolNames: Array(repeating: "files.list", count: 61) + ["agent_delegate.finish"],
+        finalText: "Delegated subagent finished after budget recovery."
+    )
+    let runtime = RuntimeSystem(modelProvider: provider, defaultModel: "openai:gpt-5.4-mini")
+    let orchestrator = AgentSessionOrchestrator(
+        runtime: runtime,
+        sessionStore: sessionStore,
+        agentCatalogStore: catalogStore,
+        availableModels: availableModels,
+        toolInvoker: { _, _, request, _ in
+            if request.tool == "agent_delegate.finish" {
+                return ToolInvocationResult(
+                    tool: request.tool,
+                    ok: true,
+                    data: .object([
+                        "finished": .bool(true),
+                        "status": .string("completed"),
+                        "summary": .string("Delegated finish summary from tool"),
+                        "error": .null,
+                    ])
+                )
+            }
+            return ToolInvocationResult(tool: request.tool, ok: true, data: .object(["count": .number(1)]))
+        }
+    )
+
+    let session = try await orchestrator.createSession(agentID: agentID, request: AgentSessionCreateRequest())
+    await orchestrator.markDelegatedSubagentSession(sessionID: session.id)
+    let response = try await orchestrator.postMessage(
+        agentID: agentID,
+        sessionID: session.id,
+        request: AgentSessionPostMessageRequest(
+            userId: "dashboard",
+            content: "keep inspecting until ready",
+            mode: .build
+        )
+    )
+    await orchestrator.unmarkDelegatedSubagentSession(sessionID: session.id)
+
+    let finalStatus = try #require(response.appendedEvents.last(where: { $0.type == .runStatus })?.runStatus)
+    #expect(finalStatus.stage == .done)
+
+    let verificationStore = AgentSessionFileStore(agentsRootURL: agentsRootURL)
+    let detail = try verificationStore.loadSession(agentID: agentID, sessionID: session.id)
+    #expect(detail.events.filter { $0.toolCall?.tool == "files.list" }.count == 60)
+    #expect(detail.events.contains {
+        $0.toolResult?.tool == "agent_delegate.finish" &&
+            $0.toolResult?.ok == true &&
+            $0.toolResult?.data?.asObject?["summary"]?.asString == "Delegated finish summary from tool"
+    })
+    #expect(!detail.events.contains {
+        $0.runStatus?.stage == .interrupted &&
+            $0.runStatus?.details == "Agent reached the tool turn limit before producing a final answer."
+    })
 }
 
 @Test

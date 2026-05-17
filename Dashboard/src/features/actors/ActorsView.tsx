@@ -1220,7 +1220,7 @@ export function ActorsView() {
   }, [selectedNode?.positionX, selectedNode?.positionY]);
 
   return (
-    <main className="actors-shell">
+    <main className="actors-shell" data-tour-id="actors-board-actions">
       <div className="actors-layout">
         <section className="actors-board-pane">
           <div

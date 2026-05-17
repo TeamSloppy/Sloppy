@@ -65,9 +65,20 @@ public enum RuntimeResponseObservation: Sendable {
 
 public struct NativeAgentLoopConfig: Sendable, Equatable {
     public var maxToolRounds: Int
+    public var finalizerToolNames: Set<String>
+    public var overBudgetRecoveryBatches: Int
+    public var budgetExhaustedMessage: String
 
-    public init(maxToolRounds: Int = 60) {
+    public init(
+        maxToolRounds: Int = 60,
+        finalizerToolNames: Set<String> = [],
+        overBudgetRecoveryBatches: Int = 0,
+        budgetExhaustedMessage: String = "Agent reached the tool turn limit before producing a final answer."
+    ) {
         self.maxToolRounds = max(0, maxToolRounds)
+        self.finalizerToolNames = finalizerToolNames
+        self.overBudgetRecoveryBatches = max(0, overBudgetRecoveryBatches)
+        self.budgetExhaustedMessage = budgetExhaustedMessage
     }
 }
 
@@ -398,7 +409,7 @@ public actor RuntimeSystem {
                     for: session,
                     toolCallHandler: observingHandler,
                     loopTracker: tracker,
-                    maxToolRounds: nativeLoopConfig.maxToolRounds
+                    nativeLoopConfig: nativeLoopConfig
                 )
             }
 
@@ -520,7 +531,7 @@ public actor RuntimeSystem {
                             for: freshSession,
                             toolCallHandler: observingHandler,
                             loopTracker: tracker,
-                            maxToolRounds: nativeLoopConfig.maxToolRounds
+                            nativeLoopConfig: nativeLoopConfig
                         )
                     }
                     let fallbackResponse = try await freshSession.respond(to: modelUserMessage, options: options)
@@ -1181,7 +1192,7 @@ public actor RuntimeSystem {
         for session: LanguageModelSession,
         toolCallHandler: @escaping @Sendable (ToolInvocationRequest) async -> ToolInvocationResult,
         loopTracker: StreamActivityTracker? = nil,
-        maxToolRounds: Int = 60
+        nativeLoopConfig: NativeAgentLoopConfig = NativeAgentLoopConfig()
     ) -> SloppyToolExecutionDelegate {
         var nameMap: [String: String] = [:]
         for tool in session.tools {
@@ -1191,14 +1202,20 @@ public actor RuntimeSystem {
                 nameMap[tool.name] = tool.name
             }
         }
+        let resolvedNameMap = nameMap
         return SloppyToolExecutionDelegate(
-            toolNameMap: nameMap,
+            toolNameMap: resolvedNameMap,
             generatedToolCallsHandler: { calls in
-                await loopTracker?.recordToolBatch(count: calls.count, maxToolRounds: maxToolRounds)
+                let toolNames = calls.map { resolvedNameMap[$0.toolName] ?? $0.toolName }
+                await loopTracker?.recordToolBatch(toolNames: toolNames, config: nativeLoopConfig)
             },
-            toolCallDecisionOverride: { _ in
+            toolCallDecisionOverride: { toolCall in
+                let toolName = resolvedNameMap[toolCall.toolName] ?? toolCall.toolName
                 if await loopTracker?.hitToolRoundLimit == true {
                     return .stop
+                }
+                if let result = await loopTracker?.budgetExhaustedResult(for: toolName, config: nativeLoopConfig) {
+                    return .provideOutput([.text(.init(content: SloppyToolExecutionDelegate.encodedResult(result)))])
                 }
                 return nil
             },
@@ -1294,7 +1311,7 @@ public actor RuntimeSystem {
                 for: freshSession,
                 toolCallHandler: observingHandler,
                 loopTracker: loopTracker,
-                maxToolRounds: nativeLoopConfig.maxToolRounds
+                nativeLoopConfig: nativeLoopConfig
             )
         }
 
@@ -1965,13 +1982,40 @@ actor StreamActivityTracker {
         activeToolCalls == 0 && Date().timeIntervalSince(lastActivityAt) >= Double(thresholdSeconds)
     }
 
-    func recordToolBatch(count: Int, maxToolRounds: Int) {
-        guard count > 0 else { return }
+    func recordToolBatch(toolNames: [String], config: NativeAgentLoopConfig) {
+        guard !toolNames.isEmpty else { return }
+        let hasNonFinalizerTool = toolNames.contains { !config.finalizerToolNames.contains($0) }
+        guard hasNonFinalizerTool else {
+            lastActivityAt = Date()
+            return
+        }
         toolRoundsUsed += 1
-        if toolRoundsUsed > maxToolRounds {
+        if toolRoundsUsed > config.maxToolRounds + config.overBudgetRecoveryBatches {
             hitToolRoundLimit = true
         }
         lastActivityAt = Date()
+    }
+
+    func budgetExhaustedResult(for toolName: String, config: NativeAgentLoopConfig) -> ToolInvocationResult? {
+        guard !hitToolRoundLimit,
+              toolRoundsUsed > config.maxToolRounds,
+              !config.finalizerToolNames.contains(toolName)
+        else {
+            return nil
+        }
+
+        let result = ToolInvocationResult(
+            tool: toolName,
+            ok: false,
+            error: ToolErrorPayload(
+                code: "tool_budget_exhausted",
+                message: config.budgetExhaustedMessage,
+                retryable: false
+            )
+        )
+        toolErrors.append(result)
+        lastActivityAt = Date()
+        return result
     }
 
     func nativeLoopOutcome(

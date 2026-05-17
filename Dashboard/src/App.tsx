@@ -9,6 +9,8 @@ import { NotificationToastContainer } from "./features/notifications/Notificatio
 import { emitNotification } from "./features/notifications/notificationBus";
 import { useNotificationSocket } from "./features/notifications/useNotificationSocket";
 import { OnboardingView } from "./features/onboarding/OnboardingView";
+import { TutorialCoachmark } from "./features/tutorial/TutorialCoachmark";
+import { TutorialProvider, useTutorial } from "./features/tutorial/TutorialProvider";
 import { useRuntimeOverview } from "./features/runtime-overview/model/useRuntimeOverview";
 import { TerminalDrawer } from "./features/terminal/TerminalDrawer";
 import { UpdateBanner } from "./features/updates/UpdateBanner";
@@ -91,12 +93,14 @@ function DashboardShell({
   dependencies,
   debugEnabled,
   terminalEnabled,
-  onRuntimeConfigUpdated
+  onRuntimeConfigUpdated,
+  autoStartTutorialAfterOnboarding
 }: {
   dependencies: ReturnType<typeof createDependencies>;
   debugEnabled: boolean;
   terminalEnabled: boolean;
   onRuntimeConfigUpdated: (nextConfig: AnyRecord) => void;
+  autoStartTutorialAfterOnboarding: boolean;
 }) {
   const runtime = useRuntimeOverview(dependencies.coreApi);
   const { route, setSection, setConfigSection, setProjectRoute, setAgentRoute, setSessionRoute, setChatsRoute } =
@@ -108,6 +112,7 @@ function DashboardShell({
   const [issueReportLoading, setIssueReportLoading] = useState(false);
   const sidebarChatRepairRef = useRef<string | null>(null);
   const { status: updateStatus } = useUpdateCheck();
+  const { activeStep, startTutorial, startTutorialFromOnboarding } = useTutorial();
   useNotificationSocket();
 
   const refreshSidebarProjects = useCallback(() => {
@@ -132,6 +137,31 @@ function DashboardShell({
   useEffect(() => {
     refreshSidebarProjects();
   }, [refreshSidebarProjects]);
+
+  useEffect(() => {
+    if (autoStartTutorialAfterOnboarding) {
+      startTutorialFromOnboarding();
+    }
+  }, [autoStartTutorialAfterOnboarding, startTutorialFromOnboarding]);
+
+  useEffect(() => {
+    if (!activeStep) {
+      return;
+    }
+
+    const firstProjectId = String((sidebarProjects[0] as AnyRecord | undefined)?.id || "").trim() || null;
+    if (activeStep.route.section === "actors") {
+      setSection("actors");
+      return;
+    }
+
+    setSection("projects");
+    if (firstProjectId && activeStep.route.projectTab) {
+      setProjectRoute(firstProjectId, activeStep.route.projectTab, null);
+    } else if (firstProjectId) {
+      setProjectRoute(null, null, null);
+    }
+  }, [activeStep, sidebarProjects, setProjectRoute, setSection]);
 
   /** If a project chat route targets a project missing from the rail (e.g. created before refresh), refetch once. */
   useEffect(() => {
@@ -398,6 +428,21 @@ function DashboardShell({
             </a>
             <button
               type="button"
+              className="sidebar-tutorial-link"
+              title="Tutorial"
+              aria-label="Tutorial"
+              onClick={() => {
+                startTutorial();
+                setMobileSidebarOpen(false);
+              }}
+            >
+              <span className="material-symbols-rounded sidebar-icon" aria-hidden="true">
+                school
+              </span>
+              {!sidebarCompact && <span className="sidebar-tutorial-label">[ TUTORIAL ]</span>}
+            </button>
+            <button
+              type="button"
               className="sidebar-report-link"
               title="Report an Issue"
               aria-label="Report an Issue"
@@ -491,6 +536,7 @@ function DashboardShell({
           />
         ) : null}
       </div>
+      <TutorialCoachmark hasProjects={sidebarProjects.length > 0} />
       <NotificationToastContainer />
     </div>
   );
@@ -510,6 +556,7 @@ export function App() {
   const [apiBaseInput, setApiBaseInput] = useState(() => getStoredApiBaseOverride() || resolveApiBase());
   const [apiBaseError, setApiBaseError] = useState("");
   const [bootAttempt, setBootAttempt] = useState(0);
+  const [autoStartTutorialAfterOnboarding, setAutoStartTutorialAfterOnboarding] = useState(false);
   const [dashboardTokenInput, setDashboardTokenInput] = useState("");
   const [rememberDashboardToken, setRememberDashboardToken] = useState(() => hasStoredDashboardAuthToken());
   const [authState, setAuthState] = useState<{
@@ -826,13 +873,14 @@ export function App() {
       <OnboardingView
         coreApi={dependencies.coreApi}
         initialConfig={bootState.config}
-        onCompleted={(config) =>
+        onCompleted={(config) => {
+          setAutoStartTutorialAfterOnboarding(true);
           setBootState({
             isLoading: false,
             config,
             error: ""
-          })
-        }
+          });
+        }}
       />
     );
   }
@@ -929,26 +977,29 @@ export function App() {
 
   return (
     <NotificationProvider>
-      <DashboardShell
-        dependencies={dependencies}
-        debugEnabled={Boolean(runtimeConfig?.debugEnabled)}
-        terminalEnabled={Boolean(terminalConfig?.enabled)}
-        onRuntimeConfigUpdated={(nextConfig) => {
-          if (isDashboardAuthRequired(nextConfig as AnyRecord)) {
-            setRememberDashboardToken(isDashboardAuthTokenPersisted());
-            setAuthState({
-              status: getDashboardAuthToken() ? "authenticated" : "required",
-              error: ""
-            });
-          } else {
-            setAuthState({ status: "authenticated", error: "" });
-          }
-          setBootState((current) => ({
-            ...current,
-            config: nextConfig
-          }));
-        }}
-      />
+      <TutorialProvider>
+        <DashboardShell
+          dependencies={dependencies}
+          debugEnabled={Boolean(runtimeConfig?.debugEnabled)}
+          terminalEnabled={Boolean(terminalConfig?.enabled)}
+          autoStartTutorialAfterOnboarding={autoStartTutorialAfterOnboarding}
+          onRuntimeConfigUpdated={(nextConfig) => {
+            if (isDashboardAuthRequired(nextConfig as AnyRecord)) {
+              setRememberDashboardToken(isDashboardAuthTokenPersisted());
+              setAuthState({
+                status: getDashboardAuthToken() ? "authenticated" : "required",
+                error: ""
+              });
+            } else {
+              setAuthState({ status: "authenticated", error: "" });
+            }
+            setBootState((current) => ({
+              ...current,
+              config: nextConfig
+            }));
+          }}
+        />
+      </TutorialProvider>
     </NotificationProvider>
   );
 }

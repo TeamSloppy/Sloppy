@@ -262,8 +262,10 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
     private var liveAssistantTarget: String?
     private var liveAssistantInterpolationTask: Task<Void, Never>?
     private var liveRunStatusLine: String?
+    private let tuiStartedAt = Date()
     private var taskStartedAt: Date?
     private var lastTaskElapsed: TimeInterval?
+    private var cumulativeAgentActiveTime: TimeInterval = 0
     private var transientNoticeLine: String?
     private var transientNoticeTask: Task<Void, Never>?
     private var transcriptExpanded = false
@@ -481,7 +483,7 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
 
     private func renderBaseScreen(width: Int, height: Int) -> [String] {
         let footer = SloppyTUITheme.appFooter(width: width, cwd: runtime.cwd)
-        var composer = SloppyTUITheme.highlightedComposerLines(editor.render(width: width))
+        var composer: [String] = []
         if isPosting {
             composer.append(SloppyTUITheme.interruptControlLine(
                 width: width,
@@ -489,16 +491,15 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
                 isInterrupting: isInterruptingRun
             ))
         }
+        composer.append(contentsOf: SloppyTUITheme.highlightedComposerLines(editor.render(width: width)))
         composer.append(SloppyTUITheme.composerMetaLine(
             width: width,
             mode: chatMode,
             model: selectedModel,
             agent: agent.displayName,
-            provider: providerLabel(from: selectedModel)
+            provider: providerLabel(from: selectedModel),
+            tokenUsage: tokenUsageSummary
         ))
-        if let tokenUsageSummary {
-            composer.append(SloppyTUITheme.tokenUsageFooterLine(width: width, summary: tokenUsageSummary))
-        }
         composer.append(footer)
 
         if let picker = activePicker {
@@ -1452,7 +1453,9 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
             appendLocalCard("Message failed: \(String(describing: error))")
         }
         if let taskStartedAt {
-            lastTaskElapsed = Date().timeIntervalSince(taskStartedAt)
+            let elapsed = Date().timeIntervalSince(taskStartedAt)
+            lastTaskElapsed = elapsed
+            cumulativeAgentActiveTime += elapsed
         }
         taskStartedAt = nil
         isPosting = false
@@ -3800,7 +3803,9 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
             appendLocalCard("Input answer failed: \(String(describing: error))")
         }
         if let taskStartedAt {
-            lastTaskElapsed = Date().timeIntervalSince(taskStartedAt)
+            let elapsed = Date().timeIntervalSince(taskStartedAt)
+            lastTaskElapsed = elapsed
+            cumulativeAgentActiveTime += elapsed
         }
         taskStartedAt = nil
         isPosting = false
@@ -4347,7 +4352,52 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
         }
         isExiting = true
         await interruptCurrentRunForExit(reason: reason)
+        let summary = await makeExitSummary(now: Date())
+        printExitSummary(summary)
         onExit?()
+    }
+
+    private func makeExitSummary(now: Date) async -> SloppyTUIExitSummary {
+        let detail = hasPersistedSession
+            ? try? await runtime.service.getAgentSession(agentID: agent.id, sessionID: session.id)
+            : nil
+        let events = detail?.events.filter { $0.createdAt >= tuiStartedAt } ?? []
+        let resultEvents = events.compactMap(\.toolResult)
+        let successfulToolCalls = resultEvents.filter(\.ok).count
+        let failedToolCalls = resultEvents.count - successfulToolCalls
+        let toolCallCount = max(events.compactMap(\.toolCall).count, resultEvents.count)
+        let toolTime = resultEvents.reduce(TimeInterval(0)) { total, event in
+            total + (Double(event.durationMs ?? 0) / 1_000)
+        }
+        let activeTime = cumulativeAgentActiveTime + currentAgentActiveTime(now: now)
+        return SloppyTUIExitSummary(
+            sessionID: hasPersistedSession ? session.id : "not created",
+            canResume: hasPersistedSession,
+            toolCallCount: toolCallCount,
+            successfulToolCallCount: successfulToolCalls,
+            failedToolCallCount: failedToolCalls,
+            wallTime: now.timeIntervalSince(tuiStartedAt),
+            agentActiveTime: activeTime,
+            apiTime: max(0, activeTime - toolTime),
+            toolTime: toolTime
+        )
+    }
+
+    private func currentAgentActiveTime(now: Date) -> TimeInterval {
+        guard let taskStartedAt else {
+            return 0
+        }
+        return max(0, now.timeIntervalSince(taskStartedAt))
+    }
+
+    private func printExitSummary(_ summary: SloppyTUIExitSummary) {
+        guard let terminal else {
+            return
+        }
+        let width = max(24, terminal.columns)
+        let lines = SloppyTUITheme.exitSummaryLines(summary, width: width)
+        tui?.stop()
+        terminal.write("\r\n" + lines.joined(separator: "\r\n") + "\r\n")
     }
 
     private func interruptCurrentRunForExit(reason: String) async {

@@ -64,7 +64,7 @@ public struct SloppyToolExecutionDelegate: ToolExecutionDelegate {
         }
     }
 
-    private func encodedResult(_ result: ToolInvocationResult) -> String {
+    public static func encodedResult(_ result: ToolInvocationResult) -> String {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
         guard let data = try? encoder.encode(result),
@@ -73,5 +73,9 @@ public struct SloppyToolExecutionDelegate: ToolExecutionDelegate {
             return "{\"ok\":\(result.ok)}"
         }
         return string
+    }
+
+    private func encodedResult(_ result: ToolInvocationResult) -> String {
+        Self.encodedResult(result)
     }
 }

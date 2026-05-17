@@ -242,6 +242,24 @@ enum SloppyTUITheme {
         return String(format: "%.0f%%", percent)
     }
 
+    private static func formatDuration(_ seconds: TimeInterval) -> String {
+        let value = max(0, seconds)
+        if value < 1 {
+            return "0s"
+        }
+        if value < 60 {
+            return String(format: "%.1fs", value)
+        }
+        if value < 3_600 {
+            let minutes = Int(value) / 60
+            let remaining = value - Double(minutes * 60)
+            return String(format: "%dm %.1fs", minutes, remaining)
+        }
+        let hours = Int(value) / 3_600
+        let minutes = (Int(value) % 3_600) / 60
+        return String(format: "%dh %dm", hours, minutes)
+    }
+
     private static func contextUsageBar(_ summary: SloppyTUIContextUsageSummary) -> String {
         let width = 20
         guard summary.contextWindowTokens > 0 else {
@@ -305,12 +323,22 @@ enum SloppyTUITheme {
         max(1, min(max(1, width - 4), 64))
     }
 
-    static func composerMetaLine(width: Int, mode: AgentChatMode, model: String, agent: String, provider: String) -> String {
+    static func composerMetaLine(
+        width: Int,
+        mode: AgentChatMode,
+        model: String,
+        agent: String,
+        provider: String,
+        tokenUsage: SloppyTUITokenUsageSummary? = nil
+    ) -> String {
         let modelText = truncateEnd(compactModel(model), maxWidth: max(4, width / 3))
         let agentText = truncateEnd(agent, maxWidth: max(4, width / 5))
         let providerText = truncateEnd(provider, maxWidth: max(4, width / 5))
-        let text = "  " + modeTitle(mode) + muted(" · ") + foreground(modelText) + muted("  ") + muted(agentText) + muted("  ") + muted(providerText)
-        return applyPanelBackground(padded(text, width: width), width: width)
+        var text = "  " + modeTitle(mode) + muted(" · ") + foreground(modelText) + muted("  ") + muted(agentText) + muted("  ") + muted(providerText)
+        if let tokenUsage {
+            text += muted("  ") + tokenUsageStatus(tokenUsage)
+        }
+        return applyPanelBackground(padded(fittedLine(text, width: width), width: width), width: width)
     }
 
     static func interruptControlLine(width: Int, frame: Int, isInterrupting: Bool) -> String {
@@ -334,6 +362,56 @@ enum SloppyTUITheme {
     static func tokenUsageFooterLine(width: Int, summary: SloppyTUITokenUsageSummary) -> String {
         let text = "  " + tokenUsageStatus(summary)
         return applyPanelBackground(padded(fittedLine(text, width: width), width: width), width: width)
+    }
+
+    static func exitSummaryLines(_ summary: SloppyTUIExitSummary, width: Int) -> [String] {
+        let boxWidth = max(24, min(width, 96))
+        let contentWidth = max(1, boxWidth - 4)
+        let labelWidth = 18
+
+        func content(_ text: String = "") -> String {
+            let fitted = fittedLine(text, width: contentWidth)
+            return muted("│ ") + padded(fitted, width: contentWidth) + muted(" │")
+        }
+
+        func row(_ label: String, _ value: String) -> String {
+            let labelText = label.padding(toLength: labelWidth, withPad: " ", startingAt: 0)
+            return content(blue(labelText) + foreground(value))
+        }
+
+        func timedRow(_ label: String, seconds: TimeInterval, percent: Double? = nil) -> String {
+            let suffix = percent.map { muted(" (\(formatPercent($0)))") } ?? ""
+            return row(label, formatDuration(seconds) + suffix)
+        }
+
+        var lines = [
+            muted("╭") + muted(String(repeating: "─", count: max(0, boxWidth - 2))) + muted("╮"),
+            content(),
+            content(blue("Agent") + foreground(" powering down. ") + AnsiStyling.rgb(249, 168, 212)("Goodbye!")),
+            content(),
+            content(AnsiStyling.bold(foreground("Interaction Summary"))),
+            row("Session ID:", summary.sessionID),
+            row(
+                "Tool Calls:",
+                "\(summary.toolCallCount) ( ✓ \(summary.successfulToolCallCount) x \(summary.failedToolCallCount) )"
+            ),
+            row("Success Rate:", formatPercent(summary.successRate)),
+            content(),
+            content(AnsiStyling.bold(foreground("Performance"))),
+            timedRow("Wall Time:", seconds: summary.wallTime),
+            timedRow("Agent Active:", seconds: summary.agentActiveTime),
+            timedRow("» API Time:", seconds: summary.apiTime, percent: summary.apiTimePercent),
+            timedRow("» Tool Time:", seconds: summary.toolTime, percent: summary.toolTimePercent),
+        ]
+
+        if summary.canResume {
+            lines.append(content())
+            lines.append(content(blue("To resume this session: ") + foreground("sloppy -s \(summary.sessionID)")))
+        }
+
+        lines.append(content())
+        lines.append(muted("╰") + muted(String(repeating: "─", count: max(0, boxWidth - 2))) + muted("╯"))
+        return lines
     }
 
     static func contextUsageMarkdown(_ summary: SloppyTUIContextUsageSummary) -> String {

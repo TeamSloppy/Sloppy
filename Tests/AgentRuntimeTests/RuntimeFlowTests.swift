@@ -218,13 +218,21 @@ func visorCreatesBulletin() async {
 
 private actor ToolInvocationCounter {
     private var count = 0
+    private var tools: [String] = []
 
-    func increment() {
+    func increment(tool: String? = nil) {
         count += 1
+        if let tool {
+            tools.append(tool)
+        }
     }
 
     func value() -> Int {
         count
+    }
+
+    func toolNames() -> [String] {
+        tools
     }
 }
 
@@ -237,6 +245,98 @@ private actor NativeLoopOutcomeCapture {
 
     func value() -> NativeAgentLoopOutcome? {
         outcome
+    }
+}
+
+private struct NativeToolSequenceLanguageModel: LanguageModel {
+    typealias UnavailableReason = Never
+    let toolNames: [String]
+    let finalText: String
+
+    func respond<Content>(
+        within session: LanguageModelSession,
+        to prompt: Prompt,
+        generating type: Content.Type,
+        includeSchemaInPrompt: Bool,
+        options: GenerationOptions
+    ) async throws -> LanguageModelSession.Response<Content> where Content: Generable {
+        guard type == String.self else { fatalError("NativeToolSequenceLanguageModel: only String supported") }
+
+        var entries: [Transcript.Entry] = []
+        if let delegate = session.toolExecutionDelegate {
+            for toolName in toolNames {
+                let toolCall = Transcript.ToolCall(
+                    id: UUID().uuidString,
+                    toolName: toolName,
+                    arguments: GeneratedContent("")
+                )
+                await delegate.didGenerateToolCalls([toolCall], in: session)
+                let decision = await delegate.toolCallDecision(for: toolCall, in: session)
+                if case .stop = decision {
+                    entries.append(.toolCalls(Transcript.ToolCalls([toolCall])))
+                    return LanguageModelSession.Response(
+                        content: "" as! Content,
+                        rawContent: GeneratedContent(""),
+                        transcriptEntries: ArraySlice(entries)
+                    )
+                }
+                if case .provideOutput(let segments) = decision {
+                    let output = Transcript.ToolOutput(id: toolCall.id, toolName: toolCall.toolName, segments: segments)
+                    await delegate.didExecuteToolCall(toolCall, output: output, in: session)
+                    entries.append(.toolCalls(Transcript.ToolCalls([toolCall])))
+                    entries.append(.toolOutput(output))
+                }
+            }
+        }
+
+        return LanguageModelSession.Response(
+            content: finalText as! Content,
+            rawContent: GeneratedContent(finalText),
+            transcriptEntries: ArraySlice(entries)
+        )
+    }
+
+    func streamResponse<Content>(
+        within session: LanguageModelSession,
+        to prompt: Prompt,
+        generating type: Content.Type,
+        includeSchemaInPrompt: Bool,
+        options: GenerationOptions
+    ) -> sending LanguageModelSession.ResponseStream<Content> where Content: Generable {
+        let stream = AsyncThrowingStream<LanguageModelSession.ResponseStream<Content>.Snapshot, any Error> { continuation in
+            Task {
+                do {
+                    let response = try await respond(
+                        within: session,
+                        to: prompt,
+                        generating: type,
+                        includeSchemaInPrompt: includeSchemaInPrompt,
+                        options: options
+                    )
+                    continuation.yield(.init(content: response.content.asPartiallyGenerated(), rawContent: response.rawContent))
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+        }
+        return LanguageModelSession.ResponseStream(stream: stream)
+    }
+}
+
+private actor NativeToolSequenceModelProvider: ModelProvider {
+    let id: String = "native-tool-sequence"
+    nonisolated var supportedModels: [String] { ["mock-model"] }
+    let toolNames: [String]
+    let finalText: String
+
+    init(toolNames: [String], finalText: String = "Finished after native tools.") {
+        self.toolNames = toolNames
+        self.finalText = finalText
+    }
+
+    func createLanguageModel(for modelName: String) async throws -> any LanguageModel {
+        NativeToolSequenceLanguageModel(toolNames: toolNames, finalText: finalText)
     }
 }
 
@@ -598,6 +698,82 @@ func respondInlineStopsBeforeExecutingToolsWhenToolRoundLimitIsReached() async t
     #expect(await invocationCounter.value() == 0)
     #expect(outcome.toolRoundsUsed == 1)
     #expect(outcome.maxToolRounds == 0)
+    #expect(outcome.hitTurnLimit)
+    #expect(!outcome.finishedNaturally)
+}
+
+@Test
+func respondInlineAllowsFinalizerAfterToolBudgetRecovery() async throws {
+    let provider = NativeToolSequenceModelProvider(
+        toolNames: ["files.list", "agent_delegate.finish"],
+        finalText: "Delegated task finished."
+    )
+    let invocationCounter = ToolInvocationCounter()
+    let outcomeCapture = NativeLoopOutcomeCapture()
+    let system = RuntimeSystem(modelProvider: provider, defaultModel: "mock-model")
+
+    _ = await system.postMessage(
+        channelId: "tool-budget-finalizer",
+        request: ChannelMessageRequest(userId: "u1", content: "hello"),
+        toolInvoker: { request in
+            await invocationCounter.increment(tool: request.tool)
+            return ToolInvocationResult(tool: request.tool, ok: true)
+        },
+        nativeLoopConfig: NativeAgentLoopConfig(
+            maxToolRounds: 0,
+            finalizerToolNames: ["agent_delegate.finish"],
+            overBudgetRecoveryBatches: 1
+        ),
+        nativeLoopOutcomeHandler: { outcome in
+            await outcomeCapture.store(outcome)
+        }
+    )
+
+    let snapshot = await system.channelState(channelId: "tool-budget-finalizer")
+    let finalMessage = snapshot?.messages.last(where: { $0.userId == "system" })?.content ?? ""
+    let outcome = try #require(await outcomeCapture.value())
+
+    #expect(finalMessage == "Delegated task finished.")
+    #expect(await invocationCounter.toolNames() == ["agent_delegate.finish"])
+    #expect(outcome.toolRoundsUsed == 1)
+    #expect(!outcome.hitTurnLimit)
+    #expect(outcome.toolErrors.contains { $0.error?.code == "tool_budget_exhausted" })
+}
+
+@Test
+func respondInlineHardStopsAfterBudgetRecoveryIsIgnored() async throws {
+    let provider = NativeToolSequenceModelProvider(
+        toolNames: ["files.list", "files.read"],
+        finalText: "This should not be used."
+    )
+    let invocationCounter = ToolInvocationCounter()
+    let outcomeCapture = NativeLoopOutcomeCapture()
+    let system = RuntimeSystem(modelProvider: provider, defaultModel: "mock-model")
+
+    _ = await system.postMessage(
+        channelId: "tool-budget-hard-stop",
+        request: ChannelMessageRequest(userId: "u1", content: "hello"),
+        toolInvoker: { request in
+            await invocationCounter.increment(tool: request.tool)
+            return ToolInvocationResult(tool: request.tool, ok: true)
+        },
+        nativeLoopConfig: NativeAgentLoopConfig(
+            maxToolRounds: 0,
+            finalizerToolNames: ["agent_delegate.finish"],
+            overBudgetRecoveryBatches: 1
+        ),
+        nativeLoopOutcomeHandler: { outcome in
+            await outcomeCapture.store(outcome)
+        }
+    )
+
+    let snapshot = await system.channelState(channelId: "tool-budget-hard-stop")
+    let finalMessage = snapshot?.messages.last(where: { $0.userId == "system" })?.content ?? ""
+    let outcome = try #require(await outcomeCapture.value())
+
+    #expect(finalMessage == "Agent reached the tool turn limit before producing a final answer.")
+    #expect(await invocationCounter.value() == 0)
+    #expect(outcome.toolRoundsUsed == 2)
     #expect(outcome.hitTurnLimit)
     #expect(!outcome.finishedNaturally)
 }

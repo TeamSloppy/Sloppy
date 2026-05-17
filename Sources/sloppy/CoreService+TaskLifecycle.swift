@@ -908,6 +908,7 @@ extension CoreService {
 
         let channelId = sessionChannelID(agentID: agentID, sessionID: session.id)
         sessionSubagentToolAllowList[session.id] = effectiveTools
+        await sessionOrchestrator.markDelegatedSubagentSession(sessionID: session.id)
         await runtime.setChannelToolAllowList(channelId: channelId, toolIDs: effectiveTools)
 
         let response: AgentSessionMessageResponse
@@ -930,6 +931,7 @@ extension CoreService {
                 metadata: ["agent_id": .string(agentID), "task_id": .string(taskID), "error": .string(error.localizedDescription)]
             )
             sessionSubagentToolAllowList.removeValue(forKey: session.id)
+            await sessionOrchestrator.unmarkDelegatedSubagentSession(sessionID: session.id)
             await runtime.clearChannelToolAllowList(channelId: channelId)
             await runtime.invalidateChannelSession(channelId: channelId)
             return nil
@@ -952,6 +954,7 @@ extension CoreService {
         }
         let text = delegatedTaskResultText(from: resultEvents)
         sessionSubagentToolAllowList.removeValue(forKey: session.id)
+        await sessionOrchestrator.unmarkDelegatedSubagentSession(sessionID: session.id)
         await runtime.clearChannelToolAllowList(channelId: channelId)
         await runtime.invalidateChannelSession(channelId: channelId)
         return text
@@ -1029,6 +1032,7 @@ extension CoreService {
         - Use `status: "failed"` when an error prevents completion.
         - Use `status: "blocked"` when required information, permissions, or tools are missing.
         - Include a concise `summary`; include `error` for failed or blocked outcomes.
+        - If any tool returns `tool_budget_exhausted`, stop calling non-finalizer tools and immediately call `agent_delegate.finish` with completed, blocked, or failed based on the evidence already collected.
         Do not delegate again and do not finish with only a plain text promise.
 
         \(objective)

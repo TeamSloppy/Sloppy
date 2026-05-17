@@ -95,7 +95,14 @@ func chromeRowsFitNarrowTerminalWidth() {
             mode: .plan,
             model: "anthropic:claude-sonnet-4-6",
             agent: "Yadev",
-            provider: "anthropic"
+            provider: "anthropic",
+            tokenUsage: .init(
+                promptTokens: 22_000,
+                completionTokens: 13_000,
+                totalTokens: 35_000,
+                contextWindowTokens: 400_000,
+                costUSD: 0.42
+            )
         ),
         SloppyTUITheme.interruptControlLine(width: width, frame: 3, isInterrupting: false),
         SloppyTUITheme.tokenUsageStatus(.init(
@@ -147,6 +154,33 @@ func chromeRowsFitNarrowTerminalWidth() {
 
     for row in rows {
         #expect(VisibleWidth.measure(row) <= width)
+    }
+}
+
+@Test
+func exitSummaryRowsFitTerminalWidth() {
+    let width = 64
+    let lines = SloppyTUITheme.exitSummaryLines(
+        .init(
+            sessionID: "39c84dd2-5a21-44bb-ad2d-7bfef254b7ed",
+            canResume: true,
+            toolCallCount: 3,
+            successfulToolCallCount: 2,
+            failedToolCallCount: 1,
+            wallTime: 19.7,
+            agentActiveTime: 12.4,
+            apiTime: 10.0,
+            toolTime: 2.4
+        ),
+        width: width
+    )
+    let plain = lines.map(stripANSI).joined(separator: "\n")
+
+    #expect(plain.contains("Interaction Summary"))
+    #expect(plain.contains("Tool Calls:"))
+    #expect(plain.contains("sloppy -s"))
+    for line in lines {
+        #expect(VisibleWidth.measure(line) <= width)
     }
 }
 
