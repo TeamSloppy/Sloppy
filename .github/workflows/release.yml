@@ -10,7 +10,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  SWIFT_VERSION: "6.2"
+  SWIFT_VERSION: "6.2.1"
 
 jobs:
   build-linux:
@@ -204,7 +204,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Setup Swift
-        uses: swift-actions/setup-swift@v2
+        uses: SwiftyLab/setup-swift@v1
         with:
           swift-version: ${{ env.SWIFT_VERSION }}
 

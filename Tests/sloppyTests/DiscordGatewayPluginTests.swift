@@ -241,8 +241,10 @@ private func messageCreatePayload(
     return DiscordGatewayPayload(op: 0, d: .object(payload), s: 2, t: "MESSAGE_CREATE")
 }
 
+private struct WaitUntilTimeout: Error {}
+
 private func waitUntil(
-    timeout: Duration = .seconds(5),
+    timeout: Duration = .seconds(30),
     interval: Duration = .milliseconds(50),
     condition: @escaping @Sendable () async -> Bool
 ) async throws {
@@ -253,6 +255,8 @@ private func waitUntil(
         }
         try await Task.sleep(for: interval)
     }
+    Issue.record("Timed out waiting for asynchronous Discord gateway test condition.")
+    throw WaitUntilTimeout()
 }
 
 @Test
@@ -619,10 +623,11 @@ func discordInteractionTaskForwardsToCore() async throws {
     await plugin.stop()
 
     let messages = await receiver.snapshot()
+    let message = try #require(messages.first)
     #expect(messages.count == 1)
-    #expect(messages[0].channelId == "general")
-    #expect(messages[0].userId == "discord:user-1")
-    #expect(messages[0].content == "/task build the thing")
+    #expect(message.channelId == "general")
+    #expect(message.userId == "discord:user-1")
+    #expect(message.content == "/task build the thing")
 
     let snapshot = await client.snapshot()
     let ackResponse = snapshot.interactionResponses.first { $0.id == "interaction-1" }

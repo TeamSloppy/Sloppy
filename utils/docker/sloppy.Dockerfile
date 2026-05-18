@@ -9,6 +9,7 @@ WORKDIR /workspace
 ENV http_proxy="" https_proxy="" HTTP_PROXY="" HTTPS_PROXY="" ALL_PROXY="" all_proxy=""
 ARG SWIFT_BUILD_CONFIGURATION=release
 COPY Package.swift Package.resolved ./
+COPY Packages ./Packages
 RUN swift package resolve
 COPY Sources ./Sources
 COPY Tests ./Tests

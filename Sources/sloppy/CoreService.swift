@@ -456,6 +456,28 @@ public actor CoreService {
         self.dashboardTerminalService = DashboardTerminalService()
         self.channelStreamCancelRegistry = ChannelStreamCancelRegistry()
         self.currentConfig = config
+        let toolExecution = self.toolExecution
+        toolExecution.projectService = self
+        toolExecution.configService = self
+        toolExecution.skillsService = self
+        toolExecution.applyAgentMarkdown = { [weak self] agentID, field, markdown in
+            guard let self else {
+                throw AgentConfigError.storageFailure
+            }
+            try await self.applyAgentMarkdownFromTool(agentID: agentID, field: field, markdown: markdown)
+        }
+        toolExecution.delegateSubagent = { [weak self] agentID, taskID, objective, workingDirectory, toolsetNames, selectedModel, parentSessionID in
+            guard let self else { return nil }
+            return await self.runSubagentTask(
+                agentID: agentID,
+                taskID: taskID,
+                objective: objective,
+                workingDirectory: workingDirectory,
+                toolsetNames: toolsetNames,
+                selectedModel: selectedModel,
+                parentSessionID: parentSessionID
+            )
+        }
         Task { [weak self] in
             guard let self else {
                 return
@@ -465,7 +487,6 @@ public actor CoreService {
                 return await self.projectBootstrapMarkdownForAgentSession(projectID: projectID)
             }
             await self.provisionBuiltInSkillsForAllAgents()
-            await self.configureToolExecutionServices()
             await self.acpSessionManager.updatePermissionNotificationSink { [weak self] agentID, sessionID, summary in
                 guard let self else { return }
                 await self.notificationService.pushToolApprovalRequired(

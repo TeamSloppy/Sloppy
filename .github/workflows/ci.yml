@@ -1,5 +1,8 @@
 name: CI
 
+env:
+  SWIFT_ACTIONS_VERSION: "6.2.1"
+
 on:
   push:
     branches:
@@ -50,7 +53,7 @@ jobs:
       - name: Setup Swift
         uses: swift-actions/setup-swift@v2
         with:
-          swift-version: "6.2"
+          swift-version: ${{ env.SWIFT_ACTIONS_VERSION }}
 
       - name: Swift Version
         run: swift --version
@@ -96,7 +99,7 @@ jobs:
       - name: Setup Swift
         uses: swift-actions/setup-swift@v2
         with:
-          swift-version: "6.2"
+          swift-version: ${{ env.SWIFT_ACTIONS_VERSION }}
 
       - name: Swift Version
         run: swift --version
