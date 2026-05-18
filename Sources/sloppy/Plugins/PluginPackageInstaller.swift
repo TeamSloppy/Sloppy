@@ -30,7 +30,7 @@ enum PluginPackageInstallError: Error, LocalizedError, Sendable {
         case .missingOrInvalidManifest:
             return "Plugin package must contain a valid plugin.json at its root."
         case .unsupportedProtocol(let value):
-            return "Only gateway source plugins are supported in v1; plugin.json protocol was \(value)."
+            return "Only gateway and task_sync source plugins are supported; plugin.json protocol was \(value)."
         case .invalidPluginName(let name):
             return "Invalid plugin name in plugin.json: \(name)."
         case .conflict(let name):
@@ -107,7 +107,7 @@ struct PluginPackageInstaller {
             fileManager: fileManager,
             logger: Logger(label: "sloppy.plugin.builder")
         )
-        let build = try await builder.buildGatewayPlugin(at: targetURL, manifest: manifest)
+        let build = try await builder.buildPlugin(at: targetURL, manifest: manifest)
         logger.info("Installed source plugin \(manifest.name) from \(source).")
         return PluginPackageInstallResult(
             manifest: manifest,
@@ -127,7 +127,7 @@ struct PluginPackageInstaller {
         else {
             throw PluginPackageInstallError.missingOrInvalidManifest
         }
-        guard manifest.protocol == "gateway" else {
+        guard Self.supportedSourceProtocols.contains(manifest.protocol) else {
             throw PluginPackageInstallError.unsupportedProtocol(manifest.protocol)
         }
         guard isValidPluginDirectoryName(manifest.name) else {
@@ -135,6 +135,8 @@ struct PluginPackageInstaller {
         }
         return manifest
     }
+
+    private static let supportedSourceProtocols: Set<String> = ["gateway", "task_sync"]
 
     private func runGitClone(source: String, checkoutURL: URL) async throws {
         let result = try await processRunner.run(

@@ -65,17 +65,20 @@ public enum RuntimeResponseObservation: Sendable {
 
 public struct NativeAgentLoopConfig: Sendable, Equatable {
     public var maxToolRounds: Int
+    public var enforceToolRoundLimit: Bool
     public var finalizerToolNames: Set<String>
     public var overBudgetRecoveryBatches: Int
     public var budgetExhaustedMessage: String
 
     public init(
         maxToolRounds: Int = 60,
+        enforceToolRoundLimit: Bool = true,
         finalizerToolNames: Set<String> = [],
         overBudgetRecoveryBatches: Int = 0,
         budgetExhaustedMessage: String = "Agent reached the tool turn limit before producing a final answer."
     ) {
         self.maxToolRounds = max(0, maxToolRounds)
+        self.enforceToolRoundLimit = enforceToolRoundLimit
         self.finalizerToolNames = finalizerToolNames
         self.overBudgetRecoveryBatches = max(0, overBudgetRecoveryBatches)
         self.budgetExhaustedMessage = budgetExhaustedMessage
@@ -1990,14 +1993,15 @@ actor StreamActivityTracker {
             return
         }
         toolRoundsUsed += 1
-        if toolRoundsUsed > config.maxToolRounds + config.overBudgetRecoveryBatches {
+        if config.enforceToolRoundLimit, toolRoundsUsed > config.maxToolRounds + config.overBudgetRecoveryBatches {
             hitToolRoundLimit = true
         }
         lastActivityAt = Date()
     }
 
     func budgetExhaustedResult(for toolName: String, config: NativeAgentLoopConfig) -> ToolInvocationResult? {
-        guard !hitToolRoundLimit,
+        guard config.enforceToolRoundLimit,
+              !hitToolRoundLimit,
               toolRoundsUsed > config.maxToolRounds,
               !config.finalizerToolNames.contains(toolName)
         else {

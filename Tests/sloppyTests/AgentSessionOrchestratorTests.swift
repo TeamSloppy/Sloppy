@@ -755,6 +755,53 @@ func agentSessionMarksTurnIncompleteWhenNativeToolRoundLimitIsReached() async th
 }
 
 @Test
+func tuiAgentSessionDoesNotEnforceNativeToolRoundLimit() async throws {
+    let availableModels = [
+        ProviderModelOption(id: "openai:gpt-5.4-mini", title: "openai:gpt-5.4-mini", capabilities: ["tools"])
+    ]
+    let agentID = "tui-unlimited-tools-agent"
+    let (catalogStore, sessionStore, agentsRootURL) = try makeAgentSessionFixture(
+        agentID: agentID,
+        selectedModel: "openai:gpt-5.4-mini",
+        availableModels: availableModels
+    )
+    let provider = ToolCallingModelProvider(
+        models: availableModels.map(\.id),
+        toolNames: Array(repeating: "files.list", count: 61),
+        finalText: "TUI finished after extended tool use."
+    )
+    let runtime = RuntimeSystem(modelProvider: provider, defaultModel: "openai:gpt-5.4-mini")
+    let orchestrator = AgentSessionOrchestrator(
+        runtime: runtime,
+        sessionStore: sessionStore,
+        agentCatalogStore: catalogStore,
+        availableModels: availableModels,
+        toolInvoker: { _, _, request, _ in
+            ToolInvocationResult(tool: request.tool, ok: true, data: .object(["count": .number(1)]))
+        }
+    )
+
+    let session = try await orchestrator.createSession(agentID: agentID, request: AgentSessionCreateRequest())
+    let response = try await orchestrator.postMessage(
+        agentID: agentID,
+        sessionID: session.id,
+        request: AgentSessionPostMessageRequest(
+            userId: "tui",
+            content: "keep using tools until done",
+            mode: .build
+        )
+    )
+
+    let finalStatus = try #require(response.appendedEvents.last(where: { $0.type == .runStatus })?.runStatus)
+    #expect(finalStatus.stage == .done)
+    #expect(finalStatus.label == "Done")
+
+    let verificationStore = AgentSessionFileStore(agentsRootURL: agentsRootURL)
+    let detail = try verificationStore.loadSession(agentID: agentID, sessionID: session.id)
+    #expect(detail.events.filter { $0.toolCall?.tool == "files.list" }.count == 61)
+}
+
+@Test
 func delegatedSubagentCanFinishAfterToolBudgetRecovery() async throws {
     let availableModels = [
         ProviderModelOption(id: "openai:gpt-5.4-mini", title: "openai:gpt-5.4-mini", capabilities: ["tools"])

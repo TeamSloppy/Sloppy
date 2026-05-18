@@ -390,6 +390,16 @@ extension CoreService {
             }
         }
 
+        let bypassToolUsageLimits = Self.shouldBypassToolUsageLimits(userID: request.userId)
+        if bypassToolUsageLimits {
+            sessionToolUsageLimitBypass.insert(normalizedSessionID)
+        }
+        defer {
+            if bypassToolUsageLimits {
+                sessionToolUsageLimitBypass.remove(normalizedSessionID)
+            }
+        }
+
         do {
             let response = try await sessionOrchestrator.postMessage(
                 agentID: normalizedAgentID,
@@ -569,6 +579,11 @@ extension CoreService {
             return Array(tail)
         }
         return Array(tail.prefix(max(0, limit)))
+    }
+
+    private static func shouldBypassToolUsageLimits(userID: String) -> Bool {
+        let normalized = userID.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return normalized == "tui" || normalized == "onboarding"
     }
 
 }

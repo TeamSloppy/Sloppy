@@ -6,13 +6,13 @@ import PluginSDK
 public struct PluginManifest: Codable, Sendable {
     /// Unique plugin identifier (e.g. `"telegram"`).
     public var name: String
-    /// Protocol the plugin implements: `"gateway"`, `"tool"`, `"memory"`, `"model_provider"`.
+    /// Protocol the plugin implements: `"gateway"`, `"task_sync"`, `"tool"`, `"memory"`, `"model_provider"`.
     public var `protocol`: String
     /// Optional semver string for display and diagnostics.
     public var version: String?
 }
 
-/// Scans a plugins directory and loads external GatewayPlugins via dlopen.
+/// Scans a plugins directory and loads external plugins via dlopen.
 /// Bundled plugins (e.g. Telegram) are created directly by CoreService and do NOT go through this loader.
 public struct PluginLoader: Sendable {
     private let logger: Logger
@@ -53,12 +53,64 @@ public struct PluginLoader: Sendable {
         return loaded.map(\.plugin)
     }
 
+    /// Loads all external task sync providers found under `pluginsDirectory`.
+    /// Each sub-directory must contain a `plugin.json` with `"protocol": "task_sync"` and either a
+    /// prebuilt binary or a SwiftPM package.
+    public func loadTaskSyncPlugins(from pluginsDirectory: URL) async -> [any TaskSyncProvider] {
+        let cacheRootURL = pluginsDirectory
+            .deletingLastPathComponent()
+            .appendingPathComponent("plugin-cache", isDirectory: true)
+        let loaded = await loadTaskSyncPluginBundles(
+            from: pluginsDirectory,
+            cacheRootURL: cacheRootURL
+        )
+        return loaded.map(\.provider)
+    }
+
     func loadGatewayPluginBundles(
         from pluginsDirectory: URL,
         cacheRootURL: URL,
         inboundReceiver: any InboundMessageReceiver,
         disabledPluginIDs: Set<String> = []
     ) async -> [LoadedGatewayPlugin] {
+        await loadPluginBundles(
+            from: pluginsDirectory,
+            protocol: "gateway",
+            disabledPluginIDs: disabledPluginIDs
+        ) { entry, manifest in
+            await loadGatewayPlugin(
+                from: entry,
+                cacheRootURL: cacheRootURL,
+                manifest: manifest,
+                inboundReceiver: inboundReceiver
+            )
+        }
+    }
+
+    func loadTaskSyncPluginBundles(
+        from pluginsDirectory: URL,
+        cacheRootURL: URL,
+        disabledPluginIDs: Set<String> = []
+    ) async -> [LoadedTaskSyncPlugin] {
+        await loadPluginBundles(
+            from: pluginsDirectory,
+            protocol: "task_sync",
+            disabledPluginIDs: disabledPluginIDs
+        ) { entry, manifest in
+            await loadTaskSyncPlugin(
+                from: entry,
+                cacheRootURL: cacheRootURL,
+                manifest: manifest
+            )
+        }
+    }
+
+    private func loadPluginBundles<Bundle>(
+        from pluginsDirectory: URL,
+        protocol expectedProtocol: String,
+        disabledPluginIDs: Set<String>,
+        load: (URL, PluginManifest) async -> Bundle?
+    ) async -> [Bundle] {
         let fileManager = FileManager.default
         guard let entries = try? fileManager.contentsOfDirectory(
             at: pluginsDirectory,
@@ -68,7 +120,7 @@ public struct PluginLoader: Sendable {
             return []
         }
 
-        var plugins: [LoadedGatewayPlugin] = []
+        var plugins: [Bundle] = []
 
         for entry in entries {
             guard (try? entry.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory == true else {
@@ -80,8 +132,8 @@ public struct PluginLoader: Sendable {
                 continue
             }
 
-            guard manifest.protocol == "gateway" else {
-                logger.debug("Plugin \(manifest.name) is not a gateway plugin, skipping for now.")
+            guard manifest.protocol == expectedProtocol else {
+                logger.debug("Plugin \(manifest.name) is not a \(expectedProtocol) plugin, skipping for now.")
                 continue
             }
 
@@ -90,12 +142,7 @@ public struct PluginLoader: Sendable {
                 continue
             }
 
-            if let plugin = await loadGatewayPlugin(
-                from: entry,
-                cacheRootURL: cacheRootURL,
-                manifest: manifest,
-                inboundReceiver: inboundReceiver
-            ) {
+            if let plugin = await load(entry, manifest) {
                 plugins.append(plugin)
             }
         }
@@ -110,8 +157,7 @@ public struct PluginLoader: Sendable {
         inboundReceiver: any InboundMessageReceiver
     ) async -> LoadedGatewayPlugin? {
         let fileManager = FileManager.default
-        let binaryURL: URL
-        let rebuilt: Bool
+        let binary: PluginBinaryLoad
 
         if fileManager.fileExists(atPath: directory.appendingPathComponent("Package.swift").path) {
             do {
@@ -122,8 +168,7 @@ public struct PluginLoader: Sendable {
                     logger: Logger(label: "sloppy.plugin.builder")
                 )
                 let build = try await builder.buildGatewayPlugin(at: directory, manifest: manifest)
-                binaryURL = build.binaryURL
-                rebuilt = build.rebuilt
+                binary = PluginBinaryLoad(binaryURL: build.binaryURL, rebuilt: build.rebuilt)
             } catch {
                 logger.error("Failed to build source plugin \(manifest.name): \(error)")
                 return nil
@@ -133,12 +178,11 @@ public struct PluginLoader: Sendable {
                 logger.warning("No dynamic library binary found for plugin \(manifest.name) in \(directory.lastPathComponent).")
                 return nil
             }
-            binaryURL = found
-            rebuilt = false
+            binary = PluginBinaryLoad(binaryURL: found, rebuilt: false)
         }
 
         guard let plugin = loadDylibGatewayPlugin(
-            binaryURL: binaryURL,
+            binaryURL: binary.binaryURL,
             manifest: manifest,
             inboundReceiver: inboundReceiver
         ) else {
@@ -148,8 +192,53 @@ public struct PluginLoader: Sendable {
             manifest: manifest,
             plugin: plugin,
             sourceURL: directory,
-            binaryURL: binaryURL,
-            rebuilt: rebuilt
+            binaryURL: binary.binaryURL,
+            rebuilt: binary.rebuilt
+        )
+    }
+
+    func loadTaskSyncPlugin(
+        from directory: URL,
+        cacheRootURL: URL,
+        manifest: PluginManifest
+    ) async -> LoadedTaskSyncPlugin? {
+        let fileManager = FileManager.default
+        let binary: PluginBinaryLoad
+
+        if fileManager.fileExists(atPath: directory.appendingPathComponent("Package.swift").path) {
+            do {
+                let builder = PluginPackageBuilder(
+                    cacheRootURL: cacheRootURL,
+                    processRunner: processRunner,
+                    fileManager: fileManager,
+                    logger: Logger(label: "sloppy.plugin.builder")
+                )
+                let build = try await builder.buildTaskSyncPlugin(at: directory, manifest: manifest)
+                binary = PluginBinaryLoad(binaryURL: build.binaryURL, rebuilt: build.rebuilt)
+            } catch {
+                logger.error("Failed to build source plugin \(manifest.name): \(error)")
+                return nil
+            }
+        } else {
+            guard let found = findBinary(in: directory, name: manifest.name) else {
+                logger.warning("No dynamic library binary found for plugin \(manifest.name) in \(directory.lastPathComponent).")
+                return nil
+            }
+            binary = PluginBinaryLoad(binaryURL: found, rebuilt: false)
+        }
+
+        guard let provider = loadDylibTaskSyncProvider(
+            binaryURL: binary.binaryURL,
+            manifest: manifest
+        ) else {
+            return nil
+        }
+        return LoadedTaskSyncPlugin(
+            manifest: manifest,
+            provider: provider,
+            sourceURL: directory,
+            binaryURL: binary.binaryURL,
+            rebuilt: binary.rebuilt
         )
     }
 
@@ -204,6 +293,44 @@ public struct PluginLoader: Sendable {
         return plugin
     }
 
+    func loadDylibTaskSyncProvider(
+        binaryURL: URL,
+        manifest: PluginManifest
+    ) -> (any TaskSyncProvider)? {
+        guard let handle = dlopen(binaryURL.path, RTLD_NOW | RTLD_LOCAL) else {
+            let error = String(cString: dlerror())
+            logger.error("dlopen failed for task sync plugin \(manifest.name): \(error)")
+            return nil
+        }
+
+        guard let sym = dlsym(handle, "sloppy_task_sync_create") else {
+            let error = String(cString: dlerror())
+            logger.error("dlsym(sloppy_task_sync_create) failed for plugin \(manifest.name): \(error)")
+            dlclose(handle)
+            return nil
+        }
+
+        // C ABI: void* sloppy_task_sync_create(const char* manifest_json)
+        typealias CreateFn = @convention(c) (UnsafePointer<CChar>) -> UnsafeMutableRawPointer?
+        let createFn = unsafeBitCast(sym, to: CreateFn.self)
+        let manifestJSON = (try? String(data: JSONEncoder().encode(manifest), encoding: .utf8)) ?? "{}"
+
+        guard let rawProvider = manifestJSON.withCString({ createFn($0) }) else {
+            logger.error("sloppy_task_sync_create returned nil for plugin \(manifest.name).")
+            dlclose(handle)
+            return nil
+        }
+
+        let provider = Unmanaged<AnyTaskSyncProviderBox>.fromOpaque(rawProvider).takeRetainedValue()
+        guard provider.id == manifest.name else {
+            logger.error("Task sync provider id mismatch for \(manifest.name): dylib returned \(provider.id).")
+            dlclose(handle)
+            return nil
+        }
+        logger.info("Loaded external task sync plugin \(manifest.name) v\(manifest.version ?? "unknown").")
+        return provider
+    }
+
     private func findBinary(in directory: URL, name: String) -> URL? {
         let candidates = [
             directory.appendingPathComponent("plugin.dylib"),
@@ -217,9 +344,22 @@ public struct PluginLoader: Sendable {
     }
 }
 
+private struct PluginBinaryLoad: Sendable {
+    var binaryURL: URL
+    var rebuilt: Bool
+}
+
 struct LoadedGatewayPlugin: Sendable {
     var manifest: PluginManifest
     var plugin: any GatewayPlugin
+    var sourceURL: URL
+    var binaryURL: URL
+    var rebuilt: Bool
+}
+
+struct LoadedTaskSyncPlugin: Sendable {
+    var manifest: PluginManifest
+    var provider: any TaskSyncProvider
     var sourceURL: URL
     var binaryURL: URL
     var rebuilt: Bool

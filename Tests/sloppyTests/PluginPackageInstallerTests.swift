@@ -42,7 +42,11 @@ private actor FakePluginProcessRunner: PluginProcessRunning {
                 .appendingPathComponent(".build/release", isDirectory: true)
             try FileManager.default.createDirectory(at: binPath, withIntermediateDirectories: true)
             let artifact = binPath.appendingPathComponent("lib\(product).dylib")
-            try Data("binary".utf8).write(to: artifact)
+            if product == "task-sync-plugin" {
+                try Self.compileTaskSyncEntrypointDylib(to: artifact)
+            } else {
+                try Data("binary".utf8).write(to: artifact)
+            }
             return PluginProcessResult(exitCode: 0, stdout: "", stderr: "")
         }
 
@@ -51,6 +55,36 @@ private actor FakePluginProcessRunner: PluginProcessRunning {
 
     func commands() -> [(executable: String, arguments: [String], cwd: String?)] {
         recordedCommands
+    }
+
+    private static func compileTaskSyncEntrypointDylib(to artifact: URL) throws {
+        let sourceURL = artifact.deletingLastPathComponent().appendingPathComponent("TaskSyncEntrypoint.swift")
+        let source = """
+        import Foundation
+
+        @_cdecl(\"sloppy_task_sync_create\")
+        public func sloppy_task_sync_create(_ manifestJSON: UnsafePointer<CChar>) -> UnsafeMutableRawPointer? {
+            nil
+        }
+        """
+        try Data(source.utf8).write(to: sourceURL)
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/swiftc")
+        process.arguments = ["-emit-library", "-o", artifact.path, sourceURL.path]
+        let pipe = Pipe()
+        process.standardOutput = pipe
+        process.standardError = pipe
+        try process.run()
+        process.waitUntilExit()
+        guard process.terminationStatus == 0 else {
+            let data = pipe.fileHandleForReading.readDataToEndOfFile()
+            let output = String(decoding: data, as: UTF8.self)
+            throw PluginPackageBuildError.swiftCommandFailed(
+                command: "swiftc -emit-library",
+                exitCode: process.terminationStatus,
+                output: output
+            )
+        }
     }
 }
 
@@ -118,7 +152,25 @@ func sourcePluginInstallerRejectsExistingPluginWithoutForce() async throws {
 }
 
 @Test
-func sourcePluginInstallerValidatesManifestProtocol() throws {
+func sourcePluginInstallerAcceptsTaskSyncProtocol() throws {
+    let root = FileManager.default.temporaryDirectory
+        .appendingPathComponent("plugin-task-sync-validation-test-\(UUID().uuidString)", isDirectory: true)
+    defer { try? FileManager.default.removeItem(at: root) }
+
+    try makeSourcePlugin(at: root, name: "task-sync-plugin", pluginProtocol: "task_sync")
+    let installer = PluginPackageInstaller(
+        pluginsRootURL: root.appendingPathComponent("plugins", isDirectory: true),
+        cacheRootURL: root.appendingPathComponent("plugin-cache", isDirectory: true),
+        processRunner: FakePluginProcessRunner()
+    )
+
+    let manifest = try installer.validateSourcePackage(at: root)
+    #expect(manifest.name == "task-sync-plugin")
+    #expect(manifest.protocol == "task_sync")
+}
+
+@Test
+func sourcePluginInstallerRejectsInvalidManifestProtocol() throws {
     let root = FileManager.default.temporaryDirectory
         .appendingPathComponent("plugin-validation-test-\(UUID().uuidString)", isDirectory: true)
     defer { try? FileManager.default.removeItem(at: root) }
@@ -133,6 +185,28 @@ func sourcePluginInstallerValidatesManifestProtocol() throws {
     #expect(throws: PluginPackageInstallError.self) {
         _ = try installer.validateSourcePackage(at: root)
     }
+}
+
+@Test
+func taskSyncSourcePluginBuildsAndExpectsTaskSyncEntrypoint() async throws {
+    let root = FileManager.default.temporaryDirectory
+        .appendingPathComponent("plugin-loader-task-sync-test-\(UUID().uuidString)", isDirectory: true)
+    defer { try? FileManager.default.removeItem(at: root) }
+
+    let pluginsRoot = root.appendingPathComponent("plugins", isDirectory: true)
+    let source = pluginsRoot.appendingPathComponent("task-sync-plugin", isDirectory: true)
+    try makeSourcePlugin(at: source, name: "task-sync-plugin", pluginProtocol: "task_sync")
+
+    let runner = FakePluginProcessRunner()
+    let loader = PluginLoader(processRunner: runner)
+    let loaded = await loader.loadTaskSyncPluginBundles(
+        from: pluginsRoot,
+        cacheRootURL: root.appendingPathComponent("plugin-cache", isDirectory: true)
+    )
+
+    #expect(loaded.isEmpty)
+    let commands = await runner.commands()
+    #expect(commands.contains(where: { $0.executable == "swift" && $0.arguments == ["build", "-c", "release", "--product", "task-sync-plugin"] }))
 }
 
 @Test

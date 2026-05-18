@@ -55,11 +55,20 @@ actor ToolAuthorizationService {
         return updated
     }
 
-    func authorize(agentID: String, toolID: String) async throws -> ToolAuthorizationDecision {
+    func authorize(
+        agentID: String,
+        toolID: String,
+        enforceRateLimit: Bool = true
+    ) async throws -> ToolAuthorizationDecision {
         let builtInToolIDs = ToolCatalog.knownToolIDs
         if builtInToolIDs.contains(toolID) {
             let policy = try reloadedPolicy(agentID: agentID, knownToolIDs: builtInToolIDs)
-            return authorizeKnownTool(agentID: agentID, toolID: toolID, policy: policy)
+            return authorizeKnownTool(
+                agentID: agentID,
+                toolID: toolID,
+                policy: policy,
+                enforceRateLimit: enforceRateLimit
+            )
         }
 
         let dynamicToolIDs = await mcpRegistry.dynamicToolIDs()
@@ -78,13 +87,19 @@ actor ToolAuthorizationService {
             )
         }
 
-        return authorizeKnownTool(agentID: agentID, toolID: toolID, policy: policy)
+        return authorizeKnownTool(
+            agentID: agentID,
+            toolID: toolID,
+            policy: policy,
+            enforceRateLimit: enforceRateLimit
+        )
     }
 
     private func authorizeKnownTool(
         agentID: String,
         toolID: String,
-        policy: AgentToolsPolicy
+        policy: AgentToolsPolicy,
+        enforceRateLimit: Bool
     ) -> ToolAuthorizationDecision {
         let explicitlyAllowed = policy.tools[toolID]
         let allowed = explicitlyAllowed ?? (policy.defaultPolicy == .allow)
@@ -98,6 +113,10 @@ actor ToolAuthorizationService {
                     retryable: false
                 )
             )
+        }
+
+        guard enforceRateLimit else {
+            return ToolAuthorizationDecision(allowed: true, policy: policy, error: nil)
         }
 
         let now = Date()

@@ -855,14 +855,16 @@ actor AgentSessionOrchestrator {
 
         let messageContent = content.isEmpty ? "User attached files." : content
         let toolInvokerRecordsEvents = self.toolInvokerRecordsEvents
+        let enforceToolRoundLimit = !Self.shouldBypassToolUsageLimits(userID: userID)
         let nativeLoopConfig = delegatedSubagentSessionIDs.contains(sessionID)
             ? NativeAgentLoopConfig(
                 maxToolRounds: 60,
+                enforceToolRoundLimit: enforceToolRoundLimit,
                 finalizerToolNames: ["agent_delegate.finish", "agents.delegate_finish"],
                 overBudgetRecoveryBatches: 1,
                 budgetExhaustedMessage: "Subagent tool budget exhausted. Stop calling non-finalizer tools and call `agent_delegate.finish` with the best completed, blocked, or failed outcome you can support from current evidence."
             )
-            : NativeAgentLoopConfig(maxToolRounds: 60)
+            : NativeAgentLoopConfig(maxToolRounds: 60, enforceToolRoundLimit: enforceToolRoundLimit)
         let nativeLoopOutcomeBox = NativeAgentLoopOutcomeBox()
         let routeDecision = await runtime.postMessage(
             channelId: channelID,
@@ -1334,6 +1336,11 @@ actor AgentSessionOrchestrator {
 
     private func sessionChannelID(agentID: String, sessionID: String) -> String {
         "agent:\(agentID):session:\(sessionID)"
+    }
+
+    private static func shouldBypassToolUsageLimits(userID: String) -> Bool {
+        let normalized = userID.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return normalized == "tui" || normalized == "onboarding"
     }
 
     private func invokeTool(

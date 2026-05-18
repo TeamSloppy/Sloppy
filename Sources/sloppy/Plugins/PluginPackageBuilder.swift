@@ -41,7 +41,7 @@ struct PluginPackageBuilder {
         self.logger = logger
     }
 
-    func buildGatewayPlugin(
+    func buildPlugin(
         at packageURL: URL,
         manifest: PluginManifest
     ) async throws -> PluginPackageBuildResult {
@@ -106,6 +106,20 @@ struct PluginPackageBuilder {
                 output: combinedOutput(result)
             )
         }
+    }
+
+    func buildGatewayPlugin(
+        at packageURL: URL,
+        manifest: PluginManifest
+    ) async throws -> PluginPackageBuildResult {
+        try await buildPlugin(at: packageURL, manifest: manifest)
+    }
+
+    func buildTaskSyncPlugin(
+        at packageURL: URL,
+        manifest: PluginManifest
+    ) async throws -> PluginPackageBuildResult {
+        try await buildPlugin(at: packageURL, manifest: manifest)
     }
 
     private func buildFingerprint(packageURL: URL, manifest: PluginManifest) async -> String {

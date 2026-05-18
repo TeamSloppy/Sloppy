@@ -76,7 +76,11 @@ extension CoreService {
 
         let authorization: ToolAuthorizationDecision
         do {
-            authorization = try await toolsAuthorization.authorize(agentID: normalizedAgentID, toolID: request.tool)
+            authorization = try await toolsAuthorization.authorize(
+                agentID: normalizedAgentID,
+                toolID: request.tool,
+                enforceRateLimit: !sessionToolUsageLimitBypass.contains(normalizedSessionID)
+            )
         } catch {
             return .init(
                 tool: request.tool,

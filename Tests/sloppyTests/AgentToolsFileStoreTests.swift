@@ -97,6 +97,37 @@ func authorizationAllowsSystemListToolsFromCatalog() async throws {
 }
 
 @Test
+func authorizationCanBypassToolRateLimit() async throws {
+    let root = FileManager.default.temporaryDirectory
+        .appendingPathComponent("tools-store-rate-bypass-\(UUID().uuidString)", isDirectory: true)
+    let agentsRoot = root.appendingPathComponent("agents", isDirectory: true)
+    let agentDirectory = agentsRoot.appendingPathComponent("agent-rate-bypass", isDirectory: true)
+    try FileManager.default.createDirectory(at: agentDirectory, withIntermediateDirectories: true)
+
+    let store = AgentToolsFileStore(agentsRootURL: agentsRoot)
+    let auth = ToolAuthorizationService(store: store)
+    let guardrails = AgentToolsGuardrails(maxToolCallsPerMinute: 1)
+    _ = try await auth.updatePolicy(
+        agentID: "agent-rate-bypass",
+        request: AgentToolsUpdateRequest(guardrails: guardrails)
+    )
+
+    let first = try await auth.authorize(agentID: "agent-rate-bypass", toolID: "agents.list")
+    let limited = try await auth.authorize(agentID: "agent-rate-bypass", toolID: "agents.list")
+    let bypassed = try await auth.authorize(
+        agentID: "agent-rate-bypass",
+        toolID: "agents.list",
+        enforceRateLimit: false
+    )
+
+    #expect(first.allowed)
+    #expect(limited.allowed == false)
+    #expect(limited.error?.code == "rate_limited")
+    #expect(bypassed.allowed)
+    #expect(bypassed.error == nil)
+}
+
+@Test
 func authorizationAllowsBuiltInToolWithoutMCPDiscovery() async throws {
     let root = FileManager.default.temporaryDirectory
         .appendingPathComponent("tools-store-builtin-no-mcp-\(UUID().uuidString)", isDirectory: true)
