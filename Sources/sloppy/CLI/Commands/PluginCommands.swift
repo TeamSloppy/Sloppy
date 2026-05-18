@@ -5,7 +5,7 @@ import Protocols
 struct PluginCommand: SloppyGroupCommand {
     static let configuration = CommandConfiguration(
         commandName: "plugin",
-        abstract: "Manage channel plugins.",
+        abstract: "Manage plugins.",
         subcommands: [
             PluginListCommand.self,
             PluginGetCommand.self,
@@ -87,9 +87,9 @@ struct PluginCreateCommand: AsyncParsableCommand {
 }
 
 struct PluginInstallCommand: AsyncParsableCommand {
-    static let configuration = CommandConfiguration(commandName: "install", abstract: "Install a SwiftPM source plugin from a Git URL.")
+    static let configuration = CommandConfiguration(commandName: "install", abstract: "Install a source plugin from a Git URL.")
 
-    @Argument(help: "SwiftPM package Git URL") var sourceUrl: String
+    @Argument(help: "Plugin package Git URL") var sourceUrl: String
     @Option(name: .long, help: "Git ref, branch, or tag to checkout") var ref: String?
     @Flag(name: .long, help: "Replace an existing plugin with the same plugin.json name") var force: Bool = false
     @Flag(name: .long, help: "Install and build without starting the plugin") var disabled: Bool = false

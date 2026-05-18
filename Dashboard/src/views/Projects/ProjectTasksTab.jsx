@@ -1044,6 +1044,7 @@ function TaskDetailView({
             ? !window.matchMedia(`(max-width: ${TASK_DETAIL_MOBILE_MAX_PX}px)`).matches
             : true
     );
+    const descriptionInputRef = useRef(null);
     const hasReviewDiff = Boolean(task.worktreeBranch);
     const canShowReviewTab = hasReviewDiff || task.status === "needs_review";
 
@@ -1120,6 +1121,13 @@ function TaskDetailView({
     const githubIssueLabel = task.externalMetadata?.externalIssueNumber
         ? `GitHub #${task.externalMetadata.externalIssueNumber}`
         : "Open GitHub Issue";
+
+    useEffect(() => {
+        const input = descriptionInputRef.current;
+        if (!input) return;
+        input.style.height = "auto";
+        input.style.height = `${input.scrollHeight}px`;
+    }, [editDraft.description, task.id]);
 
     return (
         <div
@@ -1203,6 +1211,7 @@ function TaskDetailView({
                         placeholder="Task title"
                     />
                     <textarea
+                        ref={descriptionInputRef}
                         className="td-desc-input"
                         value={editDraft.description}
                         onChange={(e) => updateEditDraft("description", e.target.value)}

@@ -1,0 +1,16 @@
+{
+  "name": "command-source-control",
+  "protocol": "source_control",
+  "version": "0.1.0",
+  "runtime": "node",
+  "entrypoint": "index.js",
+  "config": {
+    "displayName": "Command Source Control",
+    "worktreeRootName": ".sloppy-worktrees",
+    "timeoutMs": 30000,
+    "capabilities": [
+      "worktrees"
+    ],
+    "commands": {}
+  }
+}

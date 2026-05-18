@@ -121,11 +121,72 @@ extension CoreService {
         let enabled = request.enabled ?? true
         await stopActiveGatewayPlugin(id: result.manifest.name)
 
+        if result.manifest.protocol == "source_control" {
+            if enabled {
+                let loader = PluginLoader(logger: logger)
+                guard let loaded = await loader.loadSourceControlPlugin(
+                    from: result.sourceURL,
+                    cacheRootURL: pluginCacheRootURL,
+                    manifest: result.manifest
+                ) else {
+                    throw ChannelPluginError.invalidPayload
+                }
+                registerSourceControlProvider(loaded.provider)
+            }
+
+            let now = Date()
+            let existing = await store.channelPlugin(id: result.manifest.name)
+            let record = ChannelPluginRecord(
+                id: result.manifest.name,
+                type: result.manifest.name,
+                baseUrl: "",
+                channelIds: [],
+                config: existing?.config ?? [:],
+                enabled: enabled,
+                deliveryMode: ChannelPluginRecord.DeliveryMode.inProcess,
+                createdAt: existing?.createdAt ?? now,
+                updatedAt: now
+            )
+            await store.saveChannelPlugin(record)
+            return ChannelPluginInstallResponse(
+                plugin: record,
+                sourcePath: result.sourceURL.path,
+                binaryPath: result.binaryURL?.path ?? result.sourceURL.appendingPathComponent(result.manifest.entrypoint ?? "").path,
+                rebuilt: result.rebuilt
+            )
+        }
+
+        guard result.manifest.protocol == "gateway" else {
+            let now = Date()
+            let existing = await store.channelPlugin(id: result.manifest.name)
+            let record = ChannelPluginRecord(
+                id: result.manifest.name,
+                type: result.manifest.name,
+                baseUrl: "",
+                channelIds: existing?.channelIds ?? [],
+                config: existing?.config ?? [:],
+                enabled: enabled,
+                deliveryMode: ChannelPluginRecord.DeliveryMode.inProcess,
+                createdAt: existing?.createdAt ?? now,
+                updatedAt: now
+            )
+            await store.saveChannelPlugin(record)
+            return ChannelPluginInstallResponse(
+                plugin: record,
+                sourcePath: result.sourceURL.path,
+                binaryPath: result.binaryURL?.path ?? "",
+                rebuilt: result.rebuilt
+            )
+        }
+
         let record: ChannelPluginRecord
         if enabled {
             let loader = PluginLoader(logger: logger)
+            guard let binaryURL = result.binaryURL else {
+                throw ChannelPluginError.invalidPayload
+            }
             guard let plugin = loader.loadDylibGatewayPlugin(
-                binaryURL: result.binaryURL,
+                binaryURL: binaryURL,
                 manifest: result.manifest,
                 inboundReceiver: self
             ) else {
@@ -173,7 +234,7 @@ extension CoreService {
         return ChannelPluginInstallResponse(
             plugin: record,
             sourcePath: result.sourceURL.path,
-            binaryPath: result.binaryURL.path,
+            binaryPath: result.binaryURL?.path ?? "",
             rebuilt: result.rebuilt
         )
     }

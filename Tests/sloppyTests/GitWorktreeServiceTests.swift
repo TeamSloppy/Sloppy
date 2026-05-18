@@ -111,6 +111,33 @@ func gitWorktreeDefaultBranch() async throws {
 }
 
 @Test
+func gitCLISourceControlProviderWorkingTreeStatusAndDiff() async throws {
+    let repoURL = try makeGitRepo()
+    defer { try? FileManager.default.removeItem(at: repoURL) }
+
+    let readme = repoURL.appendingPathComponent("README.md")
+    try "# Test\n\nMore notes\n".write(to: readme, atomically: true, encoding: .utf8)
+    try "scratch".write(to: repoURL.appendingPathComponent("notes.txt"), atomically: true, encoding: .utf8)
+
+    let provider = GitCLISourceControlProvider()
+    let repository = await provider.inspectRepository(at: repoURL.path)
+    #expect(repository.providerId == "git-cli")
+    #expect(repository.isRepository)
+    #expect(repository.branch == "main")
+
+    let status = try await provider.workingTreeStatus(at: repoURL.path)
+    #expect(status.repository.isRepository)
+    #expect(status.linesAdded >= 1)
+    #expect(status.files.contains { $0.path == "README.md" && $0.kind == .modified && $0.unstaged })
+    #expect(status.files.contains { $0.path == "notes.txt" && $0.kind == .untracked })
+
+    let diff = try await provider.workingTreeDiff(at: repoURL.path, maxBytes: 512 * 1024)
+    #expect(diff.providerId == "git-cli")
+    #expect(diff.hasChanges)
+    #expect(diff.text.contains("README.md"))
+}
+
+@Test
 func gitWorktreeErrorOnNonRepo() async throws {
     let service = GitWorktreeService()
     let fakePath = FileManager.default.temporaryDirectory

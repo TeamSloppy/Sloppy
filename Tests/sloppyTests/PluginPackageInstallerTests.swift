@@ -110,7 +110,8 @@ func sourcePluginInstallerClonesBuildsAndReusesCache() async throws {
     #expect(first.manifest.name == "sample-plugin")
     #expect(first.rebuilt == true)
     #expect(FileManager.default.fileExists(atPath: first.sourceURL.appendingPathComponent("plugin.json").path))
-    #expect(FileManager.default.fileExists(atPath: first.binaryURL.path))
+    let firstBinaryURL = try #require(first.binaryURL)
+    #expect(FileManager.default.fileExists(atPath: firstBinaryURL.path))
 
     let commandsAfterFirst = await runner.commands()
     #expect(commandsAfterFirst.contains(where: { $0.executable == "git" && $0.arguments.first == "clone" }))
@@ -120,7 +121,7 @@ func sourcePluginInstallerClonesBuildsAndReusesCache() async throws {
         ChannelPluginInstallRequest(sourceUrl: source.path, force: true)
     )
     #expect(second.rebuilt == false)
-    #expect(second.binaryURL.path == first.binaryURL.path)
+    #expect(second.binaryURL?.path == firstBinaryURL.path)
 
     let commandsAfterSecond = await runner.commands()
     #expect(commandsAfterSecond.filter { $0.executable == "swift" && $0.arguments.contains("--product") }.count == 1)

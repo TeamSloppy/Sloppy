@@ -1,4 +1,5 @@
 import Foundation
+import Protocols
 
 enum GitWorktreeError: Error, LocalizedError {
     case gitNotAvailable
@@ -206,6 +207,100 @@ struct GitWorktreeService: Sendable {
         return ref
     }
 
+    func repositoryInfo(providerId: String, repoPath: String) async -> SourceControlRepositoryInfo {
+        guard isGitWorkingCopy(repoPath: repoPath) else {
+            return SourceControlRepositoryInfo(
+                providerId: providerId,
+                isRepository: false,
+                rootPath: repoPath,
+                message: "This project folder is not a git repository."
+            )
+        }
+
+        let branch = try? await currentBranchLabel(repoPath: repoPath)
+        let head: String?
+        if let (code, output) = try? await runGit(args: ["rev-parse", "HEAD"], cwd: repoPath), code == 0 {
+            head = output.trimmingCharacters(in: .whitespacesAndNewlines)
+        } else {
+            head = nil
+        }
+
+        return SourceControlRepositoryInfo(
+            providerId: providerId,
+            isRepository: true,
+            rootPath: repoPath,
+            branch: branch,
+            head: head
+        )
+    }
+
+    func workingTreeStatus(providerId: String, repoPath: String) async throws -> SourceControlWorkingTreeStatus {
+        let repository = await repositoryInfo(providerId: providerId, repoPath: repoPath)
+        guard repository.isRepository else {
+            return SourceControlWorkingTreeStatus(repository: repository)
+        }
+
+        let hasHead = await hasHeadCommit(repoPath: repoPath)
+        let statsText: String
+        if hasHead {
+            let (_, out) = try await runGit(args: ["diff", "HEAD", "--numstat"], cwd: repoPath)
+            statsText = out
+        } else {
+            let (_, unstaged) = try await runGit(args: ["diff", "--numstat"], cwd: repoPath)
+            let (_, staged) = try await runGit(args: ["diff", "--cached", "--numstat"], cwd: repoPath)
+            statsText = [unstaged, staged].joined(separator: "\n")
+        }
+
+        let totals = Self.accumulateNumstat(statsText)
+        let statsByPath = Self.numstatByPath(statsText)
+        let (_, statusText) = try await runGit(args: ["status", "--porcelain=v1"], cwd: repoPath)
+        let files = Self.mergeStatus(statusText, statsByPath: statsByPath)
+
+        return SourceControlWorkingTreeStatus(
+            repository: repository,
+            files: files,
+            linesAdded: totals.linesAdded,
+            linesDeleted: totals.linesDeleted
+        )
+    }
+
+    func workingTreeDiffResult(providerId: String, repoPath: String, maxBytes: Int) async throws -> SourceControlDiffResult {
+        let patch = try await workingTreePatch(repoPath: repoPath, maxBytes: maxBytes)
+        let status = try? await workingTreeStatus(providerId: providerId, repoPath: repoPath)
+        return SourceControlDiffResult(
+            providerId: providerId,
+            baseRef: "HEAD",
+            headRef: status?.repository.branch,
+            text: patch.text,
+            truncated: patch.truncated,
+            files: status?.files ?? []
+        )
+    }
+
+    func branchDiffResult(
+        providerId: String,
+        repoPath: String,
+        branchName: String,
+        baseBranch: String,
+        maxBytes: Int
+    ) async throws -> SourceControlDiffResult {
+        let (exitCode, output) = try await runGit(
+            args: ["diff", "\(baseBranch)...\(branchName)", "--stat", "--patch"],
+            cwd: repoPath
+        )
+        guard exitCode == 0 else {
+            throw GitWorktreeError.commandFailed(exitCode, output)
+        }
+        let truncated = Self.truncateUTF8(output, maxBytes: maxBytes)
+        return SourceControlDiffResult(
+            providerId: providerId,
+            baseRef: baseBranch,
+            headRef: branchName,
+            text: truncated.0,
+            truncated: truncated.1
+        )
+    }
+
     private func hasHeadCommit(repoPath: String) async -> Bool {
         guard let (code, _) = try? await runGit(args: ["rev-parse", "--verify", "HEAD"], cwd: repoPath) else {
             return false
@@ -228,6 +323,83 @@ struct GitWorktreeService: Sendable {
             }
         }
         return (add, del)
+    }
+
+    private static func numstatByPath(_ text: String) -> [String: (linesAdded: Int, linesDeleted: Int)] {
+        var stats: [String: (linesAdded: Int, linesDeleted: Int)] = [:]
+        for line in text.split(separator: "\n", omittingEmptySubsequences: false) where !line.isEmpty {
+            let parts = line.split(separator: "\t", omittingEmptySubsequences: false)
+            guard parts.count >= 3 else { continue }
+            let added = String(parts[0])
+            let deleted = String(parts[1])
+            guard added != "-", deleted != "-", let addedCount = Int(added), let deletedCount = Int(deleted) else {
+                continue
+            }
+            let path = String(parts.last ?? "")
+            guard !path.isEmpty else { continue }
+            let current = stats[path] ?? (0, 0)
+            stats[path] = (current.linesAdded + addedCount, current.linesDeleted + deletedCount)
+        }
+        return stats
+    }
+
+    private static func mergeStatus(
+        _ text: String,
+        statsByPath: [String: (linesAdded: Int, linesDeleted: Int)]
+    ) -> [SourceControlFileChange] {
+        var changes: [String: SourceControlFileChange] = [:]
+
+        for line in text.split(separator: "\n", omittingEmptySubsequences: false) where line.count >= 3 {
+            let raw = String(line)
+            let x = raw[raw.startIndex]
+            let y = raw[raw.index(after: raw.startIndex)]
+            var path = String(raw.dropFirst(3))
+            var oldPath: String?
+            if let range = path.range(of: " -> ") {
+                oldPath = String(path[..<range.lowerBound])
+                path = String(path[range.upperBound...])
+            }
+
+            let stats = statsByPath[path] ?? (0, 0)
+            changes[path] = SourceControlFileChange(
+                path: path,
+                oldPath: oldPath,
+                kind: changeKind(indexStatus: x, worktreeStatus: y),
+                staged: x != " " && x != "?" && x != "!",
+                unstaged: y != " " && y != "!",
+                linesAdded: stats.linesAdded,
+                linesDeleted: stats.linesDeleted
+            )
+        }
+
+        for (path, stats) in statsByPath where changes[path] == nil {
+            changes[path] = SourceControlFileChange(
+                path: path,
+                kind: .modified,
+                staged: true,
+                unstaged: true,
+                linesAdded: stats.linesAdded,
+                linesDeleted: stats.linesDeleted
+            )
+        }
+
+        return changes.values.sorted { $0.path < $1.path }
+    }
+
+    private static func changeKind(indexStatus: Character, worktreeStatus: Character) -> SourceControlChangeKind {
+        if indexStatus == "?" && worktreeStatus == "?" { return .untracked }
+        if indexStatus == "!" && worktreeStatus == "!" { return .ignored }
+        if indexStatus == "U" || worktreeStatus == "U" { return .conflicted }
+        let status = indexStatus != " " ? indexStatus : worktreeStatus
+        switch status {
+        case "A": return .added
+        case "M": return .modified
+        case "D": return .deleted
+        case "R": return .renamed
+        case "C": return .copied
+        case "T": return .typeChanged
+        default: return .unknown
+        }
     }
 
     private static func truncateUTF8(_ string: String, maxBytes: Int) -> (String, Bool) {

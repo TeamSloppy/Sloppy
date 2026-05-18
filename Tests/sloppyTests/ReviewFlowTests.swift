@@ -2,8 +2,35 @@ import Foundation
 import Testing
 @testable import sloppy
 @testable import Protocols
+@testable import PluginSDK
 
 // MARK: - Helpers
+
+private struct FakeSourceControlProvider: SourceControlProvider {
+    let id = "fake-sc"
+    let displayName = "Fake Source Control"
+    let capabilities: Set<SourceControlCapability> = [.worktrees, .branchDiff, .merge]
+
+    func inspectRepository(at path: String) async -> SourceControlRepositoryInfo {
+        SourceControlRepositoryInfo(providerId: id, isRepository: true, rootPath: path, branch: "main")
+    }
+
+    func branchDiff(at path: String, branchName: String, baseBranch: String, maxBytes: Int) async throws -> SourceControlDiffResult {
+        SourceControlDiffResult(providerId: id, baseRef: baseBranch, headRef: branchName, text: "fake diff")
+    }
+
+    func defaultBranch(at path: String) async throws -> String {
+        "main"
+    }
+
+    func createWorktree(repoPath: String, taskId: String, baseBranch: String) async throws -> SourceControlWorktreeResult {
+        SourceControlWorktreeResult(worktreePath: worktreePath(repoPath: repoPath, taskId: taskId), branchName: "fake/\(taskId)")
+    }
+
+    func removeWorktree(repoPath: String, worktreePath: String) async throws {}
+
+    func mergeBranch(repoPath: String, branchName: String, targetBranch: String) async throws {}
+}
 
 private func makeProjectWithTask(
     service: CoreService,
@@ -330,6 +357,58 @@ func worktreeCreationFailureDoesNotCrashTaskLifecycle() async throws {
     let project = try decoder.decode(ProjectRecord.self, from: getResp.body)
     let task = try #require(project.tasks.first(where: { $0.id == taskID }))
     #expect(task.worktreeBranch == nil)
+}
+
+@Test
+func projectSourceControlProviderCreatesTaskWorktreeAndIsStoredOnTask() async throws {
+    let config = CoreConfig.test
+    let service = CoreService(config: config, persistenceBuilder: InMemoryCorePersistenceBuilder())
+    await service.registerSourceControlProvider(FakeSourceControlProvider())
+    let router = CoreRouter(service: service)
+    let decoder = JSONDecoder()
+    decoder.dateDecodingStrategy = .iso8601
+
+    let repoURL = FileManager.default.temporaryDirectory
+        .appendingPathComponent("provider-route-\(UUID().uuidString)", isDirectory: true)
+    try FileManager.default.createDirectory(at: repoURL, withIntermediateDirectories: true)
+
+    let projectID = "provider-route-\(UUID().uuidString)"
+    let createBody = try JSONEncoder().encode(
+        ProjectCreateRequest(
+            id: projectID,
+            name: "Provider Route Test",
+            repoPath: repoURL.path,
+            sourceControlProviderId: "fake-sc"
+        )
+    )
+    let createResp = await router.handle(method: "POST", path: "/v1/projects", body: createBody)
+    #expect(createResp.status == 201)
+
+    let taskBody = try JSONEncoder().encode(
+        ProjectTaskCreateRequest(title: "Do something", description: "", priority: "medium", status: "ready")
+    )
+    let taskResp = await router.handle(method: "POST", path: "/v1/projects/\(projectID)/tasks", body: taskBody)
+    #expect(taskResp.status == 200)
+    let projectWithTask = try decoder.decode(ProjectRecord.self, from: taskResp.body)
+    let taskID = try #require(projectWithTask.tasks.first?.id)
+
+    await service.handleTaskBecameReady(projectID: projectID, taskID: taskID)
+
+    let getResp = await router.handle(method: "GET", path: "/v1/projects/\(projectID)", body: nil)
+    #expect(getResp.status == 200)
+    let project = try decoder.decode(ProjectRecord.self, from: getResp.body)
+    let task = try #require(project.tasks.first(where: { $0.id == taskID }))
+    #expect(task.worktreeBranch == "fake/\(taskID)")
+    #expect(task.sourceControlProviderId == "fake-sc")
+
+    let updateBody = try JSONEncoder().encode(ProjectUpdateRequest(sourceControlProviderId: "git-cli"))
+    let updateResp = await router.handle(method: "PATCH", path: "/v1/projects/\(projectID)", body: updateBody)
+    #expect(updateResp.status == 200)
+
+    let diffResp = await router.handle(method: "GET", path: "/v1/projects/\(projectID)/tasks/\(taskID)/diff", body: nil)
+    #expect(diffResp.status == 200)
+    let diff = try decoder.decode(TaskDiffResponse.self, from: diffResp.body)
+    #expect(diff.diff == "fake diff")
 }
 
 @Test

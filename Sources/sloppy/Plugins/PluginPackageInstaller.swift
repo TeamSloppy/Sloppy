@@ -5,7 +5,7 @@ import Protocols
 struct PluginPackageInstallResult: Sendable {
     var manifest: PluginManifest
     var sourceURL: URL
-    var binaryURL: URL
+    var binaryURL: URL?
     var rebuilt: Bool
 }
 
@@ -30,7 +30,7 @@ enum PluginPackageInstallError: Error, LocalizedError, Sendable {
         case .missingOrInvalidManifest:
             return "Plugin package must contain a valid plugin.json at its root."
         case .unsupportedProtocol(let value):
-            return "Only gateway and task_sync source plugins are supported; plugin.json protocol was \(value)."
+            return "Only gateway, task_sync, and source_control source plugins are supported; plugin.json protocol was \(value)."
         case .invalidPluginName(let name):
             return "Invalid plugin name in plugin.json: \(name)."
         case .conflict(let name):
@@ -101,26 +101,28 @@ struct PluginPackageInstaller {
             throw PluginPackageInstallError.moveFailed("Failed to move plugin source into workspace: \(error)")
         }
 
-        let builder = PluginPackageBuilder(
-            cacheRootURL: cacheRootURL,
-            processRunner: processRunner,
-            fileManager: fileManager,
-            logger: Logger(label: "sloppy.plugin.builder")
-        )
-        let build = try await builder.buildPlugin(at: targetURL, manifest: manifest)
+        let build: PluginPackageBuildResult?
+        if manifest.runtime == .swiftDylib {
+            let builder = PluginPackageBuilder(
+                cacheRootURL: cacheRootURL,
+                processRunner: processRunner,
+                fileManager: fileManager,
+                logger: Logger(label: "sloppy.plugin.builder")
+            )
+            build = try await builder.buildPlugin(at: targetURL, manifest: manifest)
+        } else {
+            build = nil
+        }
         logger.info("Installed source plugin \(manifest.name) from \(source).")
         return PluginPackageInstallResult(
             manifest: manifest,
             sourceURL: targetURL,
-            binaryURL: build.binaryURL,
-            rebuilt: build.rebuilt
+            binaryURL: build?.binaryURL,
+            rebuilt: build?.rebuilt ?? false
         )
     }
 
     func validateSourcePackage(at packageURL: URL) throws -> PluginManifest {
-        guard fileManager.fileExists(atPath: packageURL.appendingPathComponent("Package.swift").path) else {
-            throw PluginPackageInstallError.missingPackageSwift
-        }
         let manifestURL = packageURL.appendingPathComponent("plugin.json")
         guard let data = try? Data(contentsOf: manifestURL),
               let manifest = try? JSONDecoder().decode(PluginManifest.self, from: data)
@@ -133,10 +135,14 @@ struct PluginPackageInstaller {
         guard isValidPluginDirectoryName(manifest.name) else {
             throw PluginPackageInstallError.invalidPluginName(manifest.name)
         }
+        if manifest.runtime == .swiftDylib,
+           !fileManager.fileExists(atPath: packageURL.appendingPathComponent("Package.swift").path) {
+            throw PluginPackageInstallError.missingPackageSwift
+        }
         return manifest
     }
 
-    private static let supportedSourceProtocols: Set<String> = ["gateway", "task_sync"]
+    private static let supportedSourceProtocols: Set<String> = ["gateway", "task_sync", "source_control"]
 
     private func runGitClone(source: String, checkoutURL: URL) async throws {
         let result = try await processRunner.run(

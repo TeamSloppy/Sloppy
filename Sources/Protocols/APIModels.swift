@@ -305,6 +305,7 @@ public struct ProjectTask: Codable, Sendable, Equatable {
     public var swarmDepth: Int?
     public var swarmActorPath: [String]?
     public var worktreeBranch: String?
+    public var sourceControlProviderId: String?
     /// When set and present in the agent's available models, overrides the agent default model for this task's worker run.
     public var selectedModel: String?
     public var externalMetadata: TaskExternalMetadata?
@@ -336,6 +337,7 @@ public struct ProjectTask: Codable, Sendable, Equatable {
         case swarmDepth
         case swarmActorPath
         case worktreeBranch
+        case sourceControlProviderId
         case selectedModel
         case externalMetadata
         case tags
@@ -367,6 +369,7 @@ public struct ProjectTask: Codable, Sendable, Equatable {
         swarmDepth: Int? = nil,
         swarmActorPath: [String]? = nil,
         worktreeBranch: String? = nil,
+        sourceControlProviderId: String? = nil,
         selectedModel: String? = nil,
         externalMetadata: TaskExternalMetadata? = nil,
         tags: [String] = [],
@@ -396,6 +399,7 @@ public struct ProjectTask: Codable, Sendable, Equatable {
         self.swarmDepth = swarmDepth
         self.swarmActorPath = swarmActorPath
         self.worktreeBranch = worktreeBranch
+        self.sourceControlProviderId = sourceControlProviderId
         self.selectedModel = selectedModel
         self.externalMetadata = externalMetadata
         self.tags = tags
@@ -428,6 +432,7 @@ public struct ProjectTask: Codable, Sendable, Equatable {
         swarmDepth = try container.decodeIfPresent(Int.self, forKey: .swarmDepth)
         swarmActorPath = try container.decodeIfPresent([String].self, forKey: .swarmActorPath)
         worktreeBranch = try container.decodeIfPresent(String.self, forKey: .worktreeBranch)
+        sourceControlProviderId = try container.decodeIfPresent(String.self, forKey: .sourceControlProviderId)
         selectedModel = try container.decodeIfPresent(String.self, forKey: .selectedModel)
         externalMetadata = try container.decodeIfPresent(TaskExternalMetadata.self, forKey: .externalMetadata)
         tags = try container.decodeIfPresent([String].self, forKey: .tags) ?? []
@@ -488,6 +493,7 @@ public struct ProjectRecord: Codable, Sendable, Equatable {
     public var agentFiles: [String]
     public var heartbeat: ProjectHeartbeatSettings
     public var repoPath: String?
+    public var sourceControlProviderId: String?
     public var reviewSettings: ProjectReviewSettings
     public var taskLoopMode: ProjectLoopMode
     public var taskSyncSettings: ProjectTaskSyncSettings
@@ -498,7 +504,7 @@ public struct ProjectRecord: Codable, Sendable, Equatable {
 
     private enum CodingKeys: String, CodingKey {
         case id, name, description, icon, channels, tasks, actors, teams, models
-        case agentFiles, heartbeat, repoPath, reviewSettings, taskLoopMode, taskSyncSettings, isFavorite, isArchived, createdAt, updatedAt
+        case agentFiles, heartbeat, repoPath, sourceControlProviderId, reviewSettings, taskLoopMode, taskSyncSettings, isFavorite, isArchived, createdAt, updatedAt
     }
 
     public init(
@@ -514,6 +520,7 @@ public struct ProjectRecord: Codable, Sendable, Equatable {
         agentFiles: [String] = [],
         heartbeat: ProjectHeartbeatSettings = ProjectHeartbeatSettings(),
         repoPath: String? = nil,
+        sourceControlProviderId: String? = nil,
         reviewSettings: ProjectReviewSettings = ProjectReviewSettings(),
         taskLoopMode: ProjectLoopMode = .human,
         taskSyncSettings: ProjectTaskSyncSettings = ProjectTaskSyncSettings(),
@@ -534,6 +541,7 @@ public struct ProjectRecord: Codable, Sendable, Equatable {
         self.agentFiles = agentFiles
         self.heartbeat = heartbeat
         self.repoPath = repoPath
+        self.sourceControlProviderId = sourceControlProviderId
         self.reviewSettings = reviewSettings
         self.taskLoopMode = taskLoopMode
         self.taskSyncSettings = taskSyncSettings
@@ -557,6 +565,7 @@ public struct ProjectRecord: Codable, Sendable, Equatable {
         agentFiles = try container.decodeIfPresent([String].self, forKey: .agentFiles) ?? []
         heartbeat = try container.decodeIfPresent(ProjectHeartbeatSettings.self, forKey: .heartbeat) ?? ProjectHeartbeatSettings()
         repoPath = try container.decodeIfPresent(String.self, forKey: .repoPath)
+        sourceControlProviderId = try container.decodeIfPresent(String.self, forKey: .sourceControlProviderId)
         reviewSettings = try container.decodeIfPresent(ProjectReviewSettings.self, forKey: .reviewSettings) ?? ProjectReviewSettings()
         taskLoopMode = try container.decodeIfPresent(ProjectLoopMode.self, forKey: .taskLoopMode) ?? .human
         taskSyncSettings = try container.decodeIfPresent(ProjectTaskSyncSettings.self, forKey: .taskSyncSettings) ?? ProjectTaskSyncSettings()
@@ -607,6 +616,7 @@ public struct ProjectListRecord: Codable, Sendable, Equatable {
     public var actors: [String]
     public var teams: [String]
     public var repoPath: String?
+    public var sourceControlProviderId: String?
     public var taskCounts: ProjectTaskCountSummary
     public var isFavorite: Bool
     public var isArchived: Bool
@@ -622,6 +632,7 @@ public struct ProjectListRecord: Codable, Sendable, Equatable {
         actors: [String] = [],
         teams: [String] = [],
         repoPath: String? = nil,
+        sourceControlProviderId: String? = nil,
         taskCounts: ProjectTaskCountSummary = ProjectTaskCountSummary(),
         isFavorite: Bool = false,
         isArchived: Bool = false,
@@ -636,6 +647,7 @@ public struct ProjectListRecord: Codable, Sendable, Equatable {
         self.actors = actors
         self.teams = teams
         self.repoPath = repoPath
+        self.sourceControlProviderId = sourceControlProviderId
         self.taskCounts = taskCounts
         self.isFavorite = isFavorite
         self.isArchived = isArchived
@@ -841,6 +853,7 @@ public struct ProjectCreateRequest: Codable, Sendable {
     public var teams: [String]?
     public var repoUrl: String?
     public var repoPath: String?
+    public var sourceControlProviderId: String?
 
     private enum CodingKeys: String, CodingKey {
         case id
@@ -851,6 +864,7 @@ public struct ProjectCreateRequest: Codable, Sendable {
         case teams
         case repoUrl
         case repoPath
+        case sourceControlProviderId
     }
 
     public init(
@@ -861,7 +875,8 @@ public struct ProjectCreateRequest: Codable, Sendable {
         actors: [String]? = nil,
         teams: [String]? = nil,
         repoUrl: String? = nil,
-        repoPath: String? = nil
+        repoPath: String? = nil,
+        sourceControlProviderId: String? = nil
     ) {
         self.id = id
         self.name = name
@@ -871,6 +886,7 @@ public struct ProjectCreateRequest: Codable, Sendable {
         self.teams = teams
         self.repoUrl = repoUrl
         self.repoPath = repoPath
+        self.sourceControlProviderId = sourceControlProviderId
     }
 
     public init(from decoder: Decoder) throws {
@@ -883,6 +899,7 @@ public struct ProjectCreateRequest: Codable, Sendable {
         teams = try container.decodeIfPresent([String].self, forKey: .teams)
         repoUrl = try container.decodeIfPresent(String.self, forKey: .repoUrl)
         repoPath = try container.decodeIfPresent(String.self, forKey: .repoPath)
+        sourceControlProviderId = try container.decodeIfPresent(String.self, forKey: .sourceControlProviderId)
     }
 }
 
@@ -896,6 +913,7 @@ public struct ProjectUpdateRequest: Codable, Sendable {
     public var agentFiles: [String]?
     public var heartbeat: ProjectHeartbeatSettings?
     public var repoPath: String?
+    public var sourceControlProviderId: String?
     public var reviewSettings: ProjectReviewSettings?
     public var taskLoopMode: ProjectLoopMode?
     public var isFavorite: Bool?
@@ -911,6 +929,7 @@ public struct ProjectUpdateRequest: Codable, Sendable {
         agentFiles: [String]? = nil,
         heartbeat: ProjectHeartbeatSettings? = nil,
         repoPath: String? = nil,
+        sourceControlProviderId: String? = nil,
         reviewSettings: ProjectReviewSettings? = nil,
         taskLoopMode: ProjectLoopMode? = nil,
         isFavorite: Bool? = nil,
@@ -925,6 +944,7 @@ public struct ProjectUpdateRequest: Codable, Sendable {
         self.agentFiles = agentFiles
         self.heartbeat = heartbeat
         self.repoPath = repoPath
+        self.sourceControlProviderId = sourceControlProviderId
         self.reviewSettings = reviewSettings
         self.taskLoopMode = taskLoopMode
         self.isFavorite = isFavorite

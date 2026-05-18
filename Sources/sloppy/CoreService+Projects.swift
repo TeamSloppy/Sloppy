@@ -262,9 +262,17 @@ extension CoreService {
 
     /// Line stats and unified diff for the project workspace (must be a git checkout to return `isGitRepository: true`).
     public func projectWorkingTreeGit(projectID: String) async throws -> ProjectWorkingTreeGitResponse {
-        let rootPath = try await resolveProjectWorkspaceRoot(projectID: projectID).path
+        guard let normalizedID = normalizedProjectID(projectID) else {
+            throw ProjectError.invalidProjectID
+        }
+        guard let project = await store.project(id: normalizedID) else {
+            throw ProjectError.notFound
+        }
+        let rootPath = try await resolveProjectWorkspaceRoot(projectID: normalizedID).path
+        let provider = sourceControlProvider(for: project)
+        let repository = await provider.inspectRepository(at: rootPath)
 
-        guard gitWorktreeService.isGitWorkingCopy(repoPath: rootPath) else {
+        guard repository.isRepository else {
             return ProjectWorkingTreeGitResponse(
                 isGitRepository: false,
                 branch: nil,
@@ -272,19 +280,18 @@ extension CoreService {
                 linesDeleted: 0,
                 diff: "",
                 diffTruncated: false,
-                message: "This project folder is not a git repository."
+                message: repository.message ?? "This project folder is not a source-control repository."
             )
         }
 
         do {
-            let branch = try await gitWorktreeService.currentBranchLabel(repoPath: rootPath)
-            let stats = try await gitWorktreeService.workingTreeLineStats(repoPath: rootPath)
-            let patch = try await gitWorktreeService.workingTreePatch(repoPath: rootPath, maxBytes: 512 * 1024)
+            let status = try await provider.workingTreeStatus(at: rootPath)
+            let patch = try await provider.workingTreeDiff(at: rootPath, maxBytes: 512 * 1024)
             return ProjectWorkingTreeGitResponse(
                 isGitRepository: true,
-                branch: branch,
-                linesAdded: stats.linesAdded,
-                linesDeleted: stats.linesDeleted,
+                branch: status.repository.branch,
+                linesAdded: status.linesAdded,
+                linesDeleted: status.linesDeleted,
                 diff: patch.text,
                 diffTruncated: patch.truncated,
                 message: nil
@@ -304,9 +311,17 @@ extension CoreService {
 
     /// Reverts a tracked file under the project workspace to `HEAD` (index + working tree), same as `git restore --source=HEAD --staged --worktree`.
     public func restoreProjectWorkingTreeFile(projectID: String, path: String) async throws {
-        let rootURL = try await resolveProjectWorkspaceRoot(projectID: projectID)
+        guard let normalizedID = normalizedProjectID(projectID) else {
+            throw ProjectError.invalidProjectID
+        }
+        guard let project = await store.project(id: normalizedID) else {
+            throw ProjectError.notFound
+        }
+        let rootURL = try await resolveProjectWorkspaceRoot(projectID: normalizedID)
         let rootPath = rootURL.path
-        guard gitWorktreeService.isGitWorkingCopy(repoPath: rootPath) else {
+        let provider = sourceControlProvider(for: project)
+        let repository = await provider.inspectRepository(at: rootPath)
+        guard repository.isRepository else {
             throw ProjectError.invalidPayload
         }
 
@@ -326,7 +341,7 @@ extension CoreService {
         }
 
         do {
-            try await gitWorktreeService.restorePathFromHead(repoPath: rootPath, relativePath: trimmed)
+            try await provider.restorePathFromHead(repoPath: rootPath, relativePath: trimmed)
         } catch {
             throw ProjectError.invalidPayload
         }
@@ -469,6 +484,7 @@ extension CoreService {
         let trimmedRepoUrl = request.repoUrl?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let hasRepoUrl = !trimmedRepoUrl.isEmpty
         let normalizedRepoPath = try normalizedExternalProjectPath(request.repoPath)
+        let sourceControlProviderId = normalizedSourceControlProviderID(request.sourceControlProviderId)
 
         if hasRepoUrl, normalizedRepoPath != nil {
             throw ProjectError.invalidPayload
@@ -495,6 +511,7 @@ extension CoreService {
             actors: request.actors ?? [],
             teams: request.teams ?? [],
             repoPath: normalizedRepoPath,
+            sourceControlProviderId: sourceControlProviderId,
             createdAt: now,
             updatedAt: now
         )
@@ -596,6 +613,13 @@ extension CoreService {
         }
         if request.repoPath != nil {
             project.repoPath = request.repoPath
+        }
+        if request.sourceControlProviderId != nil {
+            let previousProviderId = project.sourceControlProviderId ?? Self.defaultSourceControlProviderID
+            for index in project.tasks.indices where project.tasks[index].worktreeBranch != nil && project.tasks[index].sourceControlProviderId == nil {
+                project.tasks[index].sourceControlProviderId = previousProviderId
+            }
+            project.sourceControlProviderId = normalizedSourceControlProviderID(request.sourceControlProviderId)
         }
         if let nextReviewSettings = request.reviewSettings {
             project.reviewSettings = nextReviewSettings
@@ -1268,6 +1292,13 @@ extension CoreService {
 
     func normalizedProjectID(_ raw: String) -> String? {
         normalizedEntityID(raw)
+    }
+
+    func normalizedSourceControlProviderID(_ raw: String?) -> String? {
+        guard let raw else {
+            return nil
+        }
+        return normalizedEntityID(raw)
     }
 
     func normalizedEntityID(_ raw: String) -> String? {

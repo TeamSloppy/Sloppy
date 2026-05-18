@@ -67,6 +67,7 @@ struct ProjectCreateCommand: AsyncParsableCommand {
     @Option(name: .long, help: "Project description") var description: String?
     @Option(name: .long, help: "Repository URL") var repoUrl: String?
     @Option(name: .long, help: "Local repository or project path") var repoPath: String?
+    @Option(name: .long, help: "Source-control provider id for review/worktree isolation") var sourceControlProvider: String?
     @Option(name: .long) var url: String?
     @Option(name: .long) var token: String?
     @Option(name: .long) var format: String = "json"
@@ -78,6 +79,7 @@ struct ProjectCreateCommand: AsyncParsableCommand {
         if let description { payload["description"] = description }
         if let repoUrl { payload["repoUrl"] = repoUrl }
         if let repoPath { payload["repoPath"] = repoPath }
+        if let sourceControlProvider { payload["sourceControlProviderId"] = sourceControlProvider }
         do {
             let body = try JSONSerialization.data(withJSONObject: payload)
             let data = try await client.post("/v1/projects", body: body)
@@ -96,6 +98,7 @@ struct ProjectUpdateCommand: AsyncParsableCommand {
     @Option(name: .long, help: "New name") var name: String?
     @Option(name: .long, help: "New description") var description: String?
     @Option(name: .long, help: "New repo path") var repoPath: String?
+    @Option(name: .long, help: "Source-control provider id for review/worktree isolation") var sourceControlProvider: String?
     @Option(name: .long) var url: String?
     @Option(name: .long) var token: String?
     @Option(name: .long) var format: String = "json"
@@ -107,6 +110,7 @@ struct ProjectUpdateCommand: AsyncParsableCommand {
         if let name { payload["name"] = name }
         if let description { payload["description"] = description }
         if let repoPath { payload["repoPath"] = repoPath }
+        if let sourceControlProvider { payload["sourceControlProviderId"] = sourceControlProvider }
         do {
             let body = try JSONSerialization.data(withJSONObject: payload)
             let data = try await client.patch("/v1/projects/\(projectId)", body: body)

@@ -514,12 +514,71 @@ Sloppy calls `stop()` on every active in-process gateway plugin during shutdown.
 
 ---
 
+## Source-Control Plugins
+
+Source-control plugins let project review isolation use something other than `git worktree`. The built-in provider remains `git-cli`; projects can opt into another provider from the CLI:
+
+```bash
+sloppy source-control list
+sloppy project update my-project \
+  --repo-path /arcadia/my-service \
+  --source-control-provider command-source-control
+```
+
+Node source-control plugins use a JSON-lines stdio protocol. Sloppy sends one request:
+
+```json
+{"id":"...","method":"createWorktree","params":{"repoPath":"/repo","taskId":"task-1","baseBranch":"HEAD"},"manifest":{}}
+```
+
+The plugin responds with either:
+
+```json
+{"id":"...","result":{"worktreePath":"/repo/.sloppy-worktrees/task-1","branchName":"sloppy/task-1"}}
+```
+
+or:
+
+```json
+{"id":"...","error":{"code":"unsupported","message":"mergeBranch is not configured"}}
+```
+
+### Command Adapter Example
+
+The repository includes `Plugins/command-source-control`, a Node adapter that runs configured CLI commands. For Arcadia-style mounts, install or copy it into the Sloppy workspace plugins directory and edit `plugin.json`:
+
+```json
+{
+  "name": "arcadia-mount",
+  "protocol": "source_control",
+  "runtime": "node",
+  "entrypoint": "index.js",
+  "config": {
+    "displayName": "Arcadia Mount",
+    "worktreeRootName": ".sloppy-worktree",
+    "capabilities": ["worktrees", "working_tree_diff", "branch_diff", "merge"],
+    "commands": {
+      "createWorktree": "arc mount --source {repoPath} --target {worktreePath}",
+      "removeWorktree": "umount {worktreePath} && rm -rf {worktreePath}",
+      "workingTreeDiff": "arc diff --path {path}",
+      "branchDiff": "arc diff --from {baseBranch} --to {branchName} --path {repoPath}",
+      "mergeBranch": "arc merge --source {branchName} --target {targetBranch} --path {repoPath}"
+    }
+  }
+}
+```
+
+Command templates receive `{repoPath}`, `{taskId}`, `{worktreePath}`, `{branchName}`, `{baseBranch}`, `{targetBranch}`, and `{relativePath}`. If an operation command is missing, Sloppy receives an unsupported-operation error instead of guessing.
+
+---
+
 ## Quick reference
 
 | Type | Protocol | Key methods | Delivery |
 | --- | --- | --- | --- |
 | Gateway | `GatewayPlugin` | `start`, `stop`, `send` | In-process or HTTP |
 | Gateway (streaming) | `StreamingGatewayPlugin` | `beginStreaming`, `updateStreaming`, `endStreaming` | In-process or HTTP |
+| Source Control | `SourceControlProvider` | `createWorktree`, `branchDiff`, `mergeBranch` | Swift dylib or Node stdio |
 | Tool | `ToolPlugin` | `invoke` | In-process |
 | Memory | `MemoryPlugin` | `recall`, `save` | In-process |
 | Model Provider | `ModelProvider` | `createLanguageModel`, `generationOptions` | In-process |

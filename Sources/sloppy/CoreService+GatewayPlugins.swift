@@ -36,6 +36,15 @@ extension CoreService {
 
         let pluginsDir = pluginsRootURL
         let loader = PluginLoader(logger: logger)
+        let sourceControlPlugins = await loader.loadSourceControlPluginBundles(
+            from: pluginsDir,
+            cacheRootURL: pluginCacheRootURL
+        )
+        for loaded in sourceControlPlugins {
+            registerSourceControlProvider(loaded.provider)
+            logger.info("External source-control provider \(loaded.provider.id) registered.")
+        }
+
         let disabledPluginIDs = Set(
             await store.listChannelPlugins()
                 .filter { !$0.enabled && $0.deliveryMode == ChannelPluginRecord.DeliveryMode.inProcess }

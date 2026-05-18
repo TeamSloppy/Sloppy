@@ -186,7 +186,9 @@ sloppy project get <projectId>
 # Create / update / delete
 sloppy project create --name "API Refactor"
 sloppy project create --name "Mobile" --description "iOS and Android work"
+sloppy project create --name "Arcadia Service" --repo-path /arcadia/service --source-control-provider arcadia-mount
 sloppy project update <projectId> --name "New Name"
+sloppy project update <projectId> --source-control-provider git-cli
 sloppy project delete <projectId>
 
 # Tasks
@@ -271,6 +273,12 @@ sloppy plugin create --file plugin.json
 sloppy plugin install https://github.com/example/my-platform-plugin.git --ref v1.0.0 --force
 sloppy plugin update <pluginId> --file updated.json
 sloppy plugin delete <pluginId>
+```
+
+## Source-control commands
+
+```bash
+sloppy source-control list
 ```
 
 ## MCP commands

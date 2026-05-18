@@ -828,7 +828,7 @@ public actor SQLiteStore: PersistenceStore {
                    models_json, agent_files_json, heartbeat_json,
                    created_at, updated_at, repo_path, review_settings_json,
                    icon, is_archived, task_loop_mode, task_sync_settings_json,
-                   is_favorite
+                   is_favorite, source_control_provider_id
             FROM dashboard_projects
             ORDER BY created_at ASC;
             """
@@ -878,6 +878,7 @@ public actor SQLiteStore: PersistenceStore {
             let taskSyncJSON = sqlite3_column_text(statement, 15).map { String(cString: $0) } ?? "{}"
             let taskSyncSettings = (try? JSONDecoder().decode(ProjectTaskSyncSettings.self, from: Data(taskSyncJSON.utf8))) ?? ProjectTaskSyncSettings()
             let isFavorite = sqlite3_column_int(statement, 16) != 0
+            let sourceControlProviderId = optionalText(statement: statement, index: 17)
             let channels = loadProjectChannels(db: db, projectID: id)
             let tasks = loadProjectTasks(db: db, projectID: id)
             result.append(
@@ -894,6 +895,7 @@ public actor SQLiteStore: PersistenceStore {
                     agentFiles: agentFiles,
                     heartbeat: heartbeat,
                     repoPath: repoPath,
+                    sourceControlProviderId: sourceControlProviderId,
                     reviewSettings: reviewSettings,
                     taskLoopMode: taskLoopMode,
                     taskSyncSettings: taskSyncSettings,
@@ -921,7 +923,7 @@ public actor SQLiteStore: PersistenceStore {
             """
             SELECT p.id, p.name, p.description, p.actors_json, p.teams_json,
                    p.created_at, p.updated_at, p.repo_path, p.icon, p.is_archived,
-                   p.is_favorite,
+                   p.is_favorite, p.source_control_provider_id,
                    COUNT(t.id) AS task_total,
                    SUM(CASE WHEN t.status = 'backlog' THEN 1 ELSE 0 END) AS task_backlog,
                    SUM(CASE WHEN t.status = 'ready' THEN 1 ELSE 0 END) AS task_ready,
@@ -973,15 +975,16 @@ public actor SQLiteStore: PersistenceStore {
                     actors: actors,
                     teams: teams,
                     repoPath: optionalText(statement: statement, index: 7),
+                    sourceControlProviderId: optionalText(statement: statement, index: 11),
                     taskCounts: ProjectTaskCountSummary(
-                        total: Int(sqlite3_column_int(statement, 11)),
-                        backlog: Int(sqlite3_column_int(statement, 12)),
-                        ready: Int(sqlite3_column_int(statement, 13)),
-                        inProgress: Int(sqlite3_column_int(statement, 14)),
-                        waitingInput: Int(sqlite3_column_int(statement, 15)),
-                        blocked: Int(sqlite3_column_int(statement, 16)),
-                        needsReview: Int(sqlite3_column_int(statement, 17)),
-                        done: Int(sqlite3_column_int(statement, 18))
+                        total: Int(sqlite3_column_int(statement, 12)),
+                        backlog: Int(sqlite3_column_int(statement, 13)),
+                        ready: Int(sqlite3_column_int(statement, 14)),
+                        inProgress: Int(sqlite3_column_int(statement, 15)),
+                        waitingInput: Int(sqlite3_column_int(statement, 16)),
+                        blocked: Int(sqlite3_column_int(statement, 17)),
+                        needsReview: Int(sqlite3_column_int(statement, 18)),
+                        done: Int(sqlite3_column_int(statement, 19))
                     ),
                     isFavorite: sqlite3_column_int(statement, 10) != 0,
                     isArchived: sqlite3_column_int(statement, 9) != 0,
@@ -1006,7 +1009,7 @@ public actor SQLiteStore: PersistenceStore {
                        models_json, agent_files_json, heartbeat_json,
                        created_at, updated_at, repo_path, review_settings_json,
                        icon, is_archived, task_loop_mode, task_sync_settings_json,
-                       is_favorite
+                       is_favorite, source_control_provider_id
                 FROM dashboard_projects
                 WHERE id = ?
                 LIMIT 1;
@@ -1050,6 +1053,7 @@ public actor SQLiteStore: PersistenceStore {
                 let taskSyncJSON = sqlite3_column_text(statement, 15).map { String(cString: $0) } ?? "{}"
                 let taskSyncSettings = (try? JSONDecoder().decode(ProjectTaskSyncSettings.self, from: Data(taskSyncJSON.utf8))) ?? ProjectTaskSyncSettings()
                 let isFavorite = sqlite3_column_int(statement, 16) != 0
+                let sourceControlProviderId = optionalText(statement: statement, index: 17)
                 return ProjectRecord(
                     id: projectID,
                     name: String(cString: namePtr),
@@ -1063,6 +1067,7 @@ public actor SQLiteStore: PersistenceStore {
                     agentFiles: agentFiles,
                     heartbeat: heartbeat,
                     repoPath: repoPath,
+                    sourceControlProviderId: sourceControlProviderId,
                     reviewSettings: reviewSettings,
                     taskLoopMode: taskLoopMode,
                     taskSyncSettings: taskSyncSettings,
@@ -1105,8 +1110,9 @@ public actor SQLiteStore: PersistenceStore {
                 is_archived,
                 task_loop_mode,
                 task_sync_settings_json,
-                is_favorite
-            ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+                is_favorite,
+                source_control_provider_id
+            ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
             """
 
         var projectStatement: OpaquePointer?
@@ -1140,6 +1146,7 @@ public actor SQLiteStore: PersistenceStore {
         bindText(project.taskLoopMode.rawValue, at: 15, statement: projectStatement)
         bindText(taskSyncSettingsJSON, at: 16, statement: projectStatement)
         sqlite3_bind_int(projectStatement, 17, project.isFavorite ? 1 : 0)
+        bindOptionalText(project.sourceControlProviderId, at: 18, statement: projectStatement)
         guard sqlite3_step(projectStatement) == SQLITE_DONE else {
             return
         }
@@ -1194,6 +1201,7 @@ public actor SQLiteStore: PersistenceStore {
                 created_at,
                 updated_at,
                 worktree_branch,
+                source_control_provider_id,
                 kind,
                 loop_mode_override,
                 origin_type,
@@ -1202,7 +1210,7 @@ public actor SQLiteStore: PersistenceStore {
                 selected_model,
                 external_metadata_json,
                 tags_json
-            ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+            ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
             """
 
         for task in project.tasks {
@@ -1239,14 +1247,15 @@ public actor SQLiteStore: PersistenceStore {
             bindText(isoFormatter.string(from: task.createdAt), at: 18, statement: taskStatement)
             bindText(isoFormatter.string(from: task.updatedAt), at: 19, statement: taskStatement)
             bindOptionalText(task.worktreeBranch, at: 20, statement: taskStatement)
-            bindOptionalText(task.kind?.rawValue, at: 21, statement: taskStatement)
-            bindOptionalText(task.loopModeOverride?.rawValue, at: 22, statement: taskStatement)
-            bindOptionalText(task.originType?.rawValue, at: 23, statement: taskStatement)
-            bindOptionalText(task.originChannelId, at: 24, statement: taskStatement)
-            sqlite3_bind_int(taskStatement, 25, task.isArchived ? 1 : 0)
-            bindOptionalText(task.selectedModel, at: 26, statement: taskStatement)
-            bindOptionalText(externalJSON, at: 27, statement: taskStatement)
-            bindText(tagsJSON, at: 28, statement: taskStatement)
+            bindOptionalText(task.sourceControlProviderId, at: 21, statement: taskStatement)
+            bindOptionalText(task.kind?.rawValue, at: 22, statement: taskStatement)
+            bindOptionalText(task.loopModeOverride?.rawValue, at: 23, statement: taskStatement)
+            bindOptionalText(task.originType?.rawValue, at: 24, statement: taskStatement)
+            bindOptionalText(task.originChannelId, at: 25, statement: taskStatement)
+            sqlite3_bind_int(taskStatement, 26, task.isArchived ? 1 : 0)
+            bindOptionalText(task.selectedModel, at: 27, statement: taskStatement)
+            bindOptionalText(externalJSON, at: 28, statement: taskStatement)
+            bindText(tagsJSON, at: 29, statement: taskStatement)
             _ = sqlite3_step(taskStatement)
         }
 #endif
@@ -1457,6 +1466,7 @@ public actor SQLiteStore: PersistenceStore {
             actors: project.actors,
             teams: project.teams,
             repoPath: project.repoPath,
+            sourceControlProviderId: project.sourceControlProviderId,
             taskCounts: counts,
             isFavorite: project.isFavorite,
             isArchived: project.isArchived,
@@ -1679,6 +1689,7 @@ public actor SQLiteStore: PersistenceStore {
                 created_at,
                 updated_at,
                 worktree_branch,
+                source_control_provider_id,
                 kind,
                 loop_mode_override,
                 origin_type,
@@ -1716,12 +1727,12 @@ public actor SQLiteStore: PersistenceStore {
             let updatedAt = isoFormatter.date(from: String(cString: updatedAtPtr)) ?? createdAt
             let dependencyIds = decodeOptionalStringArray(optionalText(statement: statement, index: 13))
             let actorPath = decodeOptionalStringArray(optionalText(statement: statement, index: 15))
-            let kindRaw = optionalText(statement: statement, index: 19)
-            let loopOverrideRaw = optionalText(statement: statement, index: 20)
-            let originTypeRaw = optionalText(statement: statement, index: 21)
-            let externalJSON = optionalText(statement: statement, index: 25)
+            let kindRaw = optionalText(statement: statement, index: 20)
+            let loopOverrideRaw = optionalText(statement: statement, index: 21)
+            let originTypeRaw = optionalText(statement: statement, index: 22)
+            let externalJSON = optionalText(statement: statement, index: 26)
             let externalMetadata = externalJSON.flatMap { try? JSONDecoder().decode(TaskExternalMetadata.self, from: Data($0.utf8)) }
-            let tags = decodeOptionalStringArray(optionalText(statement: statement, index: 26)) ?? []
+            let tags = decodeOptionalStringArray(optionalText(statement: statement, index: 27)) ?? []
             result.append(
                 ProjectTask(
                     id: String(cString: idPtr),
@@ -1745,10 +1756,11 @@ public actor SQLiteStore: PersistenceStore {
                     swarmDepth: optionalInt(statement: statement, index: 14),
                     swarmActorPath: actorPath,
                     worktreeBranch: optionalText(statement: statement, index: 18),
-                    selectedModel: optionalText(statement: statement, index: 24),
+                    sourceControlProviderId: optionalText(statement: statement, index: 19),
+                    selectedModel: optionalText(statement: statement, index: 25),
                     externalMetadata: externalMetadata,
                     tags: tags,
-                    isArchived: sqlite3_column_int(statement, 23) != 0,
+                    isArchived: sqlite3_column_int(statement, 24) != 0,
                     createdAt: createdAt,
                     updatedAt: updatedAt
                 )
@@ -2922,6 +2934,16 @@ public actor SQLiteStore: PersistenceStore {
         _ = sqlite3_exec(
             db,
             "ALTER TABLE dashboard_project_tasks ADD COLUMN tags_json TEXT NOT NULL DEFAULT '[]';",
+            nil, nil, nil
+        )
+        _ = sqlite3_exec(
+            db,
+            "ALTER TABLE dashboard_projects ADD COLUMN source_control_provider_id TEXT;",
+            nil, nil, nil
+        )
+        _ = sqlite3_exec(
+            db,
+            "ALTER TABLE dashboard_project_tasks ADD COLUMN source_control_provider_id TEXT;",
             nil, nil, nil
         )
     }

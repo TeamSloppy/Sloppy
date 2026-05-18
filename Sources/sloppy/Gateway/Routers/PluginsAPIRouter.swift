@@ -30,7 +30,7 @@ struct PluginsAPIRouter: APIRouter {
             }
         }
 
-        router.post("/v1/plugins/install", metadata: RouteMetadata(summary: "Install source plugin", description: "Clones, builds, caches, and loads a SwiftPM source gateway plugin", tags: ["Plugins"])) { request in
+        router.post("/v1/plugins/install", metadata: RouteMetadata(summary: "Install source plugin", description: "Clones, builds, caches, and loads a source plugin", tags: ["Plugins"])) { request in
             guard let body = request.body,
                   let payload = CoreRouter.decode(body, as: ChannelPluginInstallRequest.self)
             else {

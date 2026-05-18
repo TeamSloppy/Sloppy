@@ -156,6 +156,7 @@ CREATE TABLE IF NOT EXISTS dashboard_projects (
     actors_json TEXT NOT NULL DEFAULT '[]',
     teams_json TEXT NOT NULL DEFAULT '[]',
     is_favorite INTEGER NOT NULL DEFAULT 0,
+    source_control_provider_id TEXT,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
 );
@@ -192,6 +193,7 @@ CREATE TABLE IF NOT EXISTS dashboard_project_tasks (
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
     worktree_branch TEXT,
+    source_control_provider_id TEXT,
     kind TEXT,
     loop_mode_override TEXT,
     origin_type TEXT,

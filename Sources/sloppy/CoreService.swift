@@ -215,6 +215,7 @@ public actor CoreService {
     let updateChecker: UpdateCheckerService
     let swarmPlanner: SwarmPlanner
     let gitWorktreeService: GitWorktreeService
+    var sourceControlProviders: [String: any SourceControlProvider]
     let workspaceGitSyncService: WorkspaceGitSyncService
     let logger: Logger
     let configPath: String
@@ -389,6 +390,8 @@ public actor CoreService {
             await runtime.complete(prompt: prompt, maxTokens: maxTokens)
         }
         self.gitWorktreeService = GitWorktreeService()
+        let gitSourceControlProvider = GitCLISourceControlProvider(service: self.gitWorktreeService)
+        self.sourceControlProviders = [gitSourceControlProvider.id: gitSourceControlProvider]
         self.workspaceGitSyncService = WorkspaceGitSyncService()
         let orchestratorCatalogStore = AgentCatalogFileStore(agentsRootURL: self.agentsRootURL)
         let orchestratorSessionStore = AgentSessionFileStore(agentsRootURL: self.agentsRootURL)

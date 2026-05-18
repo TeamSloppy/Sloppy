@@ -618,6 +618,7 @@ enum CorePersistenceFactory {
             teams_json TEXT NOT NULL DEFAULT '[]',
             task_sync_settings_json TEXT NOT NULL DEFAULT '{}',
             is_favorite INTEGER NOT NULL DEFAULT 0,
+            source_control_provider_id TEXT,
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL
         );
@@ -654,6 +655,7 @@ enum CorePersistenceFactory {
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL,
             worktree_branch TEXT,
+            source_control_provider_id TEXT,
             kind TEXT,
             loop_mode_override TEXT,
             origin_type TEXT,

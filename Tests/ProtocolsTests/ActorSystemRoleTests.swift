@@ -96,6 +96,7 @@ func projectRecordIncludesReviewSettings() throws {
         channels: [],
         tasks: [],
         repoPath: "/tmp/repo",
+        sourceControlProviderId: "arcadia-mount",
         reviewSettings: ProjectReviewSettings(enabled: true, approvalMode: .agent)
     )
     let encoder = JSONEncoder()
@@ -105,6 +106,7 @@ func projectRecordIncludesReviewSettings() throws {
     decoder.dateDecodingStrategy = .iso8601
     let decoded = try decoder.decode(ProjectRecord.self, from: data)
     #expect(decoded.repoPath == "/tmp/repo")
+    #expect(decoded.sourceControlProviderId == "arcadia-mount")
     #expect(decoded.reviewSettings.enabled == true)
     #expect(decoded.reviewSettings.approvalMode == .agent)
 }
@@ -117,9 +119,11 @@ func projectTaskIncludesWorktreeBranch() throws {
         description: "",
         priority: "medium",
         status: "in_progress",
-        worktreeBranch: "sloppy/task-abc123"
+        worktreeBranch: "sloppy/task-abc123",
+        sourceControlProviderId: "git-cli"
     )
     #expect(task.worktreeBranch == "sloppy/task-abc123")
+    #expect(task.sourceControlProviderId == "git-cli")
     let encoder = JSONEncoder()
     encoder.dateEncodingStrategy = .iso8601
     let data = try encoder.encode(task)
@@ -127,4 +131,5 @@ func projectTaskIncludesWorktreeBranch() throws {
     decoder.dateDecodingStrategy = .iso8601
     let decoded = try decoder.decode(ProjectTask.self, from: data)
     #expect(decoded.worktreeBranch == "sloppy/task-abc123")
+    #expect(decoded.sourceControlProviderId == "git-cli")
 }

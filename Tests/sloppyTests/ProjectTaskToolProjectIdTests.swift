@@ -24,6 +24,7 @@ func taskCreateWithProjectIdSucceedsWithoutChannelLink() async throws {
     let result = await tool.invoke(
         arguments: [
             "title": .string("Track nutrition"),
+            "status": .string("backlog"),
             "projectId": .string(projectID)
         ],
         context: context
@@ -110,8 +111,14 @@ func taskCancelAcceptsMultipleTaskIds() async throws {
 
     let context = makeToolContext(service: service, sessionID: "session-no-channel")
     let createTool = ProjectTaskCreateTool()
-    let first = await createTool.invoke(arguments: ["title": .string("Task One"), "projectId": .string(projectID)], context: context)
-    let second = await createTool.invoke(arguments: ["title": .string("Task Two"), "projectId": .string(projectID)], context: context)
+    let first = await createTool.invoke(
+        arguments: ["title": .string("Task One"), "status": .string("backlog"), "projectId": .string(projectID)],
+        context: context
+    )
+    let second = await createTool.invoke(
+        arguments: ["title": .string("Task Two"), "status": .string("backlog"), "projectId": .string(projectID)],
+        context: context
+    )
     let firstID = try #require(first.data?.asObject?["taskId"]?.asString)
     let secondID = try #require(second.data?.asObject?["taskId"]?.asString)
 
@@ -149,8 +156,14 @@ func taskDeleteAcceptsMultipleReferences() async throws {
 
     let context = makeToolContext(service: service, sessionID: "session-no-channel")
     let createTool = ProjectTaskCreateTool()
-    let first = await createTool.invoke(arguments: ["title": .string("Task One"), "projectId": .string(projectID)], context: context)
-    let second = await createTool.invoke(arguments: ["title": .string("Task Two"), "projectId": .string(projectID)], context: context)
+    let first = await createTool.invoke(
+        arguments: ["title": .string("Task One"), "status": .string("backlog"), "projectId": .string(projectID)],
+        context: context
+    )
+    let second = await createTool.invoke(
+        arguments: ["title": .string("Task Two"), "status": .string("backlog"), "projectId": .string(projectID)],
+        context: context
+    )
     let firstID = try #require(first.data?.asObject?["taskId"]?.asString)
     let secondID = try #require(second.data?.asObject?["taskId"]?.asString)
 

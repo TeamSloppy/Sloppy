@@ -1,6 +1,7 @@
 import Foundation
 import AgentRuntime
 import Protocols
+import PluginSDK
 import Logging
 
 private extension JSONValue {
@@ -135,8 +136,10 @@ extension CoreService {
            project.reviewSettings.enabled,
            task.worktreeBranch == nil {
             do {
-                let result = try await createOrReclaimWorktree(repoPath: repoPath, taskId: task.id)
+                let provider = sourceControlProvider(for: project, task: task)
+                let result = try await createOrReclaimWorktree(repoPath: repoPath, taskId: task.id, provider: provider)
                 task.worktreeBranch = result.branchName
+                task.sourceControlProviderId = provider.id
                 worktreePath = result.worktreePath
             } catch {
                 logger.warning(
@@ -158,7 +161,7 @@ extension CoreService {
             }
         } else if task.worktreeBranch != nil {
             if let repoPath = project.repoPath {
-                worktreePath = gitWorktreeService.worktreePath(repoPath: repoPath, taskId: task.id)
+                worktreePath = sourceControlProvider(for: project, task: task).worktreePath(repoPath: repoPath, taskId: task.id)
             }
         }
 
@@ -455,8 +458,9 @@ extension CoreService {
         case .agent:
             let diff: String
             if let repoPath = project.repoPath, let branchName = task.worktreeBranch {
-                let baseBranch = (try? await gitWorktreeService.defaultBranch(repoPath: repoPath)) ?? "main"
-                diff = (try? await gitWorktreeService.branchDiff(repoPath: repoPath, branchName: branchName, baseBranch: baseBranch)) ?? "Diff unavailable."
+                let provider = sourceControlProvider(for: project, task: task)
+                let baseBranch = (try? await provider.defaultBranch(at: repoPath)) ?? "main"
+                diff = (try? await provider.branchDiff(at: repoPath, branchName: branchName, baseBranch: baseBranch, maxBytes: 512 * 1024))?.text ?? "Diff unavailable."
             } else {
                 diff = "No worktree branch available."
             }
@@ -522,10 +526,11 @@ extension CoreService {
         let prevApproveStatus = task.status
 
         if let repoPath = project.repoPath, let branchName = task.worktreeBranch {
-            let targetBranch = (try? await gitWorktreeService.defaultBranch(repoPath: repoPath)) ?? "main"
-            try await gitWorktreeService.mergeBranch(repoPath: repoPath, branchName: branchName, targetBranch: targetBranch)
-            let worktreePath = gitWorktreeService.worktreePath(repoPath: repoPath, taskId: taskID)
-            try? await gitWorktreeService.removeWorktree(repoPath: repoPath, worktreePath: worktreePath)
+            let provider = sourceControlProvider(for: project, task: task)
+            let targetBranch = (try? await provider.defaultBranch(at: repoPath)) ?? "main"
+            try await provider.mergeBranch(repoPath: repoPath, branchName: branchName, targetBranch: targetBranch)
+            let worktreePath = provider.worktreePath(repoPath: repoPath, taskId: taskID)
+            try? await provider.removeWorktree(repoPath: repoPath, worktreePath: worktreePath)
         }
 
         task.status = ProjectTaskStatus.done.rawValue
@@ -561,26 +566,29 @@ extension CoreService {
         }
 
         if let branchName = task.worktreeBranch {
-            let baseBranch = (try? await gitWorktreeService.defaultBranch(repoPath: repoPath)) ?? "main"
-            let diff = (try? await gitWorktreeService.branchDiff(repoPath: repoPath, branchName: branchName, baseBranch: baseBranch)) ?? ""
+            let provider = sourceControlProvider(for: project, task: task)
+            let baseBranch = (try? await provider.defaultBranch(at: repoPath)) ?? "main"
+            let diff = (try? await provider.branchDiff(at: repoPath, branchName: branchName, baseBranch: baseBranch, maxBytes: 512 * 1024))?.text ?? ""
             return TaskDiffResponse(diff: diff, branchName: branchName, baseBranch: baseBranch, hasChanges: !diff.isEmpty)
         }
 
         // Fallback: when a task is in review but no dedicated worktree exists, surface the project's working-tree diff.
         // This is less precise than a task-scoped worktree diff, but it prevents "no diff" when changes were made directly on the repo.
-        if task.status == ProjectTaskStatus.needsReview.rawValue, gitWorktreeService.isGitWorkingCopy(repoPath: repoPath) {
-            let worktreePath = gitWorktreeService.worktreePath(repoPath: repoPath, taskId: taskID)
-            if gitWorktreeService.isGitWorkingCopy(repoPath: worktreePath) {
-                let label = (try? await gitWorktreeService.currentBranchLabel(repoPath: worktreePath)) ?? ""
-                let patch = (try? await gitWorktreeService.workingTreePatch(repoPath: worktreePath, maxBytes: 512 * 1024)) ?? (text: "", truncated: false)
+        let provider = sourceControlProvider(for: project, task: task)
+        if task.status == ProjectTaskStatus.needsReview.rawValue,
+           (await provider.inspectRepository(at: repoPath)).isRepository {
+            let worktreePath = provider.worktreePath(repoPath: repoPath, taskId: taskID)
+            if (await provider.inspectRepository(at: worktreePath)).isRepository {
+                let label = (try? await provider.currentBranch(at: worktreePath)) ?? ""
+                let patch = (try? await provider.workingTreeDiff(at: worktreePath, maxBytes: 512 * 1024)) ?? SourceControlDiffResult(providerId: provider.id)
                 let branchName = label.isEmpty ? "worktree (working-tree)" : "\(label) (working-tree)"
-                return TaskDiffResponse(diff: patch.text, branchName: branchName, baseBranch: "HEAD", hasChanges: !patch.text.isEmpty)
+                return TaskDiffResponse(diff: patch.text, branchName: branchName, baseBranch: "HEAD", hasChanges: patch.hasChanges)
             }
 
-            let label = (try? await gitWorktreeService.currentBranchLabel(repoPath: repoPath)) ?? ""
-            let patch = (try? await gitWorktreeService.workingTreePatch(repoPath: repoPath, maxBytes: 512 * 1024)) ?? (text: "", truncated: false)
+            let label = (try? await provider.currentBranch(at: repoPath)) ?? ""
+            let patch = (try? await provider.workingTreeDiff(at: repoPath, maxBytes: 512 * 1024)) ?? SourceControlDiffResult(providerId: provider.id)
             let branchName = label.isEmpty ? "working-tree" : "\(label) (working-tree)"
-            return TaskDiffResponse(diff: patch.text, branchName: branchName, baseBranch: "HEAD", hasChanges: !patch.text.isEmpty)
+            return TaskDiffResponse(diff: patch.text, branchName: branchName, baseBranch: "HEAD", hasChanges: patch.hasChanges)
         }
 
         return TaskDiffResponse(diff: "", branchName: "", baseBranch: "", hasChanges: false)
@@ -1141,12 +1149,16 @@ extension CoreService {
         return result
     }
 
-    func createOrReclaimWorktree(repoPath: String, taskId: String) async throws -> GitWorktreeResult {
+    func createOrReclaimWorktree(
+        repoPath: String,
+        taskId: String,
+        provider: any SourceControlProvider
+    ) async throws -> SourceControlWorktreeResult {
         do {
-            return try await gitWorktreeService.createWorktree(repoPath: repoPath, taskId: taskId)
+            return try await provider.createWorktree(repoPath: repoPath, taskId: taskId, baseBranch: "HEAD")
         } catch GitWorktreeError.worktreeAlreadyExists(let existingPath) {
-            try? await gitWorktreeService.removeWorktree(repoPath: repoPath, worktreePath: existingPath)
-            return try await gitWorktreeService.createWorktree(repoPath: repoPath, taskId: taskId)
+            try? await provider.removeWorktree(repoPath: repoPath, worktreePath: existingPath)
+            return try await provider.createWorktree(repoPath: repoPath, taskId: taskId, baseBranch: "HEAD")
         }
     }
 
