@@ -240,7 +240,11 @@ extension CoreService {
         }
     }
 
-    /// Executes one tool call in session context and persists tool_call/tool_result events.
+    /// Returns the server-side source of truth for model pickers.
+    public func listAvailableProviderModels() -> [ProviderModelOption] {
+        availableAgentModels()
+    }
+
     func availableAgentModels() -> [ProviderModelOption] {
         let hasOAuth = openAIOAuthService.currentAccessToken() != nil
         let base = Self.availableAgentModels(

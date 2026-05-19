@@ -493,18 +493,23 @@ public struct ProjectRecord: Codable, Sendable, Equatable {
     public var agentFiles: [String]
     public var heartbeat: ProjectHeartbeatSettings
     public var repoPath: String?
+    public var worktreeRootPath: String?
     public var sourceControlProviderId: String?
     public var reviewSettings: ProjectReviewSettings
     public var taskLoopMode: ProjectLoopMode
     public var taskSyncSettings: ProjectTaskSyncSettings
     public var isFavorite: Bool
     public var isArchived: Bool
+    public var parentProjectId: String?
+    public var worktreeBranch: String?
+    public var isWorktree: Bool
     public var createdAt: Date
     public var updatedAt: Date
 
     private enum CodingKeys: String, CodingKey {
         case id, name, description, icon, channels, tasks, actors, teams, models
-        case agentFiles, heartbeat, repoPath, sourceControlProviderId, reviewSettings, taskLoopMode, taskSyncSettings, isFavorite, isArchived, createdAt, updatedAt
+        case agentFiles, heartbeat, repoPath, worktreeRootPath, sourceControlProviderId, reviewSettings, taskLoopMode, taskSyncSettings, isFavorite, isArchived, createdAt, updatedAt
+        case parentProjectId, worktreeBranch, isWorktree
     }
 
     public init(
@@ -520,12 +525,16 @@ public struct ProjectRecord: Codable, Sendable, Equatable {
         agentFiles: [String] = [],
         heartbeat: ProjectHeartbeatSettings = ProjectHeartbeatSettings(),
         repoPath: String? = nil,
+        worktreeRootPath: String? = nil,
         sourceControlProviderId: String? = nil,
         reviewSettings: ProjectReviewSettings = ProjectReviewSettings(),
         taskLoopMode: ProjectLoopMode = .human,
         taskSyncSettings: ProjectTaskSyncSettings = ProjectTaskSyncSettings(),
         isFavorite: Bool = false,
         isArchived: Bool = false,
+        parentProjectId: String? = nil,
+        worktreeBranch: String? = nil,
+        isWorktree: Bool = false,
         createdAt: Date = Date(),
         updatedAt: Date = Date()
     ) {
@@ -541,12 +550,16 @@ public struct ProjectRecord: Codable, Sendable, Equatable {
         self.agentFiles = agentFiles
         self.heartbeat = heartbeat
         self.repoPath = repoPath
+        self.worktreeRootPath = worktreeRootPath
         self.sourceControlProviderId = sourceControlProviderId
         self.reviewSettings = reviewSettings
         self.taskLoopMode = taskLoopMode
         self.taskSyncSettings = taskSyncSettings
         self.isFavorite = isFavorite
         self.isArchived = isArchived
+        self.parentProjectId = parentProjectId
+        self.worktreeBranch = worktreeBranch
+        self.isWorktree = isWorktree
         self.createdAt = createdAt
         self.updatedAt = updatedAt
     }
@@ -565,12 +578,16 @@ public struct ProjectRecord: Codable, Sendable, Equatable {
         agentFiles = try container.decodeIfPresent([String].self, forKey: .agentFiles) ?? []
         heartbeat = try container.decodeIfPresent(ProjectHeartbeatSettings.self, forKey: .heartbeat) ?? ProjectHeartbeatSettings()
         repoPath = try container.decodeIfPresent(String.self, forKey: .repoPath)
+        worktreeRootPath = try container.decodeIfPresent(String.self, forKey: .worktreeRootPath)
         sourceControlProviderId = try container.decodeIfPresent(String.self, forKey: .sourceControlProviderId)
         reviewSettings = try container.decodeIfPresent(ProjectReviewSettings.self, forKey: .reviewSettings) ?? ProjectReviewSettings()
         taskLoopMode = try container.decodeIfPresent(ProjectLoopMode.self, forKey: .taskLoopMode) ?? .human
         taskSyncSettings = try container.decodeIfPresent(ProjectTaskSyncSettings.self, forKey: .taskSyncSettings) ?? ProjectTaskSyncSettings()
         isFavorite = try container.decodeIfPresent(Bool.self, forKey: .isFavorite) ?? false
         isArchived = try container.decodeIfPresent(Bool.self, forKey: .isArchived) ?? false
+        parentProjectId = try container.decodeIfPresent(String.self, forKey: .parentProjectId)
+        worktreeBranch = try container.decodeIfPresent(String.self, forKey: .worktreeBranch)
+        isWorktree = try container.decodeIfPresent(Bool.self, forKey: .isWorktree) ?? false
         createdAt = try container.decode(Date.self, forKey: .createdAt)
         updatedAt = try container.decodeIfPresent(Date.self, forKey: .updatedAt) ?? createdAt
     }
@@ -616,12 +633,21 @@ public struct ProjectListRecord: Codable, Sendable, Equatable {
     public var actors: [String]
     public var teams: [String]
     public var repoPath: String?
+    public var worktreeRootPath: String?
     public var sourceControlProviderId: String?
     public var taskCounts: ProjectTaskCountSummary
     public var isFavorite: Bool
     public var isArchived: Bool
+    public var parentProjectId: String?
+    public var worktreeBranch: String?
+    public var isWorktree: Bool
     public var createdAt: Date
     public var updatedAt: Date
+
+    private enum CodingKeys: String, CodingKey {
+        case id, name, description, icon, channels, actors, teams, repoPath, worktreeRootPath, sourceControlProviderId, taskCounts, isFavorite, isArchived
+        case parentProjectId, worktreeBranch, isWorktree, createdAt, updatedAt
+    }
 
     public init(
         id: String,
@@ -632,10 +658,14 @@ public struct ProjectListRecord: Codable, Sendable, Equatable {
         actors: [String] = [],
         teams: [String] = [],
         repoPath: String? = nil,
+        worktreeRootPath: String? = nil,
         sourceControlProviderId: String? = nil,
         taskCounts: ProjectTaskCountSummary = ProjectTaskCountSummary(),
         isFavorite: Bool = false,
         isArchived: Bool = false,
+        parentProjectId: String? = nil,
+        worktreeBranch: String? = nil,
+        isWorktree: Bool = false,
         createdAt: Date = Date(),
         updatedAt: Date = Date()
     ) {
@@ -647,12 +677,38 @@ public struct ProjectListRecord: Codable, Sendable, Equatable {
         self.actors = actors
         self.teams = teams
         self.repoPath = repoPath
+        self.worktreeRootPath = worktreeRootPath
         self.sourceControlProviderId = sourceControlProviderId
         self.taskCounts = taskCounts
         self.isFavorite = isFavorite
         self.isArchived = isArchived
+        self.parentProjectId = parentProjectId
+        self.worktreeBranch = worktreeBranch
+        self.isWorktree = isWorktree
         self.createdAt = createdAt
         self.updatedAt = updatedAt
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        name = try container.decode(String.self, forKey: .name)
+        description = try container.decode(String.self, forKey: .description)
+        icon = try container.decodeIfPresent(String.self, forKey: .icon)
+        channels = try container.decodeIfPresent([ProjectChannel].self, forKey: .channels) ?? []
+        actors = try container.decodeIfPresent([String].self, forKey: .actors) ?? []
+        teams = try container.decodeIfPresent([String].self, forKey: .teams) ?? []
+        repoPath = try container.decodeIfPresent(String.self, forKey: .repoPath)
+        worktreeRootPath = try container.decodeIfPresent(String.self, forKey: .worktreeRootPath)
+        sourceControlProviderId = try container.decodeIfPresent(String.self, forKey: .sourceControlProviderId)
+        taskCounts = try container.decodeIfPresent(ProjectTaskCountSummary.self, forKey: .taskCounts) ?? ProjectTaskCountSummary()
+        isFavorite = try container.decodeIfPresent(Bool.self, forKey: .isFavorite) ?? false
+        isArchived = try container.decodeIfPresent(Bool.self, forKey: .isArchived) ?? false
+        parentProjectId = try container.decodeIfPresent(String.self, forKey: .parentProjectId)
+        worktreeBranch = try container.decodeIfPresent(String.self, forKey: .worktreeBranch)
+        isWorktree = try container.decodeIfPresent(Bool.self, forKey: .isWorktree) ?? false
+        createdAt = try container.decode(Date.self, forKey: .createdAt)
+        updatedAt = try container.decodeIfPresent(Date.self, forKey: .updatedAt) ?? createdAt
     }
 }
 

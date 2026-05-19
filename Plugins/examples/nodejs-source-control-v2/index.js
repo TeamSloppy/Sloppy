@@ -6,8 +6,9 @@ export default definePlugin((ctx) => {
     displayName: "Example Source Control",
     capabilities: ["worktrees"],
     async createWorktree(params) {
+      const rootPath = params.worktreeRootPath || `${params.repoPath}/.sloppy-worktrees`;
       return {
-        worktreePath: `${params.repoPath}/.sloppy-worktrees/${params.taskId}`,
+        worktreePath: `${rootPath}/${params.taskId}`,
         branchName: `sloppy/${params.taskId}`
       };
     }

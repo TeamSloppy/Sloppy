@@ -33,9 +33,9 @@ public protocol SourceControlProvider: Sendable {
     func branchDiff(at path: String, branchName: String, baseBranch: String, maxBytes: Int) async throws -> SourceControlDiffResult
     func currentBranch(at path: String) async throws -> String?
     func defaultBranch(at path: String) async throws -> String
-    func createWorktree(repoPath: String, taskId: String, baseBranch: String) async throws -> SourceControlWorktreeResult
+    func createWorktree(repoPath: String, taskId: String, baseBranch: String, worktreeRootPath: String?) async throws -> SourceControlWorktreeResult
     func removeWorktree(repoPath: String, worktreePath: String) async throws
-    func worktreePath(repoPath: String, taskId: String) -> String
+    func worktreePath(repoPath: String, taskId: String, worktreeRootPath: String?) -> String
     func restorePathFromHead(repoPath: String, relativePath: String) async throws
     func mergeBranch(repoPath: String, branchName: String, targetBranch: String) async throws
 }
@@ -74,6 +74,10 @@ public extension SourceControlProvider {
     }
 
     func createWorktree(repoPath: String, taskId: String, baseBranch: String = "HEAD") async throws -> SourceControlWorktreeResult {
+        try await createWorktree(repoPath: repoPath, taskId: taskId, baseBranch: baseBranch, worktreeRootPath: nil)
+    }
+
+    func createWorktree(repoPath: String, taskId: String, baseBranch: String = "HEAD", worktreeRootPath: String?) async throws -> SourceControlWorktreeResult {
         throw SourceControlProviderError.unsupportedOperation("create worktree")
     }
 
@@ -82,8 +86,17 @@ public extension SourceControlProvider {
     }
 
     func worktreePath(repoPath: String, taskId: String) -> String {
-        URL(fileURLWithPath: repoPath)
-            .appendingPathComponent(".sloppy-worktrees", isDirectory: true)
+        worktreePath(repoPath: repoPath, taskId: taskId, worktreeRootPath: nil)
+    }
+
+    func worktreePath(repoPath: String, taskId: String, worktreeRootPath: String?) -> String {
+        let rootURL = worktreeRootPath
+            .flatMap { path -> URL? in
+                let trimmed = path.trimmingCharacters(in: .whitespacesAndNewlines)
+                return trimmed.isEmpty ? nil : URL(fileURLWithPath: trimmed, isDirectory: true)
+            }
+            ?? URL(fileURLWithPath: repoPath).appendingPathComponent(".sloppy-worktrees", isDirectory: true)
+        return rootURL
             .appendingPathComponent(taskId, isDirectory: true)
             .path
     }

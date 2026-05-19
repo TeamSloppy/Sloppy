@@ -212,6 +212,8 @@ export function normalizeProject(project, index = 0) {
     agentFiles: Array.isArray(project?.agentFiles) ? project.agentFiles : [],
     heartbeat,
     repoPath: String(project?.repoPath || "").trim() || null,
+    worktreeRootPath: String(project?.worktreeRootPath || "").trim() || null,
+    sourceControlProviderId: String(project?.sourceControlProviderId || "").trim() || null,
     reviewSettings,
     taskLoopMode: String(project?.taskLoopMode || "human").trim(),
     isFavorite: Boolean(project?.isFavorite),

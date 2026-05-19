@@ -4,6 +4,7 @@ import {
   deleteAgent as deleteAgentRequest,
   fetchAgent,
   fetchAgents,
+  fetchAvailableModels,
   fetchRuntimeConfig,
   fetchPetImageGenerationStatus,
   generatePet,
@@ -11,7 +12,7 @@ import {
   updateAgentConfig,
   fetchAgentConfig,
 } from "../../api";
-import { collectAggregatedProviderModels } from "./utils/aggregateProviderModels";
+import { collectAggregatedProviderModels, mergeModelOptions } from "./utils/aggregateProviderModels";
 import { AgentOverviewTab } from "./components/AgentOverviewTab";
 import { AgentTasksTab } from "./components/AgentTasksTab";
 import { AgentChatTab } from "./components/AgentChatTab";
@@ -361,15 +362,24 @@ export function AgentsView({
   }, [routeAgentId, agents]);
 
   async function loadRuntimeConfig() {
-    const config = await fetchRuntimeConfig();
-    if (!config || !Array.isArray(config.models) || (config.models as unknown[]).length === 0) {
+    const [config, availableModelsResponse] = await Promise.all([
+      fetchRuntimeConfig(),
+      fetchAvailableModels()
+    ]);
+    if (!config) {
       setProviderConfigured(false);
       return;
     }
 
-    const catalog = await collectAggregatedProviderModels(config as Record<string, unknown>);
-    setAvailableModels(catalog.models);
-    setProviderConfigured(catalog.models.length > 0);
+    const catalog = Array.isArray(config.models) && (config.models as unknown[]).length > 0
+      ? await collectAggregatedProviderModels(config as Record<string, unknown>)
+      : { models: [] };
+    const models = mergeModelOptions(
+      Array.isArray(availableModelsResponse) ? availableModelsResponse : [],
+      catalog.models
+    );
+    setAvailableModels(models);
+    setProviderConfigured(models.length > 0);
   }
 
   async function loadPetImageGenerationStatus() {

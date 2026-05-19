@@ -1,0 +1,901 @@
+const GIT_SYNC_FREQUENCIES = new Set(["manual", "daily", "weekdays"]);
+const GIT_SYNC_CONFLICT_STRATEGIES = new Set(["remote_wins", "local_wins", "manual"]);
+const PROXY_TYPES = new Set(["socks5", "http", "https"]);
+
+export const SETTINGS_ITEMS = [
+  { id: "providers", title: "Providers", icon: "hub" },
+  { id: "search-tools", title: "Search Tools", icon: "travel_explore" },
+  { id: "model-routing", title: "Model routing", icon: "linear_scale" },
+  { id: "channels", title: "Channels", icon: "forum" },
+  { id: "approvals", title: "Approvals", icon: "fact_check" },
+  { id: "plugins", title: "Plugins", icon: "extension" },
+  { id: "mcp", title: "MCP", icon: "account_tree" },
+  { id: "browser", title: "Browser", icon: "open_in_browser" },
+  { id: "ui", title: "UI", icon: "palette" },
+  { id: "nodehost", title: "NodeHost", icon: "dns" },
+  // { id: "bindings", title: "Bindings", icon: "cable" },
+  // { id: "broadcast", title: "Broadcast", icon: "cell_tower" },
+  // { id: "audio", title: "Audio", icon: "volume_up" },
+  // { id: "media", title: "Media", icon: "perm_media" },
+  // { id: "session", title: "Session", icon: "manage_accounts" },
+  { id: "visor", title: "Visor", icon: "visibility" },
+  { id: "acp", title: "ACP", icon: "smart_toy" },
+  { id: "proxy", title: "Proxy", icon: "vpn_key" },
+  { id: "git-sync", title: "Git Sync", icon: "sync" },
+  { id: "connect-client", title: "Connect Client", icon: "qr_code" },
+  { id: "config", title: "Config", icon: "edit_document" },
+  { id: "updates", title: "Updates", icon: "system_update" },
+  // { id: "logging", title: "Logging", icon: "description" }
+];
+
+export const PROVIDER_CATALOG = [
+  {
+    id: "openai-api",
+    brandProviderKey: "openai",
+    title: "OpenAI API",
+    description: "OpenAI via API key authentication.",
+    modelHint: "gpt-5.4-mini",
+    authMethod: "api_key",
+    requiresApiKey: true,
+    supportsModelCatalog: true,
+    defaultEntry: {
+      title: "openai-api",
+      apiKey: "",
+      apiUrl: "https://api.openai.com/v1",
+      model: "gpt-5.4-mini",
+      disabled: false,
+      providerCatalogId: "openai-api"
+    }
+  },
+  {
+    id: "openai-oauth",
+    brandProviderKey: "openai",
+    title: "OpenAI Codex",
+    description: "ChatGPT/Codex login via OpenAI OAuth.",
+    modelHint: "gpt-5.3-codex",
+    authMethod: "deeplink",
+    requiresApiKey: false,
+    supportsModelCatalog: true,
+    defaultEntry: {
+      title: "openai-oauth",
+      apiKey: "",
+      apiUrl: "https://chatgpt.com/backend-api",
+      model: "gpt-5.3-codex",
+      disabled: false,
+      providerCatalogId: "openai-oauth"
+    }
+  },
+  {
+    id: "openrouter",
+    brandProviderKey: null,
+    title: "OpenRouter",
+    description: "Unified API for many models (OpenAI-compatible Chat Completions).",
+    modelHint: "openai/gpt-4o-mini",
+    authMethod: "api_key",
+    requiresApiKey: true,
+    supportsModelCatalog: true,
+    defaultEntry: {
+      title: "openrouter",
+      apiKey: "",
+      apiUrl: "https://openrouter.ai/api/v1",
+      model: "openai/gpt-4o-mini",
+      disabled: false,
+      providerCatalogId: "openrouter"
+    }
+  },
+  {
+    id: "anthropic",
+    brandProviderKey: "anthropic",
+    title: "Anthropic",
+    description: "Claude models via Anthropic API key.",
+    modelHint: "claude-sonnet-4-6",
+    authMethod: "api_key",
+    requiresApiKey: true,
+    supportsModelCatalog: true,
+    defaultEntry: {
+      title: "anthropic",
+      apiKey: "",
+      apiUrl: "https://api.anthropic.com",
+      model: "claude-sonnet-4-6",
+      disabled: false,
+      providerCatalogId: "anthropic"
+    }
+  },
+  {
+    id: "anthropic-oauth",
+    brandProviderKey: "anthropic",
+    title: "Anthropic",
+    description: "Claude via Anthropic OAuth, Claude Code credentials, or API token.",
+    modelHint: "claude-sonnet-4-6",
+    authMethod: "api_key",
+    requiresApiKey: true,
+    supportsModelCatalog: true,
+    defaultEntry: {
+      title: "anthropic-oauth",
+      apiKey: "",
+      apiUrl: "https://api.anthropic.com",
+      model: "claude-sonnet-4-6",
+      disabled: false,
+      providerCatalogId: "anthropic-oauth"
+    }
+  },
+  {
+    id: "gemini",
+    brandProviderKey: "gemini",
+    title: "Google Gemini",
+    description: "Google Gemini via API key or scoped OAuth.",
+    modelHint: "gemini-2.5-flash",
+    authMethod: "cli_or_api_key",
+    requiresApiKey: false,
+    supportsModelCatalog: true,
+    defaultEntry: {
+      title: "gemini",
+      apiKey: "",
+      apiUrl: "https://generativelanguage.googleapis.com",
+      model: "gemini-2.5-flash",
+      disabled: false,
+      providerCatalogId: "gemini"
+    }
+  },
+  {
+    id: "ollama",
+    brandProviderKey: "ollama",
+    title: "Ollama",
+    description: "Local provider using Ollama's HTTP API (/api/tags). LM Studio and similar tools speak OpenAI-compatible /v1 — use OpenAI API with base URL http://host:port/v1 instead.",
+    modelHint: "qwen3",
+    authMethod: "none",
+    requiresApiKey: false,
+    supportsModelCatalog: true,
+    defaultEntry: {
+      title: "ollama-local",
+      apiKey: "",
+      apiUrl: "http://127.0.0.1:11434",
+      model: "qwen3",
+      disabled: false,
+      providerCatalogId: "ollama"
+    }
+  }
+];
+
+/** UI presets only: hide Anthropic Console API key; OAuth preset remains. Full `PROVIDER_CATALOG` is still used for metadata and existing `anthropic` rows. */
+export const PROVIDER_CATALOG_UI = PROVIDER_CATALOG.filter((p) => p.id !== "anthropic");
+
+export function emptyModel() {
+  return {
+    title: "openai-api",
+    apiKey: "",
+    apiUrl: "https://api.openai.com/v1",
+    model: "gpt-5.4-mini",
+    disabled: false,
+    providerCatalogId: "openai-api"
+  };
+}
+
+export function emptyPlugin() {
+  return {
+    title: "new-plugin",
+    apiKey: "",
+    apiUrl: "",
+    plugin: ""
+  };
+}
+
+export function emptyMCPServer() {
+  return {
+    id: "new-mcp-server",
+    transport: "stdio",
+    command: "npx",
+    arguments: [],
+    cwd: "",
+    endpoint: "",
+    headers: {},
+    timeoutMs: 15000,
+    enabled: true,
+    exposeTools: true,
+    exposeResources: true,
+    exposePrompts: true,
+    toolPrefix: ""
+  };
+}
+
+export const EMPTY_CONFIG = {
+  listen: { host: "0.0.0.0", port: 25101 },
+  workspace: { name: ".sloppy", basePath: "~" },
+  auth: { token: "dev-token" },
+  onboarding: { completed: false },
+  models: [emptyModel()],
+  opencode: {
+    enabled: false,
+    useResolvedConfigCommand: true,
+    command: "opencode",
+    configPaths: [],
+    authPath: "",
+    includeProviders: [],
+    excludeProviders: [],
+    timeoutMs: 5000
+  },
+  memory: {
+    backend: "sqlite-local-vectors",
+    provider: {
+      mode: "local",
+      endpoint: "",
+      mcpServer: "",
+      mcpTools: {
+        upsert: "memory_upsert",
+        query: "memory_query",
+        delete: "memory_delete",
+        health: "memory_health"
+      },
+      timeoutMs: 2500,
+      apiKeyEnv: ""
+    },
+    retrieval: {
+      topK: 8,
+      semanticWeight: 0.55,
+      keywordWeight: 0.35,
+      graphWeight: 0.1
+    },
+    retention: {
+      episodicDays: 90,
+      todoCompletedDays: 30,
+      bulletinDays: 180
+    },
+    embedding: {
+      enabled: false,
+      model: "text-embedding-3-small",
+      dimensions: 1536,
+      endpoint: "",
+      apiKeyEnv: ""
+    }
+  },
+  nodes: ["local"],
+  gateways: [],
+  mcp: {
+    servers: []
+  },
+  plugins: [],
+  channels: { telegram: null, discord: null, channelInactivityDays: 2 },
+  searchTools: {
+    activeProvider: "perplexity",
+    providers: {
+      brave: {
+        apiKey: ""
+      },
+      perplexity: {
+        apiKey: ""
+      }
+    }
+  },
+  gitSync: {
+    enabled: false,
+    authToken: "",
+    repository: "",
+    branch: "main",
+    schedule: {
+      frequency: "daily",
+      time: "18:00"
+    },
+    conflictStrategy: "remote_wins"
+  },
+  acp: {
+    enabled: false,
+    targets: []
+  },
+  proxy: {
+    enabled: false,
+    type: "socks5",
+    host: "",
+    port: 1080,
+    username: "",
+    password: ""
+  },
+  browser: {
+    enabled: false,
+    executablePath: "",
+    cdpEndpoint: "",
+    profileName: "default",
+    profilePath: "",
+    headless: false,
+    startupTimeoutMs: 10000,
+    additionalArguments: []
+  },
+  visor: {
+    scheduler: {
+      enabled: true,
+      intervalSeconds: 300,
+      jitterSeconds: 60
+    },
+    bootstrapBulletin: true,
+    model: null,
+    bulletinMaxWords: 300,
+    tickIntervalSeconds: 30,
+    workerTimeoutSeconds: 600,
+    branchTimeoutSeconds: 60,
+    maintenanceIntervalSeconds: 3600,
+    decayRatePerDay: 0.05,
+    pruneImportanceThreshold: 0.1,
+    pruneMinAgeDays: 30,
+    channelDegradedFailureCount: 3,
+    channelDegradedWindowSeconds: 600,
+    idleThresholdSeconds: 1800,
+    webhookURLs: [],
+    mergeEnabled: false,
+    mergeSimilarityThreshold: 0.80,
+    mergeMaxPerRun: 10
+  },
+  ui: {
+    dashboardAuth: {
+      enabled: false,
+      token: ""
+    },
+    dashboardTerminal: {
+      enabled: false,
+      localOnly: true
+    }
+  },
+  toolHooks: {
+    preTools: {
+      enabled: false,
+      command: "",
+      arguments: [],
+      timeoutMs: 2000,
+      maxOutputBytes: 65536,
+      failurePolicy: "block"
+    }
+  },
+  modelRouting: {},
+  sqlitePath: "core.sqlite"
+};
+
+export const DRAFT_CONFIG_KEY = "sloppy_draft_config";
+
+export function clone(value) {
+  return JSON.parse(JSON.stringify(value));
+}
+
+export function normalizeModel(item, index) {
+  if (typeof item === "string") {
+    const [provider, name] = item.includes(":") ? item.split(":", 2) : ["", item];
+    const apiUrlMap = {
+      openai: "https://api.openai.com/v1",
+      openrouter: "https://openrouter.ai/api/v1",
+      ollama: "http://127.0.0.1:11434",
+      gemini: "https://generativelanguage.googleapis.com",
+      anthropic: "https://api.anthropic.com"
+    };
+    return {
+      title: provider ? `${provider}-${name}` : name || `model-${index + 1}`,
+      apiKey: "",
+      apiUrl: apiUrlMap[provider] || "",
+      model: name || item,
+      disabled: false,
+      providerCatalogId: null
+    };
+  }
+
+  const catalogRaw = item?.providerCatalogId;
+  const providerCatalogId =
+    typeof catalogRaw === "string" && catalogRaw.trim() ? catalogRaw.trim() : null;
+
+  return {
+    title: item?.title || `model-${index + 1}`,
+    apiKey: item?.apiKey || "",
+    apiUrl: item?.apiUrl || "",
+    model: item?.model || "",
+    disabled: Boolean(item?.disabled),
+    providerCatalogId
+  };
+}
+
+export function inferModelProvider(model) {
+  const apiUrl = String(model?.apiUrl || "").toLowerCase();
+  const title = String(model?.title || "").toLowerCase();
+  const modelName = String(model?.model || "").toLowerCase();
+
+  if (
+    apiUrl.includes("openai") ||
+    title.includes("openai") ||
+    modelName.startsWith("gpt-") ||
+    /^o\d/.test(modelName)
+  ) {
+    return "openai";
+  }
+
+  if (apiUrl.includes("openrouter") || title.includes("openrouter")) {
+    return "openrouter";
+  }
+
+  if (/:1234(\/|$)/i.test(apiUrl)) {
+    return "openai";
+  }
+
+  if (apiUrl.includes("ollama") || apiUrl.includes("11434") || title.includes("ollama")) {
+    return "ollama";
+  }
+
+  if (apiUrl.includes("generativelanguage.googleapis.com") || title.includes("gemini") || modelName.startsWith("gemini")) {
+    return "gemini";
+  }
+
+  if (apiUrl.includes("anthropic") || title.includes("anthropic") || modelName.startsWith("claude")) {
+    return "anthropic";
+  }
+
+  return "custom";
+}
+
+export function inferCatalogIdForEntry(entry) {
+  const raw = entry?.providerCatalogId;
+  if (typeof raw === "string" && raw.trim()) {
+    const id = raw.trim();
+    if (PROVIDER_CATALOG.some((p) => p.id === id)) {
+      return id;
+    }
+  }
+  const p = inferModelProvider(entry);
+  if (p === "openai") {
+    return isOpenAIOAuthEntry(entry) ? "openai-oauth" : "openai-api";
+  }
+  if (p === "anthropic") {
+    return isAnthropicOAuthCatalogEntry(entry) ? "anthropic-oauth" : "anthropic";
+  }
+  const map = {
+    openrouter: "openrouter",
+    ollama: "ollama",
+    gemini: "gemini"
+  };
+  return map[p] || null;
+}
+
+export function isOpenAIOAuthEntry(model) {
+  const title = String(model?.title || "").toLowerCase();
+  return title.includes("oauth") || title.includes("deeplink");
+}
+
+export function isAnthropicOAuthCatalogEntry(entry) {
+  const id = String(entry?.providerCatalogId || "").trim();
+  if (id === "anthropic-oauth") {
+    return true;
+  }
+  const title = String(entry?.title || "").toLowerCase();
+  return title.includes("anthropic-oauth");
+}
+
+export function findProviderModelIndex(models, providerId) {
+  const direct = models.findIndex((m) => m.providerCatalogId === providerId);
+  if (direct >= 0) {
+    return direct;
+  }
+  return models.findIndex((item) => {
+    if (item.providerCatalogId) {
+      return false;
+    }
+    if (providerId === "openai-api") {
+      return inferModelProvider(item) === "openai" && !isOpenAIOAuthEntry(item);
+    }
+    if (providerId === "openai-oauth") {
+      return inferModelProvider(item) === "openai" && isOpenAIOAuthEntry(item);
+    }
+    if (providerId === "ollama") {
+      return inferModelProvider(item) === "ollama";
+    }
+    if (providerId === "gemini") {
+      return inferModelProvider(item) === "gemini";
+    }
+    if (providerId === "anthropic") {
+      return inferModelProvider(item) === "anthropic" && !isAnthropicOAuthCatalogEntry(item);
+    }
+    if (providerId === "anthropic-oauth") {
+      return inferModelProvider(item) === "anthropic" && isAnthropicOAuthCatalogEntry(item);
+    }
+    if (providerId === "openrouter") {
+      return inferModelProvider(item) === "openrouter";
+    }
+    return false;
+  });
+}
+
+export function getProviderDefinition(providerId) {
+  return PROVIDER_CATALOG.find((provider) => provider.id === providerId) || PROVIDER_CATALOG[0];
+}
+
+export function getProviderEntry(models, providerId) {
+  const index = findProviderModelIndex(models, providerId);
+  if (index < 0) {
+    return null;
+  }
+  return { index, entry: models[index] };
+}
+
+export function providerIsConfigured(provider, entry) {
+  if (!entry) {
+    return false;
+  }
+  const hasModel = Boolean(String(entry.model || "").trim());
+  const hasURL = Boolean(String(entry.apiUrl || "").trim());
+  if (provider.id === "gemini") {
+    return hasModel && hasURL;
+  }
+  if (provider.id === "anthropic") {
+    return hasModel && Boolean(String(entry.apiKey || "").trim());
+  }
+  if (provider.requiresApiKey) {
+    return hasModel && hasURL && Boolean(String(entry.apiKey || "").trim());
+  }
+  return hasModel && hasURL;
+}
+
+export function normalizePlugin(item, index) {
+  if (typeof item === "string") {
+    return {
+      title: item || `plugin-${index + 1}`,
+      apiKey: "",
+      apiUrl: "",
+      plugin: item || ""
+    };
+  }
+
+  return {
+    title: item?.title || `plugin-${index + 1}`,
+    apiKey: item?.apiKey || "",
+    apiUrl: item?.apiUrl || "",
+    plugin: item?.plugin || "",
+    ...(item?.deliveryMode != null ? { deliveryMode: item.deliveryMode } : {}),
+    ...(item?.enabled != null ? { enabled: item.enabled } : {})
+  };
+}
+
+export function channelPluginToConfigEntry(item, index) {
+  const pluginId = String(item?.id || item?.type || "").trim();
+  return {
+    title: String(item?.type || pluginId || `plugin-${index + 1}`),
+    apiKey: "",
+    apiUrl: String(item?.baseUrl || ""),
+    plugin: pluginId,
+    deliveryMode: String(item?.deliveryMode || ""),
+    enabled: item?.enabled == null ? true : Boolean(item.enabled)
+  };
+}
+
+export function mergeChannelPluginsIntoConfig(config, channelPlugins) {
+  if (!Array.isArray(channelPlugins) || channelPlugins.length === 0) {
+    return config;
+  }
+
+  const merged = clone(config);
+  if (!Array.isArray(merged.plugins)) {
+    merged.plugins = [];
+  }
+
+  for (const [index, channelPlugin] of channelPlugins.entries()) {
+    const entry = channelPluginToConfigEntry(channelPlugin, index);
+    if (!entry.plugin) {
+      continue;
+    }
+
+    const existingIndex = merged.plugins.findIndex((item) =>
+      String(item?.plugin || "").trim() === entry.plugin
+    );
+    if (existingIndex >= 0) {
+      merged.plugins[existingIndex] = {
+        ...entry,
+        ...merged.plugins[existingIndex],
+        title: merged.plugins[existingIndex].title || entry.title,
+        apiUrl: merged.plugins[existingIndex].apiUrl || entry.apiUrl,
+        deliveryMode: entry.deliveryMode,
+        enabled: entry.enabled
+      };
+    } else {
+      merged.plugins.push(entry);
+    }
+  }
+
+  return merged;
+}
+
+export function normalizeMCPServer(item, index) {
+  const base = emptyMCPServer();
+  const transport = String(item?.transport || base.transport).trim().toLowerCase();
+  const headers = item?.headers && typeof item.headers === "object" && !Array.isArray(item.headers)
+    ? Object.fromEntries(
+      Object.entries(item.headers).map(([key, value]) => [String(key), String(value)])
+    )
+    : {};
+
+  return {
+    ...base,
+    id: String(item?.id || `mcp-server-${index + 1}`),
+    transport: transport === "http" ? "http" : "stdio",
+    command: String(item?.command || ""),
+    arguments: Array.isArray(item?.arguments) ? item.arguments.map((arg) => String(arg)) : [],
+    cwd: String(item?.cwd || ""),
+    endpoint: String(item?.endpoint || ""),
+    headers,
+    timeoutMs: parseInteger(item?.timeoutMs ?? base.timeoutMs, base.timeoutMs),
+    enabled: item?.enabled == null ? true : Boolean(item.enabled),
+    exposeTools: item?.exposeTools == null ? true : Boolean(item.exposeTools),
+    exposeResources: item?.exposeResources == null ? true : Boolean(item.exposeResources),
+    exposePrompts: item?.exposePrompts == null ? true : Boolean(item.exposePrompts),
+    toolPrefix: String(item?.toolPrefix || "")
+  };
+}
+
+export function normalizeConfig(config) {
+  const normalized = clone(EMPTY_CONFIG);
+
+  normalized.listen.host = config?.listen?.host || normalized.listen.host;
+  normalized.listen.port = parseInteger(config?.listen?.port ?? normalized.listen.port, normalized.listen.port);
+  normalized.workspace.name = config?.workspace?.name || normalized.workspace.name;
+  normalized.workspace.basePath = config?.workspace?.basePath || normalized.workspace.basePath;
+  normalized.auth.token = config?.auth?.token || normalized.auth.token;
+  normalized.onboarding.completed = Boolean(config?.onboarding?.completed);
+  normalized.opencode.enabled = Boolean(config?.opencode?.enabled);
+  normalized.opencode.useResolvedConfigCommand = config?.opencode?.useResolvedConfigCommand !== false;
+  normalized.opencode.command = String(config?.opencode?.command || normalized.opencode.command).trim() || "opencode";
+  normalized.opencode.configPaths = Array.isArray(config?.opencode?.configPaths)
+    ? config.opencode.configPaths.map((item) => String(item || "").trim()).filter(Boolean)
+    : [];
+  normalized.opencode.authPath = String(config?.opencode?.authPath || "");
+  normalized.opencode.includeProviders = Array.isArray(config?.opencode?.includeProviders)
+    ? config.opencode.includeProviders.map((item) => String(item || "").trim()).filter(Boolean)
+    : [];
+  normalized.opencode.excludeProviders = Array.isArray(config?.opencode?.excludeProviders)
+    ? config.opencode.excludeProviders.map((item) => String(item || "").trim()).filter(Boolean)
+    : [];
+  normalized.opencode.timeoutMs = parseInteger(config?.opencode?.timeoutMs ?? 5000, 5000);
+  normalized.memory.backend = config?.memory?.backend || normalized.memory.backend;
+  normalized.memory.provider.mode = String(config?.memory?.provider?.mode || normalized.memory.provider.mode);
+  normalized.memory.provider.endpoint = String(config?.memory?.provider?.endpoint || "");
+  normalized.memory.provider.mcpServer = String(config?.memory?.provider?.mcpServer || "");
+  normalized.memory.provider.mcpTools.upsert = String(config?.memory?.provider?.mcpTools?.upsert || normalized.memory.provider.mcpTools.upsert);
+  normalized.memory.provider.mcpTools.query = String(config?.memory?.provider?.mcpTools?.query || normalized.memory.provider.mcpTools.query);
+  normalized.memory.provider.mcpTools.delete = String(config?.memory?.provider?.mcpTools?.delete || normalized.memory.provider.mcpTools.delete);
+  normalized.memory.provider.mcpTools.health = String(config?.memory?.provider?.mcpTools?.health || normalized.memory.provider.mcpTools.health);
+  normalized.memory.provider.timeoutMs = parseInteger(
+    config?.memory?.provider?.timeoutMs ?? normalized.memory.provider.timeoutMs,
+    normalized.memory.provider.timeoutMs
+  );
+  normalized.memory.provider.apiKeyEnv = String(config?.memory?.provider?.apiKeyEnv || "");
+
+  normalized.memory.retrieval.topK = parseInteger(
+    config?.memory?.retrieval?.topK ?? normalized.memory.retrieval.topK,
+    normalized.memory.retrieval.topK
+  );
+  normalized.memory.retrieval.semanticWeight = parseNumber(
+    config?.memory?.retrieval?.semanticWeight ?? normalized.memory.retrieval.semanticWeight,
+    normalized.memory.retrieval.semanticWeight
+  );
+  normalized.memory.retrieval.keywordWeight = parseNumber(
+    config?.memory?.retrieval?.keywordWeight ?? normalized.memory.retrieval.keywordWeight,
+    normalized.memory.retrieval.keywordWeight
+  );
+  normalized.memory.retrieval.graphWeight = parseNumber(
+    config?.memory?.retrieval?.graphWeight ?? normalized.memory.retrieval.graphWeight,
+    normalized.memory.retrieval.graphWeight
+  );
+
+  normalized.memory.retention.episodicDays = parseInteger(
+    config?.memory?.retention?.episodicDays ?? normalized.memory.retention.episodicDays,
+    normalized.memory.retention.episodicDays
+  );
+  normalized.memory.retention.todoCompletedDays = parseInteger(
+    config?.memory?.retention?.todoCompletedDays ?? normalized.memory.retention.todoCompletedDays,
+    normalized.memory.retention.todoCompletedDays
+  );
+  normalized.memory.retention.bulletinDays = parseInteger(
+    config?.memory?.retention?.bulletinDays ?? normalized.memory.retention.bulletinDays,
+    normalized.memory.retention.bulletinDays
+  );
+  normalized.memory.embedding.enabled = Boolean(config?.memory?.embedding?.enabled);
+  normalized.memory.embedding.model = String(config?.memory?.embedding?.model || normalized.memory.embedding.model);
+  normalized.memory.embedding.dimensions = parseInteger(
+    config?.memory?.embedding?.dimensions ?? normalized.memory.embedding.dimensions,
+    normalized.memory.embedding.dimensions
+  );
+  normalized.memory.embedding.endpoint = String(config?.memory?.embedding?.endpoint || "");
+  normalized.memory.embedding.apiKeyEnv = String(config?.memory?.embedding?.apiKeyEnv || "");
+  normalized.sqlitePath = config?.sqlitePath || normalized.sqlitePath;
+  normalized.ui.dashboardAuth.enabled = Boolean(config?.ui?.dashboardAuth?.enabled);
+  normalized.ui.dashboardAuth.token = String(config?.ui?.dashboardAuth?.token || "");
+  normalized.ui.dashboardTerminal.enabled = Boolean(config?.ui?.dashboardTerminal?.enabled);
+  normalized.ui.dashboardTerminal.localOnly =
+    config?.ui?.dashboardTerminal?.localOnly == null ? true : Boolean(config?.ui?.dashboardTerminal?.localOnly);
+  normalized.toolHooks.preTools.enabled = Boolean(config?.toolHooks?.preTools?.enabled);
+  normalized.toolHooks.preTools.command = String(config?.toolHooks?.preTools?.command || "");
+  normalized.toolHooks.preTools.arguments = Array.isArray(config?.toolHooks?.preTools?.arguments)
+    ? config.toolHooks.preTools.arguments.map((item) => String(item || ""))
+    : [];
+  normalized.toolHooks.preTools.timeoutMs = parseInteger(
+    config?.toolHooks?.preTools?.timeoutMs ?? normalized.toolHooks.preTools.timeoutMs,
+    normalized.toolHooks.preTools.timeoutMs
+  );
+  normalized.toolHooks.preTools.maxOutputBytes = parseInteger(
+    config?.toolHooks?.preTools?.maxOutputBytes ?? normalized.toolHooks.preTools.maxOutputBytes,
+    normalized.toolHooks.preTools.maxOutputBytes
+  );
+  normalized.toolHooks.preTools.failurePolicy =
+    String(config?.toolHooks?.preTools?.failurePolicy || "block") === "allow" ? "allow" : "block";
+
+  const mr = config?.modelRouting;
+  normalized.modelRouting = {};
+  if (mr && typeof mr === "object" && !Array.isArray(mr)) {
+    for (const [k, v] of Object.entries(mr)) {
+      const key = String(k).trim();
+      const val = String(v ?? "").trim();
+      if (key && val) {
+        normalized.modelRouting[key] = val;
+      }
+    }
+  }
+
+  normalized.gitSync.enabled = Boolean(config?.gitSync?.enabled);
+  normalized.gitSync.authToken = String(config?.gitSync?.authToken || "");
+  normalized.gitSync.repository = String(config?.gitSync?.repository || "");
+  normalized.gitSync.branch = String(config?.gitSync?.branch || normalized.gitSync.branch);
+  normalized.gitSync.schedule.frequency = normalizeGitSyncFrequency(
+    config?.gitSync?.schedule?.frequency,
+    normalized.gitSync.schedule.frequency
+  );
+  normalized.gitSync.schedule.time = normalizeTimeValue(
+    config?.gitSync?.schedule?.time,
+    normalized.gitSync.schedule.time
+  );
+  normalized.gitSync.conflictStrategy = normalizeGitSyncConflictStrategy(
+    config?.gitSync?.conflictStrategy,
+    normalized.gitSync.conflictStrategy
+  );
+
+  normalized.nodes = Array.isArray(config?.nodes) ? config.nodes.filter(Boolean) : [];
+  normalized.gateways = Array.isArray(config?.gateways) ? config.gateways.filter(Boolean) : [];
+  normalized.mcp.servers = Array.isArray(config?.mcp?.servers)
+    ? config.mcp.servers.map((server, index) => normalizeMCPServer(server, index))
+    : [];
+
+  const models = Array.isArray(config?.models) ? config.models : [];
+  normalized.models = models.map(normalizeModel);
+  if (normalized.models.length === 0) {
+    normalized.models.push(clone(PROVIDER_CATALOG[0].defaultEntry));
+  }
+
+  const plugins = Array.isArray(config?.plugins) ? config.plugins : [];
+  normalized.plugins = plugins.map(normalizePlugin);
+
+  const tg = config?.channels?.telegram;
+  const dc = config?.channels?.discord;
+
+  normalized.channels = {
+    telegram: tg && typeof tg === "object"
+      ? {
+        botToken: String(tg.botToken || ""),
+        channelChatMap: tg.channelChatMap && typeof tg.channelChatMap === "object" ? tg.channelChatMap : {},
+        topicChannelMap: tg.topicChannelMap && typeof tg.topicChannelMap === "object" ? tg.topicChannelMap : {},
+        allowedUserIds: Array.isArray(tg.allowedUserIds) ? tg.allowedUserIds : [],
+        allowedChatIds: Array.isArray(tg.allowedChatIds) ? tg.allowedChatIds : []
+      }
+      : null,
+    discord: dc && typeof dc === "object"
+      ? {
+        botToken: String(dc.botToken || ""),
+        guildId: String(dc.guildId || ""),
+        channelAgentMap: dc.channelAgentMap && typeof dc.channelAgentMap === "object" ? dc.channelAgentMap : {}
+      }
+      : null,
+    channelInactivityDays: parseInteger(config?.channels?.channelInactivityDays ?? 2, 2)
+  };
+
+  normalized.searchTools.activeProvider =
+    String(config?.searchTools?.activeProvider || normalized.searchTools.activeProvider).trim().toLowerCase() === "brave"
+      ? "brave"
+      : "perplexity";
+  normalized.searchTools.providers.brave.apiKey = String(config?.searchTools?.providers?.brave?.apiKey || "");
+  normalized.searchTools.providers.perplexity.apiKey = String(config?.searchTools?.providers?.perplexity?.apiKey || "");
+
+  normalized.acp.enabled = Boolean(config?.acp?.enabled);
+  normalized.acp.targets = Array.isArray(config?.acp?.targets) ? config.acp.targets : [];
+
+  normalized.proxy.enabled = Boolean(config?.proxy?.enabled);
+  normalized.proxy.type = normalizeProxyType(config?.proxy?.type);
+  normalized.proxy.host = String(config?.proxy?.host || "");
+  normalized.proxy.port = parseInteger(config?.proxy?.port ?? 1080, 1080);
+  normalized.proxy.username = String(config?.proxy?.username || "");
+  normalized.proxy.password = String(config?.proxy?.password || "");
+
+  normalized.browser.enabled = Boolean(config?.browser?.enabled);
+  normalized.browser.executablePath = String(config?.browser?.executablePath || "");
+  normalized.browser.cdpEndpoint = String(config?.browser?.cdpEndpoint || "");
+  normalized.browser.profileName = String(config?.browser?.profileName || "default").trim() || "default";
+  normalized.browser.profilePath = String(config?.browser?.profilePath || "");
+  normalized.browser.headless = Boolean(config?.browser?.headless);
+  normalized.browser.startupTimeoutMs = parseInteger(config?.browser?.startupTimeoutMs ?? 10000, 10000);
+  normalized.browser.additionalArguments = Array.isArray(config?.browser?.additionalArguments)
+    ? config.browser.additionalArguments.map((arg) => String(arg)).filter(Boolean)
+    : [];
+
+  const vc = config?.visor;
+  normalized.visor.scheduler.enabled = vc?.scheduler?.enabled !== false;
+  normalized.visor.scheduler.intervalSeconds = parseInteger(vc?.scheduler?.intervalSeconds ?? 300, 300);
+  normalized.visor.scheduler.jitterSeconds = parseInteger(vc?.scheduler?.jitterSeconds ?? 60, 60);
+  normalized.visor.bootstrapBulletin = vc?.bootstrapBulletin !== false;
+  normalized.visor.model = vc?.model ? String(vc.model) : null;
+  normalized.visor.bulletinMaxWords = parseInteger(vc?.bulletinMaxWords ?? 300, 300);
+  normalized.visor.tickIntervalSeconds = parseInteger(vc?.tickIntervalSeconds ?? 30, 30);
+  normalized.visor.workerTimeoutSeconds = parseInteger(vc?.workerTimeoutSeconds ?? 600, 600);
+  normalized.visor.branchTimeoutSeconds = parseInteger(vc?.branchTimeoutSeconds ?? 60, 60);
+  normalized.visor.maintenanceIntervalSeconds = parseInteger(vc?.maintenanceIntervalSeconds ?? 3600, 3600);
+  normalized.visor.decayRatePerDay = parseNumber(vc?.decayRatePerDay ?? 0.05, 0.05);
+  normalized.visor.pruneImportanceThreshold = parseNumber(vc?.pruneImportanceThreshold ?? 0.1, 0.1);
+  normalized.visor.pruneMinAgeDays = parseInteger(vc?.pruneMinAgeDays ?? 30, 30);
+  normalized.visor.channelDegradedFailureCount = parseInteger(vc?.channelDegradedFailureCount ?? 3, 3);
+  normalized.visor.channelDegradedWindowSeconds = parseInteger(vc?.channelDegradedWindowSeconds ?? 600, 600);
+  normalized.visor.idleThresholdSeconds = parseInteger(vc?.idleThresholdSeconds ?? 1800, 1800);
+  normalized.visor.webhookURLs = Array.isArray(vc?.webhookURLs) ? vc.webhookURLs.filter(Boolean) : [];
+  normalized.visor.mergeEnabled = Boolean(vc?.mergeEnabled);
+  normalized.visor.mergeSimilarityThreshold = parseNumber(vc?.mergeSimilarityThreshold ?? 0.80, 0.80);
+  normalized.visor.mergeMaxPerRun = parseInteger(vc?.mergeMaxPerRun ?? 10, 10);
+
+  return normalized;
+}
+
+/** JSON.stringify ignores key order; server round-trips and UI mutations can reorder keys while staying semantically equal. */
+export function stableConfigStringify(value) {
+  if (value === null || typeof value !== "object") {
+    return JSON.stringify(value);
+  }
+  if (Array.isArray(value)) {
+    return `[${value.map((item) => stableConfigStringify(item)).join(",")}]`;
+  }
+  const keys = Object.keys(value).sort();
+  return `{${keys.map((k) => `${JSON.stringify(k)}:${stableConfigStringify(value[k])}`).join(",")}}`;
+}
+
+export function parseLines(value) {
+  return value
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
+}
+
+export function parseConfigList(value) {
+  return String(value || "")
+    .split(/[\n,]+/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+export function parseInteger(value, fallback) {
+  const parsed = Number.parseInt(String(value), 10);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+export function parseNumber(value, fallback) {
+  const parsed = Number.parseFloat(String(value));
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+export function normalizeGitSyncFrequency(value, fallback = "daily") {
+  const normalized = String(value || "")
+    .trim()
+    .toLowerCase();
+  return GIT_SYNC_FREQUENCIES.has(normalized) ? normalized : fallback;
+}
+
+export function normalizeGitSyncConflictStrategy(value, fallback = "remote_wins") {
+  const normalized = String(value || "")
+    .trim()
+    .toLowerCase();
+  return GIT_SYNC_CONFLICT_STRATEGIES.has(normalized) ? normalized : fallback;
+}
+
+export function normalizeTimeValue(value, fallback = "18:00") {
+  const normalized = String(value || "").trim();
+  return /^([01]\d|2[0-3]):[0-5]\d$/.test(normalized) ? normalized : fallback;
+}
+
+export function normalizeProxyType(value, fallback = "socks5") {
+  const normalized = String(value || "").trim().toLowerCase();
+  return PROXY_TYPES.has(normalized) ? normalized : fallback;
+}
+
+export function isSettingsSection(id) {
+  return SETTINGS_ITEMS.some((item) => item.id === id);
+}

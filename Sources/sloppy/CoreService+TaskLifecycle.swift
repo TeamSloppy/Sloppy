@@ -137,11 +137,17 @@ extension CoreService {
            task.worktreeBranch == nil {
             do {
                 let provider = sourceControlProvider(for: project, task: task)
-                let result = try await createOrReclaimWorktree(repoPath: repoPath, taskId: task.id, provider: provider)
+                let result = try await createOrReclaimWorktree(
+                    repoPath: repoPath,
+                    taskId: task.id,
+                    worktreeRootPath: defaultWorktreeRootPath(projectID: project.id),
+                    provider: provider
+                )
                 task.worktreeBranch = result.branchName
                 task.sourceControlProviderId = provider.id
                 worktreePath = result.worktreePath
             } catch {
+                let failureMessage = "Worktree creation failed: \(error.localizedDescription). Task blocked before worker launch to avoid modifying the repository without an isolated worktree."
                 logger.warning(
                     "visor.task.worktree_failed",
                     metadata: [
@@ -156,12 +162,34 @@ extension CoreService {
                     stage: "worktree_failed",
                     channelID: resolveExecutionChannelID(project: project, task: task),
                     workerID: nil,
-                    message: "Worktree creation failed: \(error.localizedDescription). Proceeding without worktree."
+                    message: failureMessage
                 )
+                let previousStatus = task.status
+                task.status = ProjectTaskStatus.blocked.rawValue
+                task.updatedAt = Date()
+                project.tasks[taskIndex] = task
+                project.updatedAt = Date()
+                await store.saveProject(project)
+                await kanbanEventService.push(KanbanEvent(type: .taskUpdated, projectId: project.id, task: task))
+                await recordSystemStatusChange(
+                    projectID: project.id,
+                    taskID: task.id,
+                    from: previousStatus,
+                    to: task.status,
+                    source: "system"
+                )
+                if let channelID = resolveExecutionChannelID(project: project, task: task) {
+                    await runtime.appendSystemMessage(channelId: channelID, content: failureMessage)
+                }
+                return
             }
         } else if task.worktreeBranch != nil {
             if let repoPath = project.repoPath {
-                worktreePath = sourceControlProvider(for: project, task: task).worktreePath(repoPath: repoPath, taskId: task.id)
+                worktreePath = sourceControlProvider(for: project, task: task).worktreePath(
+                    repoPath: repoPath,
+                    taskId: task.id,
+                    worktreeRootPath: defaultWorktreeRootPath(projectID: project.id)
+                )
             }
         }
 
@@ -529,7 +557,11 @@ extension CoreService {
             let provider = sourceControlProvider(for: project, task: task)
             let targetBranch = (try? await provider.defaultBranch(at: repoPath)) ?? "main"
             try await provider.mergeBranch(repoPath: repoPath, branchName: branchName, targetBranch: targetBranch)
-            let worktreePath = provider.worktreePath(repoPath: repoPath, taskId: taskID)
+            let worktreePath = provider.worktreePath(
+                repoPath: repoPath,
+                taskId: taskID,
+                worktreeRootPath: defaultWorktreeRootPath(projectID: project.id)
+            )
             try? await provider.removeWorktree(repoPath: repoPath, worktreePath: worktreePath)
         }
 
@@ -577,7 +609,11 @@ extension CoreService {
         let provider = sourceControlProvider(for: project, task: task)
         if task.status == ProjectTaskStatus.needsReview.rawValue,
            (await provider.inspectRepository(at: repoPath)).isRepository {
-            let worktreePath = provider.worktreePath(repoPath: repoPath, taskId: taskID)
+            let worktreePath = provider.worktreePath(
+                repoPath: repoPath,
+                taskId: taskID,
+                worktreeRootPath: defaultWorktreeRootPath(projectID: project.id)
+            )
             if (await provider.inspectRepository(at: worktreePath)).isRepository {
                 let label = (try? await provider.currentBranch(at: worktreePath)) ?? ""
                 let patch = (try? await provider.workingTreeDiff(at: worktreePath, maxBytes: 512 * 1024)) ?? SourceControlDiffResult(providerId: provider.id)
@@ -1152,13 +1188,24 @@ extension CoreService {
     func createOrReclaimWorktree(
         repoPath: String,
         taskId: String,
+        worktreeRootPath: String,
         provider: any SourceControlProvider
     ) async throws -> SourceControlWorktreeResult {
         do {
-            return try await provider.createWorktree(repoPath: repoPath, taskId: taskId, baseBranch: "HEAD")
+            return try await provider.createWorktree(
+                repoPath: repoPath,
+                taskId: taskId,
+                baseBranch: "HEAD",
+                worktreeRootPath: worktreeRootPath
+            )
         } catch GitWorktreeError.worktreeAlreadyExists(let existingPath) {
             try? await provider.removeWorktree(repoPath: repoPath, worktreePath: existingPath)
-            return try await provider.createWorktree(repoPath: repoPath, taskId: taskId, baseBranch: "HEAD")
+            return try await provider.createWorktree(
+                repoPath: repoPath,
+                taskId: taskId,
+                baseBranch: "HEAD",
+                worktreeRootPath: worktreeRootPath
+            )
         }
     }
 

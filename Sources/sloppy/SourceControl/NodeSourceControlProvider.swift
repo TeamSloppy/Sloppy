@@ -92,13 +92,19 @@ struct NodeSourceControlProvider: SourceControlProvider {
         try await call("defaultBranch", params: ["path": .string(path)], as: String.self)
     }
 
-    func createWorktree(repoPath: String, taskId: String, baseBranch: String) async throws -> SourceControlWorktreeResult {
+    func createWorktree(
+        repoPath: String,
+        taskId: String,
+        baseBranch: String,
+        worktreeRootPath: String?
+    ) async throws -> SourceControlWorktreeResult {
         try await call(
             "createWorktree",
             params: [
                 "repoPath": .string(repoPath),
                 "taskId": .string(taskId),
                 "baseBranch": .string(baseBranch),
+                "worktreeRootPath": worktreeRootPath.map(JSONValue.string) ?? .null,
             ],
             as: SourceControlWorktreeResult.self
         )
@@ -111,9 +117,15 @@ struct NodeSourceControlProvider: SourceControlProvider {
         )
     }
 
-    func worktreePath(repoPath: String, taskId: String) -> String {
-        URL(fileURLWithPath: repoPath)
-            .appendingPathComponent(manifest.config["worktreeRootName"]?.asString ?? ".sloppy-worktrees", isDirectory: true)
+    func worktreePath(repoPath: String, taskId: String, worktreeRootPath: String?) -> String {
+        let rootURL = worktreeRootPath
+            .flatMap { path -> URL? in
+                let trimmed = path.trimmingCharacters(in: .whitespacesAndNewlines)
+                return trimmed.isEmpty ? nil : URL(fileURLWithPath: trimmed, isDirectory: true)
+            }
+            ?? URL(fileURLWithPath: repoPath)
+                .appendingPathComponent(manifest.config["worktreeRootName"]?.asString ?? ".sloppy-worktrees", isDirectory: true)
+        return rootURL
             .appendingPathComponent(taskId, isDirectory: true)
             .path
     }

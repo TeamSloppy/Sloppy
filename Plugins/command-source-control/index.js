@@ -25,7 +25,8 @@ function commandConfig(manifest, key) {
   return valueAt(valueAt(manifest.config, "commands", {}), key);
 }
 
-function worktreePath(manifest, repoPath, taskId) {
+function worktreePath(manifest, repoPath, taskId, worktreeRootPath) {
+  if (worktreeRootPath) return path.join(worktreeRootPath, taskId);
   const rootName = valueAt(manifest.config, "worktreeRootName", ".sloppy-worktrees");
   return path.join(repoPath, rootName, taskId);
 }
@@ -99,12 +100,13 @@ async function handle(request) {
   const repoPath = params.repoPath || params.path;
   const taskId = params.taskId;
   const branchName = params.branchName || (taskId ? branchNameFor(taskId) : "");
-  const computedWorktreePath = params.worktreePath || (repoPath && taskId ? worktreePath(manifest, repoPath, taskId) : "");
+  const computedWorktreePath = params.worktreePath || (repoPath && taskId ? worktreePath(manifest, repoPath, taskId, params.worktreeRootPath) : "");
   const context = {
     method,
     repoPath,
     path: params.path,
     taskId,
+    worktreeRootPath: params.worktreeRootPath || "",
     worktreePath: computedWorktreePath,
     branchName,
     baseBranch: params.baseBranch || "HEAD",

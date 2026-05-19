@@ -11,13 +11,18 @@ import Darwin
 public final class TUI: Container {
     private let terminal: Terminal
     private let scheduleRender: (@MainActor @Sendable @escaping () -> Void) -> Void
+    private let scheduleDelayedRender: (UInt64, @MainActor @Sendable @escaping () -> Void) -> Void
+    private let clock: () -> UInt64
+    private let minimumFrameIntervalNanoseconds: UInt64?
     private var focusedComponent: Component?
     private var theme: ThemePalette = .default
 
     private var previousLines: [String] = []
     private var previousWidth: Int = 0
+    private var previousHeight: Int = 0
     private var cursorRow: Int = 0
     private var renderRequested = false
+    private var lastRenderUptimeNanoseconds: UInt64?
 
     /// Called when Ctrl+C is received. If unset, Ctrl+C will stop the terminal and call `exit(0)`.
     public var onControlC: (@MainActor @Sendable () -> Void)?
@@ -25,10 +30,27 @@ public final class TUI: Container {
     /// When true (default), Ctrl+C is intercepted before forwarding input to the focused component.
     public var handlesControlC: Bool = true
 
-    public init(terminal: Terminal, renderScheduler: ((@MainActor @Sendable @escaping () -> Void) -> Void)? = nil) {
+    public init(
+        terminal: Terminal,
+        renderScheduler: ((@MainActor @Sendable @escaping () -> Void) -> Void)? = nil,
+        maximumFramesPerSecond: Double? = nil,
+        clock: @escaping () -> UInt64 = { DispatchTime.now().uptimeNanoseconds },
+        delayedRenderScheduler: ((UInt64, @MainActor @Sendable @escaping () -> Void) -> Void)? = nil
+    ) {
         self.terminal = terminal
         self.scheduleRender = renderScheduler ?? { handler in
             DispatchQueue.main.async(execute: handler)
+        }
+        self.scheduleDelayedRender = delayedRenderScheduler ?? { delayNanoseconds, handler in
+            DispatchQueue.main.asyncAfter(
+                deadline: .now() + .nanoseconds(Int(min(delayNanoseconds, UInt64(Int.max)))),
+                execute: handler)
+        }
+        self.clock = clock
+        if let maximumFramesPerSecond, maximumFramesPerSecond > 0 {
+            self.minimumFrameIntervalNanoseconds = UInt64((1_000_000_000.0 / maximumFramesPerSecond).rounded(.up))
+        } else {
+            self.minimumFrameIntervalNanoseconds = nil
         }
         super.init(children: [])
     }
@@ -63,11 +85,36 @@ public final class TUI: Container {
     public func requestRender() {
         guard !self.renderRequested else { return }
         self.renderRequested = true
-        self.scheduleRender { @MainActor [weak self] in
-            guard let self else { return }
-            self.renderRequested = false
-            self.performRender()
+
+        let delay = self.renderDelayNanoseconds()
+        let handler: @MainActor @Sendable () -> Void = { [weak self] in
+            self?.drainRenderRequest()
         }
+        if delay > 0 {
+            self.scheduleDelayedRender(delay, handler)
+        } else {
+            self.scheduleRender(handler)
+        }
+    }
+
+    private func drainRenderRequest() {
+        let renderStartedAt = self.clock()
+        self.renderRequested = false
+        self.performRender()
+        self.lastRenderUptimeNanoseconds = renderStartedAt
+    }
+
+    private func renderDelayNanoseconds() -> UInt64 {
+        guard let minimumFrameIntervalNanoseconds,
+              let lastRenderUptimeNanoseconds else {
+            return 0
+        }
+        let now = self.clock()
+        guard now > lastRenderUptimeNanoseconds else {
+            return minimumFrameIntervalNanoseconds
+        }
+        let elapsed = now - lastRenderUptimeNanoseconds
+        return elapsed >= minimumFrameIntervalNanoseconds ? 0 : minimumFrameIntervalNanoseconds - elapsed
     }
 
     // MARK: - Input
@@ -114,22 +161,25 @@ public final class TUI: Container {
         guard !newLines.isEmpty else {
             self.previousLines = []
             self.previousWidth = width
+            self.previousHeight = height
             self.cursorRow = 0
             return
         }
 
         if self.previousLines.isEmpty {
-            self.writeFullRender(newLines)
+            self.writeFullRender(newLines, clear: true)
             self.previousLines = newLines
             self.previousWidth = width
+            self.previousHeight = height
             self.cursorRow = newLines.count - 1
             return
         }
 
-        if self.previousWidth != width {
+        if self.previousWidth != width || self.previousHeight != height {
             self.writeFullRender(newLines, clear: true)
             self.previousLines = newLines
             self.previousWidth = width
+            self.previousHeight = height
             self.cursorRow = newLines.count - 1
             return
         }
@@ -143,6 +193,7 @@ public final class TUI: Container {
             self.writeFullRender(newLines, clear: true)
             self.previousLines = newLines
             self.previousWidth = width
+            self.previousHeight = height
             self.cursorRow = newLines.count - 1
             return
         }
@@ -150,6 +201,7 @@ public final class TUI: Container {
         self.writePartialRender(lines: newLines, from: diffRange.lowerBound)
         self.previousLines = newLines
         self.previousWidth = width
+        self.previousHeight = height
         self.cursorRow = newLines.count - 1
     }
 
@@ -203,6 +255,7 @@ public final class TUI: Container {
             if !self.containsImage(line) {
                 precondition(VisibleWidth.measure(line) <= self.terminal.columns, "Rendered line exceeds width")
             }
+            buffer += ANSI.resetStyle
             buffer += ANSI.clearLine
             buffer += line
         }
@@ -210,7 +263,7 @@ public final class TUI: Container {
         if self.previousLines.count > lines.count {
             let extraLines = self.previousLines.count - lines.count
             for _ in 0..<extraLines {
-                buffer += "\r\n" + ANSI.clearLine
+                buffer += "\r\n" + ANSI.resetStyle + ANSI.clearLine
             }
             buffer += ANSI.cursorUp(extraLines)
         }

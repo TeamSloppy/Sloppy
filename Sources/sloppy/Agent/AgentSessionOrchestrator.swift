@@ -710,6 +710,28 @@ actor AgentSessionOrchestrator {
         return AgentSessionMessageResponse(summary: summary, appendedEvents: appendedEvents, routeDecision: nil)
     }
 
+    func hasLiveRuntimeSession(agentID: String, sessionID: String) async -> Bool {
+        guard let runtimeConfig = try? agentCatalogStore.getAgentConfig(
+            agentID: agentID,
+            availableModels: availableModels,
+            persistedModelAllowed: persistedModelAllowed()
+        ).runtime else {
+            return false
+        }
+
+        switch runtimeConfig.type {
+        case .native:
+            return await runtime.hasCachedChannelSession(
+                channelId: sessionChannelID(agentID: agentID, sessionID: sessionID)
+            )
+        case .acp:
+            guard let acpSessionManager else {
+                return false
+            }
+            return await acpSessionManager.hasManagedSession(agentID: agentID, sloppySessionID: sessionID)
+        }
+    }
+
     func appendSessionEvents(
         agentID: String,
         sessionID: String,

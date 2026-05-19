@@ -171,6 +171,13 @@ struct SloppyTUITokenUsageSummary: Equatable {
         }
         return min(100, Int(((Double(totalTokens) / Double(contextWindowTokens)) * 100).rounded()))
     }
+
+    var freeTokens: Int? {
+        guard contextWindowTokens > 0 else {
+            return nil
+        }
+        return max(0, contextWindowTokens - totalTokens)
+    }
 }
 
 struct SloppyTUIContextUsageSummary: Equatable {

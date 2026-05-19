@@ -364,6 +364,28 @@ enum SloppyTUITheme {
         return applyPanelBackground(padded(fittedLine(text, width: width), width: width), width: width)
     }
 
+    static func contextUsageProgressLine(width: Int, summary: SloppyTUITokenUsageSummary) -> String {
+        let barWidth = max(6, min(24, width / 4))
+        let bar = contextProgressBar(summary, width: barWidth)
+        var details: [String] = []
+        if let percent = summary.usagePercent, summary.contextWindowTokens > 0 {
+            details.append("\(percent)%")
+            details.append("\(formatTokenCountShort(summary.totalTokens))/\(formatTokenCountShort(summary.contextWindowTokens)) tokens")
+            if let freeTokens = summary.freeTokens {
+                details.append("free \(formatTokenCountShort(freeTokens))")
+            }
+        } else {
+            details.append("\(formatTokenCountShort(summary.totalTokens)) tokens")
+            details.append("context unknown")
+        }
+        if let costUSD = summary.costUSD {
+            details.append(formatUSD(costUSD))
+        }
+
+        let text = "  " + muted("context ") + bar + muted(" ") + foreground(details.joined(separator: " · "))
+        return applyPanelBackground(padded(fittedLine(text, width: width), width: width), width: width)
+    }
+
     static func exitSummaryLines(_ summary: SloppyTUIExitSummary, width: Int) -> [String] {
         let boxWidth = max(24, min(width, 96))
         let contentWidth = max(1, boxWidth - 4)
@@ -453,6 +475,37 @@ enum SloppyTUITheme {
 
         Attach workspace context with `/context changes` or `/context diff`.
         """
+    }
+
+    private static func contextProgressBar(_ summary: SloppyTUITokenUsageSummary, width: Int) -> String {
+        guard width > 0 else {
+            return ""
+        }
+        guard summary.contextWindowTokens > 0 else {
+            return muted("[\(String(repeating: "-", count: width))]")
+        }
+
+        var filled = min(
+            width,
+            max(0, Int((Double(summary.totalTokens) / Double(summary.contextWindowTokens) * Double(width)).rounded()))
+        )
+        if summary.totalTokens > 0, filled == 0 {
+            filled = 1
+        }
+        let empty = max(0, width - filled)
+        let content = String(repeating: "=", count: filled) + String(repeating: "-", count: empty)
+        let percent = summary.usagePercent ?? 0
+        let style: (String) -> String
+        if percent >= 90 {
+            style = red
+        } else if percent >= 70 {
+            style = orange
+        } else if percent >= 50 {
+            style = yellow
+        } else {
+            style = green
+        }
+        return muted("[") + style(content) + muted("]")
     }
 
     static func highlightedComposerLines(_ lines: [String]) -> [String] {

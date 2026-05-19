@@ -242,6 +242,11 @@ public actor RuntimeSystem {
         sessionsByChannel.removeValue(forKey: channelId)
     }
 
+    /// Returns whether the channel currently has an in-memory LLM session.
+    public func hasCachedChannelSession(channelId: String) -> Bool {
+        sessionsByChannel[channelId] != nil
+    }
+
     /// Posts channel message and executes route-specific orchestration flow.
     public func postMessage(
         channelId: String,

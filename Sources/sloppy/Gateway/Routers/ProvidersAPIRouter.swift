@@ -19,6 +19,11 @@ struct ProvidersAPIRouter: APIRouter {
             return CoreRouter.encodable(status: HTTPStatus.ok, payload: status)
         }
 
+        router.get("/v1/providers/models", metadata: RouteMetadata(summary: "List available provider models", description: "Returns runtime-routable models for agent and channel model pickers", tags: ["Providers"])) { _ in
+            let models = await service.listAvailableProviderModels()
+            return CoreRouter.encodable(status: HTTPStatus.ok, payload: models)
+        }
+
         router.post("/v1/providers/openai/oauth/start", metadata: RouteMetadata(summary: "Start OpenAI OAuth", description: "Creates an OpenAI OAuth authorization URL", tags: ["Providers"])) { request in
             guard let body = request.body,
                   let payload = CoreRouter.decode(body, as: OpenAIOAuthStartRequest.self)

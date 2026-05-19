@@ -122,6 +122,16 @@ func chromeRowsFitNarrowTerminalWidth() {
                 costUSD: 0.42
             )
         ),
+        SloppyTUITheme.contextUsageProgressLine(
+            width: width,
+            summary: .init(
+                promptTokens: 22_000,
+                completionTokens: 13_000,
+                totalTokens: 35_000,
+                contextWindowTokens: 400_000,
+                costUSD: 0.42
+            )
+        ),
         SloppyTUITheme.toolCallLine(
             tool: "runtime.exec",
             reason: String(repeating: "reason", count: 12),
@@ -155,6 +165,28 @@ func chromeRowsFitNarrowTerminalWidth() {
     for row in rows {
         #expect(VisibleWidth.measure(row) <= width)
     }
+}
+
+@Test
+func contextUsageProgressShowsFillPercentAndRemainingSpace() {
+    let line = SloppyTUITheme.contextUsageProgressLine(
+        width: 96,
+        summary: .init(
+            promptTokens: 80_000,
+            completionTokens: 20_000,
+            totalTokens: 100_000,
+            contextWindowTokens: 400_000,
+            costUSD: 1.25
+        )
+    )
+    let plain = stripANSI(line)
+
+    #expect(plain.contains("context ["))
+    #expect(plain.contains("25%"))
+    #expect(plain.contains("100.0K/400.0K tokens"))
+    #expect(plain.contains("free 300.0K"))
+    #expect(plain.contains("$1.25"))
+    #expect(VisibleWidth.measure(line) <= 96)
 }
 
 @Test

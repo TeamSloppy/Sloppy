@@ -1,5 +1,6 @@
 import React, { useState, useMemo, useEffect, useRef } from "react";
 import {
+    fetchSourceControlProviders,
     fetchProjectTaskSync,
     discoverProjectTaskSync,
     linkProjectTaskSync,
@@ -70,6 +71,20 @@ const PROJECT_ICONS = [
 ];
 
 const PROJECT_ICON_ACCEPT = "image/png,image/jpeg,image/webp,image/gif";
+
+const DEFAULT_SOURCE_CONTROL_PROVIDER = {
+    id: "git-cli",
+    displayName: "Git CLI",
+    capabilities: [
+        "branch_diff",
+        "inspect_repository",
+        "merge",
+        "restore",
+        "working_tree_diff",
+        "working_tree_status",
+        "worktrees"
+    ]
+};
 
 const LOOP_MODE_OPTIONS = [
     {
@@ -147,6 +162,61 @@ function SloppyStatusDropdown({ value, onChange }) {
     );
 }
 
+function SourceControlProviderDropdown({ providers, value, onChange }) {
+    const [open, setOpen] = useState(false);
+    const ref = useRef(null);
+    const selected = providers.find((provider) => provider.id === value) || providers[0] || DEFAULT_SOURCE_CONTROL_PROVIDER;
+
+    useEffect(() => {
+        if (!open) return;
+        function handleClick(e) {
+            if (ref.current && !ref.current.contains(e.target)) {
+                setOpen(false);
+            }
+        }
+        document.addEventListener("mousedown", handleClick);
+        return () => document.removeEventListener("mousedown", handleClick);
+    }, [open]);
+
+    return (
+        <div className="actor-team-search-wrap source-control-provider-dropdown" ref={ref}>
+            <button
+                type="button"
+                className="actor-team-search source-control-provider-dropdown-button"
+                onClick={() => setOpen((next) => !next)}
+            >
+                <span className="source-control-provider-current">
+                    <span>{selected.displayName || selected.id}</span>
+                    <small>{selected.id}</small>
+                </span>
+                <span className="material-symbols-rounded" aria-hidden="true">expand_more</span>
+            </button>
+            {open && (
+                <ul className="actor-team-dropdown source-control-provider-options">
+                    {providers.map((provider) => {
+                        const active = provider.id === selected.id;
+                        return (
+                            <li
+                                key={provider.id}
+                                className={`actor-team-dropdown-item ${active ? "selected" : ""}`}
+                                onMouseDown={(e) => {
+                                    e.preventDefault();
+                                    onChange(provider.id);
+                                    setOpen(false);
+                                }}
+                            >
+                                <span className="actor-team-dropdown-name">{provider.displayName || provider.id}</span>
+                                <span className="actor-team-dropdown-id">{provider.id}</span>
+                                {active && <span className="actor-team-dropdown-check">✓</span>}
+                            </li>
+                        );
+                    })}
+                </ul>
+            )}
+        </div>
+    );
+}
+
 function cloneDraft(project) {
     return {
         name: project?.name ?? "",
@@ -160,6 +230,7 @@ function cloneDraft(project) {
                 : 5
         },
         repoPath: project?.repoPath ?? "",
+        sourceControlProviderId: project?.sourceControlProviderId ?? DEFAULT_SOURCE_CONTROL_PROVIDER.id,
         reviewSettings: {
             enabled: Boolean(project?.reviewSettings?.enabled),
             approvalMode: project?.reviewSettings?.approvalMode ?? "human",
@@ -226,6 +297,7 @@ export function ProjectSettingsTab({
     const [taskSyncTokenStatus, setTaskSyncTokenStatus] = useState(null);
     const [taskSyncBusy, setTaskSyncBusy] = useState(false);
     const [taskSyncDiscovery, setTaskSyncDiscovery] = useState(null);
+    const [sourceControlProviders, setSourceControlProviders] = useState([DEFAULT_SOURCE_CONTROL_PROVIDER]);
 
     useEffect(() => {
         setDraft(cloneDraft(project));
@@ -247,6 +319,35 @@ export function ProjectSettingsTab({
         loadTaskSync();
         return () => { cancelled = true; };
     }, [project.id, project.updatedAt]);
+
+    useEffect(() => {
+        let cancelled = false;
+        async function loadSourceControlProviders() {
+            const providers = await fetchSourceControlProviders();
+            if (cancelled || !Array.isArray(providers)) return;
+            const nextProviders = [DEFAULT_SOURCE_CONTROL_PROVIDER];
+            const seen = new Set(nextProviders.map((provider) => provider.id));
+            providers.forEach((provider) => {
+                const id = String(provider?.id || "").trim();
+                if (!id) return;
+                const normalizedProvider = {
+                    id,
+                    displayName: String(provider?.displayName || id).trim() || id,
+                    capabilities: Array.isArray(provider?.capabilities) ? provider.capabilities : []
+                };
+                if (seen.has(id)) {
+                    const index = nextProviders.findIndex((item) => item.id === id);
+                    if (index >= 0) nextProviders[index] = normalizedProvider;
+                    return;
+                }
+                nextProviders.push(normalizedProvider);
+                seen.add(id);
+            });
+            setSourceControlProviders(nextProviders);
+        }
+        loadSourceControlProviders();
+        return () => { cancelled = true; };
+    }, []);
 
     const hasChanges = useMemo(() => {
         const saved = cloneDraft(project);
@@ -286,6 +387,7 @@ export function ProjectSettingsTab({
             agentFiles: draft.agentFiles,
             heartbeat: draft.heartbeat,
             repoPath: draft.repoPath.trim() || null,
+            sourceControlProviderId: draft.sourceControlProviderId || DEFAULT_SOURCE_CONTROL_PROVIDER.id,
             reviewSettings: draft.reviewSettings,
             taskLoopMode: draft.taskLoopMode,
             actors: draft.actors,
@@ -432,7 +534,7 @@ export function ProjectSettingsTab({
                             />
                             <span className="entry-form-hint">
                                 {workspacePath
-                                    ? <>Agents, file tools, and review worktrees will use <code>{workspacePath}</code>.</>
+                                    ? <>Agents and file tools will use <code>{workspacePath}</code>.</>
                                     : "Set the absolute path to the project workspace so agents use the correct directory."}
                             </span>
                         </label>
@@ -1031,6 +1133,10 @@ export function ProjectSettingsTab({
     function renderReview() {
         const isEnabled = draft.reviewSettings.enabled;
         const repoPath = draft.repoPath.trim();
+        const worktreeRootPath = String(project?.worktreeRootPath || "").trim();
+        const selectedProvider = sourceControlProviders.find((provider) => provider.id === draft.sourceControlProviderId)
+            || sourceControlProviders[0]
+            || DEFAULT_SOURCE_CONTROL_PROVIDER;
         return (
             <section className="entry-editor-card">
                 <h3>Git Worktree &amp; Review</h3>
@@ -1061,20 +1167,37 @@ export function ProjectSettingsTab({
                 </div>
 
                 <div className="entry-form-grid" style={{ marginTop: 16 }}>
-                    <label style={{ gridColumn: "1 / -1" }}>
-                        Review repository path
-                        <input
-                            type="text"
-                            placeholder="e.g. /home/user/my-project"
-                            value={draft.repoPath}
-                            onChange={(e) => mutateDraft((d) => { d.repoPath = e.target.value; })}
-                        />
+                    <div className="review-worktree-path" style={{ gridColumn: "1 / -1" }}>
+                        <span className="task-sync-field-label">Worktree root</span>
+                        <code>{worktreeRootPath || `.sloppy/worktrees/${project.id}`}</code>
                         <span className="entry-form-hint">
                             {repoPath
-                                ? <>Worktrees will be created at <code>{repoPath}/.sloppy-worktrees/</code>.</>
-                                : "Uses the workspace path above. Leave empty to disable worktree isolation."}
+                                ? "Dedicated task worktrees are created outside the workspace path."
+                                : "Set the workspace path above before enabling worktree isolation."}
                         </span>
-                    </label>
+                    </div>
+                </div>
+
+                <div className="review-section-divider" />
+                <div className="review-provider-section">
+                    <div className="review-provider-copy">
+                        <p className="review-approval-title">Worktree provider</p>
+                        <p className="review-approval-subtitle">
+                            Pick the source-control plugin used to create task branches and worktrees.
+                        </p>
+                    </div>
+                    <SourceControlProviderDropdown
+                        providers={sourceControlProviders}
+                        value={selectedProvider.id}
+                        onChange={(providerId) => mutateDraft((d) => { d.sourceControlProviderId = providerId; })}
+                    />
+                    {Array.isArray(selectedProvider.capabilities) && selectedProvider.capabilities.length > 0 ? (
+                        <div className="source-control-provider-capabilities">
+                            {selectedProvider.capabilities.map((capability) => (
+                                <span key={capability}>{capability}</span>
+                            ))}
+                        </div>
+                    ) : null}
                 </div>
 
                 <div className="review-section-divider" />

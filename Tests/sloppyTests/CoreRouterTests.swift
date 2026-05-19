@@ -1786,6 +1786,51 @@ func agentConfigEndpointsReadAndUpdate() async throws {
 }
 
 @Test
+func availableProviderModelsEndpointIncludesEffectiveOpenCodeModels() async throws {
+    let directory = FileManager.default.temporaryDirectory
+        .appendingPathComponent("sloppy-opencode-models-\(UUID().uuidString)", isDirectory: true)
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: directory) }
+
+    let configURL = directory.appendingPathComponent("opencode.json")
+    try Data(
+        """
+        {
+          "provider": {
+            "company": {
+              "name": "Company",
+              "npm": "@ai-sdk/openai-compatible",
+              "options": {
+                "baseURL": "https://models.example.com/v1",
+                "apiKey": "company-key"
+              },
+              "models": {
+                "fast-code": { "name": "Fast Code" }
+              }
+            }
+          }
+        }
+        """.utf8
+    ).write(to: configURL)
+
+    var config = CoreConfig.test
+    config.models = []
+    config.opencode = CoreConfig.OpenCode(
+        enabled: true,
+        useResolvedConfigCommand: false,
+        configPaths: [configURL.path]
+    )
+    let service = CoreService(config: config)
+    let router = CoreRouter(service: service)
+
+    let response = await router.handle(method: "GET", path: "/v1/providers/models", body: nil)
+
+    #expect(response.status == 200)
+    let models = try JSONDecoder().decode([ProviderModelOption].self, from: response.body)
+    #expect(models.contains { $0.id == "opencode:company/fast-code" })
+}
+
+@Test
 func channelRoutingSkipsExcludedFirstAgentAndUsesConfigAllowList() async throws {
     let config = CoreConfig.test
     let service = CoreService(config: config)
@@ -3051,6 +3096,40 @@ func channelPluginInstallInvalidPayloadExplainsRequiredFields() async throws {
     #expect(error.message?.contains("plugin.json") == true)
     #expect(error.message?.contains("localDirectory") == true)
     #expect(error.message?.contains("Bool") == true)
+}
+
+@Test
+func channelPluginInstallInitializationFailureUsesInstallSpecificMessage() async throws {
+    let root = FileManager.default.temporaryDirectory
+        .appendingPathComponent("plugin-install-init-failure-\(UUID().uuidString)", isDirectory: true)
+    defer { try? FileManager.default.removeItem(at: root) }
+    try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+    let manifest = """
+    {
+      "name": "broken-source-control",
+      "protocol": "source_control",
+      "version": "1.0.0",
+      "runtime": "nodejs",
+      "apiVersion": "2026-05-plugins-v2",
+      "entrypoint": "missing.js"
+    }
+    """
+    try Data(manifest.utf8).write(to: root.appendingPathComponent("plugin.json"))
+
+    let config = CoreConfig.test
+    let service = CoreService(config: config)
+    let router = CoreRouter(service: service)
+    let body = try JSONEncoder().encode(
+        ChannelPluginInstallRequest(sourceUrl: root.path, force: true, enabled: true, localDirectory: true)
+    )
+
+    let response = await router.handle(method: "POST", path: "/v1/plugins/install", body: body)
+
+    #expect(response.status == 400)
+    let error = try JSONDecoder().decode(ErrorResponse.self, from: response.body)
+    #expect(error.error == ErrorCode.invalidPluginPayload)
+    #expect(error.message?.contains("could not be initialized") == true)
+    #expect(error.message?.contains("create/update") == false)
 }
 
 @Test

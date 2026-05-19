@@ -220,6 +220,18 @@ func pluginInstallSourceKeepsGitSourceWhenLocalDirectoryIsFalse() throws {
     #expect(resolved == "local-plugin")
 }
 
+@Test
+func childProcessEnvironmentAddsHomebrewNodePathWhenAvailable() {
+    let nodePath = "/opt/homebrew/opt/node@24/bin"
+    guard FileManager.default.fileExists(atPath: nodePath) else {
+        return
+    }
+
+    let env = childProcessEnvironment(base: ["PATH": "/usr/bin:/bin:/usr/sbin:/sbin"])
+
+    #expect(env["PATH"]?.split(separator: ":").contains(Substring(nodePath)) == true)
+}
+
 // MARK: - CLIClientError descriptions
 
 @Test

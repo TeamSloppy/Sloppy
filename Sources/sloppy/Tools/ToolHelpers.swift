@@ -113,12 +113,37 @@ func childProcessEnvironment(
     overrides: [String: String] = [:],
     base: [String: String] = ProcessInfo.processInfo.environment
 ) -> [String: String] {
-    guard !overrides.isEmpty else { return base }
     var env = base
+    env["PATH"] = augmentedChildProcessPATH(base["PATH"])
     for (key, value) in overrides {
         env[key] = value
     }
     return env
+}
+
+private func augmentedChildProcessPATH(_ path: String?) -> String {
+    var entries = (path ?? "/usr/bin:/bin:/usr/sbin:/sbin")
+        .split(separator: ":", omittingEmptySubsequences: true)
+        .map(String.init)
+    let existing = Set(entries)
+    for candidate in childProcessPATHCandidates() where !existing.contains(candidate) {
+        entries.append(candidate)
+    }
+    return entries.joined(separator: ":")
+}
+
+private func childProcessPATHCandidates() -> [String] {
+    [
+        "/opt/homebrew/bin",
+        "/opt/homebrew/sbin",
+        "/usr/local/bin",
+        "/usr/local/sbin",
+        "/opt/homebrew/opt/node/bin",
+        "/opt/homebrew/opt/node@24/bin",
+        "/opt/homebrew/opt/node@22/bin",
+        "/opt/homebrew/opt/node@20/bin",
+        "/opt/homebrew/opt/node@18/bin",
+    ].filter { FileManager.default.fileExists(atPath: $0) }
 }
 
 // MARK: - Process execution

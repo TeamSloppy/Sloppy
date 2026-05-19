@@ -7,6 +7,46 @@ export type AggregatedModelOption = {
   capabilities?: string[];
 };
 
+type ProviderModelLike = {
+  id?: unknown;
+  title?: unknown;
+  contextWindow?: unknown;
+  capabilities?: unknown;
+};
+
+export function mergeModelOptions(
+  ...groups: Array<ProviderModelLike[] | null | undefined>
+): AggregatedModelOption[] {
+  const seen = new Set<string>();
+  const merged: AggregatedModelOption[] = [];
+
+  for (const group of groups) {
+    if (!Array.isArray(group)) {
+      continue;
+    }
+
+    for (const model of group) {
+      const id = String(model?.id || "").trim();
+      if (!id || seen.has(id)) {
+        continue;
+      }
+      seen.add(id);
+
+      const title = String(model?.title || id).trim() || id;
+      const next: AggregatedModelOption = { id, title };
+      if (model?.contextWindow != null) {
+        next.contextWindow = String(model.contextWindow);
+      }
+      if (Array.isArray(model?.capabilities) && model.capabilities.length > 0) {
+        next.capabilities = model.capabilities.map((capability) => String(capability));
+      }
+      merged.push(next);
+    }
+  }
+
+  return merged;
+}
+
 export function inferProviderId(entry: Record<string, unknown>): string {
   const catalog = String((entry as { providerCatalogId?: string }).providerCatalogId || "").trim();
   if (catalog === "openai-api") return "openai-api";

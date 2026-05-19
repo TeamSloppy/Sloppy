@@ -5,6 +5,7 @@ import {
   fetchAgentConfig,
   fetchAgentFileContent,
   fetchAgentFiles,
+  fetchAvailableModels,
   fetchRuntimeConfig,
   updateAgentConfig,
   deleteAgent
@@ -12,7 +13,8 @@ import {
 import {
   coerceLegacySloppyModelId,
   collectAggregatedProviderModels,
-  filterModelsByQuery
+  filterModelsByQuery,
+  mergeModelOptions
 } from "../utils/aggregateProviderModels";
 import { ChannelModelSelector } from "./ChannelModelSelector";
 import { resolveSystemRole, SYSTEM_ROLES } from "./AgentCreateForm";
@@ -302,10 +304,11 @@ export function AgentConfigTab({ agentId, agentDisplayName = "", onDeleteAgent =
       setStatusText("Loading agent config...");
       setAggregatedModels([]);
       setModelCatalogStatus("Loading model catalog...");
-      const [response, board, runtimeCfg] = await Promise.all([
+      const [response, board, runtimeCfg, availableModelsResponse] = await Promise.all([
         fetchAgentConfig(agentId),
         fetchActorsBoard(),
-        fetchRuntimeConfig()
+        fetchRuntimeConfig(),
+        fetchAvailableModels()
       ]);
       if (isCancelled) {
         return;
@@ -332,34 +335,6 @@ export function AgentConfigTab({ agentId, agentDisplayName = "", onDeleteAgent =
         return;
       }
 
-      setAggregatedModels(catalog.models);
-      if (catalogLoadError) {
-        setModelCatalogStatus("Failed to load provider model catalogs.");
-      } else {
-        const failed = (catalog.probes || []).filter((p) => !p.ok);
-        const modelsField = runtimeCfg ? (runtimeCfg as Record<string, unknown>).models : undefined;
-        const hasModelEntries =
-          runtimeCfg && Array.isArray(modelsField) && modelsField.length > 0;
-
-        if (catalog.models.length === 0 && !hasModelEntries) {
-          setModelCatalogStatus("No models found. Configure providers in Settings.");
-        } else if (failed.length > 0) {
-          const summary = failed
-            .map((p) => {
-              const reason = p.message ? ` — ${p.message}` : "";
-              return `${p.title || p.providerId}${reason}`;
-            })
-            .join("; ");
-          setModelCatalogStatus(
-            catalog.models.length === 0
-              ? `Providers failed probe: ${summary}. Check Settings > Providers.`
-              : `Some providers failed probe: ${summary}.`
-          );
-        } else {
-          setModelCatalogStatus("");
-        }
-      }
-
       if (!response) {
         const empty = emptyAgentConfigDraft(agentId);
         setDraft(empty);
@@ -370,6 +345,38 @@ export function AgentConfigTab({ agentId, agentDisplayName = "", onDeleteAgent =
       }
 
       const normalized = normalizeConfigDraft(agentId, response);
+      const mergedModels = mergeModelOptions(
+        normalized.availableModels,
+        Array.isArray(availableModelsResponse) ? availableModelsResponse : [],
+        catalog.models
+      );
+      setAggregatedModels(mergedModels);
+      if (catalogLoadError) {
+        setModelCatalogStatus("Failed to load provider model catalogs.");
+      } else {
+        const failed = (catalog.probes || []).filter((p) => !p.ok);
+        const modelsField = runtimeCfg ? (runtimeCfg as Record<string, unknown>).models : undefined;
+        const hasModelEntries =
+          runtimeCfg && Array.isArray(modelsField) && modelsField.length > 0;
+
+        if (mergedModels.length === 0 && !hasModelEntries) {
+          setModelCatalogStatus("No models found. Configure providers in Settings.");
+        } else if (failed.length > 0) {
+          const summary = failed
+            .map((p) => {
+              const reason = p.message ? ` — ${p.message}` : "";
+              return `${p.title || p.providerId}${reason}`;
+            })
+            .join("; ");
+          setModelCatalogStatus(
+            mergedModels.length === 0
+              ? `Providers failed probe: ${summary}. Check Settings > Providers.`
+              : `Some providers failed probe: ${summary}.`
+          );
+        } else {
+          setModelCatalogStatus("");
+        }
+      }
       setDraft(normalized);
       setSavedDraft(clone(normalized));
       setStatusText("Config loaded.");

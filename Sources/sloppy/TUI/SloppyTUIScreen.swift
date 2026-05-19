@@ -171,7 +171,7 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
         SloppyTUISlashCommand("new", "Create a new session"),
         SloppyTUISlashCommand("clear", "Clear local cards"),
         SloppyTUISlashCommand("stop", "Interrupt the current run"),
-        SloppyTUISlashCommand("restore", "Restart the current session after a failed run"),
+        SloppyTUISlashCommand("restore", "Nudge a live session or restore it after a failed run"),
         SloppyTUISlashCommand("up", "Alias for restore"),
         SloppyTUISlashCommand("undo", "Undo file changes from the last completed turn"),
         SloppyTUISlashCommand("redo", "Redo the last undone turn"),
@@ -568,13 +568,15 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
             ))
         }
         composer.append(contentsOf: SloppyTUITheme.highlightedComposerLines(editor.render(width: width)))
+        if let tokenUsageSummary {
+            composer.append(SloppyTUITheme.contextUsageProgressLine(width: width, summary: tokenUsageSummary))
+        }
         composer.append(SloppyTUITheme.composerMetaLine(
             width: width,
             mode: chatMode,
             model: selectedModel,
             agent: agent.displayName,
-            provider: providerLabel(from: selectedModel),
-            tokenUsage: tokenUsageSummary
+            provider: providerLabel(from: selectedModel)
         ))
         composer.append(footer)
 
@@ -1910,12 +1912,31 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
         }
 
         let trimmedExtra = extraInstruction.trimmingCharacters(in: .whitespacesAndNewlines)
-        let extra = trimmedExtra.isEmpty ? "" : "\n\nAdditional recovery instruction:\n\(trimmedExtra)"
-        await sendMessage("""
+        let hasLiveRuntimeSession = (try? await runtime.service.hasLiveAgentRuntimeSession(
+            agentID: agent.id,
+            sessionID: session.id
+        )) ?? false
+        await sendMessage(Self.restorePrompt(
+            hasLiveRuntimeSession: hasLiveRuntimeSession,
+            extraInstruction: trimmedExtra
+        ))
+    }
+
+    private static func restorePrompt(hasLiveRuntimeSession: Bool, extraInstruction: String) -> String {
+        let extra = extraInstruction.isEmpty ? "" : "\n\nAdditional recovery instruction:\n\(extraInstruction)"
+        if hasLiveRuntimeSession {
+            return """
+            Continue executing the current task from the live session state.
+
+            Do not start a new task and do not repeat completed work. Continue from the last reliable point, using the latest live context and tool results. If the task is already complete, report the final status clearly.\(extra)
+            """
+        }
+
+        return """
         Restore this session after the previous run failed, lost network access, or was interrupted. Continue the last unfinished user task from the current session transcript.
 
         Do not start a new task and do not repeat completed work. Inspect the latest session context and tool results if needed, then continue from the last reliable point. If the failure was transient, retry the failed operation and proceed normally.\(extra)
-        """)
+        """
     }
 
     private func makeUndoBaseline() async -> SloppyTUISessionUndoManagers.Baseline? {

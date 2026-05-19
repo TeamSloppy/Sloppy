@@ -26,9 +26,9 @@ public final class AnySourceControlProviderBox: SourceControlProvider, @unchecke
     private let _branchDiff: @Sendable (String, String, String, Int) async throws -> SourceControlDiffResult
     private let _currentBranch: @Sendable (String) async throws -> String?
     private let _defaultBranch: @Sendable (String) async throws -> String
-    private let _createWorktree: @Sendable (String, String, String) async throws -> SourceControlWorktreeResult
+    private let _createWorktree: @Sendable (String, String, String, String?) async throws -> SourceControlWorktreeResult
     private let _removeWorktree: @Sendable (String, String) async throws -> Void
-    private let _worktreePath: @Sendable (String, String) -> String
+    private let _worktreePath: @Sendable (String, String, String?) -> String
     private let _restorePathFromHead: @Sendable (String, String) async throws -> Void
     private let _mergeBranch: @Sendable (String, String, String) async throws -> Void
 
@@ -57,9 +57,13 @@ public final class AnySourceControlProviderBox: SourceControlProvider, @unchecke
         self._branchDiff = branchDiff
         self._currentBranch = currentBranch
         self._defaultBranch = defaultBranch
-        self._createWorktree = createWorktree
+        self._createWorktree = { repoPath, taskId, baseBranch, _ in
+            try await createWorktree(repoPath, taskId, baseBranch)
+        }
         self._removeWorktree = removeWorktree
-        self._worktreePath = worktreePath
+        self._worktreePath = { repoPath, taskId, _ in
+            worktreePath(repoPath, taskId)
+        }
         self._restorePathFromHead = restorePathFromHead
         self._mergeBranch = mergeBranch
     }
@@ -88,16 +92,21 @@ public final class AnySourceControlProviderBox: SourceControlProvider, @unchecke
         try await _defaultBranch(path)
     }
 
-    public func createWorktree(repoPath: String, taskId: String, baseBranch: String) async throws -> SourceControlWorktreeResult {
-        try await _createWorktree(repoPath, taskId, baseBranch)
+    public func createWorktree(
+        repoPath: String,
+        taskId: String,
+        baseBranch: String,
+        worktreeRootPath: String?
+    ) async throws -> SourceControlWorktreeResult {
+        try await _createWorktree(repoPath, taskId, baseBranch, worktreeRootPath)
     }
 
     public func removeWorktree(repoPath: String, worktreePath: String) async throws {
         try await _removeWorktree(repoPath, worktreePath)
     }
 
-    public func worktreePath(repoPath: String, taskId: String) -> String {
-        _worktreePath(repoPath, taskId)
+    public func worktreePath(repoPath: String, taskId: String, worktreeRootPath: String?) -> String {
+        _worktreePath(repoPath, taskId, worktreeRootPath)
     }
 
     public func restorePathFromHead(repoPath: String, relativePath: String) async throws {

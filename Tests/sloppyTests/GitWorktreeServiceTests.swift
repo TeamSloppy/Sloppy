@@ -62,6 +62,30 @@ func gitWorktreePathIsConsistent() async throws {
 }
 
 @Test
+func gitWorktreeUsesExplicitRootWhenProvided() async throws {
+    let repoURL = try makeGitRepo()
+    let worktreeRoot = FileManager.default.temporaryDirectory
+        .appendingPathComponent("sloppy-worktrees-root-\(UUID().uuidString)", isDirectory: true)
+    defer {
+        try? FileManager.default.removeItem(at: repoURL)
+        try? FileManager.default.removeItem(at: worktreeRoot)
+    }
+
+    let service = GitWorktreeService()
+    let taskId = "task-custom-root"
+    let result = try await service.createWorktree(
+        repoPath: repoURL.path,
+        taskId: taskId,
+        worktreeRootPath: worktreeRoot.path
+    )
+
+    #expect(result.worktreePath == worktreeRoot.appendingPathComponent(taskId, isDirectory: true).path)
+    #expect(FileManager.default.fileExists(atPath: result.worktreePath))
+
+    try await service.removeWorktree(repoPath: repoURL.path, worktreePath: result.worktreePath)
+}
+
+@Test
 func gitWorktreeBranchDiff() async throws {
     let repoURL = try makeGitRepo()
     defer { try? FileManager.default.removeItem(at: repoURL) }

@@ -40,9 +40,14 @@ struct GitWorktreeResult: Sendable {
 // local dependency inside each call instead of storing a shared reference.
 struct GitWorktreeService: Sendable {
 
-    /// Creates a git worktree for a task at `<repoPath>/.sloppy-worktrees/<taskId>/`
+    /// Creates a git worktree for a task at `<worktreeRootPath>/<taskId>/`.
     /// and checks out a new branch `sloppy/task-<shortId>`.
-    func createWorktree(repoPath: String, taskId: String, baseBranch: String = "HEAD") async throws -> GitWorktreeResult {
+    func createWorktree(
+        repoPath: String,
+        taskId: String,
+        baseBranch: String = "HEAD",
+        worktreeRootPath: String? = nil
+    ) async throws -> GitWorktreeResult {
         // Use a local FileManager so the service itself remains Sendable.
         let fileManager = FileManager.default
         let repoURL = URL(fileURLWithPath: repoPath)
@@ -54,7 +59,10 @@ struct GitWorktreeService: Sendable {
         let shortId = String(taskId.prefix(8)).lowercased()
             .replacingOccurrences(of: "[^a-z0-9]", with: "-", options: .regularExpression)
         let branchName = "sloppy/task-\(shortId)"
-        let worktreesDir = repoURL.appendingPathComponent(".sloppy-worktrees", isDirectory: true)
+        let worktreesDir = worktreeRootURL(repoPath: repoPath, worktreeRootPath: worktreeRootPath)
+        guard repoURL.standardizedFileURL.path != worktreesDir.standardizedFileURL.path else {
+            throw GitWorktreeError.invalidPath
+        }
         let worktreePath = worktreesDir.appendingPathComponent(taskId, isDirectory: true).path
 
         if fileManager.fileExists(atPath: worktreePath) {
@@ -139,11 +147,21 @@ struct GitWorktreeService: Sendable {
     }
 
     /// Returns the worktree path for a task (whether it exists or not).
-    func worktreePath(repoPath: String, taskId: String) -> String {
-        URL(fileURLWithPath: repoPath)
-            .appendingPathComponent(".sloppy-worktrees", isDirectory: true)
+    func worktreePath(repoPath: String, taskId: String, worktreeRootPath: String? = nil) -> String {
+        worktreeRootURL(repoPath: repoPath, worktreeRootPath: worktreeRootPath)
             .appendingPathComponent(taskId, isDirectory: true)
             .path
+    }
+
+    private func worktreeRootURL(repoPath: String, worktreeRootPath: String?) -> URL {
+        if let worktreeRootPath {
+            let trimmed = worktreeRootPath.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmed.isEmpty {
+                return URL(fileURLWithPath: trimmed, isDirectory: true)
+            }
+        }
+        return URL(fileURLWithPath: repoPath)
+            .appendingPathComponent(".sloppy-worktrees", isDirectory: true)
     }
 
     /// True when `.git` exists under `repoPath` (normal clone or worktree checkout).

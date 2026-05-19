@@ -88,6 +88,25 @@ extension CoreService {
         }
     }
 
+    public func hasLiveAgentRuntimeSession(agentID: String, sessionID: String) async throws -> Bool {
+        await waitForStartup()
+        guard let normalizedAgentID = normalizedAgentID(agentID) else {
+            throw AgentSessionError.invalidAgentID
+        }
+
+        guard let normalizedSessionID = normalizedSessionID(sessionID) else {
+            throw AgentSessionError.invalidSessionID
+        }
+
+        _ = try getAgent(id: normalizedAgentID)
+        _ = try getAgentSession(agentID: normalizedAgentID, sessionID: normalizedSessionID)
+
+        return await sessionOrchestrator.hasLiveRuntimeSession(
+            agentID: normalizedAgentID,
+            sessionID: normalizedSessionID
+        )
+    }
+
     /// Adds a directory as a session-scoped tool root. The first added directory also becomes
     /// the default current directory for sessions that do not already have one.
     public func addAgentSessionDirectory(

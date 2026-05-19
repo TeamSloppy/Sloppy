@@ -23,8 +23,16 @@ private struct FakeSourceControlProvider: SourceControlProvider {
         "main"
     }
 
-    func createWorktree(repoPath: String, taskId: String, baseBranch: String) async throws -> SourceControlWorktreeResult {
-        SourceControlWorktreeResult(worktreePath: worktreePath(repoPath: repoPath, taskId: taskId), branchName: "fake/\(taskId)")
+    func createWorktree(
+        repoPath: String,
+        taskId: String,
+        baseBranch: String,
+        worktreeRootPath: String?
+    ) async throws -> SourceControlWorktreeResult {
+        SourceControlWorktreeResult(
+            worktreePath: worktreePath(repoPath: repoPath, taskId: taskId, worktreeRootPath: worktreeRootPath),
+            branchName: "fake/\(taskId)"
+        )
     }
 
     func removeWorktree(repoPath: String, worktreePath: String) async throws {}
@@ -320,7 +328,7 @@ func taskDiffHasChangesIsFalseWhenNoWorktreeBranch() async throws {
 }
 
 @Test
-func worktreeCreationFailureDoesNotCrashTaskLifecycle() async throws {
+func worktreeCreationFailureBlocksTaskBeforeWorkerLaunch() async throws {
     let config = CoreConfig.test
     let service = CoreService(config: config, persistenceBuilder: InMemoryCorePersistenceBuilder())
     let router = CoreRouter(service: service)
@@ -356,7 +364,10 @@ func worktreeCreationFailureDoesNotCrashTaskLifecycle() async throws {
     #expect(getResp.status == 200)
     let project = try decoder.decode(ProjectRecord.self, from: getResp.body)
     let task = try #require(project.tasks.first(where: { $0.id == taskID }))
+    #expect(task.status == ProjectTaskStatus.blocked.rawValue)
     #expect(task.worktreeBranch == nil)
+    let workers = await service.workerSnapshots()
+    #expect(!workers.contains { $0.taskId == taskID })
 }
 
 @Test
@@ -398,6 +409,7 @@ func projectSourceControlProviderCreatesTaskWorktreeAndIsStoredOnTask() async th
     #expect(getResp.status == 200)
     let project = try decoder.decode(ProjectRecord.self, from: getResp.body)
     let task = try #require(project.tasks.first(where: { $0.id == taskID }))
+    #expect(project.worktreeRootPath?.hasSuffix("/worktrees/\(projectID)") == true)
     #expect(task.worktreeBranch == "fake/\(taskID)")
     #expect(task.sourceControlProviderId == "fake-sc")
 

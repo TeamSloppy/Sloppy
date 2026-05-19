@@ -714,7 +714,11 @@ extension CoreService {
 
             let workingDirectory: String
             if task.worktreeBranch != nil {
-                workingDirectory = sourceControlProvider(for: project, task: task).worktreePath(repoPath: repoPath, taskId: task.id)
+                workingDirectory = sourceControlProvider(for: project, task: task).worktreePath(
+                    repoPath: repoPath,
+                    taskId: task.id,
+                    worktreeRootPath: defaultWorktreeRootPath(projectID: project.id)
+                )
             } else {
                 workingDirectory = repoPath
             }

@@ -124,6 +124,42 @@ struct TUIRenderingTests {
     }
 
     @MainActor @Test
+    func maximumFrameRateCoalescesRendersUntilNextFrame() throws {
+        let terminal = VirtualTerminal(columns: 20, rows: 5)
+        var now: UInt64 = 0
+        var immediateRenders: [@MainActor @Sendable () -> Void] = []
+        var delayedRenders: [(delay: UInt64, render: @MainActor @Sendable () -> Void)] = []
+        let tui = TUI(
+            terminal: terminal,
+            renderScheduler: { immediateRenders.append($0) },
+            maximumFramesPerSecond: 60,
+            clock: { now },
+            delayedRenderScheduler: { delay, render in
+                delayedRenders.append((delay, render))
+            })
+        let component = DummyComponent(lines: ["one"])
+        tui.addChild(component)
+
+        try tui.start()
+        #expect(immediateRenders.count == 1)
+        immediateRenders.removeFirst()()
+        #expect(terminal.outputLog.last?.contains("one") == true)
+
+        component.lines = ["two"]
+        tui.requestRender()
+        component.lines = ["three"]
+        tui.requestRender()
+
+        #expect(delayedRenders.count == 1)
+        #expect(terminal.outputLog.last?.contains("three") != true)
+
+        now += delayedRenders[0].delay
+        delayedRenders.removeFirst().render()
+
+        #expect(terminal.outputLog.last?.contains("three") == true)
+    }
+
+    @MainActor @Test
     func controlCInvokesHandlerAndSkipsFocusedComponent() throws {
         let terminal = VirtualTerminal(columns: 20, rows: 5)
         let tui = TUI(terminal: terminal, renderScheduler: { $0() })

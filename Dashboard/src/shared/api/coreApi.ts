@@ -92,6 +92,7 @@ export interface CoreApi {
   fetchSystemLogs: () => Promise<AnyRecord | null>;
   createIssueReport: (payload?: { logLimit?: number }) => Promise<AnyRecord | null>;
   selectDirectory: () => Promise<AnyRecord | null>;
+  fetchAvailableModels: () => Promise<AnyRecord[] | null>;
   fetchOpenAIModels: (payload: AnyRecord) => Promise<AnyRecord | null>;
   fetchOpenAIProviderStatus: () => Promise<AnyRecord | null>;
   fetchAnthropicProviderStatus: () => Promise<AnyRecord | null>;
@@ -117,6 +118,7 @@ export interface CoreApi {
   fetchTaskByReference: (taskReference: string) => Promise<AnyRecord | null>;
   createProject: (payload: AnyRecord) => Promise<{ project: AnyRecord; repoCloneSucceeded: boolean | null } | null>;
   updateProject: (projectId: string, payload: AnyRecord) => Promise<AnyRecord | null>;
+  fetchSourceControlProviders: () => Promise<AnyRecord[] | null>;
   fetchProjectTaskSync: (projectId: string) => Promise<AnyRecord | null>;
   updateProjectTaskSync: (projectId: string, payload: AnyRecord) => Promise<AnyRecord | null>;
   discoverProjectTaskSync: (projectId: string, payload?: AnyRecord) => Promise<AnyRecord | null>;
@@ -561,6 +563,16 @@ export function createCoreApi(): CoreApi {
       return response.data;
     },
 
+    fetchAvailableModels: async () => {
+      const response = await requestJson<AnyRecord[]>({
+        path: "/v1/providers/models"
+      });
+      if (!response.ok || !Array.isArray(response.data)) {
+        return null;
+      }
+      return response.data;
+    },
+
     fetchOpenAIModels: async (payload) => {
       const response = await requestJson<AnyRecord, AnyRecord>({
         path: "/v1/providers/openai/models",
@@ -821,6 +833,16 @@ export function createCoreApi(): CoreApi {
         body: payload
       });
       if (!response.ok) {
+        return null;
+      }
+      return response.data;
+    },
+
+    fetchSourceControlProviders: async () => {
+      const response = await requestJson<AnyRecord[]>({
+        path: "/v1/source-control/providers"
+      });
+      if (!response.ok || !Array.isArray(response.data)) {
         return null;
       }
       return response.data;

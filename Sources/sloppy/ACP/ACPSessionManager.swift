@@ -338,6 +338,10 @@ actor ACPSessionManager {
         }
     }
 
+    func hasManagedSession(agentID: String, sloppySessionID: String) -> Bool {
+        sessions[Self.sessionKey(agentID: agentID, sloppySessionID: sloppySessionID)] != nil
+    }
+
     func removeSession(agentID: String, sloppySessionID: String) async {
         let sessionKey = Self.sessionKey(agentID: agentID, sloppySessionID: sloppySessionID)
         await terminateSession(forKey: sessionKey)

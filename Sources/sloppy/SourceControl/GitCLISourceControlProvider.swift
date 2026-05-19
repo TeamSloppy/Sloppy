@@ -51,8 +51,18 @@ struct GitCLISourceControlProvider: SourceControlProvider {
         try await service.defaultBranch(repoPath: path)
     }
 
-    func createWorktree(repoPath: String, taskId: String, baseBranch: String) async throws -> SourceControlWorktreeResult {
-        let result = try await service.createWorktree(repoPath: repoPath, taskId: taskId, baseBranch: baseBranch)
+    func createWorktree(
+        repoPath: String,
+        taskId: String,
+        baseBranch: String,
+        worktreeRootPath: String?
+    ) async throws -> SourceControlWorktreeResult {
+        let result = try await service.createWorktree(
+            repoPath: repoPath,
+            taskId: taskId,
+            baseBranch: baseBranch,
+            worktreeRootPath: worktreeRootPath
+        )
         return SourceControlWorktreeResult(worktreePath: result.worktreePath, branchName: result.branchName)
     }
 
@@ -60,8 +70,8 @@ struct GitCLISourceControlProvider: SourceControlProvider {
         try await service.removeWorktree(repoPath: repoPath, worktreePath: worktreePath)
     }
 
-    func worktreePath(repoPath: String, taskId: String) -> String {
-        service.worktreePath(repoPath: repoPath, taskId: taskId)
+    func worktreePath(repoPath: String, taskId: String, worktreeRootPath: String?) -> String {
+        service.worktreePath(repoPath: repoPath, taskId: taskId, worktreeRootPath: worktreeRootPath)
     }
 
     func restorePathFromHead(repoPath: String, relativePath: String) async throws {

@@ -13,6 +13,12 @@ function ensurePlugin(draft, index, emptyPlugin) {
 function pluginStatus(plugin) {
   const hasPlugin = Boolean(String(plugin?.plugin || "").trim());
   const hasURL = Boolean(String(plugin?.apiUrl || "").trim());
+  const deliveryMode = String(plugin?.deliveryMode || "").trim();
+  if (hasPlugin && deliveryMode === "in-process") {
+    return plugin?.enabled === false
+      ? { label: "disabled", tone: "off" }
+      : { label: "installed", tone: "on" };
+  }
   if (hasPlugin && hasURL) {
     return { label: "configured", tone: "on" };
   }
@@ -154,7 +160,9 @@ export function PluginEditor({
           title,
           apiKey: "",
           apiUrl: String(record.baseUrl || ""),
-          plugin: pluginId
+          plugin: pluginId,
+          deliveryMode: String(record.deliveryMode || ""),
+          enabled: record.enabled == null ? true : Boolean(record.enabled)
         };
         if (draft.plugins[nextIndex]) {
           draft.plugins[nextIndex] = {
@@ -328,7 +336,7 @@ export function PluginEditor({
               <div className="config-integration-heading">
                 <h3>{current.title || "Plugin entry"}</h3>
                 <span className="provider-model-line">
-                  {current.plugin || "No plugin id"}{current.apiUrl ? ` · ${current.apiUrl}` : ""}
+                  {current.plugin || "No plugin id"}{current.apiUrl ? ` · ${current.apiUrl}` : current.deliveryMode ? ` · ${current.deliveryMode}` : ""}
                 </span>
               </div>
               <span className={`provider-state ${currentStatus.tone}`}>{currentStatus.label}</span>

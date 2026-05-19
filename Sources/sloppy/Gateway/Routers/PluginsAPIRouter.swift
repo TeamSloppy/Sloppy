@@ -55,6 +55,11 @@ struct PluginsAPIRouter: APIRouter {
                 let installed = try await service.installSourceChannelPlugin(payload)
                 return CoreRouter.encodable(status: HTTPStatus.created, payload: installed)
             } catch let error as CoreService.ChannelPluginError {
+                if case .invalidPayload = error {
+                    return invalidPluginPayloadResponse(
+                        "Installed plugin package could not be initialized. Check that plugin.json `protocol`, `runtime`, and `entrypoint` match the plugin implementation, and that the required runtime is available."
+                    )
+                }
                 return CoreRouter.channelPluginErrorResponse(error)
             } catch let error as PluginPackageInstallError {
                 let status = pluginInstallHTTPStatus(error)

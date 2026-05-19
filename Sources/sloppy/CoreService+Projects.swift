@@ -7,6 +7,28 @@ import Protocols
 import PluginSDK
 import Logging
 
+private struct ProjectWorktreeInput {
+    var id: String
+    var repoPath: String?
+    var worktreeRootPath: String?
+}
+
+private struct ProjectGitWorktreeMetadata {
+    var gitDirectory: String
+    var commonDirectory: String
+    var branch: String?
+
+    var isWorktree: Bool {
+        gitDirectory != commonDirectory
+    }
+}
+
+private struct ProjectComputedWorktreeMetadata {
+    var parentProjectId: String?
+    var worktreeBranch: String?
+    var isWorktree: Bool
+}
+
 // MARK: - Projects
 
 extension CoreService {
@@ -39,11 +61,11 @@ extension CoreService {
     }
 
     public func listProjects() async -> [ProjectRecord] {
-        await store.listProjects()
+        computedWorktreeMetadataProjects(await store.listProjects().map(projectWithRuntimePaths))
     }
 
     public func listProjectSummaries() async -> [ProjectListRecord] {
-        await store.listProjectSummaries()
+        computedWorktreeMetadataSummaries(await store.listProjectSummaries().map(projectSummaryWithRuntimePaths))
     }
 
     /// Lists token usage records with optional filters and aggregates.
@@ -173,7 +195,7 @@ extension CoreService {
         guard let project = await store.project(id: normalizedID) else {
             throw ProjectError.notFound
         }
-        return project
+        return projectWithRuntimePaths(project)
     }
 
     public func listProjectFiles(projectID: String, path: String) async throws -> [ProjectFileEntry] {
@@ -541,7 +563,7 @@ extension CoreService {
                 ]
             )
         }
-        return ProjectCreateResult(project: project, repoCloneSucceeded: repoCloneSucceeded)
+        return ProjectCreateResult(project: projectWithRuntimePaths(project), repoCloneSucceeded: repoCloneSucceeded)
     }
 
     public func selectDirectory() async -> String? {
@@ -638,7 +660,7 @@ extension CoreService {
         project.updatedAt = Date()
         await store.saveProject(project)
         await kanbanEventService.push(KanbanEvent(type: .projectUpdated, projectId: normalizedID))
-        return project
+        return projectWithRuntimePaths(project)
     }
 
     /// Deletes one dashboard project and nested board entities.
@@ -1345,6 +1367,246 @@ extension CoreService {
         workspaceRootURL
             .appendingPathComponent("projects", isDirectory: true)
             .appendingPathComponent(projectID, isDirectory: true)
+    }
+
+    func defaultWorktreeRootPath(projectID: String) -> String {
+        workspaceRootURL
+            .appendingPathComponent("worktrees", isDirectory: true)
+            .appendingPathComponent(projectID, isDirectory: true)
+            .standardizedFileURL
+            .path
+    }
+
+    private func projectWithRuntimePaths(_ project: ProjectRecord) -> ProjectRecord {
+        var result = project
+        result.worktreeRootPath = defaultWorktreeRootPath(projectID: project.id)
+        return result
+    }
+
+    private func projectSummaryWithRuntimePaths(_ project: ProjectListRecord) -> ProjectListRecord {
+        var result = project
+        result.worktreeRootPath = defaultWorktreeRootPath(projectID: project.id)
+        return result
+    }
+
+    private func computedWorktreeMetadataProjects(_ projects: [ProjectRecord]) -> [ProjectRecord] {
+        let metadata = computedWorktreeMetadata(
+            projects.map {
+                ProjectWorktreeInput(
+                    id: $0.id,
+                    repoPath: $0.repoPath,
+                    worktreeRootPath: $0.worktreeRootPath
+                )
+            }
+        )
+        return projects.map { project in
+            var result = project
+            if let item = metadata[project.id] {
+                result.parentProjectId = item.parentProjectId
+                result.worktreeBranch = item.worktreeBranch
+                result.isWorktree = item.isWorktree
+            } else {
+                result.parentProjectId = nil
+                result.worktreeBranch = nil
+                result.isWorktree = false
+            }
+            return result
+        }
+    }
+
+    private func computedWorktreeMetadataSummaries(_ projects: [ProjectListRecord]) -> [ProjectListRecord] {
+        let metadata = computedWorktreeMetadata(
+            projects.map {
+                ProjectWorktreeInput(
+                    id: $0.id,
+                    repoPath: $0.repoPath,
+                    worktreeRootPath: $0.worktreeRootPath
+                )
+            }
+        )
+        return projects.map { project in
+            var result = project
+            if let item = metadata[project.id] {
+                result.parentProjectId = item.parentProjectId
+                result.worktreeBranch = item.worktreeBranch
+                result.isWorktree = item.isWorktree
+            } else {
+                result.parentProjectId = nil
+                result.worktreeBranch = nil
+                result.isWorktree = false
+            }
+            return result
+        }
+    }
+
+    private func computedWorktreeMetadata(
+        _ projects: [ProjectWorktreeInput]
+    ) -> [String: ProjectComputedWorktreeMetadata] {
+        let projectRoots = Dictionary(
+            uniqueKeysWithValues: projects.map { project in
+                (
+                    project.id,
+                    resolvedProjectRootFromStored(repoPath: project.repoPath, normalizedProjectID: project.id)
+                        .standardizedFileURL
+                        .path
+                )
+            }
+        )
+        let gitMetadata = Dictionary(
+            uniqueKeysWithValues: projects.compactMap { project -> (String, ProjectGitWorktreeMetadata)? in
+                guard let root = projectRoots[project.id],
+                      let metadata = gitWorktreeMetadata(at: root)
+                else {
+                    return nil
+                }
+                return (project.id, metadata)
+            }
+        )
+        var result: [String: ProjectComputedWorktreeMetadata] = [:]
+
+        for child in projects {
+            guard let childRoot = projectRoots[child.id] else {
+                continue
+            }
+
+            let gitBranch = gitMetadata[child.id]?.branch
+            if let parent = fallbackWorktreeParent(for: child, childRoot: childRoot, projects: projects, projectRoots: projectRoots) {
+                result[child.id] = ProjectComputedWorktreeMetadata(
+                    parentProjectId: parent.id,
+                    worktreeBranch: gitBranch ?? lastPathComponent(childRoot),
+                    isWorktree: true
+                )
+                continue
+            }
+
+            guard let childGit = gitMetadata[child.id], childGit.isWorktree else {
+                continue
+            }
+
+            let parent = projects.first { candidate in
+                guard candidate.id != child.id,
+                      let candidateGit = gitMetadata[candidate.id],
+                      candidateGit.commonDirectory == childGit.commonDirectory
+                else {
+                    return false
+                }
+                return !candidateGit.isWorktree
+            }
+
+            if let parent {
+                result[child.id] = ProjectComputedWorktreeMetadata(
+                    parentProjectId: parent.id,
+                    worktreeBranch: childGit.branch ?? lastPathComponent(childRoot),
+                    isWorktree: true
+                )
+            }
+        }
+
+        return result
+    }
+
+    private func fallbackWorktreeParent(
+        for child: ProjectWorktreeInput,
+        childRoot: String,
+        projects: [ProjectWorktreeInput],
+        projectRoots: [String: String]
+    ) -> ProjectWorktreeInput? {
+        projects.first { parent in
+            guard parent.id != child.id, let parentRoot = projectRoots[parent.id] else {
+                return false
+            }
+            let repoWorktreeRoot = URL(fileURLWithPath: parentRoot, isDirectory: true)
+                .appendingPathComponent(".sloppy-worktrees", isDirectory: true)
+                .standardizedFileURL
+                .path
+            if path(childRoot, isInsideDirectory: repoWorktreeRoot) {
+                return true
+            }
+            guard let configuredRoot = parent.worktreeRootPath?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !configuredRoot.isEmpty
+            else {
+                return false
+            }
+            let standardizedConfiguredRoot = URL(fileURLWithPath: configuredRoot, isDirectory: true)
+                .standardizedFileURL
+                .path
+            return path(childRoot, isInsideDirectory: standardizedConfiguredRoot)
+        }
+    }
+
+    private func gitWorktreeMetadata(at repoPath: String) -> ProjectGitWorktreeMetadata? {
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: repoPath, isDirectory: &isDirectory),
+              isDirectory.boolValue
+        else {
+            return nil
+        }
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+        process.arguments = [
+            "git",
+            "-C",
+            repoPath,
+            "rev-parse",
+            "--git-dir",
+            "--git-common-dir",
+            "--abbrev-ref",
+            "HEAD"
+        ]
+
+        let output = Pipe()
+        let error = Pipe()
+        process.standardOutput = output
+        process.standardError = error
+
+        do {
+            try process.run()
+        } catch {
+            return nil
+        }
+        process.waitUntilExit()
+        guard process.terminationStatus == 0 else {
+            return nil
+        }
+
+        let data = output.fileHandleForReading.readDataToEndOfFile()
+        let lines = String(data: data, encoding: .utf8)?
+            .split(separator: "\n", omittingEmptySubsequences: false)
+            .map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty } ?? []
+        guard lines.count >= 2 else {
+            return nil
+        }
+
+        let gitDirectory = standardizedGitPath(lines[0], relativeTo: repoPath)
+        let commonDirectory = standardizedGitPath(lines[1], relativeTo: repoPath)
+        let branch = lines.count >= 3 && lines[2] != "HEAD" ? lines[2] : nil
+        return ProjectGitWorktreeMetadata(
+            gitDirectory: gitDirectory,
+            commonDirectory: commonDirectory,
+            branch: branch
+        )
+    }
+
+    private func standardizedGitPath(_ value: String, relativeTo repoPath: String) -> String {
+        if value.hasPrefix("/") {
+            return URL(fileURLWithPath: value).standardizedFileURL.path
+        }
+        return URL(fileURLWithPath: repoPath, isDirectory: true)
+            .appendingPathComponent(value)
+            .standardizedFileURL
+            .path
+    }
+
+    private func path(_ childPath: String, isInsideDirectory parentPath: String) -> Bool {
+        let child = URL(fileURLWithPath: childPath, isDirectory: true).standardizedFileURL.path
+        let parent = URL(fileURLWithPath: parentPath, isDirectory: true).standardizedFileURL.path
+        return child != parent && child.hasPrefix(parent + "/")
+    }
+
+    private func lastPathComponent(_ path: String) -> String {
+        URL(fileURLWithPath: path, isDirectory: true).lastPathComponent
     }
 
     /// Resolves persisted `repoPath` to a workspace directory URL.

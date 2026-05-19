@@ -94,3 +94,73 @@ func agentSessionStorePaginatesCachedSessionList() throws {
     #expect(page.count == 1)
     #expect(page.first?.id == second.id)
 }
+
+@Test
+func agentSessionStoreSerializesConcurrentAppends() throws {
+    let rootURL = FileManager.default.temporaryDirectory
+        .appendingPathComponent("agent-session-concurrent-\(UUID().uuidString)", isDirectory: true)
+    defer { try? FileManager.default.removeItem(at: rootURL) }
+
+    let agentID = "concurrent-agent"
+    let catalog = AgentCatalogFileStore(agentsRootURL: rootURL)
+    _ = try catalog.createAgent(
+        AgentCreateRequest(id: agentID, displayName: "Concurrent Agent", role: "Testing"),
+        availableModels: []
+    )
+
+    let primaryStore = AgentSessionFileStore(agentsRootURL: rootURL)
+    let secondaryStore = AgentSessionFileStore(agentsRootURL: rootURL)
+    let session = try primaryStore.createSession(
+        agentID: agentID,
+        request: AgentSessionCreateRequest(title: "Concurrent session")
+    )
+
+    let errorCollector = ErrorCollector()
+    let iterations = 80
+    DispatchQueue.concurrentPerform(iterations: iterations) { index in
+        do {
+            let event = AgentSessionEvent(
+                agentId: agentID,
+                sessionId: session.id,
+                type: .message,
+                createdAt: Date(timeIntervalSince1970: TimeInterval(index)),
+                message: AgentSessionMessage(
+                    role: .user,
+                    segments: [AgentMessageSegment(kind: .text, text: "message \(index)")],
+                    userId: "tester"
+                )
+            )
+            let store = index.isMultiple(of: 2) ? primaryStore : secondaryStore
+            _ = try store.appendEvents(agentID: agentID, sessionID: session.id, events: [event])
+        } catch {
+            errorCollector.append(error)
+        }
+    }
+
+    #expect(errorCollector.errors.isEmpty)
+    if let firstError = errorCollector.errors.first {
+        throw firstError
+    }
+
+    let detail = try primaryStore.loadSession(agentID: agentID, sessionID: session.id)
+    let userMessageCount = detail.events.filter { $0.message?.role == .user }.count
+    #expect(userMessageCount == iterations)
+    #expect(try secondaryStore.listSessions(agentID: agentID).first?.messageCount == iterations)
+}
+
+private final class ErrorCollector: @unchecked Sendable {
+    private let lock = NSLock()
+    private var values: [any Error] = []
+
+    var errors: [any Error] {
+        lock.lock()
+        defer { lock.unlock() }
+        return values
+    }
+
+    func append(_ error: any Error) {
+        lock.lock()
+        defer { lock.unlock() }
+        values.append(error)
+    }
+}

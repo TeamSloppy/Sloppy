@@ -1383,6 +1383,40 @@ func agentSessionReusesPersistentSessionAcrossMessages() async throws {
 }
 
 @Test
+func agentSessionReportsLiveRuntimeSessionOnlyWhileCached() async throws {
+    let availableModels = [
+        ProviderModelOption(id: "openai:gpt-5.4-mini", title: "openai:gpt-5.4-mini", capabilities: ["tools"])
+    ]
+    let agentID = "live-runtime-agent"
+    let (catalogStore, sessionStore, _) = try makeAgentSessionFixture(
+        agentID: agentID,
+        selectedModel: "openai:gpt-5.4-mini",
+        availableModels: availableModels
+    )
+    let provider = SessionCapturingModelProvider(models: availableModels.map(\.id))
+    let runtime = RuntimeSystem(modelProvider: provider, defaultModel: "openai:gpt-5.4-mini")
+    let orchestrator = AgentSessionOrchestrator(
+        runtime: runtime,
+        sessionStore: sessionStore,
+        agentCatalogStore: catalogStore,
+        availableModels: availableModels
+    )
+
+    let session = try await orchestrator.createSession(agentID: agentID, request: AgentSessionCreateRequest())
+    #expect(await orchestrator.hasLiveRuntimeSession(agentID: agentID, sessionID: session.id) == false)
+
+    _ = try await orchestrator.postMessage(
+        agentID: agentID,
+        sessionID: session.id,
+        request: AgentSessionPostMessageRequest(userId: "dashboard", content: "first message")
+    )
+    #expect(await orchestrator.hasLiveRuntimeSession(agentID: agentID, sessionID: session.id) == true)
+
+    await runtime.invalidateChannelSession(channelId: "agent:\(agentID):session:\(session.id)")
+    #expect(await orchestrator.hasLiveRuntimeSession(agentID: agentID, sessionID: session.id) == false)
+}
+
+@Test
 func agentSessionBootstrapFallsBackWhenPromptComposerFails() async throws {
     let availableModels = [
         ProviderModelOption(id: "openai:gpt-5.4-mini", title: "openai:gpt-5.4-mini", capabilities: ["tools"])

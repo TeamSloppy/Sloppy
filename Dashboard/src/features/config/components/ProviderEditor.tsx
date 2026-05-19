@@ -115,7 +115,7 @@ export function ProviderEditor({
       providerModalMeta.supportsModelCatalog &&
       onTestProviderConnection
   );
-  const providerRowByCatalog = new Map(
+  const providerRowByCatalog = new Map<string, any>(
     configuredProviderRows
       .filter((row) => row.catalogId)
       .map((row) => [row.catalogId, row])

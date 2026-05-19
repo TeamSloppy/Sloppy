@@ -250,6 +250,8 @@ public actor InMemoryPersistenceStore: PersistenceStore {
             actors: project.actors,
             teams: project.teams,
             repoPath: project.repoPath,
+            worktreeRootPath: project.worktreeRootPath,
+            sourceControlProviderId: project.sourceControlProviderId,
             taskCounts: counts,
             isFavorite: project.isFavorite,
             isArchived: project.isArchived,

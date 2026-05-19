@@ -85,7 +85,7 @@ struct SloppyTUIApp {
         let runHandle = SloppyTUIRunHandle(continuation: continuation)
         do {
             let terminal = ProcessTerminal()
-            let tui = TUI(terminal: terminal)
+            let tui = TUI(terminal: terminal, maximumFramesPerSecond: 60)
             let screen = SloppyTUIScreen(
                 runtime: runtime,
                 project: project,

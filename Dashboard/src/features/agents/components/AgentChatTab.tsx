@@ -326,12 +326,18 @@ function normalizeProjectDirectoryRecord(project) {
     return null;
   }
   const name = String(project?.name || project?.displayName || id).trim() || id;
+  const parentProjectId = String(project?.parentProjectId || project?.parent_project_id || "").trim();
+  const worktreeBranch = String(project?.worktreeBranch || project?.worktree_branch || "").trim();
   return {
     id,
     idLower: id.toLowerCase(),
     name,
     nameKey: normalizeProjectMatchKey(name),
-    idKey: normalizeProjectMatchKey(id)
+    idKey: normalizeProjectMatchKey(id),
+    parentProjectId: parentProjectId || null,
+    parentProjectIdLower: parentProjectId ? parentProjectId.toLowerCase() : "",
+    worktreeBranch: worktreeBranch || null,
+    isWorktree: Boolean(project?.isWorktree || project?.is_worktree)
   };
 }
 
@@ -385,10 +391,13 @@ function projectRecordFromSessionProjectId(session, projectById) {
     return null;
   }
   const known = projectById.get(projectId.toLowerCase());
-  return {
-    id: known?.id || projectId,
-    label: known?.name || projectId
-  };
+  if (known) {
+    return {
+      ...known,
+      label: known.name || known.id || projectId
+    };
+  }
+  return { id: projectId, label: projectId };
 }
 
 function projectRecordFromTaskSession(session, taskByReference, projects) {
@@ -399,6 +408,15 @@ function projectRecordFromTaskSession(session, taskByReference, projects) {
 
   const taskRecord = taskByReference.get(reference.toLowerCase());
   if (taskRecord?.projectId || taskRecord?.projectName) {
+    const known = taskRecord.projectId
+      ? projects.find((project) => project.idLower === String(taskRecord.projectId).toLowerCase())
+      : null;
+    if (known) {
+      return {
+        ...known,
+        label: known.name || known.id || "Project"
+      };
+    }
     return {
       id: taskRecord.projectId || taskRecord.projectName,
       label: taskRecord.projectName || taskRecord.projectId || "Project"
@@ -1012,17 +1030,26 @@ function getSessionDisplayLabel(session) {
   return title || preview || "Session";
 }
 
-function sessionMatchesSidebarSearch(session, queryLower) {
+function textMatchesSidebarSearch(value, queryLower) {
+  const q = typeof queryLower === "string" ? queryLower.trim().toLowerCase() : "";
+  if (!q) {
+    return true;
+  }
+  const haystack = String(value || "").toLowerCase().replace(/\s+/g, " ");
+  const tokens = q.split(/\s+/).filter(Boolean);
+  return tokens.every((t) => haystack.includes(t));
+}
+
+function sessionMatchesSidebarSearch(session, queryLower, extraHaystack = "") {
   const q = typeof queryLower === "string" ? queryLower.trim().toLowerCase() : "";
   if (!q) {
     return true;
   }
   const label = getSessionDisplayLabel(session);
-  const haystack = `${label} ${String(session?.id || "")} ${String(session?.title || "")} ${String(session?.lastMessagePreview || "")}`
-    .toLowerCase()
-    .replace(/\s+/g, " ");
-  const tokens = q.split(/\s+/).filter(Boolean);
-  return tokens.every((t) => haystack.includes(t));
+  return textMatchesSidebarSearch(
+    `${label} ${String(session?.id || "")} ${String(session?.title || "")} ${String(session?.lastMessagePreview || "")} ${extraHaystack}`,
+    queryLower
+  );
 }
 
 const SESSION_SIDEBAR_RECENT_DAYS = 3;
@@ -1421,16 +1448,17 @@ function wrapMarkdownChildrenWithTaskTags(children, handlers) {
       );
     }
     if (React.isValidElement(child)) {
-      const elType = child.type;
+      const childElement = child as React.ReactElement<{ children?: React.ReactNode }>;
+      const elType = childElement.type;
       const typeName = typeof elType === "string" ? elType.toLowerCase() : "";
       if (typeName === "code" || typeName === "pre") {
         return child;
       }
-      const nextChildren = child.props?.children;
+      const nextChildren = childElement.props?.children;
       if (nextChildren != null && nextChildren !== false) {
-        return React.cloneElement(child, {
-          ...child.props,
-          key: child.key ?? `mw-${index}`,
+        return React.cloneElement(childElement, {
+          ...childElement.props,
+          key: childElement.key ?? `mw-${index}`,
           children: wrapMarkdownChildrenWithTaskTags(nextChildren, handlers)
         });
       }
@@ -1806,7 +1834,8 @@ function buildTimelineItems({
       timelineItems.push({
         id: `${extractEventKey(eventItem, index)}-build-progress`,
         kind: "build_progress",
-        event: eventItem
+        event: eventItem,
+        latestRunStatus
       });
       continue;
     }
@@ -1896,8 +1925,12 @@ function buildProgressIcon(status) {
       return "progress_activity";
     case "blocked":
       return "error";
+    case "interrupted":
+      return "cancel";
     case "skipped":
       return "remove_circle";
+    case "stopped":
+      return "stop_circle";
     default:
       return "radio_button_unchecked";
   }
@@ -1911,14 +1944,42 @@ function buildProgressLabel(status) {
       return "Done";
     case "blocked":
       return "Blocked";
+    case "interrupted":
+      return "Interrupted";
     case "skipped":
       return "Skipped";
+    case "stopped":
+      return "Stopped";
     default:
       return "Pending";
   }
 }
 
-function BuildProgressPanel({ progress }) {
+function buildProgressDisplayState(status, latestRunStatus) {
+  const normalized = String(status || "pending").toLowerCase();
+  if (normalized !== "in_progress" || !isTerminalRunStage(latestRunStatus?.stage)) {
+    return {
+      status: normalized,
+      label: buildProgressLabel(normalized)
+    };
+  }
+
+  const stage = String(latestRunStatus?.stage || "").toLowerCase();
+  if (stage === "interrupted") {
+    const terminalLabel = String(latestRunStatus?.label || "").trim();
+    return {
+      status: terminalLabel.toLowerCase().includes("error") ? "blocked" : "interrupted",
+      label: terminalLabel || "Interrupted"
+    };
+  }
+
+  return {
+    status: "stopped",
+    label: "Stopped"
+  };
+}
+
+function BuildProgressPanel({ progress, latestRunStatus }) {
   const title = String(progress?.title || "Progress").trim() || "Progress";
   const items = Array.isArray(progress?.items) ? progress.items : [];
   if (items.length === 0) {
@@ -1935,7 +1996,8 @@ function BuildProgressPanel({ progress }) {
       </div>
       <ol className="agent-build-progress-list">
         {items.map((item, index) => {
-          const status = String(item?.status || "pending").toLowerCase();
+          const displayState = buildProgressDisplayState(item?.status, latestRunStatus);
+          const status = displayState.status;
           const itemTitle = String(item?.title || `Item ${index + 1}`).trim() || `Item ${index + 1}`;
           const definitionOfDone = String(item?.definitionOfDone || "").trim();
           const details = String(item?.details || "").trim();
@@ -1947,7 +2009,7 @@ function BuildProgressPanel({ progress }) {
               <div className="agent-build-progress-copy">
                 <div className="agent-build-progress-title-row">
                   <strong>{itemTitle}</strong>
-                  <span>{buildProgressLabel(status)}</span>
+                  <span>{displayState.label}</span>
                 </div>
                 {definitionOfDone ? <p>DoD: {definitionOfDone}</p> : null}
                 {details ? <small>{details}</small> : null}
@@ -1971,7 +2033,7 @@ function AgentChatEvents({
   onCopyMessage,
   onOpenSubagent,
   getSubagentStatusLabel,
-  onAnswerInputRequest,
+  onAnswerInputRequest = null,
   onTaskTagClick,
   onTaskTagHoverStart,
   onTaskTagHoverEnd
@@ -2186,6 +2248,7 @@ function AgentChatEvents({
                 <BuildProgressPanel
                   key={timelineItem.id}
                   progress={timelineItem.event?.buildProgress}
+                  latestRunStatus={timelineItem.latestRunStatus}
                 />
               );
             }
@@ -2520,7 +2583,16 @@ function AgentChatComposer({
         if (pathSearchRequestIdRef.current !== requestId) {
           return;
         }
-        setPathSuggestions(Array.isArray(rows) ? rows : []);
+        setPathSuggestions(
+          Array.isArray(rows)
+            ? rows
+                .map((row) => ({
+                  path: String(row?.path || "").trim(),
+                  type: typeof row?.type === "string" ? row.type : undefined
+                }))
+                .filter((row) => row.path)
+            : []
+        );
       } catch {
         if (pathSearchRequestIdRef.current !== requestId) {
           return;
@@ -3341,6 +3413,7 @@ export function AgentChatTab({
   const [isDesktopSessionsCollapsed, setIsDesktopSessionsCollapsed] = useState(false);
   const [sessionSidebarSearch, setSessionSidebarSearch] = useState("");
   const [sessionDirectoryOpenById, setSessionDirectoryOpenById] = useState({});
+  const [sessionWorktreeOpenById, setSessionWorktreeOpenById] = useState({});
   const [sessionPastOpenByDirectory, setSessionPastOpenByDirectory] = useState({});
   const [isModelDropdownOpen, setIsModelDropdownOpen] = useState(false);
   const [modelSearch, setModelSearch] = useState("");
@@ -3485,7 +3558,11 @@ export function AgentChatTab({
     };
   }, [refreshPendingToolApprovals, activeSessionId]);
 
-  async function resolvePendingToolApproval(approvalId, approved, scope = "once") {
+  async function resolvePendingToolApproval(
+    approvalId: string,
+    approved: boolean,
+    scope: "once" | "session" = "once"
+  ) {
     if (!approvalId || resolvingToolApprovalId) {
       return;
     }
@@ -3549,18 +3626,42 @@ export function AgentChatTab({
     const terminalSessions = [];
 
     function addProjectSession(project, session) {
-      const label = String(project?.label || project?.id || "Project").trim() || "Project";
-      const id = String(project?.id || label).trim() || label;
+      const isWorktree = Boolean(project?.isWorktree && project?.parentProjectId);
+      const parent = isWorktree ? projectRecordById.get(String(project.parentProjectId).toLowerCase()) : null;
+      const rootProject = parent || project;
+      const label = String(rootProject?.label || rootProject?.name || rootProject?.id || "Project").trim() || "Project";
+      const id = String(rootProject?.id || label).trim() || label;
       const key = `project:${id.toLowerCase()}`;
       const previous = projectGroups.get(key);
-      if (previous) {
-        previous.sessions.push(session);
-        return;
-      }
-      projectGroups.set(key, {
+      const group = previous || {
         id: key,
         label,
         icon: "folder",
+        sessions: [],
+        worktreeGroups: new Map()
+      };
+      if (!previous) {
+        projectGroups.set(key, group);
+      }
+
+      if (!isWorktree) {
+        group.sessions.push(session);
+        return;
+      }
+
+      const worktreeId = String(project?.id || project?.label || "worktree").trim() || "worktree";
+      const worktreeLabel =
+        String(project?.worktreeBranch || project?.label || project?.name || worktreeId).trim() || worktreeId;
+      const worktreeKey = `${key}:worktree:${worktreeId.toLowerCase()}`;
+      const existingWorktree = group.worktreeGroups.get(worktreeKey);
+      if (existingWorktree) {
+        existingWorktree.sessions.push(session);
+        return;
+      }
+      group.worktreeGroups.set(worktreeKey, {
+        id: worktreeKey,
+        label: worktreeLabel,
+        projectName: String(project?.label || project?.name || worktreeId).trim() || worktreeId,
         sessions: [session]
       });
     }
@@ -3619,13 +3720,46 @@ export function AgentChatTab({
     }
 
     return groups.map((group) => {
-      const filtered = group.sessions.filter((session) =>
-        sessionMatchesSidebarSearch(session, sessionSearchLower)
+      const groupSearchText = `${group.label} ${group.id}`;
+      const groupMatchesSearch = textMatchesSidebarSearch(groupSearchText, sessionSearchLower);
+      const regularFiltered = group.sessions.filter((session) =>
+        groupMatchesSearch || sessionMatchesSidebarSearch(session, sessionSearchLower, groupSearchText)
       );
-      const { recent, past } = splitSessionsRecentAndPast(filtered);
+      const rawWorktreeGroups = group.worktreeGroups instanceof Map ? [...group.worktreeGroups.values()] : [];
+      const worktreeGroups = rawWorktreeGroups
+        .sort((left, right) => left.label.localeCompare(right.label, undefined, { sensitivity: "base" }))
+        .map((worktree) => {
+          const worktreeSearchText = `${groupSearchText} ${worktree.label} ${worktree.projectName}`;
+          const worktreeMatchesSearch = textMatchesSidebarSearch(worktreeSearchText, sessionSearchLower);
+          const filtered = worktree.sessions.filter((session) =>
+            groupMatchesSearch ||
+            worktreeMatchesSearch ||
+            sessionMatchesSidebarSearch(session, sessionSearchLower, worktreeSearchText)
+          );
+          const { recent, past } = splitSessionsRecentAndPast(filtered);
+          return {
+            ...worktree,
+            sessions: sortSessionsByUpdate(worktree.sessions),
+            filteredSessions: filtered,
+            recentFilteredSessions: recent,
+            pastFilteredSessions: past
+          };
+        })
+        .filter((worktree) => !sessionSearchLower || worktree.filteredSessions.length > 0);
+      const { recent, past } = splitSessionsRecentAndPast(regularFiltered);
+      const filtered = [
+        ...regularFiltered,
+        ...worktreeGroups.flatMap((worktree) => worktree.filteredSessions)
+      ];
+      const allSessions = [
+        ...group.sessions,
+        ...rawWorktreeGroups.flatMap((worktree) => worktree.sessions)
+      ];
       return {
         ...group,
-        sessions: sortSessionsByUpdate(group.sessions),
+        sessions: sortSessionsByUpdate(allSessions),
+        regularSessions: sortSessionsByUpdate(group.sessions),
+        worktreeGroups,
         filteredSessions: filtered,
         recentFilteredSessions: recent,
         pastFilteredSessions: past
@@ -3634,7 +3768,10 @@ export function AgentChatTab({
   }, [knownProjectRecords, projectRecordById, sessionSearchLower, sessions, taskRecordByReference]);
 
   const hasSidebarPastSessions = sessionDirectoryGroups.some(
-    (group) => group.pastFilteredSessions.length > 0
+    (group) =>
+      group.pastFilteredSessions.length > 0 ||
+      (Array.isArray(group.worktreeGroups) &&
+        group.worktreeGroups.some((worktree) => worktree.pastFilteredSessions.length > 0))
   );
 
   /** Boolean only — avoids re-running the URL-sync effect on every session list merge (stream/SSE). */
@@ -3773,6 +3910,7 @@ export function AgentChatTab({
     setIsMobileSidebarOpen(false);
     setSessionSidebarSearch("");
     setSessionDirectoryOpenById({});
+    setSessionWorktreeOpenById({});
     setSessionPastOpenByDirectory({});
   }, [agentId]);
 
@@ -3793,6 +3931,20 @@ export function AgentChatTab({
       }
       return next;
     });
+    setSessionWorktreeOpenById((previous) => {
+      const next = { ...previous };
+      for (const group of sessionDirectoryGroups) {
+        if (!Array.isArray(group.worktreeGroups)) {
+          continue;
+        }
+        for (const worktree of group.worktreeGroups) {
+          if (worktree.filteredSessions.length > 0) {
+            next[worktree.id] = true;
+          }
+        }
+      }
+      return next;
+    });
   }, [sessionDirectoryGroups, sessionSearchLower]);
 
   useEffect(() => {
@@ -3809,10 +3961,27 @@ export function AgentChatTab({
       ...previous,
       [activeGroup.id]: true
     }));
+    const activeWorktree = Array.isArray(activeGroup.worktreeGroups)
+      ? activeGroup.worktreeGroups.find((worktree) =>
+          worktree.sessions.some((session) => session.id === activeSessionId)
+        )
+      : null;
+    if (activeWorktree) {
+      setSessionWorktreeOpenById((previous) => ({
+        ...previous,
+        [activeWorktree.id]: true
+      }));
+    }
     if (activeGroup.pastFilteredSessions.some((session) => session.id === activeSessionId)) {
       setSessionPastOpenByDirectory((previous) => ({
         ...previous,
         [activeGroup.id]: true
+      }));
+    }
+    if (activeWorktree?.pastFilteredSessions.some((session) => session.id === activeSessionId)) {
+      setSessionPastOpenByDirectory((previous) => ({
+        ...previous,
+        [activeWorktree.id]: true
       }));
     }
   }, [activeSessionId, sessionDirectoryGroups]);
@@ -4384,17 +4553,18 @@ export function AgentChatTab({
       }
 
       let rebuiltSummary = rebuilt;
+      const rebuiltId = String(rebuilt.id || "");
       if (replayEvents.length > 0) {
-        const replayResponse = await postAgentSessionEvents(agentId, rebuilt.id, {
+        const replayResponse = await postAgentSessionEvents(agentId, rebuiltId, {
           events: replayEvents
         });
         if (!replayResponse) {
           setSelectedModel(previousModelId);
-          await deleteAgentSession(agentId, rebuilt.id).catch(() => false);
+          await deleteAgentSession(agentId, rebuiltId).catch(() => false);
           setStatusText("Failed to preserve chat history while switching model.");
           return;
         }
-        rebuiltSummary = replayResponse.summary || rebuilt;
+        rebuiltSummary = (replayResponse.summary as Record<string, unknown> | undefined) || rebuilt;
       }
 
       if (previousSessionId && previousSessionId !== rebuilt.id) {
@@ -5486,7 +5656,13 @@ export function AgentChatTab({
     sessions.length > 0;
 
   const anyPastSidebarSectionOpen = sessionDirectoryGroups.some(
-    (group) => group.pastFilteredSessions.length > 0 && sessionPastOpenByDirectory[group.id]
+    (group) =>
+      (group.pastFilteredSessions.length > 0 && sessionPastOpenByDirectory[group.id]) ||
+      (Array.isArray(group.worktreeGroups) &&
+        group.worktreeGroups.some(
+          (worktree) =>
+            worktree.pastFilteredSessions.length > 0 && sessionPastOpenByDirectory[worktree.id]
+        ))
   );
 
   function togglePastSessionsShortcut() {
@@ -5496,6 +5672,13 @@ export function AgentChatTab({
       for (const group of sessionDirectoryGroups) {
         if (group.pastFilteredSessions.length > 0) {
           next[group.id] = expand;
+        }
+        if (Array.isArray(group.worktreeGroups)) {
+          for (const worktree of group.worktreeGroups) {
+            if (worktree.pastFilteredSessions.length > 0) {
+              next[worktree.id] = expand;
+            }
+          }
         }
       }
       return next;
@@ -5537,6 +5720,13 @@ export function AgentChatTab({
     }));
   }
 
+  function toggleSessionWorktree(worktreeId) {
+    setSessionWorktreeOpenById((previous) => ({
+      ...previous,
+      [worktreeId]: !previous[worktreeId]
+    }));
+  }
+
   function toggleSessionPastDirectory(directoryId) {
     setSessionPastOpenByDirectory((previous) => ({
       ...previous,
@@ -5544,13 +5734,83 @@ export function AgentChatTab({
     }));
   }
 
+  function renderSessionRowsWithPast(group) {
+    const isPastOpen = Boolean(sessionPastOpenByDirectory[group.id]);
+    return (
+      <>
+        {group.recentFilteredSessions.map((session) => renderSessionSidebarRow(session))}
+        {group.pastFilteredSessions.length > 0 ? (
+          <div className="agent-chat-session-past">
+            <button
+              type="button"
+              className={`agent-chat-session-past-toggle ${isPastOpen ? "open" : ""}`}
+              onClick={() => toggleSessionPastDirectory(group.id)}
+            >
+              <span className="material-symbols-rounded agent-chat-session-past-icon" aria-hidden="true">
+                history
+              </span>
+              <span className="agent-chat-session-past-label">Past</span>
+              <span className="agent-chat-session-past-hint">3d+</span>
+              <span className="agent-chat-session-directory-count">{group.pastFilteredSessions.length}</span>
+              <span
+                className={`material-symbols-rounded agent-chat-session-directory-chevron ${isPastOpen ? "open" : ""}`}
+                aria-hidden="true"
+              >
+                expand_more
+              </span>
+            </button>
+            {isPastOpen ? (
+              <div className="agent-chat-session-past-children">
+                {group.pastFilteredSessions.map((session) => renderSessionSidebarRow(session))}
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+      </>
+    );
+  }
+
+  function renderWorktreeDirectory(worktree) {
+    const isOpen = Boolean(sessionWorktreeOpenById[worktree.id]);
+    const countLabel = sessionSearchLower
+      ? `${worktree.filteredSessions.length}/${worktree.sessions.length}`
+      : worktree.sessions.length;
+    return (
+      <div key={worktree.id} className="agent-chat-session-worktree">
+        <button
+          type="button"
+          className={`agent-chat-session-worktree-toggle ${isOpen ? "open" : ""}`}
+          onClick={() => toggleSessionWorktree(worktree.id)}
+        >
+          <span className="material-symbols-rounded agent-chat-session-worktree-icon" aria-hidden="true">
+            fork_right
+          </span>
+          <span className="agent-chat-session-worktree-label" title={worktree.projectName || worktree.label}>
+            {worktree.label}
+          </span>
+          <span className="agent-chat-session-directory-count">{countLabel}</span>
+          <span className={`material-symbols-rounded agent-chat-session-directory-chevron ${isOpen ? "open" : ""}`} aria-hidden="true">
+            expand_more
+          </span>
+        </button>
+        {isOpen ? (
+          <div className="agent-chat-session-worktree-children">
+            {renderSessionRowsWithPast(worktree)}
+          </div>
+        ) : null}
+      </div>
+    );
+  }
+
   function renderSessionDirectory(group) {
     const isOpen = Boolean(sessionDirectoryOpenById[group.id]);
-    const isPastOpen = Boolean(sessionPastOpenByDirectory[group.id]);
     const countLabel = sessionSearchLower
       ? `${group.filteredSessions.length}/${group.sessions.length}`
       : group.sessions.length;
     const icon = group.icon === "folder" && isOpen ? "folder_open" : group.icon;
+    const worktreeSessionCount = Array.isArray(group.worktreeGroups)
+      ? group.worktreeGroups.reduce((sum, worktree) => sum + worktree.filteredSessions.length, 0)
+      : 0;
 
     return (
       <div key={group.id} className="agent-chat-session-directory">
@@ -5575,32 +5835,17 @@ export function AgentChatTab({
             {group.filteredSessions.length === 0 && sessionSearchLower ? (
               <p className="placeholder-text agent-chat-session-directory-empty">No matching sessions.</p>
             ) : null}
-            {group.recentFilteredSessions.map((session) => renderSessionSidebarRow(session))}
-            {group.pastFilteredSessions.length > 0 ? (
-              <div className="agent-chat-session-past">
-                <button
-                  type="button"
-                  className={`agent-chat-session-past-toggle ${isPastOpen ? "open" : ""}`}
-                  onClick={() => toggleSessionPastDirectory(group.id)}
-                >
-                  <span className="material-symbols-rounded agent-chat-session-past-icon" aria-hidden="true">
-                    history
+            {renderSessionRowsWithPast(group)}
+            {Array.isArray(group.worktreeGroups) && group.worktreeGroups.length > 0 ? (
+              <div className="agent-chat-session-worktrees">
+                <div className="agent-chat-session-worktrees-label">
+                  <span className="material-symbols-rounded agent-chat-session-worktrees-icon" aria-hidden="true">
+                    account_tree
                   </span>
-                  <span className="agent-chat-session-past-label">Past</span>
-                  <span className="agent-chat-session-past-hint">3d+</span>
-                  <span className="agent-chat-session-directory-count">{group.pastFilteredSessions.length}</span>
-                  <span
-                    className={`material-symbols-rounded agent-chat-session-directory-chevron ${isPastOpen ? "open" : ""}`}
-                    aria-hidden="true"
-                  >
-                    expand_more
-                  </span>
-                </button>
-                {isPastOpen ? (
-                  <div className="agent-chat-session-past-children">
-                    {group.pastFilteredSessions.map((session) => renderSessionSidebarRow(session))}
-                  </div>
-                ) : null}
+                  <span>Branches</span>
+                  <span className="agent-chat-session-directory-count">{worktreeSessionCount}</span>
+                </div>
+                {group.worktreeGroups.map((worktree) => renderWorktreeDirectory(worktree))}
               </div>
             ) : null}
           </div>
