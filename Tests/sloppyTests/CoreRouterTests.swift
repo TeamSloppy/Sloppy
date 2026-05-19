@@ -11,6 +11,7 @@ import CSQLite3
 
 private struct ErrorResponse: Decodable {
     let error: String
+    let message: String?
 }
 
 private struct DashboardAuthValidateResponsePayload: Decodable {
@@ -3032,6 +3033,35 @@ func channelPluginValidation() async throws {
     )
     let emptyInstallResponse = await router.handle(method: "POST", path: "/v1/plugins/install", body: emptyInstallBody)
     #expect(emptyInstallResponse.status == 400)
+}
+
+@Test
+func channelPluginInstallInvalidPayloadExplainsRequiredFields() async throws {
+    let config = CoreConfig.test
+    let service = CoreService(config: config)
+    let router = CoreRouter(service: service)
+
+    let badBody = Data(#"{"sourceUrl":".","localDirectory":"yes"}"#.utf8)
+    let response = await router.handle(method: "POST", path: "/v1/plugins/install", body: badBody)
+
+    #expect(response.status == 400)
+    let error = try JSONDecoder().decode(ErrorResponse.self, from: response.body)
+    #expect(error.error == ErrorCode.invalidPluginPayload)
+    #expect(error.message?.contains("sourceUrl") == true)
+    #expect(error.message?.contains("plugin.json") == true)
+    #expect(error.message?.contains("localDirectory") == true)
+    #expect(error.message?.contains("Bool") == true)
+}
+
+@Test
+func channelPluginInstallPayloadAcceptsLegacySourceURLKey() async throws {
+    let decoded = try JSONDecoder().decode(
+        ChannelPluginInstallRequest.self,
+        from: Data(#"{"sourceURL":"https://example.com/plugin.git","force":true}"#.utf8)
+    )
+
+    #expect(decoded.sourceUrl == "https://example.com/plugin.git")
+    #expect(decoded.force == true)
 }
 
 @Test

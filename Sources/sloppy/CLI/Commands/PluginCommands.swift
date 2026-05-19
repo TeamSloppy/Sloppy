@@ -102,12 +102,17 @@ struct PluginInstallCommand: AsyncParsableCommand {
 
     mutating func run() async throws {
         let client = SloppyCLIClient.resolve(url: url, token: token, verbose: verbose)
+        let localDirectoryMode: Bool? = (local || localDirectory) ? true : nil
+        let resolvedSourceUrl = PluginSourcePathResolver.installRequestSource(
+            from: sourceUrl,
+            localDirectory: localDirectoryMode
+        )
         let request = ChannelPluginInstallRequest(
-            sourceUrl: sourceUrl,
+            sourceUrl: resolvedSourceUrl,
             ref: ref,
             force: force,
             enabled: !disabled,
-            localDirectory: local || localDirectory
+            localDirectory: localDirectoryMode
         )
         do {
             let body = try client.encode(request)

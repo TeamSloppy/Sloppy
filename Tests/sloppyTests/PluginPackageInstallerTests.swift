@@ -110,7 +110,7 @@ func sourcePluginInstallerClonesBuildsAndReusesCache() async throws {
     )
 
     let first = try await installer.install(
-        ChannelPluginInstallRequest(sourceUrl: source.path)
+        ChannelPluginInstallRequest(sourceUrl: source.path, localDirectory: false)
     )
     #expect(first.manifest.name == "sample-plugin")
     #expect(first.rebuilt == true)
@@ -123,13 +123,39 @@ func sourcePluginInstallerClonesBuildsAndReusesCache() async throws {
     #expect(commandsAfterFirst.filter { $0.executable == "swift" && $0.arguments.contains("--product") }.count == 1)
 
     let second = try await installer.install(
-        ChannelPluginInstallRequest(sourceUrl: source.path, force: true)
+        ChannelPluginInstallRequest(sourceUrl: source.path, force: true, localDirectory: false)
     )
     #expect(second.rebuilt == false)
     #expect(second.binaryURL?.path == firstBinaryURL.path)
 
     let commandsAfterSecond = await runner.commands()
     #expect(commandsAfterSecond.filter { $0.executable == "swift" && $0.arguments.contains("--product") }.count == 1)
+}
+
+@Test
+func sourcePluginInstallerCopiesExistingLocalDirectoryByDefault() async throws {
+    let root = FileManager.default.temporaryDirectory
+        .appendingPathComponent("plugin-auto-local-install-test-\(UUID().uuidString)", isDirectory: true)
+    defer { try? FileManager.default.removeItem(at: root) }
+
+    let source = root.appendingPathComponent("source", isDirectory: true)
+    try makeNodePlugin(at: source, name: "auto-local-plugin", pluginProtocol: "source_control")
+
+    let runner = FakePluginProcessRunner()
+    let installer = PluginPackageInstaller(
+        pluginsRootURL: root.appendingPathComponent("plugins", isDirectory: true),
+        cacheRootURL: root.appendingPathComponent("plugin-cache", isDirectory: true),
+        processRunner: runner
+    )
+
+    let installed = try await installer.install(
+        ChannelPluginInstallRequest(sourceUrl: source.path, force: true)
+    )
+    #expect(installed.manifest.name == "auto-local-plugin")
+    #expect(FileManager.default.fileExists(atPath: installed.sourceURL.appendingPathComponent("plugin.json").path))
+
+    let commands = await runner.commands()
+    #expect(!commands.contains(where: { $0.executable == "git" && $0.arguments.first == "clone" }))
 }
 
 @Test
@@ -154,6 +180,62 @@ func sourcePluginInstallerCopiesLocalDirectoryWhenRequested() async throws {
     #expect(installed.manifest.name == "local-plugin")
     #expect(installed.rebuilt == false)
     #expect(FileManager.default.fileExists(atPath: installed.sourceURL.appendingPathComponent("plugin.json").path))
+
+    let commands = await runner.commands()
+    #expect(!commands.contains(where: { $0.executable == "git" && $0.arguments.first == "clone" }))
+}
+
+@Test
+func sourcePluginInstallerReportsMissingLocalDirectory() async throws {
+    let root = FileManager.default.temporaryDirectory
+        .appendingPathComponent("plugin-missing-local-install-test-\(UUID().uuidString)", isDirectory: true)
+    defer { try? FileManager.default.removeItem(at: root) }
+
+    let missingSource = root.appendingPathComponent("missing-source", isDirectory: true)
+    let installer = PluginPackageInstaller(
+        pluginsRootURL: root.appendingPathComponent("plugins", isDirectory: true),
+        cacheRootURL: root.appendingPathComponent("plugin-cache", isDirectory: true),
+        processRunner: FakePluginProcessRunner()
+    )
+
+    do {
+        _ = try await installer.install(
+            ChannelPluginInstallRequest(sourceUrl: missingSource.path, force: true, localDirectory: true)
+        )
+        Issue.record("Expected missing local directory error.")
+    } catch let error as PluginPackageInstallError {
+        #expect(error.localizedDescription.contains("Local plugin directory does not exist"))
+        #expect(error.localizedDescription.contains(missingSource.path))
+    } catch {
+        Issue.record("Expected PluginPackageInstallError, got \(error).")
+    }
+}
+
+@Test
+func sourcePluginInstallerReportsMissingPathLikeLocalDirectoryByDefault() async throws {
+    let root = FileManager.default.temporaryDirectory
+        .appendingPathComponent("plugin-missing-path-like-install-test-\(UUID().uuidString)", isDirectory: true)
+    defer { try? FileManager.default.removeItem(at: root) }
+
+    let missingSource = root.appendingPathComponent("missing-source", isDirectory: true)
+    let runner = FakePluginProcessRunner()
+    let installer = PluginPackageInstaller(
+        pluginsRootURL: root.appendingPathComponent("plugins", isDirectory: true),
+        cacheRootURL: root.appendingPathComponent("plugin-cache", isDirectory: true),
+        processRunner: runner
+    )
+
+    do {
+        _ = try await installer.install(
+            ChannelPluginInstallRequest(sourceUrl: missingSource.path, force: true)
+        )
+        Issue.record("Expected missing local directory error.")
+    } catch let error as PluginPackageInstallError {
+        #expect(error.localizedDescription.contains("Local plugin directory does not exist"))
+        #expect(error.localizedDescription.contains(missingSource.path))
+    } catch {
+        Issue.record("Expected PluginPackageInstallError, got \(error).")
+    }
 
     let commands = await runner.commands()
     #expect(!commands.contains(where: { $0.executable == "git" && $0.arguments.first == "clone" }))

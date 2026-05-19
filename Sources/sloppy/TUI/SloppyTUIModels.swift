@@ -19,6 +19,28 @@ struct SloppyTUIPickerItem {
     var description: String?
     var isCurrent: Bool
     var group: String? = nil
+    var searchHaystack: String
+
+    init(
+        value: String,
+        label: String,
+        description: String?,
+        isCurrent: Bool,
+        group: String? = nil,
+        searchHaystack: String? = nil
+    ) {
+        self.value = value
+        self.label = label
+        self.description = description
+        self.isCurrent = isCurrent
+        self.group = group
+        self.searchHaystack = searchHaystack ?? [
+            value,
+            label,
+            description ?? "",
+            group ?? "",
+        ].joined(separator: " ").lowercased()
+    }
 }
 
 struct SloppyTUIPicker {
@@ -65,17 +87,11 @@ struct SloppyTUIPicker {
     static func filteredItems(_ items: [SloppyTUIPickerItem], query: String) -> [SloppyTUIPickerItem] {
         let tokens = query
             .split(whereSeparator: { $0.isWhitespace })
-            .map(String.init)
+            .map { String($0).lowercased() }
         guard !tokens.isEmpty else { return items }
         return items.filter { item in
-            let haystack = [
-                item.value,
-                item.label,
-                item.description ?? "",
-                item.group ?? "",
-            ].joined(separator: " ")
             return tokens.allSatisfy { token in
-                haystack.localizedCaseInsensitiveContains(token)
+                item.searchHaystack.contains(token)
             }
         }
     }

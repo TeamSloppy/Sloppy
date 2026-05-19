@@ -1,4 +1,5 @@
 import Foundation
+import ChannelPluginSupport
 import Protocols
 import TauTUI
 import Testing
@@ -29,9 +30,42 @@ func slashCommandRouterHandlesKnownCommandsAndAliases() {
 
 @Test
 func slashCommandRouterHandlesSkillCommands() {
-    let skillCommandNames: Set<String> = ["ux-pro-max"]
+    let skillCommandNames: Set<String> = ["ux_pro_max"]
 
-    #expect(SloppyTUISlashCommandRouter.shouldHandle("/ux-pro-max make it nicer", commandNames: [], skillCommandNames: skillCommandNames))
+    #expect(SloppyTUISlashCommandRouter.shouldHandle("/ux_pro_max make it nicer", commandNames: [], skillCommandNames: skillCommandNames))
+}
+
+@Test
+func skillSlashCommandNamingUsesRepoTokenByDefault() {
+    let tokens = SkillSlashCommandNaming.resolvedSlashTokens(forSkillIds: ["owner/ui-pro-max"])
+
+    #expect(tokens["owner/ui-pro-max"] == "ui_pro_max")
+}
+
+@Test
+func skillSlashCommandNamingUsesOwnerForBuiltinConflict() {
+    let tokens = SkillSlashCommandNaming.resolvedSlashTokens(
+        forSkillIds: ["openai/help"],
+        reservedTokens: ["help"]
+    )
+
+    #expect(tokens["openai/help"] == "openai_help")
+}
+
+@Test
+func skillSlashCommandNamingDisambiguatesDuplicateReposDeterministically() {
+    let first = SkillSlashCommandNaming.resolvedSlashTokens(forSkillIds: [
+        "openai/ui-kit",
+        "acme/ui-kit",
+    ])
+    let second = SkillSlashCommandNaming.resolvedSlashTokens(forSkillIds: [
+        "openai/ui-kit",
+        "acme/ui-kit",
+    ])
+
+    #expect(first["openai/ui-kit"] == "openai_ui_kit")
+    #expect(first["acme/ui-kit"] == "acme_ui_kit")
+    #expect(first == second)
 }
 
 @Test

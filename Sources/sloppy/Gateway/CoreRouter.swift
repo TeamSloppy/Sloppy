@@ -884,13 +884,25 @@ public actor CoreRouter {
     static func channelPluginErrorResponse(_ error: CoreService.ChannelPluginError) -> CoreRouterResponse {
         switch error {
         case .invalidID:
-            return json(status: HTTPStatus.badRequest, payload: ["error": ErrorCode.invalidPluginId])
+            return json(status: HTTPStatus.badRequest, payload: [
+                "error": ErrorCode.invalidPluginId,
+                "message": "Plugin id is required and must be 128 characters or fewer.",
+            ])
         case .invalidPayload:
-            return json(status: HTTPStatus.badRequest, payload: ["error": ErrorCode.invalidPluginPayload])
+            return json(status: HTTPStatus.badRequest, payload: [
+                "error": ErrorCode.invalidPluginPayload,
+                "message": "Plugin payload is invalid. For plugin create/update, `type` and `baseUrl` must be non-empty when provided.",
+            ])
         case .notFound:
-            return json(status: HTTPStatus.notFound, payload: ["error": ErrorCode.pluginNotFound])
+            return json(status: HTTPStatus.notFound, payload: [
+                "error": ErrorCode.pluginNotFound,
+                "message": "Plugin was not found.",
+            ])
         case .conflict:
-            return json(status: HTTPStatus.conflict, payload: ["error": ErrorCode.pluginConflict])
+            return json(status: HTTPStatus.conflict, payload: [
+                "error": ErrorCode.pluginConflict,
+                "message": "Plugin already exists.",
+            ])
         }
     }
 

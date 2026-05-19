@@ -36,13 +36,15 @@ extension CoreService {
         }
 
         _ = try getAgent(id: normalizedAgentID)
-        await refreshAgentMemoryFile(agentID: normalizedAgentID)
 
         let checkpointSessionID = request.checkpointSessionId
             .flatMap { normalizedSessionID($0.trimmingCharacters(in: .whitespacesAndNewlines)) }
 
         do {
             let session = try await sessionOrchestrator.createSession(agentID: normalizedAgentID, request: request)
+            Task { [weak self] in
+                await self?.refreshAgentMemoryFile(agentID: normalizedAgentID)
+            }
             if let checkpointSessionID {
                 scheduleAgentMemoryCheckpoint(
                     agentID: normalizedAgentID,

@@ -221,25 +221,25 @@ extension CoreService {
         }
         let builtin = Set(ChannelCommandHandler.allCommands.map { $0.name.lowercased() })
         let skills = try await getAgentSkillsForRuntime(agentID: normalizedAgentID)
-        for skill in skills where skill.userInvocable {
-            var token = SkillSlashCommandNaming.slashToken(fromSkillId: skill.id)
-            if builtin.contains(token) {
-                token = "skill_" + token
-                token = String(token.prefix(32)).trimmingCharacters(in: CharacterSet(charactersIn: "_"))
-            }
-            let desc: String
-            if let d = skill.description?.trimmingCharacters(in: .whitespacesAndNewlines), !d.isEmpty {
-                desc = "\(skill.name) — \(d)"
-            } else {
-                desc = skill.name
-            }
+        let invocableSkills = skills.filter(\.userInvocable)
+        let resolvedTokens = SkillSlashCommandNaming.resolvedSlashTokens(
+            forSkillIds: invocableSkills.map(\.id),
+            reservedTokens: builtin
+        )
+        for skill in invocableSkills {
+            let token = resolvedTokens[skill.id] ?? SkillSlashCommandNaming.slashToken(fromSkillId: skill.repo)
+            let repoToken = SkillSlashCommandNaming.slashToken(fromSkillId: skill.repo)
             items.append(
                 AgentChatSlashCommandItem(
                     source: "skill",
                     name: token,
-                    description: desc,
+                    description: Self.skillSlashDescription(for: skill),
                     argument: nil,
-                    skillId: skill.id
+                    skillId: skill.id,
+                    displayName: skill.name,
+                    owner: skill.owner,
+                    repo: skill.repo,
+                    disambiguated: token != repoToken
                 )
             )
         }
@@ -250,6 +250,14 @@ extension CoreService {
             return lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
         }
         return AgentChatSlashCommandsResponse(commands: items)
+    }
+
+    static func skillSlashDescription(for skill: InstalledSkill) -> String {
+        let suffix = " [\(skill.id)]"
+        if let d = skill.description?.trimmingCharacters(in: .whitespacesAndNewlines), !d.isEmpty {
+            return "\(skill.name) — \(d)\(suffix)"
+        }
+        return "\(skill.name)\(suffix)"
     }
 }
 

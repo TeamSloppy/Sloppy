@@ -11,6 +11,8 @@ struct PluginPackageInstallResult: Sendable {
 
 enum PluginPackageInstallError: Error, LocalizedError, Sendable {
     case invalidSourceURL
+    case localDirectoryNotFound(String)
+    case localSourceNotDirectory(String)
     case gitCommandFailed(command: String, exitCode: Int32, output: String)
     case missingPackageSwift
     case missingOrInvalidManifest
@@ -22,13 +24,17 @@ enum PluginPackageInstallError: Error, LocalizedError, Sendable {
     var errorDescription: String? {
         switch self {
         case .invalidSourceURL:
-            return "Plugin source URL is required."
+            return "Plugin source is required. Provide a Git URL, a GitHub shorthand, or a local plugin package directory."
+        case .localDirectoryNotFound(let path):
+            return "Local plugin directory does not exist: \(path). Pass the plugin package root directory, for example `.` when you are already inside the plugin directory."
+        case .localSourceNotDirectory(let path):
+            return "Local plugin source must be a directory: \(path)."
         case .gitCommandFailed(let command, let exitCode, let output):
             return "\(command) failed with exit \(exitCode). \(output)"
         case .missingPackageSwift:
-            return "Plugin package must contain Package.swift at its root."
+            return "Swift plugin package is missing Package.swift at its root. Add Package.swift or set plugin.json runtime to nodejs for a Node.js plugin."
         case .missingOrInvalidManifest:
-            return "Plugin package must contain a valid plugin.json at its root."
+            return "Plugin package is missing a valid plugin.json at its root. Required fields include `name` and a supported `protocol` such as gateway, task_sync, source_control, tool, memory, or model_provider."
         case .unsupportedProtocol(let value):
             return "Only gateway, task_sync, source_control, tool, memory, model_provider, and Node.js API v2 plugin source plugins are supported; plugin.json protocol was \(value)."
         case .invalidPluginName(let name):
@@ -79,7 +85,7 @@ struct PluginPackageInstaller {
         try fileManager.createDirectory(at: tempRoot, withIntermediateDirectories: true)
         defer { try? fileManager.removeItem(at: tempRoot) }
 
-        if request.localDirectory == true {
+        if shouldCopyLocalDirectory(source: source, localDirectory: request.localDirectory) {
             try copyLocalDirectory(source: source, checkoutURL: checkoutURL)
         } else {
             try await runGitClone(source: source, checkoutURL: checkoutURL)
@@ -155,11 +161,22 @@ struct PluginPackageInstaller {
         "model_provider",
     ]
 
+    private func shouldCopyLocalDirectory(source: String, localDirectory: Bool?) -> Bool {
+        PluginSourcePathResolver.shouldCopyLocalDirectory(
+            source: source,
+            localDirectory: localDirectory,
+            fileManager: fileManager
+        )
+    }
+
     private func copyLocalDirectory(source: String, checkoutURL: URL) throws {
-        let sourceURL = localDirectoryURL(from: source)
+        let sourceURL = PluginSourcePathResolver.localDirectoryURL(from: source)
         var isDirectory: ObjCBool = false
-        guard fileManager.fileExists(atPath: sourceURL.path, isDirectory: &isDirectory), isDirectory.boolValue else {
-            throw PluginPackageInstallError.invalidSourceURL
+        guard fileManager.fileExists(atPath: sourceURL.path, isDirectory: &isDirectory) else {
+            throw PluginPackageInstallError.localDirectoryNotFound(sourceURL.path)
+        }
+        guard isDirectory.boolValue else {
+            throw PluginPackageInstallError.localSourceNotDirectory(sourceURL.path)
         }
 
         do {
@@ -167,14 +184,6 @@ struct PluginPackageInstaller {
         } catch {
             throw PluginPackageInstallError.moveFailed("Failed to copy local plugin directory into workspace: \(error)")
         }
-    }
-
-    private func localDirectoryURL(from source: String) -> URL {
-        if let url = URL(string: source), url.isFileURL {
-            return url
-        }
-        let expanded = (source as NSString).expandingTildeInPath
-        return URL(fileURLWithPath: expanded, isDirectory: true)
     }
 
     private func runGitClone(source: String, checkoutURL: URL) async throws {

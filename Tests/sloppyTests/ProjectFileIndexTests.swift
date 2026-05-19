@@ -136,6 +136,33 @@ func projectFileIndexCompletionSearchReturnsDirectChildrenForPathPrefixes() thro
 }
 
 @Test
+func projectFileIndexLookupCompletesDirectChildrenAndExactPaths() throws {
+    let index = ProjectFileIndex(
+        projectId: "p1",
+        rootPath: "/tmp/p1",
+        entries: [
+            ProjectFileIndexEntry(path: "src", type: .directory),
+            ProjectFileIndexEntry(path: "src/AppMain.swift", type: .file),
+            ProjectFileIndexEntry(path: "src/Nested", type: .directory),
+            ProjectFileIndexEntry(path: "src/Nested/Helper.swift", type: .file),
+            ProjectFileIndexEntry(path: "/tmp/extra/Notes.md", type: .file),
+        ]
+    )
+    let lookup = index.makeLookup()
+
+    #expect(lookup.containsFile("src/AppMain.swift"))
+    #expect(lookup.containsDirectory("src/"))
+    #expect(lookup.containsFile("/tmp/extra/Notes.md"))
+    #expect(lookup.completionSearch("src/", limit: 10, fallbackSearch: index.search).map(\.path) == [
+        "src/Nested",
+        "src/AppMain.swift",
+    ])
+    #expect(lookup.completionSearch("/tmp/extra/No", limit: 10, fallbackSearch: index.search).map(\.path) == [
+        "/tmp/extra/Notes.md",
+    ])
+}
+
+@Test
 func projectFileIndexDirectoryManifestValidatesDirectoryAndReturnsBoundedTree() throws {
     let root = try temporaryIndexRoot()
     defer { try? FileManager.default.removeItem(at: root) }

@@ -153,6 +153,73 @@ func cliClientVerboseFlagPropagates() {
     #expect(client.verbose == true)
 }
 
+// MARK: - Plugin install source path tests
+
+@Test
+func pluginInstallSourceResolvesExplicitLocalRelativeDirectory() throws {
+    let root = FileManager.default.temporaryDirectory
+        .appendingPathComponent("plugin-cli-local-source-\(UUID().uuidString)", isDirectory: true)
+    defer { try? FileManager.default.removeItem(at: root) }
+    let source = root.appendingPathComponent("arcadia-source-control", isDirectory: true)
+    try FileManager.default.createDirectory(at: source, withIntermediateDirectories: true)
+
+    let resolved = PluginSourcePathResolver.installRequestSource(
+        from: "arcadia-source-control",
+        localDirectory: true,
+        currentDirectoryPath: root.path
+    )
+
+    #expect(resolved == source.standardizedFileURL.path)
+}
+
+@Test
+func pluginInstallSourceResolvesExplicitLocalDotToCurrentDirectory() {
+    let root = FileManager.default.temporaryDirectory
+        .appendingPathComponent("plugin-cli-dot-source-\(UUID().uuidString)", isDirectory: true)
+
+    let resolved = PluginSourcePathResolver.installRequestSource(
+        from: ".",
+        localDirectory: true,
+        currentDirectoryPath: root.path
+    )
+
+    #expect(resolved == root.standardizedFileURL.path)
+}
+
+@Test
+func pluginInstallSourceResolvesExistingLocalDirectoryByDefault() throws {
+    let root = FileManager.default.temporaryDirectory
+        .appendingPathComponent("plugin-cli-auto-source-\(UUID().uuidString)", isDirectory: true)
+    defer { try? FileManager.default.removeItem(at: root) }
+    let source = root.appendingPathComponent("local-plugin", isDirectory: true)
+    try FileManager.default.createDirectory(at: source, withIntermediateDirectories: true)
+
+    let resolved = PluginSourcePathResolver.installRequestSource(
+        from: "local-plugin",
+        localDirectory: nil,
+        currentDirectoryPath: root.path
+    )
+
+    #expect(resolved == source.standardizedFileURL.path)
+}
+
+@Test
+func pluginInstallSourceKeepsGitSourceWhenLocalDirectoryIsFalse() throws {
+    let root = FileManager.default.temporaryDirectory
+        .appendingPathComponent("plugin-cli-git-source-\(UUID().uuidString)", isDirectory: true)
+    defer { try? FileManager.default.removeItem(at: root) }
+    let source = root.appendingPathComponent("local-plugin", isDirectory: true)
+    try FileManager.default.createDirectory(at: source, withIntermediateDirectories: true)
+
+    let resolved = PluginSourcePathResolver.installRequestSource(
+        from: "local-plugin",
+        localDirectory: false,
+        currentDirectoryPath: root.path
+    )
+
+    #expect(resolved == "local-plugin")
+}
+
 // MARK: - CLIClientError descriptions
 
 @Test
@@ -165,6 +232,16 @@ func cliClientErrorNotConnectedDescription() {
 func cliClientErrorHTTPErrorDescription() {
     let err = CLIClientError.httpError(404, "not found")
     #expect(err.errorDescription?.contains("404") == true)
+}
+
+@Test
+func cliClientErrorHTTPErrorUsesServerMessage() {
+    let err = CLIClientError.httpError(
+        400,
+        #"{"error":"invalid_plugin_payload","message":"Expected sourceUrl."}"#
+    )
+
+    #expect(err.errorDescription == "Server returned 400: Expected sourceUrl. (invalid_plugin_payload)")
 }
 
 @Test

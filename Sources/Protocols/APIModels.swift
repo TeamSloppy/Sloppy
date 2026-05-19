@@ -2294,13 +2294,31 @@ public struct AgentChatSlashCommandItem: Codable, Sendable, Equatable {
     public var argument: String?
     /// Set when `source == "skill"` (original `owner/repo` id).
     public var skillId: String?
+    public var displayName: String?
+    public var owner: String?
+    public var repo: String?
+    public var disambiguated: Bool?
 
-    public init(source: String, name: String, description: String, argument: String? = nil, skillId: String? = nil) {
+    public init(
+        source: String,
+        name: String,
+        description: String,
+        argument: String? = nil,
+        skillId: String? = nil,
+        displayName: String? = nil,
+        owner: String? = nil,
+        repo: String? = nil,
+        disambiguated: Bool? = nil
+    ) {
         self.source = source
         self.name = name
         self.description = description
         self.argument = argument
         self.skillId = skillId
+        self.displayName = displayName
+        self.owner = owner
+        self.repo = repo
+        self.disambiguated = disambiguated
     }
 }
 
@@ -2366,6 +2384,16 @@ public struct ChannelPluginInstallRequest: Codable, Sendable {
     public var enabled: Bool?
     public var localDirectory: Bool?
 
+    enum CodingKeys: String, CodingKey {
+        case sourceUrl
+        case sourceURL
+        case source
+        case ref
+        case force
+        case enabled
+        case localDirectory
+    }
+
     public init(
         sourceUrl: String,
         ref: String? = nil,
@@ -2378,6 +2406,39 @@ public struct ChannelPluginInstallRequest: Codable, Sendable {
         self.force = force
         self.enabled = enabled
         self.localDirectory = localDirectory
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        sourceUrl = try container.decodeStringFromAliases([.sourceUrl, .sourceURL, .source])
+        ref = try container.decodeIfPresent(String.self, forKey: .ref)
+        force = try container.decodeIfPresent(Bool.self, forKey: .force)
+        enabled = try container.decodeIfPresent(Bool.self, forKey: .enabled)
+        localDirectory = try container.decodeIfPresent(Bool.self, forKey: .localDirectory)
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(sourceUrl, forKey: .sourceUrl)
+        try container.encodeIfPresent(ref, forKey: .ref)
+        try container.encodeIfPresent(force, forKey: .force)
+        try container.encodeIfPresent(enabled, forKey: .enabled)
+        try container.encodeIfPresent(localDirectory, forKey: .localDirectory)
+    }
+}
+
+private extension KeyedDecodingContainer where Key == ChannelPluginInstallRequest.CodingKeys {
+    func decodeStringFromAliases(_ keys: [Key]) throws -> String {
+        for key in keys where contains(key) {
+            return try decode(String.self, forKey: key)
+        }
+        throw DecodingError.keyNotFound(
+            keys[0],
+            DecodingError.Context(
+                codingPath: codingPath,
+                debugDescription: "Missing required key '\(keys[0].stringValue)'."
+            )
+        )
     }
 }
 

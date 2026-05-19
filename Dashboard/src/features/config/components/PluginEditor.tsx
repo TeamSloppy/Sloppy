@@ -24,7 +24,14 @@ function pluginStatus(plugin) {
 
 function isLocalPluginSource(value) {
   const source = String(value || "").trim();
-  return source.startsWith("/") || source.startsWith("~") || source.startsWith("file://") || /^[A-Za-z]:[\\/]/.test(source);
+  return source === "."
+    || source === ".."
+    || source.startsWith("/")
+    || source.startsWith("~")
+    || source.startsWith("./")
+    || source.startsWith("../")
+    || source.startsWith("file://")
+    || /^[A-Za-z]:[\\/]/.test(source);
 }
 
 function fileUriToPath(value) {

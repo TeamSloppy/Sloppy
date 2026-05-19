@@ -102,14 +102,11 @@ struct ProjectFileIndex: Codable, Equatable, Sendable {
     }
 
     func completionSearch(_ query: String, limit: Int) -> [ProjectFileIndexEntry] {
-        let normalized = Self.normalizedQuery(query)
-        guard !normalized.isEmpty else {
-            return search(normalized, limit: limit)
-        }
-        guard normalized.contains("/") else {
-            return search(normalized, limit: limit)
-        }
-        return pathCompletionSearch(normalized, limit: limit)
+        makeLookup().completionSearch(query, limit: limit, fallbackSearch: search)
+    }
+
+    func makeLookup() -> ProjectFileIndexLookup {
+        ProjectFileIndexLookup(entries: entries)
     }
 
     func directoryManifest(path: String, limit: Int) -> [ProjectFileIndexEntry] {
@@ -212,55 +209,7 @@ struct ProjectFileIndex: Codable, Equatable, Sendable {
         return nil
     }
 
-    private func pathCompletionSearch(_ normalized: String, limit: Int) -> [ProjectFileIndexEntry] {
-        let maxResults = max(1, limit)
-        let hasTrailingSlash = normalized.hasSuffix("/")
-        let trimmed = hasTrailingSlash ? String(normalized.dropLast()) : normalized
-        let parentPath: String
-        let childPrefix: String
-
-        if hasTrailingSlash {
-            parentPath = trimmed
-            childPrefix = ""
-        } else {
-            let parent = (trimmed as NSString).deletingLastPathComponent
-            parentPath = parent == "." ? "" : parent
-            childPrefix = (trimmed as NSString).lastPathComponent
-        }
-
-        let lowerChildPrefix = childPrefix.lowercased()
-        let entryPrefix = parentPath.isEmpty ? "" : parentPath + "/"
-        var matches: [ProjectFileIndexEntry] = []
-        matches.reserveCapacity(maxResults)
-
-        for entry in entries {
-            guard entry.path.hasPrefix(entryPrefix) else {
-                continue
-            }
-
-            let suffix = String(entry.path.dropFirst(entryPrefix.count))
-            guard !suffix.isEmpty, !suffix.contains("/") else {
-                continue
-            }
-
-            if !lowerChildPrefix.isEmpty,
-               !suffix.lowercased().hasPrefix(lowerChildPrefix) {
-                continue
-            }
-
-            matches.append(entry)
-            if matches.count >= maxResults * 4 {
-                break
-            }
-        }
-
-        return matches
-            .sorted(by: Self.sortForDisplay)
-            .prefix(maxResults)
-            .map(\.self)
-    }
-
-    private static func sortForDisplay(_ lhs: ProjectFileIndexEntry, _ rhs: ProjectFileIndexEntry) -> Bool {
+    fileprivate static func sortForDisplay(_ lhs: ProjectFileIndexEntry, _ rhs: ProjectFileIndexEntry) -> Bool {
         if lhs.type != rhs.type {
             return lhs.type == .directory
         }
@@ -297,6 +246,107 @@ struct ProjectFileIndex: Codable, Equatable, Sendable {
 
     private static func typeRank(_ type: ProjectFileEntry.EntryType) -> Int {
         type == .directory ? 0 : 1
+    }
+}
+
+struct ProjectFileIndexLookup: Sendable {
+    let filePaths: Set<String>
+    let directoryPaths: Set<String>
+    let childrenByParent: [String: [ProjectFileIndexEntry]]
+
+    init(entries: [ProjectFileIndexEntry]) {
+        var files = Set<String>()
+        var directories = Set<String>()
+        var children: [String: [ProjectFileIndexEntry]] = [:]
+
+        for entry in entries {
+            switch entry.type {
+            case .file:
+                files.insert(entry.path)
+            case .directory:
+                directories.insert(entry.path)
+            }
+
+            let parent = Self.parentPath(for: entry.path)
+            children[parent, default: []].append(entry)
+        }
+
+        for key in children.keys {
+            children[key]?.sort(by: ProjectFileIndex.sortForDisplay)
+        }
+
+        filePaths = files
+        directoryPaths = directories
+        childrenByParent = children
+    }
+
+    func containsFile(_ query: String) -> Bool {
+        let normalized = Self.normalizedQuery(query)
+        return !normalized.isEmpty && filePaths.contains(normalized)
+    }
+
+    func containsDirectory(_ query: String) -> Bool {
+        let normalizedQuery = Self.normalizedQuery(query)
+        let normalized = normalizedQuery.hasSuffix("/") ? String(normalizedQuery.dropLast()) : normalizedQuery
+        return !normalized.isEmpty && directoryPaths.contains(normalized)
+    }
+
+    func completionSearch(
+        _ query: String,
+        limit: Int,
+        fallbackSearch: (String, Int) -> [ProjectFileIndexEntry]
+    ) -> [ProjectFileIndexEntry] {
+        let normalized = Self.normalizedQuery(query)
+        guard !normalized.isEmpty else {
+            return fallbackSearch(normalized, limit)
+        }
+        guard normalized.contains("/") else {
+            return fallbackSearch(normalized, limit)
+        }
+
+        let maxResults = max(1, limit)
+        let hasTrailingSlash = normalized.hasSuffix("/")
+        let trimmed = hasTrailingSlash ? String(normalized.dropLast()) : normalized
+        let parentPath: String
+        let childPrefix: String
+
+        if hasTrailingSlash {
+            parentPath = trimmed
+            childPrefix = ""
+        } else {
+            parentPath = Self.parentPath(for: trimmed)
+            childPrefix = (trimmed as NSString).lastPathComponent
+        }
+
+        let lowerChildPrefix = childPrefix.lowercased()
+        let children = childrenByParent[parentPath] ?? []
+        guard !lowerChildPrefix.isEmpty else {
+            return Array(children.prefix(maxResults))
+        }
+        return Array(children.filter { entry in
+            (entry.path as NSString).lastPathComponent.lowercased().hasPrefix(lowerChildPrefix)
+        }.prefix(maxResults))
+    }
+
+    private static func parentPath(for path: String) -> String {
+        let parent = (path as NSString).deletingLastPathComponent
+        return parent == "." ? "" : parent
+    }
+
+    private static func normalizedQuery(_ query: String) -> String {
+        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.hasPrefix("/"), trimmed != "/" {
+            let stripped = trimmed.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+            guard !stripped.isEmpty else {
+                return ""
+            }
+            return "/" + stripped + (trimmed.hasSuffix("/") ? "/" : "")
+        }
+        let stripped = trimmed.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        guard !stripped.isEmpty else {
+            return ""
+        }
+        return stripped + (trimmed.hasSuffix("/") ? "/" : "")
     }
 }
 

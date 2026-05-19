@@ -14,12 +14,30 @@ enum CLIClientError: Error, LocalizedError {
         case .notConnected(let url):
             return "Cannot connect to Sloppy server at \(url). Is it running? Use `sloppy run` to start it."
         case .httpError(let code, let body):
+            if let detail = Self.serverErrorDescription(from: body) {
+                return "Server returned \(code): \(detail)"
+            }
             return "Server returned \(code): \(body)"
         case .noData:
             return "Server returned an empty response."
         case .invalidURL:
             return "Invalid server URL."
         }
+    }
+
+    private static func serverErrorDescription(from body: String) -> String? {
+        guard let data = body.data(using: .utf8),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        else { return nil }
+
+        let code = object["error"] as? String
+        if let message = object["message"] as? String, !message.isEmpty {
+            if let code, !code.isEmpty {
+                return "\(message) (\(code))"
+            }
+            return message
+        }
+        return code
     }
 }
 

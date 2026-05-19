@@ -1159,15 +1159,6 @@ extension CoreService: InboundMessageReceiver {
         }
     }
 
-    private func resolvedSkillSlashToken(skillId: String, builtinNames: Set<String>) -> String {
-        var token = SkillSlashCommandNaming.slashToken(fromSkillId: skillId)
-        if builtinNames.contains(token) {
-            token = "skill_" + token
-            token = String(token.prefix(32)).trimmingCharacters(in: CharacterSet(charactersIn: "_"))
-        }
-        return token
-    }
-
     public func skillSlashCommandTokens(forChannelID: String) async -> [String] {
         let board = try? getActorBoard()
         let base = ChannelGatewayScope.parse(forChannelID).baseChannelId
@@ -1178,14 +1169,15 @@ extension CoreService: InboundMessageReceiver {
             return []
         }
         let builtin = Set(ChannelCommandHandler.allCommands.map { $0.name.lowercased() })
-        return skills.filter(\.userInvocable).map { skill in
-            resolvedSkillSlashToken(skillId: skill.id, builtinNames: builtin)
-        }
+        let invocableSkillIds = skills.filter(\.userInvocable).map(\.id)
+        let resolved = SkillSlashCommandNaming.resolvedSlashTokens(forSkillIds: invocableSkillIds, reservedTokens: builtin)
+        return invocableSkillIds.compactMap { resolved[$0] }
     }
 
     public func skillSlashMenuEntriesUnion(forChannelIDs: [String]) async -> [ChannelSlashCommandItem] {
         var seen = Set<String>()
         var items: [ChannelSlashCommandItem] = []
+        let builtin = Set(ChannelCommandHandler.allCommands.map { $0.name.lowercased() })
         for cid in forChannelIDs {
             let board = try? getActorBoard()
             let base = ChannelGatewayScope.parse(cid).baseChannelId
@@ -1195,19 +1187,18 @@ extension CoreService: InboundMessageReceiver {
             guard let skills = try? await getAgentSkillsForRuntime(agentID: agentID) else {
                 continue
             }
-            let builtin = Set(ChannelCommandHandler.allCommands.map { $0.name.lowercased() })
-            for skill in skills where skill.userInvocable {
-                let token = resolvedSkillSlashToken(skillId: skill.id, builtinNames: builtin)
+            let invocableSkills = skills.filter(\.userInvocable)
+            let resolved = SkillSlashCommandNaming.resolvedSlashTokens(
+                forSkillIds: invocableSkills.map(\.id),
+                reservedTokens: builtin
+            )
+            for skill in invocableSkills {
+                let token = resolved[skill.id] ?? SkillSlashCommandNaming.slashToken(fromSkillId: skill.repo)
                 guard !token.isEmpty, !seen.contains(token) else {
                     continue
                 }
                 seen.insert(token)
-                let desc: String
-                if let d = skill.description?.trimmingCharacters(in: .whitespacesAndNewlines), !d.isEmpty {
-                    desc = "\(skill.name) — \(d)"
-                } else {
-                    desc = skill.name
-                }
+                let desc = Self.skillSlashDescription(for: skill)
                 let clipped = desc.count > 240 ? String(desc.prefix(240)) + "…" : desc
                 items.append(ChannelSlashCommandItem(name: token, description: clipped, argument: nil))
             }

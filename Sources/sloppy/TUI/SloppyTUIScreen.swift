@@ -3,6 +3,7 @@ import Foundation
 import AppKit
 #endif
 import ChannelPluginSupport
+import Logging
 import Protocols
 import TauTUI
 
@@ -248,6 +249,7 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
     """
 
     private let runtime: SloppyTUIRuntime
+    private let logger = Logger(label: "sloppy.tui.screen")
     private let desktopNotificationService = DesktopNotificationService.live()
     private var project: ProjectRecord
     private var agent: AgentSummary
@@ -279,6 +281,8 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
     private var skillSlashCommandNames: Set<String> = []
     private var commandPaletteSelection = 0
     private var streamTask: Task<Void, Never>?
+    private var sessionStreamReadyKey: String?
+    private var sessionStreamReadyWaiters: [CheckedContinuation<Void, Never>] = []
     private var changeTask: Task<Void, Never>?
     private var devicePollTask: Task<Void, Never>?
     private var thinkingAnimationTask: Task<Void, Never>?
@@ -291,6 +295,7 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
     private var tokenUsageSummary: SloppyTUITokenUsageSummary?
     private var tokenUsageCostUSD: Double?
     private var projectFileIndex: ProjectFileIndex?
+    private var projectFileIndexLookup: ProjectFileIndexLookup?
     private var projectFileRootURL: URL?
     private var projectFileIndexLoading = false
     private var projectFileSearchSelection = 0
@@ -304,6 +309,19 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
     private var suppressedProjectTaskSearch: SloppyTUITaskReferenceSearchSuppression?
     private var projectTaskGeneration = 0
     private var projectTaskSearchCache: (generation: Int, token: String, items: [SloppyTUIPickerItem])?
+    private var editorTextRevision = 0
+    private var currentProjectFileTokenCache: (
+        revision: Int,
+        line: Int,
+        column: Int,
+        token: SloppyTUIProjectPathTokens.Token?
+    )?
+    private var currentProjectTaskTokenCache: (
+        revision: Int,
+        line: Int,
+        column: Int,
+        token: SloppyTUITaskReferenceTokens.Token?
+    )?
     private var liveAssistantDraft: String?
     private var liveAssistantTarget: String?
     private var liveAssistantInterpolationTask: Task<Void, Never>?
@@ -324,6 +342,11 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
     private var queuedMessages = SloppyTUIMessageQueue()
     private var isDrainingQueuedMessages = false
     private var isInterruptingRun = false
+    private var sendTimingStart: Date?
+    private var sendTimingLast: Date?
+    private var sendTimingFirstStreamEventMarked = false
+    private var sendTimingFirstModelChunkMarked = false
+    private var sendTimingFirstToolCallMarked = false
     private var isExiting = false
     private var controlCExitDetector = SloppyTUIControlCExitDetector()
     private var exitAfterModelSelection = false
@@ -369,6 +392,9 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
         }
         editor.onChange = { [weak self] value in
             self?.persistDraft(value)
+            self?.editorTextRevision += 1
+            self?.currentProjectFileTokenCache = nil
+            self?.currentProjectTaskTokenCache = nil
             if !Self.isReasoningEffortSelectorText(value) {
                 self?.effortSliderSelectionIndex = nil
             }
@@ -396,6 +422,9 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
     }
 
     func start() {
+        Task { [runtime] in
+            await runtime.service.waitForStartup()
+        }
         if hasPersistedSession {
             Task { @MainActor in
                 await restorePersistedDirectoriesForCurrentSession()
@@ -422,6 +451,7 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
 
     func stopBackgroundTasks() {
         streamTask?.cancel()
+        resumeSessionStreamReadyWaiters()
         changeTask?.cancel()
         devicePollTask?.cancel()
         thinkingAnimationTask?.cancel()
@@ -1200,14 +1230,22 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
     }
 
     private func currentProjectTaskToken() -> SloppyTUITaskReferenceTokens.Token? {
-        let text = editor.getText()
         let cursor = editor.getCursor()
+        if let cache = currentProjectTaskTokenCache,
+           cache.revision == editorTextRevision,
+           cache.line == cursor.line,
+           cache.column == cursor.col {
+            return cache.token
+        }
+        let text = editor.getText()
         let lines = text.components(separatedBy: "\n")
-        return SloppyTUITaskReferenceTokens.tokenBeforeCursor(
+        let token = SloppyTUITaskReferenceTokens.tokenBeforeCursor(
             lines: lines,
             cursorLine: cursor.line,
             cursorColumn: cursor.col
         )
+        currentProjectTaskTokenCache = (editorTextRevision, cursor.line, cursor.col, token)
+        return token
     }
 
     private func projectFileSearchPicker() -> SloppyTUIPicker? {
@@ -1243,10 +1281,11 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
                 selectedIndex: 0
             )
         }
-        guard !isExactIndexedFilePath(query, in: index) else {
+        let lookup = projectFileIndexLookup ?? index.makeLookup()
+        guard !lookup.containsFile(query) else {
             return nil
         }
-        guard !(query.hasSuffix("/") && isExactIndexedDirectoryPath(query, in: index)) else {
+        guard !(query.hasSuffix("/") && lookup.containsDirectory(query)) else {
             return nil
         }
 
@@ -1256,7 +1295,7 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
            cached.token == token.rawToken {
             items = cached.items
         } else {
-            let entries = index.completionSearch(query, limit: 30)
+            let entries = lookup.completionSearch(query, limit: 30, fallbackSearch: index.search)
             guard !entries.isEmpty else {
                 return nil
             }
@@ -1284,30 +1323,6 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
             return true
         }
         return trimmed.count >= 2
-    }
-
-    private func isExactIndexedFilePath(_ query: String, in index: ProjectFileIndex) -> Bool {
-        let normalized = query
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-        guard !normalized.isEmpty else {
-            return false
-        }
-        return index.entries.contains { entry in
-            entry.type == .file && entry.path == normalized
-        }
-    }
-
-    private func isExactIndexedDirectoryPath(_ query: String, in index: ProjectFileIndex) -> Bool {
-        let normalized = query
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-        guard !normalized.isEmpty else {
-            return false
-        }
-        return index.entries.contains { entry in
-            entry.type == .directory && entry.path == normalized
-        }
     }
 
     private func projectFilePickerItem(entry: ProjectFileIndexEntry) -> SloppyTUIPickerItem {
@@ -1352,14 +1367,22 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
     }
 
     private func currentProjectFileToken() -> SloppyTUIProjectPathTokens.Token? {
-        let text = editor.getText()
         let cursor = editor.getCursor()
+        if let cache = currentProjectFileTokenCache,
+           cache.revision == editorTextRevision,
+           cache.line == cursor.line,
+           cache.column == cursor.col {
+            return cache.token
+        }
+        let text = editor.getText()
         let lines = text.components(separatedBy: "\n")
-        return SloppyTUIProjectPathTokens.tokenBeforeCursor(
+        let token = SloppyTUIProjectPathTokens.tokenBeforeCursor(
             lines: lines,
             cursorLine: cursor.line,
             cursorColumn: cursor.col
         )
+        currentProjectFileTokenCache = (editorTextRevision, cursor.line, cursor.col, token)
+        return token
     }
 
     private func applyCommandPaletteSelection(_ command: SloppyTUISlashCommand) {
@@ -1455,6 +1478,7 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
         dismissLocalCardsForUserMessage()
         isPosting = true
         taskStartedAt = Date()
+        resetSendTiming()
         lastTaskElapsed = nil
         setLiveAssistantDraftImmediately("")
         let inlineReferenceCount = min(SloppyTUIProjectPathTokens.attachmentPaths(in: value).count, 8)
@@ -1505,6 +1529,8 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
                 contentCharacters: content.count
             ))
             await Task.yield()
+            await waitForCurrentSessionStreamReady()
+            markSendTiming("stream_ready")
             _ = try await runtime.service.postAgentSessionMessage(
                 agentID: agent.id,
                 sessionID: session.id,
@@ -1523,6 +1549,7 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
             }
             recordUndoPointIfNeeded(undoBaseline)
             liveRunStatusLine = "Refreshing session..."
+            markSendTiming("post_message_returned")
             refreshStaticChrome()
             await Task.yield()
             await reloadSession()
@@ -1532,6 +1559,7 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
             await deleteSessionIfStillEmptyAfterFailedFirstMessage(createdSessionForThisMessage)
             clearLiveAssistantDraft()
             petMood = .sad
+            markSendTiming("failed")
             appendLocalCard("Message failed: \(String(describing: error))")
         }
         if let taskStartedAt {
@@ -1544,6 +1572,7 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
         stopThinkingAnimation()
         clearLiveAssistantDraft()
         liveRunStatusLine = nil
+        markSendTiming("finished")
         refreshStaticChrome()
         renderTimeline()
         await sendNextQueuedMessageIfIdle()
@@ -3096,9 +3125,13 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
         guard hasPersistedSession else {
             streamTask?.cancel()
             streamTask = nil
+            sessionStreamReadyKey = nil
+            resumeSessionStreamReadyWaiters()
             return
         }
         streamTask?.cancel()
+        sessionStreamReadyKey = nil
+        let streamKey = currentSessionStreamKey()
         streamTask = Task { [weak self] in
             guard let self else { return }
             do {
@@ -3106,12 +3139,21 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
                 for await update in stream {
                     guard !Task.isCancelled else { break }
                     await MainActor.run {
-                        if update.kind == .sessionDelta, let message = update.message {
+                        if update.kind == .sessionReady {
+                            self.markSessionStreamReady(streamKey: streamKey)
+                        } else if update.kind == .sessionDelta, let message = update.message {
+                            self.markFirstStreamEventIfNeeded()
+                            self.markFirstModelChunkIfNeeded()
                             self.updateLiveAssistantDraftTarget(message)
                         } else if update.kind == .sessionEvent, let event = update.event {
+                            self.markFirstStreamEventIfNeeded()
+                            if event.toolCall != nil {
+                                self.markFirstToolCallIfNeeded()
+                            }
                             if let status = event.runStatus {
                                 if status.stage == .done || status.stage == .interrupted {
                                     self.liveRunStatusLine = nil
+                                    self.markSendTiming("final_status")
                                 } else {
                                     self.liveRunStatusLine = self.runStatusLine(status)
                                 }
@@ -3136,10 +3178,43 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
                 }
             } catch {
                 await MainActor.run {
+                    self.markSessionStreamReady(streamKey: streamKey)
                     self.appendLocalCard("Session stream failed: \(String(describing: error))")
                 }
             }
         }
+    }
+
+    private func waitForCurrentSessionStreamReady() async {
+        guard hasPersistedSession else { return }
+        let streamKey = currentSessionStreamKey()
+        if sessionStreamReadyKey == streamKey {
+            return
+        }
+        if streamTask == nil {
+            streamSession()
+        }
+        await withCheckedContinuation { continuation in
+            sessionStreamReadyWaiters.append(continuation)
+        }
+    }
+
+    private func markSessionStreamReady(streamKey: String) {
+        guard streamKey == currentSessionStreamKey() else { return }
+        sessionStreamReadyKey = streamKey
+        resumeSessionStreamReadyWaiters()
+    }
+
+    private func resumeSessionStreamReadyWaiters() {
+        let waiters = sessionStreamReadyWaiters
+        sessionStreamReadyWaiters.removeAll()
+        for waiter in waiters {
+            waiter.resume()
+        }
+    }
+
+    private func currentSessionStreamKey() -> String {
+        "\(agent.id):\(session.id)"
     }
 
     private func streamChanges() {
@@ -3241,6 +3316,7 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
 
     private func applyProjectFileIndex(_ index: ProjectFileIndex?) {
         projectFileIndex = index
+        projectFileIndexLookup = index?.makeLookup()
         projectFileIndexLoading = false
         projectFileIndexGeneration += 1
         projectFileSearchCache = nil
@@ -4151,8 +4227,55 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
 
     private func updateSendProgress(_ progress: SloppyTUISendProgress) {
         liveRunStatusLine = progress.statusLine
+        markSendTiming(progress.stage.rawValue)
         refreshStaticChrome()
         renderTimeline()
+    }
+
+    private func resetSendTiming() {
+        let now = Date()
+        sendTimingStart = now
+        sendTimingLast = now
+        sendTimingFirstStreamEventMarked = false
+        sendTimingFirstModelChunkMarked = false
+        sendTimingFirstToolCallMarked = false
+        logger.debug("tui.send_timing start")
+    }
+
+    private func markFirstStreamEventIfNeeded() {
+        guard !sendTimingFirstStreamEventMarked else { return }
+        sendTimingFirstStreamEventMarked = true
+        markSendTiming("first_stream_event")
+    }
+
+    private func markFirstModelChunkIfNeeded() {
+        guard !sendTimingFirstModelChunkMarked else { return }
+        sendTimingFirstModelChunkMarked = true
+        markSendTiming("first_model_chunk")
+    }
+
+    private func markFirstToolCallIfNeeded() {
+        guard !sendTimingFirstToolCallMarked else { return }
+        sendTimingFirstToolCallMarked = true
+        markSendTiming("first_tool_call")
+    }
+
+    private func markSendTiming(_ stage: String) {
+        guard let start = sendTimingStart else { return }
+        let now = Date()
+        let previous = sendTimingLast ?? start
+        sendTimingLast = now
+        let elapsedMs = Int(now.timeIntervalSince(start) * 1000)
+        let deltaMs = Int(now.timeIntervalSince(previous) * 1000)
+        logger.debug(
+            "tui.send_timing \(stage)",
+            metadata: [
+                "elapsed_ms": .stringConvertible(elapsedMs),
+                "delta_ms": .stringConvertible(deltaMs),
+                "agent_id": .string(agent.id),
+                "session_id": .string(session.id)
+            ]
+        )
     }
 
     private func stopThinkingAnimation() {
