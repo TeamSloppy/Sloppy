@@ -30,7 +30,7 @@ enum PluginPackageInstallError: Error, LocalizedError, Sendable {
         case .missingOrInvalidManifest:
             return "Plugin package must contain a valid plugin.json at its root."
         case .unsupportedProtocol(let value):
-            return "Only gateway, task_sync, source_control, tool, memory, and model_provider source plugins are supported; plugin.json protocol was \(value)."
+            return "Only gateway, task_sync, source_control, tool, memory, model_provider, and Node.js API v2 plugin source plugins are supported; plugin.json protocol was \(value)."
         case .invalidPluginName(let name):
             return "Invalid plugin name in plugin.json: \(name)."
         case .conflict(let name):
@@ -129,7 +129,7 @@ struct PluginPackageInstaller {
         else {
             throw PluginPackageInstallError.missingOrInvalidManifest
         }
-        guard Self.supportedSourceProtocols.contains(manifest.protocol) else {
+        guard Self.supportedSourceProtocols.contains(manifest.protocol) || manifest.isNodePluginAPIV2 else {
             throw PluginPackageInstallError.unsupportedProtocol(manifest.protocol)
         }
         guard isValidPluginDirectoryName(manifest.name) else {

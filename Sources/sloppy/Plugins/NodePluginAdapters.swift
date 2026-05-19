@@ -115,21 +115,47 @@ struct NodeTaskSyncProvider: TaskSyncProvider {
 struct NodeToolPlugin: ToolPlugin {
     let id: String
     let supportedTools: [String]
+    let toolDefinitions: [ToolPluginToolDefinition]
 
     private let runtime: NodePluginRuntime
+    private let manifest: PluginManifest
 
     init(
         manifest: PluginManifest,
         pluginDirectory: URL,
+        descriptor: NodePluginDescriptor? = nil,
         logger: Logger = Logger(label: "sloppy.plugin.node.tool")
     ) throws {
         self.id = manifest.name
-        self.supportedTools = manifest.config["supportedTools"]?.asArray?.compactMap(\.asString) ?? []
+        if manifest.isNodePluginAPIV2 {
+            let tools = descriptor?.tools ?? []
+            self.supportedTools = tools.map(\.name)
+            self.toolDefinitions = tools.map { tool in
+                ToolPluginToolDefinition(
+                    name: tool.name,
+                    title: tool.title ?? tool.name,
+                    description: tool.description ?? "",
+                    inputSchema: tool.effectiveSchema,
+                    status: tool.status ?? "fully_functional"
+                )
+            }
+        } else {
+            self.supportedTools = manifest.config["supportedTools"]?.asArray?.compactMap(\.asString) ?? []
+            self.toolDefinitions = supportedTools.map { tool in
+                ToolPluginToolDefinition(
+                    name: tool,
+                    title: tool,
+                    description: "",
+                    inputSchema: .object(["type": .string("object")])
+                )
+            }
+        }
         self.runtime = try NodePluginRuntime(manifest: manifest, pluginDirectory: pluginDirectory, logger: logger)
+        self.manifest = manifest
     }
 
     func invoke(tool: String, arguments: [String: JSONValue]) async throws -> JSONValue {
-        try await runtime.callJSON("invoke", params: [
+        try await runtime.callJSON(manifest.isNodePluginAPIV2 ? "tool.invoke" : "invoke", params: [
             "tool": .string(tool),
             "arguments": .object(arguments),
         ])

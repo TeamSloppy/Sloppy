@@ -431,6 +431,128 @@ Node.js method names match the Swift protocol methods:
 | `memory` | `recall`, `save` |
 | `model_provider` | `respond` |
 
+### Node.js Plugin API v2
+
+New Node.js plugins can opt into the schema-first SDK protocol with `apiVersion`:
+
+```json
+{
+  "name": "weather-plugin",
+  "version": "1.0.0",
+  "runtime": "nodejs",
+  "apiVersion": "2026-05-plugins-v2",
+  "entrypoint": "index.js",
+  "permissions": {
+    "secrets": ["WEATHER_API_KEY"],
+    "network": ["api.weather.example"],
+    "filesystem": []
+  }
+}
+```
+
+If `apiVersion` is absent, Sloppy loads the plugin through the v1 compatibility protocol above. In v2, `protocol` is optional because the plugin declares capabilities through the handshake.
+
+On startup Sloppy calls:
+
+```json
+{"id":"...","method":"plugin.describe","params":{"manifest":{}},"manifest":{}}
+```
+
+The plugin returns its declared capabilities and schemas:
+
+```json
+{
+  "tools": [
+    {
+      "name": "weather.current",
+      "title": "Current Weather",
+      "description": "Returns weather for a city.",
+      "inputSchema": {
+        "type": "object",
+        "properties": { "city": { "type": "string" } },
+        "required": ["city"]
+      }
+    }
+  ],
+  "hooks": [],
+  "commands": [],
+  "skills": [],
+  "providers": []
+}
+```
+
+Sloppy stores the returned tool schema as the official tool contract and invokes v2 tools through namespaced methods:
+
+```json
+{"id":"...","method":"tool.invoke","params":{"tool":"weather.current","arguments":{"city":"Berlin"}},"manifest":{}}
+```
+
+Supported v2 method namespaces are:
+
+| Capability | Method |
+| --- | --- |
+| Tool | `tool.invoke` |
+| Hook | `hook.dispatch` |
+| Command | `command.run` |
+| Gateway | `gateway.start`, `gateway.send` |
+| Source control | `source_control.createWorktree`, `source_control.branchDiff`, `source_control.mergeBranch` |
+| Memory | `memory.recall` |
+| Model provider | `model.respond` |
+
+The bundled authoring package at `Plugins/sdk/nodejs` exposes this as `@sloppy/plugin`:
+
+```js
+import { definePlugin, z } from "@sloppy/plugin";
+
+export default definePlugin((ctx) => {
+  ctx.registerTool({
+    name: "weather.current",
+    title: "Current Weather",
+    description: "Returns a deterministic weather sample for a city.",
+    schema: z.object({ city: z.string() }),
+    async invoke(arguments_, runtime) {
+      runtime.log.info("weather.current", arguments_.city);
+      return { city: arguments_.city, temperature: 22, condition: "sunny" };
+    }
+  });
+});
+```
+
+Handlers receive a `runtime` object for host-managed services:
+
+```js
+runtime.tools.invoke(name, args);
+runtime.secrets.get(name);
+runtime.store.get(key);
+runtime.store.set(key, value);
+runtime.llm.complete({ messages });
+runtime.events.emit("event.name", payload);
+runtime.log.info("message");
+```
+
+In the current v2 slice, Sloppy parses permissions and logs declared access. Enforcement is host-owned and will be tightened behind the same manifest fields:
+
+| Permission | Meaning |
+| --- | --- |
+| `secrets` | Named secrets available through `runtime.secrets.get` |
+| `network` | Allowed outbound hosts |
+| `filesystem` | Allowed filesystem scopes |
+| `tool_dispatch` | Tools the plugin may dispatch |
+| `model_calls` | Whether the plugin may call host LLM services |
+| `project_context` | Whether the plugin may read project context |
+| `channel_send` | Channels the plugin may send to |
+| `channel_inject` | Channels the plugin may inject inbound messages into |
+
+Initial lifecycle hook names are `session.start`, `session.end`, `pre_tool_call`, `post_tool_call`, `pre_llm_call`, `post_llm_call`, `gateway.inbound`, `task.started`, and `task.completed`.
+
+Examples live in:
+
+- `Plugins/examples/nodejs-tool-v2`
+- `Plugins/examples/nodejs-source-control-v2`
+- `Plugins/examples/nodejs-hooks-v2`
+
+Migration path: keep existing v1 plugins unchanged, add `apiVersion` only when the entrypoint can answer `plugin.describe`, then move old `invoke` handlers to `tool.invoke` and return schemas from `ctx.registerTool`.
+
 ### Legacy prebuilt plugin layout
 
 Prebuilt dynamic libraries are still supported for backward compatibility:

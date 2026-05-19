@@ -5,6 +5,8 @@ import PluginSDK
 
 /// Meta-information parsed from a plugin's `plugin.json` file.
 public struct PluginManifest: Codable, Sendable {
+    public static let nodePluginAPIVersionV2 = "2026-05-plugins-v2"
+
     public enum Runtime: String, Codable, Sendable {
         case swift
         case nodejs
@@ -37,10 +39,14 @@ public struct PluginManifest: Codable, Sendable {
     public var `protocol`: String
     /// Optional semver string for display and diagnostics.
     public var version: String?
+    /// Optional plugin API version. Missing values use the v1 compatibility protocol.
+    public var apiVersion: String?
     /// Plugin runtime. Omitted manifests default to Swift dynamic libraries for compatibility.
     public var runtime: Runtime
     /// Runtime-specific entrypoint, for example a Node.js script path relative to the plugin directory.
     public var entrypoint: String?
+    /// Declared host-managed capabilities the plugin wants to access.
+    public var permissions: PluginManifestPermissions
     /// Runtime-specific configuration passed through to plugin implementations.
     public var config: [String: JSONValue]
 
@@ -48,8 +54,10 @@ public struct PluginManifest: Codable, Sendable {
         case name
         case `protocol`
         case version
+        case apiVersion
         case runtime
         case entrypoint
+        case permissions
         case config
     }
 
@@ -57,26 +65,97 @@ public struct PluginManifest: Codable, Sendable {
         name: String,
         `protocol` pluginProtocol: String,
         version: String? = nil,
+        apiVersion: String? = nil,
         runtime: Runtime = .swift,
         entrypoint: String? = nil,
+        permissions: PluginManifestPermissions = .init(),
         config: [String: JSONValue] = [:]
     ) {
         self.name = name
         self.protocol = pluginProtocol
         self.version = version
+        self.apiVersion = apiVersion
         self.runtime = runtime
         self.entrypoint = entrypoint
+        self.permissions = permissions
         self.config = config
     }
 
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         name = try container.decode(String.self, forKey: .name)
-        self.protocol = try container.decode(String.self, forKey: .protocol)
+        self.protocol = try container.decodeIfPresent(String.self, forKey: .protocol) ?? "plugin"
         version = try container.decodeIfPresent(String.self, forKey: .version)
+        apiVersion = try container.decodeIfPresent(String.self, forKey: .apiVersion)
         runtime = try container.decodeIfPresent(Runtime.self, forKey: .runtime) ?? .swift
         entrypoint = try container.decodeIfPresent(String.self, forKey: .entrypoint)
+        permissions = try container.decodeIfPresent(PluginManifestPermissions.self, forKey: .permissions) ?? .init()
         config = try container.decodeIfPresent([String: JSONValue].self, forKey: .config) ?? [:]
+    }
+
+    public var isNodePluginAPIV2: Bool {
+        runtime == .nodejs && apiVersion == Self.nodePluginAPIVersionV2
+    }
+
+    func matches(protocol expectedProtocol: String) -> Bool {
+        if self.protocol == expectedProtocol {
+            return true
+        }
+        return isNodePluginAPIV2 && self.protocol == "plugin" && ["tool", "source_control"].contains(expectedProtocol)
+    }
+}
+
+public struct PluginManifestPermissions: Codable, Sendable, Equatable {
+    public var secrets: [String]
+    public var network: [String]
+    public var filesystem: [String]
+    public var toolDispatch: [String]
+    public var modelCalls: Bool
+    public var projectContext: Bool
+    public var channelSend: [String]
+    public var channelInject: [String]
+
+    private enum CodingKeys: String, CodingKey {
+        case secrets
+        case network
+        case filesystem
+        case toolDispatch = "tool_dispatch"
+        case modelCalls = "model_calls"
+        case projectContext = "project_context"
+        case channelSend = "channel_send"
+        case channelInject = "channel_inject"
+    }
+
+    public init(
+        secrets: [String] = [],
+        network: [String] = [],
+        filesystem: [String] = [],
+        toolDispatch: [String] = [],
+        modelCalls: Bool = false,
+        projectContext: Bool = false,
+        channelSend: [String] = [],
+        channelInject: [String] = []
+    ) {
+        self.secrets = secrets
+        self.network = network
+        self.filesystem = filesystem
+        self.toolDispatch = toolDispatch
+        self.modelCalls = modelCalls
+        self.projectContext = projectContext
+        self.channelSend = channelSend
+        self.channelInject = channelInject
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        secrets = try container.decodeIfPresent([String].self, forKey: .secrets) ?? []
+        network = try container.decodeIfPresent([String].self, forKey: .network) ?? []
+        filesystem = try container.decodeIfPresent([String].self, forKey: .filesystem) ?? []
+        toolDispatch = try container.decodeIfPresent([String].self, forKey: .toolDispatch) ?? []
+        modelCalls = try container.decodeIfPresent(Bool.self, forKey: .modelCalls) ?? false
+        projectContext = try container.decodeIfPresent(Bool.self, forKey: .projectContext) ?? false
+        channelSend = try container.decodeIfPresent([String].self, forKey: .channelSend) ?? []
+        channelInject = try container.decodeIfPresent([String].self, forKey: .channelInject) ?? []
     }
 }
 
@@ -307,7 +386,7 @@ public struct PluginLoader: Sendable {
                 continue
             }
 
-            guard manifest.protocol == expectedProtocol else {
+            guard manifest.matches(protocol: expectedProtocol) else {
                 logger.debug("Plugin \(manifest.name) is not a \(expectedProtocol) plugin, skipping for now.")
                 continue
             }
@@ -441,7 +520,16 @@ public struct PluginLoader: Sendable {
                 return nil
             }
             do {
-                let provider = try NodeSourceControlProvider(manifest: manifest, pluginDirectory: directory, logger: logger)
+                let descriptor = try await describeNodePluginIfNeeded(manifest: manifest, pluginDirectory: directory)
+                guard !manifest.isNodePluginAPIV2 || manifest.protocol == "source_control" || descriptor?.sourceControls.isEmpty == false else {
+                    return nil
+                }
+                let provider = try NodeSourceControlProvider(
+                    manifest: manifest,
+                    pluginDirectory: directory,
+                    descriptor: descriptor,
+                    logger: logger
+                )
                 return LoadedSourceControlPlugin(
                     manifest: manifest,
                     provider: provider,
@@ -492,7 +580,16 @@ public struct PluginLoader: Sendable {
                 return nil
             }
             do {
-                let plugin = try NodeToolPlugin(manifest: manifest, pluginDirectory: directory, logger: logger)
+                let descriptor = try await describeNodePluginIfNeeded(manifest: manifest, pluginDirectory: directory)
+                guard !manifest.isNodePluginAPIV2 || manifest.protocol == "tool" || descriptor?.tools.isEmpty == false else {
+                    return nil
+                }
+                let plugin = try NodeToolPlugin(
+                    manifest: manifest,
+                    pluginDirectory: directory,
+                    descriptor: descriptor,
+                    logger: logger
+                )
                 return LoadedToolPlugin(manifest: manifest, plugin: plugin, sourceURL: directory, binaryURL: nil, rebuilt: false)
             } catch {
                 logger.error("Failed to initialize Node tool plugin \(manifest.name): \(error)")
@@ -615,6 +712,34 @@ public struct PluginLoader: Sendable {
             return nil
         }
         return PluginBinaryLoad(binaryURL: found, rebuilt: false)
+    }
+
+    private func describeNodePluginIfNeeded(
+        manifest: PluginManifest,
+        pluginDirectory: URL
+    ) async throws -> NodePluginDescriptor? {
+        guard manifest.isNodePluginAPIV2 else {
+            return nil
+        }
+        logDeclaredPermissions(manifest)
+        let runtime = try NodePluginRuntime(manifest: manifest, pluginDirectory: pluginDirectory, logger: logger)
+        return try await runtime.describe()
+    }
+
+    private func logDeclaredPermissions(_ manifest: PluginManifest) {
+        let permissions = manifest.permissions
+        let requested = [
+            permissions.secrets.isEmpty ? nil : "secrets=\(permissions.secrets.joined(separator: ","))",
+            permissions.network.isEmpty ? nil : "network=\(permissions.network.joined(separator: ","))",
+            permissions.filesystem.isEmpty ? nil : "filesystem=\(permissions.filesystem.joined(separator: ","))",
+            permissions.toolDispatch.isEmpty ? nil : "tool_dispatch=\(permissions.toolDispatch.joined(separator: ","))",
+            permissions.modelCalls ? "model_calls=true" : nil,
+            permissions.projectContext ? "project_context=true" : nil,
+            permissions.channelSend.isEmpty ? nil : "channel_send=\(permissions.channelSend.joined(separator: ","))",
+            permissions.channelInject.isEmpty ? nil : "channel_inject=\(permissions.channelInject.joined(separator: ","))",
+        ].compactMap { $0 }
+        guard !requested.isEmpty else { return }
+        logger.info("Node plugin \(manifest.name) declares v2 permissions: \(requested.joined(separator: " "))")
     }
 
     private func nodeRuntimeIsAvailable() async -> Bool {

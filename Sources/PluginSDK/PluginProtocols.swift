@@ -272,12 +272,51 @@ public protocol ToolPlugin: Sendable {
     /// List of supported tool names (e.g. ["weather", "search", "code_search"]).
     var supportedTools: [String] { get }
 
+    /// Structured tool contracts advertised by schema-first plugin APIs.
+    var toolDefinitions: [ToolPluginToolDefinition] { get }
+
     /// Invoke a named tool with arguments, returning result as serializable JSON.
     /// - Parameters:
     ///   - tool: Tool operation identifier.
     ///   - arguments: Named argument values.
     /// - Returns: Tool result as a JSONValue.
     func invoke(tool: String, arguments: [String: JSONValue]) async throws -> JSONValue
+}
+
+public extension ToolPlugin {
+    var toolDefinitions: [ToolPluginToolDefinition] {
+        supportedTools.map { tool in
+            ToolPluginToolDefinition(
+                name: tool,
+                title: tool,
+                description: "",
+                inputSchema: .object(["type": .string("object")]),
+                status: "fully_functional"
+            )
+        }
+    }
+}
+
+public struct ToolPluginToolDefinition: Codable, Sendable, Equatable {
+    public var name: String
+    public var title: String
+    public var description: String
+    public var inputSchema: JSONValue
+    public var status: String
+
+    public init(
+        name: String,
+        title: String,
+        description: String,
+        inputSchema: JSONValue,
+        status: String = "fully_functional"
+    ) {
+        self.name = name
+        self.title = title
+        self.description = description
+        self.inputSchema = inputSchema
+        self.status = status
+    }
 }
 
 /// Plugin for agent memory extension/persistence.

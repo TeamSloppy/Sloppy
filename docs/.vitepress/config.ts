@@ -57,6 +57,7 @@ export default defineConfig({
           { text: "Model Providers", link: "/guides/models" },
           { text: "MCP Integration", link: "/guides/mcp" },
           { text: "ACP Integration", link: "/guides/acp" },
+          { text: "SDK", link: "/guides/sdk" },
           { text: "Plugins", link: "/guides/plugins" },
           { text: "Git & Repositories", link: "/guides/git" }
         ]

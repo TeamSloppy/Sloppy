@@ -28,11 +28,13 @@ struct NodeSourceControlProvider: SourceControlProvider {
     init(
         manifest: PluginManifest,
         pluginDirectory: URL,
+        descriptor: NodePluginDescriptor? = nil,
         logger: Logger = Logger(label: "sloppy.source-control.node")
     ) throws {
         self.id = manifest.name
-        self.displayName = manifest.config["displayName"]?.asString ?? manifest.name
-        self.capabilities = Self.capabilities(from: manifest.config)
+        let sourceControl = descriptor?.sourceControls.first
+        self.displayName = sourceControl?.displayName ?? manifest.config["displayName"]?.asString ?? manifest.name
+        self.capabilities = Self.capabilities(from: manifest.config, descriptor: sourceControl)
         self.runtime = try NodePluginRuntime(manifest: manifest, pluginDirectory: pluginDirectory, logger: logger)
         self.manifest = manifest
     }
@@ -146,7 +148,7 @@ struct NodeSourceControlProvider: SourceControlProvider {
 
     private func callJSON(_ method: String, params: [String: JSONValue]) async throws -> JSONValue {
         do {
-            return try await runtime.callJSON(method, params: params)
+            return try await runtime.callJSON(runtimeMethod(for: method), params: params)
         } catch let error as NodePluginRuntimeError {
             if case .pluginError(let code, let message) = error {
                 if code == "unsupported" {
@@ -163,8 +165,15 @@ struct NodeSourceControlProvider: SourceControlProvider {
         }
     }
 
-    private static func capabilities(from config: [String: JSONValue]) -> Set<SourceControlCapability> {
-        let rawValues = config["capabilities"]?.asArray?.compactMap(\.asString) ?? []
+    private func runtimeMethod(for method: String) -> String {
+        manifest.isNodePluginAPIV2 ? "source_control.\(method)" : method
+    }
+
+    private static func capabilities(
+        from config: [String: JSONValue],
+        descriptor: NodeSourceControlCapability?
+    ) -> Set<SourceControlCapability> {
+        let rawValues = descriptor?.capabilities ?? config["capabilities"]?.asArray?.compactMap(\.asString) ?? []
         return Set(rawValues.compactMap(SourceControlCapability.init(rawValue:)))
     }
 }

@@ -10,6 +10,7 @@ let package = Package(
         .library(name: "Protocols", targets: ["Protocols"]),
         .library(name: "PluginSDK", targets: ["PluginSDK"]),
         .library(name: "AgentRuntime", targets: ["AgentRuntime"]),
+        .library(name: "SloppySDK", targets: ["SloppySDK"]),
         .library(name: "ChannelPluginSupport", targets: ["ChannelPluginSupport"]),
         .library(name: "ChannelPluginTelegram", targets: ["ChannelPluginTelegram"]),
         .library(name: "ChannelPluginDiscord", targets: ["ChannelPluginDiscord"]),
@@ -62,6 +63,13 @@ let package = Package(
                 .product(name: "Logging", package: "swift-log")
             ],
             path: "Sources/AgentRuntime"
+        ),
+        .target(
+            name: "SloppySDK",
+            dependencies: [
+                "Protocols"
+            ],
+            path: "Sources/SloppySDK"
         ),
         .executableTarget(
             name: "sloppy",
@@ -149,6 +157,11 @@ let package = Package(
             name: "AgentRuntimeTests",
             dependencies: ["AgentRuntime", "Protocols", "PluginSDK"],
             path: "Tests/AgentRuntimeTests"
+        ),
+        .testTarget(
+            name: "SloppySDKTests",
+            dependencies: ["SloppySDK", "Protocols"],
+            path: "Tests/SloppySDKTests"
         ),
         .testTarget(
             name: "sloppyTests",

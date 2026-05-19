@@ -100,6 +100,14 @@ struct NodePluginRuntime: Sendable {
         return result
     }
 
+    func describe() async throws -> NodePluginDescriptor {
+        try await call(
+            "plugin.describe",
+            params: ["manifest": encodeJSONValue(manifest)],
+            as: NodePluginDescriptor.self
+        )
+    }
+
     private func runNode(input: String) async throws -> (stdout: String, stderr: String) {
         let entrypointURL = entrypointURL
         let timeoutSeconds = timeoutSeconds
@@ -177,4 +185,120 @@ private struct NodePluginError: Decodable {
 
 private final class NodePluginOutputBuffer: @unchecked Sendable {
     var data = Data()
+}
+
+struct NodePluginDescriptor: Decodable, Sendable, Equatable {
+    var tools: [NodeToolCapability]
+    var hooks: [NodeNamedCapability]
+    var commands: [NodeNamedCapability]
+    var skills: [NodeNamedCapability]
+    var gateways: [NodeNamedCapability]
+    var sourceControls: [NodeSourceControlCapability]
+    var memories: [NodeNamedCapability]
+    var modelProviders: [NodeNamedCapability]
+
+    private enum CodingKeys: String, CodingKey {
+        case tools
+        case hooks
+        case commands
+        case skills
+        case gateways
+        case sourceControls
+        case sourceControl = "source_control"
+        case memories
+        case memory
+        case modelProviders
+        case providers
+    }
+
+    init(
+        tools: [NodeToolCapability] = [],
+        hooks: [NodeNamedCapability] = [],
+        commands: [NodeNamedCapability] = [],
+        skills: [NodeNamedCapability] = [],
+        gateways: [NodeNamedCapability] = [],
+        sourceControls: [NodeSourceControlCapability] = [],
+        memories: [NodeNamedCapability] = [],
+        modelProviders: [NodeNamedCapability] = []
+    ) {
+        self.tools = tools
+        self.hooks = hooks
+        self.commands = commands
+        self.skills = skills
+        self.gateways = gateways
+        self.sourceControls = sourceControls
+        self.memories = memories
+        self.modelProviders = modelProviders
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        tools = try container.decodeIfPresent([NodeToolCapability].self, forKey: .tools) ?? []
+        hooks = try container.decodeIfPresent([NodeNamedCapability].self, forKey: .hooks) ?? []
+        commands = try container.decodeIfPresent([NodeNamedCapability].self, forKey: .commands) ?? []
+        skills = try container.decodeIfPresent([NodeNamedCapability].self, forKey: .skills) ?? []
+        gateways = try container.decodeIfPresent([NodeNamedCapability].self, forKey: .gateways) ?? []
+        let sourceControls = try container.decodeIfPresent([NodeSourceControlCapability].self, forKey: .sourceControls)
+        let sourceControl = try container.decodeIfPresent([NodeSourceControlCapability].self, forKey: .sourceControl)
+        self.sourceControls = sourceControls ?? sourceControl ?? []
+        memories = try container.decodeIfPresent([NodeNamedCapability].self, forKey: .memories)
+            ?? container.decodeIfPresent([NodeNamedCapability].self, forKey: .memory)
+            ?? []
+        modelProviders = try container.decodeIfPresent([NodeNamedCapability].self, forKey: .modelProviders)
+            ?? container.decodeIfPresent([NodeNamedCapability].self, forKey: .providers)
+            ?? []
+    }
+}
+
+struct NodeNamedCapability: Codable, Sendable, Equatable {
+    var name: String
+    var title: String?
+    var description: String?
+}
+
+struct NodeToolCapability: Codable, Sendable, Equatable {
+    var name: String
+    var title: String?
+    var description: String?
+    var schema: JSONValue?
+    var inputSchema: JSONValue?
+    var status: String?
+
+    private enum CodingKeys: String, CodingKey {
+        case name
+        case title
+        case description
+        case schema
+        case inputSchema
+        case status
+    }
+
+    var effectiveSchema: JSONValue {
+        inputSchema ?? schema ?? .object(["type": .string("object")])
+    }
+}
+
+struct NodeSourceControlCapability: Codable, Sendable, Equatable {
+    var name: String?
+    var displayName: String?
+    var capabilities: [String]
+
+    private enum CodingKeys: String, CodingKey {
+        case name
+        case displayName
+        case capabilities
+    }
+
+    init(name: String? = nil, displayName: String? = nil, capabilities: [String] = []) {
+        self.name = name
+        self.displayName = displayName
+        self.capabilities = capabilities
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        name = try container.decodeIfPresent(String.self, forKey: .name)
+        displayName = try container.decodeIfPresent(String.self, forKey: .displayName)
+        capabilities = try container.decodeIfPresent([String].self, forKey: .capabilities) ?? []
+    }
 }

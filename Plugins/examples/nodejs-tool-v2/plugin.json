@@ -1,0 +1,12 @@
+{
+  "name": "nodejs-tool-v2",
+  "version": "1.0.0",
+  "runtime": "nodejs",
+  "apiVersion": "2026-05-plugins-v2",
+  "entrypoint": "index.js",
+  "permissions": {
+    "secrets": [],
+    "network": [],
+    "filesystem": []
+  }
+}
