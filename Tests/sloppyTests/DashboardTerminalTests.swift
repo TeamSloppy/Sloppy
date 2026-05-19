@@ -86,38 +86,59 @@ private func collectDashboardTerminalServiceOutput(
     untilContains needle: String,
     from events: AsyncStream<DashboardTerminalEvent>
 ) async throws -> String {
-    try await withThrowingTaskGroup(of: String.self) { group in
-        group.addTask {
-            var combined = ""
-            for await event in events {
-                switch event {
-                case .output(let chunk):
-                    combined += chunk
-                    if combined.contains(needle) {
-                        return combined
-                    }
-                case .error(_, let message):
-                    throw ServiceOutputError.message(message)
-                case .exit, .closed:
-                    continue
-                }
+    let probe = DashboardTerminalOutputProbe()
+    let task = Task {
+        var combined = ""
+        for await event in events {
+            if Task.isCancelled {
+                break
             }
-            throw ServiceOutputError.streamEndedBeforeMarker
+            switch event {
+            case .output(let chunk):
+                combined += chunk
+                if combined.contains(needle) {
+                    await probe.finish(.success(combined))
+                    return
+                }
+            case .error(_, let message):
+                await probe.finish(.failure(ServiceOutputError.message(message)))
+                return
+            case .exit, .closed:
+                continue
+            }
         }
-        group.addTask {
-            try await Task.sleep(for: .seconds(10))
-            throw ServiceOutputError.timedOut
-        }
-
-        let result = try await group.next()
-        group.cancelAll()
-        return try #require(result)
+        await probe.finish(.failure(ServiceOutputError.streamEndedBeforeMarker))
     }
+
+    let deadline = Date().addingTimeInterval(10)
+    while Date() < deadline {
+        if let result = await probe.value() {
+            task.cancel()
+            return try result.get()
+        }
+        try? await Task.sleep(nanoseconds: 10_000_000)
+    }
+
+    task.cancel()
+    throw ServiceOutputError.timedOut
 }
 
 private enum ServiceOutputError: Error {
     case timedOut
     case streamEndedBeforeMarker
     case message(String)
+}
+
+private actor DashboardTerminalOutputProbe {
+    private var result: Result<String, Error>?
+
+    func finish(_ result: Result<String, Error>) {
+        guard self.result == nil else { return }
+        self.result = result
+    }
+
+    func value() -> Result<String, Error>? {
+        result
+    }
 }
 #endif

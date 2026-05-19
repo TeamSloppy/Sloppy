@@ -59,6 +59,48 @@ func projectCurrentReturnsNotFoundForUnlinkedChannel() async throws {
 }
 
 @Test
+func projectCurrentFallsBackToProjectScopedAgentSession() async throws {
+    let service = CoreService(config: .test, persistenceBuilder: InMemoryCorePersistenceBuilder())
+    let agentID = "current-project-agent-\(UUID().uuidString)"
+    let projectID = "current-scoped-proj-\(UUID().uuidString)"
+    _ = try await service.createAgent(
+        AgentCreateRequest(id: agentID, displayName: "Project Agent", role: "Testing project scope")
+    )
+    _ = try await service.createProject(
+        ProjectCreateRequest(
+            id: projectID,
+            name: "Scoped Project",
+            description: "Project resolved from agent session project scope",
+            channels: []
+        )
+    )
+    let session = try await service.createAgentSession(
+        agentID: agentID,
+        request: AgentSessionCreateRequest(title: "Scoped Session", projectId: projectID)
+    )
+
+    let result = await service.invokeToolFromRuntime(
+        agentID: agentID,
+        sessionID: session.id,
+        request: ToolInvocationRequest(
+            tool: "project.current",
+            arguments: [
+                "channelId": .string(""),
+                "topicId": .string("")
+            ]
+        ),
+        recordSessionEvents: false
+    )
+
+    #expect(result.ok == true)
+    let data = try #require(result.data?.asObject)
+    #expect(data["projectId"]?.asString == projectID)
+    #expect(data["projectName"]?.asString == "Scoped Project")
+    #expect(data["channelId"]?.asString == session.id)
+    #expect(data["matchedChannelId"] == Optional.some(JSONValue.null))
+}
+
+@Test
 func projectCurrentRespectsTopicId() async throws {
     let service = CoreService(config: .test, persistenceBuilder: InMemoryCorePersistenceBuilder())
     let router = CoreRouter(service: service)

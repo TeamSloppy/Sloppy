@@ -1140,30 +1140,48 @@ private actor EventCollector {
     }
 }
 
+private actor FirstEventProbe {
+    private var event: EventEnvelope?
+
+    func record(_ event: EventEnvelope) {
+        guard self.event == nil else { return }
+        self.event = event
+    }
+
+    func value() -> EventEnvelope? {
+        event
+    }
+}
+
 private func firstEvent(
     matching type: MessageType,
     in stream: AsyncStream<EventEnvelope>,
     timeoutNanoseconds: UInt64 = 1_000_000_000
 ) async -> EventEnvelope? {
-    await withTaskGroup(of: EventEnvelope?.self) { group in
-        group.addTask {
-            for await event in stream {
-                if event.messageType == type {
-                    return event
-                }
+    let probe = FirstEventProbe()
+    let task = Task {
+        for await event in stream {
+            if Task.isCancelled {
+                break
             }
-            return nil
+            if event.messageType == type {
+                await probe.record(event)
+                break
+            }
         }
-
-        group.addTask {
-            try? await Task.sleep(nanoseconds: timeoutNanoseconds)
-            return nil
-        }
-
-        let event = await group.next() ?? nil
-        group.cancelAll()
-        return event
     }
+
+    let deadline = Date().addingTimeInterval(Double(timeoutNanoseconds) / 1_000_000_000.0)
+    while Date() < deadline {
+        if let event = await probe.value() {
+            task.cancel()
+            return event
+        }
+        try? await Task.sleep(nanoseconds: 10_000_000)
+    }
+
+    task.cancel()
+    return await probe.value()
 }
 
 private func collectEvents(

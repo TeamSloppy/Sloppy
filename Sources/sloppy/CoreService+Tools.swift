@@ -277,6 +277,7 @@ extension CoreService {
                                 sessionID: normalizedSessionID,
                                 request: invocationRequest,
                                 policy: invocationPolicy,
+                                currentProjectID: sessionDetail.summary.projectId,
                                 currentDirectoryURL: currentDirectoryURL
                             )
                         }

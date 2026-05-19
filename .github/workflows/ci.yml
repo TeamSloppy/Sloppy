@@ -18,6 +18,7 @@ jobs:
   swift-test:
     name: Swift Tests
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     env:
       ADAENGINE_HEADLESS: "1"
       ADAENGINE_DISABLE_SWAN: "1"
@@ -45,6 +46,7 @@ jobs:
   swift-test-macos:
     name: Swift Tests (macOS)
     runs-on: macos-latest
+    timeout-minutes: 30
 
     steps:
       - name: Checkout

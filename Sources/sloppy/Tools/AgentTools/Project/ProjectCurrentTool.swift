@@ -22,9 +22,16 @@ struct ProjectCurrentTool: CoreTool {
             return toolFailure(tool: name, code: "not_available", message: "Project service not available.", retryable: false)
         }
 
-        let channelId = stringArgument(arguments, "channelId", default: context.sessionID)
+        let requestedChannelId = trimmedStringArgument(arguments, "channelId")
+        let channelId = requestedChannelId ?? context.sessionID
         let topicId = trimmedStringArgument(arguments, "topicId")
-        guard let project = await svc.findProjectForChannel(channelId: channelId, topicId: topicId) else {
+        let channelProject = await svc.findProjectForChannel(channelId: channelId, topicId: topicId)
+        let scopedProject = await currentProjectFromSessionScope(
+            context: context,
+            service: svc,
+            allowFallback: requestedChannelId == nil || requestedChannelId == context.sessionID
+        )
+        guard let project = channelProject ?? scopedProject else {
             return toolFailure(tool: name, code: "project_not_found", message: "No project found for this channel.", retryable: false)
         }
 
@@ -46,6 +53,20 @@ struct ProjectCurrentTool: CoreTool {
             topicId: topicId
         ))
     }
+}
+
+private func currentProjectFromSessionScope(
+    context: ToolContext,
+    service: any ProjectToolService,
+    allowFallback: Bool
+) async -> ProjectRecord? {
+    guard allowFallback else {
+        return nil
+    }
+    guard let projectID = context.currentProjectID else {
+        return nil
+    }
+    return try? await service.getProject(id: projectID)
 }
 
 private func projectCurrentJSONValue(

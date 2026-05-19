@@ -38,6 +38,7 @@ struct ToolContext: @unchecked Sendable {
     let policy: AgentToolsPolicy
     let workspaceRootURL: URL
     let currentDirectoryURL: URL
+    let currentProjectID: String?
     let runtime: RuntimeSystem
     let memoryStore: any MemoryStore
     let sessionStore: AgentSessionFileStore
@@ -65,6 +66,7 @@ struct ToolContext: @unchecked Sendable {
         policy: AgentToolsPolicy,
         workspaceRootURL: URL,
         currentDirectoryURL: URL? = nil,
+        currentProjectID: String? = nil,
         runtime: RuntimeSystem,
         memoryStore: any MemoryStore,
         sessionStore: AgentSessionFileStore,
@@ -89,6 +91,8 @@ struct ToolContext: @unchecked Sendable {
         self.policy = policy
         self.workspaceRootURL = workspaceRootURL
         self.currentDirectoryURL = currentDirectoryURL ?? workspaceRootURL
+        let trimmedProjectID = currentProjectID?.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.currentProjectID = trimmedProjectID?.isEmpty == false ? trimmedProjectID : nil
         self.runtime = runtime
         self.memoryStore = memoryStore
         self.sessionStore = sessionStore

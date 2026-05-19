@@ -97,12 +97,14 @@ final class ToolExecutionService: @unchecked Sendable {
         sessionID: String,
         request: ToolInvocationRequest,
         policy: AgentToolsPolicy,
+        currentProjectID: String? = nil,
         currentDirectoryURL: URL? = nil
     ) async -> ToolInvocationResult {
         let context = makeContext(
             agentID: agentID,
             sessionID: sessionID,
             policy: policy,
+            currentProjectID: currentProjectID,
             currentDirectoryURL: currentDirectoryURL
         )
         if let result = await registry.invoke(request: request, context: context) {
@@ -126,6 +128,7 @@ final class ToolExecutionService: @unchecked Sendable {
         agentID: String,
         sessionID: String,
         policy: AgentToolsPolicy,
+        currentProjectID: String? = nil,
         currentDirectoryURL: URL? = nil
     ) -> ToolContext {
         let boundApply = applyAgentMarkdown.map { handler in
@@ -139,6 +142,7 @@ final class ToolExecutionService: @unchecked Sendable {
             policy: policy,
             workspaceRootURL: workspaceRootURL,
             currentDirectoryURL: currentDirectoryURL,
+            currentProjectID: currentProjectID,
             runtime: runtime,
             memoryStore: memoryStore,
             sessionStore: sessionStore,
