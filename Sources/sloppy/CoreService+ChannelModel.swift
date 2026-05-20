@@ -237,6 +237,21 @@ extension CoreService {
         )) ?? []
         let sessionLabel = sessions.first?.sessionId ?? "none"
 
-        return "Agent: \(agentLabel)\nSession: \(sessionLabel)\nModel: \(modelLabel)\nState: \(stateLabel)"
+        var lines = [
+            "Agent: \(agentLabel)",
+            "Session: \(sessionLabel)",
+            "Model: \(modelLabel)",
+            "State: \(stateLabel)"
+        ]
+#if DEBUG
+        let sessionFilePath: String
+        if let sessionId = sessions.first?.sessionId {
+            sessionFilePath = (try? await channelSessionStore.sessionFilePath(sessionID: sessionId)) ?? "unavailable"
+        } else {
+            sessionFilePath = "none"
+        }
+        lines.append("Session file: \(sessionFilePath)")
+#endif
+        return lines.joined(separator: "\n")
     }
 }

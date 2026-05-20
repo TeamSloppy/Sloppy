@@ -77,6 +77,43 @@ public struct PersistedToolInvocationAggregate: Sendable, Equatable {
     }
 }
 
+public struct PersistedToolInvocationRecord: Sendable, Equatable {
+    public var id: String
+    public var projectId: String?
+    public var taskId: String?
+    public var agentId: String
+    public var sessionId: String
+    public var tool: String
+    public var ok: Bool
+    public var durationMs: Int?
+    public var traceId: String?
+    public var createdAt: Date
+
+    public init(
+        id: String,
+        projectId: String?,
+        taskId: String?,
+        agentId: String,
+        sessionId: String,
+        tool: String,
+        ok: Bool,
+        durationMs: Int?,
+        traceId: String?,
+        createdAt: Date
+    ) {
+        self.id = id
+        self.projectId = projectId
+        self.taskId = taskId
+        self.agentId = agentId
+        self.sessionId = sessionId
+        self.tool = tool
+        self.ok = ok
+        self.durationMs = durationMs
+        self.traceId = traceId
+        self.createdAt = createdAt
+    }
+}
+
 public struct ChannelAccessUser: Codable, Sendable, Equatable {
     public var id: String
     public var platform: String
@@ -147,6 +184,9 @@ public protocol PersistenceStore: Sendable {
 
     /// Lists tool invocation aggregates grouped by tool id for a project within optional date range.
     func listToolInvocationAggregates(projectId: String, from: Date?, to: Date?) async -> [PersistedToolInvocationAggregate]
+
+    /// Lists recent tool invocation rows for a project/task timeline.
+    func listToolInvocations(projectId: String?, taskId: String?, limit: Int) async -> [PersistedToolInvocationRecord]
 
     /// Lists tool invocation durations (ms) for percentile computation.
     func listToolInvocationDurations(projectId: String, from: Date?, to: Date?, limit: Int) async -> [Int]

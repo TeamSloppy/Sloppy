@@ -47,6 +47,8 @@ extension CoreService {
         systemLogStore.updateWorkspaceRootURL(workspaceRootURL)
         await channelDelivery.updateStore(refreshedStore)
         await recoveryManager.updateStore(refreshedStore)
+        readyTaskStartupDispatchCompleted = false
+        readyTaskStartupDispatchInProgress = false
         await searchProviderService.updateConfig(config.searchTools)
         let oauthSvc = self.openAIOAuthService
         let anthropicOAuthSvc = self.anthropicOAuthService

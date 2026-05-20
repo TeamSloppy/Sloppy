@@ -7,10 +7,44 @@ import Tracing
 // MARK: - Runtime
 
 extension CoreService {
-    func waitForStartup() async {
+    func waitForStartup(dispatchReadyTasks: Bool = true) async {
         await recoveryManager.recoverIfNeeded()
         await startEventPersistence()
         await memoryOutboxIndexer?.start()
+        if dispatchReadyTasks {
+            await dispatchStartupReadyTasksIfNeeded()
+        }
+    }
+
+    func dispatchStartupReadyTasksIfNeeded() async {
+        guard !readyTaskStartupDispatchCompleted,
+              !readyTaskStartupDispatchInProgress
+        else {
+            return
+        }
+        readyTaskStartupDispatchCompleted = true
+        readyTaskStartupDispatchInProgress = true
+        defer {
+            readyTaskStartupDispatchInProgress = false
+        }
+
+        let readyTasks = await store.listProjects().flatMap { project in
+            project.tasks
+                .filter { $0.status == ProjectTaskStatus.ready.rawValue }
+                .map { (project.id, $0.id) }
+        }
+
+        guard !readyTasks.isEmpty else {
+            return
+        }
+
+        logger.info(
+            "tasks.ready.startup_dispatch",
+            metadata: ["count": .stringConvertible(readyTasks.count)]
+        )
+        for (projectID, taskID) in readyTasks {
+            await handleTaskBecameReady(projectID: projectID, taskID: taskID)
+        }
     }
 
     /// Subscribes to runtime event stream and persists events in background.

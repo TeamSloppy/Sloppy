@@ -4,6 +4,66 @@ import Protocols
 // MARK: - Task Activity
 
 extension CoreService {
+    public func listTaskLogs(projectID: String, taskID: String) async throws -> [TaskLogEntry] {
+        guard let project = await store.project(id: projectID),
+              let task = project.tasks.first(where: { $0.id == taskID })
+        else {
+            throw ProjectError.notFound
+        }
+
+        var entries: [TaskLogEntry] = [
+            TaskLogEntry(
+                id: "created-\(task.id)",
+                taskId: task.id,
+                kind: "created",
+                title: "Task created",
+                message: task.title,
+                actorId: task.originType.map { $0.rawValue } ?? "user",
+                createdAt: task.createdAt
+            )
+        ]
+
+        let activities = await listTaskActivities(projectID: projectID, taskID: taskID)
+        entries.append(contentsOf: activities.map { activity in
+            TaskLogEntry(
+                id: "activity-\(activity.id)",
+                taskId: activity.taskId,
+                kind: "activity",
+                title: "Task \(activity.field.rawValue) changed",
+                field: activity.field.rawValue,
+                oldValue: activity.oldValue,
+                newValue: activity.newValue,
+                actorId: activity.actorId,
+                createdAt: activity.createdAt
+            )
+        })
+
+        entries.append(contentsOf: listTaskLifecycleLogEntries(projectID: projectID, taskID: taskID))
+
+        let invocations = await store.listToolInvocations(projectId: projectID, taskId: taskID, limit: 200)
+        entries.append(contentsOf: invocations.map { invocation in
+            TaskLogEntry(
+                id: "tool-\(invocation.id)",
+                taskId: invocation.taskId ?? taskID,
+                kind: "tool_invocation",
+                title: invocation.ok ? "Tool call completed" : "Tool call failed",
+                message: invocation.sessionId,
+                agentId: invocation.agentId,
+                tool: invocation.tool,
+                ok: invocation.ok,
+                durationMs: invocation.durationMs,
+                createdAt: invocation.createdAt
+            )
+        })
+
+        return entries.sorted { left, right in
+            if left.createdAt == right.createdAt {
+                return left.id < right.id
+            }
+            return left.createdAt < right.createdAt
+        }
+    }
+
     public func listTaskActivities(projectID: String, taskID: String) async -> [TaskActivity] {
         let url = taskActivitiesFileURL(projectID: projectID, taskID: taskID)
         guard let data = try? Data(contentsOf: url) else { return [] }
@@ -65,6 +125,26 @@ extension CoreService {
             status: newStatus,
             source: source
         )
+    }
+
+    func appendSystemTaskComment(projectID: String, taskID: String, content: String) async {
+        let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        _ = await addTaskComment(
+            projectID: projectID,
+            taskID: taskID,
+            request: TaskCommentCreateRequest(content: trimmed, authorActorId: "system")
+        )
+    }
+
+    func appendSystemTaskComment(taskID: String, content: String) async {
+        let projects = await store.listProjects()
+        guard let project = projects.first(where: { project in
+            project.tasks.contains(where: { $0.id == taskID })
+        }) else {
+            return
+        }
+        await appendSystemTaskComment(projectID: project.id, taskID: taskID, content: content)
     }
 
     func emitTaskStatusNotificationIfNeeded(
@@ -232,6 +312,63 @@ extension CoreService {
                 actorId: changedBy
             )
         }
+    }
+
+    func listTaskLifecycleLogEntries(projectID: String, taskID: String) -> [TaskLogEntry] {
+        let url = projectTaskLogFileURL(projectID: projectID, taskID: taskID)
+        guard let text = try? String(contentsOf: url, encoding: .utf8) else {
+            return []
+        }
+
+        return text
+            .split(whereSeparator: \.isNewline)
+            .enumerated()
+            .compactMap { index, rawLine in
+                parseTaskLifecycleLogLine(String(rawLine), taskID: taskID, fallbackIndex: index)
+            }
+    }
+
+    func parseTaskLifecycleLogLine(_ line: String, taskID: String, fallbackIndex: Int) -> TaskLogEntry? {
+        guard line.hasPrefix("["),
+              let close = line.firstIndex(of: "]")
+        else {
+            return nil
+        }
+
+        let timestampText = String(line[line.index(after: line.startIndex)..<close])
+        let createdAt = ISO8601DateFormatter().date(from: timestampText) ?? Date()
+        let restStart = line.index(after: close)
+        let body = line[restStart...].trimmingCharacters(in: .whitespacesAndNewlines)
+        let messagePrefix = " message="
+        let message: String?
+        let fieldsText: String
+        if let range = body.range(of: messagePrefix) {
+            fieldsText = String(body[..<range.lowerBound])
+            message = String(body[range.upperBound...])
+        } else {
+            fieldsText = body
+            message = nil
+        }
+
+        var values: [String: String] = [:]
+        for token in fieldsText.split(separator: " ") {
+            let parts = token.split(separator: "=", maxSplits: 1).map(String.init)
+            guard parts.count == 2 else { continue }
+            values[parts[0]] = parts[1]
+        }
+        let stage = values["stage"] ?? "lifecycle"
+        return TaskLogEntry(
+            id: "lifecycle-\(timestampText)-\(fallbackIndex)",
+            taskId: values["task"] ?? taskID,
+            kind: "lifecycle",
+            title: stage.replacingOccurrences(of: "_", with: " "),
+            message: message,
+            actorId: values["actor"],
+            agentId: values["agent"],
+            channelId: values["channel"],
+            workerId: values["worker"],
+            createdAt: createdAt
+        )
     }
 
 }

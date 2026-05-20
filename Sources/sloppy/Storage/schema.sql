@@ -135,6 +135,7 @@ CREATE TABLE IF NOT EXISTS tool_invocations (
 );
 
 CREATE INDEX IF NOT EXISTS idx_tool_invocations_project_created ON tool_invocations(project_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_tool_invocations_task_created ON tool_invocations(task_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_tool_invocations_tool_created ON tool_invocations(tool, created_at DESC);
 
 CREATE TABLE IF NOT EXISTS project_event_facts (

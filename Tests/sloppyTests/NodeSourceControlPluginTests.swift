@@ -4,7 +4,7 @@ import Testing
 @testable import Protocols
 @testable import PluginSDK
 
-@Suite("Node source-control plugins")
+@Suite("Node source-control plugins", .serialized)
 struct NodeSourceControlPluginTests {
     @Test
     func arcadiaPluginMountsAndReadsSourceControlState() async throws {
@@ -13,20 +13,12 @@ struct NodeSourceControlPluginTests {
         }
 
         let root = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
-        let pluginDir = root.appendingPathComponent("Plugins/arcadia-source-control", isDirectory: true)
+        let pluginDir = root.appendingPathComponent("Plugins/command-source-control", isDirectory: true)
         let repoURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("sloppy-arcadia-source-control-\(UUID().uuidString)", isDirectory: true)
-        let binURL = repoURL.appendingPathComponent("bin", isDirectory: true)
-        let arcURL = binURL.appendingPathComponent("arc")
         let logURL = repoURL.appendingPathComponent("arc.log")
-        try FileManager.default.createDirectory(at: binURL, withIntermediateDirectories: true)
-        try Data(fakeArcScript.utf8).write(to: arcURL)
-        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: arcURL.path)
-        setenv("SLOPPY_FAKE_ARC_LOG", logURL.path, 1)
-        defer {
-            unsetenv("SLOPPY_FAKE_ARC_LOG")
-            try? FileManager.default.removeItem(at: repoURL)
-        }
+        try FileManager.default.createDirectory(at: repoURL, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: repoURL) }
 
         let manifest = PluginManifest(
             name: "arcadia-source-control",
@@ -37,11 +29,13 @@ struct NodeSourceControlPluginTests {
             entrypoint: "index.js",
             config: [
                 "displayName": .string("Arcadia Source Control"),
-                "arcBinary": .string(arcURL.path),
                 "worktreeRootName": .string(".sloppy-arc-worktrees"),
-                "defaultBranch": .string("trunk"),
-                "createBranchOnMount": .bool(true),
-                "removeDirectoryAfterUnmount": .bool(true),
+                "commands": .object([
+                    "createWorktree": .string("printf 'mount {worktreePath}\\ncheckout -b {branchName} {baseBranch}\\n' >> \"\(logURL.path)\" && mkdir -p {worktreePath}"),
+                    "removeWorktree": .string("printf 'unmount --force {worktreePath}\\n' >> \"\(logURL.path)\" && rm -rf {worktreePath}"),
+                    "workingTreeStatus": .string("printf '%s\\n' '{\"repository\":{\"providerId\":\"arcadia-source-control\",\"isRepository\":true,\"rootPath\":\"{path}\",\"branch\":\"feature/arcadia\"},\"files\":[{\"path\":\"file.txt\",\"kind\":\"modified\",\"staged\":false,\"unstaged\":true,\"linesAdded\":2,\"linesDeleted\":1},{\"path\":\"new.txt\",\"kind\":\"untracked\",\"staged\":false,\"unstaged\":true,\"linesAdded\":0,\"linesDeleted\":0}],\"linesAdded\":2,\"linesDeleted\":1}'"),
+                    "workingTreeDiff": .string("printf 'diff --git a/file.txt b/file.txt\\n+hello\\n'"),
+                ]),
             ]
         )
         let provider = try NodeSourceControlProvider(
@@ -152,58 +146,6 @@ struct NodeSourceControlPluginTests {
         }
     }
 }
-
-private let fakeArcScript = """
-#!/bin/sh
-if [ -n "$SLOPPY_FAKE_ARC_LOG" ]; then
-  printf '%s\\n' "$*" >> "$SLOPPY_FAKE_ARC_LOG"
-fi
-
-case "$1" in
-  mount)
-    mkdir -p "$2"
-    ;;
-  unmount)
-    exit 0
-    ;;
-  root)
-    pwd
-    ;;
-  branch)
-    if [ "$2" = "--show-current" ]; then
-      printf 'feature/arcadia\\n'
-    fi
-    ;;
-  rev-parse)
-    if [ "$2" = "HEAD" ]; then
-      printf 'abc123\\n'
-    elif [ "$2" = "--abbrev-ref" ]; then
-      printf 'feature/arcadia\\n'
-    fi
-    ;;
-  status)
-    printf ' M file.txt\\n'
-    printf '?? new.txt\\n'
-    ;;
-  diff)
-    case "$*" in
-      *--numstat*)
-        printf '2\\t1\\tfile.txt\\n'
-        ;;
-      *)
-        printf 'diff --git a/file.txt b/file.txt\\n'
-        printf '+hello\\n'
-        ;;
-    esac
-    ;;
-  checkout)
-    exit 0
-    ;;
-  merge)
-    exit 0
-    ;;
-esac
-"""
 
 private func nodeIsAvailable() -> Bool {
     let process = Process()

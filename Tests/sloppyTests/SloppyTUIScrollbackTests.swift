@@ -103,6 +103,16 @@ func scrollbackPolicyDoesNotExposeNativeRangeForViewport() {
 }
 
 @Test
+func scrollbackModeSelectorTracksCurrentModeAndBoundsMovement() {
+    #expect(SloppyTUIScrollbackModeSelector.index(for: .auto) == 0)
+    #expect(SloppyTUIScrollbackModeSelector.mode(at: -1) == .auto)
+    #expect(SloppyTUIScrollbackModeSelector.mode(at: 99) == .full)
+    #expect(SloppyTUIScrollbackModeSelector.movedIndex(from: 0, delta: -1) == 0)
+    #expect(SloppyTUIScrollbackModeSelector.movedIndex(from: 0, delta: 1) == 1)
+    #expect(SloppyTUIScrollbackModeSelector.movedIndex(from: 3, delta: 1) == 3)
+}
+
+@Test
 func scrollbackCommandParsesStatusAndValidUpdates() {
     #expect(SloppyTUIScrollbackCommand.parse([]) == .status)
     #expect(SloppyTUIScrollbackCommand.parse(["status"]) == .status)

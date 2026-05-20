@@ -75,6 +75,57 @@ func updateTaskStatusRecordsActivity() async throws {
 }
 
 @Test
+func readyTaskWithoutLinkedAgentBlocksAndComments() async throws {
+    let service = CoreService(config: CoreConfig.test, persistenceBuilder: InMemoryCorePersistenceBuilder())
+    let router = CoreRouter(service: service)
+    let (projectID, taskID) = try await makeProjectWithTask(router: router)
+
+    let updateBody = try JSONEncoder().encode(
+        ProjectTaskUpdateRequest(status: "ready", changedBy: "user")
+    )
+    let updateResp = await router.handle(
+        method: "PATCH",
+        path: "/v1/projects/\(projectID)/tasks/\(taskID)",
+        body: updateBody
+    )
+    #expect(updateResp.status == 200)
+
+    let decoder = JSONDecoder()
+    decoder.dateDecodingStrategy = .iso8601
+    let project = try decoder.decode(ProjectRecord.self, from: updateResp.body)
+    let task = try #require(project.tasks.first(where: { $0.id == taskID }))
+    #expect(task.status == ProjectTaskStatus.blocked.rawValue)
+
+    let commentsResp = await router.handle(
+        method: "GET",
+        path: "/v1/projects/\(projectID)/tasks/\(taskID)/comments",
+        body: nil
+    )
+    #expect(commentsResp.status == 200)
+    let comments = try decoder.decode([TaskComment].self, from: commentsResp.body)
+    #expect(comments.contains {
+        $0.authorActorId == "system"
+            && $0.content.contains("Task flow problem")
+            && $0.content.contains("no linked agent")
+    })
+
+    let logsResp = await router.handle(
+        method: "GET",
+        path: "/v1/projects/\(projectID)/tasks/\(taskID)/logs",
+        body: nil
+    )
+    #expect(logsResp.status == 200)
+    let entries = try decoder.decode([TaskLogEntry].self, from: logsResp.body)
+    #expect(entries.contains { $0.kind == "lifecycle" && $0.title == "missing agent" })
+    #expect(entries.contains {
+        $0.kind == "activity"
+            && $0.actorId == "system"
+            && $0.field == "status"
+            && $0.newValue == ProjectTaskStatus.blocked.rawValue
+    })
+}
+
+@Test
 func updateTaskPriorityRecordsActivity() async throws {
     let service = CoreService(config: CoreConfig.test, persistenceBuilder: InMemoryCorePersistenceBuilder())
     let router = CoreRouter(service: service)
@@ -220,4 +271,79 @@ func changedByDefaultsToUser() async throws {
     let activities = try decoder.decode([TaskActivity].self, from: resp.body)
     let patchActivity = activities.first { $0.actorId == "user" && $0.field == .status }
     #expect(patchActivity != nil)
+}
+
+@Test
+func taskLogsCombineActivityLifecycleAndToolCalls() async throws {
+    let service = CoreService(config: CoreConfig.test, persistenceBuilder: InMemoryCorePersistenceBuilder())
+    let router = CoreRouter(service: service)
+    let (projectID, taskID) = try await makeProjectWithTask(router: router)
+
+    let updateBody = try JSONEncoder().encode(
+        ProjectTaskUpdateRequest(priority: "high", changedBy: "actor-alice")
+    )
+    _ = await router.handle(
+        method: "PATCH",
+        path: "/v1/projects/\(projectID)/tasks/\(taskID)",
+        body: updateBody
+    )
+    await service.appendTaskLifecycleLog(
+        projectID: projectID,
+        taskID: taskID,
+        stage: "worker_spawned",
+        channelID: "chan-1",
+        workerID: "worker-1",
+        message: "Task delegated.",
+        actorID: "actor-alice",
+        agentID: "agent-alice"
+    )
+    await service.persistToolInvocationAnalytics(
+        agentId: "agent-alice",
+        sessionId: "session-1",
+        sessionTitle: "task-\(taskID)",
+        toolId: "files.read",
+        ok: true,
+        durationMs: 12
+    )
+
+    let response = await router.handle(
+        method: "GET",
+        path: "/v1/projects/\(projectID)/tasks/\(taskID)/logs",
+        body: nil
+    )
+    #expect(response.status == 200)
+    let decoder = JSONDecoder()
+    decoder.dateDecodingStrategy = .iso8601
+    let entries = try decoder.decode([TaskLogEntry].self, from: response.body)
+    #expect(entries.contains { $0.kind == "created" })
+    #expect(entries.contains { $0.kind == "activity" && $0.field == "priority" && $0.newValue == "high" })
+    #expect(entries.contains { $0.kind == "lifecycle" && $0.workerId == "worker-1" })
+    #expect(entries.contains { $0.kind == "tool_invocation" && $0.tool == "files.read" && $0.agentId == "agent-alice" })
+}
+
+@Test
+func startupDispatchesPersistedReadyTasks() async throws {
+    let service = CoreService(config: CoreConfig.test, persistenceBuilder: InMemoryCorePersistenceBuilder())
+    let task = ProjectTask(
+        id: "task-startup-ready",
+        title: "Ready on boot",
+        description: "",
+        priority: "medium",
+        status: ProjectTaskStatus.ready.rawValue
+    )
+    let projectID = "startup-ready-\(UUID().uuidString)"
+    let project = ProjectRecord(
+        id: projectID,
+        name: "Startup Ready",
+        description: "",
+        channels: [ProjectChannel(id: "project-channel-startup", title: "Startup", channelId: "startup-channel")],
+        tasks: [task]
+    )
+    await service.store.saveProject(project)
+
+    await service.waitForStartup()
+
+    let updated = try await service.getProject(id: projectID)
+    let updatedTask = try #require(updated.tasks.first(where: { $0.id == task.id }))
+    #expect(updatedTask.status != ProjectTaskStatus.ready.rawValue)
 }

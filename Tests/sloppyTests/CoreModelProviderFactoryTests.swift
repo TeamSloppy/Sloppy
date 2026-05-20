@@ -2,6 +2,7 @@ import Foundation
 #if canImport(FoundationNetworking)
 import FoundationNetworking
 #endif
+import AnyLanguageModel
 import Testing
 @testable import PluginSDK
 @testable import Protocols
@@ -288,6 +289,26 @@ func coreModelProviderFactoryAllowsGeminiConfiguredKeyWhenOAuthScopeIsMissing() 
     )
 
     #expect(provider?.supportedModels == ["gemini:gemini-2.5-flash"])
+}
+
+@Test
+func openAIModelProviderResponsesModeUsesOpenAIResponsesVariant() async throws {
+    let provider = OpenAIModelProvider(
+        supportedModels: ["openrouter:openai/gpt-4o-mini"],
+        settings: .init(
+            apiKey: { "sk-or-test" },
+            baseURL: URL(string: "https://openrouter.ai/api/v1")!,
+            session: URLSession.shared,
+            modelIdentifierPrefix: "openrouter:",
+            useOpenAICodexOAuthPath: false,
+            allowResponsesAPIFallback: false,
+            useOpenResponsesLanguageModel: true
+        )
+    )
+
+    let languageModel = try await provider.createLanguageModel(for: "openrouter:openai/gpt-4o-mini")
+    let openAIModel = try #require(languageModel as? OpenAILanguageModel)
+    #expect(openAIModel.apiVariant == .responses)
 }
 
 @Test

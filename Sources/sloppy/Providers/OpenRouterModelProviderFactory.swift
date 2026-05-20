@@ -5,7 +5,7 @@ import FoundationNetworking
 #endif
 import PluginSDK
 
-/// OpenRouter ([openrouter.ai](https://openrouter.ai)) via AnyLanguageModel `OpenResponsesLanguageModel`.
+/// OpenRouter ([openrouter.ai](https://openrouter.ai)) via the OpenAI Responses API path.
 /// Supports multiple endpoints: group `models[]` rows by `(apiUrl, apiKey)` so each Open Responses host gets its own `OpenAIModelProvider`.
 struct OpenRouterModelProviderFactory: ModelProviderFactory {
     func buildProvider(from config: ModelProviderBuildConfig) -> (any ModelProvider)? {

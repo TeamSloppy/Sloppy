@@ -96,7 +96,7 @@ function lineStats(text) {
 async function handle(request) {
   const manifest = request.manifest || {};
   const params = request.params || {};
-  const method = request.method;
+  const method = String(request.method || "").replace(/^source_control\./, "");
   const repoPath = params.repoPath || params.path;
   const taskId = params.taskId;
   const branchName = params.branchName || (taskId ? branchNameFor(taskId) : "");

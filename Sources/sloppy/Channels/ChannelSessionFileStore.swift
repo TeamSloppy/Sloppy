@@ -113,6 +113,13 @@ actor ChannelSessionFileStore {
         return ChannelSessionDetail(summary: summary, events: events)
     }
 
+#if DEBUG
+    func sessionFilePath(sessionID: String) throws -> String {
+        let normalizedSessionID = try normalizedSessionID(sessionID)
+        return sessionFileURL(sessionId: normalizedSessionID).standardizedFileURL.path
+    }
+#endif
+
     @discardableResult
     func ensureOpenSession(channelId: String, createdAt: Date = Date()) throws -> ChannelSessionSummary {
         let normalizedChannelID = try normalizedChannelID(channelId)

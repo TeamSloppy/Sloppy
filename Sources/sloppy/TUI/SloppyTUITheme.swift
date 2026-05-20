@@ -899,6 +899,70 @@ enum SloppyTUITheme {
         ]
     }
 
+    static func scrollbackModeSliderLines(
+        width: Int,
+        modes: [SloppyTUIScrollbackMode],
+        selectedIndex: Int,
+        lineLimit: Int
+    ) -> [String] {
+        guard !modes.isEmpty else { return [] }
+        let paletteWidth = max(1, min(max(1, width - 4), 96))
+        let left = max(0, (width - paletteWidth) / 2)
+        let indent = String(repeating: " ", count: left)
+        let innerWidth = max(1, paletteWidth - 4)
+        let sliderWidth = max(1, min(innerWidth, max(34, modes.count * 13 - 1)))
+        let sliderLeft = max(0, (paletteWidth - sliderWidth) / 2)
+        let boundedIndex = max(0, min(selectedIndex, modes.count - 1))
+        let selectedMode = modes[boundedIndex]
+
+        func panelLine(_ content: String) -> String {
+            let line = String(repeating: " ", count: sliderLeft) + fittedLine(content, width: sliderWidth)
+            return indent + applyPanelBackground(padded(line, width: paletteWidth), width: paletteWidth)
+        }
+
+        let labels = modes.map(\.rawValue)
+        let hint = "←/→ to change scrollback · Enter to confirm"
+        return [
+            panelLine(scrollbackModeAxisLine(width: sliderWidth)),
+            panelLine(reasoningEffortTrackLine(width: sliderWidth, count: modes.count, selectedIndex: boundedIndex)),
+            panelLine(reasoningEffortLabelLine(labels: labels, selectedIndex: boundedIndex, width: sliderWidth)),
+            panelLine(muted(scrollbackModeDescription(selectedMode, lineLimit: lineLimit))),
+            indent + applyPanelBackground(padded("", width: paletteWidth), width: paletteWidth),
+            indent + applyPanelBackground(padded("  " + muted(hint), width: paletteWidth), width: paletteWidth),
+        ]
+    }
+
+    static func addDirectoryInputLines(width: Int, value: String) -> [String] {
+        let paletteWidth = max(1, min(max(1, width - 4), 96))
+        let left = max(0, (width - paletteWidth) / 2)
+        let indent = String(repeating: " ", count: left)
+        let innerWidth = max(1, paletteWidth - 4)
+        let fieldWidth = max(4, min(innerWidth, 72))
+        let fieldLeft = max(0, (paletteWidth - fieldWidth) / 2)
+
+        func panelLine(_ content: String) -> String {
+            let line = String(repeating: " ", count: fieldLeft) + fittedLine(content, width: fieldWidth)
+            return indent + applyPanelBackground(padded(line, width: paletteWidth), width: paletteWidth)
+        }
+
+        let displayedValue = value.isEmpty ? muted("Directory path...") : foreground(value)
+        let fieldInnerWidth = max(1, fieldWidth - 4)
+        let top = "┌" + String(repeating: "─", count: max(0, fieldWidth - 2)) + "┐"
+        let bottom = "└" + String(repeating: "─", count: max(0, fieldWidth - 2)) + "┘"
+        let field = "│ " + padded(fittedLine(displayedValue, width: fieldInnerWidth), width: fieldInnerWidth) + " │"
+        return [
+            indent + applyPanelBackground(padded("  " + foreground(AnsiStyling.bold("Add directory to workspace")), width: paletteWidth), width: paletteWidth),
+            indent + applyPanelBackground(padded("  " + muted("Sloppy will be able to read files in this directory and edit when allowed."), width: paletteWidth), width: paletteWidth),
+            indent + applyPanelBackground(padded("", width: paletteWidth), width: paletteWidth),
+            indent + applyPanelBackground(padded("  " + foreground("Enter the path to the directory:"), width: paletteWidth), width: paletteWidth),
+            panelLine(top),
+            panelLine(field),
+            panelLine(bottom),
+            indent + applyPanelBackground(padded("", width: paletteWidth), width: paletteWidth),
+            indent + applyPanelBackground(padded("  " + muted("Tab to complete · Enter to add · Esc to cancel"), width: paletteWidth), width: paletteWidth),
+        ]
+    }
+
     private static func reasoningEffortAxisLine(width: Int) -> String {
         let left = "Speed"
         let right = "Intelligence"
@@ -909,6 +973,31 @@ enum SloppyTUITheme {
         }
         let gap = width - leftWidth - rightWidth
         return foreground(left) + String(repeating: " ", count: gap) + foreground(right)
+    }
+
+    private static func scrollbackModeAxisLine(width: Int) -> String {
+        let left = "Native"
+        let right = "Viewport"
+        let leftWidth = VisibleWidth.measure(left)
+        let rightWidth = VisibleWidth.measure(right)
+        guard leftWidth + rightWidth + 1 <= width else {
+            return center(fittedLine(left + " / " + right, width: width), width: width)
+        }
+        let gap = width - leftWidth - rightWidth
+        return foreground(left) + String(repeating: " ", count: gap) + foreground(right)
+    }
+
+    private static func scrollbackModeDescription(_ mode: SloppyTUIScrollbackMode, lineLimit: Int) -> String {
+        switch mode {
+        case .auto:
+            return "Native until \(lineLimit) lines, then viewport"
+        case .viewport:
+            return "Always use fast internal viewport scrolling"
+        case .limited:
+            return "Native scrollback capped to \(lineLimit) lines"
+        case .full:
+            return "Full native scrollback without a render cap"
+        }
     }
 
     private static func reasoningEffortTrackLine(width: Int, count: Int, selectedIndex: Int) -> String {

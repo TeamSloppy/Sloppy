@@ -486,6 +486,73 @@ public actor SQLiteStore: PersistenceStore {
 #endif
     }
 
+    public func listToolInvocations(projectId: String?, taskId: String?, limit: Int) async -> [PersistedToolInvocationRecord] {
+#if canImport(CSQLite3)
+        guard let db else { return [] }
+
+        var conditions: [String] = []
+        if projectId != nil { conditions.append("project_id = ?") }
+        if taskId != nil { conditions.append("task_id = ?") }
+        let whereClause = conditions.isEmpty ? "" : "WHERE " + conditions.joined(separator: " AND ")
+        let clampedLimit = max(1, min(limit, 500))
+
+        let sql =
+            """
+            SELECT id, project_id, task_id, agent_id, session_id, tool, ok, duration_ms, trace_id, created_at
+            FROM tool_invocations
+            \(whereClause)
+            ORDER BY created_at DESC
+            LIMIT \(clampedLimit);
+            """
+
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK else { return [] }
+        defer { sqlite3_finalize(statement) }
+
+        var paramIndex: Int32 = 1
+        if let projectId {
+            bindText(projectId, at: paramIndex, statement: statement)
+            paramIndex += 1
+        }
+        if let taskId {
+            bindText(taskId, at: paramIndex, statement: statement)
+        }
+
+        var result: [PersistedToolInvocationRecord] = []
+        while sqlite3_step(statement) == SQLITE_ROW {
+            guard let idPtr = sqlite3_column_text(statement, 0),
+                  let agentPtr = sqlite3_column_text(statement, 3),
+                  let sessionPtr = sqlite3_column_text(statement, 4),
+                  let toolPtr = sqlite3_column_text(statement, 5),
+                  let createdAtPtr = sqlite3_column_text(statement, 9)
+            else { continue }
+
+            let durationMs: Int?
+            if sqlite3_column_type(statement, 7) == SQLITE_NULL {
+                durationMs = nil
+            } else {
+                durationMs = Int(sqlite3_column_int(statement, 7))
+            }
+
+            result.append(PersistedToolInvocationRecord(
+                id: String(cString: idPtr),
+                projectId: sqlite3_column_text(statement, 1).map { String(cString: $0) },
+                taskId: sqlite3_column_text(statement, 2).map { String(cString: $0) },
+                agentId: String(cString: agentPtr),
+                sessionId: String(cString: sessionPtr),
+                tool: String(cString: toolPtr),
+                ok: sqlite3_column_int(statement, 6) != 0,
+                durationMs: durationMs,
+                traceId: sqlite3_column_text(statement, 8).map { String(cString: $0) },
+                createdAt: isoFormatter.date(from: String(cString: createdAtPtr)) ?? Date()
+            ))
+        }
+        return result
+#else
+        return []
+#endif
+    }
+
     public func listToolInvocationDurations(projectId: String, from: Date?, to: Date?, limit: Int) async -> [Int] {
 #if canImport(CSQLite3)
         guard let db else { return [] }

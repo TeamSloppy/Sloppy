@@ -24,6 +24,7 @@ public struct InMemoryCorePersistenceBuilder: CorePersistenceBuilding {
 public actor InMemoryPersistenceStore: PersistenceStore {
     private var events: [EventEnvelope] = []
     private var tokenUsages: [(channelId: String, taskId: String?, usage: TokenUsage)] = []
+    private var toolInvocations: [PersistedToolInvocationRecord] = []
     private var bulletins: [MemoryBulletin] = []
     private var artifacts: [String: String] = [:]
     private var artifactRecords: [String: PersistedArtifactRecord] = [:]
@@ -90,7 +91,18 @@ public actor InMemoryPersistenceStore: PersistenceStore {
         traceId: String?,
         createdAt: Date
     ) async {
-        // Intentionally ignored for in-memory store (used for lightweight dev/testing only).
+        toolInvocations.append(PersistedToolInvocationRecord(
+            id: id,
+            projectId: projectId,
+            taskId: taskId,
+            agentId: agentId,
+            sessionId: sessionId,
+            tool: tool,
+            ok: ok,
+            durationMs: durationMs,
+            traceId: traceId,
+            createdAt: createdAt
+        ))
     }
 
     public func persistProjectEventFact(
@@ -109,11 +121,53 @@ public actor InMemoryPersistenceStore: PersistenceStore {
     }
 
     public func listToolInvocationAggregates(projectId: String, from: Date?, to: Date?) async -> [PersistedToolInvocationAggregate] {
-        []
+        var buckets: [String: (calls: Int, failures: Int, totalDurationMs: Int)] = [:]
+        for record in toolInvocations {
+            guard record.projectId == projectId else { continue }
+            if let from, record.createdAt < from { continue }
+            if let to, record.createdAt > to { continue }
+            var bucket = buckets[record.tool] ?? (calls: 0, failures: 0, totalDurationMs: 0)
+            bucket.calls += 1
+            if !record.ok {
+                bucket.failures += 1
+            }
+            bucket.totalDurationMs += record.durationMs ?? 0
+            buckets[record.tool] = bucket
+        }
+        return buckets.map { tool, bucket in
+            PersistedToolInvocationAggregate(
+                tool: tool,
+                calls: bucket.calls,
+                failures: bucket.failures,
+                totalDurationMs: bucket.totalDurationMs
+            )
+        }
+    }
+
+    public func listToolInvocations(projectId: String?, taskId: String?, limit: Int) async -> [PersistedToolInvocationRecord] {
+        let clampedLimit = max(1, min(limit, 500))
+        return toolInvocations
+            .filter { record in
+                if let projectId, record.projectId != projectId { return false }
+                if let taskId, record.taskId != taskId { return false }
+                return true
+            }
+            .sorted { $0.createdAt > $1.createdAt }
+            .prefix(clampedLimit)
+            .map { $0 }
     }
 
     public func listToolInvocationDurations(projectId: String, from: Date?, to: Date?, limit: Int) async -> [Int] {
-        []
+        toolInvocations
+            .filter { record in
+                guard record.projectId == projectId, record.durationMs != nil else { return false }
+                if let from, record.createdAt < from { return false }
+                if let to, record.createdAt > to { return false }
+                return true
+            }
+            .sorted { $0.createdAt > $1.createdAt }
+            .prefix(max(1, min(limit, 20_000)))
+            .compactMap(\.durationMs)
     }
 
     public func persistBulletin(_ bulletin: MemoryBulletin) async {
@@ -598,6 +652,7 @@ enum CorePersistenceFactory {
         );
 
         CREATE INDEX IF NOT EXISTS idx_tool_invocations_project_created ON tool_invocations(project_id, created_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_tool_invocations_task_created ON tool_invocations(task_id, created_at DESC);
         CREATE INDEX IF NOT EXISTS idx_tool_invocations_tool_created ON tool_invocations(tool, created_at DESC);
 
         CREATE TABLE IF NOT EXISTS project_event_facts (

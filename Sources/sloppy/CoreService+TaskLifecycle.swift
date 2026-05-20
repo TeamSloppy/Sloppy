@@ -37,7 +37,7 @@ func sessionToolRoots(forWorkingDirectory workingDirectory: String) -> [String] 
 
 extension CoreService {
     func handleTaskBecameReady(projectID: String, taskID: String) async {
-        await waitForStartup()
+        await waitForStartup(dispatchReadyTasks: false)
 
         guard var project = await store.project(id: projectID),
               let taskIndex = project.tasks.firstIndex(where: { $0.id == taskID })
@@ -85,16 +85,35 @@ extension CoreService {
         }
         guard let delegation else {
             let blockedMessage = "Task \(task.id) is ready but no eligible actor route was resolved."
-            if let channelID = resolveExecutionChannelID(project: project, task: task) {
-                await runtime.appendSystemMessage(channelId: channelID, content: blockedMessage)
-            }
-            appendTaskLifecycleLog(
-                projectID: project.id,
-                taskID: task.id,
+            await blockReadyTaskFlowProblem(
+                project: project,
+                taskIndex: taskIndex,
+                task: task,
+                previousStatus: task.status,
                 stage: "route_blocked",
                 channelID: resolveExecutionChannelID(project: project, task: task),
                 workerID: nil,
-                message: blockedMessage
+                message: blockedMessage,
+                actorID: nil,
+                agentID: nil
+            )
+            return
+        }
+
+        let delegatedAgentID = normalizeWhitespace(delegation.agentID ?? "")
+        guard !delegatedAgentID.isEmpty else {
+            let blockedMessage = "Task \(task.id) is ready but the resolved route has no linked agent. Assign an actor with a linked agent or choose a team member that can execute the task."
+            await blockReadyTaskFlowProblem(
+                project: project,
+                taskIndex: taskIndex,
+                task: task,
+                previousStatus: task.status,
+                stage: "missing_agent",
+                channelID: delegation.channelID,
+                workerID: nil,
+                message: blockedMessage,
+                actorID: delegation.actorID,
+                agentID: nil
             )
             return
         }
@@ -178,6 +197,7 @@ extension CoreService {
                     to: task.status,
                     source: "system"
                 )
+                await appendSystemTaskComment(projectID: project.id, taskID: task.id, content: failureMessage)
                 if let channelID = resolveExecutionChannelID(project: project, task: task) {
                     await runtime.appendSystemMessage(channelId: channelID, content: failureMessage)
                 }
@@ -403,6 +423,7 @@ extension CoreService {
             agentID: agentID,
             artifactPath: artifactPath
         )
+        await appendSystemTaskComment(projectID: project.id, taskID: task.id, content: "Task blocked by system flow: \(message)")
         if let channelID {
             let statusMessage = "Task \(task.id) blocked: \(message)"
             await runtime.appendSystemMessage(channelId: channelID, content: statusMessage)
@@ -413,6 +434,66 @@ extension CoreService {
             metadata: [
                 "project_id": .string(project.id),
                 "task_id": .string(task.id),
+                "message": .string(message)
+            ]
+        )
+    }
+
+    func blockReadyTaskFlowProblem(
+        project: ProjectRecord,
+        taskIndex: Int,
+        task: ProjectTask,
+        previousStatus: String,
+        stage: String,
+        channelID: String?,
+        workerID: String?,
+        message: String,
+        actorID: String?,
+        agentID: String?
+    ) async {
+        var project = project
+        var task = task
+        task.status = ProjectTaskStatus.blocked.rawValue
+        task.updatedAt = Date()
+        let note = "Task flow problem: \(message)"
+        if task.description.isEmpty {
+            task.description = note
+        } else if !task.description.contains(note) {
+            task.description += "\n\n\(note)"
+        }
+        project.tasks[taskIndex] = task
+        project.updatedAt = Date()
+        await store.saveProject(project)
+        await kanbanEventService.push(KanbanEvent(type: .taskUpdated, projectId: project.id, task: task))
+        await recordSystemStatusChange(
+            projectID: project.id,
+            taskID: task.id,
+            from: previousStatus,
+            to: task.status,
+            source: "system"
+        )
+        appendTaskLifecycleLog(
+            projectID: project.id,
+            taskID: task.id,
+            stage: stage,
+            channelID: channelID,
+            workerID: workerID,
+            message: message,
+            actorID: actorID,
+            agentID: agentID
+        )
+        await appendSystemTaskComment(projectID: project.id, taskID: task.id, content: note)
+        if let channelID {
+            let statusMessage = "Task \(task.id) blocked by system flow: \(message)"
+            await runtime.appendSystemMessage(channelId: channelID, content: statusMessage)
+            await deliverToChannelPlugin(channelId: channelID, content: statusMessage)
+        }
+        logger.warning(
+            "visor.task.flow_blocked",
+            metadata: [
+                "project_id": .string(project.id),
+                "task_id": .string(task.id),
+                "stage": .string(stage),
                 "message": .string(message)
             ]
         )
@@ -878,11 +959,15 @@ extension CoreService {
     ) async -> String? {
         let knownIDs = await ToolCatalog.knownToolIDs(mcpRegistry: mcpRegistry)
         guard let policy = try? await toolsAuthorization.policy(agentID: agentID) else {
+            await appendSystemTaskComment(
+                taskID: taskID,
+                content: "Task flow problem: could not load tool policy for agent \(agentID)."
+            )
             logger.warning(
                 "task.subagent.policy_failed",
                 metadata: ["agent_id": .string(agentID), "task_id": .string(taskID)]
             )
-            return nil
+            return "[failed] Could not load tool policy for agent \(agentID).\nError: tool policy unavailable"
         }
         let effectiveTools = SubagentDelegation.effectiveToolIDs(
             policy: policy,
@@ -890,11 +975,15 @@ extension CoreService {
             toolsetNames: toolsetNames
         )
         guard !effectiveTools.isEmpty else {
+            await appendSystemTaskComment(
+                taskID: taskID,
+                content: "Task flow problem: agent \(agentID) has no effective tools available for this task."
+            )
             logger.warning(
                 "task.subagent.no_tools",
                 metadata: ["agent_id": .string(agentID), "task_id": .string(taskID)]
             )
-            return nil
+            return "[failed] Agent \(agentID) has no effective tools available.\nError: no tools available"
         }
 
         let sessionTitle = "task-\(taskID)"
@@ -913,11 +1002,15 @@ extension CoreService {
             )
             await appendSubagentSessionTaskCommentIfNeeded(agentID: agentID, taskID: taskID, session: session)
         } catch {
+            await appendSystemTaskComment(
+                taskID: taskID,
+                content: "Task flow problem: failed to create worker session for agent \(agentID): \(error.localizedDescription)"
+            )
             logger.warning(
                 "task.worker.session_create_failed",
                 metadata: ["agent_id": .string(agentID), "task_id": .string(taskID), "error": .string(error.localizedDescription)]
             )
-            return nil
+            return "[failed] Failed to create worker session for agent \(agentID).\nError: \(error.localizedDescription)"
         }
 
         if let parentSessionID = parentSessionID.flatMap(normalizedSessionID) {
@@ -970,6 +1063,10 @@ extension CoreService {
                 )
             )
         } catch {
+            await appendSystemTaskComment(
+                taskID: taskID,
+                content: "Task flow problem: failed to start worker session for agent \(agentID): \(error.localizedDescription)"
+            )
             logger.warning(
                 "task.worker.session_post_failed",
                 metadata: ["agent_id": .string(agentID), "task_id": .string(taskID), "error": .string(error.localizedDescription)]
@@ -978,7 +1075,7 @@ extension CoreService {
             await sessionOrchestrator.unmarkDelegatedSubagentSession(sessionID: session.id)
             await runtime.clearChannelToolAllowList(channelId: channelId)
             await runtime.invalidateChannelSession(channelId: channelId)
-            return nil
+            return "[failed] Failed to start worker session for agent \(agentID).\nError: \(error.localizedDescription)"
         }
 
         let detail = try? getAgentSession(agentID: agentID, sessionID: session.id)

@@ -108,6 +108,8 @@ const CHAT_MODES = [
 ];
 const DEFAULT_CHAT_MODE = "build";
 const CHAT_MODE_STORAGE_PREFIX = "sloppy.agentChat.mode";
+const AGENT_CHAT_NO_PAGE_SCROLL_CLASS = "agent-chat-no-page-scroll";
+let agentChatPageScrollLockCount = 0;
 
 /** Must match `CoreService.sloppyProjectsDirectoryScopeID` — file search under workspace `projects/` when the chat is not project-scoped. */
 const SLOPPY_PROJECTS_DIRECTORY_SCOPE_ID = "_sloppyProjectsRoot";
@@ -156,6 +158,25 @@ function nextChatMode(current, direction = 1) {
   const index = Math.max(0, CHAT_MODES.findIndex((mode) => mode.id === normalized));
   const nextIndex = (index + direction + CHAT_MODES.length) % CHAT_MODES.length;
   return CHAT_MODES[nextIndex].id;
+}
+
+function acquireAgentChatPageScrollLock() {
+  if (typeof document === "undefined") {
+    return () => {};
+  }
+  agentChatPageScrollLockCount += 1;
+  document.body.classList.add(AGENT_CHAT_NO_PAGE_SCROLL_CLASS);
+  let released = false;
+  return () => {
+    if (released) {
+      return;
+    }
+    released = true;
+    agentChatPageScrollLockCount = Math.max(0, agentChatPageScrollLockCount - 1);
+    if (agentChatPageScrollLockCount === 0) {
+      document.body.classList.remove(AGENT_CHAT_NO_PAGE_SCROLL_CLASS);
+    }
+  };
 }
 
 function chatModeMeta(mode) {
@@ -3371,13 +3392,15 @@ export function AgentChatTab({
   initialSessionId = null,
   projectId = null,
   onActiveSessionIdChange,
-  modeStorageScope = null
+  modeStorageScope = null,
+  lockPageScroll = true
 }: {
   agentId: string;
   initialSessionId?: string | null;
   projectId?: string | null;
   onActiveSessionIdChange?: (sessionId: string | null) => void;
   modeStorageScope?: string | null;
+  lockPageScroll?: boolean;
 }) {
   const [sessions, setSessions] = useState([]);
   const [activeSessionId, setActiveSessionId] = useState(null);
@@ -3840,7 +3863,6 @@ export function AgentChatTab({
   }, [scopedProjectId]);
 
   useEffect(() => {
-    document.body.classList.add("agent-chat-no-page-scroll");
     return () => {
       streamCleanupRef.current?.();
       streamCleanupRef.current = () => { };
@@ -3851,9 +3873,15 @@ export function AgentChatTab({
       }
       sessionSyncRef.current = { sessionId: null, timerId: null, inflight: false, queued: false };
       subagentSessionIdRef.current = "";
-      document.body.classList.remove("agent-chat-no-page-scroll");
     };
   }, []);
+
+  useEffect(() => {
+    if (!lockPageScroll) {
+      return undefined;
+    }
+    return acquireAgentChatPageScrollLock();
+  }, [lockPageScroll]);
 
   useEffect(() => {
     if (!isShareMenuOpen) return;

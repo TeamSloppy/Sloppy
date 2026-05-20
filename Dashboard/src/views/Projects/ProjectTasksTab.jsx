@@ -18,6 +18,7 @@ import {
     addTaskComment,
     deleteTaskComment,
     fetchTaskActivities,
+    fetchTaskLogs,
     fetchTaskClarifications,
     answerTaskClarification,
     fetchTaskDiff,
@@ -550,6 +551,13 @@ const ACTIVITY_FIELD_ICONS = {
     description: "description"
 };
 
+const TASK_LOG_KIND_ICONS = {
+    created: "add_circle",
+    activity: "history",
+    lifecycle: "route",
+    tool_invocation: "terminal"
+};
+
 function formatActivityValue(field, value, actors) {
     if (!value) return "none";
     if (field === "status") {
@@ -659,6 +667,95 @@ function ActivityTab({ project, task, createModalActors }) {
                                 )}
                             </span>
                             <span className="td-activity-time">{formatRelativeTime(activity.createdAt)}</span>
+                        </div>
+                    );
+                })
+            )}
+        </div>
+    );
+}
+
+function formatLogValue(field, value, actors) {
+    if (!value) return "";
+    if (field) {
+        return formatActivityValue(field, value, actors);
+    }
+    return String(value);
+}
+
+function TaskLogsTab({ project, task, createModalActors }) {
+    const [entries, setEntries] = useState([]);
+    const [loading, setLoading] = useState(true);
+
+    const loadLogs = useCallback(async () => {
+        const result = await fetchTaskLogs(project.id, task.id);
+        if (result) setEntries(result);
+        setLoading(false);
+    }, [project.id, task.id, task.updatedAt]);
+
+    useEffect(() => {
+        setLoading(true);
+        loadLogs();
+    }, [loadLogs]);
+
+    function actorLabel(entry) {
+        if (entry.agentId) return `Agent ${entry.agentId}`;
+        if (!entry.actorId || entry.actorId === "user") return entry.actorId === "user" ? "User" : "";
+        const actor = createModalActors.find((a) => a.id === entry.actorId);
+        return actor ? actor.displayName : entry.actorId;
+    }
+
+    function renderMessage(entry) {
+        if (entry.kind === "tool_invocation") {
+            const bits = [
+                entry.tool || "tool",
+                entry.ok === false ? "failed" : "completed",
+                entry.durationMs != null ? `${entry.durationMs} ms` : "",
+                entry.message ? `session ${entry.message}` : ""
+            ].filter(Boolean);
+            return bits.join(" · ");
+        }
+        if (entry.kind === "activity") {
+            const oldValue = formatLogValue(entry.field, entry.oldValue, createModalActors);
+            const newValue = formatLogValue(entry.field, entry.newValue, createModalActors);
+            if (oldValue && newValue) return `${oldValue} -> ${newValue}`;
+            return newValue || oldValue || "";
+        }
+        return entry.message || "";
+    }
+
+    return (
+        <div className="td-task-logs">
+            {loading ? (
+                <p className="placeholder-text">Loading logs…</p>
+            ) : entries.length === 0 ? (
+                <p className="placeholder-text">No task logs yet.</p>
+            ) : (
+                entries.map((entry) => {
+                    const icon = TASK_LOG_KIND_ICONS[entry.kind] || "notes";
+                    const meta = [
+                        actorLabel(entry),
+                        entry.channelId ? `channel ${entry.channelId}` : "",
+                        entry.workerId ? `worker ${entry.workerId}` : ""
+                    ].filter(Boolean);
+                    return (
+                        <div
+                            key={entry.id}
+                            className={`td-task-log-item td-task-log-item--${entry.kind || "log"} ${entry.ok === false ? "td-task-log-item--failed" : ""}`}
+                        >
+                            <span className="material-symbols-rounded td-task-log-icon">{icon}</span>
+                            <div className="td-task-log-body">
+                                <div className="td-task-log-head">
+                                    <strong>{entry.title || entry.kind || "Log entry"}</strong>
+                                    <span>{formatRelativeTime(entry.createdAt)}</span>
+                                </div>
+                                {renderMessage(entry) ? (
+                                    <p>{renderMessage(entry)}</p>
+                                ) : null}
+                                {meta.length > 0 ? (
+                                    <div className="td-task-log-meta">{meta.join(" · ")}</div>
+                                ) : null}
+                            </div>
                         </div>
                     );
                 })
@@ -1246,6 +1343,14 @@ function TaskDetailView({
                             <span className="material-symbols-rounded td-tab-icon">history</span>
                             History
                         </button>
+                        <button
+                            type="button"
+                            className={`td-tab ${activeTab === "logs" ? "active" : ""}`}
+                            onClick={() => setActiveTab("logs")}
+                        >
+                            <span className="material-symbols-rounded td-tab-icon">terminal</span>
+                            Logs
+                        </button>
                         {canShowReviewTab && (
                             <button
                                 type="button"
@@ -1296,6 +1401,13 @@ function TaskDetailView({
                         )}
                         {activeTab === "activity" && (
                             <ActivityTab
+                                project={project}
+                                task={task}
+                                createModalActors={createModalActors}
+                            />
+                        )}
+                        {activeTab === "logs" && (
+                            <TaskLogsTab
                                 project={project}
                                 task={task}
                                 createModalActors={createModalActors}

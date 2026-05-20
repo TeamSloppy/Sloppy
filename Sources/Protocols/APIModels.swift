@@ -4855,6 +4855,61 @@ public struct TaskActivity: Codable, Sendable, Identifiable {
     }
 }
 
+public struct TaskLogEntry: Codable, Sendable, Identifiable {
+    public var id: String
+    public var taskId: String
+    public var kind: String
+    public var title: String
+    public var message: String?
+    public var field: String?
+    public var oldValue: String?
+    public var newValue: String?
+    public var actorId: String?
+    public var agentId: String?
+    public var channelId: String?
+    public var workerId: String?
+    public var tool: String?
+    public var ok: Bool?
+    public var durationMs: Int?
+    public var createdAt: Date
+
+    public init(
+        id: String,
+        taskId: String,
+        kind: String,
+        title: String,
+        message: String? = nil,
+        field: String? = nil,
+        oldValue: String? = nil,
+        newValue: String? = nil,
+        actorId: String? = nil,
+        agentId: String? = nil,
+        channelId: String? = nil,
+        workerId: String? = nil,
+        tool: String? = nil,
+        ok: Bool? = nil,
+        durationMs: Int? = nil,
+        createdAt: Date = Date()
+    ) {
+        self.id = id
+        self.taskId = taskId
+        self.kind = kind
+        self.title = title
+        self.message = message
+        self.field = field
+        self.oldValue = oldValue
+        self.newValue = newValue
+        self.actorId = actorId
+        self.agentId = agentId
+        self.channelId = channelId
+        self.workerId = workerId
+        self.tool = tool
+        self.ok = ok
+        self.durationMs = durationMs
+        self.createdAt = createdAt
+    }
+}
+
 // MARK: - Task Clarification
 
 public enum ClarificationStatus: String, Codable, Sendable, Equatable {

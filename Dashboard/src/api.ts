@@ -150,6 +150,7 @@ export const fetchTaskComments = coreApi.fetchTaskComments;
 export const addTaskComment = coreApi.addTaskComment;
 export const deleteTaskComment = coreApi.deleteTaskComment;
 export const fetchTaskActivities = coreApi.fetchTaskActivities;
+export const fetchTaskLogs = coreApi.fetchTaskLogs;
 export const fetchTaskClarifications = coreApi.fetchTaskClarifications;
 export const createTaskClarification = coreApi.createTaskClarification;
 export const answerTaskClarification = coreApi.answerTaskClarification;

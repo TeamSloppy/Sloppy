@@ -228,6 +228,8 @@ public actor CoreService {
     let workspaceCurrentDirectory: String
     var currentConfig: CoreConfig
     var eventTask: Task<Void, Never>?
+    var readyTaskStartupDispatchCompleted = false
+    var readyTaskStartupDispatchInProgress = false
     var activeGatewayPlugins: [any GatewayPlugin] = []
     var visorScheduler: VisorScheduler?
     var cronRunner: CronRunner?

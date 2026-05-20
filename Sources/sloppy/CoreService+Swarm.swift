@@ -1202,6 +1202,11 @@ extension CoreService {
                 } else {
                     resolvedStatus = ProjectTaskStatus.blocked.rawValue
                     effectiveFailureNote = "Worker exited without explicit completion confirmation. Mark the task done only after calling project.task_update with completion evidence."
+                    await appendSystemTaskComment(
+                        projectID: project.id,
+                        taskID: task.id,
+                        content: "Task flow problem: \(effectiveFailureNote ?? "")"
+                    )
                 }
 
                 if resolvedStatus == ProjectTaskStatus.done.rawValue,
@@ -1332,6 +1337,13 @@ extension CoreService {
                 )
             } else if event.messageType == .workerFailed {
                 let failedActor = task.claimedAgentId ?? task.claimedActorId ?? "worker"
+                if let effectiveFailureNote {
+                    await appendSystemTaskComment(
+                        projectID: project.id,
+                        taskID: task.id,
+                        content: "Task flow problem: \(failedActor) failed task \(task.id): \(effectiveFailureNote)"
+                    )
+                }
                 await runtime.appendSystemMessage(
                     channelId: event.channelId,
                     content: "\(failedActor) failed task \(task.id); moved back to backlog."

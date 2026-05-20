@@ -3,7 +3,7 @@ import Testing
 @testable import sloppy
 @testable import Protocols
 
-@Suite("Tool loop guard")
+@Suite("Tool loop guard", .serialized)
 struct ToolLoopGuardTests {
     private func makeService() -> CoreService {
         CoreService(config: CoreConfig.test)

@@ -5,7 +5,7 @@ import FoundationNetworking
 
 /// Helpers for [OpenRouter](https://openrouter.ai/docs).
 ///
-/// Sloppy uses AnyLanguageModel’s `OpenResponsesLanguageModel` (Open Responses) for OpenRouter.
+/// Sloppy uses the OpenAI Responses API path for OpenRouter.
 /// Use ``makeURLSession()`` so optional [app attribution](https://openrouter.ai/docs/api/reference/overview) headers are applied.
 public enum OpenRouterLanguageModelSupport {
     public static let defaultBaseURL = URL(string: "https://openrouter.ai/api/v1")!

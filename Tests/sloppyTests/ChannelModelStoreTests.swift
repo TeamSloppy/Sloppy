@@ -213,3 +213,21 @@ func statusCommandReturnsChannelInfo() async throws {
     let ok = await service.postMessage(channelId: channelId, userId: "tg:1", content: "/status")
     #expect(ok)
 }
+
+#if DEBUG
+@Test
+func statusCommandIncludesSessionFilePathInDebugBuilds() async throws {
+    let service = CoreService(config: .test)
+    let channelId = "status-path-\(UUID().uuidString)"
+
+    let summary = try await service.channelSessionStore.recordUserMessage(
+        channelId: channelId,
+        userId: "tg:1",
+        content: "hello"
+    )
+
+    let status = try #require(await service.handleStatusCommand(channelId: channelId, content: "/status"))
+    let expectedPath = try await service.channelSessionStore.sessionFilePath(sessionID: summary.sessionId)
+    #expect(status.contains("Session file: \(expectedPath)"))
+}
+#endif

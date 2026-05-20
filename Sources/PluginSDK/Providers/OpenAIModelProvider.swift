@@ -24,7 +24,7 @@ public struct OpenAIModelProvider: ModelProvider {
         public var useOpenAICodexOAuthPath: Bool
         /// When `true`, failed Chat Completions requests may retry against OpenAI’s Responses API. Disable for OpenAI-compatible hosts such as OpenRouter.
         public var allowResponsesAPIFallback: Bool
-        /// When `true`, use ``OpenResponsesLanguageModel`` (Open Responses / Responses API) instead of ``OpenAILanguageModel``. Suitable for OpenRouter and other Open Responses–compatible endpoints.
+        /// When `true`, use OpenAI Responses API semantics instead of Chat Completions. Suitable for OpenRouter and other Open Responses–compatible endpoints.
         public var useOpenResponsesLanguageModel: Bool
 
         public init(
@@ -111,10 +111,11 @@ public struct OpenAIModelProvider: ModelProvider {
         }
         if settings.useOpenResponsesLanguageModel {
             let httpSession = settings.session ?? makeDefaultSession()
-            return OpenResponsesLanguageModel(
+            return OpenAILanguageModel(
                 baseURL: settings.baseURL,
                 apiKey: settings.apiKey(),
                 model: resolved,
+                apiVariant: .responses,
                 session: httpSession
             )
         }
@@ -130,14 +131,6 @@ public struct OpenAIModelProvider: ModelProvider {
 
     public func generationOptions(for modelName: String, maxTokens: Int, reasoningEffort: ReasoningEffort?) -> GenerationOptions {
         var options = GenerationOptions(maximumResponseTokens: maxTokens)
-        if settings.useOpenResponsesLanguageModel {
-            guard let mapped = mapReasoningEffortOpenResponses(reasoningEffort) else { return options }
-            options[custom: OpenResponsesLanguageModel.self] = .init(
-                reasoningEffort: mapped,
-                reasoning: .init(effort: mapped)
-            )
-            return options
-        }
         guard let mapped = mapReasoningEffort(reasoningEffort) else { return options }
         options[custom: OpenAILanguageModel.self] = .init(
             reasoningEffort: mapped,
@@ -169,16 +162,6 @@ public struct OpenAIModelProvider: ModelProvider {
         }
     }
 
-    private func mapReasoningEffortOpenResponses(
-        _ effort: ReasoningEffort?
-    ) -> OpenResponsesLanguageModel.CustomGenerationOptions.ReasoningEffort? {
-        switch effort {
-        case .low: return .low
-        case .medium: return .medium
-        case .high: return .high
-        case nil: return nil
-        }
-    }
 }
 
 /// Wraps `OpenAILanguageModel` and automatically retries with the Responses API variant

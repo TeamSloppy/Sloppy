@@ -103,15 +103,14 @@ actor SessionProcessRegistry {
         return processPayload(process)
     }
 
-    func stop(sessionID: String, processID: String) throws -> JSONValue {
+    func stop(sessionID: String, processID: String) async throws -> JSONValue {
         var sessionProcesses = normalizedSessionProcesses(sessionID: sessionID)
         guard var process = sessionProcesses[processID] else {
             throw RegistryError.processNotFound
         }
 
         if process.process.isRunning {
-            process.process.terminate()
-            process.process.waitUntilExit()
+            await terminateProcess(process.process)
         }
         process = refreshed(process)
         sessionProcesses[processID] = process

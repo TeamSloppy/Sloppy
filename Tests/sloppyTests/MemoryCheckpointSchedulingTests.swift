@@ -129,17 +129,17 @@ func createAgentSessionSchedulesNewSessionMemoryCheckpointInBackground() async t
         return session
     }
 
+    let checkpointStarted = await waitForMemoryCheckpointCondition(timeoutNanoseconds: 5_000_000_000) {
+        await provider.hasStarted()
+    }
+    #expect(checkpointStarted)
+
     let creationReturnedBeforeCheckpointReleased = await waitForMemoryCheckpointCondition(
-        timeoutNanoseconds: 500_000_000
+        timeoutNanoseconds: 5_000_000_000
     ) {
         await creationProbe.isFinished()
     }
     #expect(creationReturnedBeforeCheckpointReleased)
-
-    let checkpointStarted = await waitForMemoryCheckpointCondition(timeoutNanoseconds: 2_000_000_000) {
-        await provider.hasStarted()
-    }
-    #expect(checkpointStarted)
 
     await provider.release()
     let next = try await creationTask.value

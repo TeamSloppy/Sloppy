@@ -262,6 +262,7 @@ export interface CoreApi {
   addTaskComment: (projectId: string, taskId: string, payload: AnyRecord) => Promise<AnyRecord | null>;
   deleteTaskComment: (projectId: string, taskId: string, commentId: string) => Promise<boolean>;
   fetchTaskActivities: (projectId: string, taskId: string) => Promise<AnyRecord[] | null>;
+  fetchTaskLogs: (projectId: string, taskId: string) => Promise<AnyRecord[] | null>;
   fetchTaskClarifications: (projectId: string, taskId: string) => Promise<AnyRecord[] | null>;
   createTaskClarification: (projectId: string, taskId: string, payload: AnyRecord) => Promise<AnyRecord | null>;
   answerTaskClarification: (projectId: string, taskId: string, clarificationId: string, payload: AnyRecord) => Promise<AnyRecord | null>;
@@ -2086,6 +2087,14 @@ export function createCoreApi(): CoreApi {
     fetchTaskActivities: async (projectId, taskId) => {
       const response = await requestJson<AnyRecord[]>({
         path: `/v1/projects/${encodeURIComponent(projectId)}/tasks/${encodeURIComponent(taskId)}/activities`
+      });
+      if (!response.ok || !Array.isArray(response.data)) return null;
+      return response.data;
+    },
+
+    fetchTaskLogs: async (projectId, taskId) => {
+      const response = await requestJson<AnyRecord[]>({
+        path: `/v1/projects/${encodeURIComponent(projectId)}/tasks/${encodeURIComponent(taskId)}/logs`
       });
       if (!response.ok || !Array.isArray(response.data)) return null;
       return response.data;

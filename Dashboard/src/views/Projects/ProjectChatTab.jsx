@@ -86,13 +86,19 @@ export function ProjectChatTab({
       const agentId = normalizeId(nextAgentId);
       const sessionId = agentId ? normalizeId(nextSessionId) : "";
       if (typeof onChatRouteChange === "function") {
+        if (agentId === normalizeId(chatAgentId) && sessionId === normalizeId(chatSessionId)) {
+          return;
+        }
         onChatRouteChange(agentId || null, sessionId || null);
+        return;
+      }
+      if (agentId === localAgentId && sessionId === localSessionId) {
         return;
       }
       setLocalAgentId(agentId);
       setLocalSessionId(sessionId);
     },
-    [onChatRouteChange]
+    [chatAgentId, chatSessionId, localAgentId, localSessionId, onChatRouteChange]
   );
 
   useEffect(() => {
@@ -235,6 +241,7 @@ export function ProjectChatTab({
           projectId={projectId}
           onActiveSessionIdChange={onActiveSessionIdChange}
           modeStorageScope={`project-chat:${projectId}:${activeAgentId}`}
+          lockPageScroll={false}
         />
       ) : (
         <p className="app-status-text">Choose an agent to load sessions and chat.</p>

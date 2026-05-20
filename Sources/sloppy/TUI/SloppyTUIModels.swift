@@ -118,6 +118,22 @@ enum SloppyTUIReasoningEffortSelector {
     }
 }
 
+enum SloppyTUIScrollbackModeSelector {
+    static let options = SloppyTUIScrollbackMode.allCases
+
+    static func index(for mode: SloppyTUIScrollbackMode) -> Int {
+        options.firstIndex(of: mode) ?? 0
+    }
+
+    static func mode(at index: Int) -> SloppyTUIScrollbackMode {
+        options[max(0, min(index, options.count - 1))]
+    }
+
+    static func movedIndex(from index: Int, delta: Int) -> Int {
+        max(0, min(index + delta, options.count - 1))
+    }
+}
+
 struct SloppyTUILocalCard {
     var id: Int
     var block: SloppyTUITimelineBlock

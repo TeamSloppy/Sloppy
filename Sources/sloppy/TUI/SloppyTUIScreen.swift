@@ -277,6 +277,8 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
     private var selectedModelContextWindowTokens = 0
     private var reasoningEffort: ReasoningEffort?
     private var effortSliderSelectionIndex: Int?
+    private var scrollbackModeSelectionIndex: Int?
+    private var addDirectoryInput: String?
     private var skillSlashCommands: [SloppyTUISlashCommand] = []
     private var skillSlashCommandNames: Set<String> = []
     private var commandPaletteSelection = 0
@@ -356,6 +358,7 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
     private var lastTimelineViewportHeight = 1
     private var sessionTimelineRevision = 0
     private var sessionTimelineCache: SloppyTUISessionTimelineCache?
+    private var sessionReloadGeneration = 0
 
     init(
         runtime: SloppyTUIRuntime,
@@ -477,7 +480,13 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
         if handleActivePicker(input: input) {
             return
         }
+        if handleAddDirectoryInput(input: input) {
+            return
+        }
         if handleReasoningEffortSelector(input: input) {
+            return
+        }
+        if handleScrollbackModeSelector(input: input) {
             return
         }
         if handleCommandPalette(input: input) {
@@ -582,11 +591,23 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
 
         if let picker = activePicker {
             composer.insert(contentsOf: SloppyTUITheme.pickerLines(width: width, picker: picker, maxVisible: 9), at: 0)
+        } else if let addDirectoryInput {
+            composer.insert(contentsOf: SloppyTUITheme.addDirectoryInputLines(
+                width: width,
+                value: addDirectoryInput
+            ), at: 0)
         } else if reasoningEffortSelectorVisible {
             composer.insert(contentsOf: SloppyTUITheme.reasoningEffortSliderLines(
                 width: width,
                 efforts: SloppyTUIReasoningEffortSelector.options,
                 selectedIndex: currentEffortSliderIndex
+            ), at: 0)
+        } else if scrollbackModeSelectorVisible {
+            composer.insert(contentsOf: SloppyTUITheme.scrollbackModeSliderLines(
+                width: width,
+                modes: SloppyTUIScrollbackModeSelector.options,
+                selectedIndex: currentScrollbackModeSliderIndex,
+                lineLimit: state.scrollbackLineLimit
             ), at: 0)
         } else if let palette = commandPaletteLines(width: width) {
             composer.insert(contentsOf: palette, at: 0)
@@ -788,6 +809,99 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
             return true
         default:
             return false
+        }
+    }
+
+    private func handleScrollbackModeSelector(input: TerminalInput) -> Bool {
+        guard scrollbackModeSelectorVisible else { return false }
+        guard case let .key(key, _) = input else { return false }
+
+        switch key {
+        case .arrowLeft, .arrowDown:
+            scrollbackModeSelectionIndex = SloppyTUIScrollbackModeSelector.movedIndex(
+                from: currentScrollbackModeSliderIndex,
+                delta: -1
+            )
+            requestRender()
+            return true
+        case .arrowRight, .arrowUp:
+            scrollbackModeSelectionIndex = SloppyTUIScrollbackModeSelector.movedIndex(
+                from: currentScrollbackModeSliderIndex,
+                delta: 1
+            )
+            requestRender()
+            return true
+        case .enter, .tab:
+            applyScrollbackModeSelection()
+            return true
+        case .escape:
+            scrollbackModeSelectionIndex = nil
+            editor.setText("")
+            persistDraft("")
+            requestRender()
+            return true
+        default:
+            return false
+        }
+    }
+
+    private func handleAddDirectoryInput(input: TerminalInput) -> Bool {
+        guard addDirectoryInput != nil else { return false }
+
+        if case .paste(let text) = input {
+            addDirectoryInput = (addDirectoryInput ?? "") + text.filter { !$0.isNewline }
+            requestRender()
+            return true
+        }
+
+        guard case let .key(key, modifiers) = input else { return true }
+        switch key {
+        case .enter:
+            let path = (addDirectoryInput ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !path.isEmpty else {
+                requestRender()
+                return true
+            }
+            addDirectoryInput = nil
+            editor.setText("")
+            persistDraft("")
+            requestRender()
+            Task { @MainActor in
+                await self.addDirectoryPath(path)
+            }
+            return true
+        case .tab:
+            completeAddDirectoryInput()
+            return true
+        case .backspace:
+            if addDirectoryInput?.isEmpty == false {
+                addDirectoryInput?.removeLast()
+                requestRender()
+            }
+            return true
+        case .delete:
+            addDirectoryInput = ""
+            requestRender()
+            return true
+        case .character("u") where modifiers.contains(.control):
+            addDirectoryInput = ""
+            requestRender()
+            return true
+        case .character(let character)
+            where !modifiers.contains(.control)
+                && !modifiers.contains(.option)
+                && !character.isNewline:
+            addDirectoryInput = (addDirectoryInput ?? "") + String(character)
+            requestRender()
+            return true
+        case .escape:
+            addDirectoryInput = nil
+            editor.setText("")
+            persistDraft("")
+            requestRender()
+            return true
+        default:
+            return true
         }
     }
 
@@ -1031,14 +1145,28 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
         Self.isReasoningEffortSelectorText(editor.getText())
     }
 
+    private var scrollbackModeSelectorVisible: Bool {
+        Self.isScrollbackModeSelectorText(editor.getText())
+    }
+
     private var currentEffortSliderIndex: Int {
         effortSliderSelectionIndex ?? SloppyTUIReasoningEffortSelector.index(for: reasoningEffort)
+    }
+
+    private var currentScrollbackModeSliderIndex: Int {
+        scrollbackModeSelectionIndex ?? SloppyTUIScrollbackModeSelector.index(for: state.scrollbackMode)
     }
 
     private static func isReasoningEffortSelectorText(_ value: String) -> Bool {
         guard !value.contains("\n") else { return false }
         let lowercased = value.lowercased()
         return lowercased.trimmingCharacters(in: .whitespaces) == "/effort"
+    }
+
+    private static func isScrollbackModeSelectorText(_ value: String) -> Bool {
+        guard !value.contains("\n") else { return false }
+        let lowercased = value.lowercased()
+        return lowercased.trimmingCharacters(in: .whitespaces) == "/scrollback"
     }
 
     private var allSlashCommands: [SloppyTUISlashCommand] {
@@ -1394,6 +1522,14 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
             showReasoningEffortSelector()
             return
         }
+        if command.name.lowercased() == "scrollback" {
+            showScrollbackModeSelector()
+            return
+        }
+        if command.name.lowercased() == "add_dir" || command.name.lowercased() == "add-dir" {
+            showAddDirectoryInput()
+            return
+        }
         if command.requiresArgument {
             editor.setText(raw + " ")
             requestRender()
@@ -1421,6 +1557,32 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
         editor.setText("")
         persistDraft("")
         appendLocalCard("Reasoning effort set to `\(effort.rawValue)`.", autoDismissAfter: 6)
+    }
+
+    private func showScrollbackModeSelector() {
+        scrollbackModeSelectionIndex = SloppyTUIScrollbackModeSelector.index(for: state.scrollbackMode)
+        editor.setText("/scrollback")
+        requestRender()
+    }
+
+    private func applyScrollbackModeSelection() {
+        let mode = SloppyTUIScrollbackModeSelector.mode(at: currentScrollbackModeSliderIndex)
+        applyScrollbackMode(mode)
+        scrollbackModeSelectionIndex = nil
+        editor.setText("")
+        persistDraft("")
+        appendLocalCard("""
+        ## Scrollback
+        - mode: `\(state.scrollbackMode.rawValue)`
+        - line limit: `\(state.scrollbackLineLimit)`
+        - behavior: \(scrollbackBehaviorDescription())
+        """, autoDismissAfter: 12)
+    }
+
+    private func showAddDirectoryInput() {
+        addDirectoryInput = ""
+        editor.setText("/add_dir")
+        requestRender()
     }
 
     private func providerLabel(from model: String) -> String {
@@ -1881,6 +2043,8 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
         lastTaskElapsed = nil
         liveRunStatusLine = nil
         activePicker = nil
+        addDirectoryInput = nil
+        scrollbackModeSelectionIndex = nil
         queuedMessages = SloppyTUIMessageQueue()
         isDrainingQueuedMessages = false
         sessionUndoManagers = SloppyTUISessionUndoManagers()
@@ -2082,10 +2246,14 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
         guard let path = ChannelAddDirCommandParsing.pathTailIfCommand(raw),
               !path.isEmpty
         else {
-            appendLocalCard("Usage: `/add_dir <path>`")
+            showAddDirectoryInput()
             return
         }
 
+        await addDirectoryPath(path)
+    }
+
+    private func addDirectoryPath(_ path: String) async {
         guard hasPersistedSession else {
             do {
                 let resolvedPath = try await resolveDraftSessionDirectoryPath(path)
@@ -2111,6 +2279,81 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
         } catch {
             appendLocalCard("Add directory failed: \(String(describing: error))")
         }
+    }
+
+    private func completeAddDirectoryInput() {
+        let candidates = addDirectoryCompletionCandidates(for: addDirectoryInput ?? "")
+        guard !candidates.isEmpty else {
+            requestRender()
+            return
+        }
+        if candidates.count == 1 {
+            addDirectoryInput = candidates[0]
+        } else if let prefix = commonPathCompletionPrefix(candidates),
+                  prefix.count > (addDirectoryInput ?? "").count {
+            addDirectoryInput = prefix
+        }
+        requestRender()
+    }
+
+    private func addDirectoryCompletionCandidates(for rawValue: String) -> [String] {
+        let raw = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        let hasSlash = raw.contains("/")
+        let basePath: String
+        let partial: String
+        let outputPrefix: String
+
+        if raw.isEmpty {
+            basePath = runtime.cwd
+            partial = ""
+            outputPrefix = ""
+        } else if raw.hasSuffix("/") {
+            basePath = (raw as NSString).expandingTildeInPath
+            partial = ""
+            outputPrefix = raw
+        } else if hasSlash {
+            let nsRaw = raw as NSString
+            basePath = (nsRaw.deletingLastPathComponent as NSString).expandingTildeInPath
+            partial = nsRaw.lastPathComponent
+            if let slash = raw.lastIndex(of: "/") {
+                outputPrefix = String(raw[...slash])
+            } else {
+                outputPrefix = ""
+            }
+        } else {
+            basePath = runtime.cwd
+            partial = raw
+            outputPrefix = ""
+        }
+
+        let entries = (try? FileManager.default.contentsOfDirectory(
+            atPath: basePath.isEmpty ? "/" : basePath
+        )) ?? []
+        return entries
+            .filter { entry in
+                entry.hasPrefix(partial) && (!entry.hasPrefix(".") || partial.hasPrefix("."))
+            }
+            .compactMap { entry -> String? in
+                let absolute = ((basePath.isEmpty ? "/" : basePath) as NSString).appendingPathComponent(entry)
+                var isDirectory: ObjCBool = false
+                guard FileManager.default.fileExists(atPath: absolute, isDirectory: &isDirectory),
+                      isDirectory.boolValue
+                else {
+                    return nil
+                }
+                return outputPrefix + entry + "/"
+            }
+            .sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
+    }
+
+    private func commonPathCompletionPrefix(_ candidates: [String]) -> String? {
+        guard var prefix = candidates.first else { return nil }
+        for candidate in candidates.dropFirst() {
+            while !candidate.hasPrefix(prefix), !prefix.isEmpty {
+                prefix.removeLast()
+            }
+        }
+        return prefix
     }
 
     private func forkCurrentSession(task: String) async {
@@ -2277,26 +2520,34 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
     }
 
     private func configureScrollback(_ args: [String]) {
+        guard !args.isEmpty else {
+            showScrollbackModeSelector()
+            return
+        }
         switch SloppyTUIScrollbackCommand.parse(args) {
         case .status:
             showScrollbackStatus()
         case .update(let mode, let lineLimit):
-            state.scrollbackMode = mode
-            if let lineLimit {
-                state.scrollbackLineLimit = SloppyTUIScrollbackPolicy.normalizedLineLimit(lineLimit)
-            }
-            timelineScrollOffset = 0
-            stateStore.save(state)
+            applyScrollbackMode(mode, lineLimit: lineLimit)
             appendLocalCard("""
             ## Scrollback
             - mode: `\(state.scrollbackMode.rawValue)`
             - line limit: `\(state.scrollbackLineLimit)`
             - behavior: \(scrollbackBehaviorDescription())
             """, autoDismissAfter: 12)
-            refreshStaticChrome()
         case .failure(let message):
             appendLocalCard(message, autoDismissAfter: 10)
         }
+    }
+
+    private func applyScrollbackMode(_ mode: SloppyTUIScrollbackMode, lineLimit: Int? = nil) {
+        state.scrollbackMode = mode
+        if let lineLimit {
+            state.scrollbackLineLimit = SloppyTUIScrollbackPolicy.normalizedLineLimit(lineLimit)
+        }
+        timelineScrollOffset = 0
+        stateStore.save(state)
+        refreshStaticChrome()
     }
 
     private func showScrollbackStatus() {
@@ -3364,6 +3615,10 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
     }
 
     private func reloadSession() async {
+        sessionReloadGeneration += 1
+        let reloadGeneration = sessionReloadGeneration
+        let reloadAgentID = agent.id
+        let reloadSessionID = session.id
         guard hasPersistedSession else {
             sessionCards = []
             subSessionCards = []
@@ -3373,7 +3628,13 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
             refreshStaticChrome()
             return
         }
-        let detail = try? await runtime.service.getAgentSession(agentID: agent.id, sessionID: session.id)
+        let detail = try? await runtime.service.getAgentSession(agentID: reloadAgentID, sessionID: reloadSessionID)
+        guard reloadGeneration == sessionReloadGeneration,
+              hasPersistedSession,
+              agent.id == reloadAgentID,
+              session.id == reloadSessionID else {
+            return
+        }
         var blocks: [SloppyTUITimelineBlock] = []
         var children: [SloppyTUISubSessionCard] = []
         let events = detail?.events ?? []

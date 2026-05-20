@@ -3690,6 +3690,70 @@
   flex-shrink: 0;
 }
 
+.td-task-logs {
+  display: grid;
+  gap: 8px;
+}
+
+.td-task-log-item {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr);
+  gap: 10px;
+  align-items: start;
+  border: 1px solid var(--line);
+  background: var(--surface-2);
+  padding: 10px;
+}
+
+.td-task-log-item--failed {
+  border-color: color-mix(in srgb, var(--danger, #ef4444) 45%, var(--line));
+}
+
+.td-task-log-icon {
+  color: var(--muted);
+  font-size: 18px;
+  line-height: 1.5;
+}
+
+.td-task-log-body {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.td-task-log-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-width: 0;
+}
+
+.td-task-log-head strong {
+  color: var(--text);
+  font-size: 0.86rem;
+  text-transform: capitalize;
+}
+
+.td-task-log-head span {
+  color: var(--muted);
+  font-size: 0.74rem;
+  white-space: nowrap;
+}
+
+.td-task-log-body p {
+  margin: 0;
+  color: var(--text);
+  font-size: 0.82rem;
+  overflow-wrap: anywhere;
+}
+
+.td-task-log-meta {
+  color: var(--muted);
+  font-size: 0.74rem;
+  overflow-wrap: anywhere;
+}
+
 /* ── Task Detail Sidebar ─────────────────────────────────── */
 
 .td-sidebar {
