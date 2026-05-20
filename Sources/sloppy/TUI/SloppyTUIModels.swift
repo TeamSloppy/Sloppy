@@ -6,6 +6,7 @@ enum SloppyTUIPickerKind: Equatable {
     case agent
     case session
     case subSession
+    case workspaceAccess
     case provider
     case providerCatalog
     case projectFile
@@ -131,6 +132,60 @@ enum SloppyTUIScrollbackModeSelector {
 
     static func movedIndex(from index: Int, delta: Int) -> Int {
         max(0, min(index + delta, options.count - 1))
+    }
+}
+
+enum SloppyTUIWorkspaceAccess {
+    static func requiredDirectoryForAbsolutePath(
+        _ rawPath: String,
+        projectRootPath: String,
+        sessionDirectories: [String],
+        fileManager: FileManager = .default
+    ) -> String? {
+        let trimmed = rawPath.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.hasPrefix("/") else {
+            return nil
+        }
+
+        let candidate = URL(fileURLWithPath: trimmed, isDirectory: false)
+            .resolvingSymlinksInPath()
+            .standardizedFileURL
+        let roots = normalizedRoots([projectRootPath] + sessionDirectories)
+        guard !roots.contains(where: { contains(candidate.path, inside: $0) }) else {
+            return nil
+        }
+
+        var isDirectory: ObjCBool = false
+        guard fileManager.fileExists(atPath: candidate.path, isDirectory: &isDirectory) else {
+            return nil
+        }
+        if isDirectory.boolValue {
+            return candidate.path
+        }
+        return candidate.deletingLastPathComponent().path
+    }
+
+    static func normalizedRoots(_ paths: [String]) -> [String] {
+        var seen = Set<String>()
+        return paths.compactMap { path in
+            let trimmed = path.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else {
+                return nil
+            }
+            let normalized = URL(fileURLWithPath: (trimmed as NSString).expandingTildeInPath, isDirectory: true)
+                .resolvingSymlinksInPath()
+                .standardizedFileURL
+                .path
+            guard seen.insert(normalized).inserted else {
+                return nil
+            }
+            return normalized
+        }
+    }
+
+    static func contains(_ path: String, inside rootPath: String) -> Bool {
+        let prefix = rootPath.hasSuffix("/") ? rootPath : rootPath + "/"
+        return path == rootPath || path.hasPrefix(prefix)
     }
 }
 

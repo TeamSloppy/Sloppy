@@ -61,17 +61,17 @@ extension CoreService {
         )
 
         let workers = await runtime.workerSnapshots()
-        let hasActiveWorker = workers.contains { snapshot in
+        let activeWorker = workers.first { snapshot in
             snapshot.taskId == task.id &&
             (snapshot.status == .queued || snapshot.status == .running || snapshot.status == .waitingInput)
         }
-        guard !hasActiveWorker else {
+        guard activeWorker == nil else {
             appendTaskLifecycleLog(
                 projectID: project.id,
                 taskID: task.id,
                 stage: "already_running",
                 channelID: resolveExecutionChannelID(project: project, task: task),
-                workerID: workers.first(where: { $0.taskId == task.id })?.workerId,
+                workerID: activeWorker?.workerId,
                 message: "Skipped auto-delegation because task already has an active worker."
             )
             return

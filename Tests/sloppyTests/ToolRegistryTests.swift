@@ -127,6 +127,18 @@ struct ToolRegistryTests {
         }
     }
 
+    @Test("Project task create schema requires title")
+    func projectTaskCreateSchemaRequiresTitle() throws {
+        let tools = Dictionary(uniqueKeysWithValues: registry.allTools.map { ($0.name, $0) })
+        let taskCreate = try #require(tools["project.task_create"])
+        let schema = try schemaRoot(taskCreate.parameters)
+        let properties = try #require(schema["properties"] as? [String: Any])
+        let required = try #require(schema["required"] as? [String])
+
+        #expect(properties.keys.contains("title"))
+        #expect(required.contains("title"))
+    }
+
     @Test("Memory save still rejects missing scope")
     func memorySaveRejectsMissingScope() async {
         let tool = MemorySaveTool()
@@ -166,6 +178,17 @@ struct ToolRegistryTests {
             properties = try #require(root["properties"] as? [String: Any])
         }
         return Set(properties.keys)
+    }
+
+    private func schemaRoot(_ schema: GenerationSchema) throws -> [String: Any] {
+        let data = try JSONEncoder().encode(schema)
+        var object = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        if let ref = object["$ref"] as? String {
+            let name = ref.replacingOccurrences(of: "#/$defs/", with: "")
+            let defs = try #require(object["$defs"] as? [String: Any])
+            object = try #require(defs[name] as? [String: Any])
+        }
+        return object
     }
 
     private func makeMemoryToolContext() -> ToolContext {

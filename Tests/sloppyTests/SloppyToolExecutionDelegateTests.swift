@@ -32,10 +32,16 @@ struct SloppyToolExecutionDelegateTests {
     @Test("Non-structure GeneratedContent produces empty arguments")
     func nonStructureConversion() async throws {
         let capture = RequestCapture()
-        let delegate = SloppyToolExecutionDelegate(toolCallHandler: { request in
-            await capture.store(request)
-            return ToolInvocationResult(tool: request.tool, ok: false)
-        })
+        let diagnostics = ArgumentDiagnosticCapture()
+        let delegate = SloppyToolExecutionDelegate(
+            argumentDiagnosticsHandler: { diagnostic in
+                await diagnostics.store(diagnostic)
+            },
+            toolCallHandler: { request in
+                await capture.store(request)
+                return ToolInvocationResult(tool: request.tool, ok: false)
+            }
+        )
 
         let toolCall = Transcript.ToolCall(
             id: "call-2",
@@ -46,6 +52,9 @@ struct SloppyToolExecutionDelegateTests {
 
         let invoked = try #require(await capture.value)
         #expect(invoked.arguments.isEmpty)
+        let diagnostic = try #require(await diagnostics.value)
+        #expect(diagnostic.toolName == "nonexistent.tool")
+        #expect(diagnostic.argumentKind == "string")
 
         if case .provideOutput(let segments) = decision,
            let first = segments.first,
@@ -225,6 +234,12 @@ private actor ToolCallBatchCapture {
     private var stored: [String]?
     var value: [String]? { stored }
     func store(_ names: [String]) { stored = names }
+}
+
+private actor ArgumentDiagnosticCapture {
+    private var stored: SloppyToolExecutionDelegate.ArgumentDiagnostic?
+    var value: SloppyToolExecutionDelegate.ArgumentDiagnostic? { stored }
+    func store(_ diagnostic: SloppyToolExecutionDelegate.ArgumentDiagnostic) { stored = diagnostic }
 }
 
 private struct NamedTool: Tool {

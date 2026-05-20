@@ -16,9 +16,10 @@ func slashCommandRouterIgnoresAbsolutePaths() {
 
 @Test
 func slashCommandRouterHandlesKnownCommandsAndAliases() {
-    let commandNames: Set<String> = ["help", "keybindings", "shortcuts", "add-dir", "restore", "up", "undo", "redo"]
+    let commandNames: Set<String> = ["help", "workspace", "keybindings", "shortcuts", "add-dir", "restore", "up", "undo", "redo"]
 
     #expect(SloppyTUISlashCommandRouter.shouldHandle("/help", commandNames: commandNames, skillCommandNames: []))
+    #expect(SloppyTUISlashCommandRouter.shouldHandle("/workspace", commandNames: commandNames, skillCommandNames: []))
     #expect(SloppyTUISlashCommandRouter.shouldHandle("/keybindings", commandNames: commandNames, skillCommandNames: []))
     #expect(SloppyTUISlashCommandRouter.shouldHandle("/shortcuts", commandNames: commandNames, skillCommandNames: []))
     #expect(SloppyTUISlashCommandRouter.shouldHandle("/add-dir /tmp/demo", commandNames: commandNames, skillCommandNames: []))
@@ -26,6 +27,33 @@ func slashCommandRouterHandlesKnownCommandsAndAliases() {
     #expect(SloppyTUISlashCommandRouter.shouldHandle("/up", commandNames: commandNames, skillCommandNames: []))
     #expect(SloppyTUISlashCommandRouter.shouldHandle("/undo", commandNames: commandNames, skillCommandNames: []))
     #expect(SloppyTUISlashCommandRouter.shouldHandle("/redo", commandNames: commandNames, skillCommandNames: []))
+}
+
+@Test
+func workspaceAccessRequiresDirectoryForAbsolutePathsOutsideRoots() throws {
+    let tmp = FileManager.default.temporaryDirectory
+    let project = tmp.appendingPathComponent("sloppy-project-\(UUID().uuidString)", isDirectory: true)
+    let outside = tmp.appendingPathComponent("sloppy-outside-\(UUID().uuidString)", isDirectory: true)
+    try FileManager.default.createDirectory(at: project, withIntermediateDirectories: true)
+    try FileManager.default.createDirectory(at: outside, withIntermediateDirectories: true)
+    defer {
+        try? FileManager.default.removeItem(at: project)
+        try? FileManager.default.removeItem(at: outside)
+    }
+    let file = outside.appendingPathComponent("note.txt")
+    try Data("hello".utf8).write(to: file)
+
+    #expect(SloppyTUIWorkspaceAccess.requiredDirectoryForAbsolutePath(
+        file.path,
+        projectRootPath: project.path,
+        sessionDirectories: []
+    ) == outside.resolvingSymlinksInPath().path)
+
+    #expect(SloppyTUIWorkspaceAccess.requiredDirectoryForAbsolutePath(
+        file.path,
+        projectRootPath: project.path,
+        sessionDirectories: [outside.path]
+    ) == nil)
 }
 
 @Test

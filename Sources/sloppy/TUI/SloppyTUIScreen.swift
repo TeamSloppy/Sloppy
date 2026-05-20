@@ -155,6 +155,16 @@ private enum SloppyTUIAttachmentError: LocalizedError {
     }
 }
 
+private struct SloppyTUIWorkspaceAccessRequest {
+    var directoryPath: String
+    var originalPath: String
+    var value: String
+    var context: String?
+    var uploads: [AgentAttachmentUpload]
+    var spawnSubSession: Bool
+    var clearsPendingInputsOnSuccess: Bool
+}
+
 @MainActor
 final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
     let editor = Editor()
@@ -163,6 +173,7 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
     private static let baseSlashCommands = [
         SloppyTUISlashCommand("help", "Show TUI commands"),
         SloppyTUISlashCommand("status", "Show session status"),
+        SloppyTUISlashCommand("workspace", "Show workspace roots and directory access"),
         SloppyTUISlashCommand("pet", "Toggle Sloppie pet and show terminal face status"),
         SloppyTUISlashCommand("agents", "Switch agent"),
         SloppyTUISlashCommand("sessions", "Switch session"),
@@ -198,6 +209,7 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
     private static let handledSlashCommandNames: Set<String> = [
         "help",
         "status",
+        "workspace",
         "pet",
         "agents",
         "agent",
@@ -279,6 +291,8 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
     private var effortSliderSelectionIndex: Int?
     private var scrollbackModeSelectionIndex: Int?
     private var addDirectoryInput: String?
+    private var pendingWorkspaceAccessRequest: SloppyTUIWorkspaceAccessRequest?
+    private var deniedWorkspaceAccessDirectories: Set<String> = []
     private var skillSlashCommands: [SloppyTUISlashCommand] = []
     private var skillSlashCommandNames: Set<String> = []
     private var commandPaletteSelection = 0
@@ -735,6 +749,12 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
                 Task { @MainActor in
                     await self.cancelPlanInputRequest()
                 }
+                return true
+            }
+            if picker.kind == .workspaceAccess {
+                activePicker = nil
+                denyPendingWorkspaceAccess()
+                requestRender()
                 return true
             }
             activePicker = nil
@@ -1530,6 +1550,15 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
             showAddDirectoryInput()
             return
         }
+        if command.name.lowercased() == "workspace" {
+            editor.setText("")
+            persistDraft("")
+            requestRender()
+            Task { @MainActor in
+                await self.showWorkspace()
+            }
+            return
+        }
         if command.requiresArgument {
             editor.setText(raw + " ")
             requestRender()
@@ -1639,6 +1668,17 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
             return
         }
 
+        if let accessRequest = await workspaceAccessRequest(
+            value: value,
+            context: context,
+            uploads: uploads,
+            spawnSubSession: spawnSubSession,
+            clearsPendingInputsOnSuccess: clearsPendingInputsOnSuccess
+        ) {
+            showWorkspaceAccessPrompt(accessRequest)
+            return
+        }
+
         dismissLocalCardsForUserMessage()
         isPosting = true
         taskStartedAt = Date()
@@ -1742,6 +1782,167 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
         await sendNextQueuedMessageIfIdle()
     }
 
+    private func workspaceAccessRequest(
+        value: String,
+        context: String?,
+        uploads: [AgentAttachmentUpload],
+        spawnSubSession: Bool,
+        clearsPendingInputsOnSuccess: Bool
+    ) async -> SloppyTUIWorkspaceAccessRequest? {
+        let absolutePaths = SloppyTUIProjectPathTokens.attachmentPaths(in: value)
+            .filter { $0.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("/") }
+        guard !absolutePaths.isEmpty else {
+            return nil
+        }
+
+        let projectRootPath = ((try? await runtime.service.resolveProjectWorkspaceRoot(projectID: project.id))
+            ?? URL(fileURLWithPath: runtime.cwd, isDirectory: true))
+            .resolvingSymlinksInPath()
+            .standardizedFileURL
+            .path
+        for rawPath in absolutePaths {
+            guard let directory = SloppyTUIWorkspaceAccess.requiredDirectoryForAbsolutePath(
+                rawPath,
+                projectRootPath: projectRootPath,
+                sessionDirectories: persistedDirectoriesForCurrentSession()
+            ) else {
+                continue
+            }
+            if isWorkspaceAccessDenied(directory) {
+                appendLocalCard("""
+                Workspace access was denied for:
+                `\(directory)`
+
+                The agent was not started. Run `/add_dir \(shellQuote(directory))` or retry after choosing allow.
+                """, autoDismissAfter: 12)
+                return SloppyTUIWorkspaceAccessRequest(
+                    directoryPath: directory,
+                    originalPath: rawPath,
+                    value: "",
+                    context: nil,
+                    uploads: [],
+                    spawnSubSession: false,
+                    clearsPendingInputsOnSuccess: false
+                )
+            }
+            return SloppyTUIWorkspaceAccessRequest(
+                directoryPath: directory,
+                originalPath: rawPath,
+                value: value,
+                context: context,
+                uploads: uploads,
+                spawnSubSession: spawnSubSession,
+                clearsPendingInputsOnSuccess: clearsPendingInputsOnSuccess
+            )
+        }
+        return nil
+    }
+
+    private func showWorkspaceAccessPrompt(_ request: SloppyTUIWorkspaceAccessRequest) {
+        guard !request.value.isEmpty else {
+            return
+        }
+        pendingWorkspaceAccessRequest = request
+        activePicker = SloppyTUIPicker(
+            kind: .workspaceAccess,
+            title: "Allow workspace directory?",
+            items: [
+                SloppyTUIPickerItem(
+                    value: "allow",
+                    label: "Allow",
+                    description: request.directoryPath,
+                    isCurrent: false
+                ),
+                SloppyTUIPickerItem(
+                    value: "deny",
+                    label: "Deny",
+                    description: "Do not start the agent for this message",
+                    isCurrent: false
+                ),
+            ],
+            selectedIndex: 0
+        )
+        appendLocalCard("""
+        The agent does not have access to this directory:
+        `\(request.directoryPath)`
+
+        Requested by path:
+        `\(request.originalPath)`
+
+        Allow access for this session?
+        """, autoDismissAfter: 20)
+        refreshStaticChrome(statusLine: "allow workspace directory with Enter, or choose deny")
+        requestRender()
+    }
+
+    private func applyWorkspaceAccessDecision(_ value: String) async {
+        guard let request = pendingWorkspaceAccessRequest else {
+            return
+        }
+        pendingWorkspaceAccessRequest = nil
+        if value == "allow" {
+            clearWorkspaceAccessDenial(request.directoryPath)
+            guard await addDirectoryPath(request.directoryPath) else {
+                return
+            }
+            await sendMessage(
+                request.value,
+                context: request.context,
+                uploads: request.uploads,
+                spawnSubSession: request.spawnSubSession,
+                clearsPendingInputsOnSuccess: request.clearsPendingInputsOnSuccess
+            )
+        } else {
+            denyWorkspaceAccess(request.directoryPath)
+            appendLocalCard("""
+            Workspace access denied for:
+            `\(request.directoryPath)`
+
+            The agent was not started.
+            """, autoDismissAfter: 10)
+        }
+    }
+
+    private func denyPendingWorkspaceAccess() {
+        guard let request = pendingWorkspaceAccessRequest else {
+            return
+        }
+        pendingWorkspaceAccessRequest = nil
+        denyWorkspaceAccess(request.directoryPath)
+        appendLocalCard("""
+        Workspace access denied for:
+        `\(request.directoryPath)`
+
+        The agent was not started.
+        """, autoDismissAfter: 10)
+    }
+
+    private func workspaceAccessDenialKey(_ directoryPath: String) -> String {
+        currentSessionDirectoryKey() + "\u{0}" + directoryPath
+    }
+
+    private func isWorkspaceAccessDenied(_ directoryPath: String) -> Bool {
+        deniedWorkspaceAccessDirectories.contains(workspaceAccessDenialKey(directoryPath))
+    }
+
+    private func denyWorkspaceAccess(_ directoryPath: String) {
+        deniedWorkspaceAccessDirectories.insert(workspaceAccessDenialKey(directoryPath))
+    }
+
+    private func clearWorkspaceAccessDenial(_ directoryPath: String) {
+        deniedWorkspaceAccessDirectories.remove(workspaceAccessDenialKey(directoryPath))
+    }
+
+    private func deniedWorkspaceAccessDirectoriesForCurrentSession() -> [String] {
+        let prefix = currentSessionDirectoryKey() + "\u{0}"
+        return deniedWorkspaceAccessDirectories.compactMap { raw in
+            guard raw.hasPrefix(prefix) else {
+                return nil
+            }
+            return String(raw.dropFirst(prefix.count))
+        }.sorted()
+    }
+
     private func ensurePersistedSessionForMessage() async throws -> Bool {
         guard !hasPersistedSession else {
             return false
@@ -1835,6 +2036,8 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
             showQuickReference()
         case "scrollback":
             configureScrollback(args)
+        case "workspace":
+            await showWorkspace()
         case "status":
             await showStatus()
         case "pet":
@@ -2044,6 +2247,8 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
         liveRunStatusLine = nil
         activePicker = nil
         addDirectoryInput = nil
+        pendingWorkspaceAccessRequest = nil
+        deniedWorkspaceAccessDirectories.removeAll()
         scrollbackModeSelectionIndex = nil
         queuedMessages = SloppyTUIMessageQueue()
         isDrainingQueuedMessages = false
@@ -2253,7 +2458,8 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
         await addDirectoryPath(path)
     }
 
-    private func addDirectoryPath(_ path: String) async {
+    @discardableResult
+    private func addDirectoryPath(_ path: String) async -> Bool {
         guard hasPersistedSession else {
             do {
                 let resolvedPath = try await resolveDraftSessionDirectoryPath(path)
@@ -2261,10 +2467,11 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
                 persistSessionDirectories(directories)
                 loadProjectFileIndex()
                 appendLocalCard("Added working directory for the next session:\n`\(resolvedPath)`", autoDismissAfter: 8)
+                return true
             } catch {
                 appendLocalCard("Directory not found: `\(path)`")
+                return false
             }
-            return
         }
 
         do {
@@ -2276,8 +2483,10 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
             persistSessionDirectories(response.directories)
             loadProjectFileIndex()
             appendLocalCard("Added working directory:\n`\(response.path)`", autoDismissAfter: 8)
+            return true
         } catch {
             appendLocalCard("Add directory failed: \(String(describing: error))")
+            return false
         }
     }
 
@@ -2517,6 +2726,48 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
         - pet: \(petStatusSummary())
         - scrollback: \(scrollbackStatusSummary())
         """, autoDismissAfter: 20)
+    }
+
+    private func showWorkspace() async {
+        let projectRoot = ((try? await runtime.service.resolveProjectWorkspaceRoot(projectID: project.id))
+            ?? URL(fileURLWithPath: runtime.cwd, isDirectory: true))
+            .resolvingSymlinksInPath()
+            .standardizedFileURL
+            .path
+        let projectRoots = sessionToolRoots(forWorkingDirectory: projectRoot)
+        let sessionDirectories = normalizedDirectoryList(persistedDirectoriesForCurrentSession())
+            .filter { directory in
+                !projectRoots.contains { root in
+                    SloppyTUIWorkspaceAccess.contains(directory, inside: root)
+                }
+            }
+        let projectLines = projectRoots.map { "- `\($0)`" }.joined(separator: "\n")
+        let extraLines = sessionDirectories.isEmpty
+            ? "- none"
+            : sessionDirectories.map { "- `\($0)`" }.joined(separator: "\n")
+        let deniedDirectories = deniedWorkspaceAccessDirectoriesForCurrentSession()
+        let pendingDeniedLines = deniedDirectories.isEmpty
+            ? "- none"
+            : deniedDirectories.map { "- `\($0)`" }.joined(separator: "\n")
+        let sessionLabel = hasPersistedSession ? "`\(session.title)` (`\(session.id)`)" : "`draft session`"
+
+        appendLocalCard("""
+        ## Workspace
+        - project: `\(project.name)`
+        - agent: `\(agent.displayName)`
+        - session: \(sessionLabel)
+
+        Agent working roots:
+        \(projectLines)
+
+        Added directories for this session:
+        \(extraLines)
+
+        Denied in this TUI session:
+        \(pendingDeniedLines)
+
+        Use `/add_dir <path>` to allow another directory for this session.
+        """, autoDismissAfter: 24)
     }
 
     private func configureScrollback(_ args: [String]) {
@@ -2765,6 +3016,8 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
             await switchSession(item.value)
         case .subSession:
             await switchSession(item.value)
+        case .workspaceAccess:
+            await applyWorkspaceAccessDecision(item.value)
         case .provider:
             if item.value == SloppyTUIProviderDefinition.addNewProviderValue {
                 showProviderCatalogPicker()
