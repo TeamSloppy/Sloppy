@@ -246,12 +246,12 @@ export interface CoreApi {
   updateChannelModel: (channelId: string, model: string) => Promise<AnyRecord | null>;
   clearChannelModel: (channelId: string) => Promise<boolean>;
   fetchTaskDiff: (projectId: string, taskId: string) => Promise<AnyRecord | null>;
-  fetchProjectWorkingTreeGit: (projectId: string) => Promise<AnyRecord | null>;
+  fetchProjectWorkingTreeSourceControl: (projectId: string) => Promise<AnyRecord | null>;
   subscribeProjectChangeStream: (
     projectId: string,
     handlers?: ProjectChangeStreamHandlers
   ) => () => void;
-  postProjectGitRestore: (projectId: string, path: string) => Promise<boolean>;
+  postProjectSourceControlRestore: (projectId: string, path: string) => Promise<boolean>;
   approveProjectTask: (projectId: string, taskId: string) => Promise<boolean>;
   rejectProjectTask: (projectId: string, taskId: string, reason?: string) => Promise<boolean>;
   fetchReviewComments: (projectId: string, taskId: string) => Promise<AnyRecord[] | null>;
@@ -1958,9 +1958,9 @@ export function createCoreApi(): CoreApi {
       return response.data;
     },
 
-    fetchProjectWorkingTreeGit: async (projectId) => {
+    fetchProjectWorkingTreeSourceControl: async (projectId) => {
       const response = await requestJson<AnyRecord>({
-        path: `/v1/projects/${encodeURIComponent(projectId)}/git/working-tree`
+        path: `/v1/projects/${encodeURIComponent(projectId)}/source-control/working-tree`
       });
       if (!response.ok) return null;
       return response.data;
@@ -1996,9 +1996,9 @@ export function createCoreApi(): CoreApi {
       };
     },
 
-    postProjectGitRestore: async (projectId, path) => {
+    postProjectSourceControlRestore: async (projectId, path) => {
       const response = await requestJson<AnyRecord, { path: string }>({
-        path: `/v1/projects/${encodeURIComponent(projectId)}/git/restore`,
+        path: `/v1/projects/${encodeURIComponent(projectId)}/source-control/restore`,
         method: "POST",
         body: { path }
       });

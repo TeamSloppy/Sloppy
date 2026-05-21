@@ -16,7 +16,7 @@ import {
   subscribeAgentSessionStream,
   fetchAgentTokenUsage,
   searchProjectFiles,
-  fetchProjectWorkingTreeGit,
+  fetchProjectWorkingTreeSourceControl,
   subscribeProjectChangeStream,
   fetchAgentChatSlashCommands,
   fetchPendingToolApprovals,
@@ -25,7 +25,7 @@ import {
   answerAgentSessionInputRequest
 } from "../../../api";
 import { navigateToTaskScreen } from "../../../app/routing/navigateToTaskScreen";
-import { ProjectGitDiffPanel } from "./ProjectGitDiffPanel";
+import { ProjectSourceControlDiffPanel } from "./ProjectSourceControlDiffPanel";
 import { PlanInputPanel } from "../../../components/PlanInputPanel/PlanInputPanel";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -191,19 +191,19 @@ function agentChatComposeDraftKey(agentId, sessionId) {
 
 function readComposeDraftState(agentId, sessionId) {
   if (typeof window === "undefined") {
-    return { text: "", gitTags: [] };
+    return { text: "", sourceControlTags: [] };
   }
   try {
     const raw = window.localStorage.getItem(agentChatComposeDraftKey(agentId, sessionId));
     if (raw == null || raw === "") {
-      return { text: "", gitTags: [] };
+      return { text: "", sourceControlTags: [] };
     }
     if (typeof raw === "string" && raw.startsWith("{")) {
       try {
         const o = JSON.parse(raw);
         if (o && o.v === 2 && typeof o.text === "string") {
-          const gitTags = Array.isArray(o.gitTags)
-            ? o.gitTags
+          const sourceControlTags = Array.isArray(o.sourceControlTags)
+            ? o.sourceControlTags
                 .filter(
                   (t) =>
                     t &&
@@ -213,31 +213,31 @@ function readComposeDraftState(agentId, sessionId) {
                 )
                 .map((t) => ({ id: t.id, label: t.label, markdown: t.markdown }))
             : [];
-          return { text: o.text, gitTags };
+          return { text: o.text, sourceControlTags };
         }
       } catch {
-        return { text: raw, gitTags: [] };
+        return { text: raw, sourceControlTags: [] };
       }
     }
-    return { text: typeof raw === "string" ? raw : "", gitTags: [] };
+    return { text: typeof raw === "string" ? raw : "", sourceControlTags: [] };
   } catch {
-    return { text: "", gitTags: [] };
+    return { text: "", sourceControlTags: [] };
   }
 }
 
-function writeComposeDraftState(agentId, sessionId, text, gitTags) {
+function writeComposeDraftState(agentId, sessionId, text, sourceControlTags) {
   if (typeof window === "undefined") {
     return;
   }
   try {
     const key = agentChatComposeDraftKey(agentId, sessionId);
     const t = String(text ?? "");
-    const tags = Array.isArray(gitTags) ? gitTags : [];
+    const tags = Array.isArray(sourceControlTags) ? sourceControlTags : [];
     const hasTags = tags.length > 0;
     if (!t.trim() && !hasTags) {
       window.localStorage.removeItem(key);
     } else if (hasTags) {
-      window.localStorage.setItem(key, JSON.stringify({ v: 2, text: t, gitTags: tags }));
+      window.localStorage.setItem(key, JSON.stringify({ v: 2, text: t, sourceControlTags: tags }));
     } else {
       window.localStorage.setItem(key, t);
     }
@@ -2513,8 +2513,8 @@ function AgentChatComposer({
   pendingFiles,
   onRemovePendingFile,
   onAddFiles,
-  gitDiffComposeTags = [],
-  onRemoveGitDiffComposeTag,
+  sourceControlDiffComposeTags = [],
+  onRemoveSourceControlDiffComposeTag,
   fileInputRef,
   textareaRef,
   replyTarget,
@@ -2531,7 +2531,7 @@ function AgentChatComposer({
   onTaskTagHoverEnd
 }) {
   const canSend =
-    String(inputText || "").trim().length > 0 || pendingFiles.length > 0 || gitDiffComposeTags.length > 0;
+    String(inputText || "").trim().length > 0 || pendingFiles.length > 0 || sourceControlDiffComposeTags.length > 0;
   const [caretIndex, setCaretIndex] = useState(0);
   const [isInputFocused, setIsInputFocused] = useState(false);
   const [activeSuggestionIndex, setActiveSuggestionIndex] = useState(0);
@@ -2902,18 +2902,18 @@ function AgentChatComposer({
             </div>
           ) : null}
 
-          {gitDiffComposeTags.length > 0 ? (
-            <div className="agent-chat-git-compose-tags" aria-label="Git diff references">
-              {gitDiffComposeTags.map((tag) => (
-                <span key={tag.id} className="agent-chat-git-compose-tag" title={tag.markdown}>
+          {sourceControlDiffComposeTags.length > 0 ? (
+            <div className="agent-chat-source-control-compose-tags" aria-label="Source-control diff references">
+              {sourceControlDiffComposeTags.map((tag) => (
+                <span key={tag.id} className="agent-chat-source-control-compose-tag" title={tag.markdown}>
                   <span className="material-symbols-rounded" aria-hidden="true">
                     data_object
                   </span>
-                  <span className="agent-chat-git-compose-tag__label">{tag.label}</span>
+                  <span className="agent-chat-source-control-compose-tag__label">{tag.label}</span>
                   <button
                     type="button"
-                    className="agent-chat-git-compose-tag__remove"
-                    onClick={() => onRemoveGitDiffComposeTag(tag.id)}
+                    className="agent-chat-source-control-compose-tag__remove"
+                    onClick={() => onRemoveSourceControlDiffComposeTag(tag.id)}
                     aria-label="Remove diff reference"
                   >
                     <span className="material-symbols-rounded" aria-hidden="true">
@@ -3414,7 +3414,7 @@ export function AgentChatTab({
   const [isDragOver, setIsDragOver] = useState(false);
   const [inputText, setInputText] = useState("");
   const [pendingFiles, setPendingFiles] = useState([]);
-  const [gitDiffComposeTags, setGitDiffComposeTags] = useState([]);
+  const [sourceControlDiffComposeTags, setSourceControlDiffComposeTags] = useState([]);
   const [statusText, setStatusText] = useState("Loading sessions...");
   const [pendingToolApprovals, setPendingToolApprovals] = useState([]);
   const [toolApprovalStatusText, setToolApprovalStatusText] = useState("");
@@ -3429,8 +3429,8 @@ export function AgentChatTab({
   const [taskPreview, setTaskPreview] = useState(null);
   const [isShareMenuOpen, setIsShareMenuOpen] = useState(false);
   const [isDebugMenuOpen, setIsDebugMenuOpen] = useState(false);
-  const [gitPanelOpen, setGitPanelOpen] = useState(false);
-  const [gitBadge, setGitBadge] = useState(null);
+  const [sourceControlPanelOpen, setSourceControlPanelOpen] = useState(false);
+  const [sourceControlBadge, setSourceControlBadge] = useState(null);
   const [projectChangeBatch, setProjectChangeBatch] = useState(null);
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
   const [isDesktopSessionsCollapsed, setIsDesktopSessionsCollapsed] = useState(false);
@@ -3816,31 +3816,31 @@ export function AgentChatTab({
 
   useEffect(() => {
     if (!scopedProjectId) {
-      setGitBadge(null);
+      setSourceControlBadge(null);
       return;
     }
     let cancelled = false;
-    async function refreshGit() {
+    async function refreshSourceControl() {
       try {
-        const res = await fetchProjectWorkingTreeGit(scopedProjectId);
+        const res = await fetchProjectWorkingTreeSourceControl(scopedProjectId);
         if (cancelled || !res) {
           return;
         }
-        const isGit = res.isGitRepository === true;
-        setGitBadge({
-          isGit,
+        const isRepository = res.isRepository === true;
+        setSourceControlBadge({
+          isRepository,
           added: typeof res.linesAdded === "number" ? res.linesAdded : 0,
           deleted: typeof res.linesDeleted === "number" ? res.linesDeleted : 0,
           branch: res.branch ? String(res.branch) : null
         });
       } catch {
         if (!cancelled) {
-          setGitBadge(null);
+          setSourceControlBadge(null);
         }
       }
     }
-    void refreshGit();
-    const timerId = window.setInterval(refreshGit, 45_000);
+    void refreshSourceControl();
+    const timerId = window.setInterval(refreshSourceControl, 45_000);
     return () => {
       cancelled = true;
       window.clearInterval(timerId);
@@ -3857,7 +3857,7 @@ export function AgentChatTab({
         setProjectChangeBatch(batch);
       },
       onError: () => {
-        // The periodic git badge still works if the metadata stream disconnects.
+        // The periodic source-control badge still works if the metadata stream disconnects.
       }
     });
   }, [scopedProjectId]);
@@ -4042,7 +4042,7 @@ export function AgentChatTab({
     if (!agentId) {
       prevAgentIdForDraftRef.current = agentId;
       setInputText("");
-      setGitDiffComposeTags([]);
+      setSourceControlDiffComposeTags([]);
       return;
     }
     const agentChanged = prevAgentIdForDraftRef.current !== agentId;
@@ -4052,12 +4052,12 @@ export function AgentChatTab({
       setActiveSession(null);
       const d = readComposeDraftState(agentId, null);
       setInputText(d.text);
-      setGitDiffComposeTags(d.gitTags);
+      setSourceControlDiffComposeTags(d.sourceControlTags);
       return;
     }
     const d = readComposeDraftState(agentId, activeSessionId);
     setInputText(d.text);
-    setGitDiffComposeTags(d.gitTags);
+    setSourceControlDiffComposeTags(d.sourceControlTags);
   }, [agentId, activeSessionId]);
 
   useEffect(() => {
@@ -4065,10 +4065,10 @@ export function AgentChatTab({
       return;
     }
     const timerId = window.setTimeout(() => {
-      writeComposeDraftState(agentId, activeSessionId, inputText, gitDiffComposeTags);
+      writeComposeDraftState(agentId, activeSessionId, inputText, sourceControlDiffComposeTags);
     }, 200);
     return () => window.clearTimeout(timerId);
-  }, [agentId, activeSessionId, inputText, gitDiffComposeTags]);
+  }, [agentId, activeSessionId, inputText, sourceControlDiffComposeTags]);
 
   useEffect(() => {
     subagentSessionIdRef.current = subagentPanel.sessionId;
@@ -5133,10 +5133,10 @@ export function AgentChatTab({
     }
 
     const trimmed = String(inputText || "").trim();
-    const tagMarkdown = gitDiffComposeTags.map((t) => t.markdown).join("\n\n");
+    const tagMarkdown = sourceControlDiffComposeTags.map((t) => t.markdown).join("\n\n");
     const mergedBody = [trimmed, tagMarkdown].filter(Boolean).join("\n\n");
 
-    if (trimmed.startsWith("/") && pendingFiles.length === 0 && !replyTarget && gitDiffComposeTags.length === 0) {
+    if (trimmed.startsWith("/") && pendingFiles.length === 0 && !replyTarget && sourceControlDiffComposeTags.length === 0) {
       if (await handleSlashCommand(trimmed)) {
         setInputText("");
         composeInputRef.current?.focus();
@@ -5171,8 +5171,8 @@ export function AgentChatTab({
     } else if (replyTarget) {
       previewLines.push(`↪ ${replyTarget.text}`);
     }
-    if (gitDiffComposeTags.length > 0) {
-      previewLines.push(gitDiffComposeTags.map((t) => `· ${t.label}`).join("\n"));
+    if (sourceControlDiffComposeTags.length > 0) {
+      previewLines.push(sourceControlDiffComposeTags.map((t) => `· ${t.label}`).join("\n"));
     }
     if (previewLines.length > 0) {
       localMessageSegments.push({ kind: "text", text: previewLines.join("\n\n") });
@@ -5201,7 +5201,7 @@ export function AgentChatTab({
     setIsSending(true);
     setStatusText("Thinking...");
     setInputText("");
-    setGitDiffComposeTags([]);
+    setSourceControlDiffComposeTags([]);
     setPendingFiles([]);
     setReplyTarget(null);
 
@@ -6148,33 +6148,33 @@ export function AgentChatTab({
             </div>
           </div>
           <div className="agent-chat-actions">
-            {scopedProjectId && gitBadge?.isGit && (gitBadge.added > 0 || gitBadge.deleted > 0) ? (
+            {scopedProjectId && sourceControlBadge?.isRepository && (sourceControlBadge.added > 0 || sourceControlBadge.deleted > 0) ? (
               <button
                 type="button"
-                className="agent-chat-git-toolbar-btn"
-                onClick={() => setGitPanelOpen(true)}
+                className="agent-chat-source-control-toolbar-btn"
+                onClick={() => setSourceControlPanelOpen(true)}
                 title={
-                  gitBadge?.isGit
-                    ? `Working tree changes (${gitBadge.branch ? `branch ${gitBadge.branch}` : "git"})`
-                    : "Open project git diff (folder is not a git repo)"
+                  sourceControlBadge?.isRepository
+                    ? `Working tree changes (${sourceControlBadge.branch ? `branch ${sourceControlBadge.branch}` : "source control"})`
+                    : "Open project source-control diff (folder is not a source-control repo)"
                 }
-                data-testid="agent-chat-git-working-tree-btn"
+                data-testid="agent-chat-source-control-working-tree-btn"
               >
                 <span className="material-symbols-rounded" aria-hidden="true">
                   data_object
                 </span>
-                <span className="agent-chat-git-toolbar-stats">
-                  <span className="agent-chat-git-stat-add">+{gitBadge.added}</span>
-                  <span className="agent-chat-git-stat-del">−{gitBadge.deleted}</span>
+                <span className="agent-chat-source-control-toolbar-stats">
+                  <span className="agent-chat-source-control-stat-add">+{sourceControlBadge.added}</span>
+                  <span className="agent-chat-source-control-stat-del">−{sourceControlBadge.deleted}</span>
                 </span>
               </button>
             ) : null}
             {scopedProjectId && Array.isArray(projectChangeBatch?.changes) && projectChangeBatch.changes.length > 0 ? (
               <button
                 type="button"
-                className="agent-chat-git-toolbar-btn"
+                className="agent-chat-source-control-toolbar-btn"
                 onClick={() => {
-                  setGitDiffComposeTags((prev) => [
+                  setSourceControlDiffComposeTags((prev) => [
                     ...prev,
                     {
                       id: `changes-${Date.now()}-${Math.random().toString(36).slice(2, 11)}`,
@@ -6189,7 +6189,7 @@ export function AgentChatTab({
                 <span className="material-symbols-rounded" aria-hidden="true">
                   folder_code
                 </span>
-                <span className="agent-chat-git-toolbar-stats">
+                <span className="agent-chat-source-control-toolbar-stats">
                   {projectChangeBatch.changes.length}
                 </span>
               </button>
@@ -6280,15 +6280,15 @@ export function AgentChatTab({
 
         <div className="agent-chat-workspace">
           {scopedProjectId ? (
-            <ProjectGitDiffPanel
+            <ProjectSourceControlDiffPanel
               projectId={scopedProjectId}
-              open={gitPanelOpen}
-              onClose={() => setGitPanelOpen(false)}
-              onAddGitComposeTag={(payload) => {
-                setGitDiffComposeTags((prev) => [
+              open={sourceControlPanelOpen}
+              onClose={() => setSourceControlPanelOpen(false)}
+              onAddSourceControlComposeTag={(payload) => {
+                setSourceControlDiffComposeTags((prev) => [
                   ...prev,
                   {
-                    id: `git-${Date.now()}-${Math.random().toString(36).slice(2, 11)}`,
+                    id: `source-control-${Date.now()}-${Math.random().toString(36).slice(2, 11)}`,
                     label: payload.label,
                     markdown: payload.markdown
                   }
@@ -6337,9 +6337,9 @@ export function AgentChatTab({
                   pendingFiles={pendingFiles}
                   onRemovePendingFile={removePendingFile}
                   onAddFiles={addFiles}
-                  gitDiffComposeTags={gitDiffComposeTags}
-                  onRemoveGitDiffComposeTag={(tagId) =>
-                    setGitDiffComposeTags((prev) => prev.filter((t) => t.id !== tagId))
+                  sourceControlDiffComposeTags={sourceControlDiffComposeTags}
+                  onRemoveSourceControlDiffComposeTag={(tagId) =>
+                    setSourceControlDiffComposeTags((prev) => prev.filter((t) => t.id !== tagId))
                   }
                   fileInputRef={fileInputRef}
                   textareaRef={composeInputRef}

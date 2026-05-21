@@ -200,7 +200,7 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
         SloppyTUISlashCommand("keybindings", "Show TUI quick reference"),
         SloppyTUISlashCommand("shortcuts", "Show TUI quick reference"),
         SloppyTUISlashCommand("scrollback", "Configure timeline scrollback rendering"),
-        SloppyTUISlashCommand("context", "Attach changes or git diff", argument: "changes|diff"),
+        SloppyTUISlashCommand("context", "Attach changes or source-control diff", argument: "changes|diff"),
         SloppyTUISlashCommand("tasks", "Show project tasks"),
         SloppyTUISlashCommand("mcps", "Show MCP server statuses"),
         SloppyTUISlashCommand("provider", "Configure provider"),
@@ -2166,7 +2166,7 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
         - `/pet` toggles the terminal Sloppie and shows its face/status.
         - `/undo` and `/redo` are scoped to the current session during this TUI run.
         - `/btw <message>` asks a quick side question without interrupting the main flow.
-        - `/diff` previews local changes; `/context diff` attaches them to the next message.
+        - `/diff` previews local source-control changes; `/context diff` attaches them to the next message.
         """)
     }
 
@@ -2619,25 +2619,25 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
 
     private func showDiff() async {
         do {
-            let git = try await runtime.service.projectWorkingTreeGit(projectID: project.id)
-            guard git.isGitRepository else {
-                appendLocalCard(git.message ?? "This project folder is not a git repository.")
+            let sourceControl = try await runtime.service.projectWorkingTreeSourceControl(projectID: project.id)
+            guard sourceControl.isRepository else {
+                appendLocalCard(sourceControl.message ?? "This project folder is not a source-control repository.")
                 return
             }
-            guard !git.diff.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            guard !sourceControl.diff.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
                 appendLocalCard("No uncommitted changes.")
                 return
             }
-            let branch = git.branch ?? "unknown"
-            let truncated = git.diffTruncated ? "\n\nDiff was truncated by the backend." : ""
+            let branch = sourceControl.branch ?? "unknown"
+            let truncated = sourceControl.diffTruncated ? "\n\nDiff was truncated by the backend." : ""
             appendLocalCard("""
             ## Diff
-            Branch: `\(branch)`  +\(git.linesAdded) -\(git.linesDeleted)
+            Source control: `\(sourceControl.providerId)`  Branch: `\(branch)`  +\(sourceControl.linesAdded) -\(sourceControl.linesDeleted)
 
-            \(fencedBlock("diff", git.diff, maxCharacters: 12_000))\(truncated)
+            \(fencedBlock("diff", sourceControl.diff, maxCharacters: 12_000))\(truncated)
             """)
         } catch {
-            appendLocalCard("Could not read git diff: \(String(describing: error))")
+            appendLocalCard("Could not read source-control diff: \(String(describing: error))")
         }
     }
 
@@ -3366,15 +3366,15 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
             appendLocalCard("Workspace change list will be attached to the next message.")
         case "diff":
             do {
-                let git = try await runtime.service.projectWorkingTreeGit(projectID: project.id)
-                guard git.isGitRepository, !git.diff.isEmpty else {
-                    appendLocalCard(git.message ?? "No git diff to attach.")
+                let sourceControl = try await runtime.service.projectWorkingTreeSourceControl(projectID: project.id)
+                guard sourceControl.isRepository, !sourceControl.diff.isEmpty else {
+                    appendLocalCard(sourceControl.message ?? "No source-control diff to attach.")
                     return
                 }
-                pendingContext = "Git working tree diff:\n```diff\n\(git.diff)\n```"
-                appendLocalCard("Git diff will be attached to the next message.")
+                pendingContext = "Source-control working tree diff:\n```diff\n\(sourceControl.diff)\n```"
+                appendLocalCard("Source-control diff will be attached to the next message.")
             } catch {
-                appendLocalCard("Could not read git diff: \(String(describing: error))")
+                appendLocalCard("Could not read source-control diff: \(String(describing: error))")
             }
         default:
             appendLocalCard("Use `/context`, `/context changes`, or `/context diff`.")
@@ -3769,9 +3769,9 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
             try? await Task.sleep(nanoseconds: 350_000_000)
             guard !Task.isCancelled, let self else { return }
             do {
-                let git = try await self.runtime.service.projectWorkingTreeGit(projectID: self.project.id)
+                let sourceControl = try await self.runtime.service.projectWorkingTreeSourceControl(projectID: self.project.id)
                 await MainActor.run {
-                    self.updateAutoDiffPreview(git)
+                    self.updateAutoDiffPreview(sourceControl)
                 }
             } catch {
                 // Diff preview is opportunistic; /diff remains available for explicit errors.
@@ -3792,19 +3792,19 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
         return Date().timeIntervalSince(lastAgentToolActivityAt) < 45
     }
 
-    private func updateAutoDiffPreview(_ git: ProjectWorkingTreeGitResponse) {
-        guard git.isGitRepository,
-              !git.diff.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+    private func updateAutoDiffPreview(_ sourceControl: ProjectWorkingTreeSourceControlResponse) {
+        guard sourceControl.isRepository,
+              !sourceControl.diff.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             dismissAutoDiffPreview()
             return
         }
 
         let block = SloppyTUITimelineBlock.workspaceDiff(
-            branch: git.branch ?? "unknown",
-            linesAdded: git.linesAdded,
-            linesDeleted: git.linesDeleted,
-            diff: git.diff,
-            truncated: git.diffTruncated
+            branch: sourceControl.branch ?? "unknown",
+            linesAdded: sourceControl.linesAdded,
+            linesDeleted: sourceControl.linesDeleted,
+            diff: sourceControl.diff,
+            truncated: sourceControl.diffTruncated
         )
         if let id = autoDiffLocalCardID,
            let index = localCards.firstIndex(where: { $0.id == id }) {

@@ -7,6 +7,7 @@ export const SETTINGS_ITEMS = [
   { id: "search-tools", title: "Search Tools", icon: "travel_explore" },
   { id: "model-routing", title: "Model routing", icon: "linear_scale" },
   { id: "channels", title: "Channels", icon: "forum" },
+  { id: "sessions", title: "Sessions", icon: "history" },
   { id: "approvals", title: "Approvals", icon: "fact_check" },
   { id: "plugins", title: "Plugins", icon: "extension" },
   { id: "mcp", title: "MCP", icon: "account_tree" },
@@ -203,6 +204,7 @@ export const EMPTY_CONFIG = {
   workspace: { name: ".sloppy", basePath: "~" },
   auth: { token: "dev-token" },
   onboarding: { completed: false },
+  sessionRetention: { enabled: true, days: 30 },
   models: [emptyModel()],
   opencode: {
     enabled: false,
@@ -629,6 +631,14 @@ export function normalizeConfig(config) {
   normalized.workspace.basePath = config?.workspace?.basePath || normalized.workspace.basePath;
   normalized.auth.token = config?.auth?.token || normalized.auth.token;
   normalized.onboarding.completed = Boolean(config?.onboarding?.completed);
+  normalized.sessionRetention.enabled = config?.sessionRetention?.enabled !== false;
+  normalized.sessionRetention.days = Math.min(
+    90,
+    Math.max(1, parseInteger(
+      config?.sessionRetention?.days ?? config?.sessionRetention?.retentionDays ?? 30,
+      30
+    ))
+  );
   normalized.opencode.enabled = Boolean(config?.opencode?.enabled);
   normalized.opencode.useResolvedConfigCommand = config?.opencode?.useResolvedConfigCommand !== false;
   normalized.opencode.command = String(config?.opencode?.command || normalized.opencode.command).trim() || "opencode";

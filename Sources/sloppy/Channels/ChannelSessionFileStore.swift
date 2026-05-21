@@ -96,6 +96,17 @@ actor ChannelSessionFileStore {
         }
     }
 
+    @discardableResult
+    func deleteExpiredSessions(olderThan cutoffDate: Date) throws -> [ChannelSessionSummary] {
+        let summaries = try listSessions()
+        var deleted: [ChannelSessionSummary] = []
+        for summary in summaries where summary.updatedAt < cutoffDate {
+            try deleteSession(sessionID: summary.sessionId)
+            deleted.append(summary)
+        }
+        return deleted
+    }
+
     func loadSession(sessionID: String) throws -> [ChannelSessionEvent] {
         let normalizedSessionID = try normalizedSessionID(sessionID)
         let fileURL = sessionFileURL(sessionId: normalizedSessionID)

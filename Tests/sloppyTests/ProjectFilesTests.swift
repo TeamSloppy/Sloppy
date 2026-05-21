@@ -325,7 +325,7 @@ private func runGitInProjectDir(_ cwd: URL, _ args: [String]) throws {
 }
 
 @Test
-func projectWorkingTreeGitReturnsDiffAndStats() async throws {
+func projectWorkingTreeSourceControlReturnsDiffAndStats() async throws {
     let config = CoreConfig.test
     let service = CoreService(config: config, persistenceBuilder: InMemoryCorePersistenceBuilder())
     let router = CoreRouter(service: service)
@@ -340,16 +340,17 @@ func projectWorkingTreeGitReturnsDiffAndStats() async throws {
     try runGitInProjectDir(projectDir, ["commit", "-m", "init"])
     try Data("v2\nline2".utf8).write(to: projectDir.appendingPathComponent("file.txt"))
 
-    let resp = await router.handle(method: "GET", path: "/v1/projects/\(projectID)/git/working-tree", body: nil)
+    let resp = await router.handle(method: "GET", path: "/v1/projects/\(projectID)/source-control/working-tree", body: nil)
     #expect(resp.status == 200)
-    let payload = try JSONDecoder().decode(ProjectWorkingTreeGitResponse.self, from: resp.body)
-    #expect(payload.isGitRepository == true)
+    let payload = try JSONDecoder().decode(ProjectWorkingTreeSourceControlResponse.self, from: resp.body)
+    #expect(payload.providerId == "git-cli")
+    #expect(payload.isRepository == true)
     #expect(payload.linesAdded + payload.linesDeleted > 0)
     #expect(!payload.diff.isEmpty)
 }
 
 @Test
-func projectGitRestoreRevertsFileToHead() async throws {
+func projectSourceControlRestoreRevertsFileToHead() async throws {
     let config = CoreConfig.test
     let service = CoreService(config: config, persistenceBuilder: InMemoryCorePersistenceBuilder())
     let router = CoreRouter(service: service)
@@ -364,8 +365,8 @@ func projectGitRestoreRevertsFileToHead() async throws {
     try runGitInProjectDir(projectDir, ["commit", "-m", "init"])
     try Data("working".utf8).write(to: projectDir.appendingPathComponent("tracked.txt"))
 
-    let body = try JSONEncoder().encode(ProjectGitRestoreRequest(path: "tracked.txt"))
-    let resp = await router.handle(method: "POST", path: "/v1/projects/\(projectID)/git/restore", body: body)
+    let body = try JSONEncoder().encode(ProjectSourceControlRestoreRequest(path: "tracked.txt"))
+    let resp = await router.handle(method: "POST", path: "/v1/projects/\(projectID)/source-control/restore", body: body)
     #expect(resp.status == 200)
 
     let restored = try String(contentsOf: projectDir.appendingPathComponent("tracked.txt"), encoding: .utf8)

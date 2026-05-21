@@ -4708,19 +4708,21 @@ public struct TaskDiffResponse: Codable, Sendable {
     }
 }
 
-/// Working-tree diff vs `HEAD` (or all uncommitted changes when there is no commit yet).
-public struct ProjectWorkingTreeGitResponse: Codable, Sendable {
-    public var isGitRepository: Bool
+/// Working-tree diff from the configured source-control provider.
+public struct ProjectWorkingTreeSourceControlResponse: Codable, Sendable {
+    public var providerId: String
+    public var isRepository: Bool
     public var branch: String?
     public var linesAdded: Int
     public var linesDeleted: Int
     public var diff: String
     public var diffTruncated: Bool
-    /// Set when `isGitRepository` is false or git could not be read.
+    /// Set when the folder is not a repository or source control could not be read.
     public var message: String?
 
     public init(
-        isGitRepository: Bool,
+        providerId: String,
+        isRepository: Bool,
         branch: String? = nil,
         linesAdded: Int = 0,
         linesDeleted: Int = 0,
@@ -4728,7 +4730,8 @@ public struct ProjectWorkingTreeGitResponse: Codable, Sendable {
         diffTruncated: Bool = false,
         message: String? = nil
     ) {
-        self.isGitRepository = isGitRepository
+        self.providerId = providerId
+        self.isRepository = isRepository
         self.branch = branch
         self.linesAdded = linesAdded
         self.linesDeleted = linesDeleted
@@ -4738,7 +4741,7 @@ public struct ProjectWorkingTreeGitResponse: Codable, Sendable {
     }
 }
 
-public struct ProjectGitRestoreRequest: Codable, Sendable {
+public struct ProjectSourceControlRestoreRequest: Codable, Sendable {
     /// Project-relative path (POSIX, no `..` segments).
     public var path: String
 
@@ -4747,7 +4750,7 @@ public struct ProjectGitRestoreRequest: Codable, Sendable {
     }
 }
 
-public struct ProjectGitRestoreResponse: Codable, Sendable {
+public struct ProjectSourceControlRestoreResponse: Codable, Sendable {
     public var ok: Bool
 
     public init(ok: Bool = true) {

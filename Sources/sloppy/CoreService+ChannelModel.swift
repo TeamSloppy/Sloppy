@@ -118,25 +118,25 @@ extension CoreService {
         }
 
         do {
-            let git = try await projectWorkingTreeGit(projectID: project.id)
-            guard git.isGitRepository else {
-                return git.message ?? "Project `\(project.name)` is not a git repository."
+            let sourceControl = try await projectWorkingTreeSourceControl(projectID: project.id)
+            guard sourceControl.isRepository else {
+                return sourceControl.message ?? "Project `\(project.name)` is not a source-control repository."
             }
-            guard !git.diff.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            guard !sourceControl.diff.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
                 return "No uncommitted changes in `\(project.name)`."
             }
 
             let maxCharacters = 3_500
             let clipped: String
-            if git.diff.count > maxCharacters {
-                clipped = String(git.diff.prefix(maxCharacters)) + "\n... diff truncated"
+            if sourceControl.diff.count > maxCharacters {
+                clipped = String(sourceControl.diff.prefix(maxCharacters)) + "\n... diff truncated"
             } else {
-                clipped = git.diff
+                clipped = sourceControl.diff
             }
-            let branch = git.branch ?? "unknown"
-            let truncatedNote = git.diffTruncated ? "\n\nDiff was truncated by the backend." : ""
+            let branch = sourceControl.branch ?? "unknown"
+            let truncatedNote = sourceControl.diffTruncated ? "\n\nDiff was truncated by the backend." : ""
             return """
-            Diff for `\(project.name)` on `\(branch)` (+\(git.linesAdded) -\(git.linesDeleted)):
+            Source-control diff for `\(project.name)` via `\(sourceControl.providerId)` on `\(branch)` (+\(sourceControl.linesAdded) -\(sourceControl.linesDeleted)):
 
             ```diff
             \(clipped)

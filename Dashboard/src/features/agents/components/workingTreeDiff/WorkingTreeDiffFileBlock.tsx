@@ -1,14 +1,14 @@
 import React, { useState } from "react";
 import { DiffView, DiffModeEnum, SplitSide } from "@git-diff-view/react";
 import type { DiffFile } from "@git-diff-view/file";
-import type { GitComposeTagPayload } from "./gitComposeTypes";
+import type { SourceControlComposeTagPayload } from "./sourceControlComposeTypes";
 import "@git-diff-view/react/styles/diff-view.css";
 
 type Props = {
   displayPath: string;
   patchText: string;
   diffFile: DiffFile;
-  onInsertLineReference: (payload: GitComposeTagPayload) => void;
+  onInsertLineReference: (payload: SourceControlComposeTagPayload) => void;
   onRestoreFile: (relativePath: string) => Promise<boolean>;
 };
 
@@ -44,13 +44,13 @@ export function WorkingTreeDiffFileBlock({
 
   return (
     <section
-      className={`agent-chat-git-file${expanded ? "" : " agent-chat-git-file--collapsed"}`}
-      data-testid={`git-diff-file-${encodeURIComponent(displayPath)}`}
+      className={`agent-chat-source-control-file${expanded ? "" : " agent-chat-source-control-file--collapsed"}`}
+      data-testid={`source-control-diff-file-${encodeURIComponent(displayPath)}`}
     >
-      <header className="agent-chat-git-file__head">
+      <header className="agent-chat-source-control-file__head">
         <button
           type="button"
-          className="agent-chat-git-file__collapse-btn"
+          className="agent-chat-source-control-file__collapse-btn"
           onClick={() => setExpanded((v) => !v)}
           aria-expanded={expanded}
           title={expanded ? "Collapse diff" : "Expand diff"}
@@ -59,13 +59,13 @@ export function WorkingTreeDiffFileBlock({
             {expanded ? "expand_less" : "expand_more"}
           </span>
         </button>
-        <span className="agent-chat-git-file__path" title={displayPath}>
+        <span className="agent-chat-source-control-file__path" title={displayPath}>
           {displayPath}
         </span>
-        <div className="agent-chat-git-file__actions">
+        <div className="agent-chat-source-control-file__actions">
           <button
             type="button"
-            className="agent-chat-git-file__icon-btn"
+            className="agent-chat-source-control-file__icon-btn"
             title="Copy path"
             onClick={() => {
               void navigator.clipboard.writeText(displayPath);
@@ -77,8 +77,8 @@ export function WorkingTreeDiffFileBlock({
           </button>
           <button
             type="button"
-            className="agent-chat-git-file__icon-btn"
-            title="Restore file to last commit (git restore)"
+            className="agent-chat-source-control-file__icon-btn"
+            title="Restore file through source control"
             disabled={restoring}
             onClick={() => void handleRestore()}
           >
@@ -90,8 +90,8 @@ export function WorkingTreeDiffFileBlock({
       </header>
       {expanded ? (
         <>
-          {restoreHint ? <p className="agent-chat-git-file__hint">{restoreHint}</p> : null}
-          <div className="agent-chat-git-file__diff-wrap">
+          {restoreHint ? <p className="agent-chat-source-control-file__hint">{restoreHint}</p> : null}
+          <div className="agent-chat-source-control-file__diff-wrap">
             <DiffView
               diffFile={diffFile}
               diffViewMode={DiffModeEnum.Unified}
@@ -105,7 +105,7 @@ export function WorkingTreeDiffFileBlock({
           </div>
         </>
       ) : restoreHint ? (
-        <p className="agent-chat-git-file__hint">{restoreHint}</p>
+        <p className="agent-chat-source-control-file__hint">{restoreHint}</p>
       ) : null}
     </section>
   );

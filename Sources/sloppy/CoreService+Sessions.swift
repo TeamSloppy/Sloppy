@@ -18,6 +18,7 @@ extension CoreService {
         _ = try getAgent(id: normalizedAgentID)
 
         do {
+            _ = deleteExpiredAgentSessionsIfNeeded()
             var sessions = try sessionStore.listSessions(agentID: normalizedAgentID)
             if let filter = projectID?.trimmingCharacters(in: .whitespacesAndNewlines), !filter.isEmpty {
                 sessions = sessions.filter { ($0.projectId ?? "").caseInsensitiveCompare(filter) == .orderedSame }
@@ -31,6 +32,7 @@ extension CoreService {
     /// Creates a session for a given agent.
     public func createAgentSession(agentID: String, request: AgentSessionCreateRequest) async throws -> AgentSessionSummary {
         await waitForStartup()
+        await deleteExpiredSessionsIfNeeded()
         guard let normalizedAgentID = normalizedAgentID(agentID) else {
             throw AgentSessionError.invalidAgentID
         }

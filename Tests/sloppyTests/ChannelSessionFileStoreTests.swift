@@ -166,6 +166,37 @@ func channelSessionStoreNoExpirationWhenGlobalDefaultIsZero() async throws {
 }
 
 @Test
+func channelSessionStoreDeletesExpiredSessions() async throws {
+    let workspaceRootURL = FileManager.default.temporaryDirectory
+        .appendingPathComponent("channel-session-retention-\(UUID().uuidString)", isDirectory: true)
+    defer { try? FileManager.default.removeItem(at: workspaceRootURL) }
+    let store = ChannelSessionFileStore(workspaceRootURL: workspaceRootURL)
+
+    let oldDate = Date(timeIntervalSince1970: 1_700_004_000)
+    let freshDate = oldDate.addingTimeInterval(10 * 24 * 60 * 60)
+    let old = try await store.recordUserMessage(
+        channelId: "old-channel",
+        userId: "user-1",
+        content: "Old",
+        createdAt: oldDate
+    )
+    let fresh = try await store.recordUserMessage(
+        channelId: "fresh-channel",
+        userId: "user-2",
+        content: "Fresh",
+        createdAt: freshDate
+    )
+
+    let deleted = try await store.deleteExpiredSessions(
+        olderThan: oldDate.addingTimeInterval(2 * 24 * 60 * 60)
+    )
+
+    #expect(deleted.map(\.sessionId) == [old.sessionId])
+    let remaining = try await store.listSessions()
+    #expect(remaining.map(\.sessionId) == [fresh.sessionId])
+}
+
+@Test
 func channelSessionStorePersistsTechnicalEventsWithoutAffectingMessageCounters() async throws {
     let workspaceRootURL = FileManager.default.temporaryDirectory
         .appendingPathComponent("channel-session-technical-\(UUID().uuidString)", isDirectory: true)

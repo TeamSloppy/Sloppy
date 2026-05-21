@@ -88,10 +88,10 @@ struct ProjectsAPIRouter: APIRouter {
             }
         }
 
-        router.get("/v1/projects/:projectId/git/working-tree", metadata: RouteMetadata(summary: "Project working tree git diff", description: "Returns line add/delete counts and a unified diff for uncommitted changes in the project workspace", tags: ["Projects"])) { request in
+        router.get("/v1/projects/:projectId/source-control/working-tree", metadata: RouteMetadata(summary: "Project working tree source-control diff", description: "Returns line add/delete counts and a unified diff from the configured source-control provider for uncommitted changes in the project workspace", tags: ["Projects"])) { request in
             let projectId = request.pathParam("projectId") ?? ""
             do {
-                let response = try await service.projectWorkingTreeGit(projectID: projectId)
+                let response = try await service.projectWorkingTreeSourceControl(projectID: projectId)
                 return CoreRouter.encodable(status: HTTPStatus.ok, payload: response)
             } catch let error as CoreService.ProjectError {
                 return CoreRouter.projectErrorResponse(error, fallback: ErrorCode.projectNotFound)
@@ -112,16 +112,16 @@ struct ProjectsAPIRouter: APIRouter {
             }
         }
 
-        router.post("/v1/projects/:projectId/git/restore", metadata: RouteMetadata(summary: "Restore project file from HEAD", description: "Runs git restore --source=HEAD --staged --worktree for a path under the project repo", tags: ["Projects"])) { request in
+        router.post("/v1/projects/:projectId/source-control/restore", metadata: RouteMetadata(summary: "Restore project file with source control", description: "Restores a tracked path under the project workspace through the configured source-control provider", tags: ["Projects"])) { request in
             let projectId = request.pathParam("projectId") ?? ""
             guard let body = request.body,
-                  let payload = CoreRouter.decode(body, as: ProjectGitRestoreRequest.self)
+                  let payload = CoreRouter.decode(body, as: ProjectSourceControlRestoreRequest.self)
             else {
                 return CoreRouter.json(status: HTTPStatus.badRequest, payload: ["error": ErrorCode.invalidBody])
             }
             do {
                 try await service.restoreProjectWorkingTreeFile(projectID: projectId, path: payload.path)
-                return CoreRouter.encodable(status: HTTPStatus.ok, payload: ProjectGitRestoreResponse(ok: true))
+                return CoreRouter.encodable(status: HTTPStatus.ok, payload: ProjectSourceControlRestoreResponse(ok: true))
             } catch let error as CoreService.ProjectError {
                 return CoreRouter.projectErrorResponse(error, fallback: ErrorCode.projectUpdateFailed)
             } catch {
@@ -466,7 +466,7 @@ struct ProjectsAPIRouter: APIRouter {
             }
         }
 
-        router.get("/v1/projects/:projectId/tasks/:taskId/diff", metadata: RouteMetadata(summary: "Get task git diff", description: "Returns the git diff for a task worktree branch", tags: ["Projects"])) { request in
+        router.get("/v1/projects/:projectId/tasks/:taskId/diff", metadata: RouteMetadata(summary: "Get task source-control diff", description: "Returns the source-control diff for a task worktree branch", tags: ["Projects"])) { request in
             let projectId = request.pathParam("projectId") ?? ""
             let taskId = request.pathParam("taskId") ?? ""
             do {

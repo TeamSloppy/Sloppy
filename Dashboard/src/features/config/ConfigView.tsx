@@ -1342,6 +1342,90 @@ export function ConfigView({
     });
   }
 
+  function renderSessionRetentionSettings() {
+    const retention = draftConfig.sessionRetention || { enabled: true, days: 30 };
+    const retentionEnabled = retention.enabled !== false;
+    const retentionDays = Math.min(90, Math.max(1, parseInteger(retention.days ?? 30, 30)));
+
+    const setRetentionDays = (value) => {
+      const nextDays = Math.min(90, Math.max(1, parseInteger(value, 30)));
+      mutateDraft((draft) => {
+        if (!draft.sessionRetention) {
+          draft.sessionRetention = { enabled: true, days: 30 };
+        }
+        draft.sessionRetention.days = nextDays;
+      });
+    };
+
+    return (
+      <div className="tg-settings-shell">
+        <section className="entry-editor-card providers-intro-card">
+          <h3>Sessions</h3>
+          <p className="placeholder-text">
+            Keep session files bounded by automatically deleting old agent and channel sessions.
+          </p>
+        </section>
+
+        <section className="entry-editor-card">
+          <h3>Retention</h3>
+          <div className="entry-form-grid">
+            <div className="settings-toggle-row" style={{ gridColumn: "1 / -1" }}>
+              <label className="agent-tools-guardrail agent-tools-guardrail-toggle">
+                <span className="agent-tools-guardrail-copy">
+                  <span className="agent-tools-guardrail-title">Delete old sessions automatically</span>
+                </span>
+                <span className="agent-tools-switch">
+                  <input
+                    type="checkbox"
+                    checked={retentionEnabled}
+                    onChange={(event) => {
+                      const checked = event.target.checked;
+                      mutateDraft((draft) => {
+                        if (!draft.sessionRetention) {
+                          draft.sessionRetention = { enabled: true, days: 30 };
+                        }
+                        draft.sessionRetention.enabled = checked;
+                      });
+                    }}
+                  />
+                  <span className="agent-tools-switch-track" />
+                </span>
+              </label>
+            </div>
+
+            <label style={{ gridColumn: "1 / -1" }}>
+              Delete sessions after (days)
+              <input
+                type="number"
+                min="1"
+                max="90"
+                step="1"
+                disabled={!retentionEnabled}
+                value={retentionDays}
+                onChange={(event) => setRetentionDays(event.target.value)}
+              />
+              <span className="entry-form-hint">
+                Allowed range is 1-90 days. Default is 30 days.
+              </span>
+            </label>
+
+            <label style={{ gridColumn: "1 / -1" }}>
+              <input
+                type="range"
+                min="1"
+                max="90"
+                step="1"
+                disabled={!retentionEnabled}
+                value={retentionDays}
+                onChange={(event) => setRetentionDays(event.target.value)}
+              />
+            </label>
+          </div>
+        </section>
+      </div>
+    );
+  }
+
   function renderSettingsContent() {
     if (selectedSettings === "providers") {
       return (
@@ -1438,6 +1522,9 @@ export function ConfigView({
           parseInteger={parseInteger}
         />
       );
+    }
+    if (selectedSettings === "sessions") {
+      return renderSessionRetentionSettings();
     }
     if (selectedSettings === "search-tools") {
       return (

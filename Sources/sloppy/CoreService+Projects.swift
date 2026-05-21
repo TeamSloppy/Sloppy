@@ -282,8 +282,8 @@ extension CoreService {
         return ProjectFileContentResponse(path: relativePath, content: text, sizeBytes: data.count)
     }
 
-    /// Line stats and unified diff for the project workspace (must be a git checkout to return `isGitRepository: true`).
-    public func projectWorkingTreeGit(projectID: String) async throws -> ProjectWorkingTreeGitResponse {
+    /// Line stats and unified diff for the project workspace from its configured source-control provider.
+    public func projectWorkingTreeSourceControl(projectID: String) async throws -> ProjectWorkingTreeSourceControlResponse {
         guard let normalizedID = normalizedProjectID(projectID) else {
             throw ProjectError.invalidProjectID
         }
@@ -295,8 +295,9 @@ extension CoreService {
         let repository = await provider.inspectRepository(at: rootPath)
 
         guard repository.isRepository else {
-            return ProjectWorkingTreeGitResponse(
-                isGitRepository: false,
+            return ProjectWorkingTreeSourceControlResponse(
+                providerId: provider.id,
+                isRepository: false,
                 branch: nil,
                 linesAdded: 0,
                 linesDeleted: 0,
@@ -309,8 +310,9 @@ extension CoreService {
         do {
             let status = try await provider.workingTreeStatus(at: rootPath)
             let patch = try await provider.workingTreeDiff(at: rootPath, maxBytes: 512 * 1024)
-            return ProjectWorkingTreeGitResponse(
-                isGitRepository: true,
+            return ProjectWorkingTreeSourceControlResponse(
+                providerId: provider.id,
+                isRepository: true,
                 branch: status.repository.branch,
                 linesAdded: status.linesAdded,
                 linesDeleted: status.linesDeleted,
@@ -319,8 +321,9 @@ extension CoreService {
                 message: nil
             )
         } catch {
-            return ProjectWorkingTreeGitResponse(
-                isGitRepository: true,
+            return ProjectWorkingTreeSourceControlResponse(
+                providerId: provider.id,
+                isRepository: true,
                 branch: nil,
                 linesAdded: 0,
                 linesDeleted: 0,
@@ -331,7 +334,7 @@ extension CoreService {
         }
     }
 
-    /// Reverts a tracked file under the project workspace to `HEAD` (index + working tree), same as `git restore --source=HEAD --staged --worktree`.
+    /// Reverts a tracked file under the project workspace through the configured source-control provider.
     public func restoreProjectWorkingTreeFile(projectID: String, path: String) async throws {
         guard let normalizedID = normalizedProjectID(projectID) else {
             throw ProjectError.invalidProjectID

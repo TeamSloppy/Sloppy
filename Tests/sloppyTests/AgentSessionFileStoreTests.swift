@@ -96,6 +96,66 @@ func agentSessionStorePaginatesCachedSessionList() throws {
 }
 
 @Test
+func agentSessionStoreDeletesExpiredSessionsAndCompanionFiles() throws {
+    let rootURL = FileManager.default.temporaryDirectory
+        .appendingPathComponent("agent-session-retention-\(UUID().uuidString)", isDirectory: true)
+    defer { try? FileManager.default.removeItem(at: rootURL) }
+
+    let agentID = "retention-agent"
+    let catalog = AgentCatalogFileStore(agentsRootURL: rootURL)
+    _ = try catalog.createAgent(
+        AgentCreateRequest(id: agentID, displayName: "Retention Agent", role: "Testing"),
+        availableModels: []
+    )
+
+    let store = AgentSessionFileStore(agentsRootURL: rootURL)
+    let oldDate = Date(timeIntervalSince1970: 1_700_000_000)
+    let freshDate = oldDate.addingTimeInterval(10 * 24 * 60 * 60)
+    let oldSession = try store.createSession(
+        agentID: agentID,
+        request: AgentSessionCreateRequest(title: "Old"),
+        createdAt: oldDate
+    )
+    let freshSession = try store.createSession(
+        agentID: agentID,
+        request: AgentSessionCreateRequest(title: "Fresh"),
+        createdAt: freshDate
+    )
+
+    _ = try store.incrementUserTurnCount(agentID: agentID, sessionID: oldSession.id)
+    _ = try store.persistAttachments(
+        agentID: agentID,
+        sessionID: oldSession.id,
+        uploads: [
+            AgentAttachmentUpload(
+                name: "note.txt",
+                mimeType: "text/plain",
+                sizeBytes: 5,
+                contentBase64: "aGVsbG8="
+            )
+        ]
+    )
+
+    let sessionsURL = rootURL
+        .appendingPathComponent(agentID, isDirectory: true)
+        .appendingPathComponent("sessions", isDirectory: true)
+    let oldFileURL = sessionsURL.appendingPathComponent("\(oldSession.id).jsonl")
+    let oldSidecarURL = sessionsURL.appendingPathComponent("\(oldSession.id).sidecar.json")
+    let oldAssetsURL = sessionsURL.appendingPathComponent("\(oldSession.id).assets", isDirectory: true)
+
+    let deleted = try store.deleteExpiredSessions(
+        agentIDs: [agentID],
+        olderThan: oldDate.addingTimeInterval(2 * 24 * 60 * 60)
+    )
+
+    #expect(deleted.map(\.id) == [oldSession.id])
+    #expect(!FileManager.default.fileExists(atPath: oldFileURL.path))
+    #expect(!FileManager.default.fileExists(atPath: oldSidecarURL.path))
+    #expect(!FileManager.default.fileExists(atPath: oldAssetsURL.path))
+    #expect(try store.listSessions(agentID: agentID).map(\.id) == [freshSession.id])
+}
+
+@Test
 func agentSessionStoreSerializesConcurrentAppends() throws {
     let rootURL = FileManager.default.temporaryDirectory
         .appendingPathComponent("agent-session-concurrent-\(UUID().uuidString)", isDirectory: true)

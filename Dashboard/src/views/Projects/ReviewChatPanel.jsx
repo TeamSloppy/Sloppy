@@ -153,7 +153,7 @@ export function ReviewChatPanel({ agentId, taskTitle, diff }) {
 
     const context = [
       `You are a code reviewer for this task: ${taskTitle}`,
-      diff ? `\nThe git diff for review:\n\`\`\`diff\n${diff.slice(0, 8000)}\n\`\`\`` : ""
+      diff ? `\nThe source-control diff for review:\n\`\`\`diff\n${diff.slice(0, 8000)}\n\`\`\`` : ""
     ].filter(Boolean).join("\n");
 
     const session = await createAgentSession(agentId, {});

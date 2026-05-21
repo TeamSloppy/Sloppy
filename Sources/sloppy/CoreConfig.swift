@@ -157,6 +157,48 @@ public struct CoreConfig: Codable, Sendable {
         }
     }
 
+    public struct SessionRetention: Codable, Sendable, Equatable {
+        public static let minimumDays = 1
+        public static let maximumDays = 90
+        public static let defaultDays = 30
+
+        public var enabled: Bool
+        public var days: Int
+
+        private enum CodingKeys: String, CodingKey {
+            case enabled
+            case days
+            case retentionDays
+        }
+
+        public init(
+            enabled: Bool = true,
+            days: Int = Self.defaultDays
+        ) {
+            self.enabled = enabled
+            self.days = Self.clampedDays(days)
+        }
+
+        public init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            enabled = try container.decodeIfPresent(Bool.self, forKey: .enabled) ?? true
+            let decodedDays = try container.decodeIfPresent(Int.self, forKey: .days)
+                ?? container.decodeIfPresent(Int.self, forKey: .retentionDays)
+                ?? Self.defaultDays
+            days = Self.clampedDays(decodedDays)
+        }
+
+        public func encode(to encoder: Encoder) throws {
+            var container = encoder.container(keyedBy: CodingKeys.self)
+            try container.encode(enabled, forKey: .enabled)
+            try container.encode(days, forKey: .days)
+        }
+
+        public static func clampedDays(_ value: Int) -> Int {
+            min(max(value, minimumDays), maximumDays)
+        }
+    }
+
     public struct Memory: Codable, Sendable, Equatable {
         public struct Provider: Codable, Sendable, Equatable {
             public struct MCPTools: Codable, Sendable, Equatable {
@@ -1261,6 +1303,7 @@ public struct CoreConfig: Codable, Sendable {
     public var models: [ModelConfig]
     public var opencode: OpenCode
     public var disableModelInference: Bool
+    public var sessionRetention: SessionRetention
     public var memory: Memory
     public var nodes: [String]
     public var gateways: [String]
@@ -1287,6 +1330,7 @@ public struct CoreConfig: Codable, Sendable {
         onboarding: Onboarding = Onboarding(),
         models: [ModelConfig],
         opencode: OpenCode = OpenCode(),
+        sessionRetention: SessionRetention = SessionRetention(),
         memory: Memory,
         nodes: [String],
         gateways: [String],
@@ -1312,6 +1356,7 @@ public struct CoreConfig: Codable, Sendable {
         self.onboarding = onboarding
         self.models = models
         self.opencode = opencode
+        self.sessionRetention = sessionRetention
         self.memory = memory
         self.nodes = nodes
         self.gateways = gateways
@@ -1353,6 +1398,7 @@ public struct CoreConfig: Codable, Sendable {
                 )
             ],
             opencode: .init(),
+            sessionRetention: .init(),
             memory: .init(backend: "sqlite-local-vectors"),
             nodes: ["local"],
             gateways: [],
@@ -1421,6 +1467,7 @@ public struct CoreConfig: Codable, Sendable {
         case onboarding
         case models
         case opencode
+        case sessionRetention
         case memory
         case nodes
         case gateways
@@ -1449,6 +1496,7 @@ public struct CoreConfig: Codable, Sendable {
         auth = try container.decode(Auth.self, forKey: .auth)
         onboarding = try container.decodeIfPresent(Onboarding.self, forKey: .onboarding) ?? .init()
         memory = try container.decode(Memory.self, forKey: .memory)
+        sessionRetention = try container.decodeIfPresent(SessionRetention.self, forKey: .sessionRetention) ?? .init()
         nodes = try container.decodeIfPresent([String].self, forKey: .nodes) ?? []
         gateways = try container.decodeIfPresent([String].self, forKey: .gateways) ?? []
         channels = try container.decodeIfPresent(ChannelConfig.self, forKey: .channels) ?? .init()
@@ -1478,6 +1526,7 @@ public struct CoreConfig: Codable, Sendable {
         try container.encode(onboarding, forKey: .onboarding)
         try container.encode(models, forKey: .models)
         try container.encode(opencode, forKey: .opencode)
+        try container.encode(sessionRetention, forKey: .sessionRetention)
         try container.encode(memory, forKey: .memory)
         try container.encode(nodes, forKey: .nodes)
         try container.encode(gateways, forKey: .gateways)

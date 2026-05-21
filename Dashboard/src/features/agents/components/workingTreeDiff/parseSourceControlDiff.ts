@@ -1,12 +1,12 @@
 import { DiffFile } from "@git-diff-view/file";
 
-export type GitDiffFileSection = {
+export type SourceControlDiffFileSection = {
   displayPath: string;
   patchText: string;
 };
 
-/** Split a multi-file `git diff` into one patch string per file. */
-export function splitUnifiedGitDiff(raw: string): GitDiffFileSection[] {
+/** Split a multi-file source-control diff into one patch string per file. */
+export function splitUnifiedDiff(raw: string): SourceControlDiffFileSection[] {
   const text = raw.replace(/\r\n/g, "\n");
   const t = text.trim();
   if (!t) {
@@ -42,8 +42,8 @@ function extractPathFromPatchFallback(patch: string): string {
   if (plus) {
     return plus[1].trim();
   }
-  const git = patch.match(/^diff --git (.+)$/m);
-  return git ? git[1].trim() : "patch";
+  const diffHeader = patch.match(/^diff --git (.+)$/m);
+  return diffHeader ? diffHeader[1].trim() : "patch";
 }
 
 export function highlighterLangForPath(path: string): string {

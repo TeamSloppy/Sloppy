@@ -24,6 +24,43 @@ func missingOnboardingConfigFallsBackToIncompleteState() throws {
 }
 
 @Test
+func missingSessionRetentionConfigFallsBackToEnabledThirtyDays() throws {
+    let json =
+        """
+        {
+          "listen": { "host": "0.0.0.0", "port": 25101 },
+          "auth": { "token": "dev-token" },
+          "models": [],
+          "memory": { "backend": "sqlite-local-vectors" },
+          "nodes": ["local"],
+          "gateways": [],
+          "plugins": [],
+          "sqlitePath": "core.sqlite"
+        }
+        """
+
+    let decoded = try JSONDecoder().decode(CoreConfig.self, from: Data(json.utf8))
+
+    #expect(decoded.sessionRetention.enabled)
+    #expect(decoded.sessionRetention.days == 30)
+}
+
+@Test
+func sessionRetentionDaysAreClampedToSupportedRange() throws {
+    let low = try JSONDecoder().decode(
+        CoreConfig.SessionRetention.self,
+        from: Data(#"{ "enabled": true, "days": 0 }"#.utf8)
+    )
+    let high = try JSONDecoder().decode(
+        CoreConfig.SessionRetention.self,
+        from: Data(#"{ "enabled": true, "days": 365 }"#.utf8)
+    )
+
+    #expect(low.days == 1)
+    #expect(high.days == 90)
+}
+
+@Test
 func missingVisorConfigFallsBackToDefaults() throws {
     let json =
         """

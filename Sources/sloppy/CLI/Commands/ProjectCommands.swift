@@ -498,7 +498,7 @@ struct ProjectTaskRejectCommand: AsyncParsableCommand {
 }
 
 struct ProjectTaskDiffCommand: AsyncParsableCommand {
-    static let configuration = CommandConfiguration(commandName: "diff", abstract: "Get git diff for a task.")
+    static let configuration = CommandConfiguration(commandName: "diff", abstract: "Get source-control diff for a task.")
 
     @Argument(help: "Project ID") var projectId: String
     @Argument(help: "Task ID") var taskId: String

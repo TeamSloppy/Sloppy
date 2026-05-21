@@ -143,6 +143,7 @@ extension CoreService {
         offset: Int = 0
     ) async throws -> [ChannelSessionSummary] {
         await waitForStartup()
+        await deleteExpiredSessionsIfNeeded()
 
         let board = try? getActorBoard()
         let filteredChannelIDs: Set<String>?
@@ -194,6 +195,7 @@ extension CoreService {
 
     /// Returns one dashboard project by identifier.
     func prepareChannelSession(channelId: String) async throws {
+        await deleteExpiredSessionsIfNeeded()
         let normalizedChannelID = normalizeWhitespace(channelId)
         guard !normalizedChannelID.isEmpty else {
             return

@@ -1389,7 +1389,7 @@ enum SloppyTUITheme {
                 "Type @path to attach project files as explicit context with autocomplete.",
                 "Type # to autocomplete active project tasks by id or title.",
                 "Use /btw for a side question without disturbing the main task.",
-                "Use /diff or /context diff when you want the agent to inspect local changes.",
+                "Use /diff or /context diff when you want the agent to inspect source-control changes.",
             ]
         let count = min(tips.count, 1)
         let start = tips.isEmpty ? 0 : ((offset % tips.count) + tips.count) % tips.count

@@ -91,7 +91,11 @@ final class AgentSessionFileStore: @unchecked Sendable {
         }
     }
 
-    func createSession(agentID: String, request: AgentSessionCreateRequest) throws -> AgentSessionSummary {
+    func createSession(
+        agentID: String,
+        request: AgentSessionCreateRequest,
+        createdAt: Date = Date()
+    ) throws -> AgentSessionSummary {
         try withLock {
             let normalizedAgentID = try normalizedAgentID(agentID)
             let normalizedParentSessionID = try normalizedOptionalSessionID(request.parentSessionId)
@@ -117,6 +121,7 @@ final class AgentSessionFileStore: @unchecked Sendable {
                 agentId: normalizedAgentID,
                 sessionId: sessionID,
                 type: .sessionCreated,
+                createdAt: createdAt,
                 metadata: AgentSessionMetadataEvent(
                     title: title,
                     parentSessionId: normalizedParentSessionID,
@@ -128,6 +133,25 @@ final class AgentSessionFileStore: @unchecked Sendable {
             let fileURL = sessionsDirectory.appendingPathComponent("\(sessionID).jsonl")
             try append(events: [createdEvent], to: fileURL, createIfMissing: true)
             return try refreshSummaryCache(agentID: normalizedAgentID, sessionID: sessionID, fileURL: fileURL)
+        }
+    }
+
+    @discardableResult
+    func deleteExpiredSessions(
+        agentIDs: [String],
+        olderThan cutoffDate: Date
+    ) throws -> [AgentSessionSummary] {
+        try withLock {
+            var deleted: [AgentSessionSummary] = []
+            for agentID in agentIDs {
+                let normalizedAgentID = try normalizedAgentID(agentID)
+                let summaries = try listSessions(agentID: normalizedAgentID, includeHeartbeat: true)
+                for summary in summaries where summary.updatedAt < cutoffDate {
+                    try deleteSession(agentID: normalizedAgentID, sessionID: summary.id)
+                    deleted.append(summary)
+                }
+            }
+            return deleted
         }
     }
 

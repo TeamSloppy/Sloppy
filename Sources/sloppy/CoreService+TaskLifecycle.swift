@@ -614,7 +614,7 @@ extension CoreService {
             "Original task description:",
             task.description.isEmpty ? "(none)" : task.description,
             "",
-            "Changes to review (git diff):",
+            "Changes to review (source-control diff):",
             diff,
             "",
             "Review instructions:",

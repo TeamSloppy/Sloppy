@@ -1,13 +1,13 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { fetchProjectWorkingTreeGit, postProjectGitRestore } from "../../../api";
-import { createDiffFileFromPatch, splitUnifiedGitDiff } from "./workingTreeDiff/parseGitDiff";
+import { fetchProjectWorkingTreeSourceControl, postProjectSourceControlRestore } from "../../../api";
+import { createDiffFileFromPatch, splitUnifiedDiff } from "./workingTreeDiff/parseSourceControlDiff";
 import { WorkingTreeDiffFileBlock } from "./workingTreeDiff/WorkingTreeDiffFileBlock";
-import type { GitComposeTagPayload } from "./workingTreeDiff/gitComposeTypes";
+import type { SourceControlComposeTagPayload } from "./workingTreeDiff/sourceControlComposeTypes";
 
-export type { GitComposeTagPayload };
+export type { SourceControlComposeTagPayload };
 
-type GitPayload = {
-  isGitRepository?: boolean;
+type SourceControlPayload = {
+  isRepository?: boolean;
   branch?: string | null;
   linesAdded?: number;
   linesDeleted?: number;
@@ -16,18 +16,18 @@ type GitPayload = {
   message?: string | null;
 };
 
-export function ProjectGitDiffPanel({
+export function ProjectSourceControlDiffPanel({
   projectId,
   open,
   onClose,
-  onAddGitComposeTag
+  onAddSourceControlComposeTag
 }: {
   projectId: string;
   open: boolean;
   onClose: () => void;
-  onAddGitComposeTag: (payload: GitComposeTagPayload) => void;
+  onAddSourceControlComposeTag: (payload: SourceControlComposeTagPayload) => void;
 }) {
-  const [data, setData] = useState<GitPayload | null>(null);
+  const [data, setData] = useState<SourceControlPayload | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [comment, setComment] = useState("");
@@ -44,9 +44,9 @@ export function ProjectGitDiffPanel({
     setLoadError(null);
     setHint(null);
     try {
-      const res = (await fetchProjectWorkingTreeGit(projectId)) as GitPayload | null;
+      const res = (await fetchProjectWorkingTreeSourceControl(projectId)) as SourceControlPayload | null;
       setData(res || null);
-      if (res && res.isGitRepository === false && res.message) {
+      if (res && res.isRepository === false && res.message) {
         setLoadError(null);
       }
     } catch (e: unknown) {
@@ -109,7 +109,7 @@ export function ProjectGitDiffPanel({
     if (!diffText.trim()) {
       return [];
     }
-    return splitUnifiedGitDiff(diffText).map((section) => ({
+    return splitUnifiedDiff(diffText).map((section) => ({
       ...section,
       diffFile: createDiffFileFromPatch(section.displayPath, section.patchText)
     }));
@@ -117,7 +117,7 @@ export function ProjectGitDiffPanel({
 
   const restoreFile = useCallback(
     async (relativePath: string) => {
-      return postProjectGitRestore(projectId, relativePath);
+      return postProjectSourceControlRestore(projectId, relativePath);
     },
     [projectId]
   );
@@ -152,22 +152,22 @@ export function ProjectGitDiffPanel({
         : sel
           ? "Selected diff"
           : "Diff";
-    onAddGitComposeTag({ label, markdown });
+    onAddSourceControlComposeTag({ label, markdown });
     setComment("");
     setHint(null);
   }
 
-  function insertFromWidget(payload: GitComposeTagPayload) {
+  function insertFromWidget(payload: SourceControlComposeTagPayload) {
     const note = comment.trim();
     const markdown = note ? `${note}\n\n${payload.markdown}` : payload.markdown;
-    onAddGitComposeTag({ label: payload.label, markdown });
+    onAddSourceControlComposeTag({ label: payload.label, markdown });
   }
 
   if (!open) {
     return null;
   }
 
-  const isGit = data?.isGitRepository === true;
+  const isRepository = data?.isRepository === true;
   const branch = data?.branch ? String(data.branch) : null;
   const added = typeof data?.linesAdded === "number" ? data.linesAdded : 0;
   const deleted = typeof data?.linesDeleted === "number" ? data.linesDeleted : 0;
@@ -177,12 +177,12 @@ export function ProjectGitDiffPanel({
   return (
     <aside
       ref={panelRef}
-      className="agent-chat-git-panel"
-      data-testid="project-git-diff-panel"
-      aria-label="Project git diff"
+      className="agent-chat-source-control-panel"
+      data-testid="project-source-control-diff-panel"
+      aria-label="Project source-control diff"
     >
-      <div className="agent-chat-git-panel__head">
-        <div className="agent-chat-git-panel__title">
+      <div className="agent-chat-source-control-panel__head">
+        <div className="agent-chat-source-control-panel__title">
           <span className="material-symbols-rounded" aria-hidden="true">
             difference
           </span>
@@ -191,13 +191,13 @@ export function ProjectGitDiffPanel({
             <small>
               {loading
                 ? "Loading…"
-                : isGit
+                : isRepository
                   ? [branch ? `branch: ${branch}` : "branch: —", `+${added} −${deleted}`].join(" · ")
-                  : "Not a git repo"}
+                  : "Not a source-control repo"}
             </small>
           </div>
         </div>
-        <div className="agent-chat-git-panel__head-actions">
+        <div className="agent-chat-source-control-panel__head-actions">
           {canFullscreen ? (
             <button
               type="button"
@@ -225,27 +225,27 @@ export function ProjectGitDiffPanel({
         </div>
       </div>
 
-      <div className="agent-chat-git-panel__body">
-        {loadError ? <p className="agent-chat-git-panel__error">{loadError}</p> : null}
-        {!isGit && serverMsg ? <p className="placeholder-text">{serverMsg}</p> : null}
-        {isGit && serverMsg ? <p className="agent-chat-git-panel__error">{serverMsg}</p> : null}
+      <div className="agent-chat-source-control-panel__body">
+        {loadError ? <p className="agent-chat-source-control-panel__error">{loadError}</p> : null}
+        {!isRepository && serverMsg ? <p className="placeholder-text">{serverMsg}</p> : null}
+        {isRepository && serverMsg ? <p className="agent-chat-source-control-panel__error">{serverMsg}</p> : null}
 
-        {isGit && !loadError ? (
+        {isRepository && !loadError ? (
           <>
-            <label className="agent-chat-git-panel__label">
+            <label className="agent-chat-source-control-panel__label">
               Note for the agent (optional, prepended to each + tag)
               <textarea
-                className="agent-chat-git-panel__comment"
+                className="agent-chat-source-control-panel__comment"
                 value={comment}
                 onChange={(e) => setComment(e.target.value)}
                 placeholder="e.g. Please adjust…"
                 rows={3}
               />
             </label>
-            <p className="agent-chat-git-panel__select-hint placeholder-text">
+            <p className="agent-chat-source-control-panel__select-hint placeholder-text">
               Hover a changed line and click <strong>+</strong> — a compact tag is added to the message box. Full diff is sent only when you press Send.
             </p>
-            <div className="agent-chat-git-panel__diff-list">
+            <div className="agent-chat-source-control-panel__diff-list">
               {loading && !diffText ? (
                 <p className="placeholder-text">…</p>
               ) : diffBlocks.length > 0 ? (
@@ -267,7 +267,7 @@ export function ProjectGitDiffPanel({
                 ))
               ) : (
                 <pre
-                  className="agent-chat-git-panel__diff agent-chat-git-panel__diff--fallback"
+                  className="agent-chat-source-control-panel__diff agent-chat-source-control-panel__diff--fallback"
                   tabIndex={0}
                   onMouseUp={() => {
                     const t = String(window.getSelection()?.toString() ?? "").trim();
@@ -287,13 +287,13 @@ export function ProjectGitDiffPanel({
         ) : null}
       </div>
 
-      <div className="agent-chat-git-panel__footer">
-        {hint ? <p className="agent-chat-git-panel__error">{hint}</p> : null}
+      <div className="agent-chat-source-control-panel__footer">
+        {hint ? <p className="agent-chat-source-control-panel__error">{hint}</p> : null}
         <button
           type="button"
-          className="btn btn-secondary btn-sm agent-chat-git-panel__add-btn"
+          className="btn btn-secondary btn-sm agent-chat-source-control-panel__add-btn"
           onClick={appendSelectionToComposer}
-          disabled={!isGit || loading}
+          disabled={!isRepository || loading}
         >
           Add selection as tag
         </button>
