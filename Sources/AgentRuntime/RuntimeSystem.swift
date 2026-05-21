@@ -402,6 +402,7 @@ public actor RuntimeSystem {
 
             if let invoker = toolInvoker {
                 let observingHandler: @Sendable (ToolInvocationRequest) async -> ToolInvocationResult = { request in
+                    await self.logNativeToolCallDecoded(channelId: channelId, model: activeModel, request: request)
                     await tracker.toolStarted()
                     if let observationHandler {
                         await observationHandler(.toolCall(request))
@@ -415,6 +416,8 @@ public actor RuntimeSystem {
                 }
                 session.toolExecutionDelegate = makeToolExecutionDelegate(
                     for: session,
+                    channelId: channelId,
+                    model: activeModel,
                     toolCallHandler: observingHandler,
                     loopTracker: tracker,
                     nativeLoopConfig: nativeLoopConfig
@@ -524,6 +527,7 @@ public actor RuntimeSystem {
                     )
                     if let invoker = toolInvoker {
                         let observingHandler: @Sendable (ToolInvocationRequest) async -> ToolInvocationResult = { request in
+                            await self.logNativeToolCallDecoded(channelId: channelId, model: activeModel, request: request)
                             await tracker.toolStarted()
                             if let observationHandler {
                                 await observationHandler(.toolCall(request))
@@ -537,6 +541,8 @@ public actor RuntimeSystem {
                         }
                         freshSession.toolExecutionDelegate = makeToolExecutionDelegate(
                             for: freshSession,
+                            channelId: channelId,
+                            model: activeModel,
                             toolCallHandler: observingHandler,
                             loopTracker: tracker,
                             nativeLoopConfig: nativeLoopConfig
@@ -1198,6 +1204,8 @@ public actor RuntimeSystem {
 
     private func makeToolExecutionDelegate(
         for session: LanguageModelSession,
+        channelId: String? = nil,
+        model: String? = nil,
         toolCallHandler: @escaping @Sendable (ToolInvocationRequest) async -> ToolInvocationResult,
         loopTracker: StreamActivityTracker? = nil,
         nativeLoopConfig: NativeAgentLoopConfig = NativeAgentLoopConfig()
@@ -1227,8 +1235,86 @@ public actor RuntimeSystem {
                 }
                 return nil
             },
+            argumentDiagnosticsHandler: { diagnostic in
+                await self.logNativeToolArgumentDiagnostic(channelId: channelId, model: model, diagnostic: diagnostic)
+            },
             toolCallHandler: toolCallHandler
         )
+    }
+
+    private func logNativeToolCallDecoded(channelId: String, model: String?, request: ToolInvocationRequest) {
+        logger.info(
+            "Native tool call decoded",
+            metadata: toolArgumentMetadata(channelId: channelId, model: model, request: request)
+        )
+    }
+
+    private func logNativeToolArgumentDiagnostic(
+        channelId: String?,
+        model: String?,
+        diagnostic: SloppyToolExecutionDelegate.ArgumentDiagnostic
+    ) {
+        var metadata: Logger.Metadata = [
+            "tool": .string(diagnostic.toolName),
+            "argument_kind": .string(diagnostic.argumentKind),
+            "used_empty_arguments_fallback": .string("true"),
+            "message": .string(diagnostic.message)
+        ]
+        if let channelId {
+            metadata["channel_id"] = .string(channelId)
+        }
+        if let model {
+            metadata["model"] = .string(model)
+        }
+        if let toolCallId = diagnostic.toolCallId {
+            metadata["tool_call_id"] = .string(toolCallId)
+        }
+        if let providerToolName = diagnostic.providerToolName {
+            metadata["provider_tool"] = .string(providerToolName)
+        }
+        if let rawArguments = diagnostic.rawArguments {
+            metadata["raw_arguments"] = .string(Self.encodedJSONValue(rawArguments))
+        }
+        logger.warning("Native tool call arguments were not an object", metadata: metadata)
+    }
+
+    private func toolArgumentMetadata(channelId: String, model: String?, request: ToolInvocationRequest) -> Logger.Metadata {
+        var metadata: Logger.Metadata = [
+            "channel_id": .string(channelId),
+            "tool": .string(request.tool),
+            "decoded_argument_count": .stringConvertible(request.arguments.count)
+        ]
+        if let model {
+            metadata["model"] = .string(model)
+        }
+        if let diagnostics = request.argumentDiagnostics {
+            metadata["raw_argument_kind"] = .string(diagnostics.rawArgumentKind)
+            metadata["used_empty_arguments_fallback"] = .string(diagnostics.usedEmptyArgumentsFallback ? "true" : "false")
+            if let toolCallId = diagnostics.toolCallId {
+                metadata["tool_call_id"] = .string(toolCallId)
+            }
+            if let providerToolName = diagnostics.providerToolName {
+                metadata["provider_tool"] = .string(providerToolName)
+            }
+            if let rawArguments = diagnostics.rawArguments {
+                metadata["raw_arguments"] = .string(Self.encodedJSONValue(rawArguments))
+            }
+            if let message = diagnostics.message {
+                metadata["argument_diagnostic_message"] = .string(message)
+            }
+        }
+        return metadata
+    }
+
+    private static func encodedJSONValue(_ value: JSONValue) -> String {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        guard let data = try? encoder.encode(value),
+              let string = String(data: data, encoding: .utf8)
+        else {
+            return "<unencodable>"
+        }
+        return string
     }
 
     /// Returns cached session for channel, or creates a new one seeded with the bootstrap
@@ -1317,6 +1403,8 @@ public actor RuntimeSystem {
             }
             freshSession.toolExecutionDelegate = makeToolExecutionDelegate(
                 for: freshSession,
+                channelId: channelId,
+                model: activeModel,
                 toolCallHandler: observingHandler,
                 loopTracker: loopTracker,
                 nativeLoopConfig: nativeLoopConfig

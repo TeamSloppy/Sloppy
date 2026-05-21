@@ -91,7 +91,8 @@ final class ToolPreHookService: @unchecked Sendable {
                     ToolInvocationRequest(
                         tool: request.tool,
                         arguments: output.arguments ?? request.arguments,
-                        reason: output.reason ?? request.reason
+                        reason: output.reason ?? request.reason,
+                        argumentDiagnostics: request.argumentDiagnostics
                     )
                 )
             case .block:

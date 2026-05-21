@@ -3,6 +3,7 @@ Packages/*/.build/
 .cache/
 .data/
 .DS_Store
+.build-codex-mcp/
 Dashboard/node_modules/
 Dashboard/dist/
 Dashboard/output/

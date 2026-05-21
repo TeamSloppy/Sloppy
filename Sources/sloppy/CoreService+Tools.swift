@@ -191,7 +191,8 @@ extension CoreService {
             toolCall: AgentToolCallEvent(
                 tool: effectiveRequest.tool,
                 arguments: effectiveRequest.arguments,
-                reason: effectiveRequest.reason
+                reason: effectiveRequest.reason,
+                argumentDiagnostics: effectiveRequest.argumentDiagnostics
             )
         )
 

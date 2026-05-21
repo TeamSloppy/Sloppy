@@ -251,6 +251,26 @@ struct SloppyTUITokenUsageSummary: Equatable {
     }
 }
 
+struct SloppyTUIMCPStatusSummary: Equatable {
+    static let empty = SloppyTUIMCPStatusSummary(available: 0, total: 0)
+
+    var available: Int
+    var total: Int
+
+    init(available: Int, total: Int) {
+        let normalizedTotal = max(0, total)
+        self.total = normalizedTotal
+        self.available = min(max(0, available), normalizedTotal)
+    }
+
+    init(statuses: [MCPServerStatus]) {
+        self.init(
+            available: statuses.filter(\.connected).count,
+            total: statuses.count
+        )
+    }
+}
+
 struct SloppyTUIContextUsageSummary: Equatable {
     var modelTitle: String
     var modelID: String
@@ -351,6 +371,7 @@ enum SloppyTUITimelineBlock {
     case subSession(childSessionId: String, title: String, status: SloppyTUISubSessionStatus)
     case buildProgress(AgentBuildProgressEvent)
     case inputRequest(PlanInputRequest)
+    case workspaceDiff(branch: String, linesAdded: Int, linesDeleted: Int, diff: String, truncated: Bool)
     case toolCall(tool: String, reason: String?, summary: String?, details: String?)
     case toolResult(tool: String, ok: Bool, error: String?, durationMs: Int?, details: String?)
 
@@ -371,6 +392,8 @@ enum SloppyTUITimelineBlock {
             return ([progress.title] + items).joined(separator: " ")
         case .inputRequest(let request):
             return SloppyTUIPlanInputPicker.requestText(request)
+        case .workspaceDiff(let branch, let linesAdded, let linesDeleted, let diff, let truncated):
+            return "Patched \(branch) +\(linesAdded) -\(linesDeleted) \(truncated ? "truncated" : "") \(diff)"
         case .toolCall(let tool, let reason, let summary, let details):
             return ([tool] + [summary, reason, details].compactMap { $0 }).joined(separator: " ")
         case .toolResult(let tool, _, let error, _, let details):

@@ -479,6 +479,70 @@ func sessionDisplayTitleKeepsSpecificTitles() {
     #expect(SloppyTUITheme.sessionDisplayTitle(session) == "Fork: improve project overlay")
 }
 
+@Test
+func appFooterShowsMCPAvailabilitySummary() {
+    let greenFooter = SloppyTUITheme.appFooter(
+        width: 100,
+        cwd: "/Users/vlad-prusakov/Developer/Sloppy",
+        mcpSummary: SloppyTUIMCPStatusSummary(available: 3, total: 3)
+    )
+    let yellowFooter = SloppyTUITheme.appFooter(
+        width: 100,
+        cwd: "/Users/vlad-prusakov/Developer/Sloppy",
+        mcpSummary: SloppyTUIMCPStatusSummary(available: 1, total: 3)
+    )
+    let redFooter = SloppyTUITheme.appFooter(
+        width: 100,
+        cwd: "/Users/vlad-prusakov/Developer/Sloppy",
+        mcpSummary: SloppyTUIMCPStatusSummary(available: 0, total: 3)
+    )
+    let grayFooter = SloppyTUITheme.appFooter(
+        width: 100,
+        cwd: "/Users/vlad-prusakov/Developer/Sloppy",
+        mcpSummary: .empty
+    )
+
+    #expect(stripANSI(greenFooter).contains("3/3 MCPs"))
+    #expect(greenFooter.contains("\u{001B}[38;2;74;222;128m"))
+    #expect(stripANSI(yellowFooter).contains("1/3 MCPs"))
+    #expect(yellowFooter.contains("\u{001B}[38;2;250;204;21m"))
+    #expect(stripANSI(redFooter).contains("0/3 MCPs"))
+    #expect(redFooter.contains("\u{001B}[38;2;248;113;113m"))
+    #expect(stripANSI(grayFooter).contains("0 MCPs"))
+    #expect(grayFooter.contains("\u{001B}[38;2;148;163;184m"))
+}
+
+@Test
+func mcpStatusLineIsCompactForMultilineErrors() {
+    let status = MCPServerStatus(
+        id: "claude-mobile",
+        transport: "stdio",
+        enabled: true,
+        connected: false,
+        exposeTools: true,
+        exposeResources: false,
+        exposePrompts: false,
+        toolPrefix: "mobile",
+        message: """
+        Claude Mobile MCP server running
+
+        Client detected: unknown (sloppy v1.0.0)
+
+        Options:
+          --help Show help
+        """
+    )
+
+    let line = SloppyTUITheme.mcpStatusLine(status)
+
+    #expect(line.contains("`claude-mobile`"))
+    #expect(line.contains("unavailable"))
+    #expect(line.contains("prefix mobile"))
+    #expect(line.contains("Claude Mobile MCP server running"))
+    #expect(!line.contains("Options:"))
+    #expect(!line.contains("\n"))
+}
+
 private func leadingSpaceCount(_ line: String) -> Int {
     line.prefix { $0 == " " }.count
 }

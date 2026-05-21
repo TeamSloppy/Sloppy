@@ -300,6 +300,7 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
     private var sessionStreamReadyKey: String?
     private var sessionStreamReadyWaiters: [CheckedContinuation<Void, Never>] = []
     private var changeTask: Task<Void, Never>?
+    private var autoDiffTask: Task<Void, Never>?
     private var devicePollTask: Task<Void, Never>?
     private var thinkingAnimationTask: Task<Void, Never>?
     private var projectFileIndexTask: Task<Void, Never>?
@@ -348,6 +349,8 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
     private var cumulativeAgentActiveTime: TimeInterval = 0
     private var transientNoticeLine: String?
     private var transientNoticeTask: Task<Void, Never>?
+    private var autoDiffLocalCardID: Int?
+    private var lastAgentToolActivityAt: Date?
     private var transcriptExpanded = false
     private var sessionUndoManagers = SloppyTUISessionUndoManagers()
     private var thinkingFrame = 0
@@ -373,6 +376,7 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
     private var sessionTimelineRevision = 0
     private var sessionTimelineCache: SloppyTUISessionTimelineCache?
     private var sessionReloadGeneration = 0
+    private var mcpStatusSummary = SloppyTUIMCPStatusSummary.empty
 
     init(
         runtime: SloppyTUIRuntime,
@@ -398,6 +402,10 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
         self.initialAction = initialAction
         self.tui = tui
         self.terminal = terminal
+        self.mcpStatusSummary = SloppyTUIMCPStatusSummary(
+            available: 0,
+            total: runtime.config.mcp.servers.count
+        )
 
         editor.apply(theme: SloppyTUITheme.palette)
         if SloppyTUIAutocompleteFeatureFlags.editorAutocompleteEnabled {
@@ -461,6 +469,7 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
         streamChanges()
         loadProjectFileIndex()
         reloadProjectForTaskAutocompleteIfNeeded()
+        Task { @MainActor in await refreshMCPStatusSummary() }
         if !runtime.config.onboarding.completed {
             appendLocalCard(Self.firstStartBootstrapCard)
         }
@@ -470,6 +479,8 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
         streamTask?.cancel()
         resumeSessionStreamReadyWaiters()
         changeTask?.cancel()
+        autoDiffTask?.cancel()
+        autoDiffTask = nil
         devicePollTask?.cancel()
         thinkingAnimationTask?.cancel()
         projectFileIndexTask?.cancel()
@@ -581,7 +592,7 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
     }
 
     private func renderBaseScreen(width: Int, height: Int) -> [String] {
-        let footer = SloppyTUITheme.appFooter(width: width, cwd: runtime.cwd)
+        let footer = SloppyTUITheme.appFooter(width: width, cwd: runtime.cwd, mcpSummary: mcpStatusSummary)
         var composer: [String] = []
         if isPosting {
             composer.append(SloppyTUITheme.interruptControlLine(
@@ -645,6 +656,7 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
                 agent: agent.displayName,
                 model: selectedModel,
                 mode: chatMode,
+                mcpSummary: mcpStatusSummary,
                 tipOffset: welcomeTipCursor,
                 includeFooter: false
             )
@@ -2171,52 +2183,27 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
     }
 
     private func showMCPServers() async {
-        let statuses = await runtime.service.listMCPServerStatuses()
+        let statuses = await refreshMCPStatusSummary()
         guard !statuses.isEmpty else {
             appendLocalCard("No MCP servers configured.", autoDismissAfter: 6)
             return
         }
 
-        let connectedCount = statuses.filter { $0.connected }.count
-        let enabledCount = statuses.filter { $0.enabled }.count
-        let lines = statuses.map(mcpStatusLine).joined(separator: "\n")
+        let summary = SloppyTUIMCPStatusSummary(statuses: statuses)
+        let lines = statuses.map(SloppyTUITheme.mcpStatusLine).joined(separator: "\n")
         appendLocalCard("""
         ## MCP servers
-        \(connectedCount)/\(enabledCount) enabled servers connected.
+        \(SloppyTUITheme.mcpSummaryLine(summary))
 
         \(lines)
         """, autoDismissAfter: 20)
     }
 
-    private func mcpStatusLine(_ status: MCPServerStatus) -> String {
-        let state: String
-        if !status.enabled {
-            state = "disabled"
-        } else if status.connected {
-            state = "connected"
-        } else {
-            state = "disconnected"
-        }
-
-        var exposed: [String] = []
-        if status.exposeTools {
-            exposed.append("tools")
-        }
-        if status.exposeResources {
-            exposed.append("resources")
-        }
-        if status.exposePrompts {
-            exposed.append("prompts")
-        }
-        let exposedText = exposed.isEmpty ? "none" : exposed.joined(separator: ", ")
-        let prefixText = status.toolPrefix?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
-            ? " prefix: `\(status.toolPrefix!)`"
-            : ""
-        let messageText = status.message?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
-            ? " - \(status.message!)"
-            : ""
-
-        return "- `\(status.id)` \(state) transport: `\(status.transport)` exposed: \(exposedText)\(prefixText)\(messageText)"
+    private func refreshMCPStatusSummary() async -> [MCPServerStatus] {
+        let statuses = await runtime.service.listMCPServerStatuses()
+        mcpStatusSummary = SloppyTUIMCPStatusSummary(statuses: statuses)
+        refreshStaticChrome()
+        return statuses
     }
 
     private func createNewSession() async {
@@ -2254,6 +2241,8 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
         isDrainingQueuedMessages = false
         sessionUndoManagers = SloppyTUISessionUndoManagers()
         clearLocalCards()
+        autoDiffTask?.cancel()
+        autoDiffTask = nil
         transientNoticeTask?.cancel()
         transientNoticeTask = nil
         transientNoticeLine = nil
@@ -3329,6 +3318,8 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
             subSessionCards = []
             invalidateSessionTimelineCache()
             lastRenderedSessionEventIDs = []
+            lastAgentToolActivityAt = nil
+            dismissAutoDiffPreview()
             persistSelection()
             streamTask?.cancel()
             await reloadSkillSlashCommands()
@@ -3351,6 +3342,8 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
         session = nextSession
         hasPersistedSession = true
         pendingDraftCheckpointSessionID = nil
+        lastAgentToolActivityAt = nil
+        dismissAutoDiffPreview()
         persistSelection()
         streamSession()
         await restorePersistedDirectoriesForCurrentSession()
@@ -3674,6 +3667,10 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
                             self.markFirstStreamEventIfNeeded()
                             if event.toolCall != nil {
                                 self.markFirstToolCallIfNeeded()
+                                self.lastAgentToolActivityAt = Date()
+                            }
+                            if event.toolResult != nil {
+                                self.lastAgentToolActivityAt = Date()
                             }
                             if let status = event.runStatus {
                                 if status.stage == .done || status.stage == .interrupted {
@@ -3752,6 +3749,7 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
                     guard !Task.isCancelled else { break }
                     await MainActor.run {
                         self.lastChangeBatch = batch
+                        self.scheduleAutoDiffPreview(for: batch)
                         self.scheduleProjectFileReindex()
                     }
                 }
@@ -3759,6 +3757,85 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
                 // Keep workspace watching silent so the timeline only shows agent output.
             }
         }
+    }
+
+    private func scheduleAutoDiffPreview(for batch: ProjectWorkingTreeChangeBatch) {
+        guard shouldAutoShowDiff(for: batch) else {
+            return
+        }
+
+        autoDiffTask?.cancel()
+        autoDiffTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 350_000_000)
+            guard !Task.isCancelled, let self else { return }
+            do {
+                let git = try await self.runtime.service.projectWorkingTreeGit(projectID: self.project.id)
+                await MainActor.run {
+                    self.updateAutoDiffPreview(git)
+                }
+            } catch {
+                // Diff preview is opportunistic; /diff remains available for explicit errors.
+            }
+        }
+    }
+
+    private func shouldAutoShowDiff(for batch: ProjectWorkingTreeChangeBatch) -> Bool {
+        guard !batch.changes.isEmpty else {
+            return false
+        }
+        if isPosting || liveRunStatusLine != nil {
+            return true
+        }
+        guard let lastAgentToolActivityAt else {
+            return false
+        }
+        return Date().timeIntervalSince(lastAgentToolActivityAt) < 45
+    }
+
+    private func updateAutoDiffPreview(_ git: ProjectWorkingTreeGitResponse) {
+        guard git.isGitRepository,
+              !git.diff.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            dismissAutoDiffPreview()
+            return
+        }
+
+        let block = SloppyTUITimelineBlock.workspaceDiff(
+            branch: git.branch ?? "unknown",
+            linesAdded: git.linesAdded,
+            linesDeleted: git.linesDeleted,
+            diff: git.diff,
+            truncated: git.diffTruncated
+        )
+        if let id = autoDiffLocalCardID,
+           let index = localCards.firstIndex(where: { $0.id == id }) {
+            localCards[index].block = block
+        } else {
+            nextLocalCardID += 1
+            let id = nextLocalCardID
+            autoDiffLocalCardID = id
+            localCards.append(SloppyTUILocalCard(id: id, block: block))
+        }
+        if localCards.count > 24 {
+            let removed = localCards.prefix(localCards.count - 24)
+            for card in removed {
+                localCardDismissTasks.removeValue(forKey: card.id)?.cancel()
+                if card.id == autoDiffLocalCardID {
+                    autoDiffLocalCardID = nil
+                }
+            }
+            localCards.removeFirst(localCards.count - 24)
+        }
+        renderTimeline()
+    }
+
+    private func dismissAutoDiffPreview() {
+        guard let id = autoDiffLocalCardID else {
+            return
+        }
+        localCardDismissTasks.removeValue(forKey: id)?.cancel()
+        localCards.removeAll { $0.id == id }
+        autoDiffLocalCardID = nil
+        renderTimeline()
     }
 
     private func loadProjectFileIndex() {
@@ -3940,7 +4017,7 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
                 children.append(card)
                 blocks.append(.subSession(childSessionId: card.childSessionId, title: card.title, status: card.status))
             } else if let toolCall = event.toolCall {
-                let display = toolCallDisplay(tool: toolCall.tool, arguments: toolCall.arguments)
+                let display = SloppyTUITimelineDisplay.toolCallDisplay(tool: toolCall.tool, arguments: toolCall.arguments)
                 blocks.append(.toolCall(
                     tool: toolCall.tool,
                     reason: toolCall.reason,
@@ -3949,7 +4026,7 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
                 ))
             } else if let toolResult = event.toolResult {
                 blocks.append(.toolResult(
-                    tool: toolResult.tool,
+                    tool: SloppyTUITimelineDisplay.toolResultTitle(toolResult),
                     ok: toolResult.ok,
                     error: toolResult.error?.message,
                     durationMs: toolResult.durationMs,
@@ -4091,39 +4168,6 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
         }
     }
 
-    private func toolCallDisplay(
-        tool: String,
-        arguments: [String: JSONValue]
-    ) -> (summary: String?, details: String?) {
-        switch tool {
-        case "runtime.exec":
-            let command = arguments["command"]?.asString?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-            let argv = arguments["arguments"]?.asArray?.compactMap(\.asString) ?? []
-            let fullCommand = ([command] + argv).filter { !$0.isEmpty }.map(shellQuote).joined(separator: " ")
-            let cwd = arguments["cwd"]?.asString?.trimmingCharacters(in: .whitespacesAndNewlines)
-            var details = fullCommand.isEmpty ? nil : fencedBlock("shell", fullCommand, maxCharacters: 4_000)
-            if let cwd, !cwd.isEmpty {
-                details = ([details, "cwd: `\(cwd)`"].compactMap { $0 }).joined(separator: "\n\n")
-            }
-            return (clip(fullCommand, maxCharacters: 160), details)
-        case "files.edit":
-            let path = arguments["path"]?.asString
-            let search = arguments["search"]?.asString
-            let replace = arguments["replace"]?.asString
-            let details = editPreview(search: search, replace: replace)
-            return (path.map { "path: \($0)" }, details)
-        case "files.write":
-            let path = arguments["path"]?.asString
-            let content = arguments["content"]?.asString
-            let details = content.map { fencedBlock("text", $0, maxCharacters: 4_000) }
-            return (path.map { "path: \($0)" }, details)
-        default:
-            let keys = arguments.keys.sorted()
-            let details = arguments.isEmpty ? nil : fencedBlock("json", prettyJSON(.object(arguments)), maxCharacters: 4_000)
-            return (keys.isEmpty ? nil : keys.joined(separator: ", "), details)
-        }
-    }
-
     private func toolResultDisplay(_ result: AgentToolResultEvent) -> String? {
         var parts: [String] = []
 
@@ -4153,15 +4197,6 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
         }
 
         return parts.isEmpty ? nil : parts.joined(separator: "\n\n")
-    }
-
-    private func editPreview(search: String?, replace: String?) -> String? {
-        guard let search, let replace else {
-            return nil
-        }
-        let removed = search.split(separator: "\n", omittingEmptySubsequences: false).map { "-\(String($0))" }
-        let added = replace.split(separator: "\n", omittingEmptySubsequences: false).map { "+\(String($0))" }
-        return fencedBlock("diff", (removed + added).joined(separator: "\n"), maxCharacters: 6_000)
     }
 
     private func fencedBlock(_ language: String, _ text: String, maxCharacters: Int) -> String {
@@ -4384,6 +4419,18 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
                 lines.append(contentsOf: SloppyTUITheme.buildProgressLines(progress, width: width))
             case .inputRequest(let request):
                 lines.append(contentsOf: renderMarkdown(SloppyTUIPlanInputPicker.requestText(request), width: width))
+            case .workspaceDiff(let branch, let linesAdded, let linesDeleted, let diff, let truncated):
+                lines.append(SloppyTUITheme.workspaceDiffHeaderLine(
+                    branch: branch,
+                    linesAdded: linesAdded,
+                    linesDeleted: linesDeleted,
+                    truncated: truncated,
+                    width: width
+                ))
+                lines.append(contentsOf: SloppyTUITheme.diffLines(
+                    clip(diff, maxCharacters: 18_000),
+                    width: width
+                ))
             case .toolCall(let tool, let reason, let summary, let details):
                 lines.append(SloppyTUITheme.toolCallLine(tool: tool, reason: reason, summary: summary, width: width))
                 if transcriptExpanded, let details, !details.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -4859,6 +4906,7 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
     private func clearLocalCards() {
         cancelLocalCardDismissTasks()
         localCards.removeAll()
+        autoDiffLocalCardID = nil
     }
 
     private func dismissLocalCardsForUserMessage() {

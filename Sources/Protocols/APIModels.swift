@@ -2824,15 +2824,53 @@ public struct AgentToolCatalogEntry: Codable, Sendable, Equatable {
     }
 }
 
+public struct ToolInvocationArgumentDiagnostics: Codable, Sendable, Equatable {
+    public var toolCallId: String?
+    public var providerToolName: String?
+    public var originalToolName: String
+    public var rawArgumentKind: String
+    public var rawArguments: JSONValue?
+    public var decodedArgumentCount: Int
+    public var usedEmptyArgumentsFallback: Bool
+    public var message: String?
+
+    public init(
+        toolCallId: String? = nil,
+        providerToolName: String? = nil,
+        originalToolName: String,
+        rawArgumentKind: String,
+        rawArguments: JSONValue? = nil,
+        decodedArgumentCount: Int,
+        usedEmptyArgumentsFallback: Bool,
+        message: String? = nil
+    ) {
+        self.toolCallId = toolCallId
+        self.providerToolName = providerToolName
+        self.originalToolName = originalToolName
+        self.rawArgumentKind = rawArgumentKind
+        self.rawArguments = rawArguments
+        self.decodedArgumentCount = decodedArgumentCount
+        self.usedEmptyArgumentsFallback = usedEmptyArgumentsFallback
+        self.message = message
+    }
+}
+
 public struct ToolInvocationRequest: Codable, Sendable {
     public var tool: String
     public var arguments: [String: JSONValue]
     public var reason: String?
+    public var argumentDiagnostics: ToolInvocationArgumentDiagnostics?
 
-    public init(tool: String, arguments: [String: JSONValue] = [:], reason: String? = nil) {
+    public init(
+        tool: String,
+        arguments: [String: JSONValue] = [:],
+        reason: String? = nil,
+        argumentDiagnostics: ToolInvocationArgumentDiagnostics? = nil
+    ) {
         self.tool = tool
         self.arguments = arguments
         self.reason = reason
+        self.argumentDiagnostics = argumentDiagnostics
     }
 }
 
@@ -3323,11 +3361,18 @@ public struct AgentToolCallEvent: Codable, Sendable, Equatable {
     public var tool: String
     public var arguments: [String: JSONValue]
     public var reason: String?
+    public var argumentDiagnostics: ToolInvocationArgumentDiagnostics?
 
-    public init(tool: String, arguments: [String: JSONValue], reason: String? = nil) {
+    public init(
+        tool: String,
+        arguments: [String: JSONValue],
+        reason: String? = nil,
+        argumentDiagnostics: ToolInvocationArgumentDiagnostics? = nil
+    ) {
         self.tool = tool
         self.arguments = arguments
         self.reason = reason
+        self.argumentDiagnostics = argumentDiagnostics
     }
 }
 

@@ -294,6 +294,7 @@ enum SloppyTUITheme {
         agent: String,
         model: String,
         mode: AgentChatMode,
+        mcpSummary: SloppyTUIMCPStatusSummary = .empty,
         tipOffset: Int = 0,
         includeFooter: Bool = true
     ) -> [String] {
@@ -313,7 +314,7 @@ enum SloppyTUITheme {
         lines.append(contentsOf: welcomeTipLines(width: width, contentWidth: contentWidth, offset: tipOffset))
         lines.append("")
         if includeFooter {
-            lines.append(welcomeFooter(width: width, cwd: cwd))
+            lines.append(welcomeFooter(width: width, cwd: cwd, mcpSummary: mcpSummary))
         }
         lines.append("")
         return lines
@@ -720,10 +721,10 @@ enum SloppyTUITheme {
 
     static func toolCallLine(tool: String, reason: String?, summary: String?, width: Int) -> String {
         let summaryText = summary?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let args = summaryText?.isEmpty == false ? muted(" · \(summaryText!)") : ""
         let suffix = reason?.trimmingCharacters(in: .whitespacesAndNewlines)
         let reasonText = suffix?.isEmpty == false ? muted(" · \(suffix!)") : ""
-        let line = fittedPaddedBlockLine(blue("tool") + foreground(" \(tool)") + args + reasonText, width: width)
+        let label = summaryText?.isEmpty == false ? summaryText! : tool
+        let line = fittedPaddedBlockLine(blue("✱") + foreground(" \(label)") + reasonText, width: width)
         return applyBackground(padded(line, width: width), width: width, background: toolBackground)
     }
 
@@ -805,6 +806,27 @@ enum SloppyTUITheme {
                 let line = truncateEnd(String(rawLine), maxWidth: contentWidth)
                 return " " + coloredDiffLine(line)
             }
+    }
+
+    static func workspaceDiffHeaderLine(
+        branch: String,
+        linesAdded: Int,
+        linesDeleted: Int,
+        truncated: Bool,
+        width: Int
+    ) -> String {
+        let truncatedText = truncated ? muted(" · truncated") : ""
+        let line = fittedPaddedBlockLine(
+            green("Patched")
+                + foreground(" \(branch)")
+                + muted(" · ")
+                + green("+\(linesAdded)")
+                + muted(" ")
+                + red("-\(linesDeleted)")
+                + truncatedText,
+            width: width
+        )
+        return applyBackground(padded(line, width: width), width: width, background: toolBackground)
     }
 
     private static func coloredDiffLine(_ line: String) -> String {
@@ -1240,8 +1262,8 @@ enum SloppyTUITheme {
         return result
     }
 
-    static func appFooter(width: Int, cwd: String) -> String {
-        welcomeFooter(width: width, cwd: cwd)
+    static func appFooter(width: Int, cwd: String, mcpSummary: SloppyTUIMCPStatusSummary = .empty) -> String {
+        welcomeFooter(width: width, cwd: cwd, mcpSummary: mcpSummary)
     }
 
     private static func interruptBars(frame: Int) -> String {
@@ -1377,11 +1399,14 @@ enum SloppyTUITheme {
         }
     }
 
-    private static func welcomeFooter(width: Int, cwd: String) -> String {
-        let pathWidth = max(1, width - 24)
-        let path = truncateStart(shortPath(cwd), maxWidth: pathWidth)
-        let left = muted(path) + muted("  ") + green("○") + muted(" ") + foreground("1 MCP") + muted("  /status")
+    private static func welcomeFooter(width: Int, cwd: String, mcpSummary: SloppyTUIMCPStatusSummary) -> String {
+        let mcp = mcpFooterStatus(summary: mcpSummary)
+        let mcpSuffix = muted("  ") + mcp.indicator + muted(" ") + foreground(mcp.label) + muted("  /status")
         let right = muted(SloppyVersion.current)
+        let reserved = VisibleWidth.measure(mcpSuffix) + VisibleWidth.measure(right) + 1
+        let pathWidth = max(1, width - reserved)
+        let path = truncateStart(shortPath(cwd), maxWidth: pathWidth)
+        let left = muted(path) + mcpSuffix
         let leftWidth = VisibleWidth.measure(left)
         let rightWidth = VisibleWidth.measure(right)
         guard leftWidth + rightWidth + 1 <= width else {
@@ -1389,6 +1414,85 @@ enum SloppyTUITheme {
         }
         let gap = width - leftWidth - rightWidth
         return left + String(repeating: " ", count: gap) + right
+    }
+
+    static func mcpStatusLine(_ status: MCPServerStatus) -> String {
+        let state: String
+        if !status.enabled {
+            state = "disabled"
+        } else if status.connected {
+            state = "available"
+        } else {
+            state = "unavailable"
+        }
+
+        var exposed: [String] = []
+        if status.exposeTools {
+            exposed.append("tools")
+        }
+        if status.exposeResources {
+            exposed.append("resources")
+        }
+        if status.exposePrompts {
+            exposed.append("prompts")
+        }
+
+        var parts = [
+            state,
+            status.transport,
+            exposed.isEmpty ? "exposes none" : "exposes \(exposed.joined(separator: ", "))",
+        ]
+        if let prefix = trimmedNonEmpty(status.toolPrefix) {
+            parts.append("prefix \(prefix)")
+        }
+        if state == "unavailable", let message = compactMCPStatusMessage(status.message) {
+            parts.append(message)
+        }
+
+        return "- `\(status.id)` - \(parts.joined(separator: " · "))"
+    }
+
+    static func mcpSummaryLine(_ summary: SloppyTUIMCPStatusSummary) -> String {
+        "\(summary.available)/\(summary.total) MCPs available."
+    }
+
+    private static func mcpFooterStatus(summary: SloppyTUIMCPStatusSummary) -> (indicator: String, label: String) {
+        let label = summary.total == 0
+            ? "0 MCPs"
+            : "\(summary.available)/\(summary.total) MCPs"
+
+        if summary.total == 0 {
+            return (muted("○"), label)
+        }
+        if summary.available == summary.total {
+            return (green("○"), label)
+        }
+        if summary.available > 0 {
+            return (yellow("○"), label)
+        }
+        return (red("○"), label)
+    }
+
+    private static func compactMCPStatusMessage(_ message: String?) -> String? {
+        guard let message else { return nil }
+        let line = message
+            .components(separatedBy: .newlines)
+            .lazy
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .first { !$0.isEmpty }
+        guard let line else { return nil }
+        let compact = line
+            .split(whereSeparator: { $0.isWhitespace })
+            .joined(separator: " ")
+        return truncateEnd(compact, maxWidth: 120)
+    }
+
+    private static func trimmedNonEmpty(_ value: String?) -> String? {
+        guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !trimmed.isEmpty else {
+            return nil
+        }
+        return trimmed
     }
 
     private static func applyPanelBackground(_ line: String, width: Int) -> String {

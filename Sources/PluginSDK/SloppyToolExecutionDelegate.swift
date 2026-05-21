@@ -10,15 +10,33 @@ import Protocols
 /// encoded result as structured output back to the session.
 public struct SloppyToolExecutionDelegate: ToolExecutionDelegate {
     public struct ArgumentDiagnostic: Sendable, Equatable {
+        public var toolCallId: String?
         public var toolName: String
+        public var providerToolName: String?
         public var argumentKind: String
+        public var rawArguments: JSONValue?
         public var message: String
 
-        public init(toolName: String, argumentKind: String, message: String) {
+        public init(
+            toolCallId: String? = nil,
+            toolName: String,
+            providerToolName: String? = nil,
+            argumentKind: String,
+            rawArguments: JSONValue? = nil,
+            message: String
+        ) {
+            self.toolCallId = toolCallId
             self.toolName = toolName
+            self.providerToolName = providerToolName
             self.argumentKind = argumentKind
+            self.rawArguments = rawArguments
             self.message = message
         }
+    }
+
+    private struct ArgumentConversion: Sendable {
+        var arguments: [String: JSONValue]
+        var diagnostics: ToolInvocationArgumentDiagnostics
     }
 
     public let toolCallHandler: @Sendable (ToolInvocationRequest) async -> ToolInvocationResult
@@ -54,34 +72,67 @@ public struct SloppyToolExecutionDelegate: ToolExecutionDelegate {
             return override
         }
         let toolName = toolNameMap[toolCall.toolName] ?? toolCall.toolName
-        let arguments = await jsonArguments(from: toolCall.arguments, toolName: toolName)
+        let conversion = await jsonArguments(from: toolCall, toolName: toolName)
         let request = ToolInvocationRequest(
             tool: toolName,
-            arguments: arguments
+            arguments: conversion.arguments,
+            argumentDiagnostics: conversion.diagnostics
         )
         let result = await toolCallHandler(request)
         return .provideOutput([.text(.init(content: encodedResult(result)))])
     }
 
-    private func jsonArguments(from content: GeneratedContent, toolName: String) async -> [String: JSONValue] {
+    private func jsonArguments(from toolCall: Transcript.ToolCall, toolName: String) async -> ArgumentConversion {
+        let content = toolCall.arguments
+        let providerToolName = toolCall.toolName == toolName ? nil : toolCall.toolName
         guard case .structure(let properties, _) = content.kind else {
             let kind = argumentKindDescription(content)
+            let rawArguments = jsonValue(from: content)
             let diagnostic = ArgumentDiagnostic(
+                toolCallId: toolCall.id,
                 toolName: toolName,
+                providerToolName: providerToolName,
                 argumentKind: kind,
+                rawArguments: rawArguments,
                 message: "Native tool call arguments were not an object; using empty arguments."
             )
             Self.logger.warning(
                 "tool_call_arguments_not_object",
                 metadata: [
+                    "tool_call_id": .string(toolCall.id),
                     "tool": .string(toolName),
-                    "argument_kind": .string(kind)
+                    "provider_tool": .string(toolCall.toolName),
+                    "argument_kind": .string(kind),
+                    "raw_arguments": .string(encodedJSONValue(rawArguments))
                 ]
             )
             await argumentDiagnosticsHandler?(diagnostic)
-            return [:]
+            return ArgumentConversion(
+                arguments: [:],
+                diagnostics: ToolInvocationArgumentDiagnostics(
+                    toolCallId: toolCall.id,
+                    providerToolName: providerToolName,
+                    originalToolName: toolName,
+                    rawArgumentKind: kind,
+                    rawArguments: rawArguments,
+                    decodedArgumentCount: 0,
+                    usedEmptyArgumentsFallback: true,
+                    message: diagnostic.message
+                )
+            )
         }
-        return properties.mapValues { jsonValue(from: $0) }
+        let arguments = properties.mapValues { jsonValue(from: $0) }
+        return ArgumentConversion(
+            arguments: arguments,
+            diagnostics: ToolInvocationArgumentDiagnostics(
+                toolCallId: toolCall.id,
+                providerToolName: providerToolName,
+                originalToolName: toolName,
+                rawArgumentKind: "structure",
+                decodedArgumentCount: arguments.count,
+                usedEmptyArgumentsFallback: false
+            )
+        )
     }
 
     private func argumentKindDescription(_ content: GeneratedContent) -> String {
@@ -105,6 +156,17 @@ public struct SloppyToolExecutionDelegate: ToolExecutionDelegate {
         case .structure(let properties, _):
             return .object(properties.mapValues { jsonValue(from: $0) })
         }
+    }
+
+    private func encodedJSONValue(_ value: JSONValue) -> String {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        guard let data = try? encoder.encode(value),
+              let string = String(data: data, encoding: .utf8)
+        else {
+            return "<unencodable>"
+        }
+        return string
     }
 
     public static func encodedResult(_ result: ToolInvocationResult) -> String {

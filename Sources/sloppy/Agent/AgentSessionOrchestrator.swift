@@ -943,7 +943,8 @@ actor AgentSessionOrchestrator {
                     toolCall: AgentToolCallEvent(
                         tool: toolRequest.tool,
                         arguments: toolRequest.arguments,
-                        reason: toolRequest.reason
+                        reason: toolRequest.reason,
+                        argumentDiagnostics: toolRequest.argumentDiagnostics
                     )
                 )
 

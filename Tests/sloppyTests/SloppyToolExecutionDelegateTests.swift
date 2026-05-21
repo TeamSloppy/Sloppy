@@ -52,9 +52,18 @@ struct SloppyToolExecutionDelegateTests {
 
         let invoked = try #require(await capture.value)
         #expect(invoked.arguments.isEmpty)
+        let requestDiagnostics = try #require(invoked.argumentDiagnostics)
+        #expect(requestDiagnostics.toolCallId == "call-2")
+        #expect(requestDiagnostics.originalToolName == "nonexistent.tool")
+        #expect(requestDiagnostics.rawArgumentKind == "string")
+        #expect(requestDiagnostics.rawArguments == .string("some string"))
+        #expect(requestDiagnostics.decodedArgumentCount == 0)
+        #expect(requestDiagnostics.usedEmptyArgumentsFallback)
         let diagnostic = try #require(await diagnostics.value)
+        #expect(diagnostic.toolCallId == "call-2")
         #expect(diagnostic.toolName == "nonexistent.tool")
         #expect(diagnostic.argumentKind == "string")
+        #expect(diagnostic.rawArguments == .string("some string"))
 
         if case .provideOutput(let segments) = decision,
            let first = segments.first,
@@ -136,6 +145,12 @@ struct SloppyToolExecutionDelegateTests {
 
         let invoked = try #require(await capture.value)
         #expect(invoked.tool == "files.read")
+        let diagnostics = try #require(invoked.argumentDiagnostics)
+        #expect(diagnostics.providerToolName == "files_read")
+        #expect(diagnostics.originalToolName == "files.read")
+        #expect(diagnostics.rawArgumentKind == "structure")
+        #expect(diagnostics.decodedArgumentCount == 0)
+        #expect(diagnostics.usedEmptyArgumentsFallback == false)
     }
 
     @Test("Generated tool calls handler receives provider batches")
