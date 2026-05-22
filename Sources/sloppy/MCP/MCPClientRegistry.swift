@@ -126,6 +126,7 @@ actor ManagedMCPStdioTransport: Transport {
     private var process: Process?
     private var inputPipe: Pipe?
     private var outputPipe: Pipe?
+    private var errorPipe: Pipe?
     private var innerTransport: StdioTransport?
     private var relayTask: Task<Void, Never>?
     private let messageStream: AsyncThrowingStream<Data, Error>
@@ -149,10 +150,11 @@ actor ManagedMCPStdioTransport: Transport {
         let environment = childProcessEnvironment()
         let inputPipe = Pipe()
         let outputPipe = Pipe()
+        let errorPipe = Pipe()
         let process = Process()
         process.standardInput = inputPipe
         process.standardOutput = outputPipe
-        process.standardError = FileHandle.standardError
+        process.standardError = errorPipe
 
         if command.hasPrefix("/") || command.hasPrefix(".") || command.contains("/") {
             let executableURL = resolveCommandURL(command, cwd: cwd)
@@ -194,6 +196,7 @@ actor ManagedMCPStdioTransport: Transport {
         self.process = process
         self.inputPipe = inputPipe
         self.outputPipe = outputPipe
+        self.errorPipe = errorPipe
         self.innerTransport = transport
         self.relayTask = Task { [weak self] in
             let stream = await transport.receive()
@@ -222,6 +225,7 @@ actor ManagedMCPStdioTransport: Transport {
         self.process = nil
         self.inputPipe = nil
         self.outputPipe = nil
+        self.errorPipe = nil
         self.innerTransport = nil
         messageContinuation.finish()
     }
@@ -446,7 +450,9 @@ actor MCPClientRegistry {
 
             do {
                 let connection = try connection(for: server.id)
-                try await connection.probe()
+                try await withDiscoveryTimeout(milliseconds: max(250, server.timeoutMs)) {
+                    try await connection.probe()
+                }
                 statuses.append(
                     MCPServerStatus(
                         id: server.id,

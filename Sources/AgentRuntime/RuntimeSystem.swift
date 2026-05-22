@@ -160,6 +160,10 @@ public actor RuntimeSystem {
     /// context overflow or model hot-swap.
     private var bootstrapByChannel: [String: String] = [:]
 
+    /// Durable transcript seed per channel, rebuilt from persisted session events
+    /// by the owner layer when the cached in-memory LLM session is gone.
+    private var recoveryTranscriptByChannel: [String: Transcript] = [:]
+
     /// When set, only these tool names (matching `Tool.name`) are passed to `LanguageModelSession` for the channel.
     private var channelToolAllowList: [String: Set<String>] = [:]
 
@@ -240,6 +244,16 @@ public actor RuntimeSystem {
     /// Removes a cached `LanguageModelSession` so the next turn builds a fresh session (e.g. after tool allowlist changes).
     public func invalidateChannelSession(channelId: String) {
         sessionsByChannel.removeValue(forKey: channelId)
+    }
+
+    /// Seeds the next fresh LLM session for a channel with durable transcript state.
+    /// The seed is ignored while a cached session is still live.
+    public func setChannelRecoveryTranscript(channelId: String, transcript: Transcript?) {
+        guard let transcript, !transcript.isEmpty else {
+            recoveryTranscriptByChannel.removeValue(forKey: channelId)
+            return
+        }
+        recoveryTranscriptByChannel[channelId] = transcript
     }
 
     /// Returns whether the channel currently has an in-memory LLM session.
@@ -1335,7 +1349,18 @@ public actor RuntimeSystem {
         let languageModel = try await modelProvider.createLanguageModel(for: activeModel)
         let tools = sanitizedModelTools(channelId: channelId, modelProvider: modelProvider, includeTools: includeTools)
         let session: LanguageModelSession
-        if let instructions = sessionInstructions(channelId: channelId, modelProvider: modelProvider) {
+        if let recoveryTranscript = recoveryTranscriptByChannel[channelId] {
+            session = LanguageModelSession(
+                model: languageModel,
+                tools: tools,
+                transcript: transcriptWithInstructionsIfNeeded(
+                    recoveryTranscript,
+                    channelId: channelId,
+                    modelProvider: modelProvider,
+                    tools: tools
+                )
+            )
+        } else if let instructions = sessionInstructions(channelId: channelId, modelProvider: modelProvider) {
             session = LanguageModelSession(model: languageModel, tools: tools, instructions: instructions)
         } else {
             session = LanguageModelSession(model: languageModel, tools: tools)
@@ -1347,10 +1372,37 @@ public actor RuntimeSystem {
             metadata: [
                 "channel_id": .string(channelId),
                 "model": .string(activeModel),
-                "has_bootstrap": .string(bootstrapByChannel[channelId] != nil ? "true" : "false")
+                "has_bootstrap": .string(bootstrapByChannel[channelId] != nil ? "true" : "false"),
+                "has_recovery_transcript": .string(recoveryTranscriptByChannel[channelId] != nil ? "true" : "false")
             ]
         )
         return session
+    }
+
+    private func transcriptWithInstructionsIfNeeded(
+        _ transcript: Transcript,
+        channelId: String,
+        modelProvider: any ModelProvider,
+        tools: [any Tool]
+    ) -> Transcript {
+        guard let instructions = sessionInstructions(channelId: channelId, modelProvider: modelProvider) else {
+            return transcript
+        }
+        if let first = transcript.first,
+           case .instructions = first {
+            return transcript
+        }
+
+        var entries: [Transcript.Entry] = [
+            .instructions(Transcript.Instructions(
+                segments: [.text(.init(content: instructions.description))],
+                toolDefinitions: tools
+                    .filter(\.includesSchemaInInstructions)
+                    .map { Transcript.ToolDefinition(tool: $0) }
+            ))
+        ]
+        entries.append(contentsOf: transcript)
+        return Transcript(entries: entries)
     }
 
     /// Creates a fresh session with only the bootstrap prompt and retries the user message.
@@ -1523,6 +1575,7 @@ public actor RuntimeSystem {
     public func discardEphemeralCheckpointChannel(channelId: String) async {
         sessionsByChannel.removeValue(forKey: channelId)
         bootstrapByChannel.removeValue(forKey: channelId)
+        recoveryTranscriptByChannel.removeValue(forKey: channelId)
         await channels.removeChannel(channelId: channelId)
     }
 

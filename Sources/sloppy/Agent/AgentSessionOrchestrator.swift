@@ -153,7 +153,11 @@ actor AgentSessionOrchestrator {
         do {
             let summary = try sessionStore.createSession(agentID: agentID, request: request)
             do {
-                try await ensureSessionContextLoaded(agentID: agentID, sessionID: summary.id)
+                try await ensureSessionContextLoaded(
+                    agentID: agentID,
+                    sessionID: summary.id,
+                    recoverySourceSessionID: Self.recoverySourceSessionID(from: request)
+                )
             } catch {
                 logger.error(
                     "Session context bootstrap failed",
@@ -455,7 +459,11 @@ actor AgentSessionOrchestrator {
                         parentSessionId: sessionID
                     )
                 )
-                try await ensureSessionContextLoaded(agentID: agentID, sessionID: childSummary.id)
+                try await ensureSessionContextLoaded(
+                    agentID: agentID,
+                    sessionID: childSummary.id,
+                    recoverySourceSessionID: sessionID
+                )
             } catch {
                 if let storeError = error as? AgentSessionFileStore.StoreError {
                     throw mapSessionStoreError(storeError)
@@ -841,6 +849,18 @@ actor AgentSessionOrchestrator {
             return header
         }
         return "\(header)\n\n[User request]\n\(trimmed)"
+    }
+
+    private static func recoverySourceSessionID(from request: AgentSessionCreateRequest) -> String? {
+        for candidate in [request.parentSessionId, request.checkpointSessionId] {
+            guard let value = candidate?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !value.isEmpty
+            else {
+                continue
+            }
+            return value
+        }
+        return nil
     }
 
     static func contentWithFriendReminder(_ content: String, documents: AgentDocumentBundle) -> String {
@@ -1386,16 +1406,42 @@ actor AgentSessionOrchestrator {
         return await toolInvoker(agentID, sessionID, request, mode)
     }
 
-    private func ensureSessionContextLoaded(agentID: String, sessionID: String) async throws {
+    private func ensureSessionContextLoaded(
+        agentID: String,
+        sessionID: String,
+        recoverySourceSessionID explicitRecoverySourceSessionID: String? = nil
+    ) async throws {
         let channelID = sessionChannelID(agentID: agentID, sessionID: sessionID)
+        let sessionDetail = try? sessionStore.loadSession(agentID: agentID, sessionID: sessionID)
+        let recoverySourceSessionID = explicitRecoverySourceSessionID
+            ?? sessionDetail?.summary.parentSessionId?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let recoverySourceDetail = recoverySourceSessionID
+            .flatMap { sourceID -> AgentSessionDetail? in
+                guard !sourceID.isEmpty, sourceID != sessionID else {
+                    return nil
+                }
+                return try? sessionStore.loadSession(agentID: agentID, sessionID: sourceID)
+            }
+
         let existingSnapshot = await runtime.channelState(channelId: channelID)
         let existingBootstrapContent = await runtime.channelBootstrapContent(channelId: channelID)
             ?? existingSnapshot?.messages.last(where: {
                 $0.userId == "system" && $0.content.contains(Self.sessionContextBootstrapMarker)
             })?.content
         if let existingBootstrapContent,
-           !bootstrapNeedsConversationHistoryRefresh(existingBootstrapContent, agentID: agentID, sessionID: sessionID) {
+           !bootstrapNeedsConversationHistoryRefresh(
+                existingBootstrapContent,
+                agentID: agentID,
+                sessionID: sessionID,
+                recoverySourceDetail: recoverySourceDetail
+           ) {
             await runtime.setChannelBootstrap(channelId: channelID, content: existingBootstrapContent)
+            await setRecoveryTranscriptIfAvailable(
+                channelID: channelID,
+                currentDetail: sessionDetail,
+                sourceDetail: recoverySourceDetail,
+                clearWhenUnavailable: false
+            )
             logger.debug(
                 "Session context already initialized",
                 metadata: [
@@ -1455,7 +1501,12 @@ actor AgentSessionOrchestrator {
 
         var bootstrapContent = bootstrapPrompt.description
 
-        if let historyContext = buildConversationHistoryContext(agentID: agentID, sessionID: sessionID) {
+        if let historyContext = buildConversationHistoryContext(
+            agentID: agentID,
+            sessionID: sessionID,
+            currentDetail: sessionDetail,
+            sourceDetail: recoverySourceDetail
+        ) {
             bootstrapContent += "\n\n" + historyContext
             logger.info(
                 "Session bootstrap includes conversation history",
@@ -1498,13 +1549,28 @@ actor AgentSessionOrchestrator {
 
         await runtime.appendSystemMessage(channelId: channelID, content: bootstrapContent)
         await runtime.setChannelBootstrap(channelId: channelID, content: bootstrapContent)
+        await setRecoveryTranscriptIfAvailable(
+            channelID: channelID,
+            currentDetail: sessionDetail,
+            sourceDetail: recoverySourceDetail
+        )
     }
 
-    private func bootstrapNeedsConversationHistoryRefresh(_ bootstrap: String, agentID: String, sessionID: String) -> Bool {
+    private func bootstrapNeedsConversationHistoryRefresh(
+        _ bootstrap: String,
+        agentID: String,
+        sessionID: String,
+        recoverySourceDetail: AgentSessionDetail?
+    ) -> Bool {
         guard !bootstrap.contains("[Previous conversation history]") else {
             return false
         }
         return sessionHasPriorMessages(agentID: agentID, sessionID: sessionID)
+            || (recoverySourceDetail.map { source in
+                AgentSessionTranscriptBuilder.hasRecoverableEntries(
+                    AgentSessionTranscriptBuilder.buildRecoveryTranscript(current: source)
+                )
+            } ?? false)
     }
 
     private func fallbackSessionBootstrapContextMessage(
@@ -1665,6 +1731,29 @@ actor AgentSessionOrchestrator {
         }
     }
 
+    private func setRecoveryTranscriptIfAvailable(
+        channelID: String,
+        currentDetail: AgentSessionDetail?,
+        sourceDetail: AgentSessionDetail?,
+        clearWhenUnavailable: Bool = true
+    ) async {
+        guard let currentDetail else {
+            if clearWhenUnavailable {
+                await runtime.setChannelRecoveryTranscript(channelId: channelID, transcript: nil)
+            }
+            return
+        }
+        let transcript = AgentSessionTranscriptBuilder.buildRecoveryTranscript(
+            current: currentDetail,
+            source: sourceDetail
+        )
+        if AgentSessionTranscriptBuilder.hasRecoverableEntries(transcript) {
+            await runtime.setChannelRecoveryTranscript(channelId: channelID, transcript: transcript)
+        } else if clearWhenUnavailable {
+            await runtime.setChannelRecoveryTranscript(channelId: channelID, transcript: nil)
+        }
+    }
+
     func notifySkillsChanged(agentID: String) async {
         let skills = loadInstalledSkills(agentID: agentID)
         let skillsSection: String
@@ -1759,35 +1848,19 @@ actor AgentSessionOrchestrator {
         return bootstrap + "\n" + newSkillsBlock
     }
 
-    private func buildConversationHistoryContext(agentID: String, sessionID: String) -> String? {
-        guard let detail = try? sessionStore.loadSession(agentID: agentID, sessionID: sessionID) else {
+    private func buildConversationHistoryContext(
+        agentID: String,
+        sessionID: String,
+        currentDetail: AgentSessionDetail? = nil,
+        sourceDetail: AgentSessionDetail? = nil
+    ) -> String? {
+        guard let detail = currentDetail ?? (try? sessionStore.loadSession(agentID: agentID, sessionID: sessionID)) else {
             return nil
         }
 
-        let conversationMessages: [(role: String, text: String)] = detail.events.compactMap { event in
-            guard event.type == .message, let message = event.message else {
-                return nil
-            }
-
-            let text = message.segments
-                .filter { $0.kind == .text }
-                .compactMap(\.text)
-                .joined(separator: "\n")
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-
-            guard !text.isEmpty, !text.contains(Self.sessionContextBootstrapMarker) else {
-                return nil
-            }
-
-            switch message.role {
-            case .user:
-                return ("User", text)
-            case .assistant:
-                return ("Assistant", text)
-            case .system:
-                return nil
-            }
-        }
+        let sourceMessages = sourceDetail.map(conversationMessages(from:)) ?? []
+        let currentMessages = conversationMessages(from: detail)
+        let conversationMessages = sourceMessages + currentMessages
 
         guard !conversationMessages.isEmpty else {
             return nil
@@ -1819,6 +1892,33 @@ actor AgentSessionOrchestrator {
         lines.append("[End of previous conversation]")
 
         return lines.joined(separator: "\n")
+    }
+
+    private func conversationMessages(from detail: AgentSessionDetail) -> [(role: String, text: String)] {
+        detail.events.compactMap { event in
+            guard event.type == .message, let message = event.message else {
+                return nil
+            }
+
+            let text = message.segments
+                .filter { $0.kind == .text }
+                .compactMap(\.text)
+                .joined(separator: "\n")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+
+            guard !text.isEmpty, !text.contains(Self.sessionContextBootstrapMarker) else {
+                return nil
+            }
+
+            switch message.role {
+            case .user:
+                return ("User", text)
+            case .assistant:
+                return ("Assistant", text)
+            case .system:
+                return nil
+            }
+        }
     }
 
     private func loadInstalledSkills(agentID: String) -> [InstalledSkill] {

@@ -1299,6 +1299,151 @@ func persistentSessionContextOverflowCreatesNewSession() async {
     #expect(await provider.currentCallCount() == 2)
 }
 
+@Test
+func recoveryTranscriptSeedsOnlyFreshLanguageModelSession() async {
+    let provider = TranscriptCapturingModelProvider(models: ["mock-model"])
+    let system = RuntimeSystem(modelProvider: provider, defaultModel: "mock-model")
+    let channelID = "recovery-seed-channel"
+
+    await system.setChannelRecoveryTranscript(
+        channelId: channelID,
+        transcript: Transcript(entries: [
+            .prompt(Transcript.Prompt(segments: [.text(.init(content: "seeded before first turn"))]))
+        ])
+    )
+
+    _ = await system.postMessage(
+        channelId: channelID,
+        request: ChannelMessageRequest(userId: "u1", content: "first live turn")
+    )
+
+    await system.setChannelRecoveryTranscript(
+        channelId: channelID,
+        transcript: Transcript(entries: [
+            .prompt(Transcript.Prompt(segments: [.text(.init(content: "seeded while cached"))]))
+        ])
+    )
+
+    _ = await system.postMessage(
+        channelId: channelID,
+        request: ChannelMessageRequest(userId: "u1", content: "second live turn")
+    )
+
+    let transcripts = await provider.transcriptsSnapshot()
+    #expect(transcripts.count == 2)
+    #expect(transcripts[0].contains("seeded before first turn"))
+    #expect(transcripts[0].contains("first live turn"))
+    #expect(!transcripts[1].contains("seeded while cached"))
+    #expect(transcripts[1].contains("seeded before first turn"))
+    #expect(transcripts[1].contains("second live turn"))
+}
+
+private actor TranscriptCaptureStore {
+    private var transcripts: [String] = []
+
+    func record(_ transcript: Transcript) {
+        transcripts.append(transcript.map(debugRuntimeTranscriptEntry).joined(separator: "\n"))
+    }
+
+    func snapshot() -> [String] {
+        transcripts
+    }
+}
+
+private func debugRuntimeTranscriptEntry(_ entry: Transcript.Entry) -> String {
+    switch entry {
+    case .instructions(let instructions):
+        return "instructions:\(debugRuntimeTranscriptSegments(instructions.segments))"
+    case .prompt(let prompt):
+        return "prompt:\(debugRuntimeTranscriptSegments(prompt.segments))"
+    case .response(let response):
+        return "response:\(debugRuntimeTranscriptSegments(response.segments))"
+    case .toolCalls(let calls):
+        return "toolCalls:\(calls.map { "\($0.toolName):\($0.arguments.jsonString)" }.joined(separator: "\n"))"
+    case .toolOutput(let output):
+        return "toolOutput:\(output.toolName):\(debugRuntimeTranscriptSegments(output.segments))"
+    }
+}
+
+private func debugRuntimeTranscriptSegments(_ segments: [Transcript.Segment]) -> String {
+    segments.map { segment -> String in
+        switch segment {
+        case .text(let text):
+            return text.content
+        case .structure(let structured):
+            return structured.content.jsonString
+        case .image:
+            return "<image>"
+        }
+    }.joined(separator: "\n")
+}
+
+private struct TranscriptCapturingLanguageModel: LanguageModel {
+    typealias UnavailableReason = Never
+    let store: TranscriptCaptureStore
+
+    func respond<Content>(
+        within session: LanguageModelSession,
+        to prompt: Prompt,
+        generating type: Content.Type,
+        includeSchemaInPrompt: Bool,
+        options: GenerationOptions
+    ) async throws -> LanguageModelSession.Response<Content> where Content: Generable {
+        guard type == String.self else { fatalError("TranscriptCapturingLanguageModel: only String supported") }
+        await store.record(session.transcript)
+        return LanguageModelSession.Response(
+            content: "Captured." as! Content,
+            rawContent: GeneratedContent("Captured."),
+            transcriptEntries: []
+        )
+    }
+
+    func streamResponse<Content>(
+        within session: LanguageModelSession,
+        to prompt: Prompt,
+        generating type: Content.Type,
+        includeSchemaInPrompt: Bool,
+        options: GenerationOptions
+    ) -> sending LanguageModelSession.ResponseStream<Content> where Content: Generable {
+        let stream = AsyncThrowingStream<LanguageModelSession.ResponseStream<Content>.Snapshot, any Error> { continuation in
+            Task {
+                do {
+                    let response = try await respond(
+                        within: session,
+                        to: prompt,
+                        generating: type,
+                        includeSchemaInPrompt: includeSchemaInPrompt,
+                        options: options
+                    )
+                    continuation.yield(.init(content: response.content.asPartiallyGenerated(), rawContent: response.rawContent))
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+        }
+        return LanguageModelSession.ResponseStream(stream: stream)
+    }
+}
+
+private actor TranscriptCapturingModelProvider: ModelProvider {
+    let id: String = "transcript-capturing"
+    let supportedModels: [String]
+    private let store = TranscriptCaptureStore()
+
+    init(models: [String]) {
+        self.supportedModels = models
+    }
+
+    func createLanguageModel(for modelName: String) async throws -> any LanguageModel {
+        TranscriptCapturingLanguageModel(store: store)
+    }
+
+    func transcriptsSnapshot() async -> [String] {
+        await store.snapshot()
+    }
+}
+
 // MARK: - CancellableStreamModelProvider
 
 private actor CancellableStreamState {

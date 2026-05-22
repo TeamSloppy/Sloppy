@@ -11,13 +11,16 @@ private final class MockCallStore: @unchecked Sendable {
     private var _models: [String] = []
     private var _reasoningEfforts: [ReasoningEffort?] = []
     private var _prompts: [String] = []
+    private var _transcripts: [[String]] = []
 
     func recordModel(_ model: String) { lock.withLock { _models.append(model) } }
     func recordEffort(_ effort: ReasoningEffort?) { lock.withLock { _reasoningEfforts.append(effort) } }
     func recordPrompt(_ prompt: Prompt) { lock.withLock { _prompts.append(prompt.description) } }
+    func recordTranscript(_ transcript: Transcript) { lock.withLock { _transcripts.append(transcript.map(debugTranscriptEntry)) } }
     var models: [String] { lock.withLock { _models } }
     var reasoningEfforts: [ReasoningEffort?] { lock.withLock { _reasoningEfforts } }
     var prompts: [String] { lock.withLock { _prompts } }
+    var transcripts: [[String]] { lock.withLock { _transcripts } }
 }
 
 private struct FixedTextLanguageModel: LanguageModel {
@@ -34,6 +37,7 @@ private struct FixedTextLanguageModel: LanguageModel {
     ) async throws -> LanguageModelSession.Response<Content> where Content: Generable {
         guard type == String.self else { fatalError("FixedTextLanguageModel: only String supported") }
         callStore?.recordPrompt(prompt)
+        callStore?.recordTranscript(session.transcript)
         return LanguageModelSession.Response(
             content: text as! Content,
             rawContent: GeneratedContent(text),
@@ -87,6 +91,7 @@ private actor SessionCapturingModelProvider: ModelProvider {
     func requestedModelsSnapshot() -> [String] { callStore.models }
     func requestedReasoningEffortsSnapshot() -> [ReasoningEffort?] { callStore.reasoningEfforts }
     func requestedPromptsSnapshot() -> [String] { callStore.prompts }
+    func requestedTranscriptsSnapshot() -> [[String]] { callStore.transcripts }
 }
 
 private actor FixedOutputModelProvider: ModelProvider {
@@ -192,6 +197,7 @@ private struct ToolCallingLanguageModel: LanguageModel {
     typealias UnavailableReason = Never
     let toolNames: [String]
     let finalText: String
+    var callStore: MockCallStore? = nil
 
     func respond<Content>(
         within session: LanguageModelSession,
@@ -201,6 +207,7 @@ private struct ToolCallingLanguageModel: LanguageModel {
         options: GenerationOptions
     ) async throws -> LanguageModelSession.Response<Content> where Content: Generable {
         guard type == String.self else { fatalError("ToolCallingLanguageModel: only String supported") }
+        callStore?.recordTranscript(session.transcript)
 
         var entries: [Transcript.Entry] = []
         if let delegate = session.toolExecutionDelegate {
@@ -276,6 +283,7 @@ private actor ToolCallingModelProvider: ModelProvider {
     let supportedModels: [String]
     private let toolNames: [String]
     private let finalText: String
+    nonisolated let callStore = MockCallStore()
 
     init(models: [String], toolName: String, finalText: String = "Tool result inspected.") {
         self.supportedModels = models
@@ -290,8 +298,10 @@ private actor ToolCallingModelProvider: ModelProvider {
     }
 
     func createLanguageModel(for modelName: String) async throws -> any LanguageModel {
-        ToolCallingLanguageModel(toolNames: toolNames, finalText: finalText)
+        ToolCallingLanguageModel(toolNames: toolNames, finalText: finalText, callStore: callStore)
     }
+
+    func requestedTranscriptsSnapshot() -> [[String]] { callStore.transcripts }
 }
 
 private actor BlockingToolInvocationGate {
@@ -426,6 +436,34 @@ private func expectedFallbackBootstrapMessage(
 
     \(completionReflection)
     """
+}
+
+private func debugTranscriptEntry(_ entry: Transcript.Entry) -> String {
+    switch entry {
+    case .instructions(let instructions):
+        return "instructions:\(debugTranscriptSegments(instructions.segments))"
+    case .prompt(let prompt):
+        return "prompt:\(debugTranscriptSegments(prompt.segments))"
+    case .response(let response):
+        return "response:\(debugTranscriptSegments(response.segments))"
+    case .toolCalls(let calls):
+        return "toolCalls:\(calls.map { "\($0.toolName):\($0.arguments.jsonString)" }.joined(separator: "\n"))"
+    case .toolOutput(let output):
+        return "toolOutput:\(output.toolName):\(debugTranscriptSegments(output.segments))"
+    }
+}
+
+private func debugTranscriptSegments(_ segments: [Transcript.Segment]) -> String {
+    segments.map { segment -> String in
+        switch segment {
+        case .text(let text):
+            return text.content
+        case .structure(let structured):
+            return structured.content.jsonString
+        case .image:
+            return "<image>"
+        }
+    }.joined(separator: "\n")
 }
 
 @Test
@@ -1414,6 +1452,196 @@ func agentSessionReportsLiveRuntimeSessionOnlyWhileCached() async throws {
 
     await runtime.invalidateChannelSession(channelId: "agent:\(agentID):session:\(session.id)")
     #expect(await orchestrator.hasLiveRuntimeSession(agentID: agentID, sessionID: session.id) == false)
+}
+
+@Test
+func agentSessionRestoresPersistedTranscriptAfterRuntimeSessionInvalidation() async throws {
+    let availableModels = [
+        ProviderModelOption(id: "openai:gpt-5.4-mini", title: "openai:gpt-5.4-mini", capabilities: ["tools"])
+    ]
+    let agentID = "session-restore-agent"
+    let (catalogStore, sessionStore, _) = try makeAgentSessionFixture(
+        agentID: agentID,
+        selectedModel: "openai:gpt-5.4-mini",
+        availableModels: availableModels
+    )
+    let provider = ToolCallingModelProvider(
+        models: availableModels.map(\.id),
+        toolName: "files.list",
+        finalText: "Tool-backed answer."
+    )
+    let runtime = RuntimeSystem(modelProvider: provider, defaultModel: "openai:gpt-5.4-mini")
+    let orchestrator = AgentSessionOrchestrator(
+        runtime: runtime,
+        sessionStore: sessionStore,
+        agentCatalogStore: catalogStore,
+        availableModels: availableModels,
+        toolInvoker: { _, _, request, _ in
+            ToolInvocationResult(tool: request.tool, ok: true, data: .object(["count": .number(1)]))
+        }
+    )
+
+    let session = try await orchestrator.createSession(agentID: agentID, request: AgentSessionCreateRequest())
+    _ = try await orchestrator.postMessage(
+        agentID: agentID,
+        sessionID: session.id,
+        request: AgentSessionPostMessageRequest(userId: "dashboard", content: "inspect files")
+    )
+
+    await runtime.invalidateChannelSession(channelId: "agent:\(agentID):session:\(session.id)")
+
+    _ = try await orchestrator.postMessage(
+        agentID: agentID,
+        sessionID: session.id,
+        request: AgentSessionPostMessageRequest(userId: "dashboard", content: "continue")
+    )
+
+    let transcripts = await provider.requestedTranscriptsSnapshot()
+    let restoredTranscript = transcripts.last?.joined(separator: "\n") ?? ""
+    #expect(restoredTranscript.contains("inspect files"))
+    #expect(restoredTranscript.contains("Tool-backed answer."))
+    #expect(restoredTranscript.contains("toolCalls"))
+    #expect(restoredTranscript.contains("toolOutput"))
+    #expect(restoredTranscript.contains("continue"))
+}
+
+@Test
+func linkedChildSessionStartsWithParentTranscriptContext() async throws {
+    let availableModels = [
+        ProviderModelOption(id: "openai:gpt-5.4-mini", title: "openai:gpt-5.4-mini", capabilities: ["tools"])
+    ]
+    let agentID = "linked-child-restore-agent"
+    let (catalogStore, sessionStore, _) = try makeAgentSessionFixture(
+        agentID: agentID,
+        selectedModel: "openai:gpt-5.4-mini",
+        availableModels: availableModels
+    )
+    let provider = SessionCapturingModelProvider(models: availableModels.map(\.id))
+    let runtime = RuntimeSystem(modelProvider: provider, defaultModel: "openai:gpt-5.4-mini")
+    let orchestrator = AgentSessionOrchestrator(
+        runtime: runtime,
+        sessionStore: sessionStore,
+        agentCatalogStore: catalogStore,
+        availableModels: availableModels
+    )
+
+    let parent = try await orchestrator.createSession(agentID: agentID, request: AgentSessionCreateRequest(title: "Parent"))
+    _ = try await orchestrator.postMessage(
+        agentID: agentID,
+        sessionID: parent.id,
+        request: AgentSessionPostMessageRequest(userId: "dashboard", content: "parent task context")
+    )
+
+    let child = try await orchestrator.createSession(
+        agentID: agentID,
+        request: AgentSessionCreateRequest(title: "Child", parentSessionId: parent.id)
+    )
+    _ = try await orchestrator.postMessage(
+        agentID: agentID,
+        sessionID: child.id,
+        request: AgentSessionPostMessageRequest(userId: "dashboard", content: "child continuation")
+    )
+
+    let transcript = await provider.requestedTranscriptsSnapshot().last?.joined(separator: "\n") ?? ""
+    #expect(transcript.contains("prompt:parent task context"))
+    #expect(transcript.contains("response:Captured."))
+    #expect(transcript.contains("child continuation"))
+}
+
+@Test
+func checkpointSessionStartsWithCheckpointTranscriptContext() async throws {
+    let availableModels = [
+        ProviderModelOption(id: "openai:gpt-5.4-mini", title: "openai:gpt-5.4-mini", capabilities: ["tools"])
+    ]
+    let agentID = "checkpoint-restore-agent"
+    let (catalogStore, sessionStore, _) = try makeAgentSessionFixture(
+        agentID: agentID,
+        selectedModel: "openai:gpt-5.4-mini",
+        availableModels: availableModels
+    )
+    let provider = SessionCapturingModelProvider(models: availableModels.map(\.id))
+    let runtime = RuntimeSystem(modelProvider: provider, defaultModel: "openai:gpt-5.4-mini")
+    let orchestrator = AgentSessionOrchestrator(
+        runtime: runtime,
+        sessionStore: sessionStore,
+        agentCatalogStore: catalogStore,
+        availableModels: availableModels
+    )
+
+    let checkpoint = try await orchestrator.createSession(agentID: agentID, request: AgentSessionCreateRequest(title: "Checkpoint"))
+    _ = try await orchestrator.postMessage(
+        agentID: agentID,
+        sessionID: checkpoint.id,
+        request: AgentSessionPostMessageRequest(userId: "dashboard", content: "checkpoint task context")
+    )
+
+    let next = try await orchestrator.createSession(
+        agentID: agentID,
+        request: AgentSessionCreateRequest(title: "Next", checkpointSessionId: checkpoint.id)
+    )
+    _ = try await orchestrator.postMessage(
+        agentID: agentID,
+        sessionID: next.id,
+        request: AgentSessionPostMessageRequest(userId: "dashboard", content: "after checkpoint")
+    )
+
+    let transcript = await provider.requestedTranscriptsSnapshot().last?.joined(separator: "\n") ?? ""
+    #expect(next.parentSessionId == nil)
+    #expect(transcript.contains("prompt:checkpoint task context"))
+    #expect(transcript.contains("response:Captured."))
+    #expect(transcript.contains("after checkpoint"))
+}
+
+@Test
+func unlinkedFreshSessionDoesNotInheritRecentInterruptedSessionTranscript() async throws {
+    let availableModels = [
+        ProviderModelOption(id: "openai:gpt-5.4-mini", title: "openai:gpt-5.4-mini", capabilities: ["tools"])
+    ]
+    let agentID = "unlinked-no-restore-agent"
+    let (catalogStore, sessionStore, _) = try makeAgentSessionFixture(
+        agentID: agentID,
+        selectedModel: "openai:gpt-5.4-mini",
+        availableModels: availableModels
+    )
+    let provider = SessionCapturingModelProvider(models: availableModels.map(\.id))
+    let runtime = RuntimeSystem(modelProvider: provider, defaultModel: "openai:gpt-5.4-mini")
+    let orchestrator = AgentSessionOrchestrator(
+        runtime: runtime,
+        sessionStore: sessionStore,
+        agentCatalogStore: catalogStore,
+        availableModels: availableModels
+    )
+
+    let interrupted = try await orchestrator.createSession(agentID: agentID, request: AgentSessionCreateRequest(title: "Interrupted"))
+    _ = try sessionStore.appendEvents(
+        agentID: agentID,
+        sessionID: interrupted.id,
+        events: [
+            AgentSessionEvent(
+                agentId: agentID,
+                sessionId: interrupted.id,
+                type: .message,
+                message: AgentSessionMessage(role: .user, segments: [.init(kind: .text, text: "do not leak this context")])
+            ),
+            AgentSessionEvent(
+                agentId: agentID,
+                sessionId: interrupted.id,
+                type: .runStatus,
+                runStatus: AgentRunStatusEvent(stage: .interrupted, label: "Interrupted")
+            )
+        ]
+    )
+
+    let fresh = try await orchestrator.createSession(agentID: agentID, request: AgentSessionCreateRequest(title: "Fresh"))
+    _ = try await orchestrator.postMessage(
+        agentID: agentID,
+        sessionID: fresh.id,
+        request: AgentSessionPostMessageRequest(userId: "dashboard", content: "fresh task")
+    )
+
+    let transcript = await provider.requestedTranscriptsSnapshot().last?.joined(separator: "\n") ?? ""
+    #expect(!transcript.contains("do not leak this context"))
+    #expect(transcript.contains("fresh task"))
 }
 
 @Test

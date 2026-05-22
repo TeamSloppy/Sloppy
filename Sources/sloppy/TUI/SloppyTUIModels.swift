@@ -189,6 +189,40 @@ enum SloppyTUIWorkspaceAccess {
     }
 }
 
+struct SloppyTUIWorkspaceDiffPreview: Equatable {
+    var branch: String
+    var linesAdded: Int
+    var linesDeleted: Int
+    var diff: String
+    var truncated: Bool
+
+    var timelineBlock: SloppyTUITimelineBlock {
+        .workspaceDiff(
+            branch: branch,
+            linesAdded: linesAdded,
+            linesDeleted: linesDeleted,
+            diff: diff,
+            truncated: truncated
+        )
+    }
+}
+
+enum SloppyTUIChatTimelineComposition {
+    static func blocks(
+        sessionBlocks: [SloppyTUITimelineBlock],
+        liveAssistantBlocks: [SloppyTUITimelineBlock],
+        queuedMessageBlocks: [SloppyTUITimelineBlock],
+        workspaceDiffPreview: SloppyTUIWorkspaceDiffPreview?,
+        localCards: [SloppyTUILocalCard]
+    ) -> [SloppyTUITimelineBlock] {
+        sessionBlocks
+            + (workspaceDiffPreview.map { [$0.timelineBlock] } ?? [])
+            + liveAssistantBlocks
+            + queuedMessageBlocks
+            + localCards.map(\.block)
+    }
+}
+
 struct SloppyTUILocalCard {
     var id: Int
     var block: SloppyTUITimelineBlock

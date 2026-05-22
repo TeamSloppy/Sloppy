@@ -349,7 +349,7 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
     private var cumulativeAgentActiveTime: TimeInterval = 0
     private var transientNoticeLine: String?
     private var transientNoticeTask: Task<Void, Never>?
-    private var autoDiffLocalCardID: Int?
+    private var workspaceDiffPreview: SloppyTUIWorkspaceDiffPreview?
     private var lastAgentToolActivityAt: Date?
     private var transcriptExpanded = false
     private var sessionUndoManagers = SloppyTUISessionUndoManagers()
@@ -3799,42 +3799,21 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
             return
         }
 
-        let block = SloppyTUITimelineBlock.workspaceDiff(
+        workspaceDiffPreview = SloppyTUIWorkspaceDiffPreview(
             branch: sourceControl.branch ?? "unknown",
             linesAdded: sourceControl.linesAdded,
             linesDeleted: sourceControl.linesDeleted,
             diff: sourceControl.diff,
             truncated: sourceControl.diffTruncated
         )
-        if let id = autoDiffLocalCardID,
-           let index = localCards.firstIndex(where: { $0.id == id }) {
-            localCards[index].block = block
-        } else {
-            nextLocalCardID += 1
-            let id = nextLocalCardID
-            autoDiffLocalCardID = id
-            localCards.append(SloppyTUILocalCard(id: id, block: block))
-        }
-        if localCards.count > 24 {
-            let removed = localCards.prefix(localCards.count - 24)
-            for card in removed {
-                localCardDismissTasks.removeValue(forKey: card.id)?.cancel()
-                if card.id == autoDiffLocalCardID {
-                    autoDiffLocalCardID = nil
-                }
-            }
-            localCards.removeFirst(localCards.count - 24)
-        }
         renderTimeline()
     }
 
     private func dismissAutoDiffPreview() {
-        guard let id = autoDiffLocalCardID else {
+        guard workspaceDiffPreview != nil else {
             return
         }
-        localCardDismissTasks.removeValue(forKey: id)?.cancel()
-        localCards.removeAll { $0.id == id }
-        autoDiffLocalCardID = nil
+        workspaceDiffPreview = nil
         renderTimeline()
     }
 
@@ -4303,7 +4282,13 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
 
     private func timelineSegments(width: Int) -> [[String]] {
         let sessionTimeline = cachedSessionTimelineLines(width: width)
-        let dynamicBlocks = liveAssistantBlocks() + queuedMessageBlocks() + localCards.map(\.block)
+        let dynamicBlocks = SloppyTUIChatTimelineComposition.blocks(
+            sessionBlocks: [],
+            liveAssistantBlocks: liveAssistantBlocks(),
+            queuedMessageBlocks: queuedMessageBlocks(),
+            workspaceDiffPreview: workspaceDiffPreview,
+            localCards: localCards
+        )
         let dynamicLines = renderTimelineLines(dynamicBlocks, width: width)
         let containsToolTranscriptBlock = sessionTimeline.containsToolTranscriptBlock
             || dynamicBlocks.contains(where: isToolTranscriptBlock)
@@ -4906,7 +4891,7 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
     private func clearLocalCards() {
         cancelLocalCardDismissTasks()
         localCards.removeAll()
-        autoDiffLocalCardID = nil
+        workspaceDiffPreview = nil
     }
 
     private func dismissLocalCardsForUserMessage() {
