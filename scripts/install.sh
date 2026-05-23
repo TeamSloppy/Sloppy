@@ -423,6 +423,7 @@ install_from_github_release() {
     log "Installing command symlinks into $BIN_DIR"
     run_cmd mkdir -p "$BIN_DIR"
     maybe_link_binary "$sloppy_bin" "$BIN_DIR/sloppy"
+    maybe_link_binary "$sloppy_bin" "$BIN_DIR/slop"
   fi
 
   trap - EXIT
@@ -436,7 +437,7 @@ install_from_github_release() {
   if [[ "$NO_LINK" == "1" ]]; then
     log "  CLI: run $LOCAL_ROOT/bin/sloppy"
   else
-    log "  CLI link: $BIN_DIR/sloppy"
+    log "  CLI links: $BIN_DIR/sloppy, $BIN_DIR/slop"
   fi
   log
   log "Next steps:"
@@ -533,6 +534,7 @@ link_binaries() {
   log "Installing command symlinks into $BIN_DIR"
   run_cmd mkdir -p "$BIN_DIR"
   maybe_link_binary "$bin_path/sloppy" "$BIN_DIR/sloppy"
+  maybe_link_binary "$bin_path/sloppy" "$BIN_DIR/slop"
 }
 
 print_summary() {

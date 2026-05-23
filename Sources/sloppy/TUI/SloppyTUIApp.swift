@@ -21,7 +21,7 @@ struct SloppyTUIApp {
     func run() async throws {
         let runtime = try await SloppyTUIBootstrap(configPath: configPath).prepare()
         defer {
-            Task { await runtime.service.shutdownChannelPlugins() }
+            Task { await runtime.service.shutdown() }
         }
 
         let project = try await runtime.service.resolveOrCreateProjectForCurrentDirectory(runtime.cwd)
@@ -120,7 +120,7 @@ struct SloppyTUIApp {
     }
 
     static func resolveLaunchSelection(
-        service: CoreService,
+        service: any SloppyTUIBackend,
         project: ProjectRecord,
         requestedSessionID: String?,
         selection: SloppyTUIState.Selection?,
@@ -168,8 +168,24 @@ struct SloppyTUIApp {
         )
     }
 
-    private static func resolveAgent(
+    static func resolveLaunchSelection(
         service: CoreService,
+        project: ProjectRecord,
+        requestedSessionID: String?,
+        selection: SloppyTUIState.Selection?,
+        agents: [AgentSummary]
+    ) async throws -> SloppyTUILaunchSelection {
+        try await resolveLaunchSelection(
+            service: LocalSloppyTUIBackend(service: service),
+            project: project,
+            requestedSessionID: requestedSessionID,
+            selection: selection,
+            agents: agents
+        )
+    }
+
+    private static func resolveAgent(
+        service: any SloppyTUIBackend,
         preferredID: String?,
         projectActorIDs: [String],
         agents: [AgentSummary]
@@ -198,7 +214,7 @@ struct SloppyTUIApp {
     }
 
     private static func resolveProjectActorAgent(
-        service: CoreService,
+        service: any SloppyTUIBackend,
         projectActorIDs: [String],
         agents: [AgentSummary]
     ) async -> AgentSummary? {
@@ -230,7 +246,7 @@ struct SloppyTUIApp {
     }
 
     private static func resolvePersistedSession(
-        service: CoreService,
+        service: any SloppyTUIBackend,
         agentID: String,
         projectID: String,
         sessionID: String
@@ -245,7 +261,7 @@ struct SloppyTUIApp {
     }
 
     private static func resolveLatestSession(
-        service: CoreService,
+        service: any SloppyTUIBackend,
         agentID: String,
         projectID: String
     ) async -> AgentSessionSummary? {
@@ -259,7 +275,7 @@ struct SloppyTUIApp {
     }
 
     private static func resolveExplicitSession(
-        service: CoreService,
+        service: any SloppyTUIBackend,
         projectID: String,
         sessionID: String,
         agents: [AgentSummary]

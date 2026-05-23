@@ -199,6 +199,43 @@ export function emptyMCPServer() {
   };
 }
 
+export function emptyNode(index = 1) {
+  return {
+    id: `remote-${index}`,
+    title: "",
+    url: "",
+    token: "",
+    tokenEnv: "",
+    enabled: true,
+    kind: "sloppy_instance"
+  };
+}
+
+export function normalizeNode(node, index = 0) {
+  if (typeof node === "string") {
+    const id = String(node || "").trim() || `node-${index + 1}`;
+    return {
+      id,
+      title: id === "local" ? "Local" : id,
+      url: "",
+      token: "",
+      tokenEnv: "",
+      enabled: true,
+      kind: id === "local" ? "local" : "legacy"
+    };
+  }
+  const id = String(node?.id || node?.title || `node-${index + 1}`).trim();
+  return {
+    id,
+    title: String(node?.title || "").trim(),
+    url: String(node?.url || "").trim(),
+    token: String(node?.token || ""),
+    tokenEnv: String(node?.tokenEnv || "").trim(),
+    enabled: node?.enabled == null ? true : Boolean(node.enabled),
+    kind: String(node?.kind || "sloppy_instance").trim() || "sloppy_instance"
+  };
+}
+
 export const EMPTY_CONFIG = {
   listen: { host: "0.0.0.0", port: 25101 },
   workspace: { name: ".sloppy", basePath: "~" },
@@ -250,7 +287,7 @@ export const EMPTY_CONFIG = {
       apiKeyEnv: ""
     }
   },
-  nodes: ["local"],
+  nodes: [normalizeNode("local")],
   gateways: [],
   mcp: {
     servers: []
@@ -755,7 +792,9 @@ export function normalizeConfig(config) {
     normalized.gitSync.conflictStrategy
   );
 
-  normalized.nodes = Array.isArray(config?.nodes) ? config.nodes.filter(Boolean) : [];
+  normalized.nodes = Array.isArray(config?.nodes)
+    ? config.nodes.filter(Boolean).map((node, index) => normalizeNode(node, index))
+    : [];
   normalized.gateways = Array.isArray(config?.gateways) ? config.gateways.filter(Boolean) : [];
   normalized.mcp.servers = Array.isArray(config?.mcp?.servers)
     ? config.mcp.servers.map((server, index) => normalizeMCPServer(server, index))

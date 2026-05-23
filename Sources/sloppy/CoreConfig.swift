@@ -620,6 +620,91 @@ public struct CoreConfig: Codable, Sendable {
         }
     }
 
+    public struct Node: Codable, Sendable, Equatable {
+        public enum Kind: String, Codable, Sendable, Equatable {
+            case local
+            case sloppyInstance = "sloppy_instance"
+            case legacy
+        }
+
+        public var id: String
+        public var title: String
+        public var url: String
+        public var token: String
+        public var tokenEnv: String
+        public var enabled: Bool
+        public var kind: Kind
+
+        public init(
+            id: String,
+            title: String = "",
+            url: String = "",
+            token: String = "",
+            tokenEnv: String = "",
+            enabled: Bool = true,
+            kind: Kind = .sloppyInstance
+        ) {
+            let trimmedID = id.trimmingCharacters(in: .whitespacesAndNewlines)
+            self.id = trimmedID.isEmpty ? "node-\(UUID().uuidString.prefix(8))" : trimmedID
+            self.title = title
+            self.url = url
+            self.token = token
+            self.tokenEnv = tokenEnv
+            self.enabled = enabled
+            self.kind = kind
+        }
+
+        public var displayTitle: String {
+            let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? id : trimmed
+        }
+
+        public var isRemoteSloppyInstance: Bool {
+            kind == .sloppyInstance && !url.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }
+
+        private enum CodingKeys: String, CodingKey {
+            case id
+            case title
+            case url
+            case token
+            case tokenEnv
+            case enabled
+            case kind
+        }
+
+        public init(from decoder: Decoder) throws {
+            if let legacy = try? decoder.singleValueContainer().decode(String.self) {
+                let trimmed = legacy.trimmingCharacters(in: .whitespacesAndNewlines)
+                id = trimmed.isEmpty ? "legacy" : trimmed
+                title = trimmed
+                url = ""
+                token = ""
+                tokenEnv = ""
+                enabled = true
+                kind = trimmed == "local" ? .local : .legacy
+                return
+            }
+
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            id = try container.decodeIfPresent(String.self, forKey: .id) ?? ""
+            title = try container.decodeIfPresent(String.self, forKey: .title) ?? ""
+            url = try container.decodeIfPresent(String.self, forKey: .url) ?? ""
+            token = try container.decodeIfPresent(String.self, forKey: .token) ?? ""
+            tokenEnv = try container.decodeIfPresent(String.self, forKey: .tokenEnv) ?? ""
+            enabled = try container.decodeIfPresent(Bool.self, forKey: .enabled) ?? true
+            kind = try container.decodeIfPresent(Kind.self, forKey: .kind) ?? .sloppyInstance
+
+            let trimmedID = id.trimmingCharacters(in: .whitespacesAndNewlines)
+            if trimmedID.isEmpty {
+                let fallback = title.trimmingCharacters(in: .whitespacesAndNewlines)
+                    .lowercased()
+                    .replacingOccurrences(of: " ", with: "-")
+                id = fallback.isEmpty ? "node-\(UUID().uuidString.prefix(8))" : fallback
+            }
+        }
+    }
+
     public struct Onboarding: Codable, Sendable, Equatable {
         public var completed: Bool
 
@@ -1305,7 +1390,7 @@ public struct CoreConfig: Codable, Sendable {
     public var disableModelInference: Bool
     public var sessionRetention: SessionRetention
     public var memory: Memory
-    public var nodes: [String]
+    public var nodes: [Node]
     public var gateways: [String]
     public var plugins: [PluginConfig]
     public var channels: ChannelConfig
@@ -1332,7 +1417,7 @@ public struct CoreConfig: Codable, Sendable {
         opencode: OpenCode = OpenCode(),
         sessionRetention: SessionRetention = SessionRetention(),
         memory: Memory,
-        nodes: [String],
+        nodes: [Node],
         gateways: [String],
         plugins: [PluginConfig],
         channels: ChannelConfig = ChannelConfig(),
@@ -1400,7 +1485,7 @@ public struct CoreConfig: Codable, Sendable {
             opencode: .init(),
             sessionRetention: .init(),
             memory: .init(backend: "sqlite-local-vectors"),
-            nodes: ["local"],
+            nodes: [.init(id: "local", title: "Local", kind: .local)],
             gateways: [],
             plugins: [],
             channels: .init(),
@@ -1497,7 +1582,7 @@ public struct CoreConfig: Codable, Sendable {
         onboarding = try container.decodeIfPresent(Onboarding.self, forKey: .onboarding) ?? .init()
         memory = try container.decode(Memory.self, forKey: .memory)
         sessionRetention = try container.decodeIfPresent(SessionRetention.self, forKey: .sessionRetention) ?? .init()
-        nodes = try container.decodeIfPresent([String].self, forKey: .nodes) ?? []
+        nodes = try container.decodeIfPresent([Node].self, forKey: .nodes) ?? []
         gateways = try container.decodeIfPresent([String].self, forKey: .gateways) ?? []
         channels = try container.decodeIfPresent(ChannelConfig.self, forKey: .channels) ?? .init()
         gitSync = try container.decodeIfPresent(GitSync.self, forKey: .gitSync) ?? .init()

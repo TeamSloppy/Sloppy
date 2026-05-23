@@ -2,10 +2,65 @@ import React from "react";
 
 export function NodeHostEditor({ draftConfig, mutateDraft, parseLines }) {
   const memoryProviderMode = String(draftConfig.memory?.provider?.mode || "local");
+  const [nodeTestStatus, setNodeTestStatus] = React.useState({});
 
   function parseInteger(value, fallback) {
     const parsed = Number.parseInt(value, 10);
     return Number.isFinite(parsed) ? parsed : fallback;
+  }
+
+  function updateNode(index, patch) {
+    mutateDraft((draft) => {
+      draft.nodes[index] = { ...draft.nodes[index], ...patch };
+    });
+  }
+
+  function addNode() {
+    mutateDraft((draft) => {
+      const nextIndex = Array.isArray(draft.nodes) ? draft.nodes.length + 1 : 1;
+      draft.nodes.push({
+        id: `remote-${nextIndex}`,
+        title: "",
+        url: "",
+        token: "",
+        tokenEnv: "",
+        enabled: true,
+        kind: "sloppy_instance"
+      });
+    });
+  }
+
+  function removeNode(index) {
+    mutateDraft((draft) => {
+      draft.nodes.splice(index, 1);
+    });
+  }
+
+  async function testNode(node, index) {
+    const baseURL = String(node?.url || "").replace(/\/+$/, "");
+    const token = String(node?.token || "").trim();
+    if (!baseURL) {
+      setNodeTestStatus((current) => ({ ...current, [index]: "Enter a URL first." }));
+      return;
+    }
+    setNodeTestStatus((current) => ({ ...current, [index]: "Testing..." }));
+    try {
+      const healthResponse = await fetch(`${baseURL}/health`);
+      if (!healthResponse.ok) {
+        throw new Error(`Health returned ${healthResponse.status}`);
+      }
+      const headers = token ? { Authorization: `Bearer ${token}` } : {};
+      const projectsResponse = await fetch(`${baseURL}/v1/projects`, { headers });
+      if (!projectsResponse.ok) {
+        throw new Error(`Projects returned ${projectsResponse.status}`);
+      }
+      const projects = await projectsResponse.json();
+      const count = Array.isArray(projects) ? projects.length : 0;
+      setNodeTestStatus((current) => ({ ...current, [index]: `Connected · ${count} projects` }));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Connection failed";
+      setNodeTestStatus((current) => ({ ...current, [index]: message }));
+    }
   }
 
   return (
@@ -162,18 +217,89 @@ export function NodeHostEditor({ draftConfig, mutateDraft, parseLines }) {
             }
           />
         </label>
-        <label>
-          Nodes (one per line)
-          <textarea
-            rows={4}
-            value={draftConfig.nodes.join("\n")}
-            onChange={(event) =>
-              mutateDraft((draft) => {
-                draft.nodes = parseLines(event.target.value);
-              })
-            }
-          />
-        </label>
+        <div className="config-node-list">
+          <div className="config-node-list-head">
+            <span>Sloppy Instances</span>
+            <button type="button" className="config-integration-add-button" onClick={addNode}>
+              Add instance
+            </button>
+          </div>
+          {(draftConfig.nodes || []).map((node, index) => {
+            const isLocal = node.kind === "local";
+            const status = nodeTestStatus[index];
+            return (
+              <section className="config-node-entry" key={`${node.id}-${index}`}>
+                <div className="config-node-entry-top">
+                  <label className="config-field-toggle">
+                    <input
+                      type="checkbox"
+                      checked={node.enabled !== false}
+                      disabled={isLocal}
+                      onChange={(event) => updateNode(index, { enabled: event.target.checked })}
+                    />
+                    Enabled
+                  </label>
+                  <span className="config-node-kind">{node.kind || "sloppy_instance"}</span>
+                  {!isLocal ? (
+                    <button type="button" className="entry-danger-button" onClick={() => removeNode(index)}>
+                      Delete
+                    </button>
+                  ) : null}
+                </div>
+                <div className="entry-form-grid">
+                  <label>
+                    ID
+                    <input
+                      value={node.id || ""}
+                      disabled={isLocal}
+                      onChange={(event) => updateNode(index, { id: event.target.value })}
+                    />
+                  </label>
+                  <label>
+                    Title
+                    <input
+                      value={node.title || ""}
+                      disabled={isLocal}
+                      onChange={(event) => updateNode(index, { title: event.target.value })}
+                    />
+                  </label>
+                  <label>
+                    URL
+                    <input
+                      placeholder="https://sloppy.example.com:25101"
+                      value={node.url || ""}
+                      disabled={isLocal}
+                      onChange={(event) => updateNode(index, { url: event.target.value, kind: "sloppy_instance" })}
+                    />
+                  </label>
+                  <label>
+                    Token
+                    <input
+                      value={node.token || ""}
+                      disabled={isLocal}
+                      onChange={(event) => updateNode(index, { token: event.target.value })}
+                    />
+                  </label>
+                  <label>
+                    Token Env
+                    <input
+                      placeholder="SLOPPY_REMOTE_TOKEN"
+                      value={node.tokenEnv || ""}
+                      disabled={isLocal}
+                      onChange={(event) => updateNode(index, { tokenEnv: event.target.value })}
+                    />
+                  </label>
+                  <div className="config-node-test">
+                    <button type="button" disabled={isLocal} onClick={() => testNode(node, index)}>
+                      Test connection
+                    </button>
+                    {status ? <span>{status}</span> : null}
+                  </div>
+                </div>
+              </section>
+            );
+          })}
+        </div>
         <label>
           Gateways (one per line)
           <textarea

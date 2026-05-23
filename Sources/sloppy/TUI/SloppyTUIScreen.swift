@@ -204,6 +204,8 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
         SloppyTUISlashCommand("tasks", "Show project tasks"),
         SloppyTUISlashCommand("mcps", "Show MCP server statuses"),
         SloppyTUISlashCommand("provider", "Configure provider"),
+        SloppyTUISlashCommand("remote", "Switch to a linked Sloppy instance"),
+        SloppyTUISlashCommand("local", "Switch back to the local Sloppy instance"),
         SloppyTUISlashCommand("quit", "Exit TUI"),
     ]
     private static let handledSlashCommandNames: Set<String> = [
@@ -247,6 +249,8 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
         "mcp",
         "provider",
         "providers",
+        "remote",
+        "local",
         "openai-device",
         "anthropic-oauth",
         "anthropic-callback",
@@ -261,6 +265,7 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
     """
 
     private let runtime: SloppyTUIRuntime
+    private var service: any SloppyTUIBackend
     private let logger = Logger(label: "sloppy.tui.screen")
     private let desktopNotificationService = DesktopNotificationService.live()
     private var project: ProjectRecord
@@ -377,6 +382,8 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
     private var sessionTimelineCache: SloppyTUISessionTimelineCache?
     private var sessionReloadGeneration = 0
     private var mcpStatusSummary = SloppyTUIMCPStatusSummary.empty
+    private var pendingRemoteNodes: [String: CoreConfig.Node] = [:]
+    private var pendingRemoteProjectBackend: RemoteSloppyTUIBackend?
 
     init(
         runtime: SloppyTUIRuntime,
@@ -392,6 +399,7 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
         terminal: Terminal
     ) {
         self.runtime = runtime
+        self.service = runtime.service
         self.project = project
         self.agent = agent
         self.session = session
@@ -447,8 +455,9 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
     }
 
     func start() {
-        Task { [runtime] in
-            await runtime.service.waitForStartup()
+        let startupService = service
+        Task {
+            await startupService.waitForStartup()
         }
         if hasPersistedSession {
             Task { @MainActor in
@@ -1733,11 +1742,11 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
                     contentCharacters: content.count
                 ))
                 await Task.yield()
-                var config = await runtime.service.getConfig()
+                var config = await service.getConfig()
                 config.onboarding.completed = true
-                _ = try await runtime.service.updateConfig(config)
+                _ = try await service.updateConfig(config)
             }
-            let config = await runtime.service.getConfig()
+            let config = await service.getConfig()
             updateSendProgress(.init(
                 stage: .sending,
                 attachmentCount: uploads.count,
@@ -1747,7 +1756,7 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
             await Task.yield()
             await waitForCurrentSessionStreamReady()
             markSendTiming("stream_ready")
-            _ = try await runtime.service.postAgentSessionMessage(
+            _ = try await service.postAgentSessionMessage(
                 agentID: agent.id,
                 sessionID: session.id,
                 request: AgentSessionPostMessageRequest(
@@ -1807,7 +1816,7 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
             return nil
         }
 
-        let projectRootPath = ((try? await runtime.service.resolveProjectWorkspaceRoot(projectID: project.id))
+        let projectRootPath = ((try? await service.resolveProjectWorkspaceRoot(projectID: project.id))
             ?? URL(fileURLWithPath: runtime.cwd, isDirectory: true))
             .resolvingSymlinksInPath()
             .standardizedFileURL
@@ -1962,7 +1971,7 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
         let draftDirectoryKey = currentSessionDirectoryKey()
         let draftDirectories = persistedDirectoriesForCurrentSession()
         let checkpointSessionID = pendingDraftCheckpointSessionID
-        session = try await runtime.service.createAgentSession(
+        session = try await service.createAgentSession(
             agentID: agent.id,
             request: AgentSessionCreateRequest(
                 checkpointSessionId: checkpointSessionID,
@@ -1984,11 +1993,11 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
         guard shouldDelete, hasPersistedSession else {
             return
         }
-        guard let detail = try? await runtime.service.getAgentSession(agentID: agent.id, sessionID: session.id),
+        guard let detail = try? await service.getAgentSession(agentID: agent.id, sessionID: session.id),
               detail.summary.messageCount == 0 else {
             return
         }
-        try? await runtime.service.deleteAgentSession(agentID: agent.id, sessionID: session.id)
+        try? await service.deleteAgentSession(agentID: agent.id, sessionID: session.id)
         session = SloppyTUIApp.makeDraftSession(agent: agent, projectID: project.id)
         hasPersistedSession = false
         persistSelection()
@@ -2114,6 +2123,10 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
             } else {
                 await configureProvider(args)
             }
+        case "remote":
+            await handleRemoteCommand(args)
+        case "local":
+            await switchToLocalInstance()
         case "openai-device":
             await startOpenAIDeviceFlow()
         case "anthropic-oauth":
@@ -2170,6 +2183,202 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
         """)
     }
 
+    private func handleRemoteCommand(_ args: [String]) async {
+        if args.first?.lowercased() == "add" {
+            await addRemoteInstanceFromCommand(Array(args.dropFirst()))
+            return
+        }
+        await showRemoteInstancePicker()
+    }
+
+    private func addRemoteInstanceFromCommand(_ args: [String]) async {
+        guard args.count >= 2 else {
+            editor.setText("/remote add ")
+            appendLocalCard("Usage: `/remote add <title> <url> [token]`", autoDismissAfter: 8)
+            requestRender()
+            return
+        }
+        let title = args[0]
+        let url = args[1]
+        let token = args.dropFirst(2).joined(separator: " ")
+        let id = title
+            .lowercased()
+            .filter { $0.isLetter || $0.isNumber || $0 == "-" || $0 == "_" }
+        let node = CoreConfig.Node(
+            id: id.isEmpty ? "remote-\(UUID().uuidString.prefix(8))" : id,
+            title: title,
+            url: url,
+            token: token,
+            enabled: true,
+            kind: .sloppyInstance
+        )
+        do {
+            var config = await runtime.service.getConfig()
+            config.nodes.append(node)
+            _ = try await runtime.service.updateConfig(config)
+            appendLocalCard("Linked remote Sloppy instance `\(node.displayTitle)`.", autoDismissAfter: 8)
+            await showRemoteInstancePicker()
+        } catch {
+            appendLocalCard("Could not save remote instance: \(String(describing: error))")
+        }
+    }
+
+    private func showRemoteInstancePicker() async {
+        let config = await runtime.service.getConfig()
+        pendingRemoteNodes = Dictionary(uniqueKeysWithValues: config.nodes.map { ($0.id, $0) })
+        var items = [
+            SloppyTUIPickerItem(
+                value: "__local",
+                label: "Local instance",
+                description: runtime.configPath,
+                isCurrent: !service.isRemote,
+                group: "Local"
+            )
+        ]
+        let remotes = config.nodes
+            .filter { $0.enabled && $0.isRemoteSloppyInstance }
+            .sorted { $0.displayTitle.localizedCaseInsensitiveCompare($1.displayTitle) == .orderedAscending }
+        items.append(contentsOf: remotes.map { node in
+            SloppyTUIPickerItem(
+                value: node.id,
+                label: node.displayTitle,
+                description: node.url,
+                isCurrent: service.isRemote && service.displayName == node.displayTitle,
+                group: "Remote"
+            )
+        })
+        items.append(
+            SloppyTUIPickerItem(
+                value: "__add",
+                label: "Add Sloppy instance",
+                description: "Fill /remote add <title> <url> [token]",
+                isCurrent: false,
+                group: "Manage"
+            )
+        )
+        activePicker = SloppyTUIPicker(
+            kind: .remoteInstance,
+            title: "Select Sloppy instance",
+            items: items,
+            selectedIndex: 0,
+            allItems: items,
+            supportsSearch: true
+        )
+        refreshStaticChrome(statusLine: "choose instance, Enter to open projects, Esc to cancel")
+    }
+
+    private func applyRemoteInstancePickerItem(_ item: SloppyTUIPickerItem) async {
+        if item.value == "__local" {
+            await switchToLocalInstance()
+            return
+        }
+        if item.value == "__add" {
+            activePicker = nil
+            editor.setText("/remote add ")
+            appendLocalCard("Usage: `/remote add <title> <url> [token]`", autoDismissAfter: 8)
+            requestRender()
+            return
+        }
+        guard let node = pendingRemoteNodes[item.value] else {
+            appendLocalCard("Remote instance is no longer configured.", autoDismissAfter: 8)
+            return
+        }
+        await showRemoteProjectPicker(node: node)
+    }
+
+    private func showRemoteProjectPicker(node: CoreConfig.Node) async {
+        refreshStaticChrome(statusLine: "loading remote projects from \(node.displayTitle)...")
+        let backend = RemoteSloppyTUIBackend(node: node)
+        do {
+            let projects = try await backend.listProjects()
+            guard !projects.isEmpty else {
+                appendLocalCard("Remote instance `\(node.displayTitle)` has no projects.", autoDismissAfter: 8)
+                return
+            }
+            pendingRemoteProjectBackend = backend
+            let items = projects
+                .sorted { $0.updatedAt > $1.updatedAt }
+                .map { project in
+                    SloppyTUIPickerItem(
+                        value: project.id,
+                        label: project.name,
+                        description: "\(project.id) · \(project.updatedAt.formatted(date: .abbreviated, time: .shortened))",
+                        isCurrent: false
+                    )
+                }
+            activePicker = SloppyTUIPicker(
+                kind: .remoteProject,
+                title: "Select remote project",
+                items: items,
+                selectedIndex: 0,
+                allItems: items,
+                supportsSearch: true
+            )
+            refreshStaticChrome(statusLine: "choose remote project, Enter to connect, Esc to cancel")
+        } catch {
+            appendLocalCard("Could not load remote projects from `\(node.displayTitle)`: \(String(describing: error))")
+        }
+    }
+
+    private func applyRemoteProjectPickerItem(_ item: SloppyTUIPickerItem) async {
+        guard let pending = pendingRemoteProjectBackend else {
+            appendLocalCard("Remote instance selection expired.", autoDismissAfter: 8)
+            return
+        }
+        let backend = RemoteSloppyTUIBackend(node: pending.node, projectID: item.value)
+        await switchBackend(backend, projectID: item.value, statusPrefix: "remote \(pending.node.displayTitle)")
+    }
+
+    private func switchToLocalInstance() async {
+        await switchBackend(runtime.service, projectID: nil, statusPrefix: "local")
+    }
+
+    private func switchBackend(_ nextService: any SloppyTUIBackend, projectID: String?, statusPrefix: String) async {
+        streamTask?.cancel()
+        changeTask?.cancel()
+        autoDiffTask?.cancel()
+        projectFileIndexTask?.cancel()
+        projectFileReindexTask?.cancel()
+        pendingRemoteProjectBackend = nil
+        activePicker = nil
+        refreshStaticChrome(statusLine: "switching to \(statusPrefix)...")
+        do {
+            service = nextService
+            if let projectID {
+                project = try await service.getProject(id: projectID)
+            } else {
+                project = try await service.resolveOrCreateProjectForCurrentDirectory(runtime.cwd)
+            }
+            let agents = (try? await service.listAgents(includeSystem: false)) ?? []
+            let resolved = try await SloppyTUIApp.resolveLaunchSelection(
+                service: service,
+                project: project,
+                requestedSessionID: nil,
+                selection: nil,
+                agents: agents
+            )
+            agent = resolved.agent
+            session = resolved.session
+            hasPersistedSession = resolved.hasPersistedSession
+            sessionCards = []
+            subSessionCards = []
+            workspaceDiffPreview = nil
+            projectFileIndex = nil
+            projectFileIndexLookup = nil
+            projectFileRootURL = nil
+            projectFileIndexGeneration += 1
+            loadProjectFileIndex()
+            streamSession()
+            streamChanges()
+            await reloadSession()
+            refreshStaticChrome(statusLine: "connected to \(statusPrefix)")
+            appendLocalCard("Connected to \(statusPrefix) project `\(project.name)`.", autoDismissAfter: 8)
+        } catch {
+            service = runtime.service
+            appendLocalCard("Could not switch Sloppy instance: \(String(describing: error))")
+        }
+    }
+
     private func showQuickReference() {
         appendLocalCard("""
         \(quickReferenceMarkdown())
@@ -2200,7 +2409,7 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
     }
 
     private func refreshMCPStatusSummary() async -> [MCPServerStatus] {
-        let statuses = await runtime.service.listMCPServerStatuses()
+        let statuses = await service.listMCPServerStatuses()
         mcpStatusSummary = SloppyTUIMCPStatusSummary(statuses: statuses)
         refreshStaticChrome()
         return statuses
@@ -2270,10 +2479,10 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
         }
 
         let trimmedExtra = extraInstruction.trimmingCharacters(in: .whitespacesAndNewlines)
-        let hasLiveRuntimeSession = (try? await runtime.service.hasLiveAgentRuntimeSession(
+        let hasLiveRuntimeSession = await service.hasLiveAgentRuntimeSession(
             agentID: agent.id,
             sessionID: session.id
-        )) ?? false
+        )
         await sendMessage(Self.restorePrompt(
             hasLiveRuntimeSession: hasLiveRuntimeSession,
             extraInstruction: trimmedExtra
@@ -2298,8 +2507,11 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
     }
 
     private func makeUndoBaseline() async -> SloppyTUISessionUndoManagers.Baseline? {
+        guard !service.isRemote else {
+            return nil
+        }
         do {
-            let rootURL = try await runtime.service.resolveProjectWorkspaceRoot(projectID: project.id)
+            let rootURL = try await service.resolveProjectWorkspaceRoot(projectID: project.id)
             return sessionUndoManagers.makeBaseline(sessionID: session.id, rootURL: rootURL)
         } catch {
             return nil
@@ -2330,6 +2542,10 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
     }
 
     private func applyUndoRedo(direction: SloppyTUIUndoManager.ApplyDirection) async {
+        guard !service.isRemote else {
+            appendLocalCard("`/undo` and `/redo` are local filesystem actions and are disabled for remote Sloppy instances.", autoDismissAfter: 10)
+            return
+        }
         guard !isPosting else {
             appendLocalCard("A message is in flight. Use `/stop` before changing files with `/undo` or `/redo`.")
             return
@@ -2340,7 +2556,7 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
         }
 
         do {
-            let rootURL = try await runtime.service.resolveProjectWorkspaceRoot(projectID: project.id)
+            let rootURL = try await service.resolveProjectWorkspaceRoot(projectID: project.id)
             let result: SloppyTUIUndoManager.ApplyResult
             switch direction {
             case .undo:
@@ -2399,7 +2615,7 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
             requestRender()
         }
         do {
-            _ = try await runtime.service.controlAgentSession(
+            _ = try await service.controlAgentSession(
                 agentID: agent.id,
                 sessionID: session.id,
                 request: AgentSessionControlRequest(action: .interruptTree, requestedBy: "tui", reason: reason)
@@ -2425,7 +2641,7 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
             return
         }
         do {
-            _ = try await runtime.service.requestAgentMemoryCheckpoint(
+            _ = try await service.requestAgentMemoryCheckpoint(
                 agentID: agent.id,
                 sessionID: session.id,
                 reason: "tui_compact_command"
@@ -2464,7 +2680,7 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
         }
 
         do {
-            let response = try await runtime.service.addAgentSessionDirectory(
+            let response = try await service.addAgentSessionDirectory(
                 agentID: agent.id,
                 sessionID: session.id,
                 request: AgentSessionDirectoryRequest(path: path)
@@ -2561,7 +2777,7 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
         }
         do {
             let titleTail = task.trimmingCharacters(in: .whitespacesAndNewlines)
-            let child = try await runtime.service.createAgentSession(
+            let child = try await service.createAgentSession(
                 agentID: agent.id,
                 request: AgentSessionCreateRequest(
                     title: titleTail.isEmpty ? "Fork of \(SloppyTUITheme.sessionDisplayTitle(session))" : "Fork: \(String(titleTail.prefix(48)))",
@@ -2619,7 +2835,7 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
 
     private func showDiff() async {
         do {
-            let sourceControl = try await runtime.service.projectWorkingTreeSourceControl(projectID: project.id)
+            let sourceControl = try await service.projectWorkingTreeSourceControl(projectID: project.id)
             guard sourceControl.isRepository else {
                 appendLocalCard(sourceControl.message ?? "This project folder is not a source-control repository.")
                 return
@@ -2662,7 +2878,7 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
 
     private func showSkills() async {
         do {
-            let response = try await runtime.service.listAgentSkills(agentID: agent.id)
+            let response = try await service.listAgentSkills(agentID: agent.id)
             guard !response.skills.isEmpty else {
                 appendLocalCard("No enabled skills for `\(agent.displayName)`.", autoDismissAfter: 8)
                 return
@@ -2692,7 +2908,7 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
     }
 
     private func showStatus() async {
-        let config = try? await runtime.service.getAgentConfig(agentID: agent.id)
+        let config = try? await service.getAgentConfig(agentID: agent.id)
         let model = config?.selectedModel ?? selectedModel
         selectedModel = model
         let sessionLines = hasPersistedSession
@@ -2718,7 +2934,7 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
     }
 
     private func showWorkspace() async {
-        let projectRoot = ((try? await runtime.service.resolveProjectWorkspaceRoot(projectID: project.id))
+        let projectRoot = ((try? await service.resolveProjectWorkspaceRoot(projectID: project.id))
             ?? URL(fileURLWithPath: runtime.cwd, isDirectory: true))
             .resolvingSymlinksInPath()
             .standardizedFileURL
@@ -2843,7 +3059,7 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
     }
 
     private func showAgentPicker() async {
-        let agents = (try? await runtime.service.listAgents(includeSystem: false)) ?? []
+        let agents = (try? await service.listAgents(includeSystem: false)) ?? []
         guard !agents.isEmpty else {
             appendLocalCard("No agents available.")
             return
@@ -2866,7 +3082,7 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
     }
 
     private func showSessionPicker() async {
-        let sessions = ((try? await runtime.service.listAgentSessions(agentID: agent.id, projectID: project.id)) ?? [])
+        let sessions = ((try? await service.listAgentSessions(agentID: agent.id, projectID: project.id)) ?? [])
             .sorted { lhs, rhs in
                 if lhs.id == session.id { return true }
                 if rhs.id == session.id { return false }
@@ -2956,7 +3172,7 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
         exitAfterModelSelection = exitAfterSelection
         refreshStaticChrome(statusLine: "loading models from providers...")
         do {
-            let config = try await runtime.service.getAgentConfig(agentID: agent.id)
+            let config = try await service.getAgentConfig(agentID: agent.id)
             let selected = config.selectedModel ?? selectedModel
             selectedModel = selected
             let models = orderedModelsForPicker(
@@ -3015,6 +3231,10 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
             }
         case .providerCatalog:
             await beginProviderSetup(item.value)
+        case .remoteInstance:
+            await applyRemoteInstancePickerItem(item)
+        case .remoteProject:
+            await applyRemoteProjectPickerItem(item)
         case .projectFile:
             applyProjectFileSearchItem(item)
         case .projectTask:
@@ -3045,10 +3265,10 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
             add(option)
         }
 
-        let config = await runtime.service.getConfig()
+        let config = await service.getConfig()
         for entry in config.models where !entry.disabled {
             let definition = providerDefinition(for: entry)
-            let response = await runtime.service.probeProvider(
+            let response = await service.probeProvider(
                 request: ProviderProbeRequest(
                     providerId: definition.probeID,
                     apiKey: entry.apiKey,
@@ -3080,8 +3300,8 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
 
     private func applyModel(_ model: String) async {
         do {
-            let config = try await runtime.service.getAgentConfig(agentID: agent.id)
-            _ = try await runtime.service.updateAgentConfig(
+            let config = try await service.getAgentConfig(agentID: agent.id)
+            _ = try await service.updateAgentConfig(
                 agentID: agent.id,
                 request: AgentConfigUpdateRequest(
                     role: config.role,
@@ -3229,8 +3449,8 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
     }
 
     private func showProviderPicker() async {
-        let config = await runtime.service.getConfig()
-        let agentConfig = try? await runtime.service.getAgentConfig(agentID: agent.id)
+        let config = await service.getConfig()
+        let agentConfig = try? await service.getAgentConfig(agentID: agent.id)
         let selected = agentConfig?.selectedModel ?? selectedModel
         selectedModel = selected
 
@@ -3305,7 +3525,7 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
 
     private func switchAgent(_ agentID: String) async {
         do {
-            let agents = try await runtime.service.listAgents(includeSystem: false)
+            let agents = try await service.listAgents(includeSystem: false)
             guard let nextAgent = agents.first(where: { $0.id == agentID }) else {
                 appendLocalCard("Agent `\(agentID)` is no longer available.")
                 return
@@ -3331,9 +3551,9 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
     }
 
     private func switchSession(_ sessionID: String) async {
-        var sessions = (try? await runtime.service.listAgentSessions(agentID: agent.id, projectID: project.id)) ?? []
+        var sessions = (try? await service.listAgentSessions(agentID: agent.id, projectID: project.id)) ?? []
         if !sessions.contains(where: { $0.id == sessionID }) {
-            sessions = (try? await runtime.service.listAgentSessions(agentID: agent.id)) ?? sessions
+            sessions = (try? await service.listAgentSessions(agentID: agent.id)) ?? sessions
         }
         guard let nextSession = sessions.first(where: { $0.id == sessionID }) else {
             appendLocalCard("Session `\(sessionID)` is no longer available for `\(agent.displayName)`.")
@@ -3366,7 +3586,7 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
             appendLocalCard("Workspace change list will be attached to the next message.")
         case "diff":
             do {
-                let sourceControl = try await runtime.service.projectWorkingTreeSourceControl(projectID: project.id)
+                let sourceControl = try await service.projectWorkingTreeSourceControl(projectID: project.id)
                 guard sourceControl.isRepository, !sourceControl.diff.isEmpty else {
                     appendLocalCard(sourceControl.message ?? "No source-control diff to attach.")
                     return
@@ -3383,7 +3603,7 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
 
     private func showContextUsage() async {
         await refreshTokenUsage(includeCost: false)
-        let config = try? await runtime.service.getAgentConfig(agentID: agent.id)
+        let config = try? await service.getAgentConfig(agentID: agent.id)
         let model = config?.selectedModel ?? selectedModel
         selectedModel = model
         let models = config?.availableModels ?? []
@@ -3397,7 +3617,7 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
             refreshStaticChrome()
         }
 
-        let usage = await runtime.service.listTokenUsage(channelId: currentSessionChannelID())
+        let usage = await service.listTokenUsage(channelId: currentSessionChannelID())
         let summary = SloppyTUIContextUsageSummary(
             modelTitle: option.title,
             modelID: model,
@@ -3439,7 +3659,7 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
         projectTaskAutocompleteTask = Task { [weak self] in
             guard let self else { return }
             do {
-                let refreshed = try await runtime.service.getProject(id: project.id)
+                let refreshed = try await service.getProject(id: project.id)
                 await MainActor.run {
                     self.project = refreshed
                     self.projectTaskGeneration += 1
@@ -3459,7 +3679,7 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
 
     private func showTasks() async {
         do {
-            let refreshed = try await runtime.service.getProject(id: project.id)
+            let refreshed = try await service.getProject(id: project.id)
             project = refreshed
             projectTaskGeneration += 1
             projectTaskSearchCache = nil
@@ -3547,7 +3767,7 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
             appendLocalCard("Enter an API key: `/provider \(definition.id) <api-key> [model]`")
             return
         }
-        var config = await runtime.service.getConfig()
+        var config = await service.getConfig()
         config.workspace.name = CoreConfig.defaultWorkspaceName
         config.workspace.basePath = "~"
         let entry = CoreConfig.ModelConfig(
@@ -3564,7 +3784,7 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
         }
         config.onboarding.completed = false
         do {
-            _ = try await runtime.service.updateConfig(config)
+            _ = try await service.updateConfig(config)
             dismissFirstStartBootstrapCard()
             appendLocalCard("Provider saved as `\(definition.id)`. Use `/model \(definition.runtimeModelID(model ?? definition.model))` if you want to switch the active agent now.")
         } catch {
@@ -3574,7 +3794,7 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
 
     private func startOpenAIDeviceFlow() async {
         do {
-            let response = try await runtime.service.startOpenAIDeviceCode()
+            let response = try await service.startOpenAIDeviceCode()
             appendLocalCard("""
             ## OpenAI Codex device auth
             Open \(response.verificationURL) and enter code `\(response.userCode)`.
@@ -3588,7 +3808,7 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
                     try? await Task.sleep(nanoseconds: UInt64(max(response.interval, 2)) * 1_000_000_000)
                     guard !Task.isCancelled else { break }
                     do {
-                        let poll = try await self.runtime.service.pollOpenAIDeviceCode(
+                        let poll = try await self.service.pollOpenAIDeviceCode(
                             request: .init(deviceAuthId: response.deviceAuthId, userCode: response.userCode)
                         )
                         await MainActor.run {
@@ -3611,7 +3831,7 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
 
     private func startAnthropicOAuth() async {
         do {
-            let response = try await runtime.service.startAnthropicOAuth(
+            let response = try await service.startAnthropicOAuth(
                 request: .init(redirectURI: "http://localhost:54545/oauth/anthropic/callback")
             )
             appendLocalCard("""
@@ -3632,7 +3852,7 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
             return
         }
         do {
-            let response = try await runtime.service.completeAnthropicOAuth(request: .init(callbackURL: callbackURL))
+            let response = try await service.completeAnthropicOAuth(request: .init(callbackURL: callbackURL))
             appendLocalCard(response.message)
         } catch {
             appendLocalCard("Anthropic OAuth failed: \(String(describing: error))")
@@ -3653,7 +3873,7 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
         streamTask = Task { [weak self] in
             guard let self else { return }
             do {
-                let stream = try await self.runtime.service.streamAgentSessionEvents(agentID: self.agent.id, sessionID: self.session.id)
+                let stream = try await self.service.streamAgentSessionEvents(agentID: self.agent.id, sessionID: self.session.id)
                 for await update in stream {
                     guard !Task.isCancelled else { break }
                     await MainActor.run {
@@ -3744,7 +3964,7 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
         changeTask = Task { [weak self] in
             guard let self else { return }
             do {
-                let stream = try await self.runtime.service.streamProjectWorkingTreeChanges(projectID: self.project.id)
+                let stream = try await self.service.streamProjectWorkingTreeChanges(projectID: self.project.id)
                 for await batch in stream {
                     guard !Task.isCancelled else { break }
                     await MainActor.run {
@@ -3769,7 +3989,7 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
             try? await Task.sleep(nanoseconds: 350_000_000)
             guard !Task.isCancelled, let self else { return }
             do {
-                let sourceControl = try await self.runtime.service.projectWorkingTreeSourceControl(projectID: self.project.id)
+                let sourceControl = try await self.service.projectWorkingTreeSourceControl(projectID: self.project.id)
                 await MainActor.run {
                     self.updateAutoDiffPreview(sourceControl)
                 }
@@ -3824,7 +4044,17 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
         projectFileIndexTask = Task { [weak self] in
             guard let self else { return }
             do {
-                let rootURL = try await runtime.service.resolveProjectWorkspaceRoot(projectID: project.id)
+                if service.isRemote {
+                    let entries = try await service.searchProjectFiles(projectID: project.id, query: "", limit: ProjectFileIndex.defaultLimit)
+                    applyProjectFileIndex(ProjectFileIndex(
+                        projectId: project.id,
+                        rootPath: "remote:\(project.id)",
+                        truncated: entries.count >= ProjectFileIndex.defaultLimit,
+                        entries: entries.map { ProjectFileIndexEntry(path: $0.path, type: $0.type) }
+                    ))
+                    return
+                }
+                let rootURL = try await service.resolveProjectWorkspaceRoot(projectID: project.id)
                 projectFileRootURL = rootURL
 
                 let additionalRoots = indexedAdditionalDirectoryURLs(projectRootURL: rootURL)
@@ -3906,7 +4136,7 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
 
     private func reloadSkillSlashCommands() async {
         do {
-            let response = try await runtime.service.buildAgentChatSlashCommands(agentID: agent.id)
+            let response = try await service.buildAgentChatSlashCommands(agentID: agent.id)
             let skills = response.commands
                 .filter { $0.source == "skill" }
                 .compactMap { item -> SloppyTUISlashCommand? in
@@ -3937,7 +4167,7 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
             refreshStaticChrome()
             return
         }
-        let detail = try? await runtime.service.getAgentSession(agentID: reloadAgentID, sessionID: reloadSessionID)
+        let detail = try? await service.getAgentSession(agentID: reloadAgentID, sessionID: reloadSessionID)
         guard reloadGeneration == sessionReloadGeneration,
               hasPersistedSession,
               agent.id == reloadAgentID,
@@ -4006,6 +4236,7 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
             } else if let toolResult = event.toolResult {
                 blocks.append(.toolResult(
                     tool: SloppyTUITimelineDisplay.toolResultTitle(toolResult),
+                    rawTool: toolResult.tool,
                     ok: toolResult.ok,
                     error: toolResult.error?.message,
                     durationMs: toolResult.durationMs,
@@ -4043,7 +4274,7 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
     private func subSessionStatuses(for childSessionIDs: [String]) async -> [String: SloppyTUISubSessionStatus] {
         var statuses: [String: SloppyTUISubSessionStatus] = [:]
         for childSessionID in childSessionIDs {
-            guard let detail = try? await runtime.service.getAgentSession(agentID: agent.id, sessionID: childSessionID) else {
+            guard let detail = try? await service.getAgentSession(agentID: agent.id, sessionID: childSessionID) else {
                 statuses[childSessionID] = .starting
                 continue
             }
@@ -4107,9 +4338,9 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
     }
 
     private func refreshTokenUsage(includeCost: Bool) async {
-        let usage = await runtime.service.listTokenUsage(channelId: currentSessionChannelID())
+        let usage = await service.listTokenUsage(channelId: currentSessionChannelID())
         if includeCost {
-            if let agentUsage = try? await runtime.service.getAgentTokenUsage(agentID: agent.id) {
+            if let agentUsage = try? await service.getAgentTokenUsage(agentID: agent.id) {
                 tokenUsageCostUSD = agentUsage.totalCostUSD
             }
         }
@@ -4421,7 +4652,7 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
                 if transcriptExpanded, let details, !details.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     lines.append(contentsOf: renderMarkdown(details, width: width))
                 }
-            case .toolResult(let tool, let ok, let error, let durationMs, let details):
+            case .toolResult(let tool, _, let ok, let error, let durationMs, let details):
                 lines.append(SloppyTUITheme.toolResultLine(tool: tool, ok: ok, error: error, durationMs: durationMs, width: width))
                 if transcriptExpanded, let details, !details.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     lines.append(contentsOf: renderMarkdown(details, width: width))
@@ -4509,7 +4740,7 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
         refreshStaticChrome(statusLine: busyLabel)
         let undoBaseline = await makeUndoBaseline()
         do {
-            _ = try await runtime.service.answerAgentPlanInput(
+            _ = try await service.answerAgentPlanInput(
                 agentID: agent.id,
                 sessionID: session.id,
                 requestID: request.id,
@@ -4552,19 +4783,19 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
     }
 
     private func appendCompactToolGroup(_ blocks: [SloppyTUITimelineBlock], to lines: inout [String], width: Int) {
-        let visibleLimit = 4
+        let visibleBlocks = SloppyTUIToolTranscriptCompactor.visibleExecutingBlocks(in: blocks)
         lines.append(SloppyTUITheme.toolPaddingLine(width: width))
-        for block in blocks.prefix(visibleLimit) {
+        for block in visibleBlocks {
             switch block {
             case .toolCall(let tool, let reason, let summary, _):
                 lines.append(SloppyTUITheme.toolCallLine(tool: tool, reason: reason, summary: summary, width: width))
-            case .toolResult(let tool, let ok, let error, let durationMs, _):
+            case .toolResult(let tool, _, let ok, let error, let durationMs, _):
                 lines.append(SloppyTUITheme.toolResultLine(tool: tool, ok: ok, error: error, durationMs: durationMs, width: width))
             default:
                 break
             }
         }
-        let hiddenCount = blocks.count - visibleLimit
+        let hiddenCount = blocks.count - visibleBlocks.count
         if hiddenCount > 0 {
             lines.append(SloppyTUITheme.toolOverflowLine(hiddenCount: hiddenCount, width: width))
         }
@@ -5103,7 +5334,7 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
     }
 
     private func refreshSelectedModel() async {
-        let config = try? await runtime.service.getAgentConfig(agentID: agent.id)
+        let config = try? await service.getAgentConfig(agentID: agent.id)
         selectedModel = config?.selectedModel ?? "default"
         selectedModelContextWindowTokens = config.map {
             contextWindowTokens(for: selectedModel, in: $0.availableModels)
@@ -5141,7 +5372,7 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
 
     private func makeExitSummary(now: Date) async -> SloppyTUIExitSummary {
         let detail = hasPersistedSession
-            ? try? await runtime.service.getAgentSession(agentID: agent.id, sessionID: session.id)
+            ? try? await service.getAgentSession(agentID: agent.id, sessionID: session.id)
             : nil
         let events = detail?.events.filter { $0.createdAt >= tuiStartedAt } ?? []
         let resultEvents = events.compactMap(\.toolResult)
@@ -5193,7 +5424,7 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
         isInterruptingRun = true
         refreshStaticChrome(statusLine: "Interrupting active agent run before exit.")
         do {
-            _ = try await runtime.service.controlAgentSession(
+            _ = try await service.controlAgentSession(
                 agentID: agent.id,
                 sessionID: session.id,
                 request: AgentSessionControlRequest(action: .interruptTree, requestedBy: "tui", reason: reason)
@@ -5245,7 +5476,7 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
         var restored: [String] = []
         for directory in persistedDirectoriesForCurrentSession() {
             do {
-                let response = try await runtime.service.addAgentSessionDirectory(
+                let response = try await service.addAgentSessionDirectory(
                     agentID: agent.id,
                     sessionID: session.id,
                     request: AgentSessionDirectoryRequest(path: directory)
@@ -5265,7 +5496,7 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
         var restored: [String] = []
         for directory in directories {
             do {
-                let response = try await runtime.service.addAgentSessionDirectory(
+                let response = try await service.addAgentSessionDirectory(
                     agentID: agent.id,
                     sessionID: session.id,
                     request: AgentSessionDirectoryRequest(path: directory)
@@ -5322,7 +5553,7 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
         if expanded.hasPrefix("/") {
             candidate = URL(fileURLWithPath: expanded, isDirectory: true)
         } else {
-            let root = (try? await runtime.service.resolveProjectWorkspaceRoot(projectID: project.id))
+            let root = (try? await service.resolveProjectWorkspaceRoot(projectID: project.id))
                 ?? URL(fileURLWithPath: runtime.cwd, isDirectory: true)
             candidate = root.appendingPathComponent(expanded, isDirectory: true)
         }
@@ -5599,6 +5830,9 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
     private func projectPathContext(for rawPath: String) async -> String {
         let path = rawPath.trimmingCharacters(in: .whitespacesAndNewlines)
         if path.hasPrefix("/") {
+            if service.isRemote {
+                return "[Attachment failed: \(path)] Absolute local paths are disabled for remote Sloppy instances."
+            }
             return absolutePathContext(for: path)
         }
         let normalizedPath = path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
@@ -5626,11 +5860,24 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
         }
         let manifestLimit = 80
         do {
+            if service.isRemote {
+                let entries = try await service.searchProjectFiles(projectID: project.id, query: path, limit: manifestLimit)
+                let normalized = path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+                let prefix = normalized.isEmpty ? "" : normalized + "/"
+                let lines = entries
+                    .filter { normalized.isEmpty || $0.path == normalized || $0.path.hasPrefix(prefix) }
+                    .map { entry in "- \(entry.path)\(entry.type == .directory ? "/" : "")" }
+                    .joined(separator: "\n")
+                return """
+                [Attached directory: \(normalized)/]
+                \(lines.isEmpty ? "- (empty directory)" : lines)
+                """
+            }
             let rootURL: URL
             if let projectFileRootURL {
                 rootURL = projectFileRootURL
             } else {
-                rootURL = try await runtime.service.resolveProjectWorkspaceRoot(projectID: project.id)
+                rootURL = try await service.resolveProjectWorkspaceRoot(projectID: project.id)
                 projectFileRootURL = rootURL
             }
 
@@ -5721,11 +5968,23 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
     }
 
     private func projectFileReferenceContext(for rawPath: String) async throws -> String {
+        if service.isRemote {
+            let trimmedPath = rawPath.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmedPath.isEmpty else {
+                throw SloppyTUIAttachmentReferenceError.invalidPath
+            }
+            let response = try await service.readProjectFile(projectID: project.id, path: trimmedPath)
+            return SloppyTUIAttachmentContext.fileReferenceBlock(
+                displayPath: response.path,
+                absolutePath: response.path,
+                sizeBytes: response.sizeBytes
+            )
+        }
         let rootURL: URL
         if let projectFileRootURL {
             rootURL = projectFileRootURL
         } else {
-            rootURL = try await runtime.service.resolveProjectWorkspaceRoot(projectID: project.id)
+            rootURL = try await service.resolveProjectWorkspaceRoot(projectID: project.id)
             projectFileRootURL = rootURL
         }
 

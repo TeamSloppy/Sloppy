@@ -9,6 +9,8 @@ enum SloppyTUIPickerKind: Equatable {
     case workspaceAccess
     case provider
     case providerCatalog
+    case remoteInstance
+    case remoteProject
     case projectFile
     case projectTask
     case planInput
@@ -407,7 +409,7 @@ enum SloppyTUITimelineBlock {
     case inputRequest(PlanInputRequest)
     case workspaceDiff(branch: String, linesAdded: Int, linesDeleted: Int, diff: String, truncated: Bool)
     case toolCall(tool: String, reason: String?, summary: String?, details: String?)
-    case toolResult(tool: String, ok: Bool, error: String?, durationMs: Int?, details: String?)
+    case toolResult(tool: String, rawTool: String, ok: Bool, error: String?, durationMs: Int?, details: String?)
 
     var plainText: String {
         switch self {
@@ -430,9 +432,31 @@ enum SloppyTUITimelineBlock {
             return "Patched \(branch) +\(linesAdded) -\(linesDeleted) \(truncated ? "truncated" : "") \(diff)"
         case .toolCall(let tool, let reason, let summary, let details):
             return ([tool] + [summary, reason, details].compactMap { $0 }).joined(separator: " ")
-        case .toolResult(let tool, _, let error, _, let details):
+        case .toolResult(let tool, _, _, let error, _, let details):
             return ([tool] + [error, details].compactMap { $0 }).joined(separator: " ")
         }
+    }
+}
+
+enum SloppyTUIToolTranscriptCompactor {
+    static func visibleExecutingBlocks(in blocks: [SloppyTUITimelineBlock]) -> [SloppyTUITimelineBlock] {
+        var pendingCalls: [(tool: String, block: SloppyTUITimelineBlock)] = []
+
+        for block in blocks {
+            switch block {
+            case .toolCall(let tool, _, _, _):
+                pendingCalls.append((tool: tool, block: block))
+            case .toolResult(_, let rawTool, _, _, _, _):
+                guard let index = pendingCalls.firstIndex(where: { $0.tool == rawTool }) else {
+                    continue
+                }
+                pendingCalls.remove(at: index)
+            default:
+                continue
+            }
+        }
+
+        return pendingCalls.map(\.block)
     }
 }
 

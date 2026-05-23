@@ -3,7 +3,7 @@ import Foundation
 import Logging
 
 struct SloppyTUIRuntime {
-    var service: CoreService
+    var service: any SloppyTUIBackend
     var config: CoreConfig
     var configPath: String
     var workspaceRoot: URL
@@ -74,9 +74,10 @@ struct SloppyTUIBootstrap {
         }
 
         let service = CoreService(config: config, configPath: resolvedConfigPath, currentDirectory: homeDirectory)
+        let backend = LocalSloppyTUIBackend(service: service)
 
         return SloppyTUIRuntime(
-            service: service,
+            service: backend,
             config: config,
             configPath: resolvedConfigPath,
             workspaceRoot: workspaceRoot,

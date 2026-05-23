@@ -48,6 +48,62 @@
   border-radius: 0;
 }
 
+.config-node-list {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 10px;
+}
+
+.config-node-list-head,
+.config-node-entry-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.config-node-list-head {
+  font-weight: 650;
+}
+
+.config-node-entry {
+  border: 1px solid var(--line);
+  background: var(--surface-2);
+  padding: 12px;
+  display: grid;
+  gap: 12px;
+}
+
+.config-node-entry .entry-form-grid {
+  margin: 0;
+}
+
+.config-node-kind {
+  color: var(--muted);
+  font-size: 0.82rem;
+  margin-right: auto;
+}
+
+.config-node-test {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.config-node-test span {
+  color: var(--muted);
+  font-size: 0.84rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.entry-danger-button {
+  color: var(--danger);
+  border-color: rgba(239, 68, 68, 0.28);
+}
+
 .settings-nav {
   flex: 1;
   overflow: auto;

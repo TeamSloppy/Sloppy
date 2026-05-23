@@ -46,6 +46,70 @@ func missingSessionRetentionConfigFallsBackToEnabledThirtyDays() throws {
 }
 
 @Test
+func legacyStringNodesDecodeAsConfigNodes() throws {
+    let json =
+        """
+        {
+          "listen": { "host": "0.0.0.0", "port": 25101 },
+          "auth": { "token": "dev-token" },
+          "models": [],
+          "memory": { "backend": "sqlite-local-vectors" },
+          "nodes": ["local", "lab"],
+          "gateways": [],
+          "plugins": [],
+          "sqlitePath": "core.sqlite"
+        }
+        """
+
+    let decoded = try JSONDecoder().decode(CoreConfig.self, from: Data(json.utf8))
+
+    #expect(decoded.nodes.count == 2)
+    #expect(decoded.nodes[0].id == "local")
+    #expect(decoded.nodes[0].kind == .local)
+    #expect(decoded.nodes[1].id == "lab")
+    #expect(decoded.nodes[1].kind == .legacy)
+}
+
+@Test
+func structuredSloppyInstanceNodeDecodes() throws {
+    let json =
+        """
+        {
+          "listen": { "host": "0.0.0.0", "port": 25101 },
+          "auth": { "token": "dev-token" },
+          "models": [],
+          "memory": { "backend": "sqlite-local-vectors" },
+          "nodes": [
+            {
+              "id": "prod",
+              "title": "Production",
+              "url": "https://sloppy.example.com",
+              "token": "secret",
+              "tokenEnv": "SLOPPY_PROD_TOKEN",
+              "enabled": true,
+              "kind": "sloppy_instance"
+            }
+          ],
+          "gateways": [],
+          "plugins": [],
+          "sqlitePath": "core.sqlite"
+        }
+        """
+
+    let decoded = try JSONDecoder().decode(CoreConfig.self, from: Data(json.utf8))
+    let node = try #require(decoded.nodes.first)
+
+    #expect(node.id == "prod")
+    #expect(node.displayTitle == "Production")
+    #expect(node.url == "https://sloppy.example.com")
+    #expect(node.token == "secret")
+    #expect(node.tokenEnv == "SLOPPY_PROD_TOKEN")
+    #expect(node.enabled)
+    #expect(node.kind == .sloppyInstance)
+    #expect(node.isRemoteSloppyInstance)
+}
+
+@Test
 func sessionRetentionDaysAreClampedToSupportedRange() throws {
     let low = try JSONDecoder().decode(
         CoreConfig.SessionRetention.self,
