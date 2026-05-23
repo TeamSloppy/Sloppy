@@ -1,6 +1,8 @@
 import Foundation
 #if os(Windows)
 import WinSDK
+#elseif canImport(Glibc)
+import Glibc
 #else
 import Darwin
 #endif
