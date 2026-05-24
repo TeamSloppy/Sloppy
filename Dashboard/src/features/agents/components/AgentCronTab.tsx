@@ -5,8 +5,10 @@ import {
     updateAgentCronTask,
     deleteAgentCronTask,
     fetchActorsBoard,
+    fetchChannelSessions,
     sendChannelMessage
 } from "../../../api";
+import { gatewayBindingChannelId, gatewayTopicKey } from "../../../shared/channelGatewayScope";
 
 const WEEKDAYS = [
     { value: "1", label: "Mon" },
@@ -180,6 +182,14 @@ function describeSchedule(form) {
 
 function describeCronExpression(schedule) {
     return describeSchedule(scheduleFieldsFromExpression(schedule));
+}
+
+function describeChannelId(channelId) {
+    const topicKey = gatewayTopicKey(channelId);
+    if (topicKey) {
+        return `Telegram topic ${topicKey}`;
+    }
+    return channelId;
 }
 
 function buildCronPayload(form) {
@@ -386,6 +396,7 @@ function ChannelSearchDropdown({
                             >
                                 <span className="actor-team-dropdown-name">{channel.label}</span>
                                 <span className="actor-team-dropdown-id">{channel.channelId}</span>
+                                {channel.meta ? <span className="actor-team-dropdown-id">{channel.meta}</span> : null}
                             </li>
                         ))
                     )}
@@ -453,7 +464,7 @@ function CronFormModal({
                         ) : hasAvailableChannels ? (
                             <span className="agent-field-note">
                                 {selectedChannel
-                                    ? `Selected channel ID: ${selectedChannel.channelId}`
+                                    ? `${selectedChannel.meta ? `${selectedChannel.meta}: ` : "Selected channel ID: "}${selectedChannel.channelId}`
                                     : "Choose one of the linked channels available to this agent."}
                             </span>
                         ) : (
@@ -510,9 +521,23 @@ function emptyForm() {
     return { ...defaultScheduleFields(), command: "", channelId: "", enabled: true };
 }
 
-function normalizeChannels(board, agentId) {
+function normalizeChannels(board, sessions, agentId) {
     const nodes = Array.isArray(board?.nodes) ? board.nodes : [];
     const byId = new Map();
+
+    function upsertChannel(channelId, label, meta = "") {
+        const trimmedChannelId = String(channelId || "").trim();
+        if (!trimmedChannelId) {
+            return;
+        }
+        const displayName = String(label || "").trim();
+        const existing = byId.get(trimmedChannelId);
+        byId.set(trimmedChannelId, {
+            channelId: trimmedChannelId,
+            label: displayName || existing?.label || trimmedChannelId,
+            meta: meta || existing?.meta || ""
+        });
+    }
 
     for (const node of nodes) {
         if (String(node?.linkedAgentId || "") !== agentId) {
@@ -520,18 +545,32 @@ function normalizeChannels(board, agentId) {
         }
 
         const channelId = String(node?.channelId || "").trim();
-        if (!channelId) {
+        const displayName = String(node?.displayName || "").trim();
+        upsertChannel(channelId, displayName || channelId, "linked channel");
+    }
+
+    for (const session of Array.isArray(sessions) ? sessions : []) {
+        const channelId = String(session?.channelId || "").trim();
+        const topicKey = gatewayTopicKey(channelId);
+        const bindingId = gatewayBindingChannelId(channelId);
+        const binding = byId.get(bindingId);
+        if (!topicKey && !binding) {
             continue;
         }
 
-        const displayName = String(node?.displayName || "").trim();
-        byId.set(channelId, {
-            channelId,
-            label: displayName || channelId
-        });
+        const label = topicKey
+            ? `Telegram topic ${topicKey}${binding?.label ? ` · ${binding.label}` : ""}`
+            : binding?.label || channelId;
+        const meta = topicKey ? `topic ${topicKey}` : "active session";
+        upsertChannel(channelId, label, meta);
     }
 
     return Array.from(byId.values()).sort((left, right) => {
+        const leftTopic = gatewayTopicKey(left.channelId) ? 1 : 0;
+        const rightTopic = gatewayTopicKey(right.channelId) ? 1 : 0;
+        if (leftTopic !== rightTopic) {
+            return rightTopic - leftTopic;
+        }
         const labelCompare = left.label.localeCompare(right.label, undefined, { sensitivity: "base" });
         if (labelCompare !== 0) {
             return labelCompare;
@@ -582,7 +621,10 @@ export function AgentCronTab({ agentId }) {
             ...availableChannels,
             {
                 channelId: form.channelId,
-                label: `${form.channelId} (unlinked)`
+                label: gatewayTopicKey(form.channelId)
+                    ? `Telegram topic ${gatewayTopicKey(form.channelId)}`
+                    : `${form.channelId} (unlinked)`,
+                meta: gatewayTopicKey(form.channelId) ? "saved topic" : "unlinked"
             }
         ];
     }, [availableChannels, form.channelId]);
@@ -593,9 +635,14 @@ export function AgentCronTab({ agentId }) {
         setError("");
 
         try {
-            const [tasksResult, boardResult] = await Promise.all([
+            const [tasksResult, boardResult, sessionsResult] = await Promise.all([
                 fetchAgentCronTasks(agentId),
-                fetchActorsBoard()
+                fetchActorsBoard(),
+                fetchChannelSessions({
+                    status: "open",
+                    agentId,
+                    limit: 100
+                }).catch(() => null)
             ]);
 
             if (!tasksResult) {
@@ -608,7 +655,7 @@ export function AgentCronTab({ agentId }) {
             if (!boardResult) {
                 setAvailableChannels([]);
             } else {
-                setAvailableChannels(normalizeChannels(boardResult, agentId));
+                setAvailableChannels(normalizeChannels(boardResult, sessionsResult, agentId));
             }
         } catch {
             setError("Failed to fetch cron tasks.");
@@ -791,7 +838,7 @@ export function AgentCronTab({ agentId }) {
                                     <span className="cron-task-command">{task.command}</span>
                                     <span className="cron-task-channel">
                                         <span className="material-symbols-rounded" style={{ fontSize: 13 }}>send</span>
-                                        {task.channelId}
+                                        {describeChannelId(task.channelId)}
                                     </span>
                                 </div>
                                 <div className="cron-task-actions">

@@ -18,6 +18,17 @@ export function gatewayBindingChannelId(channelId) {
   return base || raw;
 }
 
+/** Telegram topic key from a scoped channel id, when present. */
+export function gatewayTopicKey(channelId) {
+  const raw = String(channelId || "").trim();
+  const idx = raw.indexOf(NEEDLE);
+  if (idx === -1) {
+    return null;
+  }
+  const topic = raw.slice(idx + NEEDLE.length).trim();
+  return topic || null;
+}
+
 /**
  * Whether an open session belongs to this project/binding channel (exact base or topic under that base).
  */
