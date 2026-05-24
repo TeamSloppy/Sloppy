@@ -196,6 +196,7 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
         SloppyTUISlashCommand("bar", "Change color bar", argument: "color"),
         SloppyTUISlashCommand("copy", "Copy last agent response to clipboard"),
         SloppyTUISlashCommand("diff", "Show changes recorded in the current TUI session"),
+        SloppyTUISlashCommand("plan-web", "Open the latest Plan mode web page"),
         SloppyTUISlashCommand("effort", "Set reasoning effort level", argument: "low|medium|high"),
         SloppyTUISlashCommand("skills", "Show enabled skills"),
         SloppyTUISlashCommand("editor", "Open code editor, optionally choose cursor/xcode/code"),
@@ -243,6 +244,9 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
         "bar",
         "copy",
         "diff",
+        "plan-web",
+        "plans",
+        "open-plan",
         "effort",
         "skills",
         "editor",
@@ -2394,6 +2398,8 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
             copyLastAssistantResponse()
         case "diff":
             await showDiff()
+        case "plan-web", "plans", "open-plan":
+            await openPlanWebPage(planName: args.first)
         case "effort":
             setReasoningEffort(args.first)
         case "skills":
@@ -3443,6 +3449,40 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
             """)
         } catch {
             appendLocalCard("Could not read session diff: \(String(describing: error))")
+        }
+    }
+
+    private func openPlanWebPage(planName: String?) async {
+        guard hasPersistedSession else {
+            appendLocalCard("No session yet. Send a Plan mode message first or open an existing session with `/sessions`.", autoDismissAfter: 8)
+            return
+        }
+
+        do {
+            let detail = try await service.getAgentSession(agentID: agent.id, sessionID: session.id)
+            guard let artifact = SloppyTUIPlanArtifactLookup.resolve(planName, in: detail.events) else {
+                let suffix = planName?.trimmingCharacters(in: .whitespacesAndNewlines)
+                if let suffix, !suffix.isEmpty {
+                    appendLocalCard("No plan web page named `\(suffix)` in this session.", autoDismissAfter: 8)
+                } else {
+                    appendLocalCard("No plan web page in this session yet. Switch to Plan mode with Tab and send a planning request.", autoDismissAfter: 10)
+                }
+                return
+            }
+
+            let target = SloppyTUIPlanWebTargetResolver.target(
+                for: artifact,
+                runtime: runtime,
+                service: service
+            )
+            try SloppyTUIExternalURLOpener.open(target.url)
+            appendLocalCard("""
+            Opened plan web page: `\(artifact.planName)`
+
+            \(target.display)
+            """, autoDismissAfter: 8)
+        } catch {
+            appendLocalCard("Could not open plan web page: \(String(describing: error))", autoDismissAfter: 10)
         }
     }
 
@@ -4893,6 +4933,8 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
                 }
             } else if event.id == latestBuildProgressID, let progress = event.buildProgress {
                 blocks.append(.buildProgress(progress))
+            } else if event.type == .planArtifact, let artifact = event.planArtifact?.artifact {
+                blocks.append(.planArtifact(artifact))
             }
         }
         sessionCards = blocks
@@ -5286,6 +5328,13 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
                 ))
             case .buildProgress(let progress):
                 lines.append(contentsOf: SloppyTUITheme.buildProgressLines(progress, width: width))
+            case .planArtifact(let artifact):
+                lines.append(contentsOf: renderMarkdown("""
+                ## Plan web page
+                `\(artifact.planName)`
+
+                Run `/plan-web` to open it.
+                """, width: width))
             case .inputRequest(let request):
                 lines.append(contentsOf: renderMarkdown(SloppyTUIPlanInputPicker.requestText(request), width: width))
             case .workspaceDiff(let branch, let linesAdded, let linesDeleted, let diff, let truncated):

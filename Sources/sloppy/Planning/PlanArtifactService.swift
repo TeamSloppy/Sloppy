@@ -1024,14 +1024,14 @@ enum PlanMarkdownRenderer {
         value = value.replacingOccurrences(of: #"`([^`]+)`"#, with: "<code>$1</code>", options: .regularExpression)
         value = value.replacingOccurrences(of: #"\*\*([^*]+)\*\*"#, with: "<strong>$1</strong>", options: .regularExpression)
         value = value.replacingOccurrences(of: #"\*([^*]+)\*"#, with: "<em>$1</em>", options: .regularExpression)
-        value = value.replacingOccurrences(
-            of: #"\[([^\]]+)\]\(([^)\s]+)\)"#,
-            with: { match in
-                let label = escapeHTML(match[1])
-                let href = safeURL(match[2])
-                return href.map { "<a href=\"\(escapeAttribute($0))\">\(label)</a>" } ?? label
-            }
-        )
+        value = replaceRegexMatches(
+            in: value,
+            pattern: #"\[([^\]]+)\]\(([^)\s]+)\)"#
+        ) { match in
+            let label = escapeHTML(match[1])
+            let href = safeURL(match[2])
+            return href.map { "<a href=\"\(escapeAttribute($0))\">\(label)</a>" } ?? label
+        }
         return value
     }
 
@@ -1405,26 +1405,25 @@ enum PlanMarkdownRenderer {
         escapeHTML(text)
             .replacingOccurrences(of: "\"", with: "&quot;")
     }
-}
 
-private extension String {
-    func replacingOccurrences(
-        of pattern: String,
-        with replacement: (RegexMatch) -> String
+    private static func replaceRegexMatches(
+        in value: String,
+        pattern: String,
+        transform: (RegexMatch) -> String
     ) -> String {
         guard let regex = try? NSRegularExpression(pattern: pattern) else {
-            return self
+            return value
         }
-        let ns = self as NSString
-        let matches = regex.matches(in: self, range: NSRange(location: 0, length: ns.length))
-        var result = self
+        let ns = value as NSString
+        let matches = regex.matches(in: value, range: NSRange(location: 0, length: ns.length))
+        var result = value
         for match in matches.reversed() {
             var captures: [String] = []
             for index in 0..<match.numberOfRanges {
                 let range = match.range(at: index)
                 captures.append(range.location == NSNotFound ? "" : ns.substring(with: range))
             }
-            result = (result as NSString).replacingCharacters(in: match.range, with: replacement(RegexMatch(values: captures)))
+            result = (result as NSString).replacingCharacters(in: match.range, with: transform(RegexMatch(values: captures)))
         }
         return result
     }

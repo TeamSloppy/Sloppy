@@ -123,6 +123,12 @@
   white-space: nowrap;
 }
 
+.cron-task-schedule-text {
+  font-size: 0.9rem;
+  color: var(--text);
+  font-weight: 600;
+}
+
 .cron-task-command {
   font-size: 0.9rem;
   color: var(--text);
@@ -169,6 +175,135 @@
 
 .cron-form-toggle .agent-tools-switch {
   flex-shrink: 0;
+}
+
+.cron-field-block {
+  display: grid;
+  gap: 7px;
+}
+
+.cron-field-label {
+  color: #a8adbc;
+  font-size: 0.92rem;
+}
+
+.cron-schedule-builder {
+  display: grid;
+  gap: 10px;
+}
+
+.cron-schedule-modes,
+.cron-weekday-picker {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.cron-schedule-modes button,
+.cron-weekday-picker button {
+  min-width: 0;
+  padding: 6px 10px;
+  border-color: var(--line);
+  background: var(--surface-3);
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.cron-schedule-modes button.active,
+.cron-weekday-picker button.active {
+  border-color: var(--accent);
+  background: rgba(var(--accent-rgb, 99, 120, 255), 0.18);
+  color: var(--text);
+}
+
+.cron-schedule-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.cron-schedule-row input {
+  width: 96px;
+}
+
+.cron-schedule-row input[type="time"] {
+  width: 132px;
+}
+
+.cron-weekly-fields {
+  display: grid;
+  gap: 8px;
+}
+
+.cron-schedule-preview {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  background: var(--surface-3);
+  color: var(--muted);
+}
+
+.cron-schedule-preview .material-symbols-rounded {
+  font-size: 16px;
+  color: var(--accent);
+}
+
+.cron-schedule-preview strong {
+  color: var(--text);
+  font-size: 0.88rem;
+}
+
+.cron-schedule-preview code {
+  font-size: 0.78rem;
+  color: var(--accent);
+}
+
+.cron-channel-search .actor-team-search {
+  padding-right: 36px;
+}
+
+.cron-channel-chevron {
+  position: absolute;
+  right: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--muted);
+  pointer-events: none;
+  font-size: 20px;
+}
+
+.cron-modal-actions {
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+
+.cron-modal-main-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.cron-test-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.cron-test-button .material-symbols-rounded {
+  font-size: 16px;
+}
+
+.cron-test-status {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.84rem;
 }
 
 /* ── End Cron Tab ─────────────────────────────────────── */

@@ -4,8 +4,396 @@ import {
     createAgentCronTask,
     updateAgentCronTask,
     deleteAgentCronTask,
-    fetchActorsBoard
+    fetchActorsBoard,
+    sendChannelMessage
 } from "../../../api";
+
+const WEEKDAYS = [
+    { value: "1", label: "Mon" },
+    { value: "2", label: "Tue" },
+    { value: "3", label: "Wed" },
+    { value: "4", label: "Thu" },
+    { value: "5", label: "Fri" },
+    { value: "6", label: "Sat" },
+    { value: "0", label: "Sun" }
+];
+
+const SCHEDULE_MODES = [
+    { value: "interval", label: "Minutes" },
+    { value: "hourly", label: "Hours" },
+    { value: "daily", label: "Daily" },
+    { value: "weekly", label: "Weekly" },
+    { value: "custom", label: "Cron" }
+];
+
+function clampNumber(value, fallback, min, max) {
+    const parsed = Number.parseInt(String(value), 10);
+    if (!Number.isFinite(parsed)) {
+        return fallback;
+    }
+    return Math.min(max, Math.max(min, parsed));
+}
+
+function padNumber(value) {
+    return String(value).padStart(2, "0");
+}
+
+function normalizeTime(value, fallback = "09:00") {
+    const match = String(value || "").match(/^(\d{1,2}):(\d{1,2})$/);
+    if (!match) {
+        return fallback;
+    }
+    const hour = clampNumber(match[1], 9, 0, 23);
+    const minute = clampNumber(match[2], 0, 0, 59);
+    return `${padNumber(hour)}:${padNumber(minute)}`;
+}
+
+function timeParts(value, fallback = "09:00") {
+    const normalized = normalizeTime(value, fallback);
+    const [hour, minute] = normalized.split(":");
+    return {
+        hour: Number.parseInt(hour, 10),
+        minute: Number.parseInt(minute, 10),
+        label: normalized
+    };
+}
+
+function defaultScheduleFields(schedule = "*/5 * * * *") {
+    return {
+        schedule,
+        scheduleMode: "interval",
+        intervalMinutes: "5",
+        hourlyInterval: "1",
+        hourlyMinute: "0",
+        dailyTime: "09:00",
+        weeklyDay: "1",
+        weeklyTime: "09:00"
+    };
+}
+
+function scheduleFieldsFromExpression(schedule) {
+    const expression = String(schedule || "").trim() || "*/5 * * * *";
+    const fallback = { ...defaultScheduleFields(expression), scheduleMode: "custom" };
+    const parts = expression.split(/\s+/).filter(Boolean);
+    if (parts.length !== 5) {
+        return fallback;
+    }
+
+    const [minute, hour, day, month, weekday] = parts;
+    const exactMinute = Number.parseInt(minute, 10);
+    const exactHour = Number.parseInt(hour, 10);
+    const minuteStep = minute === "*" ? 1 : minute.match(/^\*\/(\d+)$/);
+    const hourStep = hour === "*" ? 1 : hour.match(/^\*\/(\d+)$/);
+
+    if ((minuteStep === 1 || minuteStep) && hour === "*" && day === "*" && month === "*" && weekday === "*") {
+        return {
+            ...defaultScheduleFields(expression),
+            scheduleMode: "interval",
+            intervalMinutes: String(minuteStep === 1 ? 1 : clampNumber(minuteStep[1], 5, 1, 59))
+        };
+    }
+
+    if (Number.isFinite(exactMinute) && (hourStep === 1 || hourStep) && day === "*" && month === "*" && weekday === "*") {
+        return {
+            ...defaultScheduleFields(expression),
+            scheduleMode: "hourly",
+            hourlyInterval: String(hourStep === 1 ? 1 : clampNumber(hourStep[1], 1, 1, 23)),
+            hourlyMinute: String(clampNumber(exactMinute, 0, 0, 59))
+        };
+    }
+
+    if (Number.isFinite(exactMinute) && Number.isFinite(exactHour) && day === "*" && month === "*" && weekday === "*") {
+        return {
+            ...defaultScheduleFields(expression),
+            scheduleMode: "daily",
+            dailyTime: `${padNumber(clampNumber(exactHour, 9, 0, 23))}:${padNumber(clampNumber(exactMinute, 0, 0, 59))}`
+        };
+    }
+
+    if (Number.isFinite(exactMinute) && Number.isFinite(exactHour) && day === "*" && month === "*" && /^\d+$/.test(weekday)) {
+        return {
+            ...defaultScheduleFields(expression),
+            scheduleMode: "weekly",
+            weeklyDay: weekday === "7" ? "0" : weekday,
+            weeklyTime: `${padNumber(clampNumber(exactHour, 9, 0, 23))}:${padNumber(clampNumber(exactMinute, 0, 0, 59))}`
+        };
+    }
+
+    return fallback;
+}
+
+function buildScheduleExpression(form) {
+    switch (form.scheduleMode) {
+        case "interval": {
+            const minutes = clampNumber(form.intervalMinutes, 5, 1, 59);
+            return `*/${minutes} * * * *`;
+        }
+        case "hourly": {
+            const hours = clampNumber(form.hourlyInterval, 1, 1, 23);
+            const minute = clampNumber(form.hourlyMinute, 0, 0, 59);
+            return `${minute} ${hours === 1 ? "*" : `*/${hours}`} * * *`;
+        }
+        case "daily": {
+            const time = timeParts(form.dailyTime);
+            return `${time.minute} ${time.hour} * * *`;
+        }
+        case "weekly": {
+            const time = timeParts(form.weeklyTime);
+            const weekday = WEEKDAYS.some((day) => day.value === String(form.weeklyDay)) ? form.weeklyDay : "1";
+            return `${time.minute} ${time.hour} * * ${weekday}`;
+        }
+        case "custom":
+        default:
+            return String(form.schedule || "").trim();
+    }
+}
+
+function plural(value, unit) {
+    return `${value} ${unit}${value === 1 ? "" : "s"}`;
+}
+
+function describeSchedule(form) {
+    switch (form.scheduleMode) {
+        case "interval": {
+            const minutes = clampNumber(form.intervalMinutes, 5, 1, 59);
+            return `Every ${plural(minutes, "minute")}`;
+        }
+        case "hourly": {
+            const hours = clampNumber(form.hourlyInterval, 1, 1, 23);
+            const minute = clampNumber(form.hourlyMinute, 0, 0, 59);
+            return `Every ${plural(hours, "hour")} at :${padNumber(minute)}`;
+        }
+        case "daily": {
+            const time = timeParts(form.dailyTime);
+            return `Every day at ${time.label}`;
+        }
+        case "weekly": {
+            const time = timeParts(form.weeklyTime);
+            const weekday = WEEKDAYS.find((day) => day.value === String(form.weeklyDay))?.label || "Mon";
+            return `Every ${weekday} at ${time.label}`;
+        }
+        case "custom":
+        default:
+            return "Custom cron schedule";
+    }
+}
+
+function describeCronExpression(schedule) {
+    return describeSchedule(scheduleFieldsFromExpression(schedule));
+}
+
+function buildCronPayload(form) {
+    return {
+        schedule: buildScheduleExpression(form),
+        command: form.command,
+        channelId: form.channelId,
+        enabled: form.enabled
+    };
+}
+
+function cronTestContent(command, cronId = "draft") {
+    return `CRON TRIGGER: ${String(command || "").trim()}
+
+Cron metadata:
+- source: cron_test
+- cronTaskId: ${cronId}`;
+}
+
+function CronScheduleBuilder({ form, onFormChange }) {
+    const expression = buildScheduleExpression(form);
+
+    return (
+        <div className="cron-schedule-builder">
+            <div className="cron-schedule-modes" role="tablist" aria-label="Schedule type">
+                {SCHEDULE_MODES.map((mode) => (
+                    <button
+                        key={mode.value}
+                        type="button"
+                        className={form.scheduleMode === mode.value ? "active" : ""}
+                        onClick={() => onFormChange("scheduleMode", mode.value)}
+                    >
+                        {mode.label}
+                    </button>
+                ))}
+            </div>
+
+            {form.scheduleMode === "interval" ? (
+                <div className="cron-schedule-row">
+                    <span>Every</span>
+                    <input
+                        type="number"
+                        min="1"
+                        max="59"
+                        value={form.intervalMinutes}
+                        onChange={(event) => onFormChange("intervalMinutes", event.target.value)}
+                    />
+                    <span>minutes</span>
+                </div>
+            ) : null}
+
+            {form.scheduleMode === "hourly" ? (
+                <div className="cron-schedule-row">
+                    <span>Every</span>
+                    <input
+                        type="number"
+                        min="1"
+                        max="23"
+                        value={form.hourlyInterval}
+                        onChange={(event) => onFormChange("hourlyInterval", event.target.value)}
+                    />
+                    <span>hours at minute</span>
+                    <input
+                        type="number"
+                        min="0"
+                        max="59"
+                        value={form.hourlyMinute}
+                        onChange={(event) => onFormChange("hourlyMinute", event.target.value)}
+                    />
+                </div>
+            ) : null}
+
+            {form.scheduleMode === "daily" ? (
+                <div className="cron-schedule-row">
+                    <span>Every day at</span>
+                    <input
+                        type="time"
+                        value={normalizeTime(form.dailyTime)}
+                        onChange={(event) => onFormChange("dailyTime", event.target.value)}
+                    />
+                </div>
+            ) : null}
+
+            {form.scheduleMode === "weekly" ? (
+                <div className="cron-weekly-fields">
+                    <div className="cron-weekday-picker" role="group" aria-label="Weekday">
+                        {WEEKDAYS.map((day) => (
+                            <button
+                                key={day.value}
+                                type="button"
+                                className={String(form.weeklyDay) === day.value ? "active" : ""}
+                                onClick={() => onFormChange("weeklyDay", day.value)}
+                            >
+                                {day.label}
+                            </button>
+                        ))}
+                    </div>
+                    <div className="cron-schedule-row">
+                        <span>At</span>
+                        <input
+                            type="time"
+                            value={normalizeTime(form.weeklyTime)}
+                            onChange={(event) => onFormChange("weeklyTime", event.target.value)}
+                        />
+                    </div>
+                </div>
+            ) : null}
+
+            {form.scheduleMode === "custom" ? (
+                <input
+                    value={form.schedule}
+                    onChange={(event) => onFormChange("schedule", event.target.value)}
+                    placeholder="*/5 * * * *"
+                    autoFocus
+                />
+            ) : null}
+
+            <div className="cron-schedule-preview">
+                <span className="material-symbols-rounded" aria-hidden="true">schedule</span>
+                <strong>{describeSchedule(form)}</strong>
+                <code>{expression || "—"}</code>
+            </div>
+        </div>
+    );
+}
+
+function ChannelSearchDropdown({
+    availableChannels,
+    selectedChannelId,
+    isLoadingChannels,
+    onSelect
+}) {
+    const [query, setQuery] = useState("");
+    const [isOpen, setIsOpen] = useState(false);
+    const selectedChannel = availableChannels.find((channel) => channel.channelId === selectedChannelId) || null;
+
+    useEffect(() => {
+        if (!isOpen) {
+            setQuery(selectedChannel?.label || selectedChannelId || "");
+        }
+    }, [isOpen, selectedChannel?.label, selectedChannelId]);
+
+    const filteredChannels = useMemo(() => {
+        const normalizedQuery = query.trim().toLowerCase();
+        if (!normalizedQuery) {
+            return availableChannels;
+        }
+
+        return availableChannels.filter((channel) => {
+            const label = String(channel.label || "").toLowerCase();
+            const channelId = String(channel.channelId || "").toLowerCase();
+            return label.includes(normalizedQuery) || channelId.includes(normalizedQuery);
+        });
+    }, [availableChannels, query]);
+
+    function chooseChannel(channel) {
+        onSelect(channel.channelId);
+        setQuery(channel.label || channel.channelId);
+        setIsOpen(false);
+    }
+
+    function handleKeyDown(event) {
+        if (event.key === "Escape") {
+            setIsOpen(false);
+            return;
+        }
+
+        if (event.key === "Enter" && isOpen && filteredChannels.length > 0) {
+            event.preventDefault();
+            chooseChannel(filteredChannels[0]);
+        }
+    }
+
+    return (
+        <div className="actor-team-search-wrap cron-channel-search">
+            <input
+                className="actor-team-search"
+                value={query}
+                onChange={(event) => {
+                    setQuery(event.target.value);
+                    setIsOpen(true);
+                }}
+                onFocus={() => setIsOpen(true)}
+                onBlur={() => setTimeout(() => setIsOpen(false), 150)}
+                onKeyDown={handleKeyDown}
+                placeholder={isLoadingChannels ? "Loading channels..." : "Search channels..."}
+                disabled={isLoadingChannels || availableChannels.length === 0}
+                autoComplete="off"
+            />
+            <span className="material-symbols-rounded cron-channel-chevron" aria-hidden="true">expand_more</span>
+            {isOpen ? (
+                <ul className="actor-team-dropdown">
+                    {filteredChannels.length === 0 ? (
+                        <li className="actor-team-dropdown-empty">No matching channels</li>
+                    ) : (
+                        filteredChannels.map((channel) => (
+                            <li
+                                key={channel.channelId}
+                                className={`actor-team-dropdown-item ${channel.channelId === selectedChannelId ? "selected" : ""}`}
+                                onMouseDown={(event) => {
+                                    event.preventDefault();
+                                    chooseChannel(channel);
+                                }}
+                            >
+                                <span className="actor-team-dropdown-name">{channel.label}</span>
+                                <span className="actor-team-dropdown-id">{channel.channelId}</span>
+                            </li>
+                        ))
+                    )}
+                </ul>
+            ) : null}
+        </div>
+    );
+}
 
 function CronFormModal({
     isOpen,
@@ -13,8 +401,11 @@ function CronFormModal({
     form,
     availableChannels,
     isLoadingChannels,
+    isTesting,
+    testStatus,
     onFormChange,
     onClose,
+    onTest,
     onSubmit
 }) {
     if (!isOpen) {
@@ -35,15 +426,10 @@ function CronFormModal({
                 </div>
 
                 <form className="project-task-form" onSubmit={onSubmit}>
-                    <label>
-                        Schedule (Cron expression)
-                        <input
-                            value={form.schedule}
-                            onChange={(e) => onFormChange("schedule", e.target.value)}
-                            placeholder="*/5 * * * *"
-                            autoFocus
-                        />
-                    </label>
+                    <div className="cron-field-block">
+                        <span className="cron-field-label">Schedule</span>
+                        <CronScheduleBuilder form={form} onFormChange={onFormChange} />
+                    </div>
 
                     <label>
                         Command
@@ -54,25 +440,14 @@ function CronFormModal({
                         />
                     </label>
 
-                    <label>
-                        Channel ID
-                        <div className="tg-select-wrap">
-                            <select
-                                value={form.channelId}
-                                onChange={(e) => onFormChange("channelId", e.target.value)}
-                                disabled={isLoadingChannels || !hasAvailableChannels}
-                            >
-                                <option value="">
-                                    {isLoadingChannels ? "Loading channels..." : "Select a channel"}
-                                </option>
-                                {availableChannels.map((channel) => (
-                                    <option key={channel.channelId} value={channel.channelId}>
-                                        {channel.label}
-                                    </option>
-                                ))}
-                            </select>
-                            <span className="material-symbols-rounded tg-select-chevron">expand_more</span>
-                        </div>
+                    <div className="cron-field-block">
+                        <span className="cron-field-label">Channel</span>
+                        <ChannelSearchDropdown
+                            availableChannels={availableChannels}
+                            selectedChannelId={form.channelId}
+                            isLoadingChannels={isLoadingChannels}
+                            onSelect={(channelId) => onFormChange("channelId", channelId)}
+                        />
                         {isLoadingChannels ? (
                             <span className="agent-field-note">Loading agent channels...</span>
                         ) : hasAvailableChannels ? (
@@ -86,7 +461,7 @@ function CronFormModal({
                                 No linked channels found for this agent. Add one in the Channels tab first.
                             </span>
                         )}
-                    </label>
+                    </div>
 
                     <label className="cron-form-toggle">
                         <span>Enabled</span>
@@ -100,17 +475,30 @@ function CronFormModal({
                         </span>
                     </label>
 
-                    <div className="project-modal-actions">
-                        <button type="button" onClick={onClose}>
-                            Cancel
-                        </button>
+                    {testStatus ? <p className="cron-test-status">{testStatus}</p> : null}
+
+                    <div className="project-modal-actions cron-modal-actions">
                         <button
-                            type="submit"
-                            className="project-primary hover-levitate"
-                            disabled={!form.schedule.trim() || !form.command.trim() || !form.channelId.trim()}
+                            type="button"
+                            className="cron-test-button"
+                            onClick={onTest}
+                            disabled={!buildScheduleExpression(form).trim() || !form.command.trim() || !form.channelId.trim() || isTesting}
                         >
-                            {editingId ? "Save Changes" : "Create Job"}
+                            <span className="material-symbols-rounded" aria-hidden="true">science</span>
+                            {isTesting ? "Testing..." : "Test"}
                         </button>
+                        <div className="cron-modal-main-actions">
+                            <button type="button" onClick={onClose}>
+                                Cancel
+                            </button>
+                            <button
+                                type="submit"
+                                className="project-primary hover-levitate"
+                                disabled={!buildScheduleExpression(form).trim() || !form.command.trim() || !form.channelId.trim()}
+                            >
+                                {editingId ? "Save Changes" : "Create Job"}
+                            </button>
+                        </div>
                     </div>
                 </form>
             </section>
@@ -119,7 +507,7 @@ function CronFormModal({
 }
 
 function emptyForm() {
-    return { schedule: "*/5 * * * *", command: "", channelId: "", enabled: true };
+    return { ...defaultScheduleFields(), command: "", channelId: "", enabled: true };
 }
 
 function normalizeChannels(board, agentId) {
@@ -162,6 +550,8 @@ export function AgentCronTab({ agentId }) {
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [editingId, setEditingId] = useState<string | null>(null);
     const [form, setForm] = useState(emptyForm());
+    const [testingKey, setTestingKey] = useState("");
+    const [testStatus, setTestStatus] = useState("");
 
     useEffect(() => {
         loadData();
@@ -236,27 +626,35 @@ export function AgentCronTab({ agentId }) {
             channelId: availableChannels[0]?.channelId || ""
         });
         setEditingId(null);
+        setTestStatus("");
         setIsModalOpen(true);
     }
 
     function handleEdit(task) {
         setForm({
-            schedule: task.schedule,
+            ...scheduleFieldsFromExpression(task.schedule),
             command: task.command,
             channelId: task.channelId,
             enabled: task.enabled
         });
         setEditingId(task.id);
+        setTestStatus("");
         setIsModalOpen(true);
     }
 
     function handleCloseModal() {
         setIsModalOpen(false);
         setEditingId(null);
+        setTestStatus("");
     }
 
     function handleFormChange(field: string, value: string | boolean) {
-        setForm((prev) => ({ ...prev, [field]: value }));
+        setForm((prev) => {
+            if (field === "scheduleMode" && value === "custom") {
+                return { ...prev, schedule: buildScheduleExpression(prev), [field]: value };
+            }
+            return { ...prev, [field]: value };
+        });
     }
 
     async function handleDelete(taskId) {
@@ -281,11 +679,47 @@ export function AgentCronTab({ agentId }) {
         }
     }
 
+    async function handleTest(payload, testKey, showInlineStatus = false) {
+        setTestingKey(testKey);
+        if (showInlineStatus) {
+            setTestStatus("");
+        }
+
+        try {
+            const result = await sendChannelMessage(payload.channelId, {
+                userId: "system_cron_test",
+                content: cronTestContent(payload.command, payload.id || testKey),
+                topicId: null
+            });
+            if (result) {
+                if (showInlineStatus) {
+                    setTestStatus(`Test sent to ${payload.channelId}.`);
+                }
+            } else {
+                alert("Failed to send test.");
+            }
+        } catch {
+            alert("Failed to send test.");
+        } finally {
+            setTestingKey("");
+        }
+    }
+
+    async function handleTestDraft() {
+        const payload = buildCronPayload(form);
+        await handleTest({ ...payload, id: editingId || "draft" }, editingId || "draft", true);
+    }
+
+    async function handleTestTask(task) {
+        await handleTest(task, task.id);
+    }
+
     async function handleSubmit(e) {
         e.preventDefault();
+        const payload = buildCronPayload(form);
 
         if (editingId) {
-            const success = await updateAgentCronTask(agentId, editingId, form);
+            const success = await updateAgentCronTask(agentId, editingId, payload);
             if (success) {
                 handleCloseModal();
                 loadData();
@@ -293,7 +727,7 @@ export function AgentCronTab({ agentId }) {
                 alert("Failed to update cron job.");
             }
         } else {
-            const success = await createAgentCronTask(agentId, form);
+            const success = await createAgentCronTask(agentId, payload);
             if (success) {
                 handleCloseModal();
                 loadData();
@@ -311,8 +745,11 @@ export function AgentCronTab({ agentId }) {
                 form={form}
                 availableChannels={modalChannels}
                 isLoadingChannels={isLoadingChannels}
+                isTesting={testingKey === (editingId || "draft")}
+                testStatus={testStatus}
                 onFormChange={handleFormChange}
                 onClose={handleCloseModal}
+                onTest={handleTestDraft}
                 onSubmit={handleSubmit}
             />
 
@@ -349,6 +786,7 @@ export function AgentCronTab({ agentId }) {
                         {tasks.map((task) => (
                             <div key={task.id} className="cron-task-row">
                                 <div className="cron-task-info">
+                                    <span className="cron-task-schedule-text">{describeCronExpression(task.schedule)}</span>
                                     <code className="cron-task-schedule">{task.schedule}</code>
                                     <span className="cron-task-command">{task.command}</span>
                                     <span className="cron-task-channel">
@@ -368,6 +806,14 @@ export function AgentCronTab({ agentId }) {
                                         </span>
                                         <span>{task.enabled ? "Active" : "Paused"}</span>
                                     </label>
+                                    <button
+                                        type="button"
+                                        className="text-button"
+                                        disabled={testingKey === task.id}
+                                        onClick={() => handleTestTask(task)}
+                                    >
+                                        {testingKey === task.id ? "Testing..." : "Test"}
+                                    </button>
                                     <button
                                         type="button"
                                         className="text-button"

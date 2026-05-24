@@ -533,6 +533,7 @@ enum SloppyTUITimelineBlock {
     case attachment(name: String, mimeType: String, sizeBytes: Int)
     case subSession(childSessionId: String, title: String, status: SloppyTUISubSessionStatus)
     case buildProgress(AgentBuildProgressEvent)
+    case planArtifact(PlanArtifactRecord)
     case inputRequest(PlanInputRequest)
     case workspaceDiff(branch: String, linesAdded: Int, linesDeleted: Int, diff: String, truncated: Bool)
     case toolCall(tool: String, reason: String?, summary: String?, details: String?)
@@ -553,6 +554,8 @@ enum SloppyTUITimelineBlock {
         case .buildProgress(let progress):
             let items = progress.items.map { "\($0.title) \($0.status.rawValue) \($0.definitionOfDone)" }
             return ([progress.title] + items).joined(separator: " ")
+        case .planArtifact(let artifact):
+            return "Plan web page \(artifact.planName) \(artifact.webUrl)"
         case .inputRequest(let request):
             return SloppyTUIPlanInputPicker.requestText(request)
         case .workspaceDiff(let branch, let linesAdded, let linesDeleted, let diff, let truncated):

@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(AppKit)
+import AppKit
+#endif
 import Protocols
 import TauTUI
 
@@ -256,6 +259,131 @@ enum SloppyTUIScrollbackCommand: Equatable {
             return nil
         }
         return value
+    }
+}
+
+enum SloppyTUIPlanArtifactLookup {
+    static func artifacts(in events: [AgentSessionEvent]) -> [PlanArtifactRecord] {
+        events.compactMap { event -> PlanArtifactRecord? in
+            guard event.type == .planArtifact else { return nil }
+            return event.planArtifact?.artifact
+        }
+    }
+
+    static func latest(in events: [AgentSessionEvent]) -> PlanArtifactRecord? {
+        artifacts(in: events).max { lhs, rhs in
+            if lhs.createdAt != rhs.createdAt {
+                return lhs.createdAt < rhs.createdAt
+            }
+            return lhs.planName < rhs.planName
+        }
+    }
+
+    static func resolve(_ rawPlanName: String?, in events: [AgentSessionEvent]) -> PlanArtifactRecord? {
+        let all = artifacts(in: events)
+        let planName = rawPlanName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !planName.isEmpty else {
+            return latest(in: events)
+        }
+        return all.last { $0.planName == planName }
+    }
+}
+
+struct SloppyTUIPlanWebOpenTarget: Equatable {
+    var url: URL
+    var display: String
+}
+
+enum SloppyTUIPlanWebTargetResolver {
+    static func target(
+        for artifact: PlanArtifactRecord,
+        runtime: SloppyTUIRuntime,
+        service: any SloppyTUIBackend
+    ) -> SloppyTUIPlanWebOpenTarget {
+        if !service.isRemote {
+            let markdownURL = URL(fileURLWithPath: artifact.markdownPath, isDirectory: false)
+            let htmlURL = markdownURL
+                .deletingLastPathComponent()
+                .appendingPathComponent("index.html", isDirectory: false)
+            if FileManager.default.fileExists(atPath: htmlURL.path) {
+                return SloppyTUIPlanWebOpenTarget(url: htmlURL, display: htmlURL.path)
+            }
+        }
+
+        if let remote = service as? RemoteSloppyTUIBackend,
+           let remoteURL = absoluteURL(pathOrURL: artifact.webUrl, baseURL: remote.node.url) {
+            return SloppyTUIPlanWebOpenTarget(url: remoteURL, display: remoteURL.absoluteString)
+        }
+
+        let localBase = localAPIBaseURL(config: runtime.config)
+        let fallbackURL = absoluteURL(pathOrURL: artifact.webUrl, baseURL: localBase)
+            ?? URL(fileURLWithPath: artifact.markdownPath, isDirectory: false)
+        return SloppyTUIPlanWebOpenTarget(url: fallbackURL, display: fallbackURL.absoluteString)
+    }
+
+    private static func absoluteURL(pathOrURL: String, baseURL: String) -> URL? {
+        let trimmed = pathOrURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let url = URL(string: trimmed), url.scheme != nil {
+            return url
+        }
+        guard var components = URLComponents(string: baseURL.trimmingCharacters(in: CharacterSet(charactersIn: "/"))) else {
+            return nil
+        }
+        let path = trimmed.hasPrefix("/") ? trimmed : "/" + trimmed
+        components.path = path
+        components.query = nil
+        components.fragment = nil
+        return components.url
+    }
+
+    private static func localAPIBaseURL(config: CoreConfig) -> String {
+        let rawHost = config.listen.host.trimmingCharacters(in: .whitespacesAndNewlines)
+        let host = rawHost.isEmpty || rawHost == "0.0.0.0" || rawHost == "::" ? "127.0.0.1" : rawHost
+        let bracketedHost = host.contains(":") && !host.hasPrefix("[") ? "[\(host)]" : host
+        return "http://\(bracketedHost):\(config.listen.port)"
+    }
+}
+
+enum SloppyTUIExternalURLOpener {
+    enum OpenError: Error, LocalizedError {
+        case noAvailableOpener
+
+        var errorDescription: String? {
+            switch self {
+            case .noAvailableOpener:
+                return "No browser opener is available on this platform."
+            }
+        }
+    }
+
+    static func open(_ url: URL) throws {
+        #if canImport(AppKit)
+        guard NSWorkspace.shared.open(url) else {
+            throw OpenError.noAvailableOpener
+        }
+        #else
+        guard let opener = resolveExecutable("xdg-open") else {
+            throw OpenError.noAvailableOpener
+        }
+        let process = Process()
+        process.executableURL = opener
+        process.arguments = [url.absoluteString]
+        process.standardInput = FileHandle(forReadingAtPath: "/dev/null")
+        process.standardOutput = FileHandle(forWritingAtPath: "/dev/null")
+        process.standardError = FileHandle(forWritingAtPath: "/dev/null")
+        try process.run()
+        #endif
+    }
+
+    private static func resolveExecutable(_ command: String) -> URL? {
+        let pathValue = ProcessInfo.processInfo.environment["PATH"] ?? "/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+        for directory in pathValue.split(separator: ":", omittingEmptySubsequences: true) {
+            let candidate = URL(fileURLWithPath: String(directory)).appendingPathComponent(command)
+            if FileManager.default.isExecutableFile(atPath: candidate.path) {
+                return candidate
+            }
+        }
+        return nil
     }
 }
 

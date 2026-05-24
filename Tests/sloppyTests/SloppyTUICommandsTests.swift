@@ -16,7 +16,7 @@ func slashCommandRouterIgnoresAbsolutePaths() {
 
 @Test
 func slashCommandRouterHandlesKnownCommandsAndAliases() {
-    let commandNames: Set<String> = ["help", "workspace", "keybindings", "shortcuts", "add-dir", "restore", "up", "undo", "redo", "themes"]
+    let commandNames: Set<String> = ["help", "workspace", "keybindings", "shortcuts", "add-dir", "restore", "up", "undo", "redo", "themes", "plan-web", "plans", "open-plan"]
 
     #expect(SloppyTUISlashCommandRouter.shouldHandle("/help", commandNames: commandNames, skillCommandNames: []))
     #expect(SloppyTUISlashCommandRouter.shouldHandle("/workspace", commandNames: commandNames, skillCommandNames: []))
@@ -28,6 +28,9 @@ func slashCommandRouterHandlesKnownCommandsAndAliases() {
     #expect(SloppyTUISlashCommandRouter.shouldHandle("/undo", commandNames: commandNames, skillCommandNames: []))
     #expect(SloppyTUISlashCommandRouter.shouldHandle("/redo", commandNames: commandNames, skillCommandNames: []))
     #expect(SloppyTUISlashCommandRouter.shouldHandle("/themes", commandNames: commandNames, skillCommandNames: []))
+    #expect(SloppyTUISlashCommandRouter.shouldHandle("/plan-web", commandNames: commandNames, skillCommandNames: []))
+    #expect(SloppyTUISlashCommandRouter.shouldHandle("/plans latest-plan", commandNames: commandNames, skillCommandNames: []))
+    #expect(SloppyTUISlashCommandRouter.shouldHandle("/open-plan latest-plan", commandNames: commandNames, skillCommandNames: []))
 }
 
 @Test
@@ -69,6 +72,43 @@ func skillSlashCommandNamingUsesRepoTokenByDefault() {
     let tokens = SkillSlashCommandNaming.resolvedSlashTokens(forSkillIds: ["owner/ui-pro-max"])
 
     #expect(tokens["owner/ui-pro-max"] == "ui_pro_max")
+}
+
+@Test
+func planArtifactLookupResolvesLatestAndNamedArtifacts() {
+    let older = PlanArtifactRecord(
+        projectId: "project",
+        projectName: "Project",
+        agentId: "agent",
+        sessionId: "session",
+        messageEventId: "message-1",
+        planName: "older-plan",
+        createdAt: Date(timeIntervalSince1970: 10),
+        storageKind: "workspace",
+        markdownPath: "/tmp/older-plan/older-plan.md",
+        webUrl: "/v1/projects/project/plans/older-plan/web"
+    )
+    let newer = PlanArtifactRecord(
+        projectId: "project",
+        projectName: "Project",
+        agentId: "agent",
+        sessionId: "session",
+        messageEventId: "message-2",
+        planName: "newer-plan",
+        createdAt: Date(timeIntervalSince1970: 20),
+        storageKind: "workspace",
+        markdownPath: "/tmp/newer-plan/newer-plan.md",
+        webUrl: "/v1/projects/project/plans/newer-plan/web"
+    )
+    let events = [
+        AgentSessionEvent(agentId: "agent", sessionId: "session", type: .planArtifact, planArtifact: .init(artifact: older)),
+        AgentSessionEvent(agentId: "agent", sessionId: "session", type: .planArtifact, planArtifact: .init(artifact: newer)),
+    ]
+
+    #expect(SloppyTUIPlanArtifactLookup.latest(in: events)?.planName == "newer-plan")
+    #expect(SloppyTUIPlanArtifactLookup.resolve(nil, in: events)?.planName == "newer-plan")
+    #expect(SloppyTUIPlanArtifactLookup.resolve("older-plan", in: events)?.planName == "older-plan")
+    #expect(SloppyTUIPlanArtifactLookup.resolve("missing", in: events) == nil)
 }
 
 @Test
