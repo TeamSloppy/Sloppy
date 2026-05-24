@@ -420,7 +420,7 @@ private struct ProjectFileIndexBuilder {
         let urls = (try? fileManager.contentsOfDirectory(
             at: directoryURL,
             includingPropertiesForKeys: [.isDirectoryKey],
-            options: [.skipsHiddenFiles]
+            options: []
         )) ?? []
 
         for url in urls.sorted(by: { $0.lastPathComponent.localizedCaseInsensitiveCompare($1.lastPathComponent) == .orderedAscending }) {
@@ -436,16 +436,34 @@ private struct ProjectFileIndexBuilder {
             let name = url.lastPathComponent
             let values = try? url.resourceValues(forKeys: [.isDirectoryKey])
             let isDirectory = values?.isDirectory == true
-            if isDirectory, ProjectChangeWatcherService.defaultExcludedDirectoryNames.contains(name) {
+            let relativePath = relativeDirectory.isEmpty ? name : "\(relativeDirectory)/\(name)"
+            if isDirectory,
+               ProjectChangeWatcherService.defaultExcludedDirectoryNames.contains(name),
+               !shouldDescendIntoExcluded(relativePath: relativePath) {
                 continue
             }
-
-            let relativePath = relativeDirectory.isEmpty ? name : "\(relativeDirectory)/\(name)"
+            guard shouldIndex(relativePath: relativePath, isDirectory: isDirectory) else {
+                continue
+            }
             result.append(ProjectFileIndexEntry(path: relativePath, type: isDirectory ? .directory : .file))
 
             if isDirectory {
                 walk(directoryURL: url, relativeDirectory: relativePath, result: &result)
             }
         }
+    }
+
+    private func shouldDescendIntoExcluded(relativePath: String) -> Bool {
+        relativePath == ".sloppy"
+    }
+
+    private func shouldIndex(relativePath: String, isDirectory: Bool) -> Bool {
+        if relativePath == ".sloppy" {
+            return isDirectory
+        }
+        if relativePath.hasPrefix(".sloppy/") {
+            return relativePath == ".sloppy/plans" || relativePath.hasPrefix(".sloppy/plans/")
+        }
+        return !(relativePath as NSString).lastPathComponent.hasPrefix(".")
     }
 }

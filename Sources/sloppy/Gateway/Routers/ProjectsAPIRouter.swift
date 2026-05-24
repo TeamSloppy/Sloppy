@@ -88,6 +88,46 @@ struct ProjectsAPIRouter: APIRouter {
             }
         }
 
+        router.get("/v1/projects/:projectId/plans/:planName", metadata: RouteMetadata(summary: "Get project plan artifact", description: "Returns metadata for a durable plan artifact", tags: ["Projects"])) { request in
+            let projectId = request.pathParam("projectId") ?? ""
+            let planName = request.pathParam("planName") ?? ""
+            do {
+                let record = try await service.getPlanArtifact(projectID: projectId, planName: planName)
+                return CoreRouter.encodable(status: HTTPStatus.ok, payload: record)
+            } catch let error as CoreService.ProjectError {
+                return CoreRouter.projectErrorResponse(error, fallback: ErrorCode.projectNotFound)
+            } catch {
+                return CoreRouter.json(status: HTTPStatus.internalServerError, payload: ["error": ErrorCode.projectReadFailed])
+            }
+        }
+
+        router.get("/v1/projects/:projectId/plans/:planName/web", metadata: RouteMetadata(summary: "View project plan artifact", description: "Returns the generated HTML page for a durable plan artifact", tags: ["Projects"])) { request in
+            let projectId = request.pathParam("projectId") ?? ""
+            let planName = request.pathParam("planName") ?? ""
+            do {
+                let file = try await service.getPlanArtifactWebFile(projectID: projectId, planName: planName, resourcePath: nil)
+                return CoreRouterResponse(status: HTTPStatus.ok, body: file.data, contentType: file.contentType)
+            } catch let error as CoreService.ProjectError {
+                return CoreRouter.projectErrorResponse(error, fallback: ErrorCode.projectNotFound)
+            } catch {
+                return CoreRouter.json(status: HTTPStatus.internalServerError, payload: ["error": ErrorCode.projectReadFailed])
+            }
+        }
+
+        router.get("/v1/projects/:projectId/plans/:planName/web/resource", metadata: RouteMetadata(summary: "View project plan artifact resource", description: "Returns a generated local resource for a durable plan artifact", tags: ["Projects"])) { request in
+            let projectId = request.pathParam("projectId") ?? ""
+            let planName = request.pathParam("planName") ?? ""
+            let path = request.queryParam("path") ?? ""
+            do {
+                let file = try await service.getPlanArtifactWebFile(projectID: projectId, planName: planName, resourcePath: path)
+                return CoreRouterResponse(status: HTTPStatus.ok, body: file.data, contentType: file.contentType)
+            } catch let error as CoreService.ProjectError {
+                return CoreRouter.projectErrorResponse(error, fallback: ErrorCode.projectNotFound)
+            } catch {
+                return CoreRouter.json(status: HTTPStatus.internalServerError, payload: ["error": ErrorCode.projectReadFailed])
+            }
+        }
+
         router.get("/v1/projects/:projectId/source-control/working-tree", metadata: RouteMetadata(summary: "Project working tree source-control diff", description: "Returns line add/delete counts and a unified diff from the configured source-control provider for uncommitted changes in the project workspace", tags: ["Projects"])) { request in
             let projectId = request.pathParam("projectId") ?? ""
             do {

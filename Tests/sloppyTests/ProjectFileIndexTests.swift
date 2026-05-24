@@ -29,6 +29,28 @@ func projectFileIndexBuildsFilesAndDirectoriesAndSkipsExcludedDirectories() thro
 }
 
 @Test
+func projectFileIndexIncludesSloppyPlansButSkipsOtherHiddenPaths() throws {
+    let root = try temporaryIndexRoot()
+    defer { try? FileManager.default.removeItem(at: root) }
+
+    let planDir = root.appendingPathComponent(".sloppy/plans/feature-plan", isDirectory: true)
+    try FileManager.default.createDirectory(at: planDir, withIntermediateDirectories: true)
+    try Data("# Feature Plan".utf8).write(to: planDir.appendingPathComponent("feature-plan.md"))
+    let debugDir = root.appendingPathComponent(".sloppy/debug", isDirectory: true)
+    try FileManager.default.createDirectory(at: debugDir, withIntermediateDirectories: true)
+    try Data("debug".utf8).write(to: debugDir.appendingPathComponent("debug.log"))
+    let hiddenDir = root.appendingPathComponent(".cache", isDirectory: true)
+    try FileManager.default.createDirectory(at: hiddenDir, withIntermediateDirectories: true)
+    try Data("cache".utf8).write(to: hiddenDir.appendingPathComponent("cache.txt"))
+
+    let index = ProjectFileIndex.build(projectId: "p1", rootURL: root)
+
+    #expect(index.entries.contains(ProjectFileIndexEntry(path: ".sloppy/plans/feature-plan/feature-plan.md", type: .file)))
+    #expect(!index.entries.contains { $0.path.hasPrefix(".sloppy/debug") })
+    #expect(!index.entries.contains { $0.path.hasPrefix(".cache") })
+}
+
+@Test
 func projectFileIndexCacheRoundTripsAndRejectsMismatches() throws {
     let workspace = try temporaryIndexRoot()
     defer { try? FileManager.default.removeItem(at: workspace) }

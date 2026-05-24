@@ -240,6 +240,9 @@ extension CoreService {
 
     /// Returns project-relative paths whose full path matches the search string (substring, case-insensitive), ranked for autocomplete.
     public func searchProjectFiles(projectID: String, query: String, limit: Int) async throws -> [ProjectFileSearchEntry] {
+        guard let normalizedID = normalizedProjectID(projectID) else {
+            throw ProjectError.invalidProjectID
+        }
         let rootURL = try await resolveProjectWorkspaceRoot(projectID: projectID)
 
         let fm = FileManager.default
@@ -249,7 +252,12 @@ extension CoreService {
         }
 
         let maxResults = max(1, min(limit, 100))
-        let index = ProjectFileIndex.build(projectId: projectID, rootURL: rootURL, limit: ProjectFileIndex.defaultLimit)
+        let index = ProjectFileIndex.build(
+            projectId: projectID,
+            rootURL: rootURL,
+            additionalRootURLs: fallbackPlanArtifactIndexRoots(projectID: normalizedID, rootURL: rootURL),
+            limit: ProjectFileIndex.defaultLimit
+        )
         return index.search(query, limit: maxResults).map { entry in
             ProjectFileSearchEntry(path: entry.path, type: entry.type)
         }

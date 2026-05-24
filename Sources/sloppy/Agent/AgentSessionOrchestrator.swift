@@ -22,6 +22,7 @@ actor AgentSessionOrchestrator {
     typealias ToolInvoker = @Sendable (String, String, ToolInvocationRequest, AgentChatMode?) async -> ToolInvocationResult
     typealias ResponseChunkObserver = @Sendable (String, String, String) async -> Void
     typealias EventAppendObserver = @Sendable (String, String, AgentSessionSummary, [AgentSessionEvent]) async -> Void
+    typealias PlanArtifactRecorder = @Sendable (String, String, String, String?, String, String, Date) async throws -> AgentPlanArtifactEvent
 
     enum OrchestratorError: Error {
         case invalidAgentID
@@ -45,6 +46,7 @@ actor AgentSessionOrchestrator {
     private var toolInvokerRecordsEvents: Bool
     private var responseChunkObserver: ResponseChunkObserver?
     private var eventAppendObserver: EventAppendObserver?
+    private var planArtifactRecorder: PlanArtifactRecorder?
     /// Loads `[project_context_bootstrap_v1]` markdown for a project id (agent session dashboard).
     private var projectBootstrapProvider: (@Sendable (String) async -> String?)?
 
@@ -73,6 +75,7 @@ actor AgentSessionOrchestrator {
         toolInvokerRecordsEvents: Bool = false,
         responseChunkObserver: ResponseChunkObserver? = nil,
         eventAppendObserver: EventAppendObserver? = nil,
+        planArtifactRecorder: PlanArtifactRecorder? = nil,
         logger: Logger = Logger(label: "sloppy.core.sessions")
     ) {
         self.runtime = runtime
@@ -87,6 +90,7 @@ actor AgentSessionOrchestrator {
         self.toolInvokerRecordsEvents = toolInvokerRecordsEvents
         self.responseChunkObserver = responseChunkObserver
         self.eventAppendObserver = eventAppendObserver
+        self.planArtifactRecorder = planArtifactRecorder
         self.logger = logger
     }
 
@@ -138,6 +142,10 @@ actor AgentSessionOrchestrator {
 
     func updateEventAppendObserver(_ observer: EventAppendObserver?) {
         self.eventAppendObserver = observer
+    }
+
+    func updatePlanArtifactRecorder(_ recorder: PlanArtifactRecorder?) {
+        self.planArtifactRecorder = recorder
     }
 
     func createSession(agentID: String, request: AgentSessionCreateRequest) async throws -> AgentSessionSummary {
@@ -495,20 +503,68 @@ actor AgentSessionOrchestrator {
         }
 
         if !runtimeOutcome.assistantText.isEmpty {
-            finalEvents.append(
-                AgentSessionEvent(
-                    agentId: agentID,
-                    sessionId: sessionID,
-                    type: .message,
-                    message: AgentSessionMessage(
-                        role: .assistant,
-                        segments: [
-                            .init(kind: .text, text: runtimeOutcome.assistantText)
-                        ],
-                        userId: "agent"
-                    )
+            let assistantEvent = AgentSessionEvent(
+                agentId: agentID,
+                sessionId: sessionID,
+                type: .message,
+                message: AgentSessionMessage(
+                    role: .assistant,
+                    segments: [
+                        .init(kind: .text, text: runtimeOutcome.assistantText)
+                    ],
+                    userId: "agent"
                 )
             )
+            finalEvents.append(assistantEvent)
+
+            let shouldRecordPlanArtifact = requestMode == .plan &&
+                !runtimeOutcome.wasInterrupted &&
+                !runtimeOutcome.hitTurnLimit &&
+                !isAssistantErrorText(runtimeOutcome.assistantText)
+            if shouldRecordPlanArtifact,
+               let planArtifactRecorder {
+                do {
+                    let artifactEvent = try await planArtifactRecorder(
+                        agentID,
+                        sessionID,
+                        summary.title,
+                        summary.projectId,
+                        assistantEvent.id,
+                        runtimeOutcome.assistantText,
+                        assistantEvent.createdAt
+                    )
+                    finalEvents.append(
+                        AgentSessionEvent(
+                            agentId: agentID,
+                            sessionId: sessionID,
+                            type: .planArtifact,
+                            planArtifact: artifactEvent
+                        )
+                    )
+                } catch {
+                    logger.warning(
+                        "Plan artifact creation failed",
+                        metadata: [
+                            "agent_id": .string(agentID),
+                            "session_id": .string(sessionID),
+                            "message_event_id": .string(assistantEvent.id),
+                            "error": .string(String(describing: error))
+                        ]
+                    )
+                    finalEvents.append(
+                        AgentSessionEvent(
+                            agentId: agentID,
+                            sessionId: sessionID,
+                            type: .runStatus,
+                            runStatus: AgentRunStatusEvent(
+                                stage: .interrupted,
+                                label: "Plan artifact failed",
+                                details: "The plan response is ready, but Sloppy could not write the durable plan artifact."
+                            )
+                        )
+                    )
+                }
+            }
         }
 
         let completionStatus: AgentRunStatusEvent

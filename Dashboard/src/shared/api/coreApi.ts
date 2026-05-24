@@ -85,6 +85,8 @@ export interface CoreApi {
   installPlugin: (payload: AnyRecord) => Promise<AnyRecord | null>;
   fetchWorkers: () => Promise<AnyRecord[]>;
   fetchArtifact: (id: string) => Promise<AnyRecord | null>;
+  planArtifactWebUrl: (projectId: string, planName: string) => string;
+  fetchPlanArtifact: (projectId: string, planName: string) => Promise<AnyRecord | null>;
   fetchRuntimeConfig: () => Promise<AnyRecord | null>;
   validateDashboardAuthToken: (token: string) => Promise<AnyRecord | null>;
   updateRuntimeConfig: (config: AnyRecord) => Promise<AnyRecord>;
@@ -471,6 +473,19 @@ export function createCoreApi(): CoreApi {
     fetchArtifact: async (id) => {
       const response = await requestJson<AnyRecord>({
         path: `/v1/artifacts/${encodeURIComponent(id)}/content`
+      });
+      if (!response.ok) {
+        return null;
+      }
+      return response.data;
+    },
+
+    planArtifactWebUrl: (projectId, planName) =>
+      buildApiURL(`/v1/projects/${encodeURIComponent(projectId)}/plans/${encodeURIComponent(planName)}/web`),
+
+    fetchPlanArtifact: async (projectId, planName) => {
+      const response = await requestJson<AnyRecord>({
+        path: `/v1/projects/${encodeURIComponent(projectId)}/plans/${encodeURIComponent(planName)}`
       });
       if (!response.ok) {
         return null;

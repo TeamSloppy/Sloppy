@@ -381,7 +381,7 @@ extension CoreService {
                 } else {
                     input = nil
                 }
-            case .sessionCreated, .buildProgress, .subSession, .runControl, .inputRequest, .inputResponse:
+            case .sessionCreated, .buildProgress, .planArtifact, .subSession, .runControl, .inputRequest, .inputResponse:
                 input = nil
             }
 

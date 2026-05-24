@@ -5109,7 +5109,12 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
     private func indexedAdditionalDirectoryURLs(projectRootURL: URL) -> [URL] {
         let projectRootPath = projectRootURL.resolvingSymlinksInPath().standardizedFileURL.path
         var seen = Set<String>()
-        return persistedDirectoriesForCurrentSession().compactMap { path in
+        let fallbackPlansPath = runtime.workspaceRoot
+            .appendingPathComponent("projects", isDirectory: true)
+            .appendingPathComponent(project.id, isDirectory: true)
+            .appendingPathComponent("plans", isDirectory: true)
+            .path
+        return (persistedDirectoriesForCurrentSession() + [fallbackPlansPath]).compactMap { path in
             let url = URL(fileURLWithPath: path, isDirectory: true)
                 .resolvingSymlinksInPath()
                 .standardizedFileURL

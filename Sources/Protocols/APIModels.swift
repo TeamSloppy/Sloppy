@@ -102,6 +102,43 @@ public struct ArtifactContentResponse: Codable, Sendable {
     }
 }
 
+public struct PlanArtifactRecord: Codable, Sendable, Equatable {
+    public var projectId: String
+    public var projectName: String
+    public var agentId: String
+    public var sessionId: String
+    public var messageEventId: String
+    public var planName: String
+    public var createdAt: Date
+    public var storageKind: String
+    public var markdownPath: String
+    public var webUrl: String
+
+    public init(
+        projectId: String,
+        projectName: String,
+        agentId: String,
+        sessionId: String,
+        messageEventId: String,
+        planName: String,
+        createdAt: Date = Date(),
+        storageKind: String,
+        markdownPath: String,
+        webUrl: String
+    ) {
+        self.projectId = projectId
+        self.projectName = projectName
+        self.agentId = agentId
+        self.sessionId = sessionId
+        self.messageEventId = messageEventId
+        self.planName = planName
+        self.createdAt = createdAt
+        self.storageKind = storageKind
+        self.markdownPath = markdownPath
+        self.webUrl = webUrl
+    }
+}
+
 /// Response for channel runtime event feed with pagination cursor.
 public struct ChannelEventsResponse: Codable, Sendable, Equatable {
     public var channelId: String
@@ -3172,6 +3209,7 @@ public enum AgentSessionEventType: String, Codable, Sendable {
     case message
     case runStatus = "run_status"
     case buildProgress = "build_progress"
+    case planArtifact = "plan_artifact"
     case subSession = "sub_session"
     case runControl = "run_control"
     case toolCall = "tool_call"
@@ -3325,6 +3363,14 @@ public struct AgentBuildProgressEvent: Codable, Sendable, Equatable {
         self.title = title
         self.items = items
         self.createdAt = createdAt
+    }
+}
+
+public struct AgentPlanArtifactEvent: Codable, Sendable, Equatable {
+    public var artifact: PlanArtifactRecord
+
+    public init(artifact: PlanArtifactRecord) {
+        self.artifact = artifact
     }
 }
 
@@ -3555,6 +3601,7 @@ public struct AgentSessionEvent: Codable, Sendable, Equatable {
     public var message: AgentSessionMessage?
     public var runStatus: AgentRunStatusEvent?
     public var buildProgress: AgentBuildProgressEvent?
+    public var planArtifact: AgentPlanArtifactEvent?
     public var subSession: AgentSubSessionEvent?
     public var runControl: AgentRunControlEvent?
     public var toolCall: AgentToolCallEvent?
@@ -3573,6 +3620,7 @@ public struct AgentSessionEvent: Codable, Sendable, Equatable {
         message: AgentSessionMessage? = nil,
         runStatus: AgentRunStatusEvent? = nil,
         buildProgress: AgentBuildProgressEvent? = nil,
+        planArtifact: AgentPlanArtifactEvent? = nil,
         subSession: AgentSubSessionEvent? = nil,
         runControl: AgentRunControlEvent? = nil,
         toolCall: AgentToolCallEvent? = nil,
@@ -3590,6 +3638,7 @@ public struct AgentSessionEvent: Codable, Sendable, Equatable {
         self.message = message
         self.runStatus = runStatus
         self.buildProgress = buildProgress
+        self.planArtifact = planArtifact
         self.subSession = subSession
         self.runControl = runControl
         self.toolCall = toolCall

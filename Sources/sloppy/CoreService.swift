@@ -487,6 +487,20 @@ public actor CoreService {
             guard let self else {
                 return
             }
+            await self.sessionOrchestrator.updatePlanArtifactRecorder { [weak self] agentID, sessionID, sessionTitle, projectID, messageEventID, markdown, createdAt in
+                guard let self else {
+                    throw ProjectError.notFound
+                }
+                return try await self.recordPlanArtifact(
+                    agentID: agentID,
+                    sessionID: sessionID,
+                    sessionTitle: sessionTitle,
+                    projectID: projectID,
+                    messageEventID: messageEventID,
+                    markdown: markdown,
+                    createdAt: createdAt
+                )
+            }
             await self.sessionOrchestrator.setProjectBootstrapProvider { [weak self] projectID in
                 guard let self else { return nil }
                 return await self.projectBootstrapMarkdownForAgentSession(projectID: projectID)

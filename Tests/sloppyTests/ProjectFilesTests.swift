@@ -90,6 +90,40 @@ func searchProjectFilesReturnsRankedPaths() async throws {
 }
 
 @Test
+func searchProjectFilesIncludesFallbackPlanArtifactsForExternalProjectRoot() async throws {
+    let config = CoreConfig.test
+    let service = CoreService(config: config, persistenceBuilder: InMemoryCorePersistenceBuilder())
+    let router = CoreRouter(service: service)
+    let projectID = "fallback-plans-\(UUID().uuidString.prefix(8).lowercased())"
+    let externalRoot = FileManager.default.temporaryDirectory
+        .appendingPathComponent("external-root-\(UUID().uuidString)", isDirectory: true)
+    defer { try? FileManager.default.removeItem(at: externalRoot) }
+    try FileManager.default.createDirectory(at: externalRoot, withIntermediateDirectories: true)
+    try Data("x".utf8).write(to: externalRoot.appendingPathComponent("Source.swift"))
+
+    _ = try await service.createProject(ProjectCreateRequest(id: projectID, name: "Fallback Plans", repoPath: externalRoot.path))
+
+    let workspaceRoot = config.resolvedWorkspaceRootURL(currentDirectory: FileManager.default.currentDirectoryPath)
+    let planDir = workspaceRoot
+        .appendingPathComponent("projects", isDirectory: true)
+        .appendingPathComponent(projectID, isDirectory: true)
+        .appendingPathComponent("plans/fallback-plan", isDirectory: true)
+    try FileManager.default.createDirectory(at: planDir, withIntermediateDirectories: true)
+    try Data("# Fallback Plan".utf8).write(to: planDir.appendingPathComponent("fallback-plan.md"))
+
+    let resp = await router.handle(
+        method: "GET",
+        path: "/v1/projects/\(projectID)/files/search?q=fallback-plan&limit=20",
+        body: nil
+    )
+    #expect(resp.status == 200)
+
+    let hits = try JSONDecoder().decode([ProjectFileSearchEntry].self, from: resp.body)
+    let expectedPath = planDir.appendingPathComponent("fallback-plan.md").path
+    #expect(hits.contains(where: { $0.path == expectedPath && $0.type == .file }))
+}
+
+@Test
 func searchProjectFilesProjectsDirectoryScopeFindsPathsAcrossProjectFolders() async throws {
     let config = CoreConfig.test
     let service = CoreService(config: config, persistenceBuilder: InMemoryCorePersistenceBuilder())

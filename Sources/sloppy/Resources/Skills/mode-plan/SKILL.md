@@ -33,6 +33,8 @@ Write a concrete, actionable plan. Include, when relevant:
 
 For code-related work, include exact file paths when they are known, likely test targets, and verification steps.
 
+Your final Plan-mode answer is saved by Sloppy as `PLAN_NAME.md` inside a durable plan artifact directory and rendered into a web page. You may include safe raw HTML tags and attributes in markdown when they improve the generated page structure or interactivity, such as `id`, `class`, `data-*`, `aria-*`, `role`, and `title`. Do not include scripts, event-handler attributes, remote executable embeds, or `javascript:` links.
+
 ## Project Task Handoff
 
 - For substantial work, offer to capture the plan as a project task.

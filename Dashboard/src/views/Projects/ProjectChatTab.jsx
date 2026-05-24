@@ -241,7 +241,6 @@ export function ProjectChatTab({
           projectId={projectId}
           onActiveSessionIdChange={onActiveSessionIdChange}
           modeStorageScope={`project-chat:${projectId}:${activeAgentId}`}
-          lockPageScroll={false}
         />
       ) : (
         <p className="app-status-text">Choose an agent to load sessions and chat.</p>

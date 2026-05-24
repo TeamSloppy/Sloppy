@@ -4,6 +4,13 @@
   gap: 16px;
   min-height: 0;
   flex: 1;
+  overflow: hidden;
+}
+
+.project-chats-shell > .agent-chat-main {
+  flex: 1 1 auto;
+  min-height: 0;
+  height: auto;
 }
 
 .project-chats-head {

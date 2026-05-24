@@ -22,7 +22,8 @@ import {
   fetchPendingToolApprovals,
   approveToolApproval,
   rejectToolApproval,
-  answerAgentSessionInputRequest
+  answerAgentSessionInputRequest,
+  planArtifactWebUrl
 } from "../../../api";
 import { navigateToTaskScreen } from "../../../app/routing/navigateToTaskScreen";
 import { ProjectSourceControlDiffPanel } from "./ProjectSourceControlDiffPanel";
@@ -1846,6 +1847,14 @@ function buildTimelineItems({
   const latestBuildProgressEvent = [...safeEvents]
     .reverse()
     .find((eventItem) => eventItem?.type === "build_progress" && eventItem.buildProgress);
+  const planArtifactsByMessageId = new Map();
+  for (const eventItem of safeEvents) {
+    const artifact = eventItem?.type === "plan_artifact" ? eventItem?.planArtifact?.artifact : null;
+    const messageEventId = artifact?.messageEventId ? String(artifact.messageEventId) : "";
+    if (messageEventId) {
+      planArtifactsByMessageId.set(messageEventId, artifact);
+    }
+  }
 
   const timelineItems = [];
   const answeredInputs = answeredInputRequestIds(safeEvents);
@@ -1884,7 +1893,8 @@ function buildTimelineItems({
       timelineItems.push({
         id: extractEventKey(eventItem, index),
         kind: "message",
-        event: eventItem
+        event: eventItem,
+        planArtifact: planArtifactsByMessageId.get(String(eventItem.id || "")) || null
       });
       continue;
     }
@@ -2286,6 +2296,7 @@ function AgentChatEvents({
             const isWaitingForStream = Boolean(timelineItem.isWaitingForStream);
             const isStreaming = Boolean(timelineItem.isStreaming);
             const isThinkingActive = latestRunStatus?.stage === "thinking" && latestThinkingMessageId === eventKey;
+            const planArtifact = timelineItem.planArtifact || null;
 
             return (
               <article key={eventKey} className={`agent-chat-message ${role}${isStreaming ? " streaming" : ""}`} data-testid={`agent-chat-message-${role}-${index}`}>
@@ -2409,6 +2420,20 @@ function AgentChatEvents({
                           login
                         </span>
                         Reconnect OpenAI
+                      </button>
+                    ) : null}
+                    {planArtifact?.projectId && planArtifact?.planName ? (
+                      <button
+                        type="button"
+                        className="agent-chat-oauth-reauth-button"
+                        onClick={() => {
+                          window.open(planArtifactWebUrl(String(planArtifact.projectId), String(planArtifact.planName)), "_blank", "noopener,noreferrer");
+                        }}
+                      >
+                        <span className="material-symbols-rounded" aria-hidden="true">
+                          open_in_new
+                        </span>
+                        Show in web page
                       </button>
                     ) : null}
                   </div>

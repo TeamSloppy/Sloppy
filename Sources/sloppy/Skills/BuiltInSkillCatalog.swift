@@ -208,6 +208,7 @@ enum BuiltInSkillCatalog {
             # Plan Mode
 
             Produce a concise implementation or investigation plan with enough detail for a later Build-mode turn to execute without losing context.
+            The final answer is saved by Sloppy as `PLAN_NAME.md` and rendered into a web page; safe raw HTML tags and attributes may be used in markdown, but scripts, event handlers, remote executable embeds, and `javascript:` links are not allowed.
             For substantial work, offer to capture the plan as a project task and use project task tools when the user asks to create, save, or track it.
             Do not edit files, run code-changing commands, or make irreversible non-task changes unless the authoritative runtime mode is build or debug for this turn.
             """

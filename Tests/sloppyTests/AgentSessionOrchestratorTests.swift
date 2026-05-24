@@ -130,6 +130,14 @@ private actor SequentialTextStore {
     }
 }
 
+private actor PlanArtifactRecorderCapture {
+    private(set) var records: [(sessionTitle: String, projectID: String?, messageEventID: String, markdown: String)] = []
+
+    func record(sessionTitle: String, projectID: String?, messageEventID: String, markdown: String) {
+        records.append((sessionTitle, projectID, messageEventID, markdown))
+    }
+}
+
 private struct SequentialTextLanguageModel: LanguageModel {
     typealias UnavailableReason = Never
     let store: SequentialTextStore
@@ -534,6 +542,63 @@ func agentSessionOrchestratorDropsReasoningEffortForNonReasoningModels() async t
 
     #expect(await provider.requestedModelsSnapshot() == ["openai:gpt-5.4-mini"])
     #expect(await provider.requestedReasoningEffortsSnapshot() == [nil])
+}
+
+@Test
+func agentSessionOrchestratorAppendsPlanArtifactEventForCompletedPlanTurn() async throws {
+    let agentID = "plan-artifact-agent"
+    let availableModels = [ProviderModelOption(id: "mock:plan", title: "mock:plan", capabilities: ["tools"])]
+    let (catalogStore, sessionStore, _) = try makeAgentSessionFixture(
+        agentID: agentID,
+        selectedModel: "mock:plan",
+        availableModels: availableModels
+    )
+    let runtime = RuntimeSystem(
+        modelProvider: FixedOutputModelProvider(models: ["mock:plan"], output: "# Durable Plan\n\nBuild the thing."),
+        defaultModel: "mock:plan"
+    )
+    let capture = PlanArtifactRecorderCapture()
+    let orchestrator = AgentSessionOrchestrator(
+        runtime: runtime,
+        sessionStore: sessionStore,
+        agentCatalogStore: catalogStore,
+        availableModels: availableModels,
+        planArtifactRecorder: { agentID, sessionID, sessionTitle, projectID, messageEventID, markdown, createdAt in
+            await capture.record(sessionTitle: sessionTitle, projectID: projectID, messageEventID: messageEventID, markdown: markdown)
+            return AgentPlanArtifactEvent(artifact: PlanArtifactRecord(
+                projectId: projectID ?? "",
+                projectName: "Project",
+                agentId: agentID,
+                sessionId: sessionID,
+                messageEventId: messageEventID,
+                planName: "durable-plan",
+                createdAt: createdAt,
+                storageKind: PlanArtifactStorageKind.workspace,
+                markdownPath: "/tmp/durable-plan.md",
+                webUrl: "/v1/projects/project/plans/durable-plan/web"
+            ))
+        }
+    )
+
+    let session = try await orchestrator.createSession(
+        agentID: agentID,
+        request: AgentSessionCreateRequest(title: "Plan Session", projectId: "project")
+    )
+    let response = try await orchestrator.postMessage(
+        agentID: agentID,
+        sessionID: session.id,
+        request: AgentSessionPostMessageRequest(userId: "dashboard", content: "Plan it", mode: .plan)
+    )
+
+    let assistantEvent = try #require(response.appendedEvents.first(where: { $0.type == .message && $0.message?.role == .assistant }))
+    let artifactEvent = try #require(response.appendedEvents.first(where: { $0.type == .planArtifact })?.planArtifact)
+    #expect(artifactEvent.artifact.messageEventId == assistantEvent.id)
+    #expect(artifactEvent.artifact.planName == "durable-plan")
+    let records = await capture.records
+    #expect(records.count == 1)
+    #expect(records.first?.sessionTitle == "Plan Session")
+    #expect(records.first?.projectID == "project")
+    #expect(records.first?.markdown.contains("# Durable Plan") == true)
 }
 
 @Test
