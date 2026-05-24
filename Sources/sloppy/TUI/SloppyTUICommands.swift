@@ -1,4 +1,5 @@
 import Foundation
+import Protocols
 import TauTUI
 
 enum SloppyTUIAutocompleteFeatureFlags {
@@ -42,6 +43,7 @@ struct SloppyTUIShortcutDescriptor: Equatable {
 enum SloppyTUIShortcutCatalog {
     static let all: [SloppyTUIShortcutDescriptor] = [
         SloppyTUIShortcutDescriptor("/", "commands"),
+        SloppyTUIShortcutDescriptor("!", "shell mode"),
         SloppyTUIShortcutDescriptor("@", "project paths"),
         SloppyTUIShortcutDescriptor("#", "project tasks"),
         SloppyTUIShortcutDescriptor("/btw", "side question"),
@@ -60,6 +62,93 @@ enum SloppyTUIShortcutCatalog {
         SloppyTUIShortcutDescriptor("Option+U", "undo turn"),
         SloppyTUIShortcutDescriptor("Option+R", "redo turn"),
     ]
+}
+
+enum SloppyTUIShellModeToggle {
+    static func shouldToggle(input: TerminalInput, editorText: String) -> Bool {
+        guard editorText.isEmpty else { return false }
+        guard case .key(.character("!"), let modifiers) = input, modifiers.isEmpty else {
+            return false
+        }
+        return true
+    }
+}
+
+enum SloppyTUIShellCommandResultFormatter {
+    static func markdown(command: String, cwd: String, result: JSONValue) -> String {
+        guard let data = result.asObject else {
+            return """
+            ## Shell
+            ```shell
+            \(sanitizeFence(command))
+            ```
+
+            \(fencedBlock("json", prettyJSON(result), maxCharacters: 4_000))
+            """
+        }
+
+        var parts: [String] = [
+            "## Shell",
+            fencedBlock("shell", command, maxCharacters: 4_000),
+        ]
+
+        parts.append("- cwd: `\(inlineCode(cwd))`")
+        if let exitCode = data["exitCode"]?.asInt {
+            parts.append("- exit code: `\(exitCode)`")
+        }
+        if data["timedOut"]?.asBool == true {
+            parts.append("- timed out")
+        }
+        if data["stdoutTruncated"]?.asBool == true {
+            parts.append("- stdout truncated")
+        }
+        if data["stderrTruncated"]?.asBool == true {
+            parts.append("- stderr truncated")
+        }
+        if let stdout = data["stdout"]?.asString,
+           !stdout.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            parts.append("stdout:\n" + fencedBlock("text", stdout, maxCharacters: 6_000))
+        }
+        if let stderr = data["stderr"]?.asString,
+           !stderr.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            parts.append("stderr:\n" + fencedBlock("text", stderr, maxCharacters: 6_000))
+        }
+
+        return parts.joined(separator: "\n\n")
+    }
+
+    private static func fencedBlock(_ language: String, _ text: String, maxCharacters: Int) -> String {
+        """
+        ```\(language)
+        \(clip(sanitizeFence(text), maxCharacters: maxCharacters))
+        ```
+        """
+    }
+
+    private static func sanitizeFence(_ text: String) -> String {
+        text.replacingOccurrences(of: "```", with: "` ` `")
+    }
+
+    private static func inlineCode(_ text: String) -> String {
+        text.replacingOccurrences(of: "`", with: "\\`")
+    }
+
+    private static func clip(_ text: String, maxCharacters: Int) -> String {
+        guard text.count > maxCharacters else {
+            return text
+        }
+        return String(text.prefix(max(0, maxCharacters - 14))) + "\n... truncated"
+    }
+
+    private static func prettyJSON(_ value: JSONValue) -> String {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        guard let data = try? encoder.encode(value),
+              let string = String(data: data, encoding: .utf8) else {
+            return String(describing: value)
+        }
+        return string
+    }
 }
 
 enum SloppyTUIGlobalShortcutAction: Equatable {

@@ -76,7 +76,7 @@ The React operator dashboard shows live channel activity, agent state, memory, w
 
 ### Terminal UI
 
-The `sloppy` command opens a full-screen terminal UI for local project chat. It restores the last agent/session for the current directory, supports model and provider pickers, accepts slash commands, and can inline project files with `@path`. See [Terminal UI](/guides/tui).
+The `sloppy` command opens a full-screen terminal UI for local project chat. It restores the last agent/session for the current directory, supports multi-session tracking, model and provider pickers, slash commands, and inline project files with `@path`. See [Terminal UI](/tui/overview) and [Multi-session TUI](/tui/multi-session).
 
 ### Plugin system
 
@@ -143,14 +143,14 @@ SLOPPY_CA_CERTS=/path/to/extra-ca.pem
 
 Runtime configuration lives in `sloppy.json`. If you do nothing, Sloppy uses sensible defaults and picks up any API keys from the environment.
 
-See [Model Providers](/guides/models) for provider-specific setup, [Terminal UI](/guides/tui) for interactive local chat, and [CLI Reference](/guides/cli) for all runtime commands.
+See [Model Providers](/guides/models) for provider-specific setup, [Terminal UI](/tui/overview) for interactive local chat, and [CLI Reference](/guides/cli) for all runtime commands.
 
 ## Start here
 
 | Guide | Description |
 | --- | --- |
 | [Install](/install) | Get Sloppy running from the terminal or with Docker |
-| [Terminal UI](/guides/tui) | Use the full-screen local terminal chat, model picker, and slash commands |
+| [Terminal UI](/tui/overview) | Use the full-screen local terminal chat, multi-session list, model picker, and slash commands |
 | [CLI Reference](/guides/cli) | All `sloppy` subcommands and flags |
 | [Model Providers](/guides/models) | Configure OpenAI, Gemini, Anthropic, and Ollama |
 | [Channels](/channels/about) | How channels work and how to set up Telegram and Discord |

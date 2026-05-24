@@ -223,7 +223,7 @@ Preview removals without deleting anything:
 bash scripts/uninstall.sh --dry-run
 ```
 
-For details see [Build From Terminal](/guides/build-from-terminal), [Terminal UI](/guides/tui), and the [CLI Reference](/guides/cli).
+For details see [Build From Terminal](/guides/build-from-terminal), [Terminal UI](/tui/overview), and the [CLI Reference](/guides/cli).
 
 ## Docker
 

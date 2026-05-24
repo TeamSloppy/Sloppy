@@ -14,6 +14,97 @@ enum SloppyTUIPickerKind: Equatable {
     case projectFile
     case projectTask
     case planInput
+    case theme
+}
+
+enum SloppyTUISessionListMode: Equatable {
+    case hidden
+    case side
+    case full
+}
+
+enum SloppyTUISessionListSection: String, CaseIterable, Equatable {
+    case waitingInput = "Waiting inputs"
+    case working = "Working"
+    case completed = "Completed"
+}
+
+struct SloppyTUISessionListEntry: Equatable {
+    var tracked: SloppyTUIState.TrackedSession
+    var summary: AgentSessionSummary
+    var section: SloppyTUISessionListSection
+    var detail: String
+
+    var sessionId: String { tracked.sessionId }
+    var agentId: String { tracked.agentId }
+}
+
+enum SloppyTUISessionList {
+    static func section(for events: [AgentSessionEvent], isPosting: Bool) -> SloppyTUISessionListSection {
+        if hasUnansweredInputRequest(events) {
+            return .waitingInput
+        }
+        if isPosting || latestRunStage(in: events).map(isWorkingStage) == true {
+            return .working
+        }
+        return .completed
+    }
+
+    static func sortedEntries(_ entries: [SloppyTUISessionListEntry]) -> [SloppyTUISessionListEntry] {
+        entries.sorted { lhs, rhs in
+            if lhs.section != rhs.section {
+                return sectionRank(lhs.section) < sectionRank(rhs.section)
+            }
+            if lhs.tracked.pinned != rhs.tracked.pinned {
+                return lhs.tracked.pinned
+            }
+            let lhsDate = lhs.summary.updatedAt
+            let rhsDate = rhs.summary.updatedAt
+            if lhsDate != rhsDate {
+                return lhsDate > rhsDate
+            }
+            return lhs.sessionId < rhs.sessionId
+        }
+    }
+
+    static func clampedSelection(_ selectedIndex: Int, entryCount: Int) -> Int {
+        guard entryCount > 0 else { return 0 }
+        return max(0, min(selectedIndex, entryCount - 1))
+    }
+
+    private static func sectionRank(_ section: SloppyTUISessionListSection) -> Int {
+        switch section {
+        case .waitingInput: return 0
+        case .working: return 1
+        case .completed: return 2
+        }
+    }
+
+    private static func hasUnansweredInputRequest(_ events: [AgentSessionEvent]) -> Bool {
+        let answered = Set(events.compactMap { event -> String? in
+            event.type == .inputResponse ? event.inputResponse?.requestId : nil
+        })
+        return events.contains { event in
+            guard event.type == .inputRequest,
+                  let requestID = event.inputRequest?.id else {
+                return false
+            }
+            return !answered.contains(requestID)
+        }
+    }
+
+    private static func latestRunStage(in events: [AgentSessionEvent]) -> AgentRunStage? {
+        events.reversed().first { $0.type == .runStatus && $0.runStatus != nil }?.runStatus?.stage
+    }
+
+    private static func isWorkingStage(_ stage: AgentRunStage) -> Bool {
+        switch stage {
+        case .thinking, .searching, .responding:
+            return true
+        case .paused, .done, .interrupted:
+            return false
+        }
+    }
 }
 
 struct SloppyTUIPickerItem {
@@ -205,6 +296,42 @@ struct SloppyTUIWorkspaceDiffPreview: Equatable {
             linesDeleted: linesDeleted,
             diff: diff,
             truncated: truncated
+        )
+    }
+}
+
+struct SloppyTUISourceControlFooterStatus: Equatable {
+    var providerId: String?
+    var isRepository: Bool
+    var branch: String?
+    var linesAdded: Int
+    var linesDeleted: Int
+    var message: String?
+
+    init(
+        providerId: String?,
+        isRepository: Bool,
+        branch: String? = nil,
+        linesAdded: Int = 0,
+        linesDeleted: Int = 0,
+        message: String? = nil
+    ) {
+        self.providerId = providerId
+        self.isRepository = isRepository
+        self.branch = branch
+        self.linesAdded = linesAdded
+        self.linesDeleted = linesDeleted
+        self.message = message
+    }
+
+    init(_ response: ProjectWorkingTreeSourceControlResponse) {
+        self.init(
+            providerId: response.providerId,
+            isRepository: response.isRepository,
+            branch: response.branch,
+            linesAdded: response.linesAdded,
+            linesDeleted: response.linesDeleted,
+            message: response.message
         )
     }
 }

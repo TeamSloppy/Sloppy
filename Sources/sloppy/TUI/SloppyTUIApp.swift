@@ -27,6 +27,8 @@ struct SloppyTUIApp {
         let project = try await runtime.service.resolveOrCreateProjectForCurrentDirectory(runtime.cwd)
         let stateStore = SloppyTUIStateStore(workspaceRoot: runtime.workspaceRoot)
         let state = stateStore.load()
+        let themeStore = SloppyTUIThemeStore(workspaceRoot: runtime.workspaceRoot)
+        SloppyTUITheme.apply(themeStore.resolvedTheme(id: state.themeID))
         let selectionKey = SloppyTUIStateStore.selectionKey(projectId: project.id)
         let selection = state.selections[selectionKey]
 

@@ -144,6 +144,56 @@ func tuiUndoRedoHistoryIsScopedBySession() throws {
     #expect(try String(contentsOf: firstURL, encoding: .utf8) == "one-before")
 }
 
+@Test
+func tuiSessionDiffIncludesOnlyRecordedSessionPaths() throws {
+    let root = try makeUndoRedoRoot()
+    defer { try? FileManager.default.removeItem(at: root) }
+    let sessionURL = root.appendingPathComponent("session.txt")
+    let unrelatedURL = root.appendingPathComponent("unrelated.txt")
+    try Data("before\n".utf8).write(to: sessionURL)
+    try Data("clean\n".utf8).write(to: unrelatedURL)
+
+    var manager = SloppyTUIUndoManager()
+    let baseline = manager.makeBaseline(rootURL: root)
+    try Data("after\n".utf8).write(to: sessionURL)
+
+    #expect(manager.recordChanges(rootURL: root, baseline: baseline) == .recorded(paths: ["session.txt"]))
+    try Data("dirty\n".utf8).write(to: unrelatedURL)
+
+    let diff = try manager.sessionDiff(rootURL: root)
+    #expect(diff.paths == ["session.txt"])
+    #expect(diff.linesAdded == 1)
+    #expect(diff.linesDeleted == 1)
+    #expect(diff.diff.contains("diff --git a/session.txt b/session.txt"))
+    #expect(diff.diff.contains("-before"))
+    #expect(diff.diff.contains("+after"))
+    #expect(!diff.diff.contains("unrelated.txt"))
+    #expect(!diff.truncated)
+}
+
+@Test
+func tuiSessionDiffComparesEarliestRecordedStateToCurrentFile() throws {
+    let root = try makeUndoRedoRoot()
+    defer { try? FileManager.default.removeItem(at: root) }
+    let fileURL = root.appendingPathComponent("note.txt")
+    try Data("one\n".utf8).write(to: fileURL)
+
+    var manager = SloppyTUIUndoManager()
+    var baseline = manager.makeBaseline(rootURL: root)
+    try Data("two\n".utf8).write(to: fileURL)
+    _ = manager.recordChanges(rootURL: root, baseline: baseline)
+
+    baseline = manager.makeBaseline(rootURL: root)
+    try Data("three\n".utf8).write(to: fileURL)
+    _ = manager.recordChanges(rootURL: root, baseline: baseline)
+
+    let diff = try manager.sessionDiff(rootURL: root)
+    #expect(diff.paths == ["note.txt"])
+    #expect(diff.diff.contains("-one"))
+    #expect(diff.diff.contains("+three"))
+    #expect(!diff.diff.contains("-two"))
+}
+
 private func makeUndoRedoRoot() throws -> URL {
     let root = FileManager.default.temporaryDirectory
         .appendingPathComponent("sloppy-tui-undo-redo-\(UUID().uuidString)", isDirectory: true)

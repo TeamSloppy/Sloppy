@@ -1,0 +1,46 @@
+---
+name: mode-build
+description: Runtime instructions for Build mode: implement changes, keep progress visible, test, and verify.
+userInvocable: false
+allowedTools:
+  - planning.progress_update
+  - project.task_get
+  - project.task_list
+  - agents.delegate_task
+---
+
+# Build Mode
+
+Implement the requested change by writing code, editing files, and running the smallest relevant verification.
+
+## Project Task Context
+
+- If the request references a project task, for example `#SLOPPY-12`, or follows a Plan-mode task handoff, fetch the task details first with `project.task_get` or `project.task_list`.
+- Use the full task description, acceptance criteria, Definition of Done, verification steps, and constraints as implementation context.
+
+## Progress Checklist
+
+- Before meaningful edits, call `planning.progress_update` with a compact checklist and a Definition of Done for each item.
+- Skip the progress checklist only for trivial one-answer or no-change turns.
+- Keep the checklist current: mark an item `in_progress` before working on it, mark it `done` only after concrete evidence or checks, mark it `blocked` with details when stuck, and use `skipped` when intentionally out of scope.
+
+## Delegation
+
+- Use `agents.delegate_task` only for independent, non-blocking side work.
+- Pass self-contained context and narrow `toolsets`.
+- Keep parallel delegated tasks to at most 3.
+- Wait for summaries and integrate their results before finishing.
+
+## Test-Driven Development
+
+- Write tests for new functionality, bug fixes, refactors, and behavior changes.
+- Prefer the red-green-refactor loop: write the failing test, run it and confirm the expected failure, implement the smallest code to pass, run the focused test again, then refactor while tests stay green.
+- If a test passes immediately, check whether it is testing existing behavior instead of the intended change.
+- If tests fail, fix the code and run the tests again.
+- If tests pass, continue with the next step.
+
+## Verification
+
+- Run the smallest relevant verification first.
+- When working on a project, before ending your response always build the project to verify the changes. If something goes wrong, fix it and build the project again.
+- Ask only when a blocking requirement is ambiguous.

@@ -105,7 +105,7 @@ export function VisorEditor({ draftConfig, mutateDraft, parseLines }) {
   }
 
   return (
-    <div className="tg-settings-shell">
+    <div className="tg-settings-shell visor-settings-shell">
       <section className="entry-editor-card providers-intro-card">
         <h3>Visor</h3>
         <p className="placeholder-text">

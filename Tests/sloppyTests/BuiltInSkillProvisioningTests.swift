@@ -15,6 +15,15 @@ func coreServiceCreateAgentInstallsBuiltInTaskSpecSkill() async throws {
     )
 
     let response = try await service.listAgentSkills(agentID: "task-spec-new-agent")
+    let skillIDs = Set(response.skills.map(\.id))
+    #expect(skillIDs == Set([
+        BuiltInSkillCatalog.modeAskID,
+        BuiltInSkillCatalog.modeBuildID,
+        BuiltInSkillCatalog.modePlanID,
+        BuiltInSkillCatalog.modeDebugID,
+        BuiltInSkillCatalog.taskSpecWriterID
+    ]))
+
     let skill = try #require(response.skills.first { $0.id == BuiltInSkillCatalog.taskSpecWriterID })
 
     #expect(skill.name == "task-spec-writer")
@@ -23,10 +32,18 @@ func coreServiceCreateAgentInstallsBuiltInTaskSpecSkill() async throws {
     #expect(FileManager.default.fileExists(atPath: URL(fileURLWithPath: skill.localPath)
         .appendingPathComponent("SKILL.md")
         .path))
+
+    let modeBuild = try #require(response.skills.first { $0.id == BuiltInSkillCatalog.modeBuildID })
+    #expect(modeBuild.name == "mode-build")
+    #expect(modeBuild.userInvocable == false)
+    #expect(modeBuild.allowedTools.contains("planning.progress_update"))
+    #expect(FileManager.default.fileExists(atPath: URL(fileURLWithPath: modeBuild.localPath)
+        .appendingPathComponent("SKILL.md")
+        .path))
 }
 
 @Test
-func builtInTaskSpecSkillBackfillIsIdempotentForExistingAgents() throws {
+func builtInSkillsBackfillIsIdempotentForExistingAgents() throws {
     let agentsRootURL = FileManager.default.temporaryDirectory
         .appendingPathComponent("built-in-skill-provisioning-\(UUID().uuidString)", isDirectory: true)
         .appendingPathComponent("agents", isDirectory: true)
@@ -47,14 +64,27 @@ func builtInTaskSpecSkillBackfillIsIdempotentForExistingAgents() throws {
     try skillsStore.ensureSkillsDirectory(agentID: "existing-agent")
 
     let installed = try skillsStore.listSkills(agentID: "existing-agent")
-    let builtIns = installed.filter { $0.id == BuiltInSkillCatalog.taskSpecWriterID }
+    let builtInIDs = Set(installed.map(\.id))
 
-    #expect(builtIns.count == 1)
-    #expect(builtIns.first?.userInvocable == false)
+    #expect(installed.count == 5)
+    #expect(builtInIDs == Set([
+        BuiltInSkillCatalog.modeAskID,
+        BuiltInSkillCatalog.modeBuildID,
+        BuiltInSkillCatalog.modePlanID,
+        BuiltInSkillCatalog.modeDebugID,
+        BuiltInSkillCatalog.taskSpecWriterID
+    ]))
+    #expect(installed.allSatisfy { $0.userInvocable == false })
     #expect(FileManager.default.fileExists(atPath: agentsRootURL
         .appendingPathComponent("existing-agent", isDirectory: true)
         .appendingPathComponent("skills", isDirectory: true)
         .appendingPathComponent("sloppy/task-spec-writer", isDirectory: true)
+        .appendingPathComponent("SKILL.md")
+        .path))
+    #expect(FileManager.default.fileExists(atPath: agentsRootURL
+        .appendingPathComponent("existing-agent", isDirectory: true)
+        .appendingPathComponent("skills", isDirectory: true)
+        .appendingPathComponent("sloppy/mode-debug", isDirectory: true)
         .appendingPathComponent("SKILL.md")
         .path))
 }

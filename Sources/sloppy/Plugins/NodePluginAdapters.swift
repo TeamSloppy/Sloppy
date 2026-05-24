@@ -45,6 +45,174 @@ actor NodeGatewayPlugin: GatewayPlugin {
     }
 }
 
+actor NodePersistentGatewayPlugin: GatewayPlugin {
+    nonisolated let id: String
+    nonisolated let channelIds: [String]
+
+    fileprivate let runtime: PersistentNodeGatewayRuntime
+
+    init(
+        manifest: PluginManifest,
+        pluginDirectory: URL,
+        descriptor: NodePluginDescriptor?,
+        inboundReceiver: any InboundMessageReceiver,
+        logger: Logger = Logger(label: "sloppy.plugin.node.gateway")
+    ) throws {
+        self.id = manifest.name
+        self.channelIds = Self.resolveChannelIds(manifest: manifest, descriptor: descriptor)
+        self.runtime = try PersistentNodeGatewayRuntime(
+            manifest: manifest,
+            pluginDirectory: pluginDirectory,
+            inboundReceiver: inboundReceiver,
+            logger: logger
+        )
+    }
+
+    func start(inboundReceiver: any InboundMessageReceiver) async throws {
+        _ = try await runtime.callJSON("gateway.start", params: [
+            "channelIds": .array(channelIds.map { .string($0) })
+        ])
+    }
+
+    func stop() async {
+        _ = try? await runtime.callJSON("gateway.stop")
+        await runtime.stopProcess()
+    }
+
+    func send(channelId: String, message: String, topicId: String?) async throws {
+        try await sendViaRuntime(runtime, channelId: channelId, message: message, topicId: topicId)
+    }
+
+    fileprivate static func resolveChannelIds(manifest: PluginManifest, descriptor: NodePluginDescriptor?) -> [String] {
+        let declared = descriptor?.gateways.flatMap(\.channelIds) ?? []
+        if !declared.isEmpty {
+            return Array(Set(declared)).sorted()
+        }
+        return manifest.config["channelIds"]?.asArray?.compactMap(\.asString) ?? []
+    }
+
+    static func capabilities(descriptor: NodePluginDescriptor?) -> Set<String> {
+        Set((descriptor?.gateways.flatMap(\.capabilities) ?? []).map { $0.lowercased() })
+    }
+}
+
+actor NodeInteractiveGatewayPlugin: StreamingGatewayPlugin, ToolApprovalGatewayPlugin, PlanInputGatewayPlugin {
+    nonisolated let id: String
+    nonisolated let channelIds: [String]
+
+    private let runtime: PersistentNodeGatewayRuntime
+
+    init(
+        manifest: PluginManifest,
+        pluginDirectory: URL,
+        descriptor: NodePluginDescriptor?,
+        inboundReceiver: any InboundMessageReceiver,
+        logger: Logger = Logger(label: "sloppy.plugin.node.gateway")
+    ) throws {
+        self.id = manifest.name
+        self.channelIds = NodePersistentGatewayPlugin.resolveChannelIds(manifest: manifest, descriptor: descriptor)
+        self.runtime = try PersistentNodeGatewayRuntime(
+            manifest: manifest,
+            pluginDirectory: pluginDirectory,
+            inboundReceiver: inboundReceiver,
+            logger: logger
+        )
+    }
+
+    func start(inboundReceiver: any InboundMessageReceiver) async throws {
+        _ = try await runtime.callJSON("gateway.start", params: [
+            "channelIds": .array(channelIds.map { .string($0) })
+        ])
+    }
+
+    func stop() async {
+        _ = try? await runtime.callJSON("gateway.stop")
+        await runtime.stopProcess()
+    }
+
+    func send(channelId: String, message: String, topicId: String?) async throws {
+        try await sendViaRuntime(runtime, channelId: channelId, message: message, topicId: topicId)
+    }
+
+    func beginStreaming(channelId: String, userId: String, topicId: String?) async throws -> GatewayOutboundStreamHandle {
+        var params: [String: JSONValue] = [
+            "channelId": .string(channelId),
+            "userId": .string(userId)
+        ]
+        if let topicId { params["topicId"] = .string(topicId) }
+        let result = try await runtime.callJSON("gateway.stream.start", params: params)
+        let id = result.asObject?["streamId"]?.asString ?? result.asObject?["id"]?.asString ?? result.asString ?? UUID().uuidString
+        return GatewayOutboundStreamHandle(id: id)
+    }
+
+    func updateStreaming(handle: GatewayOutboundStreamHandle, channelId: String, content: String) async throws {
+        _ = try await runtime.callJSON("gateway.stream.update", params: [
+            "streamId": .string(handle.id),
+            "channelId": .string(channelId),
+            "content": .string(content)
+        ])
+    }
+
+    func endStreaming(
+        handle: GatewayOutboundStreamHandle,
+        channelId: String,
+        userId: String,
+        finalContent: String?
+    ) async throws {
+        var params: [String: JSONValue] = [
+            "streamId": .string(handle.id),
+            "channelId": .string(channelId),
+            "userId": .string(userId),
+            "content": finalContent.map(JSONValue.string) ?? .null
+        ]
+        params["finalContent"] = finalContent.map(JSONValue.string) ?? .null
+        _ = try await runtime.callJSON("gateway.stream.end", params: params)
+    }
+
+    func presentToolApproval(_ approval: ToolApprovalRecord) async throws {
+        _ = try await runtime.callJSON("gateway.toolApproval.present", params: [
+            "approval": encodeJSONValue(approval)
+        ])
+    }
+
+    func updateToolApproval(_ approval: ToolApprovalRecord) async throws {
+        _ = try await runtime.callJSON("gateway.toolApproval.update", params: [
+            "approval": encodeJSONValue(approval)
+        ])
+    }
+
+    func presentPlanInputRequest(
+        channelId: String,
+        userId: String,
+        request: PlanInputRequest,
+        topicId: String?
+    ) async throws {
+        var params: [String: JSONValue] = [
+            "channelId": .string(channelId),
+            "userId": .string(userId),
+            "request": encodeJSONValue(request)
+        ]
+        if let topicId { params["topicId"] = .string(topicId) }
+        _ = try await runtime.callJSON("gateway.planInput.present", params: params)
+    }
+}
+
+private func sendViaRuntime(
+    _ runtime: PersistentNodeGatewayRuntime,
+    channelId: String,
+    message: String,
+    topicId: String?
+) async throws {
+    var params: [String: JSONValue] = [
+        "channelId": .string(channelId),
+        "message": .string(message)
+    ]
+    if let topicId {
+        params["topicId"] = .string(topicId)
+    }
+    _ = try await runtime.callJSON("gateway.send", params: params)
+}
+
 struct NodeTaskSyncProvider: TaskSyncProvider {
     let id: String
 

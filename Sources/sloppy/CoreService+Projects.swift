@@ -334,6 +334,24 @@ extension CoreService {
         }
     }
 
+    public func createTUIBackgroundWorktree(projectID: String, taskID: String) async throws -> SourceControlWorktreeResult {
+        guard let normalizedID = normalizedProjectID(projectID) else {
+            throw ProjectError.invalidProjectID
+        }
+        guard let project = await store.project(id: normalizedID) else {
+            throw ProjectError.notFound
+        }
+
+        let rootPath = try await resolveProjectWorkspaceRoot(projectID: normalizedID).path
+        let provider = sourceControlProvider(for: project)
+        return try await provider.createWorktree(
+            repoPath: rootPath,
+            taskId: taskID,
+            baseBranch: "HEAD",
+            worktreeRootPath: defaultWorktreeRootPath(projectID: normalizedID)
+        )
+    }
+
     /// Reverts a tracked file under the project workspace through the configured source-control provider.
     public func restoreProjectWorkingTreeFile(projectID: String, path: String) async throws {
         guard let normalizedID = normalizedProjectID(projectID) else {

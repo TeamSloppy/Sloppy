@@ -26,6 +26,7 @@ export default defineConfig({
     logo: "/so_logo.svg",
     nav: [
       { text: "Guides", link: "/guides/build-from-terminal" },
+      { text: "TUI", link: "/tui/overview" },
       { text: "API", link: "/api/reference" },
       { text: "Agents", link: "/agents/memory" },
       { text: "Visor", link: "/visor/overview" },
@@ -51,7 +52,6 @@ export default defineConfig({
           { text: "Build With Docker", link: "/guides/build-with-docker" },
           { text: "Development Workflow", link: "/guides/development-workflow" },
           { text: "Project Context", link: "/guides/project-context" },
-          { text: "Terminal UI", link: "/guides/tui" },
           { text: "CLI Reference", link: "/guides/cli" },
           { text: "SloppyNode", link: "/guides/sloppy-node" },
           { text: "Model Providers", link: "/guides/models" },
@@ -60,6 +60,13 @@ export default defineConfig({
           { text: "SDK", link: "/guides/sdk" },
           { text: "Plugins", link: "/guides/plugins" },
           { text: "Git & Repositories", link: "/guides/git" }
+        ]
+      },
+      {
+        text: "TUI",
+        items: [
+          { text: "Terminal UI", link: "/tui/overview" },
+          { text: "Multi-session TUI", link: "/tui/multi-session" }
         ]
       },
       {

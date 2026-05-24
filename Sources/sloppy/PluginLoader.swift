@@ -417,7 +417,31 @@ public struct PluginLoader: Sendable {
                 return nil
             }
             do {
-                let plugin = try NodeGatewayPlugin(manifest: manifest, pluginDirectory: directory, logger: logger)
+                let descriptor = try await describeNodePluginIfNeeded(manifest: manifest, pluginDirectory: directory)
+                let plugin: any GatewayPlugin
+                if manifest.isNodePluginAPIV2 {
+                    let capabilities = NodePersistentGatewayPlugin.capabilities(descriptor: descriptor)
+                    let interactiveCapabilities: Set<String> = ["streaming", "tool_approval", "plan_input"]
+                    if !capabilities.isDisjoint(with: interactiveCapabilities) {
+                        plugin = try NodeInteractiveGatewayPlugin(
+                            manifest: manifest,
+                            pluginDirectory: directory,
+                            descriptor: descriptor,
+                            inboundReceiver: inboundReceiver,
+                            logger: logger
+                        )
+                    } else {
+                        plugin = try NodePersistentGatewayPlugin(
+                            manifest: manifest,
+                            pluginDirectory: directory,
+                            descriptor: descriptor,
+                            inboundReceiver: inboundReceiver,
+                            logger: logger
+                        )
+                    }
+                } else {
+                    plugin = try NodeGatewayPlugin(manifest: manifest, pluginDirectory: directory, logger: logger)
+                }
                 return LoadedGatewayPlugin(
                     manifest: manifest,
                     plugin: plugin,

@@ -17,6 +17,18 @@ struct SloppyTUIUndoManager {
         var paths: [String]
     }
 
+    struct DiffResult: Equatable {
+        var diff: String
+        var linesAdded: Int
+        var linesDeleted: Int
+        var paths: [String]
+        var truncated: Bool
+
+        var hasChanges: Bool {
+            !diff.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }
+    }
+
     enum RecordResult: Equatable {
         case recorded(paths: [String])
         case noChanges
@@ -61,6 +73,67 @@ struct SloppyTUIUndoManager {
 
     var canUndo: Bool { !undoStack.isEmpty }
     var canRedo: Bool { !redoStack.isEmpty }
+
+    func sessionDiff(rootURL: URL, maxCharacters: Int = 96 * 1024) throws -> DiffResult {
+        let root = rootURL.standardizedFileURL
+        var initialStates: [String: FileState] = [:]
+        for transaction in undoStack {
+            for path in transaction.paths where initialStates[path] == nil {
+                initialStates[path] = transaction.before[path] ?? .missing
+            }
+        }
+
+        var chunks: [String] = []
+        var changedPaths: [String] = []
+        var linesAdded = 0
+        var linesDeleted = 0
+        var characterCount = 0
+        var truncated = false
+
+        for path in initialStates.keys.sorted() {
+            guard let before = initialStates[path] else {
+                continue
+            }
+            let after = try readState(rootURL: root, path: path)
+            guard before != after else {
+                continue
+            }
+
+            let fileDiff = Self.unifiedDiff(path: path, before: before, after: after)
+            guard !fileDiff.text.isEmpty else {
+                continue
+            }
+
+            changedPaths.append(path)
+            linesAdded += fileDiff.linesAdded
+            linesDeleted += fileDiff.linesDeleted
+
+            let separatorCount = chunks.isEmpty ? 0 : 1
+            let nextCount = characterCount + separatorCount + fileDiff.text.count
+            if nextCount > maxCharacters {
+                let remaining = max(0, maxCharacters - characterCount - separatorCount)
+                if remaining > 0 {
+                    if !chunks.isEmpty {
+                        chunks.append("")
+                    }
+                    chunks.append(String(fileDiff.text.prefix(remaining)))
+                }
+                truncated = true
+                break
+            }
+
+            chunks.append(fileDiff.text)
+            characterCount = nextCount
+        }
+
+        return DiffResult(
+            diff: chunks.joined(separator: "\n"),
+            linesAdded: linesAdded,
+            linesDeleted: linesDeleted,
+            paths: changedPaths,
+            truncated: truncated
+        )
+    }
 
     func makeBaseline(rootURL: URL) -> Baseline {
         let root = rootURL.standardizedFileURL
@@ -270,6 +343,140 @@ struct SloppyTUIUndoManager {
         "dist",
         "DerivedData",
     ]
+
+    private static func unifiedDiff(path: String, before: FileState, after: FileState) -> FileDiff {
+        let beforeText = before.textLines
+        let afterText = after.textLines
+        guard let beforeText, let afterText else {
+            return FileDiff(
+                text: """
+                diff --git a/\(path) b/\(path)
+                Binary files \(before.isMissing ? "/dev/null" : "a/\(path)") and \(after.isMissing ? "/dev/null" : "b/\(path)") differ
+                """,
+                linesAdded: 0,
+                linesDeleted: 0
+            )
+        }
+
+        let operations = diffOperations(from: beforeText, to: afterText)
+        guard operations.contains(where: \.isChange) else {
+            return FileDiff(text: "", linesAdded: 0, linesDeleted: 0)
+        }
+
+        let linesAdded = operations.filter(\.isInsertion).count
+        let linesDeleted = operations.filter(\.isDeletion).count
+        var lines: [String] = ["diff --git a/\(path) b/\(path)"]
+        if before.isMissing {
+            lines.append("new file mode 100644")
+        } else if after.isMissing {
+            lines.append("deleted file mode 100644")
+        }
+        lines.append(before.isMissing ? "--- /dev/null" : "--- a/\(path)")
+        lines.append(after.isMissing ? "+++ /dev/null" : "+++ b/\(path)")
+        lines.append(contentsOf: unifiedHunkLines(operations))
+        return FileDiff(text: lines.joined(separator: "\n"), linesAdded: linesAdded, linesDeleted: linesDeleted)
+    }
+
+    private static func diffOperations(from oldLines: [String], to newLines: [String]) -> [LineDiffOperation] {
+        let cellCount = (oldLines.count + 1) * (newLines.count + 1)
+        guard cellCount <= 2_000_000 else {
+            return boundedDiffOperations(from: oldLines, to: newLines)
+        }
+
+        let columns = newLines.count + 1
+        var table = Array(repeating: 0, count: cellCount)
+        if !oldLines.isEmpty && !newLines.isEmpty {
+            for oldIndex in stride(from: oldLines.count - 1, through: 0, by: -1) {
+                for newIndex in stride(from: newLines.count - 1, through: 0, by: -1) {
+                    let index = oldIndex * columns + newIndex
+                    if oldLines[oldIndex] == newLines[newIndex] {
+                        table[index] = table[(oldIndex + 1) * columns + newIndex + 1] + 1
+                    } else {
+                        table[index] = max(
+                            table[(oldIndex + 1) * columns + newIndex],
+                            table[oldIndex * columns + newIndex + 1]
+                        )
+                    }
+                }
+            }
+        }
+
+        var operations: [LineDiffOperation] = []
+        var oldIndex = 0
+        var newIndex = 0
+        while oldIndex < oldLines.count || newIndex < newLines.count {
+            if oldIndex < oldLines.count,
+               newIndex < newLines.count,
+               oldLines[oldIndex] == newLines[newIndex] {
+                operations.append(.context(oldLines[oldIndex]))
+                oldIndex += 1
+                newIndex += 1
+            } else if newIndex == newLines.count
+                || (oldIndex < oldLines.count
+                    && table[(oldIndex + 1) * columns + newIndex] >= table[oldIndex * columns + newIndex + 1]) {
+                operations.append(.delete(oldLines[oldIndex]))
+                oldIndex += 1
+            } else {
+                operations.append(.insert(newLines[newIndex]))
+                newIndex += 1
+            }
+        }
+        return operations
+    }
+
+    private static func boundedDiffOperations(from oldLines: [String], to newLines: [String]) -> [LineDiffOperation] {
+        var prefixCount = 0
+        while prefixCount < oldLines.count,
+              prefixCount < newLines.count,
+              oldLines[prefixCount] == newLines[prefixCount] {
+            prefixCount += 1
+        }
+
+        var oldSuffixIndex = oldLines.count
+        var newSuffixIndex = newLines.count
+        while oldSuffixIndex > prefixCount,
+              newSuffixIndex > prefixCount,
+              oldLines[oldSuffixIndex - 1] == newLines[newSuffixIndex - 1] {
+            oldSuffixIndex -= 1
+            newSuffixIndex -= 1
+        }
+
+        return oldLines[..<prefixCount].map(LineDiffOperation.context)
+            + oldLines[prefixCount..<oldSuffixIndex].map(LineDiffOperation.delete)
+            + newLines[prefixCount..<newSuffixIndex].map(LineDiffOperation.insert)
+            + oldLines[oldSuffixIndex...].map(LineDiffOperation.context)
+    }
+
+    private static func unifiedHunkLines(_ operations: [LineDiffOperation]) -> [String] {
+        guard let firstChange = operations.firstIndex(where: \.isChange),
+              let lastChange = operations.lastIndex(where: \.isChange)
+        else {
+            return []
+        }
+
+        let contextLineCount = 3
+        let start = max(0, firstChange - contextLineCount)
+        let end = min(operations.count, lastChange + contextLineCount + 1)
+        var oldLine = 1
+        var newLine = 1
+        for operation in operations[..<start] {
+            if operation.consumesOldLine {
+                oldLine += 1
+            }
+            if operation.consumesNewLine {
+                newLine += 1
+            }
+        }
+
+        let hunk = operations[start..<end]
+        let oldCount = hunk.filter(\.consumesOldLine).count
+        let newCount = hunk.filter(\.consumesNewLine).count
+        let oldStart = oldCount == 0 ? max(0, oldLine - 1) : oldLine
+        let newStart = newCount == 0 ? max(0, newLine - 1) : newLine
+        var lines = ["@@ -\(oldStart),\(oldCount) +\(newStart),\(newCount) @@"]
+        lines.append(contentsOf: hunk.map(\.unifiedLine))
+        return lines
+    }
 }
 
 struct SloppyTUISessionUndoManagers {
@@ -316,6 +523,19 @@ struct SloppyTUISessionUndoManagers {
     func canRedo(sessionID: String) -> Bool {
         managers[sessionID]?.canRedo ?? false
     }
+
+    func sessionDiff(sessionID: String, rootURL: URL, maxCharacters: Int = 96 * 1024) throws -> SloppyTUIUndoManager.DiffResult {
+        guard let manager = managers[sessionID] else {
+            return SloppyTUIUndoManager.DiffResult(
+                diff: "",
+                linesAdded: 0,
+                linesDeleted: 0,
+                paths: [],
+                truncated: false
+            )
+        }
+        return try manager.sessionDiff(rootURL: rootURL, maxCharacters: maxCharacters)
+    }
 }
 
 private struct Transaction: Equatable {
@@ -336,9 +556,101 @@ private enum FileState: Equatable {
             return data.count
         }
     }
+
+    var isMissing: Bool {
+        if case .missing = self {
+            return true
+        }
+        return false
+    }
+
+    var textLines: [String]? {
+        switch self {
+        case .missing:
+            return []
+        case .file(let data):
+            guard !data.contains(0),
+                  let text = String(data: data, encoding: .utf8)
+            else {
+                return nil
+            }
+            if text.isEmpty {
+                return []
+            }
+            var lines = text.components(separatedBy: "\n")
+            if text.hasSuffix("\n") {
+                lines.removeLast()
+            }
+            return lines
+        }
+    }
 }
 
 private struct FileFingerprint: Equatable {
     var sizeBytes: Int
     var modifiedAt: Date?
+}
+
+private struct FileDiff: Equatable {
+    var text: String
+    var linesAdded: Int
+    var linesDeleted: Int
+}
+
+private enum LineDiffOperation: Equatable {
+    case context(String)
+    case delete(String)
+    case insert(String)
+
+    var isChange: Bool {
+        switch self {
+        case .context:
+            return false
+        case .delete, .insert:
+            return true
+        }
+    }
+
+    var isDeletion: Bool {
+        if case .delete = self {
+            return true
+        }
+        return false
+    }
+
+    var isInsertion: Bool {
+        if case .insert = self {
+            return true
+        }
+        return false
+    }
+
+    var consumesOldLine: Bool {
+        switch self {
+        case .context, .delete:
+            return true
+        case .insert:
+            return false
+        }
+    }
+
+    var consumesNewLine: Bool {
+        switch self {
+        case .context, .insert:
+            return true
+        case .delete:
+            return false
+        }
+    }
+
+    var unifiedLine: String {
+        switch self {
+        case .context(let line):
+            return " \(line)"
+        case .delete(let line):
+            return "-\(line)"
+        case .insert(let line):
+            return "+\(line)"
+        }
+    }
 }

@@ -37,6 +37,7 @@ protocol SloppyTUIBackend: Sendable {
     func streamAgentSessionEvents(agentID: String, sessionID: String) async throws -> AsyncStream<AgentSessionStreamUpdate>
     func streamProjectWorkingTreeChanges(projectID: String) async throws -> AsyncStream<ProjectWorkingTreeChangeBatch>
     func projectWorkingTreeSourceControl(projectID: String) async throws -> ProjectWorkingTreeSourceControlResponse
+    func createTUIBackgroundWorktree(projectID: String, taskID: String) async throws -> SourceControlWorktreeResult
     func searchProjectFiles(projectID: String, query: String, limit: Int) async throws -> [ProjectFileSearchEntry]
     func readProjectFile(projectID: String, path: String) async throws -> ProjectFileContentResponse
     func listMCPServerStatuses() async -> [MCPServerStatus]
@@ -144,6 +145,9 @@ struct LocalSloppyTUIBackend: SloppyTUIBackend {
     }
     func projectWorkingTreeSourceControl(projectID: String) async throws -> ProjectWorkingTreeSourceControlResponse {
         try await service.projectWorkingTreeSourceControl(projectID: projectID)
+    }
+    func createTUIBackgroundWorktree(projectID: String, taskID: String) async throws -> SourceControlWorktreeResult {
+        try await service.createTUIBackgroundWorktree(projectID: projectID, taskID: taskID)
     }
     func searchProjectFiles(projectID: String, query: String, limit: Int) async throws -> [ProjectFileSearchEntry] {
         try await service.searchProjectFiles(projectID: projectID, query: query, limit: limit)
@@ -291,6 +295,9 @@ struct RemoteSloppyTUIBackend: SloppyTUIBackend {
     func projectWorkingTreeSourceControl(projectID: String) async throws -> ProjectWorkingTreeSourceControlResponse {
         try await get("/v1/projects/\(Self.escape(projectID))/source-control/working-tree", as: ProjectWorkingTreeSourceControlResponse.self)
     }
+    func createTUIBackgroundWorktree(projectID: String, taskID: String) async throws -> SourceControlWorktreeResult {
+        throw RemoteSloppyTUIBackendError.unsupported("/bg worktree sessions")
+    }
     func searchProjectFiles(projectID: String, query: String, limit: Int) async throws -> [ProjectFileSearchEntry] {
         try await get("/v1/projects/\(Self.escape(projectID))/files/search", query: ["q": query, "limit": String(limit)], as: [ProjectFileSearchEntry].self)
     }
@@ -361,14 +368,14 @@ struct RemoteSloppyTUIBackend: SloppyTUIBackend {
                 request.setValue("Bearer \(client.token)", forHTTPHeaderField: "Authorization")
                 request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
                 do {
-                    let (bytes, response) = try await URLSession.shared.bytes(for: request)
+                    let (lines, response) = try await SloppyTUILineStream.open(request: request)
                     guard (response as? HTTPURLResponse)?.statusCode ?? 500 < 400 else {
                         continuation.finish()
                         return
                     }
                     let decoder = JSONDecoder()
                     decoder.dateDecodingStrategy = .iso8601
-                    for try await line in bytes.lines {
+                    for try await line in lines {
                         guard line.hasPrefix("data: ") else { continue }
                         let payload = String(line.dropFirst("data: ".count))
                         guard let data = payload.data(using: .utf8),
@@ -387,5 +394,101 @@ struct RemoteSloppyTUIBackend: SloppyTUIBackend {
 
     private static func escape(_ raw: String) -> String {
         raw.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? raw
+    }
+}
+
+private enum SloppyTUILineStream {
+    static func open(request: URLRequest) async throws -> (AsyncThrowingStream<String, Error>, URLResponse) {
+        let delegate = SloppyTUILineStreamDelegate()
+        let session = URLSession(configuration: .default, delegate: delegate, delegateQueue: nil)
+        let task = session.dataTask(with: request)
+        delegate.attach(session: session, task: task)
+        let response = try await delegate.start()
+        return (delegate.lines(), response)
+    }
+}
+
+private final class SloppyTUILineStreamDelegate: NSObject, URLSessionDataDelegate, @unchecked Sendable {
+    nonisolated(unsafe) private var responseContinuation: CheckedContinuation<URLResponse, Error>?
+    nonisolated(unsafe) private var streamContinuation: AsyncThrowingStream<Data, Error>.Continuation?
+    nonisolated(unsafe) private var session: URLSession?
+    nonisolated(unsafe) private var task: URLSessionDataTask?
+    private let chunks: AsyncThrowingStream<Data, Error>
+
+    override init() {
+        var continuation: AsyncThrowingStream<Data, Error>.Continuation?
+        self.chunks = AsyncThrowingStream { continuation = $0 }
+        self.streamContinuation = continuation
+        super.init()
+    }
+
+    func attach(session: URLSession, task: URLSessionDataTask) {
+        self.session = session
+        self.task = task
+    }
+
+    func start() async throws -> URLResponse {
+        try await withCheckedThrowingContinuation { continuation in
+            responseContinuation = continuation
+            task?.resume()
+        }
+    }
+
+    func lines() -> AsyncThrowingStream<String, Error> {
+        let chunks = chunks
+        return AsyncThrowingStream { continuation in
+            let lineTask = Task {
+                var buffer = Data()
+                do {
+                    for try await chunk in chunks {
+                        for byte in chunk {
+                            if byte == UInt8(ascii: "\n") {
+                                continuation.yield(String(data: buffer, encoding: .utf8) ?? "")
+                                buffer.removeAll(keepingCapacity: true)
+                            } else if byte != UInt8(ascii: "\r") {
+                                buffer.append(byte)
+                            }
+                        }
+                    }
+                    if !buffer.isEmpty {
+                        continuation.yield(String(data: buffer, encoding: .utf8) ?? "")
+                    }
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+            continuation.onTermination = { [self] _ in
+                lineTask.cancel()
+                task?.cancel()
+                session?.invalidateAndCancel()
+            }
+        }
+    }
+
+    func urlSession(
+        _ session: URLSession,
+        dataTask: URLSessionDataTask,
+        didReceive response: URLResponse,
+        completionHandler: @escaping (URLSession.ResponseDisposition) -> Void
+    ) {
+        responseContinuation?.resume(returning: response)
+        responseContinuation = nil
+        completionHandler(.allow)
+    }
+
+    func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
+        streamContinuation?.yield(data)
+    }
+
+    func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
+        if let error {
+            responseContinuation?.resume(throwing: error)
+            responseContinuation = nil
+            streamContinuation?.finish(throwing: error)
+        } else {
+            streamContinuation?.finish()
+        }
+        session.finishTasksAndInvalidate()
     }
 }

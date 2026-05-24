@@ -1358,7 +1358,7 @@ export function ConfigView({
     };
 
     return (
-      <div className="tg-settings-shell">
+      <div className="tg-settings-shell sessions-settings-shell">
         <section className="entry-editor-card providers-intro-card">
           <h3>Sessions</h3>
           <p className="placeholder-text">
@@ -1407,18 +1407,6 @@ export function ConfigView({
               <span className="entry-form-hint">
                 Allowed range is 1-90 days. Default is 30 days.
               </span>
-            </label>
-
-            <label style={{ gridColumn: "1 / -1" }}>
-              <input
-                type="range"
-                min="1"
-                max="90"
-                step="1"
-                disabled={!retentionEnabled}
-                value={retentionDays}
-                onChange={(event) => setRetentionDays(event.target.value)}
-              />
             </label>
           </div>
         </section>

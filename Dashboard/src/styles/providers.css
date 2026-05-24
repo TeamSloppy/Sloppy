@@ -614,7 +614,7 @@
   gap: 10px;
 }
 
-.config-plugin-source-row label:not(.settings-checkbox) {
+.config-plugin-source-row label:not(.settings-checkbox):not(.config-plugin-force) {
   display: grid;
   gap: 6px;
   color: var(--muted);
@@ -633,9 +633,22 @@
   border: 1px solid var(--line);
   padding: 0 10px;
   background: var(--surface);
+  color: var(--text);
+  display: inline-flex;
   align-items: center;
+  justify-content: space-between;
+  gap: 12px;
   width: auto;
   white-space: nowrap;
+  cursor: pointer;
+}
+
+.config-plugin-force .agent-tools-switch {
+  flex-shrink: 0;
+}
+
+.config-plugin-force-label {
+  color: var(--text);
 }
 
 .config-plugin-install-button {
@@ -714,6 +727,11 @@
   align-items: center;
   justify-content: space-between;
   gap: 12px;
+}
+
+.config-field-meta {
+  color: var(--muted);
+  font-size: 0.78rem;
 }
 
 .config-capability-grid {

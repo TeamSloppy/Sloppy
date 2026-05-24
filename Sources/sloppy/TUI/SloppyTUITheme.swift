@@ -2,23 +2,107 @@ import Foundation
 import Protocols
 import TauTUI
 
+struct SloppyTUIColor: Codable, Equatable, Sendable {
+    var red: Int
+    var green: Int
+    var blue: Int
+
+    init(red: Int, green: Int, blue: Int) {
+        self.red = red
+        self.green = green
+        self.blue = blue
+    }
+
+    init(hex: String) throws {
+        let trimmed = hex.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.count == 7, trimmed.first == "#" else {
+            throw SloppyTUIThemeError.invalidColor(hex)
+        }
+        let value = String(trimmed.dropFirst())
+        guard let raw = Int(value, radix: 16) else {
+            throw SloppyTUIThemeError.invalidColor(hex)
+        }
+        self.init(
+            red: (raw >> 16) & 0xff,
+            green: (raw >> 8) & 0xff,
+            blue: raw & 0xff
+        )
+    }
+
+    func foregroundStyle(_ text: String) -> String {
+        AnsiStyling.rgb(UInt8(red), UInt8(green), UInt8(blue))(text)
+    }
+
+    var textBackground: Text.Background {
+        .init(red: UInt8(red), green: UInt8(green), blue: UInt8(blue))
+    }
+
+    var background: AnsiStyling.Background {
+        .rgb(UInt8(red), UInt8(green), UInt8(blue))
+    }
+}
+
+enum SloppyTUIThemeError: Error, CustomStringConvertible, Equatable {
+    case invalidColor(String)
+
+    var description: String {
+        switch self {
+        case .invalidColor(let value):
+            return "invalid color `\(value)`; expected #RRGGBB"
+        }
+    }
+}
+
+struct SloppyTUIResolvedTheme: Equatable, Sendable {
+    static let defaultID = "default"
+
+    var id: String
+    var name: String
+    var source: String
+    var accent: SloppyTUIColor
+    var accentBright: SloppyTUIColor
+    var foreground: SloppyTUIColor
+    var muted: SloppyTUIColor
+    var blue: SloppyTUIColor
+    var green: SloppyTUIColor
+    var yellow: SloppyTUIColor
+    var orange: SloppyTUIColor
+    var red: SloppyTUIColor
+    var panelBackground: SloppyTUIColor
+    var userMessageBackground: SloppyTUIColor
+    var toolBackground: SloppyTUIColor
+    var thinkingBackground: SloppyTUIColor
+    var attachmentBackground: SloppyTUIColor
+    var textBackground: SloppyTUIColor
+    var truncatedBackground: SloppyTUIColor
+
+    static let `default` = SloppyTUIResolvedTheme(
+        id: defaultID,
+        name: "Default",
+        source: "built-in",
+        accent: .init(red: 82, green: 211, blue: 194),
+        accentBright: .init(red: 103, green: 232, blue: 249),
+        foreground: .init(red: 226, green: 232, blue: 240),
+        muted: .init(red: 148, green: 163, blue: 184),
+        blue: .init(red: 96, green: 165, blue: 250),
+        green: .init(red: 74, green: 222, blue: 128),
+        yellow: .init(red: 250, green: 204, blue: 21),
+        orange: .init(red: 251, green: 178, blue: 123),
+        red: .init(red: 248, green: 113, blue: 113),
+        panelBackground: .init(red: 24, green: 24, blue: 24),
+        userMessageBackground: .init(red: 55, green: 55, blue: 55),
+        toolBackground: .init(red: 31, green: 41, blue: 55),
+        thinkingBackground: .init(red: 38, green: 38, blue: 38),
+        attachmentBackground: .init(red: 32, green: 45, blue: 42),
+        textBackground: .init(red: 12, green: 16, blue: 22),
+        truncatedBackground: .init(red: 12, green: 16, blue: 22)
+    )
+}
+
 enum SloppyTUITheme {
     private static let resetBackground = "\u{001B}[49m"
-    nonisolated(unsafe) private static var accentStyle: (String) -> String = AnsiStyling.rgb(82, 211, 194)
-    nonisolated(unsafe) private static var accentBrightStyle: (String) -> String = AnsiStyling.rgb(103, 232, 249)
-    private static let blue = AnsiStyling.rgb(96, 165, 250)
-    private static let green = AnsiStyling.rgb(74, 222, 128)
-    private static let yellow = AnsiStyling.rgb(250, 204, 21)
-    private static let orange = AnsiStyling.rgb(251, 178, 123)
-    private static let red = AnsiStyling.rgb(248, 113, 113)
-    private static let muted = AnsiStyling.rgb(148, 163, 184)
-    private static let foreground = AnsiStyling.rgb(226, 232, 240)
+    nonisolated(unsafe) private static var activeTheme = SloppyTUIResolvedTheme.default
     private static let black = AnsiStyling.color(30)
-    private static let panelBackground = AnsiStyling.Background.rgb(24, 24, 24)
-    private static let userMessageBackground = AnsiStyling.Background.rgb(55, 55, 55)
-    private static let toolBackground = AnsiStyling.Background.rgb(31, 41, 55)
-    private static let thinkingBackground = AnsiStyling.Background.rgb(38, 38, 38)
-    private static let attachmentBackground = AnsiStyling.Background.rgb(32, 45, 42)
     private static let blockHorizontalPadding = 2
     private static let blockVerticalPadding = 1
     private static let waitingFrames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
@@ -105,89 +189,150 @@ enum SloppyTUITheme {
     ]
 
     static func setBarColor(_ raw: String) -> Bool {
+        var next = activeTheme
         switch raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
         case "default":
-            accentStyle = AnsiStyling.rgb(82, 211, 194)
-            accentBrightStyle = AnsiStyling.rgb(103, 232, 249)
+            next.accent = SloppyTUIResolvedTheme.default.accent
+            next.accentBright = SloppyTUIResolvedTheme.default.accentBright
         case "red":
-            accentStyle = red
-            accentBrightStyle = AnsiStyling.rgb(252, 165, 165)
+            next.accent = activeTheme.red
+            next.accentBright = .init(red: 252, green: 165, blue: 165)
         case "blue":
-            accentStyle = blue
-            accentBrightStyle = AnsiStyling.rgb(147, 197, 253)
+            next.accent = activeTheme.blue
+            next.accentBright = .init(red: 147, green: 197, blue: 253)
         case "green":
-            accentStyle = green
-            accentBrightStyle = AnsiStyling.rgb(134, 239, 172)
+            next.accent = activeTheme.green
+            next.accentBright = .init(red: 134, green: 239, blue: 172)
         case "yellow":
-            accentStyle = yellow
-            accentBrightStyle = AnsiStyling.rgb(254, 240, 138)
+            next.accent = activeTheme.yellow
+            next.accentBright = .init(red: 254, green: 240, blue: 138)
         case "purple":
-            accentStyle = AnsiStyling.rgb(192, 132, 252)
-            accentBrightStyle = AnsiStyling.rgb(216, 180, 254)
+            next.accent = .init(red: 192, green: 132, blue: 252)
+            next.accentBright = .init(red: 216, green: 180, blue: 254)
         case "orange":
-            accentStyle = orange
-            accentBrightStyle = AnsiStyling.rgb(253, 186, 116)
+            next.accent = activeTheme.orange
+            next.accentBright = .init(red: 253, green: 186, blue: 116)
         case "pink":
-            accentStyle = AnsiStyling.rgb(244, 114, 182)
-            accentBrightStyle = AnsiStyling.rgb(249, 168, 212)
+            next.accent = .init(red: 244, green: 114, blue: 182)
+            next.accentBright = .init(red: 249, green: 168, blue: 212)
         case "cyan":
-            accentStyle = AnsiStyling.rgb(34, 211, 238)
-            accentBrightStyle = AnsiStyling.rgb(103, 232, 249)
+            next.accent = .init(red: 34, green: 211, blue: 238)
+            next.accentBright = .init(red: 103, green: 232, blue: 249)
         default:
             return false
         }
+        activeTheme = next
         return true
     }
 
+    static func apply(_ theme: SloppyTUIResolvedTheme) {
+        activeTheme = theme
+    }
+
+    static func resetDefault() {
+        activeTheme = .default
+    }
+
+    static var currentTheme: SloppyTUIResolvedTheme {
+        activeTheme
+    }
+
     private static func accent(_ text: String) -> String {
-        accentStyle(text)
+        activeTheme.accent.foregroundStyle(text)
     }
 
     private static func accentBright(_ text: String) -> String {
-        accentBrightStyle(text)
+        activeTheme.accentBright.foregroundStyle(text)
     }
 
-    static let selectListTheme = SelectListTheme(
-        selectedPrefix: { accentBright($0) },
-        selectedText: { accentBright(AnsiStyling.bold($0)) },
-        description: { muted($0) },
-        scrollInfo: { muted($0) },
-        noMatch: { muted($0) }
-    )
+    private static func blue(_ text: String) -> String { activeTheme.blue.foregroundStyle(text) }
+    private static func green(_ text: String) -> String { activeTheme.green.foregroundStyle(text) }
+    private static func yellow(_ text: String) -> String { activeTheme.yellow.foregroundStyle(text) }
+    private static func orange(_ text: String) -> String { activeTheme.orange.foregroundStyle(text) }
+    private static func red(_ text: String) -> String { activeTheme.red.foregroundStyle(text) }
+    private static func muted(_ text: String) -> String { activeTheme.muted.foregroundStyle(text) }
+    private static func foreground(_ text: String) -> String { activeTheme.foreground.foregroundStyle(text) }
 
-    static let palette = ThemePalette(
-        editor: EditorTheme(
-            borderColor: { accent($0) },
-            selectList: selectListTheme
-        ),
-        selectList: selectListTheme,
-        markdown: MarkdownComponent.MarkdownTheme(
-            heading: { accentBright($0) },
-            link: { blue(AnsiStyling.underline($0)) },
-            linkUrl: { muted($0) },
-            code: { yellow($0) },
-            codeBlock: { green($0) },
-            codeBlockBorder: { muted($0) },
-            quote: { muted(AnsiStyling.italic($0)) },
-            quoteBorder: { accent($0) },
-            hr: { muted($0) },
-            listBullet: { accent($0) },
-            bold: AnsiStyling.bold,
-            italic: AnsiStyling.italic,
-            strikethrough: AnsiStyling.strikethrough,
-            underline: AnsiStyling.underline
-        ),
-        textBackground: .init(red: 12, green: 16, blue: 22),
-        loader: Loader.LoaderTheme(
-            spinner: { accentBright($0) },
-            message: { muted($0) }
-        ),
-        truncatedBackground: .rgb(12, 16, 22)
-    )
+    private static var panelBackground: AnsiStyling.Background { activeTheme.panelBackground.background }
+    private static var userMessageBackground: AnsiStyling.Background { activeTheme.userMessageBackground.background }
+    private static var toolBackground: AnsiStyling.Background { activeTheme.toolBackground.background }
+    private static var thinkingBackground: AnsiStyling.Background { activeTheme.thinkingBackground.background }
+    private static var attachmentBackground: AnsiStyling.Background { activeTheme.attachmentBackground.background }
+
+    static var selectListTheme: SelectListTheme {
+        SelectListTheme(
+            selectedPrefix: { accentBright($0) },
+            selectedText: { accentBright(AnsiStyling.bold($0)) },
+            description: { muted($0) },
+            scrollInfo: { muted($0) },
+            noMatch: { muted($0) }
+        )
+    }
+
+    static var palette: ThemePalette {
+        ThemePalette(
+            editor: EditorTheme(
+                borderColor: { accent($0) },
+                selectList: selectListTheme
+            ),
+            selectList: selectListTheme,
+            markdown: MarkdownComponent.MarkdownTheme(
+                heading: { accentBright($0) },
+                link: { blue(AnsiStyling.underline($0)) },
+                linkUrl: { muted($0) },
+                code: { yellow($0) },
+                codeBlock: { green($0) },
+                codeBlockBorder: { muted($0) },
+                quote: { muted(AnsiStyling.italic($0)) },
+                quoteBorder: { accent($0) },
+                hr: { muted($0) },
+                listBullet: { accent($0) },
+                bold: AnsiStyling.bold,
+                italic: AnsiStyling.italic,
+                strikethrough: AnsiStyling.strikethrough,
+                underline: AnsiStyling.underline
+            ),
+            textBackground: activeTheme.textBackground.textBackground,
+            loader: Loader.LoaderTheme(
+                spinner: { accentBright($0) },
+                message: { muted($0) }
+            ),
+            truncatedBackground: activeTheme.truncatedBackground.background
+        )
+    }
 
     static func header(project: String, agent: String, session: String) -> String {
         let title = accentBright(AnsiStyling.bold("Sloppy TUI"))
         return "\(title)  \(muted("project:")) \(foreground(project))  \(muted("agent:")) \(foreground(agent))  \(muted("session:")) \(foreground(session))"
+    }
+
+    static func terminalTitle(status: String, session: AgentSessionSummary, agent: String) -> String {
+        let normalizedStatus = status.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalizedSession = sessionDisplayTitle(session).trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalizedAgent = agent.trimmingCharacters(in: .whitespacesAndNewlines)
+        let parts = [
+            normalizedStatus.isEmpty ? "idle" : normalizedStatus,
+            normalizedSession.isEmpty ? "Session" : normalizedSession,
+            normalizedAgent,
+        ].filter { !$0.isEmpty }
+        return "Sloppy - " + parts.joined(separator: " - ")
+    }
+
+    static func terminalTitleEscape(_ title: String) -> String {
+        "\u{001B}]0;\(sanitizeTerminalTitle(title))\u{0007}"
+    }
+
+    static func sanitizeTerminalTitle(_ title: String) -> String {
+        let cleaned = String(title.unicodeScalars.compactMap { scalar -> Character? in
+            if scalar.value < 0x20 || scalar.value == 0x7F {
+                return nil
+            }
+            return Character(scalar)
+        })
+        let collapsed = cleaned
+            .split(whereSeparator: { $0.isWhitespace })
+            .joined(separator: " ")
+        return truncateEnd(collapsed, maxWidth: 160)
     }
 
     static func status(_ text: String, isBusy: Bool) -> String {
@@ -342,6 +487,19 @@ enum SloppyTUITheme {
         return applyPanelBackground(padded(fittedLine(text, width: width), width: width), width: width)
     }
 
+    static func composerShellMetaLine(
+        width: Int,
+        cwd: String,
+        agent: String,
+        provider: String
+    ) -> String {
+        let cwdText = truncateStart(cwd, maxWidth: max(8, width / 2))
+        let agentText = truncateEnd(agent, maxWidth: max(4, width / 5))
+        let providerText = truncateEnd(provider, maxWidth: max(4, width / 5))
+        let text = "  " + orange("shell") + muted(" · ") + foreground(cwdText) + muted("  ") + muted(agentText) + muted("  ") + muted(providerText)
+        return applyPanelBackground(padded(fittedLine(text, width: width), width: width), width: width)
+    }
+
     static func interruptControlLine(width: Int, frame: Int, isInterrupting: Bool) -> String {
         let bars = interruptBars(frame: frame)
         let action = isInterrupting ? "interrupting" : "interrupt"
@@ -366,7 +524,7 @@ enum SloppyTUITheme {
     }
 
     static func contextUsageProgressLine(width: Int, summary: SloppyTUITokenUsageSummary) -> String {
-        let barWidth = max(6, min(24, width / 4))
+        let barWidth = max(3, min(12, width / 8))
         let bar = contextProgressBar(summary, width: barWidth)
         var details: [String] = []
         if let percent = summary.usagePercent, summary.contextWindowTokens > 0 {
@@ -527,6 +685,14 @@ enum SloppyTUITheme {
             )
             isContinuingProjectPath = highlighted.isContinuingProjectPath
             return highlighted.line
+        }
+    }
+
+    static func sessionListComposerPlaceholderLines(_ lines: [String], width: Int) -> [String] {
+        guard lines.count >= 3 else { return lines }
+        return lines.enumerated().map { index, line in
+            guard index == 1 else { return line }
+            return muted(fittedLine(" describe a task for a new session", width: width))
         }
     }
 
@@ -1187,6 +1353,89 @@ enum SloppyTUITheme {
         return lines
     }
 
+    static func sessionListLines(
+        width: Int,
+        height: Int,
+        entries: [SloppyTUISessionListEntry],
+        selectedIndex: Int,
+        projectName: String,
+        agentName: String
+    ) -> [String] {
+        let contentWidth = max(1, width)
+        let grouped = Dictionary(grouping: entries, by: \.section)
+        var lines: [String] = []
+        lines.append(sessionListPanelRow("  " + accentBright(AnsiStyling.bold("Sessions")) + muted("  \(projectName) · \(agentName)"), width: contentWidth))
+        lines.append(sessionListPanelRow("  " + muted("\(grouped[.waitingInput]?.count ?? 0) waiting · \(grouped[.working]?.count ?? 0) working · \(grouped[.completed]?.count ?? 0) completed"), width: contentWidth))
+        lines.append(sessionListPanelRow("", width: contentWidth))
+
+        var rowIndex = 0
+        for section in SloppyTUISessionListSection.allCases {
+            let sectionEntries = entries.filter { $0.section == section }
+            guard !sectionEntries.isEmpty else { continue }
+            lines.append(sessionListPanelRow("  " + foreground(AnsiStyling.bold(section.rawValue)), width: contentWidth))
+            for entry in sectionEntries {
+                let line = sessionListEntryLine(entry, width: contentWidth)
+                if rowIndex == selectedIndex {
+                    lines.append(selectedLine(sessionListPanelText(line, width: contentWidth)))
+                } else {
+                    lines.append(sessionListPanelRow(foreground(line), width: contentWidth))
+                }
+                rowIndex += 1
+            }
+            lines.append(sessionListPanelRow("", width: contentWidth))
+        }
+
+        if entries.isEmpty {
+            lines.append(sessionListPanelRow("  " + muted("No TUI sessions yet."), width: contentWidth))
+            lines.append(sessionListPanelRow("", width: contentWidth))
+        }
+
+        lines.append(sessionListPanelRow("  " + muted("type below to create · enter to open"), width: contentWidth))
+        lines.append(sessionListPanelRow("  " + muted("space to reply · ctrl+x to hide · ? for shortcuts"), width: contentWidth))
+
+        if lines.count > height {
+            return Array(lines.prefix(max(0, height)))
+        }
+        if lines.count < height {
+            lines += Array(repeating: sessionListPanelRow("", width: contentWidth), count: height - lines.count)
+        }
+        return lines
+    }
+
+    private static func sessionListPanelRow(_ text: String, width: Int) -> String {
+        applyPanelBackground(sessionListPanelText(text, width: width), width: width)
+    }
+
+    private static func sessionListPanelText(_ text: String, width: Int) -> String {
+        padded(fittedLine(text, width: width), width: width)
+    }
+
+    private static func sessionListEntryLine(_ entry: SloppyTUISessionListEntry, width: Int) -> String {
+        let pin = entry.tracked.pinned ? "* " : "  "
+        let status: String
+        switch entry.section {
+        case .waitingInput:
+            status = yellow("?")
+        case .working:
+            status = accentBright("~")
+        case .completed:
+            status = green("·")
+        }
+        let flags = entry.tracked.background ? muted(" bg") : ""
+        let age = muted(relativeTime(entry.summary.updatedAt))
+        let title = sessionDisplayTitle(entry.summary)
+        let prefix = "  " + pin + status + " "
+        let suffix = flags + muted("  ") + age
+        let reserved = VisibleWidth.measure(prefix) + VisibleWidth.measure(suffix) + 2
+        let available = max(8, width - reserved)
+        let nameWidth = max(8, min(available / 2, 34))
+        let detailWidth = max(1, available - nameWidth)
+        let name = truncateEnd(title, maxWidth: nameWidth)
+            .padding(toLength: nameWidth, withPad: " ", startingAt: 0)
+        let detail = truncateEnd(entry.detail.replacingOccurrences(of: "\n", with: " "), maxWidth: detailWidth)
+        return prefix + foreground(name) + muted("  ") + muted(detail) + suffix
+    }
+
     private static func pickerGroupCounts(_ items: [SloppyTUIPickerItem]) -> [String: Int] {
         var counts: [String: Int] = [:]
         for item in items {
@@ -1262,8 +1511,13 @@ enum SloppyTUITheme {
         return result
     }
 
-    static func appFooter(width: Int, cwd: String, mcpSummary: SloppyTUIMCPStatusSummary = .empty) -> String {
-        welcomeFooter(width: width, cwd: cwd, mcpSummary: mcpSummary)
+    static func appFooter(
+        width: Int,
+        cwd: String,
+        mcpSummary: SloppyTUIMCPStatusSummary = .empty,
+        sourceControl: SloppyTUISourceControlFooterStatus? = nil
+    ) -> String {
+        welcomeFooter(width: width, cwd: cwd, mcpSummary: mcpSummary, sourceControl: sourceControl)
     }
 
     private static func interruptBars(frame: Int) -> String {
@@ -1389,7 +1643,7 @@ enum SloppyTUITheme {
                 "Type @path to attach project files as explicit context with autocomplete.",
                 "Type # to autocomplete active project tasks by id or title.",
                 "Use /btw for a side question without disturbing the main task.",
-                "Use /diff or /context diff when you want the agent to inspect source-control changes.",
+                "Use /diff for current-session changes, or /context diff when you want the agent to inspect source-control changes.",
             ]
         let count = min(tips.count, 1)
         let start = tips.isEmpty ? 0 : ((offset % tips.count) + tips.count) % tips.count
@@ -1399,14 +1653,23 @@ enum SloppyTUITheme {
         }
     }
 
-    private static func welcomeFooter(width: Int, cwd: String, mcpSummary: SloppyTUIMCPStatusSummary) -> String {
+    private static func welcomeFooter(
+        width: Int,
+        cwd: String,
+        mcpSummary: SloppyTUIMCPStatusSummary,
+        sourceControl: SloppyTUISourceControlFooterStatus? = nil
+    ) -> String {
         let mcp = mcpFooterStatus(summary: mcpSummary)
         let mcpSuffix = muted("  ") + mcp.indicator + muted(" ") + foreground(mcp.label) + muted("  /status")
-        let right = muted(SloppyVersion.current)
-        let reserved = VisibleWidth.measure(mcpSuffix) + VisibleWidth.measure(right) + 1
+        let right = sourceControl.map { muted(sourceControlFooterLabel($0)) } ?? ""
+        let reserved = VisibleWidth.measure(mcpSuffix)
+            + (right.isEmpty ? 0 : VisibleWidth.measure(right) + 1)
         let pathWidth = max(1, width - reserved)
         let path = truncateStart(shortPath(cwd), maxWidth: pathWidth)
         let left = muted(path) + mcpSuffix
+        guard !right.isEmpty else {
+            return VisibleWidth.measure(left) <= width ? left : muted(truncateStart(path, maxWidth: width))
+        }
         let leftWidth = VisibleWidth.measure(left)
         let rightWidth = VisibleWidth.measure(right)
         guard leftWidth + rightWidth + 1 <= width else {
@@ -1414,6 +1677,36 @@ enum SloppyTUITheme {
         }
         let gap = width - leftWidth - rightWidth
         return left + String(repeating: " ", count: gap) + right
+    }
+
+    private static func sourceControlFooterLabel(_ status: SloppyTUISourceControlFooterStatus) -> String {
+        let provider = sourceControlProviderLabel(status.providerId)
+        guard status.isRepository else {
+            return provider.map { "\($0) no repository" } ?? "no source control"
+        }
+
+        let branch = status.branch?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let base: String
+        if let branch, !branch.isEmpty {
+            base = provider.map { "\($0) \(branch)" } ?? branch
+        } else {
+            base = provider.map { "\($0) repository" } ?? "source control"
+        }
+
+        guard status.linesAdded > 0 || status.linesDeleted > 0 else {
+            return base
+        }
+        return "\(base) +\(status.linesAdded) -\(status.linesDeleted)"
+    }
+
+    private static func sourceControlProviderLabel(_ providerId: String?) -> String? {
+        guard let providerId else { return nil }
+        let trimmed = providerId.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        if trimmed == "git-cli" {
+            return "git"
+        }
+        return trimmed
     }
 
     static func mcpStatusLine(_ status: MCPServerStatus) -> String {
@@ -1617,7 +1910,8 @@ enum SloppyTUITheme {
     }
 
     private static func selectedLine(_ line: String) -> String {
-        "\u{001B}[48;2;251;178;123m\u{001B}[38;2;0;0;0m\(line)\u{001B}[39m\u{001B}[49m"
+        let plain = strippingANSI(from: line)
+        return "\u{001B}[48;2;251;178;123m\u{001B}[38;2;0;0;0m\(plain)\u{001B}[39m\u{001B}[49m"
     }
 
     private static func overlay(line: String, overlay: String, width: Int) -> String {

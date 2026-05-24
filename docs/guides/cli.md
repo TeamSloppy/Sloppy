@@ -93,7 +93,7 @@ sloppy models
 
 `sloppy` with no subcommand opens the TUI. It bootstraps the runtime in-process for the current directory, restores the last agent/session for that project, and shares the same `sloppy.json` and workspace as the server and Dashboard. Use `sloppy models` to open only the model picker for the current TUI agent.
 
-See [Terminal UI](/guides/tui) for keys, slash commands, model/provider setup, file attachments, and session resume behavior.
+See [Terminal UI](/tui/overview) for keys, slash commands, model/provider setup, file attachments, and [multi-session workflows](/tui/multi-session).
 
 ## Background service
 

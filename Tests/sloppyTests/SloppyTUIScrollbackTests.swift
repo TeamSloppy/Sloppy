@@ -18,6 +18,7 @@ func tuiStateDecodesScrollbackDefaultsForLegacyState() throws {
 
     #expect(state.scrollbackMode == .auto)
     #expect(state.scrollbackLineLimit == 2_000)
+    #expect(state.themeID == "default")
 }
 
 @Test
@@ -31,6 +32,15 @@ func tuiStatePersistsScrollbackSettings() throws {
 
     #expect(decoded.scrollbackMode == .limited)
     #expect(decoded.scrollbackLineLimit == 640)
+}
+
+@Test
+func tuiStatePersistsThemeID() throws {
+    let state = SloppyTUIState(themeID: "custom:forest")
+    let data = try JSONEncoder().encode(state)
+    let decoded = try JSONDecoder().decode(SloppyTUIState.self, from: data)
+
+    #expect(decoded.themeID == "custom:forest")
 }
 
 @Test

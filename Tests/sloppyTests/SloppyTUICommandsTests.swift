@@ -16,7 +16,7 @@ func slashCommandRouterIgnoresAbsolutePaths() {
 
 @Test
 func slashCommandRouterHandlesKnownCommandsAndAliases() {
-    let commandNames: Set<String> = ["help", "workspace", "keybindings", "shortcuts", "add-dir", "restore", "up", "undo", "redo"]
+    let commandNames: Set<String> = ["help", "workspace", "keybindings", "shortcuts", "add-dir", "restore", "up", "undo", "redo", "themes"]
 
     #expect(SloppyTUISlashCommandRouter.shouldHandle("/help", commandNames: commandNames, skillCommandNames: []))
     #expect(SloppyTUISlashCommandRouter.shouldHandle("/workspace", commandNames: commandNames, skillCommandNames: []))
@@ -27,6 +27,7 @@ func slashCommandRouterHandlesKnownCommandsAndAliases() {
     #expect(SloppyTUISlashCommandRouter.shouldHandle("/up", commandNames: commandNames, skillCommandNames: []))
     #expect(SloppyTUISlashCommandRouter.shouldHandle("/undo", commandNames: commandNames, skillCommandNames: []))
     #expect(SloppyTUISlashCommandRouter.shouldHandle("/redo", commandNames: commandNames, skillCommandNames: []))
+    #expect(SloppyTUISlashCommandRouter.shouldHandle("/themes", commandNames: commandNames, skillCommandNames: []))
 }
 
 @Test
@@ -113,6 +114,60 @@ func globalShortcutMatcherLeavesExistingBindingsAlone() {
     #expect(SloppyTUIGlobalShortcutAction.match(input: .key(.tab)) == nil)
     #expect(SloppyTUIGlobalShortcutAction.match(input: .key(.character("p"), modifiers: [.control])) == nil)
     #expect(SloppyTUIGlobalShortcutAction.match(input: .key(.character("p"), modifiers: [.option, .control])) == nil)
+}
+
+@Test
+func shellModeToggleRequiresPlainBangOnEmptyEditor() {
+    #expect(SloppyTUIShellModeToggle.shouldToggle(input: .key(.character("!")), editorText: ""))
+    #expect(!SloppyTUIShellModeToggle.shouldToggle(input: .key(.character("!")), editorText: "echo hi"))
+    #expect(!SloppyTUIShellModeToggle.shouldToggle(input: .key(.character("!"), modifiers: [.option]), editorText: ""))
+    #expect(!SloppyTUIShellModeToggle.shouldToggle(input: .key(.character("a")), editorText: ""))
+    #expect(!SloppyTUIShellModeToggle.shouldToggle(input: .key(.escape), editorText: ""))
+}
+
+@Test
+func shellCommandResultFormatterIncludesCommandExitAndOutput() {
+    let markdown = SloppyTUIShellCommandResultFormatter.markdown(
+        command: "printf hi",
+        cwd: "/tmp/project",
+        result: .object([
+            "exitCode": .number(0),
+            "timedOut": .bool(false),
+            "stdout": .string("hi\n"),
+            "stderr": .string(""),
+            "stdoutTruncated": .bool(false),
+            "stderrTruncated": .bool(false),
+        ])
+    )
+
+    #expect(markdown.contains("## Shell"))
+    #expect(markdown.contains("printf hi"))
+    #expect(markdown.contains("- cwd: `/tmp/project`"))
+    #expect(markdown.contains("- exit code: `0`"))
+    #expect(markdown.contains("stdout:"))
+    #expect(markdown.contains("hi"))
+}
+
+@Test
+func shellCommandResultFormatterMarksTimeoutAndTruncation() {
+    let markdown = SloppyTUIShellCommandResultFormatter.markdown(
+        command: "sleep 30",
+        cwd: "/tmp/project",
+        result: .object([
+            "exitCode": .number(-1),
+            "timedOut": .bool(true),
+            "stdout": .string("partial"),
+            "stderr": .string("error"),
+            "stdoutTruncated": .bool(true),
+            "stderrTruncated": .bool(true),
+        ])
+    )
+
+    #expect(markdown.contains("- exit code: `-1`"))
+    #expect(markdown.contains("- timed out"))
+    #expect(markdown.contains("- stdout truncated"))
+    #expect(markdown.contains("- stderr truncated"))
+    #expect(markdown.contains("stderr:"))
 }
 
 @Test

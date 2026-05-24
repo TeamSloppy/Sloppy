@@ -180,6 +180,8 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
         SloppyTUISlashCommand("subagents", "Open a child subagent session"),
         SloppyTUISlashCommand("parent", "Return to the parent session"),
         SloppyTUISlashCommand("new", "Create a new session"),
+        SloppyTUISlashCommand("bg", "Create a background worktree session", argument: "task"),
+        SloppyTUISlashCommand("pin", "Pin or unpin the current session"),
         SloppyTUISlashCommand("clear", "Clear local cards"),
         SloppyTUISlashCommand("stop", "Interrupt the current run"),
         SloppyTUISlashCommand("restore", "Nudge a live session or restore it after a failed run"),
@@ -190,9 +192,10 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
         SloppyTUISlashCommand("compact", "Free up context by summarizing the conversation so far"),
         SloppyTUISlashCommand("add_dir", "Add a working directory to this session", argument: "path"),
         SloppyTUISlashCommand("fork", "Create a branch of the current conversation", argument: "task"),
+        SloppyTUISlashCommand("themes", "Switch TUI color theme"),
         SloppyTUISlashCommand("bar", "Change color bar", argument: "color"),
         SloppyTUISlashCommand("copy", "Copy last agent response to clipboard"),
-        SloppyTUISlashCommand("diff", "Show uncommitted changes and per-turn diffs"),
+        SloppyTUISlashCommand("diff", "Show changes recorded in the current TUI session"),
         SloppyTUISlashCommand("effort", "Set reasoning effort level", argument: "low|medium|high"),
         SloppyTUISlashCommand("skills", "Show enabled skills"),
         SloppyTUISlashCommand("editor", "Open code editor, optionally choose cursor/xcode/code"),
@@ -222,6 +225,8 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
         "sessions",
         "session",
         "new",
+        "bg",
+        "pin",
         "clear",
         "stop",
         "restore",
@@ -233,6 +238,8 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
         "add_dir",
         "add-dir",
         "fork",
+        "themes",
+        "theme",
         "bar",
         "copy",
         "diff",
@@ -290,6 +297,7 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
     private var pendingUploads: [AgentAttachmentUpload] = []
     private var pendingDraftCheckpointSessionID: String?
     private var chatMode: AgentChatMode = .build
+    private var shellModeEnabled = false
     private var selectedModel = "default"
     private var selectedModelContextWindowTokens = 0
     private var reasoningEffort: ReasoningEffort?
@@ -347,7 +355,9 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
     private var liveAssistantDraft: String?
     private var liveAssistantTarget: String?
     private var liveAssistantInterpolationTask: Task<Void, Never>?
+    private var liveRunStage: AgentRunStage?
     private var liveRunStatusLine: String?
+    private var shellRunStatusLine: String?
     private let tuiStartedAt = Date()
     private var taskStartedAt: Date?
     private var lastTaskElapsed: TimeInterval?
@@ -365,6 +375,7 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
     private var isPosting = false
     private var queuedMessages = SloppyTUIMessageQueue()
     private var isDrainingQueuedMessages = false
+    private var isRunningShellCommand = false
     private var isInterruptingRun = false
     private var sendTimingStart: Date?
     private var sendTimingLast: Date?
@@ -382,8 +393,16 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
     private var sessionTimelineCache: SloppyTUISessionTimelineCache?
     private var sessionReloadGeneration = 0
     private var mcpStatusSummary = SloppyTUIMCPStatusSummary.empty
+    private var projectSourceControlFooterStatus: SloppyTUISourceControlFooterStatus?
+    private var projectSourceControlFooterTask: Task<Void, Never>?
     private var pendingRemoteNodes: [String: CoreConfig.Node] = [:]
     private var pendingRemoteProjectBackend: RemoteSloppyTUIBackend?
+    private var sessionListMode: SloppyTUISessionListMode = .hidden
+    private var sessionListEntries: [SloppyTUISessionListEntry] = []
+    private var sessionListSelectedIndex = 0
+    private var sessionListRefreshTask: Task<Void, Never>?
+    private var backgroundSessionTasks: [String: Task<Void, Never>] = [:]
+    private var postingSessionIDs: Set<String> = []
 
     init(
         runtime: SloppyTUIRuntime,
@@ -450,6 +469,9 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
             sessionId: session.id
         )
         editor.setText(state.drafts[draftKey] ?? "")
+        if hasPersistedSession {
+            trackSession(session, opened: true)
+        }
         refreshStaticChrome()
         renderTimeline()
     }
@@ -476,6 +498,7 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
             streamSession()
         }
         streamChanges()
+        scheduleProjectSourceControlFooterRefresh()
         loadProjectFileIndex()
         reloadProjectForTaskAutocompleteIfNeeded()
         Task { @MainActor in await refreshMCPStatusSummary() }
@@ -493,8 +516,16 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
         devicePollTask?.cancel()
         thinkingAnimationTask?.cancel()
         projectFileIndexTask?.cancel()
+        projectSourceControlFooterTask?.cancel()
+        projectSourceControlFooterTask = nil
         projectTaskAutocompleteTask?.cancel()
         projectFileReindexTask?.cancel()
+        sessionListRefreshTask?.cancel()
+        sessionListRefreshTask = nil
+        for task in backgroundSessionTasks.values {
+            task.cancel()
+        }
+        backgroundSessionTasks.removeAll()
         transientNoticeTask?.cancel()
         transientNoticeTask = nil
         cancelLocalCardDismissTasks()
@@ -526,10 +557,19 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
         if handleCommandPalette(input: input) {
             return
         }
+        if handleSessionListInput(input) {
+            return
+        }
+        if handleSessionListOpenShortcut(input) {
+            return
+        }
         if handleProjectTaskSearchInput(input) {
             return
         }
         if handleProjectFileSearchInput(input) {
+            return
+        }
+        if handleShellModeToggle(input) {
             return
         }
         if handleGlobalShortcut(input) {
@@ -601,7 +641,12 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
     }
 
     private func renderBaseScreen(width: Int, height: Int) -> [String] {
-        let footer = SloppyTUITheme.appFooter(width: width, cwd: runtime.cwd, mcpSummary: mcpStatusSummary)
+        let footer = SloppyTUITheme.appFooter(
+            width: width,
+            cwd: runtime.cwd,
+            mcpSummary: mcpStatusSummary,
+            sourceControl: projectSourceControlFooterStatus
+        )
         var composer: [String] = []
         if isPosting {
             composer.append(SloppyTUITheme.interruptControlLine(
@@ -610,17 +655,29 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
                 isInterrupting: isInterruptingRun
             ))
         }
-        composer.append(contentsOf: SloppyTUITheme.highlightedComposerLines(editor.render(width: width)))
-        if let tokenUsageSummary {
-            composer.append(SloppyTUITheme.contextUsageProgressLine(width: width, summary: tokenUsageSummary))
+        let editorLines = editor.render(width: width)
+        if sessionListMode != .hidden, editor.getText().isEmpty {
+            composer.append(contentsOf: SloppyTUITheme.sessionListComposerPlaceholderLines(editorLines, width: width))
+        } else {
+            composer.append(contentsOf: SloppyTUITheme.highlightedComposerLines(editorLines))
         }
-        composer.append(SloppyTUITheme.composerMetaLine(
-            width: width,
-            mode: chatMode,
-            model: selectedModel,
-            agent: agent.displayName,
-            provider: providerLabel(from: selectedModel)
-        ))
+        if shellModeEnabled {
+            composer.append(SloppyTUITheme.composerShellMetaLine(
+                width: width,
+                cwd: runtime.cwd,
+                agent: agent.displayName,
+                provider: providerLabel(from: selectedModel)
+            ))
+        } else {
+            composer.append(SloppyTUITheme.composerMetaLine(
+                width: width,
+                mode: chatMode,
+                model: selectedModel,
+                agent: agent.displayName,
+                provider: providerLabel(from: selectedModel),
+                tokenUsage: tokenUsageSummary
+            ))
+        }
         composer.append(footer)
 
         if let picker = activePicker {
@@ -657,6 +714,43 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
     }
 
     private func renderBody(width: Int, height: Int) -> [String] {
+        if sessionListMode == .full {
+            return SloppyTUITheme.sessionListLines(
+                width: width,
+                height: height,
+                entries: sessionListEntries,
+                selectedIndex: sessionListSelectedIndex,
+                projectName: project.name,
+                agentName: agent.displayName
+            )
+        }
+
+        if sessionListMode == .side {
+            let listWidth = min(max(36, width / 3), min(72, max(1, width - 24)))
+            let chatWidth = max(1, width - listWidth - 1)
+            let listLines = SloppyTUITheme.sessionListLines(
+                width: listWidth,
+                height: height,
+                entries: sessionListEntries,
+                selectedIndex: sessionListSelectedIndex,
+                projectName: project.name,
+                agentName: agent.displayName
+            )
+            let chatLines = renderChatBody(width: chatWidth, height: height)
+            return Self.zippedPaneLines(
+                left: listLines,
+                right: chatLines,
+                leftWidth: listWidth,
+                rightWidth: chatWidth,
+                separator: "│",
+                height: height
+            )
+        }
+
+        return renderChatBody(width: width, height: height)
+    }
+
+    private func renderChatBody(width: Int, height: Int) -> [String] {
         if shouldRenderWelcome {
             let raw = SloppyTUITheme.welcomeScreen(
                 width: width,
@@ -683,6 +777,27 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
             + statusLines
     }
 
+    nonisolated static func zippedPaneLines(
+        left: [String],
+        right: [String],
+        leftWidth: Int,
+        rightWidth: Int,
+        separator: String,
+        height: Int
+    ) -> [String] {
+        let leftWidth = max(1, leftWidth)
+        let rightWidth = max(1, rightWidth)
+        return (0..<height).map { index in
+            let leftLine = left.indices.contains(index) ? left[index] : ""
+            let rightLine = right.indices.contains(index) ? right[index] : ""
+            let fittedLeft = SloppyTUITheme.fittedLine(leftLine, width: leftWidth)
+            let fittedRight = SloppyTUITheme.fittedLine(rightLine, width: rightWidth)
+            let leftPadding = String(repeating: " ", count: max(0, leftWidth - VisibleWidth.measure(fittedLeft)))
+            let rightPadding = String(repeating: " ", count: max(0, rightWidth - VisibleWidth.measure(fittedRight)))
+            return fittedLeft + leftPadding + separator + fittedRight + rightPadding
+        }
+    }
+
     private func centerWelcome(_ lines: [String], height: Int) -> [String] {
         let content = lines.trimmingEmptyEdges()
         guard content.count < height else {
@@ -694,6 +809,85 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
         return Array(repeating: "", count: topPadding)
             + content
             + Array(repeating: "", count: bottomPadding)
+    }
+
+    private func handleSessionListOpenShortcut(_ input: TerminalInput) -> Bool {
+        guard case .key(.arrowLeft, let modifiers) = input,
+              modifiers.isEmpty,
+              editor.getText().trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              sessionListMode == .hidden else {
+            return false
+        }
+        openSessionList(mode: .side)
+        return true
+    }
+
+    private func handleSessionListInput(_ input: TerminalInput) -> Bool {
+        guard sessionListMode != .hidden else { return false }
+        if case .paste = input { return false }
+        guard case let .key(key, modifiers) = input else { return true }
+
+        switch key {
+        case .arrowLeft where modifiers.isEmpty:
+            if sessionListMode == .side {
+                sessionListMode = .full
+            }
+            requestRender()
+            return true
+        case .arrowUp:
+            sessionListSelectedIndex = SloppyTUISessionList.clampedSelection(
+                sessionListSelectedIndex - 1,
+                entryCount: sessionListEntries.count
+            )
+            requestRender()
+            return true
+        case .arrowDown:
+            sessionListSelectedIndex = SloppyTUISessionList.clampedSelection(
+                sessionListSelectedIndex + 1,
+                entryCount: sessionListEntries.count
+            )
+            requestRender()
+            return true
+        case .arrowRight where modifiers.isEmpty:
+            openSelectedSessionFromList(reply: false)
+            return true
+        case .enter:
+            if !editor.getText().trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                createSessionFromListInput()
+            } else {
+                openSelectedSessionFromList(reply: false)
+            }
+            return true
+        case .character(" ") where modifiers.isEmpty:
+            guard editor.getText().isEmpty else {
+                return false
+            }
+            openSelectedSessionFromList(reply: true)
+            return true
+        case .character("x") where modifiers.contains(.control):
+            hideSelectedSessionFromList()
+            return true
+        case .character("X") where modifiers.contains(.control):
+            hideSelectedSessionFromList()
+            return true
+        case .character("?") where modifiers.isEmpty:
+            guard editor.getText().isEmpty else {
+                return false
+            }
+            showQuickReference()
+            return true
+        case .escape:
+            sessionListMode = .hidden
+            refreshStaticChrome()
+            return true
+        case .character(let character)
+            where !modifiers.contains(.control)
+                && !modifiers.contains(.option)
+                && !character.isNewline:
+            return false
+        default:
+            return false
+        }
     }
 
     private func handleActivePicker(input: TerminalInput) -> Bool {
@@ -1037,6 +1231,15 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
         default:
             return false
         }
+    }
+
+    private func handleShellModeToggle(_ input: TerminalInput) -> Bool {
+        guard SloppyTUIShellModeToggle.shouldToggle(input: input, editorText: editor.getText()) else {
+            return false
+        }
+        shellModeEnabled.toggle()
+        refreshStaticChrome(statusLine: shellModeEnabled ? "Shell mode enabled. Press ! on an empty prompt to exit." : nil)
+        return true
     }
 
     private func handleGlobalShortcut(_ input: TerminalInput) -> Bool {
@@ -1644,6 +1847,10 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
 
     private func submit(_ raw: String) async {
         let value = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        if shellModeEnabled {
+            await submitShellCommand(raw: raw, value: value)
+            return
+        }
         guard !value.isEmpty || !pendingUploads.isEmpty else {
             return
         }
@@ -1665,6 +1872,75 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
             return
         }
         await sendMessage(value)
+    }
+
+    private func submitShellCommand(raw: String, value: String) async {
+        guard !value.isEmpty else {
+            return
+        }
+        if isRunningShellCommand {
+            editor.setText(raw)
+            persistDraft(raw)
+            showSystemNotice("A shell command is already running.")
+            return
+        }
+        editor.addToHistory(value)
+        editor.setText("")
+        persistDraft("")
+        welcomeDismissed = true
+        dismissFirstStartBootstrapCard()
+        await executeShellCommand(value)
+    }
+
+    private func executeShellCommand(_ command: String) async {
+        guard !isRunningShellCommand else { return }
+        isRunningShellCommand = true
+        shellRunStatusLine = "Running shell command..."
+        refreshStaticChrome()
+        defer {
+            isRunningShellCommand = false
+            shellRunStatusLine = nil
+            refreshStaticChrome()
+        }
+
+        let guardrails = AgentToolsGuardrails()
+        do {
+            let result = try await runForegroundProcess(
+                command: shellExecutablePath(),
+                arguments: ["-lc", command],
+                cwd: URL(fileURLWithPath: runtime.cwd, isDirectory: true),
+                timeoutMs: guardrails.execTimeoutMs,
+                maxOutputBytes: guardrails.maxExecOutputBytes
+            )
+            appendLocalCard(SloppyTUIShellCommandResultFormatter.markdown(
+                command: command,
+                cwd: runtime.cwd,
+                result: result
+            ))
+        } catch {
+            appendLocalCard("""
+            ## Shell
+            ```shell
+            \(command.replacingOccurrences(of: "```", with: "` ` `"))
+            ```
+
+            failed: \(String(describing: error))
+            """)
+        }
+    }
+
+    private func shellExecutablePath() -> String {
+        let environmentShell = ProcessInfo.processInfo.environment["SHELL"]?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if let environmentShell,
+           !environmentShell.isEmpty,
+           FileManager.default.isExecutableFile(atPath: environmentShell) {
+            return environmentShell
+        }
+        if FileManager.default.isExecutableFile(atPath: "/bin/bash") {
+            return "/bin/bash"
+        }
+        return "/bin/sh"
     }
 
     private func sendMessage(_ value: String, spawnSubSession: Bool = false) async {
@@ -1717,6 +1993,7 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
         await Task.yield()
         let content = await messageContentWithInlineAttachments(value, context: context, uploads: uploads)
         var createdSessionForThisMessage = false
+        var postingSessionID: String?
         do {
             updateSendProgress(.init(
                 stage: hasPersistedSession ? .snapshottingUndo : .creatingSession,
@@ -1726,6 +2003,9 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
             ))
             await Task.yield()
             createdSessionForThisMessage = try await ensurePersistedSessionForMessage()
+            postingSessionID = session.id
+            postingSessionIDs.insert(session.id)
+            refreshSessionList()
             updateSendProgress(.init(
                 stage: .snapshottingUndo,
                 attachmentCount: uploads.count,
@@ -1786,6 +2066,10 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
             petMood = .sad
             markSendTiming("failed")
             appendLocalCard("Message failed: \(String(describing: error))")
+        }
+        if let postingSessionID {
+            postingSessionIDs.remove(postingSessionID)
+            refreshSessionList()
         }
         if let taskStartedAt {
             let elapsed = Date().timeIntervalSince(taskStartedAt)
@@ -1984,6 +2268,7 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
             await applyDraftDirectories(draftDirectories, previousKey: draftDirectoryKey)
         }
         persistSelection()
+        trackSession(session, opened: true)
         streamSession()
         refreshStaticChrome()
         return true
@@ -2070,9 +2355,13 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
         case "parent", "back":
             await openParentSession()
         case "sessions", "session":
-            await showSessionPicker()
+            openSessionList(mode: .side)
         case "new":
             await createNewSession()
+        case "bg":
+            await createBackgroundSession(task: args.joined(separator: " "))
+        case "pin":
+            togglePinForCurrentSession()
         case "clear":
             clearLocalCards()
             renderTimeline()
@@ -2097,6 +2386,8 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
             await addDirectoryToCurrentSession(raw)
         case "fork":
             await forkCurrentSession(task: args.joined(separator: " "))
+        case "themes", "theme":
+            showThemePicker()
         case "bar":
             changeBarColor(args.first)
         case "copy":
@@ -2165,6 +2456,7 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
         \(commandLines)
 
         Paste file paths normally to send them as text. Press Ctrl+V to attach files or images from the macOS clipboard.
+        Press `!` on an empty prompt to toggle shell mode; press `!` again on an empty prompt to exit.
         Use `@path` in a message to inline a project file as explicit context. Tab completes slash commands.
         Use `#` to autocomplete active project tasks by id or title.
         Press Ctrl+O to toggle the full tool-call transcript. Ctrl+G enters the newest subagent session.
@@ -2179,7 +2471,7 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
         - `/pet` toggles the terminal Sloppie and shows its face/status.
         - `/undo` and `/redo` are scoped to the current session during this TUI run.
         - `/btw <message>` asks a quick side question without interrupting the main flow.
-        - `/diff` previews local source-control changes; `/context diff` attaches them to the next message.
+        - `/diff` previews changes recorded in the current TUI session; `/context diff` attaches source-control changes to the next message.
         """)
     }
 
@@ -2337,10 +2629,12 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
         streamTask?.cancel()
         changeTask?.cancel()
         autoDiffTask?.cancel()
+        projectSourceControlFooterTask?.cancel()
         projectFileIndexTask?.cancel()
         projectFileReindexTask?.cancel()
         pendingRemoteProjectBackend = nil
         activePicker = nil
+        projectSourceControlFooterStatus = nil
         refreshStaticChrome(statusLine: "switching to \(statusPrefix)...")
         do {
             service = nextService
@@ -2370,6 +2664,7 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
             loadProjectFileIndex()
             streamSession()
             streamChanges()
+            scheduleProjectSourceControlFooterRefresh()
             await reloadSession()
             refreshStaticChrome(statusLine: "connected to \(statusPrefix)")
             appendLocalCard("Connected to \(statusPrefix) project `\(project.name)`.", autoDismissAfter: 8)
@@ -2419,6 +2714,233 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
         resetToDraftSession()
     }
 
+    private func createBackgroundSession(task rawTask: String) async {
+        let task = rawTask.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !task.isEmpty else {
+            appendLocalCard("Usage: `/bg <task>`")
+            return
+        }
+        guard !service.isRemote else {
+            appendLocalCard("`/bg` worktree sessions are only available for the local Sloppy instance in v1.")
+            return
+        }
+
+        do {
+            let backgroundSession = try await service.createAgentSession(
+                agentID: agent.id,
+                request: AgentSessionCreateRequest(
+                    title: "Background: \(String(task.prefix(48)))",
+                    projectId: project.id
+                )
+            )
+            let taskID = "tui-\(SloppyTUITheme.shortID(backgroundSession.id))"
+            let worktree = try await service.createTUIBackgroundWorktree(projectID: project.id, taskID: taskID)
+            _ = try await service.addAgentSessionDirectory(
+                agentID: agent.id,
+                sessionID: backgroundSession.id,
+                request: AgentSessionDirectoryRequest(path: worktree.worktreePath)
+            )
+            trackSession(
+                backgroundSession,
+                background: true,
+                worktreePath: worktree.worktreePath,
+                worktreeBranch: worktree.branchName
+            )
+            startBackgroundSession(
+                backgroundSession,
+                task: task,
+                worktreePath: worktree.worktreePath
+            )
+            appendLocalCard("Background session started: `\(SloppyTUITheme.shortID(backgroundSession.id))` on `\(worktree.branchName)`.", autoDismissAfter: 8)
+            if sessionListMode != .hidden {
+                refreshSessionList()
+            }
+        } catch {
+            appendLocalCard("Background session failed: \(String(describing: error))")
+        }
+    }
+
+    private func startBackgroundSession(_ backgroundSession: AgentSessionSummary, task: String, worktreePath: String) {
+        backgroundSessionTasks[backgroundSession.id]?.cancel()
+        postingSessionIDs.insert(backgroundSession.id)
+        refreshSessionList()
+        let backgroundService = service
+        let backgroundAgentID = backgroundSession.agentId
+        let backgroundSessionID = backgroundSession.id
+        let mode = chatMode
+        let effort = reasoningEffort
+        backgroundSessionTasks[backgroundSessionID] = Task { [weak self] in
+            do {
+                _ = try await backgroundService.postAgentSessionMessage(
+                    agentID: backgroundAgentID,
+                    sessionID: backgroundSessionID,
+                    request: AgentSessionPostMessageRequest(
+                        userId: "tui",
+                        content: """
+                        \(task)
+
+                        Work in this dedicated worktree:
+                        \(worktreePath)
+                        """,
+                        reasoningEffort: effort,
+                        mode: mode
+                    )
+                )
+            } catch {
+                await MainActor.run {
+                    self?.appendLocalCard("Background session `\(SloppyTUITheme.shortID(backgroundSessionID))` failed: \(String(describing: error))")
+                }
+            }
+            await MainActor.run {
+                guard let self else { return }
+                self.postingSessionIDs.remove(backgroundSessionID)
+                self.backgroundSessionTasks.removeValue(forKey: backgroundSessionID)
+                self.refreshSessionList()
+            }
+        }
+    }
+
+    private func openSessionList(mode: SloppyTUISessionListMode) {
+        sessionListMode = mode
+        sessionListSelectedIndex = SloppyTUISessionList.clampedSelection(
+            sessionListSelectedIndex,
+            entryCount: sessionListEntries.count
+        )
+        refreshSessionList()
+        refreshStaticChrome(statusLine: "enter to open · space to reply · ctrl+x to hide · ? for shortcuts")
+    }
+
+    private func refreshSessionList() {
+        sessionListRefreshTask?.cancel()
+        sessionListRefreshTask = Task { [weak self] in
+            guard let self else { return }
+            await self.reloadSessionListEntries()
+        }
+    }
+
+    private func reloadSessionListEntries() async {
+        let tracked = trackedSessionsForCurrentProject()
+        var entries: [SloppyTUISessionListEntry] = []
+        for item in tracked {
+            guard let detail = try? await service.getAgentSession(agentID: item.agentId, sessionID: item.sessionId) else {
+                continue
+            }
+            let section = SloppyTUISessionList.section(
+                for: detail.events,
+                isPosting: postingSessionIDs.contains(item.sessionId)
+            )
+            entries.append(SloppyTUISessionListEntry(
+                tracked: item,
+                summary: detail.summary,
+                section: section,
+                detail: sessionListDetail(for: detail, tracked: item)
+            ))
+        }
+        sessionListEntries = SloppyTUISessionList.sortedEntries(entries)
+        sessionListSelectedIndex = SloppyTUISessionList.clampedSelection(
+            sessionListSelectedIndex,
+            entryCount: sessionListEntries.count
+        )
+        requestRender()
+    }
+
+    private func sessionListDetail(for detail: AgentSessionDetail, tracked: SloppyTUIState.TrackedSession) -> String {
+        if let request = latestUnansweredInputRequest(in: detail.events) {
+            let title = request.title?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            if !title.isEmpty {
+                return title
+            }
+            return request.questions.first?.question ?? "Waiting for input"
+        }
+        if postingSessionIDs.contains(tracked.sessionId) {
+            return "Running"
+        }
+        if let status = latestRunStatus(in: detail.events),
+           status.stage == .thinking || status.stage == .searching || status.stage == .responding {
+            return status.details?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+                ? status.details!
+                : status.label
+        }
+        if let worktreePath = tracked.worktreePath?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !worktreePath.isEmpty {
+            return worktreePath
+        }
+        return detail.summary.lastMessagePreview ?? "\(detail.summary.messageCount) messages"
+    }
+
+    private func latestUnansweredInputRequest(in events: [AgentSessionEvent]) -> PlanInputRequest? {
+        let answered = Set(events.compactMap { event -> String? in
+            event.type == .inputResponse ? event.inputResponse?.requestId : nil
+        })
+        return events.compactMap { event -> PlanInputRequest? in
+            event.type == .inputRequest ? event.inputRequest : nil
+        }.last { request in
+            !answered.contains(request.id)
+        }
+    }
+
+    private func latestRunStatus(in events: [AgentSessionEvent]) -> AgentRunStatusEvent? {
+        events.reversed().first { $0.type == .runStatus && $0.runStatus != nil }?.runStatus
+    }
+
+    private func createSessionFromListInput() {
+        let value = editor.getText().trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !value.isEmpty else { return }
+        sessionListMode = .hidden
+        editor.setText("")
+        persistDraft("")
+        resetToDraftSession()
+        welcomeDismissed = true
+        Task { @MainActor in
+            await self.sendMessage(value)
+        }
+    }
+
+    private func openSelectedSessionFromList(reply: Bool) {
+        guard sessionListEntries.indices.contains(sessionListSelectedIndex) else {
+            sessionListSelectedIndex = SloppyTUISessionList.clampedSelection(
+                sessionListSelectedIndex,
+                entryCount: sessionListEntries.count
+            )
+            requestRender()
+            return
+        }
+        let entry = sessionListEntries[sessionListSelectedIndex]
+        sessionListMode = .hidden
+        Task { @MainActor in
+            await self.switchToTrackedSession(entry)
+            if reply {
+                self.editor.setText("")
+                self.persistDraft("")
+            }
+        }
+    }
+
+    private func switchToTrackedSession(_ entry: SloppyTUISessionListEntry) async {
+        if entry.agentId != agent.id {
+            let agents = (try? await service.listAgents(includeSystem: false)) ?? []
+            if let nextAgent = agents.first(where: { $0.id == entry.agentId }) {
+                agent = nextAgent
+                await reloadSkillSlashCommands()
+                await refreshSelectedModel()
+            }
+        }
+        await switchSession(entry.sessionId)
+    }
+
+    private func hideSelectedSessionFromList() {
+        guard sessionListEntries.indices.contains(sessionListSelectedIndex) else {
+            return
+        }
+        removeTrackedSession(sessionListEntries[sessionListSelectedIndex].sessionId)
+        sessionListEntries.remove(at: sessionListSelectedIndex)
+        sessionListSelectedIndex = SloppyTUISessionList.clampedSelection(
+            sessionListSelectedIndex,
+            entryCount: sessionListEntries.count
+        )
+        requestRender()
+    }
+
     private func resetToDraftSession() {
         if let checkpointSessionID = SloppyTUIDraftSessionReset.pendingCheckpointSessionID(
             currentSessionID: session.id,
@@ -2440,6 +2962,7 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
         tokenUsageCostUSD = nil
         taskStartedAt = nil
         lastTaskElapsed = nil
+        liveRunStage = nil
         liveRunStatusLine = nil
         activePicker = nil
         addDirectoryInput = nil
@@ -2525,7 +3048,7 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
 
         switch sessionUndoManagers.recordChanges(baseline) {
         case .recorded:
-            break
+            updateSessionDiffPreview(rootURL: baseline.baseline.rootURL)
         case .noChanges:
             break
         case .skipped(let reason):
@@ -2813,6 +3336,63 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
         requestRender()
     }
 
+    private func showThemePicker() {
+        let catalog = SloppyTUIThemeStore(workspaceRoot: runtime.workspaceRoot).loadCatalog()
+        if !catalog.warnings.isEmpty {
+            let details = catalog.warnings
+                .prefix(5)
+                .map { "- `\($0.fileName)`: \($0.message)" }
+                .joined(separator: "\n")
+            let suffix = catalog.warnings.count > 5 ? "\n- ...and \(catalog.warnings.count - 5) more" : ""
+            appendLocalCard("""
+            Some TUI themes could not be loaded:
+            \(details)\(suffix)
+            """, autoDismissAfter: 12)
+        }
+
+        let currentID = SloppyTUITheme.currentTheme.id
+        let items = catalog.themes.map { theme in
+            SloppyTUIPickerItem(
+                value: theme.id,
+                label: theme.name,
+                description: theme.source,
+                isCurrent: theme.id == currentID,
+                group: theme.id == SloppyTUIResolvedTheme.defaultID ? "Built-in" : "Custom"
+            )
+        }
+        guard !items.isEmpty else {
+            appendLocalCard("No TUI themes found.")
+            return
+        }
+
+        activePicker = SloppyTUIPicker(
+            kind: .theme,
+            title: "Select theme",
+            items: items,
+            selectedIndex: max(0, items.firstIndex(where: { $0.isCurrent }) ?? 0),
+            allItems: items,
+            supportsSearch: true
+        )
+        refreshStaticChrome(statusLine: "type to search themes, arrows to select, Enter to apply, Esc to cancel")
+    }
+
+    private func applyTheme(_ id: String) {
+        let catalog = SloppyTUIThemeStore(workspaceRoot: runtime.workspaceRoot).loadCatalog()
+        guard let theme = catalog.theme(id: id) else {
+            appendLocalCard("Theme `\(id)` is not available. Put custom themes in `\(SloppyTUIThemeStore(workspaceRoot: runtime.workspaceRoot).themesURL.path)`.", autoDismissAfter: 10)
+            return
+        }
+
+        SloppyTUITheme.apply(theme)
+        state.themeID = theme.id
+        stateStore.save(state)
+        editor.apply(theme: SloppyTUITheme.palette)
+        tui?.apply(theme: SloppyTUITheme.palette)
+        renderTimeline()
+        refreshStaticChrome(statusLine: "theme set to \(theme.name)")
+        requestRender()
+    }
+
     private func copyLastAssistantResponse() {
         guard let text = sessionCards.reversed().compactMap({ block -> String? in
             if case .message(let role, let text) = block, role == .assistant {
@@ -2834,26 +3414,35 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
     }
 
     private func showDiff() async {
-        do {
-            let sourceControl = try await service.projectWorkingTreeSourceControl(projectID: project.id)
-            guard sourceControl.isRepository else {
-                appendLocalCard(sourceControl.message ?? "This project folder is not a source-control repository.")
-                return
-            }
-            guard !sourceControl.diff.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-                appendLocalCard("No uncommitted changes.")
-                return
-            }
-            let branch = sourceControl.branch ?? "unknown"
-            let truncated = sourceControl.diffTruncated ? "\n\nDiff was truncated by the backend." : ""
-            appendLocalCard("""
-            ## Diff
-            Source control: `\(sourceControl.providerId)`  Branch: `\(branch)`  +\(sourceControl.linesAdded) -\(sourceControl.linesDeleted)
+        guard !service.isRemote else {
+            appendLocalCard("Session diff is available only for local TUI workspaces because it uses local undo history.", autoDismissAfter: 10)
+            return
+        }
+        guard hasPersistedSession else {
+            appendLocalCard("No session yet. Send a message first or open an existing session with `/sessions`.")
+            return
+        }
 
-            \(fencedBlock("diff", sourceControl.diff, maxCharacters: 12_000))\(truncated)
+        do {
+            let rootURL = try await service.resolveProjectWorkspaceRoot(projectID: project.id)
+            let sessionDiff = try sessionUndoManagers.sessionDiff(
+                sessionID: session.id,
+                rootURL: rootURL,
+                maxCharacters: 96 * 1024
+            )
+            guard sessionDiff.hasChanges else {
+                appendLocalCard("No file changes recorded in this TUI session.")
+                return
+            }
+            let truncated = sessionDiff.truncated ? "\n\nDiff was truncated by the TUI session history." : ""
+            appendLocalCard("""
+            ## Session Diff
+            Current TUI session: +\(sessionDiff.linesAdded) -\(sessionDiff.linesDeleted)
+
+            \(fencedBlock("diff", sessionDiff.diff, maxCharacters: 12_000))\(truncated)
             """)
         } catch {
-            appendLocalCard("Could not read source-control diff: \(String(describing: error))")
+            appendLocalCard("Could not read session diff: \(String(describing: error))")
         }
     }
 
@@ -3241,6 +3830,8 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
             applyProjectTaskSearchItem(item)
         case .planInput:
             await answerPlanInput(with: item)
+        case .theme:
+            applyTheme(item.value)
         }
     }
 
@@ -3565,6 +4156,7 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
         lastAgentToolActivityAt = nil
         dismissAutoDiffPreview()
         persistSelection()
+        trackSession(nextSession, opened: true)
         streamSession()
         await restorePersistedDirectoriesForCurrentSession()
         loadProjectFileIndex()
@@ -3587,6 +4179,7 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
         case "diff":
             do {
                 let sourceControl = try await service.projectWorkingTreeSourceControl(projectID: project.id)
+                updateProjectSourceControlFooter(sourceControl)
                 guard sourceControl.isRepository, !sourceControl.diff.isEmpty else {
                     appendLocalCard(sourceControl.message ?? "No source-control diff to attach.")
                     return
@@ -3894,9 +4487,11 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
                             }
                             if let status = event.runStatus {
                                 if status.stage == .done || status.stage == .interrupted {
+                                    self.liveRunStage = nil
                                     self.liveRunStatusLine = nil
                                     self.markSendTiming("final_status")
                                 } else {
+                                    self.liveRunStage = status.stage
                                     self.liveRunStatusLine = self.runStatusLine(status)
                                 }
                                 self.refreshStaticChrome()
@@ -3969,6 +4564,7 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
                     guard !Task.isCancelled else { break }
                     await MainActor.run {
                         self.lastChangeBatch = batch
+                        self.scheduleProjectSourceControlFooterRefresh()
                         self.scheduleAutoDiffPreview(for: batch)
                         self.scheduleProjectFileReindex()
                     }
@@ -3977,6 +4573,38 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
                 // Keep workspace watching silent so the timeline only shows agent output.
             }
         }
+    }
+
+    private func scheduleProjectSourceControlFooterRefresh() {
+        projectSourceControlFooterTask?.cancel()
+        let service = service
+        let projectID = project.id
+        projectSourceControlFooterTask = Task { [weak self] in
+            do {
+                let sourceControl = try await service.projectWorkingTreeSourceControl(projectID: projectID)
+                guard !Task.isCancelled else { return }
+                await MainActor.run {
+                    guard let self, self.project.id == projectID else { return }
+                    self.updateProjectSourceControlFooter(sourceControl)
+                }
+            } catch {
+                guard !Task.isCancelled else { return }
+                await MainActor.run {
+                    guard let self, self.project.id == projectID else { return }
+                    self.projectSourceControlFooterStatus = SloppyTUISourceControlFooterStatus(
+                        providerId: self.project.sourceControlProviderId,
+                        isRepository: false,
+                        message: String(describing: error)
+                    )
+                    self.refreshStaticChrome()
+                }
+            }
+        }
+    }
+
+    private func updateProjectSourceControlFooter(_ sourceControl: ProjectWorkingTreeSourceControlResponse) {
+        projectSourceControlFooterStatus = SloppyTUISourceControlFooterStatus(sourceControl)
+        refreshStaticChrome()
     }
 
     private func scheduleAutoDiffPreview(for batch: ProjectWorkingTreeChangeBatch) {
@@ -3990,8 +4618,9 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
             guard !Task.isCancelled, let self else { return }
             do {
                 let sourceControl = try await self.service.projectWorkingTreeSourceControl(projectID: self.project.id)
+                let rootURL = try? await self.service.resolveProjectWorkspaceRoot(projectID: self.project.id)
                 await MainActor.run {
-                    self.updateAutoDiffPreview(sourceControl)
+                    self.updateAutoDiffPreview(sourceControl, rootURL: rootURL)
                 }
             } catch {
                 // Diff preview is opportunistic; /diff remains available for explicit errors.
@@ -4012,21 +4641,37 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
         return Date().timeIntervalSince(lastAgentToolActivityAt) < 45
     }
 
-    private func updateAutoDiffPreview(_ sourceControl: ProjectWorkingTreeSourceControlResponse) {
-        guard sourceControl.isRepository,
-              !sourceControl.diff.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            dismissAutoDiffPreview()
+    private func updateAutoDiffPreview(_ sourceControl: ProjectWorkingTreeSourceControlResponse, rootURL: URL?) {
+        updateProjectSourceControlFooter(sourceControl)
+        if let rootURL,
+           updateSessionDiffPreview(rootURL: rootURL) {
             return
         }
 
+        dismissAutoDiffPreview()
+    }
+
+    @discardableResult
+    private func updateSessionDiffPreview(rootURL: URL) -> Bool {
+        guard hasPersistedSession,
+              let sessionDiff = try? sessionUndoManagers.sessionDiff(
+                  sessionID: session.id,
+                  rootURL: rootURL,
+                  maxCharacters: 96 * 1024
+              ),
+              sessionDiff.hasChanges else {
+            return false
+        }
+
         workspaceDiffPreview = SloppyTUIWorkspaceDiffPreview(
-            branch: sourceControl.branch ?? "unknown",
-            linesAdded: sourceControl.linesAdded,
-            linesDeleted: sourceControl.linesDeleted,
-            diff: sourceControl.diff,
-            truncated: sourceControl.diffTruncated
+            branch: "session",
+            linesAdded: sessionDiff.linesAdded,
+            linesDeleted: sessionDiff.linesDeleted,
+            diff: sessionDiff.diff,
+            truncated: sessionDiff.truncated
         )
         renderTimeline()
+        return true
     }
 
     private func dismissAutoDiffPreview() {
@@ -4255,6 +4900,9 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
         invalidateSessionTimelineCache()
         updatePendingPlanInputRequest(pendingInputRequest)
         await refreshTokenUsage(includeCost: false)
+        if sessionListMode != .hidden {
+            refreshSessionList()
+        }
         renderTimeline()
     }
 
@@ -4735,6 +5383,7 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
         isPosting = true
         taskStartedAt = Date()
         lastTaskElapsed = nil
+        liveRunStage = nil
         liveRunStatusLine = busyLabel
         startThinkingAnimation()
         refreshStaticChrome(statusLine: busyLabel)
@@ -5024,6 +5673,7 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
     }
 
     private func updateSendProgress(_ progress: SloppyTUISendProgress) {
+        liveRunStage = nil
         liveRunStatusLine = progress.statusLine
         markSendTiming(progress.stage.rawValue)
         refreshStaticChrome()
@@ -5213,13 +5863,46 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
             attachments: attachments,
             sessionID: hasPersistedSession ? session.id : "not created"
         )
-        let busyStatus = (statusLine ?? liveRunStatusLine).map { $0 + elapsed.busySuffix }
+        let busyStatus = (statusLine ?? shellRunStatusLine ?? liveRunStatusLine).map { $0 + elapsed.busySuffix }
         let noticeStatus = transientNoticeLine.map { "notice: \($0)" + elapsed.idleSuffix }
         status.text = SloppyTUITheme.status(
             busyStatus ?? noticeStatus ?? defaultStatus,
             isBusy: busyStatus != nil
         )
+        refreshTerminalTitle()
         requestRender()
+    }
+
+    private func refreshTerminalTitle() {
+        terminal?.write(SloppyTUITheme.terminalTitleEscape(
+            SloppyTUITheme.terminalTitle(
+                status: terminalTitleStatus(),
+                session: session,
+                agent: agent.displayName
+            )
+        ))
+    }
+
+    private func terminalTitleStatus() -> String {
+        if isInterruptingRun {
+            return "interrupting"
+        }
+        if isRunningShellCommand {
+            return "shell"
+        }
+        if let liveRunStage {
+            return liveRunStage.rawValue
+        }
+        if pendingPlanInputRequest != nil {
+            return "waiting"
+        }
+        if isPosting {
+            return "sending"
+        }
+        if shellModeEnabled {
+            return "shell"
+        }
+        return hasPersistedSession ? "idle" : "draft"
     }
 
     private func elapsedStatusContext() -> (busySuffix: String, idleSuffix: String) {
@@ -5438,6 +6121,89 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
         let key = SloppyTUIStateStore.selectionKey(projectId: project.id)
         state.selections[key] = .init(agentId: agent.id, sessionId: hasPersistedSession ? session.id : nil)
         stateStore.save(state)
+    }
+
+    private func trackedSessionsKey() -> String {
+        SloppyTUIStateStore.trackedSessionsKey(projectId: project.id)
+    }
+
+    private func trackedSessionsForCurrentProject() -> [SloppyTUIState.TrackedSession] {
+        state.trackedSessions[trackedSessionsKey()] ?? []
+    }
+
+    private func trackSession(
+        _ summary: AgentSessionSummary,
+        pinned: Bool? = nil,
+        background: Bool? = nil,
+        worktreePath: String? = nil,
+        worktreeBranch: String? = nil,
+        opened: Bool = false
+    ) {
+        let key = trackedSessionsKey()
+        var items = state.trackedSessions[key] ?? []
+        let now = Date()
+        if let index = items.firstIndex(where: { $0.sessionId == summary.id }) {
+            var item = items[index]
+            item.agentId = summary.agentId
+            item.pinned = pinned ?? item.pinned
+            item.background = background ?? item.background
+            item.worktreePath = worktreePath ?? item.worktreePath
+            item.worktreeBranch = worktreeBranch ?? item.worktreeBranch
+            if opened {
+                item.lastOpenedAt = now
+            }
+            items[index] = item
+        } else {
+            items.append(SloppyTUIState.TrackedSession(
+                agentId: summary.agentId,
+                sessionId: summary.id,
+                pinned: pinned ?? false,
+                background: background ?? false,
+                worktreePath: worktreePath,
+                worktreeBranch: worktreeBranch,
+                createdAt: now,
+                lastOpenedAt: opened ? now : nil
+            ))
+        }
+        state.trackedSessions[key] = items
+        stateStore.save(state)
+        refreshSessionList()
+    }
+
+    private func removeTrackedSession(_ sessionID: String) {
+        let key = trackedSessionsKey()
+        var items = state.trackedSessions[key] ?? []
+        items.removeAll { $0.sessionId == sessionID }
+        state.trackedSessions[key] = items
+        stateStore.save(state)
+    }
+
+    private func togglePinForCurrentSession() {
+        guard hasPersistedSession else {
+            appendLocalCard("No session yet. Send a message first or open an existing session with `/sessions`.")
+            return
+        }
+        let key = trackedSessionsKey()
+        var items = state.trackedSessions[key] ?? []
+        let nextPinned: Bool
+        if let index = items.firstIndex(where: { $0.sessionId == session.id }) {
+            items[index].pinned.toggle()
+            nextPinned = items[index].pinned
+        } else {
+            let item = SloppyTUIState.TrackedSession(
+                agentId: agent.id,
+                sessionId: session.id,
+                pinned: true,
+                createdAt: Date(),
+                lastOpenedAt: Date()
+            )
+            items.append(item)
+            nextPinned = true
+        }
+        state.trackedSessions[key] = items
+        stateStore.save(state)
+        refreshSessionList()
+        appendLocalCard(nextPinned ? "Session pinned." : "Session unpinned.", autoDismissAfter: 6)
     }
 
     private func currentSessionDirectoryKey() -> String {

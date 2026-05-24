@@ -221,7 +221,7 @@ sloppy
 
 It resolves the current directory as a Sloppy project, restores the last agent/session for that project, and lets you chat, switch models, configure providers, attach files with `@path`, inspect diffs, and resume sessions from the terminal.
 
-See [Terminal UI](/guides/tui) for the full walkthrough.
+See [Terminal UI](/tui/overview) for the full walkthrough.
 
 ## CI-parity checks
 

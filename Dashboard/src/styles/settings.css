@@ -48,47 +48,13 @@
   border-radius: 0;
 }
 
-.config-node-list {
-  grid-column: 1 / -1;
-  display: grid;
-  gap: 10px;
-}
-
-.config-node-list-head,
-.config-node-entry-top {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-}
-
-.config-node-list-head {
-  font-weight: 650;
-}
-
-.config-node-entry {
-  border: 1px solid var(--line);
-  background: var(--surface-2);
-  padding: 12px;
-  display: grid;
-  gap: 12px;
-}
-
-.config-node-entry .entry-form-grid {
-  margin: 0;
-}
-
-.config-node-kind {
-  color: var(--muted);
-  font-size: 0.82rem;
-  margin-right: auto;
-}
-
 .config-node-test {
   display: flex;
   align-items: center;
   gap: 10px;
   min-width: 0;
+  align-self: end;
+  min-height: 41px;
 }
 
 .config-node-test span {
@@ -99,9 +65,25 @@
   white-space: nowrap;
 }
 
-.entry-danger-button {
-  color: var(--danger);
-  border-color: rgba(239, 68, 68, 0.28);
+.config-memory-mode-picker .actor-team-dropdown-id {
+  max-width: none;
+}
+
+.config-node-layout .entry-list {
+  min-height: 320px;
+}
+
+.tg-settings-shell.nodehost-settings-shell,
+.tg-settings-shell.sessions-settings-shell,
+.tg-settings-shell.visor-settings-shell {
+  width: 100%;
+  max-width: none;
+}
+
+.tg-settings-shell.nodehost-settings-shell .providers-intro-card,
+.tg-settings-shell.sessions-settings-shell .providers-intro-card,
+.tg-settings-shell.visor-settings-shell .providers-intro-card {
+  max-width: none;
 }
 
 .settings-nav {

@@ -1,0 +1,20 @@
+---
+name: mode-ask
+description: Runtime instructions for Ask mode: answer directly without code mutation.
+userInvocable: false
+---
+
+# Ask Mode
+
+Answer the user's question directly.
+
+## Behavior
+
+- Do not edit files, run mutating commands, or make code changes unless the authoritative runtime mode is build or debug for this turn.
+- Use read-only inspection when it helps answer accurately.
+- Keep the answer focused on the user's question.
+- If the user asks for an implementation, explain that this turn is Ask mode unless the runtime selects Build or Debug mode.
+
+## Completion
+
+Finish with the answer or with the smallest clarifying question needed when the request cannot be answered from available context.

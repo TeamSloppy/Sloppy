@@ -28,12 +28,17 @@ func agentChatModeRuntimeInstructionsMatchModeSemantics() {
     let debug = AgentSessionOrchestrator.runtimeContent("Trace the failure", mode: .debug)
 
     #expect(defaulted.contains("mode: build"))
+    #expect(defaulted.contains("Instructions are loaded from built-in skill `sloppy/mode-build`"))
+    #expect(defaulted.contains("# Build Mode"))
     #expect(defaulted.contains("Implement the requested change"))
     #expect(defaulted.contains("Continue using tools until the requested work is finished"))
     #expect(defaulted.contains("`session.complete` is optional"))
     #expect(!defaulted.contains("After any tool-driven work, call `session.complete`"))
+    #expect(ask.contains("Instructions are loaded from built-in skill `sloppy/mode-ask`"))
+    #expect(ask.contains("# Ask Mode"))
     #expect(ask.contains("Answer the user's question directly"))
     #expect(ask.contains("Do not edit files"))
+    #expect(build.contains("Instructions are loaded from built-in skill `sloppy/mode-build`"))
     #expect(build.contains("Implement the requested change"))
     #expect(build.contains("writing code"))
     #expect(build.contains("project.task_get"))
@@ -43,6 +48,9 @@ func agentChatModeRuntimeInstructionsMatchModeSemantics() {
     #expect(build.contains("Definition of Done"))
     #expect(build.contains("agents.delegate_task"))
     #expect(build.contains("at most 3"))
+    #expect(build.contains("red-green-refactor"))
+    #expect(plan.contains("Instructions are loaded from built-in skill `sloppy/mode-plan`"))
+    #expect(plan.contains("# Plan Mode"))
     #expect(plan.contains("Produce a concise implementation or investigation plan"))
     #expect(plan.contains("offer to capture the plan as a project task"))
     #expect(plan.contains("project.current"))
@@ -55,6 +63,8 @@ func agentChatModeRuntimeInstructionsMatchModeSemantics() {
     #expect(plan.contains("exact verification commands"))
     #expect(plan.contains("pending_approval"))
     #expect(plan.contains("Do not edit files"))
+    #expect(debug.contains("Instructions are loaded from built-in skill `sloppy/mode-debug`"))
+    #expect(debug.contains("# Debug Mode"))
     #expect(debug.contains("Add focused diagnostic logging"))
     #expect(debug.contains("instrumentation"))
     #expect(debug.contains("// #region agent debug"))
@@ -73,6 +83,27 @@ func agentChatModeRuntimeInstructionsMatchModeSemantics() {
     #expect(debug.contains("mark_as_fixed"))
     #expect(debug.contains("Bug is repeated"))
     #expect(debug.contains("remove the session log file"))
+}
+
+@Test
+func runtimeModeInstructionsCanBeLoadedFromInjectedMarkdown() {
+    let prompt = AgentSessionOrchestrator.runtimeContent(
+        "Sketch it",
+        mode: .plan,
+        modeInstructionProvider: { mode in
+            """
+            # Injected \(mode.rawValue) instructions
+
+            injected-mode-sentinel
+            """
+        }
+    )
+
+    #expect(prompt.contains("mode: plan"))
+    #expect(prompt.contains("Instructions are loaded from built-in skill `sloppy/mode-plan`"))
+    #expect(prompt.contains("# Injected plan instructions"))
+    #expect(prompt.contains("injected-mode-sentinel"))
+    #expect(!prompt.contains("Project Task Handoff"))
 }
 
 @Test

@@ -1,3 +1,4 @@
+import Foundation
 import Protocols
 import Testing
 import TauTUI
@@ -87,6 +88,84 @@ func normalizeTruncatesOverwideStyledLines() {
 }
 
 @Test
+func sessionListLinesFitCompactWidthAndSplitFooterHints() throws {
+    let width = 36
+    let now = Date(timeIntervalSince1970: 1_700_000_000)
+    let entries = [
+        SloppyTUISessionListEntry(
+            tracked: .init(
+                agentId: "agent",
+                sessionId: "session-compact-width",
+                pinned: true,
+                background: true,
+                createdAt: now
+            ),
+            summary: AgentSessionSummary(
+                id: "session-compact-width",
+                agentId: "agent",
+                title: String(repeating: "InvestigateSideView", count: 5),
+                updatedAt: now,
+                lastMessagePreview: String(repeating: "preview detail ", count: 12)
+            ),
+            section: .completed,
+            detail: String(repeating: "long detail ", count: 12)
+        ),
+    ]
+
+    let lines = SloppyTUITheme.sessionListLines(
+        width: width,
+        height: 12,
+        entries: entries,
+        selectedIndex: 0,
+        projectName: String(repeating: "Project", count: 8),
+        agentName: String(repeating: "Agent", count: 8)
+    )
+    let plain = lines.map(stripANSI)
+
+    for line in lines {
+        #expect(VisibleWidth.measure(line) <= width)
+    }
+    let selectedLine = try #require(lines.first { $0.contains("\u{001B}[48;2;251;178;123m") })
+    #expect(selectedLine.contains("\u{001B}[38;2;0;0;0m"))
+    #expect(!selectedLine.contains("\u{001B}[38;2;148;163;184m"))
+    #expect(!selectedLine.contains("\u{001B}[38;2;74;222;128m"))
+    #expect(plain.contains { $0.contains("type below to create") && $0.contains("enter to open") })
+    #expect(plain.contains { $0.contains("space to reply") && $0.contains("ctrl+x") })
+    #expect(!plain.contains { $0.contains("enter to open") && $0.contains("space to reply") })
+}
+
+@Test
+func sidePaneZippingHonorsConfiguredWidths() throws {
+    let rows = SloppyTUIScreen.zippedPaneLines(
+        left: [
+            "\u{001B}[38;2;250;204;21m" + String(repeating: "left-overflow", count: 12) + "\u{001B}[39m",
+            "short",
+        ],
+        right: [
+            String(repeating: "right-overflow", count: 12),
+            "body",
+        ],
+        leftWidth: 37,
+        rightWidth: 75,
+        separator: "│",
+        height: 3
+    )
+
+    #expect(rows.count == 3)
+    for row in rows {
+        #expect(VisibleWidth.measure(row) == 113)
+    }
+
+    let firstPlain = stripANSI(rows[0])
+    let pieces = firstPlain.split(separator: "│", omittingEmptySubsequences: false)
+    #expect(pieces.count == 2)
+    let left = try #require(pieces.first)
+    let right = try #require(pieces.last)
+    #expect(left.count == 37)
+    #expect(right.count == 75)
+}
+
+@Test
 func chromeRowsFitNarrowTerminalWidth() {
     let width = 40
     let rows = [
@@ -103,6 +182,12 @@ func chromeRowsFitNarrowTerminalWidth() {
                 contextWindowTokens: 400_000,
                 costUSD: 0.42
             )
+        ),
+        SloppyTUITheme.composerShellMetaLine(
+            width: width,
+            cwd: "/Users/vlad-prusakov/Developer/Sloppy/Sources/sloppy/TUI",
+            agent: "Yadev",
+            provider: "anthropic"
         ),
         SloppyTUITheme.interruptControlLine(width: width, frame: 3, isInterrupting: false),
         SloppyTUITheme.tokenUsageStatus(.init(
@@ -181,7 +266,7 @@ func contextUsageProgressShowsFillPercentAndRemainingSpace() {
     )
     let plain = stripANSI(line)
 
-    #expect(plain.contains("context ["))
+    #expect(plain.contains("context [===---------]"))
     #expect(plain.contains("25%"))
     #expect(plain.contains("100.0K/400.0K tokens"))
     #expect(plain.contains("free 300.0K"))
@@ -223,10 +308,12 @@ func quickReferenceRendersWideMulticolumnLayout() {
     let plain = lines.map(stripANSI)
 
     #expect(plain.first == "## Quick reference")
+    #expect(plain.joined(separator: "\n").contains("`!` shell mode"))
     #expect(plain.joined(separator: "\n").contains("`Option+P` model picker"))
     #expect(plain.joined(separator: "\n").contains("`Ctrl+T` project tasks"))
     #expect(plain.joined(separator: "\n").contains("`Ctrl+G` newest subagent"))
-    #expect(plain.contains { $0.contains("`/` commands") && $0.contains("`Ctrl+G` newest subagent") })
+    #expect(plain.joined(separator: "\n").contains("`/` commands"))
+    #expect(plain.joined(separator: "\n").contains("`#` project tasks"))
 
     for line in lines {
         #expect(VisibleWidth.measure(line) <= width)
@@ -454,6 +541,28 @@ func sessionDisplayTitleUsesPreviewForDefaultDashboardStyleTitles() {
 }
 
 @Test
+func terminalTitleUsesStatusAndDisplaySessionTitle() {
+    let session = AgentSessionSummary(
+        id: "session-abcdef123456",
+        agentId: "sloppy",
+        title: "Session session-",
+        messageCount: 2,
+        lastMessagePreview: "Refactor the TUI session header"
+    )
+
+    let title = SloppyTUITheme.terminalTitle(status: "responding", session: session, agent: "SLOPPY")
+
+    #expect(title == "Sloppy - responding - Refactor the TUI session header - SLOPPY")
+}
+
+@Test
+func terminalTitleEscapeStripsControlCharacters() {
+    let escaped = SloppyTUITheme.terminalTitleEscape("Sloppy\u{001B}]0;bad\u{0007}\nTitle")
+
+    #expect(escaped == "\u{001B}]0;Sloppy]0;badTitle\u{0007}")
+}
+
+@Test
 func sessionDisplayTitleUsesPreviewForLegacyTUIChatTitles() {
     let session = AgentSessionSummary(
         id: "session-abcdef123456",
@@ -513,6 +622,40 @@ func appFooterShowsMCPAvailabilitySummary() {
 }
 
 @Test
+func appFooterShowsProjectSourceControlStatus() {
+    let footer = SloppyTUITheme.appFooter(
+        width: 100,
+        cwd: "/Users/vlad-prusakov/Developer/Sloppy",
+        sourceControl: SloppyTUISourceControlFooterStatus(
+            providerId: "git-cli",
+            isRepository: true,
+            branch: "main",
+            linesAdded: 12,
+            linesDeleted: 3
+        )
+    )
+    let plain = stripANSI(footer)
+
+    #expect(plain.contains("git main +12 -3"))
+    #expect(!plain.contains("dev build"))
+}
+
+@Test
+func appFooterUsesConfiguredSourceControlProviderLabel() {
+    let footer = SloppyTUITheme.appFooter(
+        width: 100,
+        cwd: "/Users/vlad-prusakov/Developer/Sloppy",
+        sourceControl: SloppyTUISourceControlFooterStatus(
+            providerId: "jj",
+            isRepository: true,
+            branch: "feature/runtime"
+        )
+    )
+
+    #expect(stripANSI(footer).contains("jj feature/runtime"))
+}
+
+@Test
 func mcpStatusLineIsCompactForMultilineErrors() {
     let status = MCPServerStatus(
         id: "claude-mobile",
@@ -541,6 +684,104 @@ func mcpStatusLineIsCompactForMultilineErrors() {
     #expect(line.contains("Claude Mobile MCP server running"))
     #expect(!line.contains("Options:"))
     #expect(!line.contains("\n"))
+}
+
+@Test
+func tuiThemeStoreLoadsCustomThemeWithPartialDefaults() throws {
+    let root = try makeThemeTestWorkspace()
+    defer { try? FileManager.default.removeItem(at: root) }
+    let themes = root.appendingPathComponent("tui/themes", isDirectory: true)
+    try FileManager.default.createDirectory(at: themes, withIntermediateDirectories: true)
+    try Data("""
+    {
+      "name": "Forest",
+      "colors": {
+        "accent": "#34d399",
+        "panelBackground": "#111827"
+      }
+    }
+    """.utf8).write(to: themes.appendingPathComponent("forest.json"))
+
+    let catalog = SloppyTUIThemeStore(workspaceRoot: root).loadCatalog()
+    let theme = try #require(catalog.theme(id: "custom:forest"))
+
+    #expect(catalog.warnings.isEmpty)
+    #expect(theme.name == "Forest")
+    #expect(theme.source == "forest.json")
+    #expect(theme.accent == SloppyTUIColor(red: 52, green: 211, blue: 153))
+    #expect(theme.panelBackground == SloppyTUIColor(red: 17, green: 24, blue: 39))
+    #expect(theme.foreground == SloppyTUIResolvedTheme.default.foreground)
+}
+
+@Test
+func tuiThemeStoreSkipsInvalidThemeFiles() throws {
+    let root = try makeThemeTestWorkspace()
+    defer { try? FileManager.default.removeItem(at: root) }
+    let themes = root.appendingPathComponent("tui/themes", isDirectory: true)
+    try FileManager.default.createDirectory(at: themes, withIntermediateDirectories: true)
+    try Data(#"{"colors":{"accent":"not-a-color"}}"#.utf8)
+        .write(to: themes.appendingPathComponent("bad-color.json"))
+    try Data(#"{"colors":"oops"}"#.utf8)
+        .write(to: themes.appendingPathComponent("malformed.json"))
+
+    let catalog = SloppyTUIThemeStore(workspaceRoot: root).loadCatalog()
+
+    #expect(catalog.themes.map(\.id) == ["default"])
+    #expect(catalog.warnings.count == 2)
+    #expect(catalog.warnings.contains { $0.fileName == "bad-color.json" })
+    #expect(catalog.warnings.contains { $0.fileName == "malformed.json" })
+}
+
+@Test
+func tuiThemeStoreUsesCustomPrefixForDuplicateSafeIDs() throws {
+    let root = try makeThemeTestWorkspace()
+    defer { try? FileManager.default.removeItem(at: root) }
+    let themes = root.appendingPathComponent("tui/themes", isDirectory: true)
+    try FileManager.default.createDirectory(at: themes, withIntermediateDirectories: true)
+    try Data(##"{"name":"Custom Default","colors":{"accent":"#ffffff"}}"##.utf8)
+        .write(to: themes.appendingPathComponent("default.json"))
+
+    let catalog = SloppyTUIThemeStore(workspaceRoot: root).loadCatalog()
+
+    #expect(catalog.theme(id: "default")?.source == "built-in")
+    #expect(catalog.theme(id: "custom:default")?.name == "Custom Default")
+}
+
+@Test
+func tuiThemeRolesRenderAnsiAndDefaultThemeStaysStable() {
+    var theme = SloppyTUIResolvedTheme.default
+    theme.id = "custom:test"
+    theme.name = "Test"
+    theme.source = "test.json"
+    theme.accentBright = SloppyTUIColor(red: 1, green: 2, blue: 3)
+    theme.foreground = SloppyTUIColor(red: 4, green: 5, blue: 6)
+    theme.muted = SloppyTUIColor(red: 7, green: 8, blue: 9)
+    theme.userMessageBackground = SloppyTUIColor(red: 10, green: 11, blue: 12)
+
+    let styled = theme.accentBright.foregroundStyle("title")
+        + theme.foreground.foregroundStyle("body")
+        + theme.muted.foregroundStyle("muted")
+    let background = AnsiWrapping.applyBackgroundToLine(
+        "x",
+        width: 1,
+        background: theme.userMessageBackground.background
+    )
+
+    #expect(styled.contains("\u{001B}[38;2;1;2;3m"))
+    #expect(styled.contains("\u{001B}[38;2;4;5;6m"))
+    #expect(styled.contains("\u{001B}[38;2;7;8;9m"))
+    #expect(background.contains("\u{001B}[48;2;10;11;12m"))
+
+    SloppyTUITheme.resetDefault()
+    let defaultHeader = SloppyTUITheme.header(project: "Project", agent: "Agent", session: "Session")
+    #expect(defaultHeader.contains("\u{001B}[38;2;103;232;249m"))
+}
+
+private func makeThemeTestWorkspace() throws -> URL {
+    let root = FileManager.default.temporaryDirectory
+        .appendingPathComponent("sloppy-tui-theme-\(UUID().uuidString)", isDirectory: true)
+    try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+    return root
 }
 
 private func leadingSpaceCount(_ line: String) -> Int {

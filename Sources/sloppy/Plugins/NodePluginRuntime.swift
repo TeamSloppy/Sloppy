@@ -192,7 +192,7 @@ struct NodePluginDescriptor: Decodable, Sendable, Equatable {
     var hooks: [NodeNamedCapability]
     var commands: [NodeNamedCapability]
     var skills: [NodeNamedCapability]
-    var gateways: [NodeNamedCapability]
+    var gateways: [NodeGatewayCapability]
     var sourceControls: [NodeSourceControlCapability]
     var memories: [NodeNamedCapability]
     var modelProviders: [NodeNamedCapability]
@@ -216,7 +216,7 @@ struct NodePluginDescriptor: Decodable, Sendable, Equatable {
         hooks: [NodeNamedCapability] = [],
         commands: [NodeNamedCapability] = [],
         skills: [NodeNamedCapability] = [],
-        gateways: [NodeNamedCapability] = [],
+        gateways: [NodeGatewayCapability] = [],
         sourceControls: [NodeSourceControlCapability] = [],
         memories: [NodeNamedCapability] = [],
         modelProviders: [NodeNamedCapability] = []
@@ -237,7 +237,7 @@ struct NodePluginDescriptor: Decodable, Sendable, Equatable {
         hooks = try container.decodeIfPresent([NodeNamedCapability].self, forKey: .hooks) ?? []
         commands = try container.decodeIfPresent([NodeNamedCapability].self, forKey: .commands) ?? []
         skills = try container.decodeIfPresent([NodeNamedCapability].self, forKey: .skills) ?? []
-        gateways = try container.decodeIfPresent([NodeNamedCapability].self, forKey: .gateways) ?? []
+        gateways = try container.decodeIfPresent([NodeGatewayCapability].self, forKey: .gateways) ?? []
         let sourceControls = try container.decodeIfPresent([NodeSourceControlCapability].self, forKey: .sourceControls)
         let sourceControl = try container.decodeIfPresent([NodeSourceControlCapability].self, forKey: .sourceControl)
         self.sourceControls = sourceControls ?? sourceControl ?? []
@@ -254,6 +254,45 @@ struct NodeNamedCapability: Codable, Sendable, Equatable {
     var name: String
     var title: String?
     var description: String?
+}
+
+struct NodeGatewayCapability: Codable, Sendable, Equatable {
+    var name: String
+    var title: String?
+    var description: String?
+    var channelIds: [String]
+    var capabilities: [String]
+
+    private enum CodingKeys: String, CodingKey {
+        case name
+        case title
+        case description
+        case channelIds
+        case capabilities
+    }
+
+    init(
+        name: String,
+        title: String? = nil,
+        description: String? = nil,
+        channelIds: [String] = [],
+        capabilities: [String] = []
+    ) {
+        self.name = name
+        self.title = title
+        self.description = description
+        self.channelIds = channelIds
+        self.capabilities = capabilities
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        name = try container.decodeIfPresent(String.self, forKey: .name) ?? ""
+        title = try container.decodeIfPresent(String.self, forKey: .title)
+        description = try container.decodeIfPresent(String.self, forKey: .description)
+        channelIds = try container.decodeIfPresent([String].self, forKey: .channelIds) ?? []
+        capabilities = try container.decodeIfPresent([String].self, forKey: .capabilities) ?? []
+    }
 }
 
 struct NodeToolCapability: Codable, Sendable, Equatable {

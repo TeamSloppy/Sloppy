@@ -107,6 +107,16 @@ function targetSummary(target) {
   return `${target.command}${!target.enabled ? " (disabled)" : ""}`;
 }
 
+function targetStatus(target) {
+  if (!target) {
+    return { label: "empty", tone: "off" };
+  }
+  if (target.enabled === false) {
+    return { label: "disabled", tone: "off" };
+  }
+  return canSaveTarget(target) ? { label: "enabled", tone: "on" } : { label: "incomplete", tone: "off" };
+}
+
 export function ACPEditor({ draftConfig, mutateDraft }) {
   const acp = draftConfig.acp || { enabled: false, targets: [] };
   const enabled = Boolean(acp.enabled);
@@ -117,13 +127,15 @@ export function ACPEditor({ draftConfig, mutateDraft }) {
   const [isProbing, setIsProbing] = useState(false);
 
   const current = selectedIndex >= 0 && selectedIndex < targets.length ? targets[selectedIndex] : null;
+  const currentStatus = targetStatus(current);
 
   function startAdd() {
     setEditTarget(emptyTarget());
     setProbeStatus(null);
   }
 
-  function startEdit(target) {
+  function startEdit(target, index = selectedIndex) {
+    setSelectedIndex(index);
     setEditTarget({ ...target, arguments: [...target.arguments] });
     setProbeStatus(null);
   }
@@ -145,6 +157,7 @@ export function ACPEditor({ draftConfig, mutateDraft }) {
       return;
     }
 
+    const existingIndex = targets.findIndex((t) => t.id === id);
     mutateDraft((draft) => {
       if (!draft.acp) {
         draft.acp = { enabled: false, targets: [] };
@@ -184,6 +197,7 @@ export function ACPEditor({ draftConfig, mutateDraft }) {
       }
       draft.acp.targets = list;
     });
+    setSelectedIndex(existingIndex >= 0 ? existingIndex : targets.length);
     setEditTarget(null);
     setProbeStatus(null);
   }
@@ -252,10 +266,86 @@ export function ACPEditor({ draftConfig, mutateDraft }) {
     }
   }
 
+  function setACPEnabled(nextEnabled) {
+    mutateDraft((draft) => {
+      if (!draft.acp) {
+        draft.acp = { enabled: false, targets: [] };
+      }
+      draft.acp.enabled = nextEnabled;
+    });
+  }
+
+  function renderTargetsList() {
+    return (
+      <div className="entry-list config-integration-list">
+        <div className="entry-list-head">
+          <h4>ACP targets</h4>
+          <button type="button" className="config-integration-add-button" onClick={startAdd}>
+            <span className="material-symbols-rounded" aria-hidden>
+              add
+            </span>
+            <span>Add</span>
+          </button>
+        </div>
+        <div className="entry-list-scroll">
+          {targets.length === 0 ? (
+            <p className="entry-editor-empty config-integration-empty">No ACP targets configured.</p>
+          ) : null}
+          {targets.map((target, index) => {
+            const status = targetStatus(target);
+            return (
+              <button
+                key={`${target.id || "acp-target"}-${index}`}
+                type="button"
+                className={`entry-list-item config-integration-list-item ${index === selectedIndex && !editTarget ? "active" : ""}`}
+                onClick={() => {
+                  setSelectedIndex(index);
+                  setEditTarget(null);
+                  setProbeStatus(null);
+                }}
+              >
+                <span className="providers-cli-card-icon material-symbols-rounded" aria-hidden>
+                  terminal
+                </span>
+                <span className="config-integration-list-main">
+                  <span className="config-integration-list-title">{target.title || target.id || `acp-target-${index + 1}`}</span>
+                  <span className="config-integration-list-subtitle">
+                    {target.transport || "stdio"} · {targetSummary(target) || "Target command"}
+                  </span>
+                  <span className={`provider-state ${status.tone}`}>{status.label}</span>
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+    );
+  }
+
   if (editTarget) {
     return (
-      <section className="entry-editor-card">
-        <h3>{editTarget.id ? "Edit ACP Target" : "New ACP Target"}</h3>
+      <div className="entry-editor-layout config-integration-layout">
+        {renderTargetsList()}
+        <section className="entry-editor-card config-integration-card">
+          <div className="entry-editor-head config-integration-head">
+            <div className="config-integration-title-row">
+              <span className="provider-list-icon" aria-hidden="true">
+                <span className="material-symbols-rounded">terminal</span>
+              </span>
+              <div className="config-integration-heading">
+                <h3>{editTarget.id ? "Edit ACP target" : "New ACP target"}</h3>
+                <span className="provider-model-line">{editTarget.transport || "stdio"} · {targetSummary(editTarget) || "Target command"}</span>
+              </div>
+              <span className={`provider-state ${targetStatus(editTarget).tone}`}>{targetStatus(editTarget).label}</span>
+            </div>
+          </div>
+
+          <section className="entry-editor-block config-integration-note">
+            <p className="entry-editor-empty">
+              ACP targets connect Sloppy to local stdio agents or remote ACP runtimes over SSH and WebSocket.
+            </p>
+          </section>
+
         <div className="entry-form-grid">
           <label>
             ID
@@ -482,92 +572,118 @@ export function ACPEditor({ draftConfig, mutateDraft }) {
           </button>
         </div>
       </section>
+      </div>
     );
   }
 
   return (
-    <div className="tg-settings-shell">
-      <section className="entry-editor-card providers-intro-card">
-        <h3>ACP (Agent Client Protocol)</h3>
-        <p className="placeholder-text">
-          Manage ACP targets for local stdio agents and remote ACP runtimes over SSH or WebSocket.
-          Sloppy keeps local session history and uses ACP as the upstream runtime transport.
-        </p>
-        <div className="settings-toast-actions" style={{ marginTop: 12 }}>
-          <button
-            type="button"
-            className={enabled ? "hover-levitate" : "danger hover-levitate"}
-            onClick={() =>
-              mutateDraft((draft) => {
-                if (!draft.acp) {
-                  draft.acp = { enabled: false, targets: [] };
-                }
-                draft.acp.enabled = true;
-              })
-            }
-          >
-            Enabled
-          </button>
-          <button
-            type="button"
-            className={!enabled ? "hover-levitate" : "danger hover-levitate"}
-            onClick={() =>
-              mutateDraft((draft) => {
-                if (!draft.acp) {
-                  draft.acp = { enabled: false, targets: [] };
-                }
-                draft.acp.enabled = false;
-              })
-            }
-          >
-            Disabled
-          </button>
-        </div>
-      </section>
+    <div className="entry-editor-layout config-integration-layout">
+      {renderTargetsList()}
 
-      <section className="entry-editor-card">
-        <div className="agent-config-head">
-          <div className="agent-tools-head-copy">
-            <h4>Targets ({targets.length})</h4>
+      <section className="entry-editor-card config-integration-card">
+        <div className="entry-editor-head config-integration-head">
+          <div className="config-integration-title-row">
+            <span className="provider-list-icon" aria-hidden="true">
+              <span className="material-symbols-rounded">terminal</span>
+            </span>
+            <div className="config-integration-heading">
+              <h3>{current ? current.title || current.id || "ACP target" : "ACP (Agent Client Protocol)"}</h3>
+              <span className="provider-model-line">
+                {current ? `${current.transport || "stdio"} · ${targetSummary(current) || "Target command"}` : "Local stdio agents and remote ACP runtimes"}
+              </span>
+            </div>
+            <span className={`provider-state ${current ? currentStatus.tone : enabled ? "on" : "off"}`}>
+              {current ? currentStatus.label : enabled ? "enabled" : "disabled"}
+            </span>
           </div>
+          {current ? (
+            <button
+              type="button"
+              className="danger"
+              onClick={() => deleteTarget(current.id)}
+            >
+              Delete
+            </button>
+          ) : null}
+        </div>
+
+        <section className="entry-editor-block config-integration-note">
+          <p className="entry-editor-empty">
+            Manage ACP targets for local stdio agents and remote ACP runtimes over SSH or WebSocket.
+            Sloppy keeps local session history and uses ACP as the upstream runtime transport.
+          </p>
+        </section>
+
+        <div className="entry-form-grid">
+          <label>
+            ACP Runtime
+            <div className="config-field-toggle">
+              <span>{enabled ? "Enabled" : "Disabled"}</span>
+              <span className="agent-tools-switch">
+                <input
+                  type="checkbox"
+                  checked={enabled}
+                  onChange={(event) => setACPEnabled(event.target.checked)}
+                />
+                <span className="agent-tools-switch-track" />
+              </span>
+            </div>
+          </label>
+          <label>
+            Targets
+            <div className="config-field-toggle">
+              <span>{targets.length}</span>
+              <span className="config-field-meta">configured</span>
+            </div>
+          </label>
+          {current ? (
+            <>
+              <label>
+                Target ID
+                <input value={current.id} readOnly />
+              </label>
+              <label>
+                Transport
+                <input value={current.transport || "stdio"} readOnly />
+              </label>
+              <label style={{ gridColumn: "1 / -1" }}>
+                Summary
+                <input value={targetSummary(current)} readOnly />
+              </label>
+            </>
+          ) : (
+            <section className="entry-editor-block config-integration-note" style={{ gridColumn: "1 / -1" }}>
+              <p className="entry-editor-empty">No ACP targets configured. Add one to get started.</p>
+            </section>
+          )}
+        </div>
+
+        {probeStatus ? <p className="placeholder-text" style={{ marginTop: 8 }}>{probeStatus}</p> : null}
+
+        <div className="settings-toast-actions" style={{ marginTop: 12 }}>
           <button type="button" className="hover-levitate" onClick={startAdd}>
-            <span className="material-symbols-rounded" style={{ fontSize: 18 }}>add</span>
             Add Target
           </button>
+          {current ? (
+            <>
+              <button
+                type="button"
+                className="hover-levitate"
+                onClick={probeTarget}
+                disabled={isProbing || !canSaveTarget(current)}
+              >
+                {isProbing ? "Probing..." : "Probe"}
+              </button>
+              <button
+                type="button"
+                className="hover-levitate"
+                onClick={() => startEdit(current, selectedIndex)}
+              >
+                Edit
+              </button>
+            </>
+          ) : null}
         </div>
-
-        {targets.length === 0 ? (
-          <p className="placeholder-text">No ACP targets configured. Add one to get started.</p>
-        ) : (
-          <div className="agent-channels-list">
-            {targets.map((target, idx) => (
-              <div key={target.id} className="agent-channel-row">
-                <div className="agent-channel-info">
-                  <span className="agent-channel-id">
-                    <span className="material-symbols-rounded agent-channel-icon">terminal</span>
-                    {target.title}
-                    <span style={{ opacity: 0.5, marginLeft: 8, fontSize: 12 }}>{target.id}</span>
-                  </span>
-                  <span style={{ fontSize: 12, opacity: 0.6 }}>
-                    {target.transport} · {targetSummary(target)}
-                  </span>
-                </div>
-                <div className="agent-channel-actions" style={{ gap: 4 }}>
-                  <button type="button" className="hover-levitate" onClick={() => startEdit(target)} title="Edit">
-                    <span className="material-symbols-rounded" style={{ fontSize: 16 }}>edit</span>
-                  </button>
-                  <button type="button" className="danger hover-levitate" onClick={() => deleteTarget(target.id)} title="Delete">
-                    <span className="material-symbols-rounded" style={{ fontSize: 16 }}>delete</span>
-                  </button>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-
-        {probeStatus && (
-          <p className="placeholder-text" style={{ marginTop: 8 }}>{probeStatus}</p>
-        )}
       </section>
     </div>
   );

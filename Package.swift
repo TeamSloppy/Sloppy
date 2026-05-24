@@ -104,7 +104,7 @@ let package = Package(
             path: "Sources/sloppy",
             resources: [
                 .process("Resources/Prompts"),
-                .process("Resources/Skills"),
+                .copy("Resources/Skills"),
                 .process("Resources/sloppy-version.json"),
                 .process("Storage/schema.sql")
             ]

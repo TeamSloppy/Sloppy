@@ -303,13 +303,16 @@ export function PluginEditor({
               />
             </label>
             <div className="config-plugin-source-actions">
-              <label className="settings-checkbox config-plugin-force">
-                <input
-                  type="checkbox"
-                  checked={forceInstall}
-                  onChange={(event) => setForceInstall(event.target.checked)}
-                />
-                <span>Replace existing</span>
+              <label className="config-plugin-force">
+                <span className="config-plugin-force-label">Replace existing</span>
+                <span className="agent-tools-switch">
+                  <input
+                    type="checkbox"
+                    checked={forceInstall}
+                    onChange={(event) => setForceInstall(event.target.checked)}
+                  />
+                  <span className="agent-tools-switch-track" />
+                </span>
               </label>
               <button
                 type="button"
