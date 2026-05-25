@@ -7,6 +7,8 @@ title: ACP Integration
 
 Sloppy supports ACP (Agent Client Protocol) to delegate agent work to external coding agents like Claude Code. An ACP target is a subprocess that Sloppy launches and communicates with over stdio using JSON-RPC. When an agent is configured with ACP runtime, messages are forwarded to the external agent instead of the built-in generation pipeline.
 
+Sloppy can also run as an ACP server for IDEs. In that mode an IDE launches `sloppy acp serve`, and Sloppy exposes one configured Sloppy agent as the ACP provider.
+
 ## How it works
 
 1. You define ACP targets in the `acp` section of `sloppy.json`.
@@ -22,6 +24,11 @@ ACP configuration lives in the `acp` section of `sloppy.json`:
 {
   "acp": {
     "enabled": true,
+    "server": {
+      "enabled": true,
+      "agentId": "dev",
+      "cwd": "/projects/my-app"
+    },
     "targets": [
       {
         "id": "claude-code",
@@ -47,6 +54,15 @@ ACP configuration lives in the `acp` section of `sloppy.json`:
 | --- | --- | --- | --- |
 | `enabled` | bool | `false` | Enable the ACP gateway globally |
 | `targets` | Target[] | `[]` | List of ACP target definitions |
+| `server` | object | disabled | Settings for exposing Sloppy itself as an ACP server |
+
+### Server fields
+
+| Field | Type | Default | Description |
+| --- | --- | --- | --- |
+| `enabled` | bool | `false` | Allow `sloppy acp serve` to expose Sloppy over ACP stdio |
+| `agentId` | string | — | Default Sloppy agent to expose when `--agent` is omitted |
+| `cwd` | string | — | Default working directory used for new ACP sessions |
 
 ### Target fields
 
@@ -54,7 +70,7 @@ ACP configuration lives in the `acp` section of `sloppy.json`:
 | --- | --- | --- | --- |
 | `id` | string | — | Unique target identifier |
 | `title` | string | same as `id` | Display name shown in the Dashboard |
-| `transport` | `"stdio"` | `"stdio"` | Transport protocol (only stdio is supported) |
+| `transport` | `"stdio"`, `"ssh"`, `"websocket"` | `"stdio"` | Transport protocol for the upstream ACP target |
 | `command` | string | — | Path to the agent executable |
 | `arguments` | string[] | `[]` | Command-line arguments passed to the agent |
 | `cwd` | string | workspace root | Working directory for the subprocess |
@@ -190,7 +206,34 @@ The response includes:
 
 The Dashboard provides a visual editor for ACP targets under **Settings > ACP**.
 
-1. Toggle the **ACP Gateway** to enabled.
+1. Toggle **ACP Server** on if you want IDEs to connect to Sloppy as an ACP provider.
+2. Set the server **Agent ID** and optional working directory.
+3. Copy the displayed IDE command, for example `sloppy acp serve --agent dev --cwd /projects/my-app`.
+4. Toggle the **ACP Runtime** gateway to enabled if you want Sloppy agents to delegate to external ACP targets.
+5. Click **Add Target** to open the target form.
+6. Fill in the target fields (id, title, command, arguments, environment).
+7. Click **Probe** to test connectivity before saving.
+8. Click **Save** to persist the target to config.
+
+To run Sloppy as an ACP server manually:
+
+```bash
+sloppy acp serve --agent dev --cwd /projects/my-app
+```
+
+The command speaks ACP JSON-RPC over stdio. Do not wrap it in `sloppy run`; IDEs should launch it directly.
+
+For one-off non-interactive prompts without starting the server:
+
+```bash
+sloppy -p "Summarize the current project" --agent dev --cwd /projects/my-app
+```
+
+The `-p` mode loads the local config, creates or resumes a Sloppy session, prints the final assistant answer to stdout, and exits.
+
+For upstream ACP targets:
+
+1. Toggle the **ACP Runtime** gateway to enabled.
 2. Click **Add Target** to open the target form.
 3. Fill in the target fields (id, title, command, arguments, environment).
 4. Click **Probe** to test connectivity before saving.

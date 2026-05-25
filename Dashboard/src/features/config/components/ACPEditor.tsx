@@ -118,9 +118,14 @@ function targetStatus(target) {
 }
 
 export function ACPEditor({ draftConfig, mutateDraft }) {
-  const acp = draftConfig.acp || { enabled: false, targets: [] };
+  const acp = draftConfig.acp || { enabled: false, targets: [], server: { enabled: false, agentId: "", cwd: "" } };
   const enabled = Boolean(acp.enabled);
   const targets = normalizeTargets(acp.targets);
+  const server = {
+    enabled: Boolean((acp as any).server?.enabled),
+    agentId: String((acp as any).server?.agentId || ""),
+    cwd: String((acp as any).server?.cwd || "")
+  };
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [editTarget, setEditTarget] = useState(null);
   const [probeStatus, setProbeStatus] = useState(null);
@@ -269,10 +274,35 @@ export function ACPEditor({ draftConfig, mutateDraft }) {
   function setACPEnabled(nextEnabled) {
     mutateDraft((draft) => {
       if (!draft.acp) {
-        draft.acp = { enabled: false, targets: [] };
+        draft.acp = { enabled: false, targets: [], server: { enabled: false, agentId: "", cwd: "" } };
       }
       draft.acp.enabled = nextEnabled;
     });
+  }
+
+  function updateServer(patch) {
+    mutateDraft((draft) => {
+      if (!draft.acp) {
+        draft.acp = { enabled: false, targets: [], server: { enabled: false, agentId: "", cwd: "" } };
+      }
+      draft.acp.server = {
+        enabled: Boolean(draft.acp.server?.enabled),
+        agentId: String(draft.acp.server?.agentId || ""),
+        cwd: String(draft.acp.server?.cwd || ""),
+        ...patch
+      };
+    });
+  }
+
+  function serverCommand() {
+    const parts = ["sloppy", "acp", "serve"];
+    if (server.agentId.trim()) {
+      parts.push("--agent", server.agentId.trim());
+    }
+    if (server.cwd.trim()) {
+      parts.push("--cwd", server.cwd.trim());
+    }
+    return parts.join(" ");
   }
 
   function renderTargetsList() {
@@ -615,6 +645,56 @@ export function ACPEditor({ draftConfig, mutateDraft }) {
         </section>
 
         <div className="entry-form-grid">
+          <section className="entry-editor-block config-integration-note" style={{ gridColumn: "1 / -1" }}>
+            <div className="entry-editor-block-header">
+              <div>
+                <strong className="entry-editor-block-title">ACP Server</strong>
+                <p className="entry-editor-empty" style={{ marginTop: 6 }}>
+                  Expose Sloppy itself as an ACP stdio provider for IDEs.
+                </p>
+              </div>
+              <span className={`provider-state ${server.enabled ? "on" : "off"}`}>
+                {server.enabled ? "enabled" : "disabled"}
+              </span>
+            </div>
+            <div className="entry-form-grid">
+              <label>
+                Server
+                <div className="config-field-toggle">
+                  <span>{server.enabled ? "Enabled" : "Disabled"}</span>
+                  <span className="agent-tools-switch">
+                    <input
+                      type="checkbox"
+                      checked={server.enabled}
+                      onChange={(event) => updateServer({ enabled: event.target.checked })}
+                    />
+                    <span className="agent-tools-switch-track" />
+                  </span>
+                </div>
+              </label>
+              <label>
+                Agent ID
+                <input
+                  placeholder="dev"
+                  value={server.agentId}
+                  onChange={(event) => updateServer({ agentId: event.target.value })}
+                />
+              </label>
+              <label style={{ gridColumn: "1 / -1" }}>
+                Working Directory
+                <input
+                  placeholder="(IDE cwd)"
+                  value={server.cwd}
+                  onChange={(event) => updateServer({ cwd: event.target.value })}
+                />
+              </label>
+              <label style={{ gridColumn: "1 / -1" }}>
+                IDE Command
+                <input value={serverCommand()} readOnly />
+              </label>
+            </div>
+          </section>
+
           <label>
             ACP Runtime
             <div className="config-field-toggle">

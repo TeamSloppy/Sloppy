@@ -18,6 +18,7 @@ struct SloppyApp: AsyncParsableCommand {
             PluginCommand.self,
             SourceControlCommand.self,
             MCPCommand.self,
+            ACPCommand.self,
             VisorCommand.self,
             SkillsCommand.self,
             StatusCommand.self,
@@ -37,10 +38,46 @@ struct SloppyApp: AsyncParsableCommand {
     @Option(name: [.short, .long], help: "Resume the TUI directly from an agent session ID.")
     var session: String?
 
+    @Option(name: [.customShort("p"), .long], help: "Run one non-interactive prompt and print the final answer.")
+    var prompt: String?
+
+    @Option(name: .long, help: "Agent ID for non-interactive prompt mode.")
+    var agent: String?
+
+    @Option(name: .long, help: "Path to JSON config file for non-interactive prompt mode.")
+    var configPath: String?
+
+    @Option(name: .long, help: "Working directory for non-interactive prompt mode.")
+    var cwd: String?
+
+    @Option(name: .long, help: "Chat mode for non-interactive prompt mode: ask, build, plan, or debug.")
+    var mode: String?
+
     mutating func run() async throws {
         if printVersion {
             print("sloppy \(SloppyVersion.current)")
             return
+        }
+        if let prompt {
+            do {
+                let answer = try await OneShotPromptRunner.run(
+                    OneShotPromptOptions(
+                        prompt: prompt,
+                        agentID: agent,
+                        sessionID: session,
+                        configPath: configPath,
+                        cwd: cwd,
+                        mode: mode
+                    )
+                )
+                if !answer.isEmpty {
+                    print(answer)
+                }
+                return
+            } catch {
+                CLIStyle.error(error.localizedDescription)
+                throw ExitCode.failure
+            }
         }
         try await SloppyTUIApp(requestedSessionID: session).run()
     }

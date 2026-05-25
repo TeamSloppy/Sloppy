@@ -488,6 +488,31 @@ public struct CoreConfig: Codable, Sendable {
     }
 
     public struct ACP: Codable, Sendable, Equatable {
+        public struct Server: Codable, Sendable, Equatable {
+            public var enabled: Bool
+            public var agentId: String?
+            public var cwd: String?
+
+            private enum CodingKeys: String, CodingKey {
+                case enabled
+                case agentId
+                case cwd
+            }
+
+            public init(enabled: Bool = false, agentId: String? = nil, cwd: String? = nil) {
+                self.enabled = enabled
+                self.agentId = agentId
+                self.cwd = cwd
+            }
+
+            public init(from decoder: Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                enabled = try container.decodeIfPresent(Bool.self, forKey: .enabled) ?? false
+                agentId = try container.decodeIfPresent(String.self, forKey: .agentId)
+                cwd = try container.decodeIfPresent(String.self, forKey: .cwd)
+            }
+        }
+
         public struct Target: Codable, Sendable, Equatable {
             public enum Transport: String, Codable, Sendable, Equatable {
                 case stdio
@@ -605,10 +630,25 @@ public struct CoreConfig: Codable, Sendable {
 
         public var enabled: Bool
         public var targets: [Target]
+        public var server: Server
 
-        public init(enabled: Bool = false, targets: [Target] = []) {
+        private enum CodingKeys: String, CodingKey {
+            case enabled
+            case targets
+            case server
+        }
+
+        public init(enabled: Bool = false, targets: [Target] = [], server: Server = .init()) {
             self.enabled = enabled
             self.targets = targets
+            self.server = server
+        }
+
+        public init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            enabled = try container.decodeIfPresent(Bool.self, forKey: .enabled) ?? false
+            targets = try container.decodeIfPresent([Target].self, forKey: .targets) ?? []
+            server = try container.decodeIfPresent(Server.self, forKey: .server) ?? .init()
         }
     }
 

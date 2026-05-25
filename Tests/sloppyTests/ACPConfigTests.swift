@@ -39,6 +39,11 @@ func acpConfigDecodesTargetsFromJSON() throws {
           "sqlitePath": "core.sqlite",
           "acp": {
             "enabled": true,
+            "server": {
+              "enabled": true,
+              "agentId": "dev",
+              "cwd": "/tmp/project"
+            },
             "targets": [
               {
                 "id": "claude-code",
@@ -59,6 +64,9 @@ func acpConfigDecodesTargetsFromJSON() throws {
 
     let decoded = try JSONDecoder().decode(CoreConfig.self, from: Data(json.utf8))
     #expect(decoded.acp.enabled == true)
+    #expect(decoded.acp.server.enabled == true)
+    #expect(decoded.acp.server.agentId == "dev")
+    #expect(decoded.acp.server.cwd == "/tmp/project")
     #expect(decoded.acp.targets.count == 1)
 
     let target = decoded.acp.targets[0]

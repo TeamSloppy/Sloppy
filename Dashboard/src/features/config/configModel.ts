@@ -318,7 +318,12 @@ export const EMPTY_CONFIG = {
   },
   acp: {
     enabled: false,
-    targets: []
+    targets: [],
+    server: {
+      enabled: false,
+      agentId: "",
+      cwd: ""
+    }
   },
   proxy: {
     enabled: false,
@@ -841,6 +846,11 @@ export function normalizeConfig(config) {
 
   normalized.acp.enabled = Boolean(config?.acp?.enabled);
   normalized.acp.targets = Array.isArray(config?.acp?.targets) ? config.acp.targets : [];
+  normalized.acp.server = {
+    enabled: Boolean(config?.acp?.server?.enabled),
+    agentId: String(config?.acp?.server?.agentId || ""),
+    cwd: String(config?.acp?.server?.cwd || "")
+  };
 
   normalized.proxy.enabled = Boolean(config?.proxy?.enabled);
   normalized.proxy.type = normalizeProxyType(config?.proxy?.type);
