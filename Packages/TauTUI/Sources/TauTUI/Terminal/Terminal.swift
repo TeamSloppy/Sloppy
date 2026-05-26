@@ -343,6 +343,18 @@ public final class ProcessTerminal: Terminal {
                 continue
             }
 
+            if self.mouseReportingEnabled, self.pendingInput.hasPrefix("[<") {
+                if let (sequence, consumed) = self.extractBareCSISequence() {
+                    if let mouse = self.parseSGRMouseEvent("\u{001B}" + sequence) {
+                        self.inputHandler?(.mouse(mouse))
+                        self.pendingInput.removeFirstCharacters(consumed)
+                        continue
+                    }
+                } else {
+                    return
+                }
+            }
+
             // Normalize common Enter-with-modifier sequences emitted as raw data.
             if self.pendingInput.hasPrefix(Self.shiftEnterCSI) {
                 self.emitKey(.enter, modifiers: [.shift])
@@ -530,6 +542,20 @@ public final class ProcessTerminal: Terminal {
         // trim pendingInput accurately.
         guard scalars.count >= 3 else { return nil }
         for index in 2..<scalars.count {
+            let value = scalars[index].value
+            if value >= 0x40, value <= 0x7E {
+                let length = index + 1
+                let sequence = String(String.UnicodeScalarView(scalars[0..<length]))
+                return (sequence, length)
+            }
+        }
+        return nil
+    }
+
+    private func extractBareCSISequence() -> (String, Int)? {
+        let scalars = Array(self.pendingInput.unicodeScalars)
+        guard scalars.count >= 2, scalars[0] == "[" else { return nil }
+        for index in 1..<scalars.count {
             let value = scalars[index].value
             if value >= 0x40, value <= 0x7E {
                 let length = index + 1

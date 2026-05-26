@@ -7,6 +7,19 @@ import Logging
 // MARK: - Gateway Plugin Lifecycle
 
 extension CoreService {
+    public func bootstrapSourceControlPlugins() async {
+        let pluginsDir = pluginsRootURL
+        let loader = PluginLoader(logger: logger)
+        let sourceControlPlugins = await loader.loadSourceControlPluginBundles(
+            from: pluginsDir,
+            cacheRootURL: pluginCacheRootURL
+        )
+        for loaded in sourceControlPlugins {
+            registerSourceControlProvider(loaded.provider)
+            logger.info("External source-control provider \(loaded.provider.id) registered.")
+        }
+    }
+
     public func bootstrapChannelPlugins() async {
         await refreshOAuthModelCacheIfNeeded()
 
@@ -34,17 +47,10 @@ extension CoreService {
             )
         }
 
+        await bootstrapSourceControlPlugins()
+
         let pluginsDir = pluginsRootURL
         let loader = PluginLoader(logger: logger)
-        let sourceControlPlugins = await loader.loadSourceControlPluginBundles(
-            from: pluginsDir,
-            cacheRootURL: pluginCacheRootURL
-        )
-        for loaded in sourceControlPlugins {
-            registerSourceControlProvider(loaded.provider)
-            logger.info("External source-control provider \(loaded.provider.id) registered.")
-        }
-
         let taskSyncPlugins = await loader.loadTaskSyncPluginBundles(
             from: pluginsDir,
             cacheRootURL: pluginCacheRootURL

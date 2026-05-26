@@ -335,6 +335,25 @@ struct TUIRenderingTests {
     }
 
     @Test
+    func mouseWheelEventsNormalizeWhenEscapeByteWasReadSeparately() throws {
+        let parser = ProcessTerminal()
+        parser.setMouseReportingEnabled(true)
+        _ = parser.parseForTests("\u{001B}")
+        let events = parser.parseForTests("[<65;81;29M")
+
+        #expect(events.count == 1)
+        #expect(events.contains(where: {
+            if case let .mouse(event) = $0 {
+                return event.button == .wheelDown
+                    && event.phase == .scroll
+                    && event.column == 80
+                    && event.row == 28
+            }
+            return false
+        }))
+    }
+
+    @Test
     func keyEventNormalization_lineFeedTreatsAsEnter() throws {
         let parser = ProcessTerminal()
         let events = parser.parseForTests("\n")

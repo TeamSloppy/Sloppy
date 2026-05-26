@@ -74,6 +74,7 @@ struct SloppyTUIBootstrap {
         }
 
         let service = CoreService(config: config, configPath: resolvedConfigPath, currentDirectory: homeDirectory)
+        await service.bootstrapSourceControlPlugins()
         let backend = LocalSloppyTUIBackend(service: service)
 
         return SloppyTUIRuntime(

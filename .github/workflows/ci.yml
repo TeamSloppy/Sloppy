@@ -44,7 +44,26 @@ jobs:
         run: swift test --filter SloppyTUIThemeTests
 
       - name: Run Test Suite
-        run: swift test --parallel
+        timeout-minutes: 25
+        run: |
+          set -o pipefail
+          # Swift Testing's parallel console recorder can deadlock under heavy log output.
+          swift test --no-parallel --xunit-output swift-test-results.xml > swift-test.log 2>&1 || {
+            status=$?
+            tail -n 1000 swift-test.log
+            exit "$status"
+          }
+          tail -n 120 swift-test.log
+
+      - name: Upload Swift Test Logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: swift-test-linux-logs
+          path: |
+            swift-test.log
+            swift-test-results.xml
+          if-no-files-found: ignore
 
   swift-test-macos:
     name: Swift Tests (macOS)
@@ -70,7 +89,26 @@ jobs:
         run: swift test --filter SloppyTUIThemeTests
 
       - name: Run Test Suite
-        run: swift test --parallel
+        timeout-minutes: 25
+        run: |
+          set -o pipefail
+          # Swift Testing's parallel console recorder can deadlock under heavy log output.
+          swift test --no-parallel --xunit-output swift-test-results.xml > swift-test.log 2>&1 || {
+            status=$?
+            tail -n 1000 swift-test.log
+            exit "$status"
+          }
+          tail -n 120 swift-test.log
+
+      - name: Upload Swift Test Logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: swift-test-macos-logs
+          path: |
+            swift-test.log
+            swift-test-results.xml
+          if-no-files-found: ignore
 
   swift-build:
     name: Swift Build
