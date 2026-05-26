@@ -88,6 +88,7 @@ func readyStatusAutoSpawnsWorkerAndMovesTaskToInProgress() async throws {
     let router = try makeRouter()
     let projectID = "visor-ready-\(UUID().uuidString)"
     try await createProject(router: router, projectID: projectID, channelId: "general")
+    try await createGeneralExecutor(router: router, agentID: "executor-\(UUID().uuidString)")
 
     let taskID = try await createTask(
         router: router,
@@ -196,6 +197,7 @@ func naturalLanguagePickUpCommandApprovesByIndex() async throws {
     let router = try makeRouter()
     let projectID = "visor-nl-\(UUID().uuidString)"
     try await createProject(router: router, projectID: projectID, channelId: "general")
+    try await createGeneralExecutor(router: router, agentID: "executor-\(UUID().uuidString)")
 
     _ = try await createTask(router: router, projectID: projectID, title: "Task one", status: "backlog")
     let secondTaskID = try await createTask(router: router, projectID: projectID, title: "Task two", status: "backlog")
@@ -721,6 +723,39 @@ private func createAgent(router: CoreRouter, id: String) async throws {
     )
     let response = await router.handle(method: "POST", path: "/v1/agents", body: body)
     #expect(response.status == 201)
+}
+
+private func createGeneralExecutor(router: CoreRouter, agentID: String) async throws {
+    let actorID = "agent:\(agentID)"
+    try await createAgent(router: router, id: agentID)
+    try await updateActorBoard(
+        router: router,
+        nodes: [
+            ActorNode(
+                id: "human:dispatcher",
+                displayName: "Dispatcher",
+                kind: .human,
+                channelId: "general"
+            ),
+            ActorNode(
+                id: actorID,
+                displayName: "Executor",
+                kind: .agent,
+                linkedAgentId: agentID,
+                channelId: actorID
+            )
+        ],
+        links: [
+            ActorLink(
+                id: "dispatch-\(agentID)-task",
+                sourceActorId: "human:dispatcher",
+                targetActorId: actorID,
+                direction: .oneWay,
+                communicationType: .task
+            )
+        ],
+        teams: []
+    )
 }
 
 private func updateActorBoard(

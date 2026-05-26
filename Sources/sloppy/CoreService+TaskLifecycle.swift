@@ -84,6 +84,19 @@ extension CoreService {
             delegation = await resolveTaskDelegation(project: project, task: task)
         }
         guard let delegation else {
+            if shouldLeaveReadyForConstrainedRoute(project: project, task: task) {
+                appendTaskLifecycleLog(
+                    projectID: project.id,
+                    taskID: task.id,
+                    stage: "route_constrained",
+                    channelID: resolveExecutionChannelID(project: project, task: task),
+                    workerID: nil,
+                    message: "Skipped auto-delegation because the assigned actor is not reachable by task routes.",
+                    actorID: task.actorId ?? task.claimedActorId,
+                    agentID: task.claimedAgentId
+                )
+                return
+            }
             let blockedMessage = "Task \(task.id) is ready but no eligible actor route was resolved."
             await blockReadyTaskFlowProblem(
                 project: project,
@@ -282,6 +295,19 @@ extension CoreService {
             channelId: delegation.channelID,
             content: spawnMessage
         )
+    }
+
+    func shouldLeaveReadyForConstrainedRoute(project: ProjectRecord, task: ProjectTask) -> Bool {
+        guard let board = try? getActorBoard() else {
+            return false
+        }
+        let preferredActors = preferredActorIDs(for: task, board: board)
+        guard !preferredActors.isEmpty,
+              let allowedActors = routableActorIDs(project: project, task: task, board: board)
+        else {
+            return false
+        }
+        return preferredActors.allSatisfy { !allowedActors.contains($0) }
     }
 
     func resolveExecutionChannelID(project: ProjectRecord, task: ProjectTask) -> String? {
