@@ -73,7 +73,7 @@ func mcpStdioStderrIsSuppressedDuringStatusProbe() async throws {
     #expect(originalStderr >= 0)
     dup2(capturedStderr.fileHandleForWriting.fileDescriptor, STDERR_FILENO)
     defer {
-        fflush(stderr)
+        fflush(nil)
         dup2(originalStderr, STDERR_FILENO)
         close(originalStderr)
     }
@@ -87,7 +87,7 @@ func mcpStdioStderrIsSuppressedDuringStatusProbe() async throws {
     )
 
     let statuses = await registry.serverStatuses()
-    fflush(stderr)
+    fflush(nil)
     usleep(100_000)
 
     #expect(statuses.count == 1)

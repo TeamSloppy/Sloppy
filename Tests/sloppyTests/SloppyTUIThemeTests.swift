@@ -88,6 +88,31 @@ func normalizeTruncatesOverwideStyledLines() {
 }
 
 @Test
+func toolLinesRenderMultilineFieldsAsSingleRows() {
+    let width = 80
+    let rows = [
+        SloppyTUITheme.toolCallLine(
+            tool: "runtime.exec",
+            reason: "inspect\nthen run",
+            summary: "bash -lc 'python3 - <<PY\nprint(1)\nPY'",
+            width: width
+        ),
+        SloppyTUITheme.toolResultLine(
+            tool: "runtime.exec",
+            ok: false,
+            error: "first line\nsecond line",
+            durationMs: 12,
+            width: width
+        ),
+    ]
+
+    for row in rows {
+        #expect(!stripANSI(row).contains("\n"))
+        #expect(VisibleWidth.measure(row) <= width)
+    }
+}
+
+@Test
 func sessionListLinesFitCompactWidthAndSplitFooterHints() throws {
     let width = 36
     let now = Date(timeIntervalSince1970: 1_700_000_000)

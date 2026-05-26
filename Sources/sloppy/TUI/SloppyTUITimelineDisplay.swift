@@ -37,7 +37,7 @@ enum SloppyTUITimelineDisplay {
             if let cwd, !cwd.isEmpty {
                 details = ([details, "cwd: `\(cwd)`"].compactMap { $0 }).joined(separator: "\n\n")
             }
-            return (clip(fullCommand, maxCharacters: 160), details)
+            return (clipInline(singleLineDisplay(fullCommand), maxCharacters: 160), details)
         case "files.read":
             let path = displayPath(arguments["path"]?.asString)
             let options = bracketedOptions([
@@ -210,6 +210,20 @@ enum SloppyTUITimelineDisplay {
             return text
         }
         return String(text.prefix(max(0, maxCharacters - 14))) + "\n... truncated"
+    }
+
+    private static func clipInline(_ text: String, maxCharacters: Int) -> String {
+        guard text.count > maxCharacters else {
+            return text
+        }
+        return String(text.prefix(max(0, maxCharacters - 14))) + " ... truncated"
+    }
+
+    private static func singleLineDisplay(_ text: String) -> String {
+        text
+            .replacingOccurrences(of: "\r\n", with: "\\n")
+            .replacingOccurrences(of: "\r", with: "\\n")
+            .replacingOccurrences(of: "\n", with: "\\n")
     }
 
     private static func shellQuote(_ value: String) -> String {

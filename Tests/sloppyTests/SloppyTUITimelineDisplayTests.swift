@@ -48,6 +48,24 @@ func tuiToolCallDisplayHumanizesFileRead() {
 }
 
 @Test
+func tuiRuntimeExecSummaryEscapesMultilineCommands() {
+    let display = SloppyTUITimelineDisplay.toolCallDisplay(
+        tool: "runtime.exec",
+        arguments: [
+            "command": .string("bash"),
+            "arguments": .array([
+                .string("-lc"),
+                .string("python3 - <<'PY'\nfrom pathlib import Path\np = Path('/tmp/demo.txt')\nPY"),
+            ]),
+        ]
+    )
+
+    #expect(display.summary?.contains("\n") == false)
+    #expect(display.summary?.contains(#"\nfrom pathlib import Path"#) == true)
+    #expect(display.details?.contains("from pathlib import Path") == true)
+}
+
+@Test
 func tuiToolCallDisplayHumanizesGrep() {
     let display = SloppyTUITimelineDisplay.toolCallDisplay(
         tool: "files.grep",

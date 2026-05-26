@@ -886,8 +886,8 @@ enum SloppyTUITheme {
     }
 
     static func toolCallLine(tool: String, reason: String?, summary: String?, width: Int) -> String {
-        let summaryText = summary?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let suffix = reason?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let summaryText = summary.map(singleLineDisplay)?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let suffix = reason.map(singleLineDisplay)?.trimmingCharacters(in: .whitespacesAndNewlines)
         let reasonText = suffix?.isEmpty == false ? muted(" · \(suffix!)") : ""
         let label = summaryText?.isEmpty == false ? summaryText! : tool
         let line = fittedPaddedBlockLine(blue("✱") + foreground(" \(label)") + reasonText, width: width)
@@ -897,7 +897,7 @@ enum SloppyTUITheme {
     static func toolResultLine(tool: String, ok: Bool, error: String?, durationMs: Int?, width: Int) -> String {
         let status = ok ? green("done") : red("failed")
         let duration = durationMs.map { muted(" · \($0)ms") } ?? ""
-        let errorText = error?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let errorText = error.map(singleLineDisplay)?.trimmingCharacters(in: .whitespacesAndNewlines)
         let suffix = errorText?.isEmpty == false ? muted(" · \(errorText!)") : ""
         let line = fittedPaddedBlockLine(status + foreground(" \(tool)") + duration + suffix, width: width)
         return applyBackground(padded(line, width: width), width: width, background: toolBackground)
@@ -1879,6 +1879,13 @@ enum SloppyTUITheme {
             return muted("Notes: ") + foreground(String(text.dropFirst(7)))
         }
         return foreground(text)
+    }
+
+    private static func singleLineDisplay(_ text: String) -> String {
+        text
+            .replacingOccurrences(of: "\r\n", with: "\\n")
+            .replacingOccurrences(of: "\r", with: "\\n")
+            .replacingOccurrences(of: "\n", with: "\\n")
     }
 
     private static func buildProgressMarker(for status: AgentBuildProgressStatus) -> (text: String, style: (String) -> String) {
