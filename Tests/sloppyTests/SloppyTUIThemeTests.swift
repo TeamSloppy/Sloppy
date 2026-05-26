@@ -300,6 +300,35 @@ func contextUsageProgressShowsFillPercentAndRemainingSpace() {
 }
 
 @Test
+func composerMetaLineShowsCompactContextIndicator() {
+    let line = SloppyTUITheme.composerMetaLine(
+        width: 120,
+        mode: .build,
+        model: "openai:gpt-5.5",
+        agent: "Yadev",
+        provider: "openai",
+        tokenUsage: .init(
+            promptTokens: 30_000,
+            completionTokens: 8_000,
+            totalTokens: 38_000,
+            contextWindowTokens: 272_000,
+            costUSD: nil
+        ),
+        runElapsed: 57,
+        stageElapsed: 27
+    )
+    let plain = stripANSI(line)
+
+    #expect(plain.contains("gpt-5.5"))
+    #expect(plain.contains("38K/272K"))
+    #expect(plain.contains("[█░░░░░░░░░] 14%"))
+    #expect(plain.contains("57s"))
+    #expect(plain.contains("⏱ 27s"))
+    #expect(!plain.contains("tokens:"))
+    #expect(VisibleWidth.measure(line) <= 120)
+}
+
+@Test
 func exitSummaryRowsFitTerminalWidth() {
     let width = 64
     let lines = SloppyTUITheme.exitSummaryLines(

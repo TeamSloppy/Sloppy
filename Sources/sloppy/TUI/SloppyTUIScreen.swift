@@ -674,13 +674,16 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
                 provider: providerLabel(from: selectedModel)
             ))
         } else {
+            let timing = composerContextTiming()
             composer.append(SloppyTUITheme.composerMetaLine(
                 width: width,
                 mode: chatMode,
                 model: selectedModel,
                 agent: agent.displayName,
                 provider: providerLabel(from: selectedModel),
-                tokenUsage: tokenUsageSummary
+                tokenUsage: tokenUsageSummary,
+                runElapsed: timing.runElapsed,
+                stageElapsed: timing.stageElapsed
             ))
         }
         composer.append(footer)
@@ -6241,6 +6244,15 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
             return 0
         }
         return max(0, now.timeIntervalSince(taskStartedAt))
+    }
+
+    private func composerContextTiming() -> (runElapsed: TimeInterval?, stageElapsed: TimeInterval?) {
+        let now = Date()
+        if let taskStartedAt {
+            let stageElapsed = sendTimingLast.map { max(0, now.timeIntervalSince($0)) }
+            return (max(0, now.timeIntervalSince(taskStartedAt)), stageElapsed)
+        }
+        return (lastTaskElapsed, nil)
     }
 
     private func printExitSummary(_ summary: SloppyTUIExitSummary) {

@@ -368,6 +368,17 @@ enum SloppyTUITheme {
         return "\(count)"
     }
 
+    private static func formatTokenCountCompact(_ count: Int) -> String {
+        if count >= 1_000_000 {
+            let value = Double(count) / 1_000_000
+            return value.rounded(.down) == value ? "\(Int(value))M" : String(format: "%.1fM", value)
+        }
+        if count >= 1_000 {
+            return "\(Int((Double(count) / 1_000).rounded()))K"
+        }
+        return "\(count)"
+    }
+
     private static func formatUSD(_ value: Double) -> String {
         let amount = max(0, value)
         if amount > 0, amount < 0.01 {
@@ -403,6 +414,17 @@ enum SloppyTUITheme {
         let hours = Int(value) / 3_600
         let minutes = (Int(value) % 3_600) / 60
         return String(format: "%dh %dm", hours, minutes)
+    }
+
+    private static func formatCompactDuration(_ seconds: TimeInterval) -> String {
+        let total = max(0, Int(seconds.rounded(.down)))
+        if total < 60 {
+            return "\(total)s"
+        }
+        if total < 3_600 {
+            return String(format: "%dm%02ds", total / 60, total % 60)
+        }
+        return String(format: "%dh%02dm", total / 3_600, (total % 3_600) / 60)
     }
 
     private static func contextUsageBar(_ summary: SloppyTUIContextUsageSummary) -> String {
@@ -475,14 +497,24 @@ enum SloppyTUITheme {
         model: String,
         agent: String,
         provider: String,
-        tokenUsage: SloppyTUITokenUsageSummary? = nil
+        tokenUsage: SloppyTUITokenUsageSummary? = nil,
+        runElapsed: TimeInterval? = nil,
+        stageElapsed: TimeInterval? = nil
     ) -> String {
         let modelText = truncateEnd(compactModel(model), maxWidth: max(4, width / 3))
         let agentText = truncateEnd(agent, maxWidth: max(4, width / 5))
         let providerText = truncateEnd(provider, maxWidth: max(4, width / 5))
-        var text = "  " + modeTitle(mode) + muted(" · ") + foreground(modelText) + muted("  ") + muted(agentText) + muted("  ") + muted(providerText)
+        let text: String
         if let tokenUsage {
-            text += muted("  ") + tokenUsageStatus(tokenUsage)
+            text = "  " + modeTitle(mode) + muted(" │ ")
+                + contextIndicator(
+                    model: modelText,
+                    summary: tokenUsage,
+                    runElapsed: runElapsed,
+                    stageElapsed: stageElapsed
+                )
+        } else {
+            text = "  " + modeTitle(mode) + muted(" · ") + foreground(modelText) + muted("  ") + muted(agentText) + muted("  ") + muted(providerText)
         }
         return applyPanelBackground(padded(fittedLine(text, width: width), width: width), width: width)
     }
@@ -665,6 +697,72 @@ enum SloppyTUITheme {
             style = green
         }
         return muted("[") + style(content) + muted("]")
+    }
+
+    private static func contextIndicator(
+        model: String,
+        summary: SloppyTUITokenUsageSummary,
+        runElapsed: TimeInterval?,
+        stageElapsed: TimeInterval?
+    ) -> String {
+        var parts: [String] = [foreground(model)]
+        if summary.contextWindowTokens > 0 {
+            parts.append(foreground("\(formatTokenCountCompact(summary.totalTokens))/\(formatTokenCountCompact(summary.contextWindowTokens))"))
+            if let percent = summary.usagePercent {
+                parts.append(contextIndicatorBar(summary, width: 10) + muted(" ") + contextIndicatorPercent(percent))
+            }
+        } else {
+            parts.append(foreground("\(formatTokenCountCompact(summary.totalTokens))"))
+            parts.append(muted("context unknown"))
+        }
+        if let runElapsed {
+            parts.append(foreground(formatCompactDuration(runElapsed)))
+        }
+        if let stageElapsed {
+            parts.append(yellow("⏱ \(formatCompactDuration(stageElapsed))"))
+        }
+        if let costUSD = summary.costUSD {
+            parts.append(muted(formatUSD(costUSD)))
+        }
+        return parts.joined(separator: muted(" │ "))
+    }
+
+    private static func contextIndicatorBar(_ summary: SloppyTUITokenUsageSummary, width: Int) -> String {
+        guard width > 0 else {
+            return ""
+        }
+        guard summary.contextWindowTokens > 0 else {
+            return muted("[\(String(repeating: "░", count: width))]")
+        }
+
+        var filled = min(
+            width,
+            max(0, Int((Double(summary.totalTokens) / Double(summary.contextWindowTokens) * Double(width)).rounded()))
+        )
+        if summary.totalTokens > 0, filled == 0 {
+            filled = 1
+        }
+        let empty = max(0, width - filled)
+        let content = String(repeating: "█", count: filled) + String(repeating: "░", count: empty)
+        let percent = summary.usagePercent ?? 0
+        return muted("[") + contextIndicatorPercentStyle(percent)(content) + muted("]")
+    }
+
+    private static func contextIndicatorPercent(_ percent: Int) -> String {
+        contextIndicatorPercentStyle(percent)("\(percent)%")
+    }
+
+    private static func contextIndicatorPercentStyle(_ percent: Int) -> (String) -> String {
+        if percent >= 90 {
+            return red
+        }
+        if percent >= 70 {
+            return orange
+        }
+        if percent >= 50 {
+            return yellow
+        }
+        return green
     }
 
     static func highlightedComposerLines(_ lines: [String]) -> [String] {

@@ -65,7 +65,6 @@ jobs:
       - name: Run Test Suite
         timeout-minutes: 25
         run: |
-          set -o pipefail
           # Swift Testing's parallel console recorder can deadlock under heavy log output.
           swift test --no-parallel --xunit-output swift-test-results.xml > swift-test.log 2>&1 || {
             status=$?
@@ -159,7 +158,6 @@ jobs:
       - name: Run Test Suite
         timeout-minutes: 25
         run: |
-          set -o pipefail
           # Swift Testing's parallel console recorder can deadlock under heavy log output.
           swift test --no-parallel --xunit-output swift-test-results.xml > swift-test.log 2>&1 || {
             status=$?
