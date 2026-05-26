@@ -68,6 +68,29 @@ func slashCommandRouterHandlesSkillCommands() {
 }
 
 @Test
+func skillInvocationRouterHandlesAtCommands() {
+    let commands = [
+        SloppyTUISlashCommand(
+            "ux_pro_max",
+            "UX Pro Max [acme/ux-pro-max]",
+            invocationPrefix: "@",
+            skillId: "acme/ux-pro-max"
+        ),
+    ]
+
+    #expect(SloppyTUISkillInvocationRouter.commandName(in: "@ux_pro_max make it nicer") == "ux_pro_max")
+    #expect(SloppyTUISkillInvocationRouter.requestText(in: "@ux_pro_max make it nicer") == "make it nicer")
+
+    let message = SloppyTUISkillInvocationRouter.invocationMessage(
+        raw: "@ux_pro_max make it nicer",
+        skillCommands: commands
+    )
+    #expect(message?.contains("Use installed skill `acme/ux-pro-max`") == true)
+    #expect(message?.contains("make it nicer") == true)
+    #expect(SloppyTUISkillInvocationRouter.invocationMessage(raw: "@missing test", skillCommands: commands) == nil)
+}
+
+@Test
 func skillSlashCommandNamingUsesRepoTokenByDefault() {
     let tokens = SkillSlashCommandNaming.resolvedSlashTokens(forSkillIds: ["owner/ui-pro-max"])
 

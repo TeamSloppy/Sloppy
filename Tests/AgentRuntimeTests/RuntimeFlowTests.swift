@@ -553,6 +553,103 @@ private actor FailingModelProvider: ModelProvider {
     func requestedModelsSnapshot() -> [String] { callStore.models }
 }
 
+// MARK: - ReconnectingModelProvider
+
+private actor ReconnectDelayCapture {
+    private var delays: [Duration] = []
+
+    func record(_ delay: Duration) {
+        delays.append(delay)
+    }
+
+    func snapshot() -> [Duration] {
+        delays
+    }
+}
+
+private actor ReconnectingModelProvider: ModelProvider {
+    let id: String = "reconnecting"
+    nonisolated var supportedModels: [String] { ["mock-model"] }
+    private var failuresBeforeSuccess: Int
+    private let successText: String
+    private let errorCode: URLError.Code
+    private var requests = 0
+
+    init(failuresBeforeSuccess: Int, successText: String, errorCode: URLError.Code = .networkConnectionLost) {
+        self.failuresBeforeSuccess = failuresBeforeSuccess
+        self.successText = successText
+        self.errorCode = errorCode
+    }
+
+    func createLanguageModel(for modelName: String) async throws -> any LanguageModel {
+        ReconnectingMockLanguageModel(provider: self)
+    }
+
+    nonisolated func generationOptions(for modelName: String, maxTokens: Int, reasoningEffort: ReasoningEffort?) -> GenerationOptions {
+        GenerationOptions(maximumResponseTokens: maxTokens)
+    }
+
+    func nextResponseText() throws -> String {
+        requests += 1
+        guard failuresBeforeSuccess <= 0 else {
+            failuresBeforeSuccess -= 1
+            throw URLError(errorCode)
+        }
+        return successText
+    }
+
+    func requestCount() -> Int {
+        requests
+    }
+}
+
+private struct ReconnectingMockLanguageModel: LanguageModel {
+    typealias UnavailableReason = Never
+    let provider: ReconnectingModelProvider
+
+    func respond<Content>(
+        within session: LanguageModelSession,
+        to prompt: Prompt,
+        generating type: Content.Type,
+        includeSchemaInPrompt: Bool,
+        options: GenerationOptions
+    ) async throws -> LanguageModelSession.Response<Content> where Content: Generable {
+        guard type == String.self else { fatalError("ReconnectingMockLanguageModel: only String supported") }
+        let text = try await provider.nextResponseText()
+        return LanguageModelSession.Response(
+            content: text as! Content,
+            rawContent: GeneratedContent(text),
+            transcriptEntries: []
+        )
+    }
+
+    func streamResponse<Content>(
+        within session: LanguageModelSession,
+        to prompt: Prompt,
+        generating type: Content.Type,
+        includeSchemaInPrompt: Bool,
+        options: GenerationOptions
+    ) -> sending LanguageModelSession.ResponseStream<Content> where Content: Generable {
+        guard type == String.self else { fatalError("ReconnectingMockLanguageModel: only String supported") }
+        let provider = provider
+        let stream = AsyncThrowingStream<LanguageModelSession.ResponseStream<Content>.Snapshot, any Error> { continuation in
+            Task {
+                do {
+                    let text = try await provider.nextResponseText()
+                    continuation.yield(.init(
+                        content: text as! Content.PartiallyGenerated,
+                        rawContent: GeneratedContent(text)
+                    ))
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+        }
+        return LanguageModelSession.ResponseStream(stream: stream)
+    }
+}
+
 // MARK: - PromptCapturingModelProvider
 
 private struct PromptCapturingMockLanguageModel: LanguageModel {
@@ -1003,6 +1100,93 @@ func respondInlineProviderErrorsBypassEmptyRepair() async {
     #expect(finalMessage.contains("Model provider error:"))
     #expect(finalMessage.contains("providerUnavailable") || finalMessage.contains("provider unavailable"))
     #expect(await provider.requestedModelsSnapshot() == ["mock-model"])
+}
+
+@Test
+func respondInlineReconnectsInterruptedModelSession() async {
+    let provider = ReconnectingModelProvider(failuresBeforeSuccess: 2, successText: "Recovered after reconnect.")
+    let delayCapture = ReconnectDelayCapture()
+    let system = RuntimeSystem(
+        modelProvider: provider,
+        defaultModel: "mock-model",
+        modelReconnectSleeper: { delay in
+            await delayCapture.record(delay)
+        }
+    )
+
+    _ = await system.postMessage(
+        channelId: "provider-reconnect-success",
+        request: ChannelMessageRequest(userId: "u1", content: "finish the task")
+    )
+
+    let messages = await system.channelState(channelId: "provider-reconnect-success")?.messages ?? []
+    let systemMessages = messages.filter { $0.userId == "system" }.map(\.content)
+    #expect(systemMessages.contains("Reconnecting 1/5"))
+    #expect(systemMessages.contains("Reconnecting 2/5"))
+    #expect(systemMessages.last == "Recovered after reconnect.")
+    #expect(await delayCapture.snapshot() == [.seconds(5), .seconds(7)])
+    #expect(await provider.requestCount() == 3)
+}
+
+@Test
+func respondInlineReconnectsTimedOutModelSession() async {
+    let provider = ReconnectingModelProvider(
+        failuresBeforeSuccess: 1,
+        successText: "Recovered after timeout.",
+        errorCode: .timedOut
+    )
+    let delayCapture = ReconnectDelayCapture()
+    let system = RuntimeSystem(
+        modelProvider: provider,
+        defaultModel: "mock-model",
+        modelReconnectSleeper: { delay in
+            await delayCapture.record(delay)
+        }
+    )
+
+    _ = await system.postMessage(
+        channelId: "provider-reconnect-timeout",
+        request: ChannelMessageRequest(userId: "u1", content: "finish the task")
+    )
+
+    let messages = await system.channelState(channelId: "provider-reconnect-timeout")?.messages ?? []
+    let systemMessages = messages.filter { $0.userId == "system" }.map(\.content)
+    #expect(systemMessages.contains("Reconnecting 1/5"))
+    #expect(systemMessages.last == "Recovered after timeout.")
+    #expect(await delayCapture.snapshot() == [.seconds(5)])
+    #expect(await provider.requestCount() == 2)
+}
+
+@Test
+func respondInlineWritesProviderErrorAfterReconnectAttemptsExhausted() async {
+    let provider = ReconnectingModelProvider(failuresBeforeSuccess: 6, successText: "Should not reach this.")
+    let delayCapture = ReconnectDelayCapture()
+    let system = RuntimeSystem(
+        modelProvider: provider,
+        defaultModel: "mock-model",
+        modelReconnectSleeper: { delay in
+            await delayCapture.record(delay)
+        }
+    )
+
+    _ = await system.postMessage(
+        channelId: "provider-reconnect-exhausted",
+        request: ChannelMessageRequest(userId: "u1", content: "finish the task")
+    )
+
+    let messages = await system.channelState(channelId: "provider-reconnect-exhausted")?.messages ?? []
+    let systemMessages = messages.filter { $0.userId == "system" }.map(\.content)
+    #expect(systemMessages.filter { $0.hasPrefix("Reconnecting ") } == [
+        "Reconnecting 1/5",
+        "Reconnecting 2/5",
+        "Reconnecting 3/5",
+        "Reconnecting 4/5",
+        "Reconnecting 5/5",
+    ])
+    #expect(systemMessages.last?.contains("Model provider error:") == true)
+    #expect(systemMessages.last?.contains("-1005") == true)
+    #expect(await delayCapture.snapshot() == [.seconds(5), .seconds(7), .seconds(9), .seconds(10), .seconds(12)])
+    #expect(await provider.requestCount() == 6)
 }
 
 @Test

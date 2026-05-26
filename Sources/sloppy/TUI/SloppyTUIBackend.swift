@@ -28,6 +28,7 @@ protocol SloppyTUIBackend: Sendable {
     func listAgentSkills(agentID: String) async throws -> AgentSkillsResponse
     func listAgentSessions(agentID: String, projectID: String?, limit: Int?, offset: Int?) async throws -> [AgentSessionSummary]
     func createAgentSession(agentID: String, request: AgentSessionCreateRequest) async throws -> AgentSessionSummary
+    func prepareAgentSessionContext(agentID: String, sessionID: String) async throws -> AgentSessionSummary
     func getAgentSession(agentID: String, sessionID: String) async throws -> AgentSessionDetail
     func deleteAgentSession(agentID: String, sessionID: String) async throws
     func postAgentSessionMessage(agentID: String, sessionID: String, request: AgentSessionPostMessageRequest) async throws -> AgentSessionMessageResponse
@@ -118,6 +119,9 @@ struct LocalSloppyTUIBackend: SloppyTUIBackend {
     }
     func createAgentSession(agentID: String, request: AgentSessionCreateRequest) async throws -> AgentSessionSummary {
         try await service.createAgentSession(agentID: agentID, request: request)
+    }
+    func prepareAgentSessionContext(agentID: String, sessionID: String) async throws -> AgentSessionSummary {
+        try await service.prepareAgentSessionContext(agentID: agentID, sessionID: sessionID)
     }
     func getAgentSession(agentID: String, sessionID: String) async throws -> AgentSessionDetail {
         try await service.getAgentSession(agentID: agentID, sessionID: sessionID)
@@ -267,6 +271,9 @@ struct RemoteSloppyTUIBackend: SloppyTUIBackend {
     }
     func createAgentSession(agentID: String, request: AgentSessionCreateRequest) async throws -> AgentSessionSummary {
         try await post("/v1/agents/\(Self.escape(agentID))/sessions", body: request, as: AgentSessionSummary.self)
+    }
+    func prepareAgentSessionContext(agentID: String, sessionID: String) async throws -> AgentSessionSummary {
+        try await postEmpty("/v1/agents/\(Self.escape(agentID))/sessions/\(Self.escape(sessionID))/context", as: AgentSessionSummary.self)
     }
     func getAgentSession(agentID: String, sessionID: String) async throws -> AgentSessionDetail {
         try await get("/v1/agents/\(Self.escape(agentID))/sessions/\(Self.escape(sessionID))", as: AgentSessionDetail.self)

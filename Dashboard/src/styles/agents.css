@@ -1994,6 +1994,17 @@ body.agent-chat-no-page-scroll .page {
   min-width: 0;
 }
 
+.agent-chat-pending-input-callout {
+  display: grid;
+  min-width: 0;
+  margin-bottom: 8px;
+}
+
+.agent-chat-pending-input-callout .plan-input-panel {
+  width: 100%;
+  margin: 0;
+}
+
 .agent-chat-tool-approval-banner {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
@@ -2892,10 +2903,16 @@ body.agent-chat-no-page-scroll .page {
   outline: none;
 }
 
-.agent-chat-compose-input[contenteditable="true"]:empty::before {
+.agent-chat-compose-input[contenteditable="true"]:empty::before,
+.agent-chat-compose-input[contenteditable="false"]:empty::before {
   content: attr(data-placeholder);
   color: var(--muted);
   pointer-events: none;
+}
+
+.agent-chat-compose-input[contenteditable="false"] {
+  cursor: default;
+  opacity: 0.72;
 }
 
 .agent-chat-inline-task-tag {

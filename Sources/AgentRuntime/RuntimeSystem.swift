@@ -125,6 +125,13 @@ public struct BranchExecutionResult: Sendable, Equatable {
 public actor RuntimeSystem {
     public nonisolated let eventBus: EventBus
     private static let toolRoundLimitMessage = "Agent reached the tool turn limit before producing a final answer."
+    private static let defaultModelReconnectDelays: [Duration] = [
+        .seconds(5),
+        .seconds(7),
+        .seconds(9),
+        .seconds(10),
+        .seconds(12),
+    ]
 
     private let memoryStore: any MemoryStore
     private let channels: ChannelRuntime
@@ -134,6 +141,8 @@ public actor RuntimeSystem {
     private let visor: Visor
     private let logger: Logger
     private let preResponseMemoryLimit: Int
+    private let modelReconnectDelays: [Duration]
+    private let modelReconnectSleeper: @Sendable (Duration) async -> Void
     private var modelProvider: (any ModelProvider)?
     private var defaultModel: String?
 
@@ -175,13 +184,19 @@ public actor RuntimeSystem {
         visorCompletionProvider: (@Sendable (String, Int) async -> String?)? = nil,
         visorStreamingProvider: (@Sendable (String, Int) -> AsyncStream<String>)? = nil,
         visorBulletinMaxWords: Int = 300,
-        preResponseMemoryLimit: Int = 8
+        preResponseMemoryLimit: Int = 8,
+        modelReconnectDelays: [Duration]? = nil,
+        modelReconnectSleeper: (@Sendable (Duration) async -> Void)? = nil
     ) {
         let bus = EventBus()
         let memory = memoryStore ?? InMemoryMemoryStore()
         self.eventBus = bus
         self.memoryStore = memory
         self.preResponseMemoryLimit = max(0, preResponseMemoryLimit)
+        self.modelReconnectDelays = modelReconnectDelays ?? Self.defaultModelReconnectDelays
+        self.modelReconnectSleeper = modelReconnectSleeper ?? { delay in
+            try? await Task.sleep(for: delay)
+        }
         self.channels = ChannelRuntime(eventBus: bus)
         self.workers = WorkerRuntime(
             eventBus: bus,
@@ -378,7 +393,8 @@ public actor RuntimeSystem {
         observationHandler: (@Sendable (RuntimeResponseObservation) async -> Void)?,
         nativeLoopConfig: NativeAgentLoopConfig,
         nativeLoopOutcomeHandler: (@Sendable (NativeAgentLoopOutcome) async -> Void)?,
-        streamRetries: Int = 2
+        streamRetries: Int = 2,
+        reconnectAttempt: Int = 0
     ) async {
         let normalizedModel = model?.trimmingCharacters(in: .whitespacesAndNewlines)
         let activeModel = (normalizedModel?.isEmpty == false ? normalizedModel : nil) ?? defaultModel
@@ -961,6 +977,23 @@ public actor RuntimeSystem {
                 lastAssistantText: await tracker.latestContent
             ))
         } catch {
+            if await retryInterruptedModelSessionIfNeeded(
+                channelId: channelId,
+                userMessage: userMessage,
+                model: model,
+                reasoningEffort: reasoningEffort,
+                onResponseChunk: onResponseChunk,
+                toolInvoker: toolInvoker,
+                observationHandler: observationHandler,
+                nativeLoopConfig: nativeLoopConfig,
+                nativeLoopOutcomeHandler: nativeLoopOutcomeHandler,
+                streamRetries: streamRetries,
+                reconnectAttempt: reconnectAttempt,
+                error: error
+            ) {
+                return
+            }
+
             sessionsByChannel.removeValue(forKey: channelId)
             let text = "Model provider error: \(error)"
             if let onResponseChunk {
@@ -976,6 +1009,74 @@ public actor RuntimeSystem {
                 lastAssistantText: text
             ))
         }
+    }
+
+    private func retryInterruptedModelSessionIfNeeded(
+        channelId: String,
+        userMessage: String,
+        model: String?,
+        reasoningEffort: ReasoningEffort?,
+        onResponseChunk: (@Sendable (String) async -> Bool)?,
+        toolInvoker: (@Sendable (ToolInvocationRequest) async -> ToolInvocationResult)?,
+        observationHandler: (@Sendable (RuntimeResponseObservation) async -> Void)?,
+        nativeLoopConfig: NativeAgentLoopConfig,
+        nativeLoopOutcomeHandler: (@Sendable (NativeAgentLoopOutcome) async -> Void)?,
+        streamRetries: Int,
+        reconnectAttempt: Int,
+        error: any Error
+    ) async -> Bool {
+        let nextAttempt = reconnectAttempt + 1
+        guard isInterruptedModelSessionError(error),
+              nextAttempt <= modelReconnectDelays.count
+        else {
+            return false
+        }
+
+        sessionsByChannel.removeValue(forKey: channelId)
+        let retryMessage = "Reconnecting \(nextAttempt)/\(modelReconnectDelays.count)"
+        logger.warning(
+            "Model stream interrupted, reconnecting",
+            metadata: [
+                "channelId": "\(channelId)",
+                "attempt": "\(nextAttempt)",
+                "maxAttempts": "\(modelReconnectDelays.count)",
+                "error": "\(String(describing: error))",
+            ]
+        )
+        await channels.appendSystemMessage(channelId: channelId, content: retryMessage)
+        await modelReconnectSleeper(modelReconnectDelays[nextAttempt - 1])
+
+        await respondInline(
+            channelId: channelId,
+            userMessage: userMessage,
+            model: model,
+            reasoningEffort: reasoningEffort,
+            onResponseChunk: onResponseChunk,
+            toolInvoker: toolInvoker,
+            observationHandler: observationHandler,
+            nativeLoopConfig: nativeLoopConfig,
+            nativeLoopOutcomeHandler: nativeLoopOutcomeHandler,
+            streamRetries: streamRetries,
+            reconnectAttempt: nextAttempt
+        )
+        return true
+    }
+
+    private func isInterruptedModelSessionError(_ error: any Error) -> Bool {
+        if let urlError = error as? URLError {
+            return urlError.code == .networkConnectionLost || urlError.code == .timedOut
+        }
+
+        let nsError = error as NSError
+        if nsError.domain == "NSURLErrorDomain", nsError.code == -1005 || nsError.code == -1001 {
+            return true
+        }
+
+        if let underlying = nsError.userInfo[NSUnderlyingErrorKey] as? Error {
+            return isInterruptedModelSessionError(underlying)
+        }
+
+        return false
     }
 
     private func attemptEmptyResponseRepair(

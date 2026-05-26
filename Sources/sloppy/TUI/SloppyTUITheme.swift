@@ -1033,7 +1033,7 @@ enum SloppyTUITheme {
 
         for index in start..<end {
             let command = commands[index]
-            let name = "/" + command.name
+            let name = command.invocationPrefix + command.name
             let description = command.description ?? ""
             let raw: String
             if paletteWidth < 32 {
@@ -1390,8 +1390,8 @@ enum SloppyTUITheme {
             lines.append(sessionListPanelRow("", width: contentWidth))
         }
 
-        lines.append(sessionListPanelRow("  " + muted("type below to create · enter to open"), width: contentWidth))
-        lines.append(sessionListPanelRow("  " + muted("space to reply · ctrl+x to hide · ? for shortcuts"), width: contentWidth))
+        lines.append(sessionListHintRow("type below to create · enter to open", width: contentWidth))
+        lines.append(sessionListHintRow("space to reply · ctrl+x to hide · ? for shortcuts", width: contentWidth))
 
         if lines.count > height {
             return Array(lines.prefix(max(0, height)))
@@ -1404,6 +1404,14 @@ enum SloppyTUITheme {
 
     private static func sessionListPanelRow(_ text: String, width: Int) -> String {
         applyPanelBackground(sessionListPanelText(text, width: width), width: width)
+    }
+
+    private static func sessionListHintRow(_ text: String, width: Int) -> String {
+        let indented = "  " + muted(text)
+        if VisibleWidth.measure(indented) <= width {
+            return sessionListPanelRow(indented, width: width)
+        }
+        return sessionListPanelRow(muted(text), width: width)
     }
 
     private static func sessionListPanelText(_ text: String, width: Int) -> String {
@@ -1640,7 +1648,7 @@ enum SloppyTUITheme {
                 "/scrollback auto keeps chats smooth when history gets large.",
                 "Use /pet to toggle your terminal Sloppie and peek at its current mood.",
                 "/undo and /redo restore file changes from the last completed TUI turn.",
-                "Type @path to attach project files as explicit context with autocomplete.",
+                "Type @skill to invoke a skill, or @path to attach project files as explicit context.",
                 "Type # to autocomplete active project tasks by id or title.",
                 "Use /btw for a side question without disturbing the main task.",
                 "Use /diff for current-session changes, or /context diff when you want the agent to inspect source-control changes.",

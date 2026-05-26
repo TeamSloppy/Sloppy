@@ -15,6 +15,8 @@ struct SloppyTUISlashCommand: SlashCommand {
     let name: String
     let description: String?
     let argument: String?
+    let invocationPrefix: String
+    let skillId: String?
     var requiresArgument: Bool {
         if name == "model" || name == "effort" || name == "fork" {
             return false
@@ -22,10 +24,12 @@ struct SloppyTUISlashCommand: SlashCommand {
         return argument != nil || name == "anthropic-callback"
     }
 
-    init(_ name: String, _ description: String?, argument: String? = nil) {
+    init(_ name: String, _ description: String?, argument: String? = nil, invocationPrefix: String = "/", skillId: String? = nil) {
         self.name = name
         self.description = description
         self.argument = argument
+        self.invocationPrefix = invocationPrefix
+        self.skillId = skillId
     }
 
     func argumentCompletions(prefix: String) -> [AutocompleteItem] {
@@ -47,7 +51,7 @@ enum SloppyTUIShortcutCatalog {
     static let all: [SloppyTUIShortcutDescriptor] = [
         SloppyTUIShortcutDescriptor("/", "commands"),
         SloppyTUIShortcutDescriptor("!", "shell mode"),
-        SloppyTUIShortcutDescriptor("@", "project paths"),
+        SloppyTUIShortcutDescriptor("@", "skills / project paths"),
         SloppyTUIShortcutDescriptor("#", "project tasks"),
         SloppyTUIShortcutDescriptor("/btw", "side question"),
         SloppyTUIShortcutDescriptor("Tab", "cycle mode"),
@@ -212,6 +216,48 @@ enum SloppyTUISlashCommandRouter {
     ) -> Bool {
         guard let name = commandName(in: raw) else { return false }
         return commandNames.contains(name) || skillCommandNames.contains(name)
+    }
+}
+
+enum SloppyTUISkillInvocationRouter {
+    static func commandName(in raw: String) -> String? {
+        let value = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard value.hasPrefix("@") else { return nil }
+        let token = value.split(separator: " ", omittingEmptySubsequences: true).first ?? ""
+        let name = String(token.dropFirst()).trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty else { return nil }
+        return name.lowercased()
+    }
+
+    static func requestText(in raw: String) -> String {
+        let value = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let token = value.split(separator: " ", omittingEmptySubsequences: true).first else {
+            return ""
+        }
+        let tailStart = token.endIndex
+        guard tailStart < value.endIndex else { return "" }
+        return String(value[tailStart...]).trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    static func invocationMessage(raw: String, skillCommands: [SloppyTUISlashCommand]) -> String? {
+        guard let name = commandName(in: raw),
+              let command = skillCommands.first(where: { $0.name.lowercased() == name }),
+              let skillId = command.skillId?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !skillId.isEmpty
+        else {
+            return nil
+        }
+
+        let request = requestText(in: raw)
+        if request.isEmpty {
+            return "Use installed skill `\(skillId)` for this request."
+        }
+        return """
+        Use installed skill `\(skillId)` for this request.
+
+        User request:
+        \(request)
+        """
     }
 }
 

@@ -85,6 +85,44 @@ func transcriptBuilderIncludesAttachmentReferencesInUserPrompt() {
     #expect(text.contains("[Attachment: name: trace.log, type: text/plain, size: 42 bytes, path: assets/trace.log]"))
 }
 
+@Test
+func transcriptBuilderDropsUnmatchedToolCallsFromRecoveryTranscript() {
+    let orphanCallEventID = "orphan-call-event"
+    let detail = makeTranscriptBuilderDetail(events: [
+        messageEvent(role: .user, text: "Before"),
+        toolCallEvent(id: orphanCallEventID, tool: "agents.delegate_task", arguments: ["goal": .string("Do work")]),
+        messageEvent(role: .user, text: "After")
+    ])
+
+    let transcript = AgentSessionTranscriptBuilder.buildRecoveryTranscript(current: detail)
+
+    #expect(transcript.count == 2)
+    #expect(promptText(transcript[0]) == "Before")
+    #expect(promptText(transcript[1]) == "After")
+    #expect(!transcript.contains { entry in
+        if case .toolCalls = entry { return true }
+        return false
+    })
+}
+
+@Test
+func transcriptBuilderKeepsMatchedToolCallsWhenLaterCallsAreUnmatched() {
+    let matchedCallEventID = "matched-call-event"
+    let orphanCallEventID = "orphan-call-event"
+    let detail = makeTranscriptBuilderDetail(events: [
+        toolCallEvent(id: matchedCallEventID, tool: "files.read", arguments: ["path": .string("README.md")]),
+        toolResultEvent(tool: "files.read", ok: true, data: .object(["content": .string("ok")])),
+        toolCallEvent(id: orphanCallEventID, tool: "agents.delegate_task", arguments: ["goal": .string("Do work")])
+    ])
+
+    let transcript = AgentSessionTranscriptBuilder.buildRecoveryTranscript(current: detail)
+
+    #expect(transcript.count == 2)
+    let callID = toolCallID(transcript[0])
+    #expect(callID == "session-event-\(matchedCallEventID)")
+    #expect(toolOutputID(transcript[1]) == callID)
+}
+
 private func makeTranscriptBuilderDetail(events: [AgentSessionEvent]) -> AgentSessionDetail {
     AgentSessionDetail(
         summary: AgentSessionSummary(

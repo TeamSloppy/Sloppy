@@ -46,6 +46,8 @@ public final class Input: Component {
             self.handleKey(key, modifiers: modifiers)
         case let .paste(text):
             self.insert(self.cleanedPaste(text))
+        case .mouse:
+            break
         case .raw:
             break
         case .terminalCellSize:

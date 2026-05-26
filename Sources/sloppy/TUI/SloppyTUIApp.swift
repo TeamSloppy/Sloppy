@@ -149,20 +149,6 @@ struct SloppyTUIApp {
             projectActorIDs: project.actors,
             agents: agents
         )
-        if let sessionID = selection?.sessionId?.trimmingCharacters(in: .whitespacesAndNewlines),
-           !sessionID.isEmpty,
-           let session = await resolvePersistedSession(
-               service: service,
-               agentID: agent.id,
-               projectID: project.id,
-               sessionID: sessionID
-           ) {
-            return SloppyTUILaunchSelection(
-                agent: agent,
-                session: session,
-                hasPersistedSession: true
-            )
-        }
         return SloppyTUILaunchSelection(
             agent: agent,
             session: Self.makeDraftSession(agent: agent, projectID: project.id),

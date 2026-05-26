@@ -444,6 +444,13 @@ extension OpenAIOAuthModel {
 
 extension OpenAIOAuthModel {
     func transcriptToResponsesInput(_ transcript: Transcript) -> [[String: Any]] {
+        let toolOutputIDs = Set(transcript.compactMap { entry -> String? in
+            if case .toolOutput(let output) = entry {
+                return output.id
+            }
+            return nil
+        })
+        var emittedToolCallIDs = Set<String>()
         var items: [[String: Any]] = []
         for entry in transcript {
             switch entry {
@@ -473,6 +480,9 @@ extension OpenAIOAuthModel {
                 }
             case .toolCalls(let toolCalls):
                 for call in toolCalls {
+                    guard toolOutputIDs.contains(call.id) else {
+                        continue
+                    }
                     let argumentsJSON: String
                     if let data = try? JSONEncoder().encode(call.arguments),
                        let jsonString = String(data: data, encoding: .utf8) {
@@ -487,8 +497,12 @@ extension OpenAIOAuthModel {
                         "name": sanitized,
                         "arguments": argumentsJSON
                     ])
+                    emittedToolCallIDs.insert(call.id)
                 }
             case .toolOutput(let output):
+                guard emittedToolCallIDs.contains(output.id) else {
+                    continue
+                }
                 let text = output.segments.compactMap { segment -> String? in
                     if case .text(let t) = segment { return t.content }
                     return nil

@@ -32,8 +32,10 @@ private actor MockACPTransportClient: ACPTransportClient {
     private var connectCount = 0
     private var newSessionCount = 0
     private var loadSessionCount = 0
+    private var setModeCount = 0
     private var sendPromptCount = 0
     private var terminateCount = 0
+    private var setModeIDs: [String] = []
     private var sentPromptTexts: [String] = []
     private var lastPermissionOutcome: RequestPermissionResponse?
 
@@ -93,6 +95,12 @@ private actor MockACPTransportClient: ACPTransportClient {
         return loadSessionResponse
     }
 
+    func setMode(sessionId _: SessionId, modeId: String) async throws -> SetModeResponse {
+        setModeCount += 1
+        setModeIDs.append(modeId)
+        return SetModeResponse(success: true)
+    }
+
     func sendPrompt(sessionId _: SessionId, content: [ContentBlock]) async throws -> SessionPromptResponse {
         sendPromptCount += 1
         sentPromptTexts.append(content.compactMap(Self.text(from:)).joined(separator: "\n"))
@@ -109,11 +117,13 @@ private actor MockACPTransportClient: ACPTransportClient {
         notificationContinuation.finish()
     }
 
-    func snapshot() -> (connects: Int, newSessions: Int, loads: Int, prompts: Int, terminated: Int, promptTexts: [String], permissionOutcome: RequestPermissionResponse?) {
+    func snapshot() -> (connects: Int, newSessions: Int, loads: Int, setModes: Int, modeIDs: [String], prompts: Int, terminated: Int, promptTexts: [String], permissionOutcome: RequestPermissionResponse?) {
         (
             connects: connectCount,
             newSessions: newSessionCount,
             loads: loadSessionCount,
+            setModes: setModeCount,
+            modeIDs: setModeIDs,
             prompts: sendPromptCount,
             terminated: terminateCount,
             promptTexts: sentPromptTexts,
@@ -223,6 +233,48 @@ func acpSessionManagerCreatesSessionSendsPrimerAndPersistsSidecar() async throws
     #expect(sidecar.targetId == "local")
     #expect(sidecar.upstreamSessionId == "upstream-1")
     #expect(sidecar.supportsLoadSession == true)
+}
+
+@Test
+func acpSessionManagerAppliesRequestedChatModeBeforePrompt() async throws {
+    let target = CoreConfig.ACP.Target(
+        id: "local",
+        title: "Local ACP",
+        transport: .stdio,
+        command: "/bin/echo"
+    )
+    let modes = ModesInfo(
+        currentModeId: "ask",
+        availableModes: [
+            ModeInfo(id: "ask", name: "Ask"),
+            ModeInfo(id: "code", name: "Code"),
+            ModeInfo(id: "plan", name: "Plan"),
+            ModeInfo(id: "debug", name: "Debug")
+        ]
+    )
+    let client = MockACPTransportClient(
+        initializeResponse: makeInitializeResponse(loadSession: true),
+        newSessionResponse: NewSessionResponse(sessionId: SessionId("upstream-1"), modes: modes)
+    )
+    let (manager, _, sessionID) = try makeSessionManagerFixture(target: target, clients: [client])
+
+    _ = try await manager.postMessage(
+        agentID: "agent-1",
+        sloppySessionID: sessionID,
+        runtime: .init(type: .acp, acp: .init(targetId: "local")),
+        content: [.text(TextContent(text: "please edit files"))],
+        localSessionHadPriorMessages: false,
+        primerContent: nil,
+        chatMode: .build,
+        onChunk: { _ in },
+        onEvent: { _ in }
+    )
+
+    let snapshot = await client.snapshot()
+    #expect(snapshot.setModes == 1)
+    #expect(snapshot.modeIDs == ["code"])
+    #expect(snapshot.prompts == 1)
+    #expect(snapshot.promptTexts == ["please edit files"])
 }
 
 @Test

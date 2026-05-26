@@ -4,7 +4,7 @@ import Testing
 @testable import Protocols
 
 @Test
-func tuiLaunchRestoresPersistedSessionSelection() async throws {
+func tuiLaunchUsesSavedAgentButStartsDraftWhenSessionSelectionExists() async throws {
     let config = CoreConfig.test
     let service = CoreService(config: config, persistenceBuilder: InMemoryCorePersistenceBuilder())
     defer {
@@ -28,8 +28,8 @@ func tuiLaunchRestoresPersistedSessionSelection() async throws {
     )
 
     #expect(resolved.agent.id == agent.id)
-    #expect(resolved.session.id == session.id)
-    #expect(resolved.hasPersistedSession)
+    #expect(resolved.session.id == "new")
+    #expect(!resolved.hasPersistedSession)
 }
 
 @Test

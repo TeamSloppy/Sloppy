@@ -310,6 +310,31 @@ struct TUIRenderingTests {
     }
 
     @Test
+    func mouseWheelEventsNormalizeFromSGRSequences() throws {
+        let parser = ProcessTerminal()
+        let events = parser.parseForTests("\u{001B}[<64;12;4M\u{001B}[<65;12;5M")
+
+        #expect(events.contains(where: {
+            if case let .mouse(event) = $0 {
+                return event.button == .wheelUp
+                    && event.phase == .scroll
+                    && event.column == 11
+                    && event.row == 3
+            }
+            return false
+        }))
+        #expect(events.contains(where: {
+            if case let .mouse(event) = $0 {
+                return event.button == .wheelDown
+                    && event.phase == .scroll
+                    && event.column == 11
+                    && event.row == 4
+            }
+            return false
+        }))
+    }
+
+    @Test
     func keyEventNormalization_lineFeedTreatsAsEnter() throws {
         let parser = ProcessTerminal()
         let events = parser.parseForTests("\n")

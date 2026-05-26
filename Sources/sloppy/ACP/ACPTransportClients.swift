@@ -17,6 +17,7 @@ protocol ACPTransportClient: Sendable {
     ) async throws -> InitializeResponse
     func newSession(workingDirectory: String, timeout: TimeInterval?) async throws -> NewSessionResponse
     func loadSession(sessionId: SessionId, cwd: String?) async throws -> LoadSessionResponse
+    func setMode(sessionId: SessionId, modeId: String) async throws -> SetModeResponse
     func sendPrompt(sessionId: SessionId, content: [ContentBlock]) async throws -> SessionPromptResponse
     func cancelSession(sessionId: SessionId) async throws
     func terminate() async
@@ -88,6 +89,10 @@ actor LocalProcessACPClient: ACPTransportClient {
 
     func loadSession(sessionId: SessionId, cwd: String?) async throws -> LoadSessionResponse {
         try await client.loadSession(sessionId: sessionId, cwd: cwd)
+    }
+
+    func setMode(sessionId: SessionId, modeId: String) async throws -> SetModeResponse {
+        try await client.setMode(sessionId: sessionId, modeId: modeId)
     }
 
     func sendPrompt(sessionId: SessionId, content: [ContentBlock]) async throws -> SessionPromptResponse {
@@ -177,6 +182,10 @@ actor SSHProcessACPClient: ACPTransportClient {
 
     func loadSession(sessionId: SessionId, cwd: String?) async throws -> LoadSessionResponse {
         try await inner.loadSession(sessionId: sessionId, cwd: cwd)
+    }
+
+    func setMode(sessionId: SessionId, modeId: String) async throws -> SetModeResponse {
+        try await inner.setMode(sessionId: sessionId, modeId: modeId)
     }
 
     func sendPrompt(sessionId: SessionId, content: [ContentBlock]) async throws -> SessionPromptResponse {
@@ -313,6 +322,12 @@ actor WebSocketACPClient: ACPTransportClient {
             models: nil,
             configOptions: nil
         )
+    }
+
+    func setMode(sessionId: SessionId, modeId: String) async throws -> SetModeResponse {
+        let request = SetModeRequest(sessionId: sessionId, modeId: modeId)
+        let response = try await sendRequest(method: "session/set_mode", params: request, timeout: nil)
+        return try decodeResult(response, as: SetModeResponse.self)
     }
 
     func sendPrompt(sessionId: SessionId, content: [ContentBlock]) async throws -> SessionPromptResponse {

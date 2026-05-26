@@ -62,42 +62,42 @@ func scrollbackPolicySwitchesAutoToViewportAboveLimit() {
         totalLineCount: 2_001
     )
 
-    #expect(behavior == .viewport)
+    #expect(behavior == .viewport(limit: nil))
 }
 
 @Test
 func scrollbackPolicySupportsExplicitModes() {
-    #expect(SloppyTUIScrollbackPolicy.behavior(mode: .viewport, lineLimit: 5, totalLineCount: 1) == .viewport)
-    #expect(SloppyTUIScrollbackPolicy.behavior(mode: .limited, lineLimit: 5, totalLineCount: 20) == .native(limit: 5))
-    #expect(SloppyTUIScrollbackPolicy.behavior(mode: .full, lineLimit: 5, totalLineCount: 20) == .native(limit: nil))
+    #expect(SloppyTUIScrollbackPolicy.behavior(mode: .viewport, lineLimit: 5, totalLineCount: 1) == .viewport(limit: nil))
+    #expect(SloppyTUIScrollbackPolicy.behavior(mode: .limited, lineLimit: 5, totalLineCount: 20) == .viewport(limit: 5))
+    #expect(SloppyTUIScrollbackPolicy.behavior(mode: .full, lineLimit: 5, totalLineCount: 20) == .viewport(limit: nil))
 }
 
 @Test
-func scrollbackPolicyCapsLimitedNativeRange() throws {
+func scrollbackPolicyCapsLimitedViewportRange() {
     let behavior = SloppyTUIScrollbackPolicy.behavior(
         mode: .limited,
         lineLimit: 5,
         totalLineCount: 20
     )
-    let range = try #require(SloppyTUIScrollbackPolicy.nativeLineRange(
+    let range = SloppyTUIScrollbackPolicy.viewportLineRange(
         behavior: behavior,
         totalLineCount: 20
-    ))
+    )
 
     #expect(range == 15..<20)
 }
 
 @Test
-func scrollbackPolicyKeepsFullNativeRangeUncapped() throws {
+func scrollbackPolicyKeepsFullViewportRangeUncapped() {
     let behavior = SloppyTUIScrollbackPolicy.behavior(
         mode: .full,
         lineLimit: 5,
         totalLineCount: 20
     )
-    let range = try #require(SloppyTUIScrollbackPolicy.nativeLineRange(
+    let range = SloppyTUIScrollbackPolicy.viewportLineRange(
         behavior: behavior,
         totalLineCount: 20
-    ))
+    )
 
     #expect(range == 0..<20)
 }
@@ -105,7 +105,7 @@ func scrollbackPolicyKeepsFullNativeRangeUncapped() throws {
 @Test
 func scrollbackPolicyDoesNotExposeNativeRangeForViewport() {
     let range = SloppyTUIScrollbackPolicy.nativeLineRange(
-        behavior: .viewport,
+        behavior: .viewport(limit: nil),
         totalLineCount: 20
     )
 

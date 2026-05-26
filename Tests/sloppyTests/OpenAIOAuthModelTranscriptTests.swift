@@ -40,20 +40,26 @@ func transcriptToResponsesInputConvertsResponseEntries() {
 }
 
 @Test
-func transcriptToResponsesInputConvertsToolCallEntries() {
+func transcriptToResponsesInputConvertsToolCallEntriesWhenOutputIsPresent() {
     let model = OpenAIOAuthModel(bearerToken: "test", model: "gpt-5")
     let toolCall = Transcript.ToolCall(
         id: "call_123",
         toolName: "project.list",
         arguments: GeneratedContent("{}")
     )
+    let output = Transcript.ToolOutput(
+        id: "call_123",
+        toolName: "project.list",
+        segments: [.text(.init(content: "{\"projects\":[]}"))]
+    )
     let transcript = Transcript(entries: [
-        .toolCalls(Transcript.ToolCalls([toolCall]))
+        .toolCalls(Transcript.ToolCalls([toolCall])),
+        .toolOutput(output)
     ])
 
     let items = model.transcriptToResponsesInput(transcript)
 
-    #expect(items.count == 1)
+    #expect(items.count == 2)
     let item = items[0]
     #expect(item["type"] as? String == "function_call")
     #expect(item["call_id"] as? String == "call_123")
@@ -61,19 +67,27 @@ func transcriptToResponsesInputConvertsToolCallEntries() {
 }
 
 @Test
-func transcriptToResponsesInputConvertsToolOutputEntries() {
+func transcriptToResponsesInputConvertsToolOutputEntriesWhenCallIsPresent() {
     let model = OpenAIOAuthModel(bearerToken: "test", model: "gpt-5")
+    let toolCall = Transcript.ToolCall(
+        id: "call_123",
+        toolName: "project.list",
+        arguments: GeneratedContent("{}")
+    )
     let output = Transcript.ToolOutput(
         id: "call_123",
         toolName: "project.list",
         segments: [.text(.init(content: "{\"projects\":[]}"))]
     )
-    let transcript = Transcript(entries: [.toolOutput(output)])
+    let transcript = Transcript(entries: [
+        .toolCalls(Transcript.ToolCalls([toolCall])),
+        .toolOutput(output)
+    ])
 
     let items = model.transcriptToResponsesInput(transcript)
 
-    #expect(items.count == 1)
-    let item = items[0]
+    #expect(items.count == 2)
+    let item = items[1]
     #expect(item["type"] as? String == "function_call_output")
     #expect(item["call_id"] as? String == "call_123")
     #expect(item["output"] as? String == "{\"projects\":[]}")
@@ -122,20 +136,65 @@ func transcriptToResponsesInputPreservesMultiTurnOrder() {
 }
 
 @Test
-func transcriptToResponsesInputSanitizesToolNames() {
+func transcriptToResponsesInputSanitizesToolNamesWhenOutputIsPresent() {
     let model = OpenAIOAuthModel(bearerToken: "test", model: "gpt-5")
     let toolCall = Transcript.ToolCall(
         id: "call_456",
         toolName: "channel.history",
         arguments: GeneratedContent("{}")
     )
+    let output = Transcript.ToolOutput(
+        id: "call_456",
+        toolName: "channel.history",
+        segments: [.text(.init(content: "{}"))]
+    )
     let transcript = Transcript(entries: [
-        .toolCalls(Transcript.ToolCalls([toolCall]))
+        .toolCalls(Transcript.ToolCalls([toolCall])),
+        .toolOutput(output)
     ])
 
     let items = model.transcriptToResponsesInput(transcript)
 
     #expect(items[0]["name"] as? String == "channel_history")
+}
+
+@Test
+func transcriptToResponsesInputDropsOrphanToolCalls() {
+    let model = OpenAIOAuthModel(bearerToken: "test", model: "gpt-5")
+    let toolCall = Transcript.ToolCall(
+        id: "session-event-EF46A3D0-FBB2-457A-8166-C48919086BE9",
+        toolName: "agents.delegate_task",
+        arguments: GeneratedContent("{}")
+    )
+    let transcript = Transcript(entries: [
+        .prompt(Transcript.Prompt(segments: [.text(.init(content: "Start"))])),
+        .toolCalls(Transcript.ToolCalls([toolCall])),
+        .prompt(Transcript.Prompt(segments: [.text(.init(content: "Continue"))]))
+    ])
+
+    let items = model.transcriptToResponsesInput(transcript)
+
+    #expect(items.count == 2)
+    #expect(items.allSatisfy { $0["type"] as? String != "function_call" })
+}
+
+@Test
+func transcriptToResponsesInputDropsOrphanToolOutputs() {
+    let model = OpenAIOAuthModel(bearerToken: "test", model: "gpt-5")
+    let output = Transcript.ToolOutput(
+        id: "missing_call",
+        toolName: "project.list",
+        segments: [.text(.init(content: "{}"))]
+    )
+    let transcript = Transcript(entries: [
+        .prompt(Transcript.Prompt(segments: [.text(.init(content: "Start"))])),
+        .toolOutput(output)
+    ])
+
+    let items = model.transcriptToResponsesInput(transcript)
+
+    #expect(items.count == 1)
+    #expect(items.allSatisfy { $0["type"] as? String != "function_call_output" })
 }
 
 @Test

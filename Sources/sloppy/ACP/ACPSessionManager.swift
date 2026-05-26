@@ -112,6 +112,8 @@ private struct ACPManagedSession: Sendable {
     let supportsLoadSession: Bool
     let delegate: ACPClientDelegateAdapter
     let notificationTask: Task<Void, Never>
+    var currentModeID: String?
+    var availableModeIDs: Set<String>
     var needsPrimer: Bool
     var currentRun: ACPCurrentRun?
 }
@@ -245,6 +247,7 @@ actor ACPSessionManager {
         content: [ContentBlock],
         localSessionHadPriorMessages: Bool,
         primerContent: String?,
+        chatMode: AgentChatMode? = nil,
         onChunk: @escaping @Sendable (String) async -> Void,
         onEvent: @escaping @Sendable (AgentSessionEvent) async -> Void
     ) async throws -> ACPMessageRunResult {
@@ -283,6 +286,8 @@ actor ACPSessionManager {
         guard var managed = sessions[sessionKey] else {
             throw ACPError.protocolError("ACP session was not created.")
         }
+
+        try await applyChatModeIfSupported(chatMode, to: &managed)
 
         managed.currentRun = ACPCurrentRun(
             agentID: agentID,
@@ -467,6 +472,31 @@ actor ACPSessionManager {
                 "session_id": .string(sloppySessionID)
             ]
         )
+    }
+
+    private func applyChatModeIfSupported(_ chatMode: AgentChatMode?, to managed: inout ACPManagedSession) async throws {
+        guard let chatMode else {
+            return
+        }
+
+        guard let modeID = Self.acpModeCandidates(for: chatMode).first(where: { managed.availableModeIDs.contains($0) }) else {
+            return
+        }
+        guard managed.currentModeID != modeID else {
+            return
+        }
+
+        do {
+            let response = try await managed.client.setMode(
+                sessionId: managed.upstreamSessionId,
+                modeId: modeID
+            )
+            if response.success {
+                managed.currentModeID = modeID
+            }
+        } catch {
+            throw ACPError.launchFailed(error.localizedDescription)
+        }
     }
 
     private func handleNotification(sessionKey: String, notification: JSONRPCNotification) async {
@@ -708,6 +738,8 @@ actor ACPSessionManager {
                 supportsLoadSession: initialized.initializeResponse.agentCapabilities.loadSession == true,
                 delegate: initialized.delegate,
                 notificationTask: notificationTask,
+                currentModeID: newSession.modes?.currentModeId,
+                availableModeIDs: Self.availableModeIDs(from: newSession.modes),
                 needsPrimer: true,
                 currentRun: nil
             )
@@ -751,6 +783,8 @@ actor ACPSessionManager {
                 supportsLoadSession: initialized.initializeResponse.agentCapabilities.loadSession == true,
                 delegate: initialized.delegate,
                 notificationTask: notificationTask,
+                currentModeID: loaded.modes?.currentModeId,
+                availableModeIDs: Self.availableModeIDs(from: loaded.modes),
                 needsPrimer: false,
                 currentRun: nil
             )
@@ -811,6 +845,23 @@ actor ACPSessionManager {
         }
         managed.notificationTask.cancel()
         await managed.client.terminate()
+    }
+
+    private static func availableModeIDs(from modes: ModesInfo?) -> Set<String> {
+        Set((modes?.availableModes ?? []).map(\.id))
+    }
+
+    private static func acpModeCandidates(for chatMode: AgentChatMode) -> [String] {
+        switch chatMode {
+        case .build:
+            return ["build", "code"]
+        case .ask:
+            return ["ask"]
+        case .plan:
+            return ["plan"]
+        case .debug:
+            return ["debug"]
+        }
     }
 
     private func persistState(agentID: String, sloppySessionID: String, managed: ACPManagedSession) throws {

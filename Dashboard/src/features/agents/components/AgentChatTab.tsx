@@ -78,9 +78,9 @@ function pathTailIfAddDirCommand(text) {
 }
 
 function mergeDashboardSlashCommands(
-  server: { commands?: Array<{ name?: string; description?: string }> } | null
-): Array<{ name: string; description: string }> {
-  const byKey = new Map<string, { name: string; description: string }>();
+  server: { commands?: Array<{ name?: string; description?: string; source?: string; skillId?: string | null }> } | null
+): Array<{ name: string; description: string; source?: string; skillId?: string | null }> {
+  const byKey = new Map<string, { name: string; description: string; source?: string; skillId?: string | null }>();
   const fromServer = server && Array.isArray(server.commands) ? server.commands : [];
   for (const raw of fromServer) {
     const name = String(raw?.name || "").trim();
@@ -88,7 +88,12 @@ function mergeDashboardSlashCommands(
       continue;
     }
     const description = String(raw?.description || "").trim() || name;
-    byKey.set(name.toLowerCase(), { name, description });
+    byKey.set(name.toLowerCase(), {
+      name,
+      description,
+      source: String(raw?.source || "").trim() || undefined,
+      skillId: raw?.skillId ? String(raw.skillId).trim() : null
+    });
   }
   for (const extra of DASHBOARD_ONLY_SLASH_COMMANDS) {
     if (!byKey.has(extra.name.toLowerCase())) {
@@ -98,6 +103,10 @@ function mergeDashboardSlashCommands(
   return Array.from(byKey.values()).sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }));
 }
 const SLASH_CMD_INLINE_PATTERN = /\/([a-z][a-z0-9_-]*)/g;
+
+function commandInvocationPrefix(command) {
+  return command?.source === "skill" ? "@" : "/";
+}
 const SLASH_CMD_REMOVE_PATTERN = /(^|\s)(\/[a-z][a-z0-9_-]*)(\s?)$/;
 const FILE_REF_INLINE_PATTERN = /@([A-Za-z0-9._/-]+)/g;
 const PATH_AT_QUERY_VALUE_PATTERN = /^[A-Za-z0-9._/-]*$/;
@@ -650,6 +659,41 @@ function getSlashCommandAtCursor(value, caret) {
 
   return {
     start: slashIndex,
+    end: tokenEnd,
+    query: queryBeforeCaret
+  };
+}
+
+function getSkillCommandAtCursor(value, caret) {
+  const text = String(value || "");
+  const safeCaret = Math.max(0, Math.min(Number.isFinite(caret) ? caret : text.length, text.length));
+  const atIndex = text.lastIndexOf("@", Math.max(0, safeCaret - 1));
+
+  if (atIndex < 0) {
+    return null;
+  }
+
+  if (text.slice(0, atIndex).trim().length > 0) {
+    return null;
+  }
+
+  const queryBeforeCaret = text.slice(atIndex + 1, safeCaret);
+  if (/\s/.test(queryBeforeCaret)) {
+    return null;
+  }
+
+  let tokenEnd = safeCaret;
+  while (tokenEnd < text.length && !/\s/.test(text[tokenEnd])) {
+    tokenEnd += 1;
+  }
+
+  const fullTokenValue = text.slice(atIndex + 1, tokenEnd);
+  if (!/^[a-z0-9_-]*$/i.test(fullTokenValue)) {
+    return null;
+  }
+
+  return {
+    start: atIndex,
     end: tokenEnd,
     query: queryBeforeCaret
   };
@@ -1372,6 +1416,16 @@ function answeredInputRequestIds(events) {
       .filter((eventItem) => eventItem?.type === "input_response" && eventItem?.inputResponse?.requestId)
       .map((eventItem) => String(eventItem.inputResponse.requestId))
   );
+}
+
+function latestUnansweredInputRequest(events) {
+  const answered = answeredInputRequestIds(events);
+  return [...(Array.isArray(events) ? events : [])]
+    .reverse()
+    .find((eventItem) => {
+      const requestId = String(eventItem?.inputRequest?.id || "").trim();
+      return eventItem?.type === "input_request" && requestId && !answered.has(requestId);
+    })?.inputRequest || null;
 }
 
 function segmentsToPlainText(segments) {
@@ -2532,6 +2586,8 @@ function AgentChatComposer({
   inputText,
   onInputTextChange,
   isBusy,
+  inputLocked = false,
+  inputLockReason = "",
   isStopPending = false,
   onSend,
   onStop,
@@ -2556,7 +2612,9 @@ function AgentChatComposer({
   onTaskTagHoverEnd
 }) {
   const canSend =
-    String(inputText || "").trim().length > 0 || pendingFiles.length > 0 || sourceControlDiffComposeTags.length > 0;
+    !inputLocked &&
+    (String(inputText || "").trim().length > 0 || pendingFiles.length > 0 || sourceControlDiffComposeTags.length > 0);
+  const isInputDisabled = isBusy || inputLocked;
   const [caretIndex, setCaretIndex] = useState(0);
   const [isInputFocused, setIsInputFocused] = useState(false);
   const [activeSuggestionIndex, setActiveSuggestionIndex] = useState(0);
@@ -2575,9 +2633,14 @@ function AgentChatComposer({
     () =>
       new Set(
         (Array.isArray(slashCommands) ? slashCommands : [])
+          .filter((c) => c?.source !== "skill")
           .map((c) => String(c?.name || "").trim().toLowerCase())
           .filter(Boolean)
       ),
+    [slashCommands]
+  );
+  const skillCommands = useMemo(
+    () => (Array.isArray(slashCommands) ? slashCommands : []).filter((c) => c?.source === "skill"),
     [slashCommands]
   );
 
@@ -2588,17 +2651,28 @@ function AgentChatComposer({
   );
   const isTaskDropdownOpen = isInputFocused && Boolean(taskQuery);
 
-  const pathQuery = useMemo(() => getPathQueryAtCursor(inputText, caretIndex), [inputText, caretIndex]);
+  const skillQuery = useMemo(() => getSkillCommandAtCursor(inputText, caretIndex), [inputText, caretIndex]);
+  const skillSuggestions = useMemo(
+    () => filterSlashCommandSuggestions(skillCommands, skillQuery?.query || ""),
+    [skillCommands, skillQuery?.query]
+  );
+
+  const pathQuery = useMemo(
+    () => (skillQuery ? null : getPathQueryAtCursor(inputText, caretIndex)),
+    [inputText, caretIndex, skillQuery]
+  );
 
   const slashQuery = useMemo(() => getSlashCommandAtCursor(inputText, caretIndex), [inputText, caretIndex]);
   const slashSuggestions = useMemo(
-    () => filterSlashCommandSuggestions(slashCommands, slashQuery?.query || ""),
+    () => filterSlashCommandSuggestions((Array.isArray(slashCommands) ? slashCommands : []).filter((c) => c?.source !== "skill"), slashQuery?.query || ""),
     [slashCommands, slashQuery?.query]
   );
 
   const isPathDropdownOpen = isInputFocused && Boolean(pathQuery) && !isTaskDropdownOpen;
+  const isSkillDropdownOpen =
+    isInputFocused && Boolean(skillQuery) && !isTaskDropdownOpen;
   const isSlashDropdownOpen =
-    isInputFocused && Boolean(slashQuery) && !isTaskDropdownOpen && !isPathDropdownOpen;
+    isInputFocused && Boolean(slashQuery) && !isTaskDropdownOpen && !isPathDropdownOpen && !isSkillDropdownOpen;
   const editorRef = textareaRef;
 
   useEffect(() => {
@@ -2607,7 +2681,7 @@ function AgentChatComposer({
 
   useEffect(() => {
     setActiveSlashIndex(0);
-  }, [slashQuery?.start, slashQuery?.query, slashSuggestions.length]);
+  }, [slashQuery?.start, slashQuery?.query, slashSuggestions.length, skillQuery?.start, skillQuery?.query, skillSuggestions.length]);
 
   useEffect(() => {
     setActivePathIndex(0);
@@ -2706,13 +2780,14 @@ function AgentChatComposer({
   }
 
   function applySlashCommandSuggestion(command) {
-    if (!slashQuery || !command?.name) {
+    const commandQuery = command?.source === "skill" ? skillQuery : slashQuery;
+    if (!commandQuery || !command?.name) {
       return;
     }
-    const before = inputText.slice(0, slashQuery.start);
-    const after = inputText.slice(slashQuery.end);
+    const before = inputText.slice(0, commandQuery.start);
+    const after = inputText.slice(commandQuery.end);
     const shouldAddSpace = after.length === 0 || !/^\s/.test(after);
-    const replacement = `/${command.name}${shouldAddSpace ? " " : ""}`;
+    const replacement = `${commandInvocationPrefix(command)}${command.name}${shouldAddSpace ? " " : ""}`;
     const nextValue = `${before}${replacement}${after}`;
     const nextCaret = before.length + replacement.length;
     applyInputValue(nextValue, nextCaret);
@@ -2842,16 +2917,18 @@ function AgentChatComposer({
   }
 
   function renderSlashDropdown() {
-    if (!isSlashDropdownOpen) {
+    if (!isSlashDropdownOpen && !isSkillDropdownOpen) {
       return null;
     }
+    const commandSuggestions = isSkillDropdownOpen ? skillSuggestions : slashSuggestions;
+    const emptyText = isSkillDropdownOpen ? "No skills found" : "No commands found";
 
     return (
-      <div className="agent-chat-task-dropdown" role="listbox" aria-label="Command suggestions">
-        {slashSuggestions.length === 0 ? (
-          <p className="agent-chat-task-dropdown-empty">No commands found</p>
+      <div className="agent-chat-task-dropdown" role="listbox" aria-label={isSkillDropdownOpen ? "Skill suggestions" : "Command suggestions"}>
+        {commandSuggestions.length === 0 ? (
+          <p className="agent-chat-task-dropdown-empty">{emptyText}</p>
         ) : (
-          slashSuggestions.map((cmd, index) => {
+          commandSuggestions.map((cmd, index) => {
             const isActive = index === activeSlashIndex;
             return (
               <button
@@ -2866,7 +2943,7 @@ function AgentChatComposer({
                 onMouseEnter={() => setActiveSlashIndex(index)}
               >
                 <div className="agent-chat-task-dropdown-row">
-                  <strong>/{cmd.name}</strong>
+                  <strong>{commandInvocationPrefix(cmd)}{cmd.name}</strong>
                 </div>
                 <p>{cmd.description}</p>
               </button>
@@ -2908,7 +2985,7 @@ function AgentChatComposer({
               onAddFiles(event.target.files);
               event.target.value = "";
             }}
-            disabled={isBusy}
+            disabled={isInputDisabled}
           />
 
           {pendingFiles.length > 0 ? (
@@ -2955,7 +3032,7 @@ function AgentChatComposer({
               type="button"
               className="agent-chat-icon-button"
               onClick={() => fileInputRef.current?.click()}
-              disabled={isBusy}
+              disabled={isInputDisabled}
               title="Attach files"
             >
               <span className="material-symbols-rounded" aria-hidden="true">
@@ -2967,12 +3044,14 @@ function AgentChatComposer({
               ref={editorRef}
               className="agent-chat-compose-input"
               data-testid="agent-chat-compose-input"
-              contentEditable={!isBusy}
+              contentEditable={!isInputDisabled}
               suppressContentEditableWarning
               data-placeholder={
-                agentId
-                  ? `Message ${agentId}… Type @ to search ${scopedProjectId ? "project files" : "files under projects"}`
-                  : "Message..."
+                inputLocked
+                  ? (inputLockReason || "Answer the pending question to continue.")
+                  : (agentId
+                    ? `Message ${agentId}… Type @skill or @ to search ${scopedProjectId ? "project files" : "files under projects"}`
+                    : "Message...")
               }
               role="textbox"
               aria-multiline="true"
@@ -3031,7 +3110,8 @@ function AgentChatComposer({
                 const target = event.currentTarget;
                 const hasSuggestions = taskSuggestions.length > 0;
                 const hasPathSuggestions = pathSuggestions.length > 0;
-                const hasSlashSuggestions = slashSuggestions.length > 0;
+                const commandSuggestions = isSkillDropdownOpen ? skillSuggestions : slashSuggestions;
+                const hasSlashSuggestions = commandSuggestions.length > 0;
 
                 if (isTaskDropdownOpen) {
                   if (event.key === "ArrowDown" && hasSuggestions) {
@@ -3113,10 +3193,10 @@ function AgentChatComposer({
                   }
                 }
 
-                if (isSlashDropdownOpen) {
+                if (isSlashDropdownOpen || isSkillDropdownOpen) {
                   if (event.key === "ArrowDown" && hasSlashSuggestions) {
                     event.preventDefault();
-                    setActiveSlashIndex((current) => (current + 1) % slashSuggestions.length);
+                    setActiveSlashIndex((current) => (current + 1) % commandSuggestions.length);
                     return;
                   }
 
@@ -3124,7 +3204,7 @@ function AgentChatComposer({
                     event.preventDefault();
                     setActiveSlashIndex((current) => {
                       if (current <= 0) {
-                        return slashSuggestions.length - 1;
+                        return commandSuggestions.length - 1;
                       }
                       return current - 1;
                     });
@@ -3133,14 +3213,14 @@ function AgentChatComposer({
 
                   if (event.key === "Enter" && hasSlashSuggestions) {
                     event.preventDefault();
-                    const selectedCmd = slashSuggestions[Math.min(activeSlashIndex, slashSuggestions.length - 1)];
+                    const selectedCmd = commandSuggestions[Math.min(activeSlashIndex, commandSuggestions.length - 1)];
                     applySlashCommandSuggestion(selectedCmd);
                     return;
                   }
 
                   if (event.key === "Tab" && hasSlashSuggestions) {
                     event.preventDefault();
-                    const selectedCmd = slashSuggestions[Math.min(activeSlashIndex, slashSuggestions.length - 1)];
+                    const selectedCmd = commandSuggestions[Math.min(activeSlashIndex, commandSuggestions.length - 1)];
                     applySlashCommandSuggestion(selectedCmd);
                     return;
                   }
@@ -3195,7 +3275,7 @@ function AgentChatComposer({
                   return;
                 }
                 event.preventDefault();
-                if (!isBusy && canSend) {
+                if (!isInputDisabled && canSend) {
                   onSend();
                 }
               }}
@@ -3211,7 +3291,7 @@ function AgentChatComposer({
                 type="button"
                 className={`agent-chat-mode-button agent-chat-mode-button--${activeChatMode.id}`}
                 onClick={() => onChatModeChange?.(nextChatMode(chatMode))}
-                disabled={isBusy}
+                disabled={isInputDisabled}
                 title={`Mode: ${activeChatMode.label}. Press Tab to switch.`}
                 aria-label={`Chat mode: ${activeChatMode.label}`}
               >
@@ -3227,7 +3307,7 @@ function AgentChatComposer({
                   <select
                     value={reasoningEffort}
                     onChange={(event) => onReasoningEffortChange(event.target.value)}
-                    disabled={isBusy}
+                    disabled={isInputDisabled}
                     aria-label="Reasoning effort"
                   >
                     <option value="low">Low</option>
@@ -3529,9 +3609,27 @@ export function AgentChatTab({
   const [slashCommands, setSlashCommands] = useState(() => mergeDashboardSlashCommands(null));
   const slashCommandNameSet = useMemo(
     () =>
-      new Set(slashCommands.map((c) => String(c?.name || "").trim().toLowerCase()).filter(Boolean)),
+      new Set(
+        slashCommands
+          .filter((c) => c?.source !== "skill")
+          .map((c) => String(c?.name || "").trim().toLowerCase())
+          .filter(Boolean)
+      ),
     [slashCommands]
   );
+  const skillCommandByName = useMemo(() => {
+    const byName = new Map();
+    for (const command of slashCommands) {
+      if (command?.source !== "skill") {
+        continue;
+      }
+      const name = String(command?.name || "").trim().toLowerCase();
+      if (name) {
+        byName.set(name, command);
+      }
+    }
+    return byName;
+  }, [slashCommands]);
 
   useEffect(() => {
     const aid = String(agentId || "").trim();
@@ -5031,7 +5129,7 @@ export function AgentChatTab({
     const lower = text.toLowerCase();
 
     if (lower === "/help") {
-      const lines = slashCommands.map((cmd) => `/${cmd.name} — ${cmd.description}`).join("\n");
+      const lines = slashCommands.map((cmd) => `${commandInvocationPrefix(cmd)}${cmd.name} — ${cmd.description}`).join("\n");
       await persistCommandEvents(text, `Available commands:\n${lines}\n\nAny other message is forwarded to the agent.`);
       return true;
     }
@@ -5151,6 +5249,23 @@ export function AgentChatTab({
     return false;
   }
 
+  function skillInvocationMessage(text) {
+    const match = String(text || "").trim().match(/^@([a-z0-9_-]+)(?:\s+([\s\S]*))?$/i);
+    if (!match) {
+      return null;
+    }
+    const command = skillCommandByName.get(String(match[1] || "").toLowerCase());
+    const skillId = String(command?.skillId || "").trim();
+    if (!skillId) {
+      return null;
+    }
+    const request = String(match[2] || "").trim();
+    if (!request) {
+      return `Use installed skill \`${skillId}\` for this request.`;
+    }
+    return `Use installed skill \`${skillId}\` for this request.\n\nUser request:\n${request}`;
+  }
+
   async function handleSend(event) {
     event?.preventDefault?.();
     if (isSending) {
@@ -5169,11 +5284,14 @@ export function AgentChatTab({
       }
     }
 
+    const skillInvocation = pendingFiles.length === 0 && !replyTarget && sourceControlDiffComposeTags.length === 0
+      ? skillInvocationMessage(trimmed)
+      : null;
     const replyContext = replyTarget ? `Reply to assistant: "${replyTarget.text}"` : "";
     const contentForSend = mergedBody
       ? replyContext
-        ? `${replyContext}\n\n${mergedBody}`
-        : mergedBody
+        ? `${replyContext}\n\n${skillInvocation || mergedBody}`
+        : (skillInvocation || mergedBody)
       : replyContext;
     if (!contentForSend && pendingFiles.length === 0) {
       return;
@@ -5631,6 +5749,7 @@ export function AgentChatTab({
   }
 
   const events = Array.isArray(activeSession?.events) ? activeSession.events : [];
+  const activePendingInputRequest = useMemo(() => latestUnansweredInputRequest(events), [events]);
   const activeToolCallRecordIds = useMemo(() => findPendingToolCallRecordIds(events), [events]);
   const { timelineItems, latestRunStatus } = useMemo(
     () =>
@@ -6350,12 +6469,23 @@ export function AgentChatTab({
                   onReject={(approvalId) => void resolvePendingToolApproval(approvalId, false)}
                 />
 
+                {activePendingInputRequest ? (
+                  <div className="agent-chat-pending-input-callout">
+                    <PlanInputPanel
+                      request={activePendingInputRequest}
+                      onSubmit={(payload) => handleAnswerInputRequest(String(activePendingInputRequest.id || ""), payload)}
+                    />
+                  </div>
+                ) : null}
+
                 <AgentChatComposer
                   agentId={agentId}
                   projectId={projectId}
                   inputText={inputText}
                   onInputTextChange={setInputText}
                   isBusy={isActiveSessionBusy}
+                  inputLocked={Boolean(activePendingInputRequest)}
+                  inputLockReason="Answer the pending plan question to continue."
                   isStopPending={isStopping}
                   onSend={handleSend}
                   onStop={handleStop}
@@ -6382,18 +6512,22 @@ export function AgentChatTab({
                   onTaskTagHoverEnd={handleTaskTagHoverEnd}
                 />
 
-                <p className="agent-chat-project-path-hint placeholder-text">
-                  {projectId && String(projectId).trim() ? (
+                {!activePendingInputRequest ? (
+                  <p className="agent-chat-project-path-hint placeholder-text">
+                    {projectId && String(projectId).trim() ? (
                     <>
-                      Type <kbd className="agent-chat-path-hint-kbd">@</kbd> to search files and folders in this project.
+                      Type <kbd className="agent-chat-path-hint-kbd">@skill</kbd> at the start to invoke a skill, or{" "}
+                      <kbd className="agent-chat-path-hint-kbd">@</kbd> to search files and folders in this project.
                     </>
                   ) : (
                     <>
-                      Type <kbd className="agent-chat-path-hint-kbd">@</kbd> to search files and folders under the workspace{" "}
+                      Type <kbd className="agent-chat-path-hint-kbd">@skill</kbd> at the start to invoke a skill, or{" "}
+                      <kbd className="agent-chat-path-hint-kbd">@</kbd> to search files and folders under the workspace{" "}
                       <code className="agent-chat-path-hint-kbd">projects</code> directory.
                     </>
                   )}
-                </p>
+                  </p>
+                ) : null}
               </div>
             </div>
 

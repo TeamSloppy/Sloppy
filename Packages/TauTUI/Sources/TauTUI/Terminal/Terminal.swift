@@ -10,7 +10,7 @@ import Darwin
 
 // MARK: - Key Models
 
-public struct KeyModifiers: OptionSet, Sendable {
+public struct KeyModifiers: OptionSet, Sendable, Equatable {
     public let rawValue: Int
 
     public init(rawValue: Int) {
@@ -41,8 +41,49 @@ public enum TerminalKey: Sendable {
     case unknown(sequence: String)
 }
 
+public enum TerminalMouseButton: Sendable, Equatable {
+    case left
+    case middle
+    case right
+    case wheelUp
+    case wheelDown
+    case wheelLeft
+    case wheelRight
+    case unknown(Int)
+}
+
+public enum TerminalMouseEventPhase: Sendable, Equatable {
+    case press
+    case release
+    case drag
+    case scroll
+}
+
+public struct TerminalMouseEvent: Sendable, Equatable {
+    public var button: TerminalMouseButton
+    public var column: Int
+    public var row: Int
+    public var modifiers: KeyModifiers
+    public var phase: TerminalMouseEventPhase
+
+    public init(
+        button: TerminalMouseButton,
+        column: Int,
+        row: Int,
+        modifiers: KeyModifiers = [],
+        phase: TerminalMouseEventPhase
+    ) {
+        self.button = button
+        self.column = column
+        self.row = row
+        self.modifiers = modifiers
+        self.phase = phase
+    }
+}
+
 public enum TerminalInput: Sendable {
     case key(TerminalKey, modifiers: KeyModifiers = [])
+    case mouse(TerminalMouseEvent)
     case paste(String)
     case raw(String)
     case terminalCellSize(widthPx: Int, heightPx: Int)
@@ -59,6 +100,7 @@ public protocol Terminal: AnyObject {
     func write(_ data: String)
     var columns: Int { get }
     var rows: Int { get }
+    func setMouseReportingEnabled(_ enabled: Bool)
     func moveBy(lines: Int)
     func hideCursor()
     func showCursor()
@@ -69,6 +111,10 @@ public protocol Terminal: AnyObject {
 
 public enum TerminalError: Error {
     case alreadyRunning
+}
+
+public extension Terminal {
+    func setMouseReportingEnabled(_ enabled: Bool) {}
 }
 
 // MARK: - ProcessTerminal
@@ -88,6 +134,7 @@ public final class ProcessTerminal: Terminal {
     private var pendingInput = ""
     private var isInBracketedPaste = false
     private var pasteBuffer = ""
+    private var mouseReportingEnabled = false
 
     /// Emit `.raw` events for debugging/inspection (e.g. KeyTester).
     /// Off by default because `.key`/`.paste` already cover functional input.
@@ -100,6 +147,8 @@ public final class ProcessTerminal: Terminal {
     // https://sw.kovidgoyal.net/kitty/keyboard-protocol/
     private static let kittyKeyboardProtocolEnable = "\u{001B}[>1u"
     private static let kittyKeyboardProtocolDisable = "\u{001B}[<u"
+    private static let mouseReportingEnable = "\u{001B}[?1000h\u{001B}[?1006h"
+    private static let mouseReportingDisable = "\u{001B}[?1006l\u{001B}[?1000l"
 
     // Enter variants some terminals emit with modifiers.
     private static let shiftEnterCSI = "\u{001B}[13;2~"
@@ -133,6 +182,9 @@ public final class ProcessTerminal: Terminal {
         try self.enableRawMode()
         self.write("\u{001B}[?2004h") // bracketed paste on
         self.write(Self.kittyKeyboardProtocolEnable) // kitty keyboard protocol on
+        if self.mouseReportingEnabled {
+            self.write(Self.mouseReportingEnable)
+        }
 
         let source = DispatchSource.makeReadSource(fileDescriptor: self.inputFD.rawValue, queue: .main)
         source.setEventHandler { [weak self] in
@@ -170,6 +222,9 @@ public final class ProcessTerminal: Terminal {
 
         self.write("\u{001B}[?2004l") // bracketed paste off
         self.write(Self.kittyKeyboardProtocolDisable) // kitty keyboard protocol off
+        if self.mouseReportingEnabled {
+            self.write(Self.mouseReportingDisable)
+        }
         self.disableRawMode()
 
         self.inputHandler = nil
@@ -190,6 +245,13 @@ public final class ProcessTerminal: Terminal {
 
     public var rows: Int {
         self.currentTerminalSize().rows
+    }
+
+    public func setMouseReportingEnabled(_ enabled: Bool) {
+        guard self.mouseReportingEnabled != enabled else { return }
+        self.mouseReportingEnabled = enabled
+        guard self.stdinSource != nil else { return }
+        self.write(enabled ? Self.mouseReportingEnable : Self.mouseReportingDisable)
     }
 
     public func moveBy(lines: Int) {
@@ -254,6 +316,7 @@ public final class ProcessTerminal: Terminal {
 
     private enum ParsedEscape {
         case key(TerminalKey, KeyModifiers)
+        case mouse(TerminalMouseEvent)
         case terminalCellSize(widthPx: Int, heightPx: Int)
     }
 
@@ -301,6 +364,8 @@ public final class ProcessTerminal: Terminal {
                 switch event {
                 case let .key(key, modifiers):
                     self.emitKey(key, modifiers: modifiers)
+                case let .mouse(event):
+                    self.inputHandler?(.mouse(event))
                 case let .terminalCellSize(widthPx, heightPx):
                     self.inputHandler?(.terminalCellSize(widthPx: widthPx, heightPx: heightPx))
                 }
@@ -354,6 +419,9 @@ public final class ProcessTerminal: Terminal {
             if let cellSize = self.parseCellSizeResponse(sequence) {
                 return (.terminalCellSize(widthPx: cellSize.widthPx, heightPx: cellSize.heightPx), length)
             }
+            if let mouse = self.parseSGRMouseEvent(sequence) {
+                return (.mouse(mouse), length)
+            }
             let parsed = self.mapCSISequence(sequence)
             return (.key(parsed.0, parsed.1), length)
         } else if second == "O" {
@@ -396,6 +464,64 @@ public final class ProcessTerminal: Terminal {
         guard heightPx > 0, widthPx > 0 else { return nil }
 
         return (widthPx: widthPx, heightPx: heightPx)
+    }
+
+    private func parseSGRMouseEvent(_ sequence: String) -> TerminalMouseEvent? {
+        guard sequence.hasPrefix("\u{001B}[<") else { return nil }
+        guard let final = sequence.last, final == "M" || final == "m" else { return nil }
+
+        let payload = sequence.dropFirst(3).dropLast()
+        let params = payload.split(separator: ";").compactMap { Int($0) }
+        guard params.count == 3 else { return nil }
+
+        let buttonCode = params[0]
+        let column = max(0, params[1] - 1)
+        let row = max(0, params[2] - 1)
+        let buttonIndex = buttonCode & 0b11
+        let isWheel = (buttonCode & 64) != 0
+        let isDrag = (buttonCode & 32) != 0
+
+        let button: TerminalMouseButton
+        if isWheel {
+            button = switch buttonIndex {
+            case 0: .wheelUp
+            case 1: .wheelDown
+            case 2: .wheelLeft
+            case 3: .wheelRight
+            default: .unknown(buttonCode)
+            }
+        } else {
+            button = switch buttonIndex {
+            case 0: .left
+            case 1: .middle
+            case 2: .right
+            default: .unknown(buttonCode)
+            }
+        }
+
+        var modifiers: KeyModifiers = []
+        if (buttonCode & 4) != 0 { modifiers.insert(.shift) }
+        if (buttonCode & 8) != 0 { modifiers.insert(.option) }
+        if (buttonCode & 16) != 0 { modifiers.insert(.control) }
+
+        let phase: TerminalMouseEventPhase
+        if isWheel {
+            phase = .scroll
+        } else if final == "m" {
+            phase = .release
+        } else if isDrag {
+            phase = .drag
+        } else {
+            phase = .press
+        }
+
+        return TerminalMouseEvent(
+            button: button,
+            column: column,
+            row: row,
+            modifiers: modifiers,
+            phase: phase
+        )
     }
 
     private func extractCSISequence(from scalars: [UnicodeScalar]) -> (String, Int)? {

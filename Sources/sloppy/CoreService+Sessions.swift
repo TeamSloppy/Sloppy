@@ -90,6 +90,30 @@ extension CoreService {
         }
     }
 
+    public func prepareAgentSessionContext(agentID: String, sessionID: String) async throws -> AgentSessionSummary {
+        await waitForStartup()
+        guard let normalizedAgentID = normalizedAgentID(agentID) else {
+            throw AgentSessionError.invalidAgentID
+        }
+
+        guard let normalizedSessionID = normalizedSessionID(sessionID) else {
+            throw AgentSessionError.invalidSessionID
+        }
+
+        _ = try getAgent(id: normalizedAgentID)
+        let detail = try getAgentSession(agentID: normalizedAgentID, sessionID: normalizedSessionID)
+
+        do {
+            try await sessionOrchestrator.prepareSessionContext(
+                agentID: normalizedAgentID,
+                sessionID: normalizedSessionID
+            )
+            return detail.summary
+        } catch {
+            throw mapSessionOrchestratorError(error)
+        }
+    }
+
     public func hasLiveAgentRuntimeSession(agentID: String, sessionID: String) async throws -> Bool {
         await waitForStartup()
         guard let normalizedAgentID = normalizedAgentID(agentID) else {

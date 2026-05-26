@@ -29,6 +29,7 @@ enum AgentSessionTranscriptBuilder {
     private static func transcriptEntries(from detail: AgentSessionDetail) -> [Transcript.Entry] {
         var entries: [Transcript.Entry] = []
         var pendingToolCallIDsByTool: [String: [String]] = [:]
+        var pendingToolCallEntryIndicesByID: [String: Int] = [:]
 
         for event in detail.events {
             switch event.type {
@@ -55,6 +56,7 @@ enum AgentSessionTranscriptBuilder {
                 }
                 let callID = deterministicToolCallID(for: event)
                 pendingToolCallIDsByTool[toolCall.tool, default: []].append(callID)
+                pendingToolCallEntryIndicesByID[callID] = entries.count
                 entries.append(.toolCalls(Transcript.ToolCalls([
                     Transcript.ToolCall(
                         id: callID,
@@ -67,10 +69,14 @@ enum AgentSessionTranscriptBuilder {
                 guard let toolResult = event.toolResult else {
                     continue
                 }
-                let callID = dequeuePendingToolCallID(
+                let matchedCallID = dequeuePendingToolCallID(
                     tool: toolResult.tool,
                     pendingToolCallIDsByTool: &pendingToolCallIDsByTool
-                ) ?? deterministicToolCallID(for: event)
+                )
+                if let matchedCallID {
+                    pendingToolCallEntryIndicesByID.removeValue(forKey: matchedCallID)
+                }
+                let callID = matchedCallID ?? deterministicToolCallID(for: event)
                 entries.append(.toolOutput(Transcript.ToolOutput(
                     id: callID,
                     toolName: toolResult.tool,
@@ -82,7 +88,18 @@ enum AgentSessionTranscriptBuilder {
             }
         }
 
-        return entries
+        if pendingToolCallEntryIndicesByID.isEmpty {
+            return entries
+        }
+        return entries.enumerated().compactMap { index, entry in
+            switch entry {
+            case .toolCalls(let calls):
+                let unresolvedIDs = calls.map(\.id).filter { pendingToolCallEntryIndicesByID[$0] == index }
+                return unresolvedIDs.isEmpty ? entry : nil
+            default:
+                return entry
+            }
+        }
     }
 
     private static func transcriptText(from message: AgentSessionMessage) -> String? {

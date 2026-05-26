@@ -1076,8 +1076,45 @@ func agentSessionPlanningRequestInputStillPausesAfterToolUse() async throws {
         sessionStore: sessionStore,
         agentCatalogStore: catalogStore,
         availableModels: availableModels,
-        toolInvoker: { _, _, request, _ in
-            ToolInvocationResult(
+        toolInvoker: { invokedAgentID, invokedSessionID, request, _ in
+            let inputRequest = PlanInputRequest(
+                id: "input-123",
+                mode: AgentChatMode.plan.rawValue,
+                title: "Choose direction",
+                questions: [
+                    PlanInputQuestion(
+                        id: "direction",
+                        question: "Which plan direction should I use?",
+                        options: [
+                            PlanInputOption(id: "small", label: "Small"),
+                            PlanInputOption(id: "large", label: "Large"),
+                        ]
+                    )
+                ]
+            )
+            _ = try? sessionStore.appendEvents(
+                agentID: invokedAgentID,
+                sessionID: invokedSessionID,
+                events: [
+                    AgentSessionEvent(
+                        agentId: invokedAgentID,
+                        sessionId: invokedSessionID,
+                        type: .inputRequest,
+                        inputRequest: inputRequest
+                    ),
+                    AgentSessionEvent(
+                        agentId: invokedAgentID,
+                        sessionId: invokedSessionID,
+                        type: .runStatus,
+                        runStatus: AgentRunStatusEvent(
+                            stage: .paused,
+                            label: "Waiting for input",
+                            details: "Choose direction"
+                        )
+                    )
+                ]
+            )
+            return ToolInvocationResult(
                 tool: request.tool,
                 ok: true,
                 data: .object([
@@ -1095,7 +1132,7 @@ func agentSessionPlanningRequestInputStillPausesAfterToolUse() async throws {
         request: AgentSessionPostMessageRequest(
             userId: "dashboard",
             content: "ask me before changing files",
-            mode: .build
+            mode: .plan
         )
     )
 
@@ -1106,8 +1143,21 @@ func agentSessionPlanningRequestInputStillPausesAfterToolUse() async throws {
     let verificationStore = AgentSessionFileStore(agentsRootURL: agentsRootURL)
     let detail = try verificationStore.loadSession(agentID: agentID, sessionID: session.id)
     #expect(detail.events.contains(where: { $0.toolCall?.tool == "planning.request_input" }))
+    #expect(detail.events.contains(where: { $0.inputRequest?.id == "input-123" }))
+    #expect(detail.events.contains(where: { $0.runStatus?.stage == .paused }))
     #expect(detail.events.contains(where: { $0.runStatus?.stage == .done }) == false)
     #expect(detail.events.contains(where: { $0.runStatus?.stage == .interrupted }) == false)
+
+    let interrupt = try await orchestrator.controlSession(
+        agentID: agentID,
+        sessionID: session.id,
+        request: AgentSessionControlRequest(action: .interruptTree, requestedBy: "test", reason: "should not cancel input")
+    )
+    #expect(interrupt.appendedEvents.isEmpty)
+
+    let interruptedDetail = try verificationStore.loadSession(agentID: agentID, sessionID: session.id)
+    #expect(interruptedDetail.events.contains(where: { $0.inputRequest?.id == "input-123" }))
+    #expect(interruptedDetail.events.contains(where: { $0.runStatus?.stage == .interrupted }) == false)
 }
 
 @Test
@@ -2109,6 +2159,67 @@ func agentSessionRefreshesStaleBootstrapWithPersistedHistory() async throws {
     #expect(refreshedBootstrap.contains("[Previous conversation history]"))
     #expect(refreshedBootstrap.contains("Original task: explain the failing session restore"))
     #expect(refreshedBootstrap.contains("I found that the restored session needs its JSONL history."))
+}
+
+@Test
+func agentSessionInvalidatesCachedModelSessionWhenStaleBootstrapGainsHistory() async throws {
+    let agentID = "stale-cached-history-agent"
+    let availableModels = [
+        ProviderModelOption(id: "openai:gpt-5.4-mini", title: "openai:gpt-5.4-mini", capabilities: ["tools"])
+    ]
+    let (catalogStore, sessionStore, agentsRootURL) = try makeAgentSessionFixture(
+        agentID: agentID,
+        selectedModel: "openai:gpt-5.4-mini",
+        availableModels: availableModels
+    )
+    let provider = SessionCapturingModelProvider(models: availableModels.map(\.id))
+    let runtime = RuntimeSystem(modelProvider: provider, defaultModel: "openai:gpt-5.4-mini")
+    let orchestrator = AgentSessionOrchestrator(
+        runtime: runtime,
+        sessionStore: sessionStore,
+        agentCatalogStore: catalogStore,
+        availableModels: availableModels
+    )
+
+    let session = try await orchestrator.createSession(
+        agentID: agentID,
+        request: AgentSessionCreateRequest(title: "Stale cached bootstrap test")
+    )
+    _ = try await orchestrator.postMessage(
+        agentID: agentID,
+        sessionID: session.id,
+        request: AgentSessionPostMessageRequest(userId: "dashboard", content: "first live turn")
+    )
+    #expect(await provider.requestedModelsSnapshot().count == 1)
+
+    let mutationStore = AgentSessionFileStore(agentsRootURL: agentsRootURL)
+    _ = try mutationStore.appendEvents(
+        agentID: agentID,
+        sessionID: session.id,
+        events: [
+            AgentSessionEvent(
+                agentId: agentID,
+                sessionId: session.id,
+                type: .message,
+                message: AgentSessionMessage(
+                    role: .user,
+                    segments: [.init(kind: .text, text: "persisted context that was not in the cached model session")]
+                )
+            )
+        ]
+    )
+
+    _ = try await orchestrator.postMessage(
+        agentID: agentID,
+        sessionID: session.id,
+        request: AgentSessionPostMessageRequest(userId: "dashboard", content: "continue with restored context")
+    )
+
+    #expect(await provider.requestedModelsSnapshot().count == 2)
+    let restoredTranscript = await provider.requestedTranscriptsSnapshot().last?.joined(separator: "\n") ?? ""
+    #expect(restoredTranscript.contains("first live turn"))
+    #expect(restoredTranscript.contains("persisted context that was not in the cached model session"))
+    #expect(restoredTranscript.contains("continue with restored context"))
 }
 
 @Test

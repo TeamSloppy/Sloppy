@@ -40,6 +40,9 @@ jobs:
       - name: Resolve Swift Packages
         run: swift package resolve
 
+      - name: Run TUI Theme Tests
+        run: swift test --filter SloppyTUIThemeTests
+
       - name: Run Test Suite
         run: swift test --parallel
 
@@ -62,6 +65,9 @@ jobs:
 
       - name: Resolve Swift Packages
         run: swift package resolve
+
+      - name: Run TUI Theme Tests
+        run: swift test --filter SloppyTUIThemeTests
 
       - name: Run Test Suite
         run: swift test --parallel

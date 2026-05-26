@@ -40,6 +40,11 @@ func coreServiceCreateAgentInstallsBuiltInTaskSpecSkill() async throws {
     #expect(FileManager.default.fileExists(atPath: URL(fileURLWithPath: modeBuild.localPath)
         .appendingPathComponent("SKILL.md")
         .path))
+
+    let modePlan = try #require(response.skills.first { $0.id == BuiltInSkillCatalog.modePlanID })
+    #expect(modePlan.name == "mode-plan")
+    #expect(modePlan.userInvocable == false)
+    #expect(modePlan.allowedTools.contains("planning.request_input"))
 }
 
 @Test

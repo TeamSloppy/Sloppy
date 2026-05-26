@@ -41,7 +41,7 @@ struct SloppyTUISessionListEntry: Equatable {
 
 enum SloppyTUISessionList {
     static func section(for events: [AgentSessionEvent], isPosting: Bool) -> SloppyTUISessionListSection {
-        if hasUnansweredInputRequest(events) {
+        if SloppyTUIPlanInputState.latestUnansweredRequest(in: events) != nil {
             return .waitingInput
         }
         if isPosting || latestRunStage(in: events).map(isWorkingStage) == true {
@@ -80,19 +80,6 @@ enum SloppyTUISessionList {
         }
     }
 
-    private static func hasUnansweredInputRequest(_ events: [AgentSessionEvent]) -> Bool {
-        let answered = Set(events.compactMap { event -> String? in
-            event.type == .inputResponse ? event.inputResponse?.requestId : nil
-        })
-        return events.contains { event in
-            guard event.type == .inputRequest,
-                  let requestID = event.inputRequest?.id else {
-                return false
-            }
-            return !answered.contains(requestID)
-        }
-    }
-
     private static func latestRunStage(in events: [AgentSessionEvent]) -> AgentRunStage? {
         events.reversed().first { $0.type == .runStatus && $0.runStatus != nil }?.runStatus?.stage
     }
@@ -104,6 +91,28 @@ enum SloppyTUISessionList {
         case .paused, .done, .interrupted:
             return false
         }
+    }
+}
+
+enum SloppyTUIPlanInputState {
+    static func latestUnansweredRequest(in events: [AgentSessionEvent]) -> PlanInputRequest? {
+        let answered = Set(events.compactMap { event -> String? in
+            event.type == .inputResponse ? event.inputResponse?.requestId : nil
+        })
+        return events.compactMap { event -> PlanInputRequest? in
+            event.type == .inputRequest ? event.inputRequest : nil
+        }.last { request in
+            !answered.contains(request.id)
+        }
+    }
+
+    static func picker(
+        for request: PlanInputRequest,
+        previousRequestID: String?,
+        previousSelectedIndex: Int
+    ) -> SloppyTUIPicker? {
+        let selectedIndex = previousRequestID == request.id ? previousSelectedIndex : 0
+        return SloppyTUIPlanInputPicker.picker(for: request, selectedIndex: selectedIndex)
     }
 }
 

@@ -488,6 +488,7 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
         if hasPersistedSession {
             Task { @MainActor in
                 await restorePersistedDirectoriesForCurrentSession()
+                await prepareCurrentSessionContext()
                 await reloadSession()
             }
         }
@@ -756,6 +757,7 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
 
     private func renderChatBody(width: Int, height: Int) -> [String] {
         if shouldRenderWelcome {
+            terminal?.setMouseReportingEnabled(false)
             let raw = SloppyTUITheme.welcomeScreen(
                 width: width,
                 cwd: runtime.cwd,
@@ -773,6 +775,7 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
         let headerLines = header.render(width: width)
         let statusLines = status.render(width: width)
         let timelineHeight = max(1, height - headerLines.count - statusLines.count)
+        terminal?.setMouseReportingEnabled(usesViewportTimelineScroll(width: width))
         let visibleTimeline = renderTimelineBlocks(width: width, height: timelineHeight)
         let bottomPadding = max(0, height - headerLines.count - visibleTimeline.count - statusLines.count)
         return headerLines
@@ -1337,6 +1340,21 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
         guard usesViewportTimelineScroll else {
             return false
         }
+        if case let .mouse(event) = input {
+            guard event.phase == .scroll else {
+                return false
+            }
+            switch event.button {
+            case .wheelUp:
+                scrollTimeline(by: 3)
+                return true
+            case .wheelDown:
+                scrollTimeline(by: -3)
+                return true
+            default:
+                return false
+            }
+        }
         guard case let .key(key, modifiers) = input else {
             return false
         }
@@ -1377,14 +1395,22 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
     }
 
     private var usesViewportTimelineScroll: Bool {
-        let width = terminal?.columns ?? 80
-        let totalLineCount = currentTimelineLineCount(width: width)
-        return resolvedTimelineScrollBehavior(totalLineCount: totalLineCount).usesViewport
+        usesViewportTimelineScroll(width: terminal?.columns ?? 80)
+    }
+
+    private func usesViewportTimelineScroll(width: Int) -> Bool {
+        switch state.scrollbackMode {
+        case .viewport, .limited, .full:
+            return true
+        case .auto:
+            let totalLineCount = currentTimelineLineCount(width: width)
+            return resolvedTimelineScrollBehavior(totalLineCount: totalLineCount).usesViewport
+        }
     }
 
     private var commandPaletteVisible: Bool {
         let value = editor.getText()
-        guard value.hasPrefix("/") else { return false }
+        guard value.hasPrefix("/") || (value.hasPrefix("@") && !skillSlashCommands.isEmpty) else { return false }
         guard !value.contains(" ") else { return false }
         return !value.contains("\n")
     }
@@ -1418,18 +1444,36 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
     }
 
     private var allSlashCommands: [SloppyTUISlashCommand] {
-        (Self.baseSlashCommands + skillSlashCommands).sorted {
+        Self.baseSlashCommands.sorted {
             $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending
         }
     }
 
+    private var allHelpCommands: [SloppyTUISlashCommand] {
+        (Self.baseSlashCommands + skillSlashCommands).sorted {
+            let lhs = $0.invocationPrefix + $0.name
+            let rhs = $1.invocationPrefix + $1.name
+            return lhs.localizedCaseInsensitiveCompare(rhs) == .orderedAscending
+        }
+    }
+
+    private var commandPaletteCommands: [SloppyTUISlashCommand] {
+        if editor.getText().hasPrefix("@") {
+            return skillSlashCommands.sorted {
+                $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending
+            }
+        }
+        return allSlashCommands
+    }
+
     private func commandPaletteSuggestions() -> [SloppyTUISlashCommand] {
         let prefix = String(editor.getText().dropFirst()).trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let commands = commandPaletteCommands
         let matches: [SloppyTUISlashCommand]
         if prefix.isEmpty {
-            matches = allSlashCommands
+            matches = commands
         } else {
-            matches = allSlashCommands.filter { command in
+            matches = commands.filter { command in
                 command.name.lowercased().hasPrefix(prefix)
             }
         }
@@ -1765,7 +1809,12 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
 
     private func applyCommandPaletteSelection(_ command: SloppyTUISlashCommand) {
         commandPaletteSelection = 0
-        let raw = "/\(command.name)"
+        let raw = "\(command.invocationPrefix)\(command.name)"
+        if command.invocationPrefix == "@" {
+            editor.setText(raw + " ")
+            requestRender()
+            return
+        }
         if command.name.lowercased() == "effort" {
             showReasoningEffortSelector()
             return
@@ -1863,6 +1912,17 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
         }
         editor.setText("")
         persistDraft("")
+
+        if let skillInvocation = SloppyTUISkillInvocationRouter.invocationMessage(raw: value, skillCommands: skillSlashCommands) {
+            welcomeDismissed = true
+            dismissFirstStartBootstrapCard()
+            if isPosting {
+                queueMessage(skillInvocation, context: pendingContext, uploads: pendingUploads, clearsPendingInputs: true)
+                return
+            }
+            await sendMessage(skillInvocation)
+            return
+        }
 
         if shouldHandleSlashCommand(value) {
             await handleCommand(value)
@@ -2451,9 +2511,9 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
 
     private func showHelp() {
         let quickReference = quickReferenceMarkdown()
-        let commandLines = allSlashCommands.map { command -> String in
+        let commandLines = allHelpCommands.map { command -> String in
             let usage = command.argument.map { " <\($0)>" } ?? ""
-            return "- `/\(command.name)\(usage)` — \(command.description ?? command.name)"
+            return "- `\(command.invocationPrefix)\(command.name)\(usage)` — \(command.description ?? command.name)"
         }.joined(separator: "\n")
         appendLocalCard("""
         \(quickReference)
@@ -2463,7 +2523,7 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
 
         Paste file paths normally to send them as text. Press Ctrl+V to attach files or images from the macOS clipboard.
         Press `!` on an empty prompt to toggle shell mode; press `!` again on an empty prompt to exit.
-        Use `@path` in a message to inline a project file as explicit context. Tab completes slash commands.
+        Use `@skill` at the start of a message to invoke a skill. Use `@path` in a message to inline a project file as explicit context. Tab completes command and skill names.
         Use `#` to autocomplete active project tasks by id or title.
         Press Ctrl+O to toggle the full tool-call transcript. Ctrl+G enters the newest subagent session.
         Press Ctrl+P or run `/parent` to return from a subagent to its parent session.
@@ -2671,6 +2731,7 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
             streamSession()
             streamChanges()
             scheduleProjectSourceControlFooterRefresh()
+            await prepareCurrentSessionContext()
             await reloadSession()
             refreshStaticChrome(statusLine: "connected to \(statusPrefix)")
             appendLocalCard("Connected to \(statusPrefix) project `\(project.name)`.", autoDismissAfter: 8)
@@ -2875,14 +2936,7 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
     }
 
     private func latestUnansweredInputRequest(in events: [AgentSessionEvent]) -> PlanInputRequest? {
-        let answered = Set(events.compactMap { event -> String? in
-            event.type == .inputResponse ? event.inputResponse?.requestId : nil
-        })
-        return events.compactMap { event -> PlanInputRequest? in
-            event.type == .inputRequest ? event.inputRequest : nil
-        }.last { request in
-            !answered.contains(request.id)
-        }
+        SloppyTUIPlanInputState.latestUnansweredRequest(in: events)
     }
 
     private func latestRunStatus(in events: [AgentSessionEvent]) -> AgentRunStatusEvent? {
@@ -3004,6 +3058,18 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
     private func restoreCurrentSession(extraInstruction: String) async {
         guard !isPosting else {
             appendLocalCard("A message is already in flight. Use `/stop` if you need to interrupt it before restoring.")
+            return
+        }
+        if let request = pendingPlanInputRequest {
+            updatePendingPlanInputRequest(request)
+            appendLocalCard("This session is waiting for input. Answer the pending question before restoring the run.", autoDismissAfter: 8)
+            return
+        }
+        if hasPersistedSession,
+           let detail = try? await service.getAgentSession(agentID: agent.id, sessionID: session.id),
+           let request = SloppyTUIPlanInputState.latestUnansweredRequest(in: detail.events) {
+            updatePendingPlanInputRequest(request)
+            appendLocalCard("This session is waiting for input. Answer the pending question before restoring the run.", autoDismissAfter: 8)
             return
         }
 
@@ -3131,6 +3197,15 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
                 showSystemNotice("No active session to interrupt.")
             } else {
                 appendLocalCard("No active session to interrupt.")
+            }
+            return
+        }
+        if pendingPlanInputRequest != nil {
+            let message = "This session is waiting for input. Answer or cancel the pending question instead of interrupting it."
+            if useNotice {
+                showSystemNotice(message)
+            } else {
+                appendLocalCard(message, autoDismissAfter: 8)
             }
             return
         }
@@ -3514,7 +3589,7 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
             }
             let lines = response.skills.map { skill -> String in
                 let slash = skillSlashCommands.first { $0.description?.hasPrefix(skill.name) == true }?.name
-                let suffix = slash.map { " `/\($0)`" } ?? ""
+                let suffix = slash.map { " `@\($0)`" } ?? ""
                 return "- \(skill.name)\(suffix) — `\(skill.id)`"
             }.joined(separator: "\n")
             appendLocalCard("""
@@ -3656,9 +3731,9 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
         case .viewport:
             return "fast internal viewport scrolling"
         case .limited:
-            return "native scrollback capped to the most recent limit lines"
+            return "fast internal viewport scrolling over the recent line limit"
         case .full:
-            return "full native scrollback without a render cap"
+            return "fast internal viewport scrolling over the full in-app chat history"
         }
     }
 
@@ -4193,12 +4268,17 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
         session = nextSession
         hasPersistedSession = true
         pendingDraftCheckpointSessionID = nil
+        pendingPlanInputRequest = nil
+        if activePicker?.kind == .planInput {
+            activePicker = nil
+        }
         lastAgentToolActivityAt = nil
         dismissAutoDiffPreview()
         persistSelection()
         trackSession(nextSession, opened: true)
         streamSession()
         await restorePersistedDirectoriesForCurrentSession()
+        await prepareCurrentSessionContext()
         loadProjectFileIndex()
         await reloadSession()
         appendLocalCard("Session switched to `\(nextSession.title)`.\nResume shortcut: `sloppy -s \(nextSession.id)`")
@@ -4827,7 +4907,13 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
                 .compactMap { item -> SloppyTUISlashCommand? in
                     let name = item.name.trimmingCharacters(in: .whitespacesAndNewlines)
                     guard !name.isEmpty else { return nil }
-                    return SloppyTUISlashCommand(name, item.description, argument: item.argument ?? "message")
+                    return SloppyTUISlashCommand(
+                        name,
+                        item.description,
+                        argument: item.argument ?? "message",
+                        invocationPrefix: "@",
+                        skillId: item.skillId
+                    )
                 }
             skillSlashCommands = skills
             skillSlashCommandNames = Set(skills.map { $0.name.lowercased() })
@@ -4866,11 +4952,7 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
         let answeredInputRequestIDs = Set(events.compactMap { event -> String? in
             event.type == .inputResponse ? event.inputResponse?.requestId : nil
         })
-        let pendingInputRequest = events.compactMap { event -> PlanInputRequest? in
-            event.type == .inputRequest ? event.inputRequest : nil
-        }.last { request in
-            !answeredInputRequestIDs.contains(request.id)
-        }
+        let pendingInputRequest = SloppyTUIPlanInputState.latestUnansweredRequest(in: events)
         let latestBuildProgressID = events.reversed().first { event in
             event.type == .buildProgress && event.buildProgress != nil
         }?.id
@@ -4946,6 +5028,24 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
             refreshSessionList()
         }
         renderTimeline()
+    }
+
+    private func prepareCurrentSessionContext() async {
+        guard hasPersistedSession else {
+            return
+        }
+        let prepareAgentID = agent.id
+        let prepareSessionID = session.id
+        do {
+            _ = try await service.prepareAgentSessionContext(agentID: prepareAgentID, sessionID: prepareSessionID)
+        } catch {
+            guard hasPersistedSession,
+                  agent.id == prepareAgentID,
+                  session.id == prepareSessionID else {
+                return
+            }
+            appendLocalCard("Session context restore failed: \(String(describing: error))", autoDismissAfter: 8)
+        }
     }
 
     private func childSessionIDs(in events: [AgentSessionEvent]) -> [String] {
@@ -5397,12 +5497,11 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
             return
         }
 
-        guard activePicker == nil || activePicker?.kind == .planInput else {
-            return
-        }
-
-        let selectedIndex = previousRequestID == request.id ? previousSelectedIndex : 0
-        activePicker = SloppyTUIPlanInputPicker.picker(for: request, selectedIndex: selectedIndex)
+        activePicker = SloppyTUIPlanInputState.picker(
+            for: request,
+            previousRequestID: previousRequestID,
+            previousSelectedIndex: previousSelectedIndex
+        )
         refreshStaticChrome(statusLine: "select answer with arrows, Enter to submit, Esc to cancel")
     }
 
@@ -5515,6 +5614,10 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
             let range = SloppyTUIScrollbackPolicy.nativeLineRange(behavior: behavior, totalLineCount: lineCount) ?? 0..<lineCount
             return slicedTimelineLines(segments, start: range.lowerBound, end: range.upperBound)
         case .viewport:
+            let range = SloppyTUIScrollbackPolicy.viewportLineRange(behavior: behavior, totalLineCount: lineCount)
+            if range.lowerBound > 0 || range.upperBound < lineCount {
+                return clippedTimelineLines([slicedTimelineLines(segments, start: range.lowerBound, end: range.upperBound)], height: height)
+            }
             return clippedTimelineLines(segments, height: height)
         }
     }
@@ -6154,7 +6257,7 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
         guard hasPersistedSession else {
             return
         }
-        guard isPosting || liveRunStatusLine != nil || pendingPlanInputRequest != nil else {
+        guard isPosting || liveRunStatusLine != nil else {
             return
         }
 

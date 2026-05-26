@@ -101,6 +101,8 @@ public final class Editor: Component {
             self.handlePaste(text)
         case let .key(key, modifiers):
             self.handleKey(key, modifiers: modifiers)
+        case .mouse:
+            break
         case .raw:
             break
         case .terminalCellSize:

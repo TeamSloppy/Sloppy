@@ -9,7 +9,7 @@ enum SloppyTUIScrollbackMode: String, Codable, Sendable, CaseIterable {
 
 enum SloppyTUITimelineScrollBehavior: Equatable {
     case native(limit: Int?)
-    case viewport
+    case viewport(limit: Int?)
 
     var usesViewport: Bool {
         if case .viewport = self {
@@ -34,13 +34,11 @@ enum SloppyTUIScrollbackPolicy {
         let limit = normalizedLineLimit(lineLimit)
         switch mode {
         case .auto:
-            return totalLineCount > limit ? .viewport : .native(limit: limit)
-        case .viewport:
-            return .viewport
+            return totalLineCount > limit ? .viewport(limit: nil) : .native(limit: limit)
+        case .viewport, .full:
+            return .viewport(limit: nil)
         case .limited:
-            return .native(limit: limit)
-        case .full:
-            return .native(limit: nil)
+            return .viewport(limit: limit)
         }
     }
 
@@ -55,6 +53,20 @@ enum SloppyTUIScrollbackPolicy {
             return start..<total
         case .viewport:
             return nil
+        }
+    }
+
+    static func viewportLineRange(
+        behavior: SloppyTUITimelineScrollBehavior,
+        totalLineCount: Int
+    ) -> Range<Int> {
+        let total = max(0, totalLineCount)
+        switch behavior {
+        case .native:
+            return 0..<total
+        case .viewport(let limit):
+            let start = limit.map { max(0, total - normalizedLineLimit($0)) } ?? 0
+            return start..<total
         }
     }
 }
