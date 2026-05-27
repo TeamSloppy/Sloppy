@@ -326,6 +326,7 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
     private var lastRenderedSessionEventIDs: Set<String> = []
     private var activePicker: SloppyTUIPicker?
     private var pendingPlanInputRequest: PlanInputRequest?
+    private var pendingToolApproval: ToolApprovalRecord?
     private var tokenUsageSummary: SloppyTUITokenUsageSummary?
     private var tokenUsageCostUSD: Double?
     private var projectFileIndex: ProjectFileIndex?
@@ -409,6 +410,9 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
     private var postingSessionIDs: Set<String> = []
     private var hitRegions: [SloppyTUIHitRegion] = []
     private var selectionState = SloppyTUISelectionState()
+    private var mouseHoverCell: SloppyTUIScreenCell?
+    private var mouseHoverRegion: SloppyTUIHitRegion?
+    private var mouseHoverAction: SloppyTUIHitAction?
     private var mousePressCell: SloppyTUIScreenCell?
     private var mousePressAction: SloppyTUIHitAction?
     private var lastRenderedSelectionLines: [String] = []
@@ -549,7 +553,13 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
         let normalized = SloppyTUITheme.normalize(lines: lines, width: width, height: max(height, lines.count))
         registerTextHitRegions(lines: normalized, width: width)
         lastRenderedSelectionLines = normalized
-        return SloppyTUISelectionRenderer.applySelectionOverlay(lines: normalized, range: selectionState.activeRange)
+        let hoverRegion = mouseHoverCell.flatMap(hitRegion(at:))
+        mouseHoverRegion = hoverRegion
+        mouseHoverAction = hoverRegion?.action
+        let hoverLines = selectionState.activeRange == nil
+            ? SloppyTUISelectionRenderer.applyHitRegionOverlay(lines: normalized, region: hoverRegion)
+            : normalized
+        return SloppyTUISelectionRenderer.applySelectionOverlay(lines: hoverLines, range: selectionState.activeRange)
     }
 
     func handle(input: TerminalInput) {
@@ -624,21 +634,29 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
 
     private func handleMouseInput(_ input: TerminalInput) -> Bool {
         guard case let .mouse(event) = input else { return false }
-        guard event.button == .left else { return false }
 
         let cell = SloppyTUIScreenCell(row: event.row, column: event.column)
         switch event.phase {
+        case .move:
+            updateMouseHover(at: cell)
+            return true
         case .press:
+            guard event.button == .left else { return false }
+            updateMouseHover(at: cell)
             mousePressCell = cell
             mousePressAction = hitRegion(at: cell)?.action
             selectionState.press(at: cell)
             requestRender()
             return true
         case .drag:
+            guard event.button == .left else { return false }
+            updateMouseHover(at: cell)
             selectionState.drag(to: cell)
             requestRender()
             return true
         case .release:
+            guard event.button == .left else { return false }
+            updateMouseHover(at: cell)
             let copiedRange = selectionState.release()
             defer {
                 mousePressCell = nil
@@ -658,6 +676,16 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
             return true
         case .scroll:
             return false
+        }
+    }
+
+    private func updateMouseHover(at cell: SloppyTUIScreenCell) {
+        let previousRegion = mouseHoverRegion
+        mouseHoverCell = cell
+        mouseHoverRegion = hitRegion(at: cell)
+        mouseHoverAction = mouseHoverRegion?.action
+        if mouseHoverRegion != previousRegion {
+            requestRender()
         }
     }
 
@@ -1297,6 +1325,14 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
                 activePicker = nil
                 denyPendingWorkspaceAccess()
                 requestRender()
+                return true
+            }
+            if picker.kind == .toolApproval {
+                activePicker = nil
+                requestRender()
+                Task { @MainActor in
+                    await self.rejectPendingToolApproval()
+                }
                 return true
             }
             activePicker = nil
@@ -4243,6 +4279,8 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
             await switchSession(item.value)
         case .workspaceAccess:
             await applyWorkspaceAccessDecision(item.value)
+        case .toolApproval:
+            await applyToolApprovalDecision(item.value)
         case .provider:
             if item.value == SloppyTUIProviderDefinition.addNewProviderValue {
                 showProviderCatalogPicker()
@@ -5248,6 +5286,7 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
         guard hasPersistedSession else {
             sessionCards = []
             subSessionCards = []
+            pendingToolApproval = nil
             invalidateSessionTimelineCache()
             lastRenderedSessionEventIDs = []
             renderTimeline()
@@ -5339,6 +5378,7 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
         subSessionCards = children
         invalidateSessionTimelineCache()
         updatePendingPlanInputRequest(pendingInputRequest)
+        await refreshPendingToolApproval()
         await refreshTokenUsage(includeCost: false)
         if sessionListMode != .hidden {
             refreshSessionList()
@@ -5819,6 +5859,89 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
             previousSelectedIndex: previousSelectedIndex
         )
         refreshStaticChrome(statusLine: "select answer with arrows, Enter to submit, Esc to cancel")
+    }
+
+    private func refreshPendingToolApproval() async {
+        guard hasPersistedSession else {
+            updatePendingToolApproval(nil)
+            return
+        }
+        let approvals = (try? await service.listPendingToolApprovals()) ?? []
+        let approval = SloppyTUIToolApprovalState.pendingApproval(
+            in: approvals,
+            agentID: agent.id,
+            sessionID: session.id
+        )
+        updatePendingToolApproval(approval)
+    }
+
+    private func updatePendingToolApproval(_ approval: ToolApprovalRecord?) {
+        let previousApprovalID = pendingToolApproval?.id
+        let previousSelectedIndex = activePicker?.kind == .toolApproval ? activePicker?.selectedIndex ?? 0 : 0
+        pendingToolApproval = approval
+
+        guard let approval else {
+            if activePicker?.kind == .toolApproval {
+                activePicker = nil
+                refreshStaticChrome()
+            }
+            return
+        }
+
+        guard pendingPlanInputRequest == nil else {
+            return
+        }
+        activePicker = SloppyTUIToolApprovalState.picker(
+            for: approval,
+            previousApprovalID: previousApprovalID,
+            previousSelectedIndex: previousSelectedIndex
+        )
+        refreshStaticChrome(statusLine: "select approval action with arrows, Enter to apply, Esc to deny")
+    }
+
+    private func applyToolApprovalDecision(_ value: String) async {
+        guard let approval = pendingToolApproval else {
+            appendLocalCard("No pending tool approval is available.", autoDismissAfter: 8)
+            return
+        }
+        do {
+            switch value {
+            case "approve_once":
+                _ = try await service.approveToolApproval(
+                    id: approval.id,
+                    request: ToolApprovalDecisionRequest(decidedBy: "tui", scope: .once)
+                )
+                appendLocalCard("Approved `\(approval.tool)` once.", autoDismissAfter: 6)
+            case "approve_session":
+                _ = try await service.approveToolApproval(
+                    id: approval.id,
+                    request: ToolApprovalDecisionRequest(decidedBy: "tui", scope: .session)
+                )
+                appendLocalCard("Approved `\(approval.tool)` for this session.", autoDismissAfter: 6)
+            case "reject":
+                _ = try await service.rejectToolApproval(
+                    id: approval.id,
+                    request: ToolApprovalDecisionRequest(decidedBy: "tui")
+                )
+                appendLocalCard("Denied `\(approval.tool)`.", autoDismissAfter: 6)
+            default:
+                return
+            }
+            pendingToolApproval = nil
+            if activePicker?.kind == .toolApproval {
+                activePicker = nil
+            }
+            refreshStaticChrome()
+            await reloadSession()
+        } catch {
+            pendingToolApproval = approval
+            activePicker = SloppyTUIToolApprovalState.picker(for: approval, previousApprovalID: approval.id, previousSelectedIndex: 0)
+            appendLocalCard("Tool approval decision failed: \(String(describing: error))", autoDismissAfter: 10)
+        }
+    }
+
+    private func rejectPendingToolApproval() async {
+        await applyToolApprovalDecision("reject")
     }
 
     private func answerPlanInput(with item: SloppyTUIPickerItem) async {

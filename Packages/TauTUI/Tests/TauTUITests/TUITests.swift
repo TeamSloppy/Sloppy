@@ -369,13 +369,29 @@ struct TUIRenderingTests {
     }
 
     @MainActor @Test
-    func virtualTerminalRecordsButtonDragMouseReportingMode() throws {
+    func virtualTerminalRecordsAnyMotionMouseReportingMode() throws {
         let terminal = VirtualTerminal(columns: 20, rows: 5)
         terminal.setMouseReportingEnabled(true)
         terminal.setMouseReportingEnabled(false)
 
-        #expect(terminal.outputLog.contains("\u{001B}[?1002h\u{001B}[?1006h"))
-        #expect(terminal.outputLog.contains("\u{001B}[?1006l\u{001B}[?1002l"))
+        #expect(terminal.outputLog.contains("\u{001B}[?1003h\u{001B}[?1006h"))
+        #expect(terminal.outputLog.contains("\u{001B}[?1006l\u{001B}[?1003l"))
+    }
+
+    @Test
+    func mouseMoveWithoutButtonNormalizesFromSGRSequence() throws {
+        let parser = ProcessTerminal()
+        let events = parser.parseForTests("\u{001B}[<35;9;6M")
+
+        #expect(events.contains(where: {
+            if case let .mouse(event) = $0 {
+                return event.button == .none
+                    && event.phase == .move
+                    && event.column == 8
+                    && event.row == 5
+            }
+            return false
+        }))
     }
 
     @Test

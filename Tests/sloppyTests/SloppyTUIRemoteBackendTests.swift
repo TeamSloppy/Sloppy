@@ -63,6 +63,24 @@ func remoteSloppyTUIBackendReadsProjectsSessionsAndSSE() async throws {
     let firstUpdate = try await firstStreamValue(stream)
     #expect(firstUpdate.kind == .sessionReady)
     #expect(firstUpdate.summary?.id == session.id)
+
+    let approval = await service.toolApprovalService.createPending(
+        agentId: "remote-agent",
+        sessionId: session.id,
+        displaySessionId: nil,
+        channelId: nil,
+        topicId: nil,
+        request: ToolInvocationRequest(tool: "files.write", arguments: ["path": .string("/tmp/remote.txt")]),
+        approvalKind: .riskyTool
+    )
+    let pendingApprovals = try await backend.listPendingToolApprovals()
+    #expect(pendingApprovals.contains(where: { $0.id == approval.id }))
+
+    let approved = try await backend.approveToolApproval(
+        id: approval.id,
+        request: ToolApprovalDecisionRequest(decidedBy: "remote-test", scope: .once)
+    )
+    #expect(approved.status == ToolApprovalStatus.approved)
 }
 
 private func firstStreamValue<T: Sendable>(_ stream: AsyncStream<T>) async throws -> T {

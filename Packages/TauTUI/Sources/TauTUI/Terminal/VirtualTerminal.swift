@@ -74,9 +74,9 @@ public final class VirtualTerminal: Terminal {
         guard self.mouseReportingEnabled != enabled else { return }
         self.mouseReportingEnabled = enabled
         if enabled {
-            self.outputLog.append("\u{001B}[?1002h\u{001B}[?1006h")
+            self.outputLog.append("\u{001B}[?1003h\u{001B}[?1006h")
         } else {
-            self.outputLog.append("\u{001B}[?1006l\u{001B}[?1002l")
+            self.outputLog.append("\u{001B}[?1006l\u{001B}[?1003l")
         }
     }
 

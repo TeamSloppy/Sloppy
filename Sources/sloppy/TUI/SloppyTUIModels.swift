@@ -7,6 +7,7 @@ enum SloppyTUIPickerKind: Equatable {
     case session
     case subSession
     case workspaceAccess
+    case toolApproval
     case provider
     case providerCatalog
     case remoteInstance
@@ -113,6 +114,76 @@ enum SloppyTUIPlanInputState {
     ) -> SloppyTUIPicker? {
         let selectedIndex = previousRequestID == request.id ? previousSelectedIndex : 0
         return SloppyTUIPlanInputPicker.picker(for: request, selectedIndex: selectedIndex)
+    }
+}
+
+enum SloppyTUIToolApprovalState {
+    static func pendingApproval(
+        in approvals: [ToolApprovalRecord],
+        agentID: String,
+        sessionID: String
+    ) -> ToolApprovalRecord? {
+        approvals
+            .filter { approval in
+                approval.status == .pending
+                    && approval.agentId == agentID
+                    && (approval.sessionId == sessionID || approval.displaySessionId == sessionID)
+            }
+            .sorted { lhs, rhs in
+                if lhs.createdAt != rhs.createdAt {
+                    return lhs.createdAt < rhs.createdAt
+                }
+                return lhs.id < rhs.id
+            }
+            .first
+    }
+
+    static func picker(
+        for approval: ToolApprovalRecord,
+        previousApprovalID: String?,
+        previousSelectedIndex: Int
+    ) -> SloppyTUIPicker {
+        let selectedIndex = previousApprovalID == approval.id ? previousSelectedIndex : 0
+        return SloppyTUIPicker(
+            kind: .toolApproval,
+            title: "Tool approval required",
+            items: [
+                SloppyTUIPickerItem(
+                    value: "approve_once",
+                    label: "Allow once",
+                    description: approvalSummary(approval),
+                    isCurrent: false
+                ),
+                SloppyTUIPickerItem(
+                    value: "approve_session",
+                    label: "Allow for session",
+                    description: sessionApprovalDescription(for: approval),
+                    isCurrent: false
+                ),
+                SloppyTUIPickerItem(
+                    value: "reject",
+                    label: "Deny",
+                    description: "Reject this tool call",
+                    isCurrent: false
+                ),
+            ],
+            selectedIndex: max(0, min(selectedIndex, 2))
+        )
+    }
+
+    static func approvalSummary(_ approval: ToolApprovalRecord) -> String {
+        let reason = approval.reason?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let reason, !reason.isEmpty {
+            return "\(approval.tool) - \(reason)"
+        }
+        return approval.tool
+    }
+
+    private static func sessionApprovalDescription(for approval: ToolApprovalRecord) -> String {
+        if approval.approvalKind == .missingAccess, !approval.grants.isEmpty {
+            return "Remember this access grant for the current session"
+        }
+        return "Skip the next approval for this tool in the current session"
     }
 }
 

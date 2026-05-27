@@ -35,6 +35,9 @@ protocol SloppyTUIBackend: Sendable {
     func addAgentSessionDirectory(agentID: String, sessionID: String, request: AgentSessionDirectoryRequest) async throws -> AgentSessionDirectoryResponse
     func controlAgentSession(agentID: String, sessionID: String, request: AgentSessionControlRequest) async throws -> AgentSessionMessageResponse
     func answerAgentPlanInput(agentID: String, sessionID: String, requestID: String, payload: PlanInputAnswerRequest) async throws -> AgentSessionMessageResponse
+    func listPendingToolApprovals() async throws -> [ToolApprovalRecord]
+    func approveToolApproval(id: String, request: ToolApprovalDecisionRequest) async throws -> ToolApprovalRecord
+    func rejectToolApproval(id: String, request: ToolApprovalDecisionRequest) async throws -> ToolApprovalRecord
     func streamAgentSessionEvents(agentID: String, sessionID: String) async throws -> AsyncStream<AgentSessionStreamUpdate>
     func streamProjectWorkingTreeChanges(projectID: String) async throws -> AsyncStream<ProjectWorkingTreeChangeBatch>
     func projectWorkingTreeSourceControl(projectID: String) async throws -> ProjectWorkingTreeSourceControlResponse
@@ -51,6 +54,17 @@ protocol SloppyTUIBackend: Sendable {
     func pollOpenAIDeviceCode(request: OpenAIDeviceCodePollRequest) async throws -> OpenAIDeviceCodePollResponse
     func startAnthropicOAuth(request: AnthropicOAuthStartRequest) async throws -> AnthropicOAuthStartResponse
     func completeAnthropicOAuth(request: AnthropicOAuthCompleteRequest) async throws -> AnthropicOAuthCompleteResponse
+}
+
+enum SloppyTUIBackendError: Error, LocalizedError {
+    case notFound(String)
+
+    var errorDescription: String? {
+        switch self {
+        case .notFound(let message):
+            return message
+        }
+    }
 }
 
 extension SloppyTUIBackend {
@@ -140,6 +154,25 @@ struct LocalSloppyTUIBackend: SloppyTUIBackend {
     }
     func answerAgentPlanInput(agentID: String, sessionID: String, requestID: String, payload: PlanInputAnswerRequest) async throws -> AgentSessionMessageResponse {
         try await service.answerAgentPlanInput(agentID: agentID, sessionID: sessionID, requestID: requestID, payload: payload)
+    }
+    func listPendingToolApprovals() async throws -> [ToolApprovalRecord] {
+        await service.listPendingToolApprovals()
+    }
+    func approveToolApproval(id: String, request: ToolApprovalDecisionRequest) async throws -> ToolApprovalRecord {
+        guard let record = await service.approveToolApproval(
+            id: id,
+            decidedBy: request.decidedBy,
+            scope: request.scope
+        ) else {
+            throw SloppyTUIBackendError.notFound("Tool approval not found.")
+        }
+        return record
+    }
+    func rejectToolApproval(id: String, request: ToolApprovalDecisionRequest) async throws -> ToolApprovalRecord {
+        guard let record = await service.rejectToolApproval(id: id, decidedBy: request.decidedBy) else {
+            throw SloppyTUIBackendError.notFound("Tool approval not found.")
+        }
+        return record
     }
     func streamAgentSessionEvents(agentID: String, sessionID: String) async throws -> AsyncStream<AgentSessionStreamUpdate> {
         try await service.streamAgentSessionEvents(agentID: agentID, sessionID: sessionID)
@@ -292,6 +325,15 @@ struct RemoteSloppyTUIBackend: SloppyTUIBackend {
     }
     func answerAgentPlanInput(agentID: String, sessionID: String, requestID: String, payload: PlanInputAnswerRequest) async throws -> AgentSessionMessageResponse {
         try await post("/v1/agents/\(Self.escape(agentID))/sessions/\(Self.escape(sessionID))/input-requests/\(Self.escape(requestID))/answer", body: payload, as: AgentSessionMessageResponse.self)
+    }
+    func listPendingToolApprovals() async throws -> [ToolApprovalRecord] {
+        try await get("/v1/tool-approvals/pending", as: [ToolApprovalRecord].self)
+    }
+    func approveToolApproval(id: String, request: ToolApprovalDecisionRequest) async throws -> ToolApprovalRecord {
+        try await post("/v1/tool-approvals/\(Self.escape(id))/approve", body: request, as: ToolApprovalRecord.self)
+    }
+    func rejectToolApproval(id: String, request: ToolApprovalDecisionRequest) async throws -> ToolApprovalRecord {
+        try await post("/v1/tool-approvals/\(Self.escape(id))/reject", body: request, as: ToolApprovalRecord.self)
     }
     func streamAgentSessionEvents(agentID: String, sessionID: String) async throws -> AsyncStream<AgentSessionStreamUpdate> {
         stream(path: "/v1/agents/\(Self.escape(agentID))/sessions/\(Self.escape(sessionID))/stream", as: AgentSessionStreamUpdate.self)

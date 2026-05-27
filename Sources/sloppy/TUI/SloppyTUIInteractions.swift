@@ -123,6 +123,18 @@ enum SloppyTUISelectionRenderer {
         }
     }
 
+    static func applyHitRegionOverlay(lines: [String], region: SloppyTUIHitRegion?) -> [String] {
+        guard let region, lines.indices.contains(region.row) else { return lines }
+        return lines.enumerated().map { row, line in
+            guard row == region.row else { return line }
+            return highlightedPlainLine(
+                stripANSI(line),
+                startColumn: region.startColumn,
+                endColumn: region.endColumn
+            )
+        }
+    }
+
     static func stripANSI(_ line: String) -> String {
         var result = ""
         var index = line.startIndex

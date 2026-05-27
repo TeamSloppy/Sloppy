@@ -1416,9 +1416,14 @@ enum SloppyTUITheme {
         let visibleCount = max(1, min(maxVisible, picker.items.count))
         let start = max(0, min(picker.selectedIndex - visibleCount / 2, picker.items.count - visibleCount))
         let end = min(picker.items.count, start + visibleCount)
-        let prompt = picker.supportsSearch
-            ? "type search · Enter apply · Esc cancel"
-            : "Enter apply · Esc cancel"
+        let prompt: String
+        if picker.kind == .toolApproval {
+            prompt = "Enter apply · Esc deny"
+        } else if picker.supportsSearch {
+            prompt = "type search · Enter apply · Esc cancel"
+        } else {
+            prompt = "Enter apply · Esc cancel"
+        }
         var lines = [
             indent + padded("  " + foreground(AnsiStyling.bold(picker.title)) + "  " + muted(prompt), width: paletteWidth),
         ]

@@ -834,8 +834,10 @@ func tuiThemeStoreSeedsOpenCodeThemeWithoutOverwriting() throws {
     #expect(theme.name == "OpenCode")
     #expect(theme.source == "opencode.json")
     #expect(theme.accent == SloppyTUIColor(red: 120, green: 220, blue: 232))
-    #expect(theme.panelBackground == SloppyTUIColor(red: 21, green: 21, blue: 21))
-    #expect(theme.textBackground == SloppyTUIColor(red: 16, green: 16, blue: 16))
+    #expect(theme.panelBackground == SloppyTUIColor(red: 0, green: 0, blue: 0))
+    #expect(theme.thinkingBackground == SloppyTUIColor(red: 0, green: 0, blue: 0))
+    #expect(theme.textBackground == SloppyTUIColor(red: 0, green: 0, blue: 0))
+    #expect(theme.truncatedBackground == SloppyTUIColor(red: 0, green: 0, blue: 0))
 
     try Data(##"{"name":"Mine","colors":{"accent":"#ffffff"}}"##.utf8).write(to: themeURL)
     try store.ensureSeedThemes()

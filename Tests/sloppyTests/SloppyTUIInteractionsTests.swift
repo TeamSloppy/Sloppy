@@ -46,6 +46,22 @@ func tuiSelectionOverlayKeepsPlainTextAndHighlightsSelectedCharacters() {
 }
 
 @Test
+func tuiHitRegionOverlayKeepsPlainTextAndHighlightsClickableCharacters() {
+    let lines = ["alpha beta gamma"]
+    let region = SloppyTUIHitRegion(
+        row: 0,
+        startColumn: 6,
+        endColumn: 10,
+        action: .commandPalette(index: 1)
+    )
+
+    let highlighted = SloppyTUISelectionRenderer.applyHitRegionOverlay(lines: lines, region: region)
+
+    #expect(SloppyTUISelectionRenderer.stripANSI(highlighted[0]) == "alpha beta gamma")
+    #expect(highlighted[0].contains("\u{001B}[7mb\u{001B}[0m"))
+}
+
+@Test
 func tuiHitRegionMatchesOnlyBoundedCells() {
     let region = SloppyTUIHitRegion(
         row: 3,

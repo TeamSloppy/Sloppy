@@ -32,13 +32,13 @@ struct SloppyTUIThemeStore {
         "yellow": "#e0af68",
         "orange": "#ff9e64",
         "red": "#f7768e",
-        "panelBackground": "#151515",
+        "panelBackground": "#000000",
         "userMessageBackground": "#242424",
         "toolBackground": "#1e2428",
-        "thinkingBackground": "#1b1b1b",
+        "thinkingBackground": "#000000",
         "attachmentBackground": "#162325",
-        "textBackground": "#101010",
-        "truncatedBackground": "#101010"
+        "textBackground": "#000000",
+        "truncatedBackground": "#000000"
       }
     }
     """

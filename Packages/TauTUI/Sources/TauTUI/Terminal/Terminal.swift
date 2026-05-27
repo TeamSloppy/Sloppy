@@ -42,6 +42,7 @@ public enum TerminalKey: Sendable {
 }
 
 public enum TerminalMouseButton: Sendable, Equatable {
+    case none
     case left
     case middle
     case right
@@ -56,6 +57,7 @@ public enum TerminalMouseEventPhase: Sendable, Equatable {
     case press
     case release
     case drag
+    case move
     case scroll
 }
 
@@ -147,8 +149,8 @@ public final class ProcessTerminal: Terminal {
     // https://sw.kovidgoyal.net/kitty/keyboard-protocol/
     private static let kittyKeyboardProtocolEnable = "\u{001B}[>1u"
     private static let kittyKeyboardProtocolDisable = "\u{001B}[<u"
-    private static let mouseReportingEnable = "\u{001B}[?1002h\u{001B}[?1006h"
-    private static let mouseReportingDisable = "\u{001B}[?1006l\u{001B}[?1002l"
+    private static let mouseReportingEnable = "\u{001B}[?1003h\u{001B}[?1006h"
+    private static let mouseReportingDisable = "\u{001B}[?1006l\u{001B}[?1003l"
 
     // Enter variants some terminals emit with modifiers.
     private static let shiftEnterCSI = "\u{001B}[13;2~"
@@ -492,6 +494,7 @@ public final class ProcessTerminal: Terminal {
         let buttonIndex = buttonCode & 0b11
         let isWheel = (buttonCode & 64) != 0
         let isDrag = (buttonCode & 32) != 0
+        let isMove = isDrag && buttonIndex == 3
 
         let button: TerminalMouseButton
         if isWheel {
@@ -502,6 +505,8 @@ public final class ProcessTerminal: Terminal {
             case 3: .wheelRight
             default: .unknown(buttonCode)
             }
+        } else if isMove {
+            button = .none
         } else {
             button = switch buttonIndex {
             case 0: .left
@@ -521,6 +526,8 @@ public final class ProcessTerminal: Terminal {
             phase = .scroll
         } else if final == "m" {
             phase = .release
+        } else if isMove {
+            phase = .move
         } else if isDrag {
             phase = .drag
         } else {

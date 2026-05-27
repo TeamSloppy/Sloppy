@@ -396,6 +396,49 @@ func pickerSearchRestoresItemsAfterClearingQuery() {
 }
 
 @Test
+func toolApprovalStateBuildsCurrentSessionPicker() throws {
+    let now = Date(timeIntervalSince1970: 100)
+    let current = ToolApprovalRecord(
+        id: "approval-current",
+        approvalKind: .riskyTool,
+        agentId: "agent-1",
+        sessionId: "session-1",
+        tool: "files.write",
+        arguments: ["path": .string("/tmp/file.txt")],
+        reason: "Write /tmp/file.txt",
+        createdAt: now,
+        updatedAt: now,
+        expiresAt: now.addingTimeInterval(60)
+    )
+    let other = ToolApprovalRecord(
+        id: "approval-other",
+        agentId: "agent-1",
+        sessionId: "session-2",
+        tool: "runtime.exec",
+        createdAt: now,
+        updatedAt: now,
+        expiresAt: now.addingTimeInterval(60)
+    )
+
+    let approval = try #require(SloppyTUIToolApprovalState.pendingApproval(
+        in: [other, current],
+        agentID: "agent-1",
+        sessionID: "session-1"
+    ))
+    let picker = SloppyTUIToolApprovalState.picker(
+        for: approval,
+        previousApprovalID: approval.id,
+        previousSelectedIndex: 1
+    )
+
+    #expect(approval.id == "approval-current")
+    #expect(picker.kind == .toolApproval)
+    #expect(picker.selectedIndex == 1)
+    #expect(picker.items.map(\.label) == ["Allow once", "Allow for session", "Deny"])
+    #expect(picker.items[0].description == "files.write - Write /tmp/file.txt")
+}
+
+@Test
 func launchDraftSessionIsNotPersistedSessionID() {
     let agent = AgentSummary(id: "sloppy", displayName: "SLOPPY", role: "SLOPPY")
     let session = SloppyTUIApp.makeDraftSession(agent: agent, projectID: "project-1")

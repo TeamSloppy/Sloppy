@@ -173,6 +173,8 @@ jobs:
 
       - name: Build Dashboard
         working-directory: Dashboard
+        env:
+          NODE_OPTIONS: --max-old-space-size=4096
         run: npm run build
 
   dashboard-happy-path:
