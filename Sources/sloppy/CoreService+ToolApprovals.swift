@@ -68,7 +68,8 @@ extension CoreService: ToolApprovalBridge {
             sessionId: sessionID,
             channelId: channelID,
             topicId: topicID,
-            request: request
+            request: request,
+            approvalKind: .riskyTool
         )
         await appendToolApprovalPausedStatusIfNeeded(agentID: agentID, sessionID: sessionID, record: record)
         if let sessionID {
@@ -183,17 +184,96 @@ extension CoreService: ToolApprovalBridge {
         return false
     }
 
+    func requestMissingAccessApproval(
+        agentID: String,
+        sessionID: String?,
+        channelID: String?,
+        topicID: String?,
+        request: ToolInvocationRequest,
+        grants: [ToolApprovalGrant]
+    ) async -> ToolApprovalWaitResult {
+        let reason = request.reason?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+            ? request.reason
+            : missingAccessApprovalReason(tool: request.tool, grants: grants)
+        let approvalRequest = ToolInvocationRequest(
+            tool: request.tool,
+            arguments: request.arguments,
+            reason: reason,
+            argumentDiagnostics: request.argumentDiagnostics
+        )
+        let record = await toolApprovalService.createPending(
+            agentId: agentID,
+            sessionId: sessionID,
+            channelId: channelID,
+            topicId: topicID,
+            request: approvalRequest,
+            approvalKind: .missingAccess,
+            grants: grants
+        )
+        await appendToolApprovalPausedStatusIfNeeded(agentID: agentID, sessionID: sessionID, record: record)
+        if let sessionID {
+            await markTaskWaitingInputForAgentSession(
+                agentID: agentID,
+                sessionID: sessionID,
+                reason: "Access approval required for \(request.tool).",
+                source: "agent"
+            )
+        }
+        _ = await channelDelivery.presentToolApproval(record)
+        let result = await toolApprovalService.waitForDecision(id: record.id)
+        if case .timedOut(let timedOut) = result {
+            _ = await channelDelivery.updateToolApproval(timedOut)
+        }
+        return result
+    }
+
+    func applyApprovalGrants(
+        _ grants: [ToolApprovalGrant],
+        to policy: AgentToolsPolicy,
+        matchingToolID: String? = nil
+    ) -> AgentToolsPolicy {
+        var updated = policy
+        let requestedToolID = matchingToolID.map(normalizedToolApprovalToolID)
+        for grant in grants {
+            let toolID = normalizedToolApprovalToolID(grant.tool)
+            if let requestedToolID, !requestedToolID.isEmpty, toolID != requestedToolID {
+                continue
+            }
+            switch grant.kind {
+            case .tool:
+                if !toolID.isEmpty {
+                    updated.tools[toolID] = true
+                }
+            case .directory:
+                guard let resource = normalizedApprovalResource(grant.resource), !resource.isEmpty else {
+                    continue
+                }
+                if grant.operation == "exec" {
+                    appendUniqueRoot(resource, to: &updated.guardrails.allowedExecRoots)
+                } else {
+                    appendUniqueRoot(resource, to: &updated.guardrails.allowedWriteRoots)
+                }
+            }
+        }
+        return updated
+    }
+
     private func rememberToolApprovalSessionAllowance(_ record: ToolApprovalRecord) {
         guard let scopeID = toolApprovalSessionScopeID(sessionID: record.sessionId, channelID: record.channelId) else {
             return
         }
         let key = toolApprovalSessionAllowanceKey(agentID: record.agentId, scopeID: scopeID)
-        var allowedTools = toolApprovalSessionAllowances[key] ?? []
-        allowedTools.insert("*")
-        toolApprovalSessionAllowances[key] = allowedTools
+        var allowedGrants = toolApprovalSessionAllowances[key] ?? []
+        let grants = record.grants.isEmpty
+            ? [ToolApprovalGrant(kind: .tool, tool: normalizedToolApprovalToolID(record.tool))]
+            : record.grants.map(normalizedApprovalGrant)
+        for grant in grants {
+            allowedGrants.insert(grant)
+        }
+        toolApprovalSessionAllowances[key] = allowedGrants
     }
 
-    private func isToolApprovalAllowedForSession(
+    func isToolApprovalAllowedForSession(
         agentID: String,
         sessionID: String?,
         channelID: String?,
@@ -203,8 +283,23 @@ extension CoreService: ToolApprovalBridge {
             return false
         }
         let key = toolApprovalSessionAllowanceKey(agentID: agentID, scopeID: scopeID)
-        let allowedTools = toolApprovalSessionAllowances[key] ?? []
-        return allowedTools.contains("*") || allowedTools.contains(normalizedToolApprovalToolID(toolID))
+        let allowedGrants = toolApprovalSessionAllowances[key] ?? []
+        let normalizedTool = normalizedToolApprovalToolID(toolID)
+        return allowedGrants.contains { grant in
+            grant.kind == .tool && normalizedToolApprovalToolID(grant.tool) == normalizedTool
+        }
+    }
+
+    func sessionApprovalGrants(
+        agentID: String,
+        sessionID: String?,
+        channelID: String?
+    ) -> [ToolApprovalGrant] {
+        guard let scopeID = toolApprovalSessionScopeID(sessionID: sessionID, channelID: channelID) else {
+            return []
+        }
+        let key = toolApprovalSessionAllowanceKey(agentID: agentID, scopeID: scopeID)
+        return Array(toolApprovalSessionAllowances[key] ?? [])
     }
 
     private func toolApprovalSessionScopeID(sessionID: String?, channelID: String?) -> String? {
@@ -223,6 +318,37 @@ extension CoreService: ToolApprovalBridge {
 
     private func normalizedToolApprovalToolID(_ toolID: String) -> String {
         toolID.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    }
+
+    private func normalizedApprovalGrant(_ grant: ToolApprovalGrant) -> ToolApprovalGrant {
+        ToolApprovalGrant(
+            kind: grant.kind,
+            tool: normalizedToolApprovalToolID(grant.tool),
+            operation: grant.operation?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
+            resource: normalizedApprovalResource(grant.resource)
+        )
+    }
+
+    private func normalizedApprovalResource(_ resource: String?) -> String? {
+        guard let trimmed = resource?.trimmingCharacters(in: .whitespacesAndNewlines), !trimmed.isEmpty else {
+            return nil
+        }
+        return URL(fileURLWithPath: trimmed).standardizedFileURL.path
+    }
+
+    private func appendUniqueRoot(_ root: String, to roots: inout [String]) {
+        guard !roots.contains(root) else {
+            return
+        }
+        roots.append(root)
+    }
+
+    private func missingAccessApprovalReason(tool: String, grants: [ToolApprovalGrant]) -> String {
+        let resources = grants.compactMap(\.resource)
+        if let first = resources.first {
+            return "Allow \(tool) to access \(first)."
+        }
+        return "Allow access to \(tool)."
     }
 
     private func appendToolApprovalPausedStatusIfNeeded(

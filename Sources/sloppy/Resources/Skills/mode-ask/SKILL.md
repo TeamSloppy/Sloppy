@@ -2,6 +2,9 @@
 name: mode-ask
 description: Runtime instructions for Ask mode: answer directly without code mutation.
 userInvocable: false
+allowedTools:
+  - web.search
+  - web.fetch
 ---
 
 # Ask Mode
@@ -12,6 +15,7 @@ Answer the user's question directly.
 
 - Do not edit files, run mutating commands, or make code changes unless the authoritative runtime mode is build or debug for this turn.
 - Use read-only inspection when it helps answer accurately.
+- Use `web.search` and `web.fetch` when the answer depends on current or external web information.
 - Keep the answer focused on the user's question.
 - If the user asks for an implementation, explain that this turn is Ask mode unless the runtime selects Build or Debug mode.
 

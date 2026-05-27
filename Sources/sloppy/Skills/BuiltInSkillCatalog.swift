@@ -144,7 +144,10 @@ enum BuiltInSkillCatalog {
     private static func modeSkillAllowedTools(for mode: AgentChatMode) -> [String] {
         switch mode {
         case .ask:
-            return []
+            return [
+                "web.search",
+                "web.fetch"
+            ]
         case .build:
             return [
                 "planning.progress_update",
@@ -155,6 +158,8 @@ enum BuiltInSkillCatalog {
         case .plan:
             return [
                 "planning.request_input",
+                "web.search",
+                "web.fetch",
                 "project.current",
                 "project.task_list",
                 "project.task_create",
@@ -180,7 +185,7 @@ enum BuiltInSkillCatalog {
 
             # Ask Mode
 
-            Answer the user's question directly. Do not edit files, run mutating commands, or make code changes unless the authoritative runtime mode is build or debug for this turn.
+            Answer the user's question directly. Use `web.search` and `web.fetch` when current or external web information is needed. Do not edit files, run mutating commands, or make code changes unless the authoritative runtime mode is build or debug for this turn.
             """
         case .build:
             return """
@@ -212,6 +217,7 @@ enum BuiltInSkillCatalog {
             The final answer is saved by Sloppy as `PLAN_NAME.md` and rendered into a web page; safe raw HTML tags and attributes may be used in markdown, but scripts, event handlers, remote executable embeds, and `javascript:` links are not allowed.
             For substantial work, offer to capture the plan as a project task and use project task tools when the user asks to create, save, or track it.
             Do not edit files, run code-changing commands, or make irreversible non-task changes unless the authoritative runtime mode is build or debug for this turn.
+            Use `web.search` and `web.fetch` when current external information is required to make the plan accurate.
             Use `planning.request_input` after read-only inspection when an important user decision is needed before a correct plan can be written; ask 1-3 structured questions with 2-4 meaningful options each, then stop and wait.
             """
         case .debug:

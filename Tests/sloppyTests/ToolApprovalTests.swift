@@ -4,6 +4,9 @@ import Testing
 @testable import Protocols
 @testable import sloppy
 
+@Suite("Tool approvals", .serialized)
+struct ToolApprovalTests {
+
 @Test
 func toolApprovalIsDisabledByDefaultForRuntimeTools() async throws {
     let service = CoreService(config: .test, persistenceBuilder: InMemoryCorePersistenceBuilder())
@@ -251,6 +254,247 @@ func readOnlyToolBypassesApproval() async throws {
 }
 
 @Test
+func disabledToolRequestsMissingAccessApproval() async throws {
+    let service = CoreService(config: .test, persistenceBuilder: InMemoryCorePersistenceBuilder())
+    let session = try await makeApprovalSession(service: service, agentID: "approval-disabled-tool")
+    let file = try makeApprovalTempFile(contents: "hello")
+    _ = try await service.updateAgentToolsPolicy(
+        agentID: "approval-disabled-tool",
+        request: AgentToolsUpdateRequest(tools: ["files.read": false])
+    )
+
+    let invocation = Task {
+        await service.invokeToolFromRuntime(
+            agentID: "approval-disabled-tool",
+            sessionID: session.id,
+            request: ToolInvocationRequest(tool: "files.read", arguments: ["path": .string(file.path)]),
+            recordSessionEvents: false
+        )
+    }
+
+    let pending = try await waitForPendingToolApproval(service)
+    #expect(pending.approvalKind == .missingAccess)
+    #expect(pending.grants.contains(where: { $0.kind == .tool && $0.tool == "files.read" }))
+
+    _ = await service.approveToolApproval(id: pending.id, decidedBy: "test")
+    let result = await invocation.value
+    #expect(result.ok == true)
+}
+
+@Test
+func allowOnceForDisabledToolDoesNotAuthorizeNextCall() async throws {
+    let service = CoreService(config: .test, persistenceBuilder: InMemoryCorePersistenceBuilder())
+    let session = try await makeApprovalSession(service: service, agentID: "approval-once-tool")
+    let file = try makeApprovalTempFile(contents: "hello")
+    _ = try await service.updateAgentToolsPolicy(
+        agentID: "approval-once-tool",
+        request: AgentToolsUpdateRequest(tools: ["files.read": false])
+    )
+
+    let first = Task {
+        await service.invokeToolFromRuntime(
+            agentID: "approval-once-tool",
+            sessionID: session.id,
+            request: ToolInvocationRequest(tool: "files.read", arguments: ["path": .string(file.path)]),
+            recordSessionEvents: false
+        )
+    }
+    let firstPending = try await waitForPendingToolApproval(service)
+    _ = await service.approveToolApproval(id: firstPending.id, decidedBy: "test", scope: .once)
+    #expect((await first.value).ok == true)
+
+    let second = Task {
+        await service.invokeToolFromRuntime(
+            agentID: "approval-once-tool",
+            sessionID: session.id,
+            request: ToolInvocationRequest(tool: "files.read", arguments: ["path": .string(file.path)]),
+            recordSessionEvents: false
+        )
+    }
+    let secondPending = try await waitForPendingToolApproval(service)
+    #expect(secondPending.id != firstPending.id)
+    _ = await service.rejectToolApproval(id: secondPending.id, decidedBy: "test")
+    #expect((await second.value).error?.code == "tool_approval_rejected")
+}
+
+@Test
+func sessionScopedDirectoryApprovalIsExactToToolAndRoot() async throws {
+    let service = CoreService(config: .test, persistenceBuilder: InMemoryCorePersistenceBuilder())
+    let session = try await makeApprovalSession(service: service, agentID: "approval-directory-session")
+    let allowedDir = try makeApprovalTempDirectory()
+    let otherDir = try makeApprovalTempDirectory()
+    let firstFile = allowedDir.appendingPathComponent("first.txt")
+    let secondFile = allowedDir.appendingPathComponent("second.txt")
+    let otherFile = otherDir.appendingPathComponent("other.txt")
+    try "first".write(to: firstFile, atomically: true, encoding: .utf8)
+    try "second".write(to: secondFile, atomically: true, encoding: .utf8)
+    try "other".write(to: otherFile, atomically: true, encoding: .utf8)
+
+    let first = Task {
+        await service.invokeToolFromRuntime(
+            agentID: "approval-directory-session",
+            sessionID: session.id,
+            request: ToolInvocationRequest(tool: "files.read", arguments: ["path": .string(firstFile.path)]),
+            recordSessionEvents: false
+        )
+    }
+    let pending = try await waitForPendingToolApproval(service)
+    #expect(pending.approvalKind == .missingAccess)
+    let hasReadGrant = containsApprovalGrant(
+        pending.grants,
+        kind: .directory,
+        tool: "files.read",
+        operation: "read",
+        resource: allowedDir.path
+    )
+    #expect(hasReadGrant)
+    _ = await service.approveToolApproval(id: pending.id, decidedBy: "test", scope: .session)
+    #expect((await first.value).ok == true)
+
+    let sameDirectory = await service.invokeToolFromRuntime(
+        agentID: "approval-directory-session",
+        sessionID: session.id,
+        request: ToolInvocationRequest(tool: "files.read", arguments: ["path": .string(secondFile.path)]),
+        recordSessionEvents: false
+    )
+    #expect(sameDirectory.ok == true)
+    #expect(await service.listPendingToolApprovals().isEmpty)
+
+    let writeSameDirectory = Task {
+        await service.invokeToolFromRuntime(
+            agentID: "approval-directory-session",
+            sessionID: session.id,
+            request: ToolInvocationRequest(
+                tool: "files.write",
+                arguments: ["path": .string(allowedDir.appendingPathComponent("write.txt").path), "content": .string("no")]
+            ),
+            recordSessionEvents: false
+        )
+    }
+    let writePending = try await waitForPendingToolApproval(service)
+    #expect(writePending.grants.contains(where: { $0.tool == "files.write" }))
+    _ = await service.rejectToolApproval(id: writePending.id, decidedBy: "test")
+    #expect((await writeSameDirectory.value).error?.code == "tool_approval_rejected")
+
+    let otherDirectory = Task {
+        await service.invokeToolFromRuntime(
+            agentID: "approval-directory-session",
+            sessionID: session.id,
+            request: ToolInvocationRequest(tool: "files.read", arguments: ["path": .string(otherFile.path)]),
+            recordSessionEvents: false
+        )
+    }
+    let otherPending = try await waitForPendingToolApproval(service)
+    #expect(otherPending.grants.contains(where: { $0.resource == otherDir.path }))
+    _ = await service.rejectToolApproval(id: otherPending.id, decidedBy: "test")
+    #expect((await otherDirectory.value).error?.code == "tool_approval_rejected")
+}
+
+@Test
+func cwdApprovalAllowsRuntimeExecForApprovedDirectory() async throws {
+    let service = CoreService(config: .test, persistenceBuilder: InMemoryCorePersistenceBuilder())
+    let session = try await makeApprovalSession(service: service, agentID: "approval-cwd")
+    let cwd = try makeApprovalTempDirectory()
+
+    let invocation = Task {
+        await service.invokeToolFromRuntime(
+            agentID: "approval-cwd",
+            sessionID: session.id,
+            request: ToolInvocationRequest(
+                tool: "runtime.exec",
+                arguments: [
+                    "command": .string("/bin/pwd"),
+                    "cwd": .string(cwd.path)
+                ]
+            ),
+            recordSessionEvents: false
+        )
+    }
+
+    let pending = try await waitForPendingToolApproval(service)
+    let hasCwdGrant = containsApprovalGrant(
+        pending.grants,
+        kind: .directory,
+        tool: "runtime.exec",
+        operation: "exec",
+        resource: cwd.path
+    )
+    #expect(hasCwdGrant)
+    _ = await service.approveToolApproval(id: pending.id, decidedBy: "test")
+    #expect((await invocation.value).ok == true)
+}
+
+@Test
+func sessionScopedCwdApprovalSkipsNextMatchingRiskyApproval() async throws {
+    let service = CoreService(config: .test, persistenceBuilder: InMemoryCorePersistenceBuilder())
+    let session = try await makeApprovalSession(service: service, agentID: "approval-cwd-session")
+    let cwd = try makeApprovalTempDirectory()
+    _ = try await service.updateAgentToolsPolicy(
+        agentID: "approval-cwd-session",
+        request: AgentToolsUpdateRequest(approval: AgentToolApprovalSettings(enabled: true))
+    )
+
+    let first = Task {
+        await service.invokeToolFromRuntime(
+            agentID: "approval-cwd-session",
+            sessionID: session.id,
+            request: ToolInvocationRequest(
+                tool: "runtime.exec",
+                arguments: [
+                    "command": .string("/bin/pwd"),
+                    "cwd": .string(cwd.path)
+                ]
+            ),
+            recordSessionEvents: false
+        )
+    }
+
+    let pending = try await waitForPendingToolApproval(service)
+    #expect(pending.approvalKind == .missingAccess)
+    _ = await service.approveToolApproval(id: pending.id, decidedBy: "test", scope: .session)
+    #expect((await first.value).ok == true)
+
+    let second = await service.invokeToolFromRuntime(
+        agentID: "approval-cwd-session",
+        sessionID: session.id,
+        request: ToolInvocationRequest(
+            tool: "runtime.exec",
+            arguments: [
+                "command": .string("/bin/echo"),
+                "arguments": .array([.string("ok")]),
+                "cwd": .string(cwd.path)
+            ]
+        ),
+        recordSessionEvents: false
+    )
+
+    #expect(second.ok == true)
+    #expect(await service.listPendingToolApprovals().isEmpty)
+}
+
+@Test
+func legacyToolApprovalRecordDecodesWithoutGrantMetadata() throws {
+    let json = """
+    {
+      "id": "legacy-approval",
+      "status": "pending",
+      "agentId": "agent",
+      "tool": "files.read",
+      "arguments": {},
+      "createdAt": 0,
+      "updatedAt": 0,
+      "expiresAt": 60
+    }
+    """
+
+    let record = try JSONDecoder().decode(ToolApprovalRecord.self, from: Data(json.utf8))
+
+    #expect(record.id == "legacy-approval")
+    #expect(record.approvalKind == nil)
+    #expect(record.grants.isEmpty)
+}
+
+@Test
 func toolApprovalTimeoutReturnsTimedOut() async {
     let service = CoreService(config: .test, persistenceBuilder: InMemoryCorePersistenceBuilder())
     let record = await service.toolApprovalService.createPending(
@@ -337,6 +581,8 @@ func telegramToolApprovalCallbackParsing() {
     #expect(TelegramToolApproval.parseCallback("M|1|S|0") == .unknown)
 }
 
+}
+
 private func makeApprovalSession(service: CoreService, agentID: String) async throws -> AgentSessionSummary {
     _ = try await service.createAgent(AgentCreateRequest(
         id: agentID,
@@ -347,6 +593,41 @@ private func makeApprovalSession(service: CoreService, agentID: String) async th
         agentID: agentID,
         request: AgentSessionCreateRequest(title: "Approval Session")
     )
+}
+
+private func makeApprovalTempDirectory() throws -> URL {
+    let directory = FileManager.default.temporaryDirectory
+        .appendingPathComponent("sloppy-approval-\(UUID().uuidString)", isDirectory: true)
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    return directory.standardizedFileURL
+}
+
+private func makeApprovalTempFile(contents: String) throws -> URL {
+    let directory = try makeApprovalTempDirectory()
+    let file = directory.appendingPathComponent("fixture.txt")
+    try contents.write(to: file, atomically: true, encoding: .utf8)
+    return file.standardizedFileURL
+}
+
+private func containsApprovalGrant(
+    _ grants: [ToolApprovalGrant],
+    kind: ToolApprovalGrantKind,
+    tool: String,
+    operation: String? = nil,
+    resource: String? = nil
+) -> Bool {
+    grants.contains { grant in
+        guard grant.kind == kind, grant.tool == tool else {
+            return false
+        }
+        if let operation, grant.operation != operation {
+            return false
+        }
+        if let resource, grant.resource != resource {
+            return false
+        }
+        return true
+    }
 }
 
 private func waitForPendingToolApproval(_ service: CoreService) async throws -> ToolApprovalRecord {

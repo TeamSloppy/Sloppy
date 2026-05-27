@@ -8,16 +8,25 @@ import {
 interface ToolApprovalRecord {
   id: string;
   status: "pending" | "approved" | "rejected" | "timed_out";
+  approvalKind?: "risky_tool" | "missing_access";
   agentId: string;
   sessionId?: string;
   channelId?: string;
   topicId?: string;
   tool: string;
   arguments?: Record<string, unknown>;
+  grants?: ToolApprovalGrant[];
   reason?: string;
   requestedBy?: string;
   createdAt: string;
   expiresAt: string;
+}
+
+interface ToolApprovalGrant {
+  kind: "tool" | "directory";
+  tool: string;
+  operation?: string;
+  resource?: string;
 }
 
 interface ToolApprovalDialogProps {
@@ -43,6 +52,20 @@ function formatArguments(value?: Record<string, unknown>): string {
   } catch {
     return String(value);
   }
+}
+
+function formatApprovalKind(value?: ToolApprovalRecord["approvalKind"]): string {
+  if (value === "missing_access") return "Missing access";
+  if (value === "risky_tool") return "Risky tool";
+  return "Tool approval";
+}
+
+function formatGrant(grant: ToolApprovalGrant): string {
+  if (grant.kind === "tool") {
+    return `Tool: ${grant.tool}`;
+  }
+  const operation = grant.operation ? `${grant.operation}: ` : "";
+  return `${grant.tool} ${operation}${grant.resource || ""}`.trim();
 }
 
 export function ToolApprovalDialog({
@@ -80,7 +103,7 @@ export function ToolApprovalDialog({
     setWorking(false);
 
     if (record) {
-      setStatus(approved && scope === "session" ? "Allowed for this session." : approved ? "Approved." : "Rejected.");
+      setStatus(approved && scope === "session" ? "Allowed for this session." : approved ? "Allowed once." : "Rejected.");
       onResolved?.();
       setTimeout(onClose, 700);
     } else {
@@ -120,6 +143,29 @@ export function ToolApprovalDialog({
                 <span className="tg-modal-field-label">Tool</span>
                 <span style={{ fontSize: "0.9rem" }}>{entry.tool}</span>
               </div>
+
+              <div className="tg-modal-field">
+                <span className="tg-modal-field-label">Request</span>
+                <span style={{ fontSize: "0.9rem", color: "var(--text-muted)" }}>
+                  {formatApprovalKind(entry.approvalKind)}
+                </span>
+              </div>
+
+              {entry.grants && entry.grants.length > 0 && (
+                <div className="tg-modal-field">
+                  <span className="tg-modal-field-label">Access</span>
+                  <div style={{ display: "grid", gap: 6 }}>
+                    {entry.grants.map((grant, index) => (
+                      <span
+                        key={`${grant.kind}-${grant.tool}-${grant.operation || ""}-${grant.resource || ""}-${index}`}
+                        style={{ fontSize: "0.86rem", color: "var(--text-muted)" }}
+                      >
+                        {formatGrant(grant)}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               <div className="tg-modal-field">
                 <span className="tg-modal-field-label">Reason</span>
@@ -188,7 +234,7 @@ export function ToolApprovalDialog({
               onClick={() => void resolve(true)}
               disabled={working}
             >
-              Approve
+              Allow once
             </button>
           </div>
         )}

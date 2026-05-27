@@ -24,6 +24,12 @@ actor AgentSessionOrchestrator {
     typealias EventAppendObserver = @Sendable (String, String, AgentSessionSummary, [AgentSessionEvent]) async -> Void
     typealias PlanArtifactRecorder = @Sendable (String, String, String, String?, String, String, Date) async throws -> AgentPlanArtifactEvent
 
+    private struct SessionStoreFingerprint: Equatable {
+        var messageCount: Int
+        var updatedAt: Date
+        var lastMessagePreview: String?
+    }
+
     enum OrchestratorError: Error {
         case invalidAgentID
         case invalidSessionID
@@ -61,6 +67,7 @@ actor AgentSessionOrchestrator {
     private var completedSessionRunChannels: Set<String> = []
     private var sessionCompletionSummaryByChannel: [String: String] = [:]
     private var delegatedSubagentSessionIDs: Set<String> = []
+    private var syncedSessionStoreFingerprintsByChannel: [String: SessionStoreFingerprint] = [:]
 
     init(
         runtime: RuntimeSystem,
@@ -102,6 +109,7 @@ actor AgentSessionOrchestrator {
         sessionStore.updateAgentsRootURL(url)
         agentCatalogStore.updateAgentsRootURL(url)
         agentSkillsStore?.updateAgentsRootURL(url)
+        syncedSessionStoreFingerprintsByChannel.removeAll()
     }
 
     func updateAvailableModels(_ models: [ProviderModelOption]) {
@@ -1328,6 +1336,9 @@ actor AgentSessionOrchestrator {
             sessionID: sessionID,
             events: events
         )
+        syncedSessionStoreFingerprintsByChannel[
+            sessionChannelID(agentID: agentID, sessionID: sessionID)
+        ] = sessionStoreFingerprint(summary)
 
         if let eventAppendObserver {
             Task {
@@ -1336,6 +1347,18 @@ actor AgentSessionOrchestrator {
         }
 
         return summary
+    }
+
+    private func sessionStoreFingerprint(_ detail: AgentSessionDetail) -> SessionStoreFingerprint {
+        sessionStoreFingerprint(detail.summary)
+    }
+
+    private func sessionStoreFingerprint(_ summary: AgentSessionSummary) -> SessionStoreFingerprint {
+        SessionStoreFingerprint(
+            messageCount: summary.messageCount,
+            updatedAt: summary.updatedAt,
+            lastMessagePreview: summary.lastMessagePreview
+        )
     }
 
     private func cleanupSessionRunTracking(channelID: String) {
@@ -1482,6 +1505,26 @@ actor AgentSessionOrchestrator {
                 $0.userId == "system" && $0.content.contains(Self.sessionContextBootstrapMarker)
             })?.content
         if let existingBootstrapContent,
+           await runtime.hasCachedChannelSession(channelId: channelID),
+           let currentFingerprint = sessionDetail.map(sessionStoreFingerprint),
+           syncedSessionStoreFingerprintsByChannel[channelID] == currentFingerprint {
+            await runtime.setChannelBootstrap(channelId: channelID, content: existingBootstrapContent)
+            await setRecoveryTranscriptIfAvailable(
+                channelID: channelID,
+                currentDetail: sessionDetail,
+                sourceDetail: recoverySourceDetail,
+                clearWhenUnavailable: false
+            )
+            logger.debug(
+                "Session context already covered by live runtime session",
+                metadata: [
+                    "agent_id": .string(agentID),
+                    "session_id": .string(sessionID)
+                ]
+            )
+            return
+        }
+        if let existingBootstrapContent,
            !bootstrapNeedsConversationHistoryRefresh(
                 existingBootstrapContent,
                 agentID: agentID,
@@ -1563,7 +1606,7 @@ actor AgentSessionOrchestrator {
         ) {
             includedConversationHistory = true
             bootstrapContent += "\n\n" + historyContext
-            logger.info(
+            logger.debug(
                 "Session bootstrap includes conversation history",
                 metadata: [
                     "agent_id": .string(agentID),
@@ -1585,7 +1628,7 @@ actor AgentSessionOrchestrator {
             }
         }
 
-        logger.info(
+        logger.debug(
             "Session bootstrap prompt prepared",
             metadata: [
                 "agent_id": .string(agentID),
@@ -1597,7 +1640,14 @@ actor AgentSessionOrchestrator {
                 "friend_reminder_md_chars": .stringConvertible(documents.friendReminderMarkdown.count),
                 "memory_md_chars": .stringConvertible(documents.memoryMarkdown.count),
                 "agent_directory": .string(agentDirectoryPath ?? ""),
-                "skills_count": .stringConvertible(installedSkills.count),
+                "skills_count": .stringConvertible(installedSkills.count)
+            ]
+        )
+        logger.trace(
+            "Session bootstrap prompt content",
+            metadata: [
+                "agent_id": .string(agentID),
+                "session_id": .string(sessionID),
                 "bootstrap_prompt": .string(truncateForLog(bootstrapContent, limit: 24000))
             ]
         )

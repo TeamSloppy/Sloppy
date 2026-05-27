@@ -250,7 +250,7 @@ public actor CoreService {
     /// Sessions temporarily exempted from interactive TUI tool usage ceilings.
     var sessionToolUsageLimitBypass: Set<String> = []
     /// Tool approvals granted for the lifetime of an agent session/channel, keyed by agent and session scope.
-    var toolApprovalSessionAllowances: [String: Set<String>] = [:]
+    var toolApprovalSessionAllowances: [String: Set<ToolApprovalGrant>] = [:]
     /// Prevents overlapping memory checkpoints per agent/session pair.
     var memoryCheckpointLocks: Set<String> = []
     /// Prevents overlapping proposal reviews per agent/session pair.

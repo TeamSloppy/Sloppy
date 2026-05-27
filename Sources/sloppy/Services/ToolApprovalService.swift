@@ -39,17 +39,21 @@ actor ToolApprovalService {
         channelId: String?,
         topicId: String?,
         request: ToolInvocationRequest,
+        approvalKind: ToolApprovalKind? = nil,
+        grants: [ToolApprovalGrant] = [],
         requestedBy: String? = nil,
         timeoutSeconds: TimeInterval = ToolApprovalService.defaultTimeoutSeconds
     ) async -> ToolApprovalRecord {
         let now = Date()
         let record = ToolApprovalRecord(
+            approvalKind: approvalKind,
             agentId: agentId,
             sessionId: sessionId,
             channelId: channelId,
             topicId: topicId,
             tool: request.tool,
             arguments: request.arguments,
+            grants: grants,
             reason: request.reason,
             requestedBy: requestedBy,
             createdAt: now,
@@ -149,10 +153,20 @@ actor ToolApprovalService {
             "agentId": .string(record.agentId),
             "tool": .string(record.tool),
             "arguments": .object(record.arguments),
+            "grants": .array(record.grants.map { grant in
+                var object: [String: JSONValue] = [
+                    "kind": .string(grant.kind.rawValue),
+                    "tool": .string(grant.tool)
+                ]
+                if let operation = grant.operation { object["operation"] = .string(operation) }
+                if let resource = grant.resource { object["resource"] = .string(resource) }
+                return .object(object)
+            }),
             "createdAt": .string(isoFormatter.string(from: record.createdAt)),
             "updatedAt": .string(isoFormatter.string(from: record.updatedAt)),
             "expiresAt": .string(isoFormatter.string(from: record.expiresAt))
         ]
+        if let approvalKind = record.approvalKind { payload["approvalKind"] = .string(approvalKind.rawValue) }
         if let sessionId = record.sessionId { payload["sessionId"] = .string(sessionId) }
         if let channelId = record.channelId { payload["channelId"] = .string(channelId) }
         if let topicId = record.topicId { payload["topicId"] = .string(topicId) }

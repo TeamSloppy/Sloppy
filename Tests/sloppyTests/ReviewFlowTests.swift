@@ -104,6 +104,53 @@ private func makeProjectWithTask(
     return (projectID, taskID)
 }
 
+private func createGeneralExecutor(router: CoreRouter, agentID: String = "builder") async throws {
+    let actorID = "agent:\(agentID)"
+    let agentBody = try JSONEncoder().encode(
+        AgentCreateRequest(
+            id: agentID,
+            displayName: agentID.capitalized,
+            role: "Execution"
+        )
+    )
+    let agentResp = await router.handle(method: "POST", path: "/v1/agents", body: agentBody)
+    #expect(agentResp.status == 201)
+
+    let encoder = JSONEncoder()
+    encoder.dateEncodingStrategy = .iso8601
+    let boardBody = try encoder.encode(
+        ActorBoardUpdateRequest(
+            nodes: [
+                ActorNode(
+                    id: "human:dispatcher",
+                    displayName: "Dispatcher",
+                    kind: .human,
+                    channelId: "general"
+                ),
+                ActorNode(
+                    id: actorID,
+                    displayName: agentID.capitalized,
+                    kind: .agent,
+                    linkedAgentId: agentID,
+                    channelId: actorID
+                )
+            ],
+            links: [
+                ActorLink(
+                    id: "dispatch-\(agentID)-task",
+                    sourceActorId: "human:dispatcher",
+                    targetActorId: actorID,
+                    direction: .oneWay,
+                    communicationType: .task
+                )
+            ],
+            teams: []
+        )
+    )
+    let boardResp = await router.handle(method: "PUT", path: "/v1/actors/board", body: boardBody)
+    #expect(boardResp.status == 200)
+}
+
 // MARK: - Project Review Settings Tests
 
 @Test
@@ -334,6 +381,7 @@ func worktreeCreationFailureBlocksTaskBeforeWorkerLaunch() async throws {
     let router = CoreRouter(service: service)
     let decoder = JSONDecoder()
     decoder.dateDecodingStrategy = .iso8601
+    try await createGeneralExecutor(router: router)
 
     let projectID = "worktree-fail-\(UUID().uuidString)"
     let createBody = try JSONEncoder().encode(
@@ -378,6 +426,7 @@ func projectSourceControlProviderCreatesTaskWorktreeAndIsStoredOnTask() async th
     let router = CoreRouter(service: service)
     let decoder = JSONDecoder()
     decoder.dateDecodingStrategy = .iso8601
+    try await createGeneralExecutor(router: router)
 
     let repoURL = FileManager.default.temporaryDirectory
         .appendingPathComponent("provider-route-\(UUID().uuidString)", isDirectory: true)

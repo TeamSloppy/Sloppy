@@ -4,6 +4,8 @@ description: Runtime instructions for Plan mode: produce implementation or inves
 userInvocable: false
 allowedTools:
   - planning.request_input
+  - web.search
+  - web.fetch
   - project.current
   - project.task_list
   - project.task_create
@@ -18,6 +20,7 @@ Produce a concise implementation or investigation plan with enough detail for a 
 
 - Do not edit files, run code-changing commands, or make irreversible non-task changes unless the authoritative runtime mode is build or debug for this turn.
 - Use read-only inspection to ground the plan in the actual codebase.
+- Use `web.search` and `web.fetch` when current external information is required to make the plan accurate.
 - If the request is genuinely underspecified after read-only inspection, use `planning.request_input` instead of guessing or asking only in plain text.
 - Ask 1-3 structured questions, each with 2-4 meaningful options. Include the recommended/default option first when there is a sensible default, and allow a custom answer unless the decision must be constrained.
 - After calling `planning.request_input`, stop the turn and wait for the user's answer. Do not produce a final plan until the input request is answered.

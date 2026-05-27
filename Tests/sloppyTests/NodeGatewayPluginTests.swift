@@ -31,6 +31,10 @@ private actor RecordingNodeGatewayReceiver: InboundMessageReceiver {
 
 @Test
 func persistentNodeGatewayProcessHandlesMultipleCallsAndHostRpc() async throws {
+    guard nodeIsAvailableForGatewayTests() else {
+        return
+    }
+
     let root = FileManager.default.temporaryDirectory
         .appendingPathComponent("persistent-node-gateway-\(UUID().uuidString)", isDirectory: true)
     defer { try? FileManager.default.removeItem(at: root) }
@@ -161,4 +165,19 @@ func persistentNodeGatewayProcessHandlesMultipleCallsAndHostRpc() async throws {
     #expect(lines.contains(#"{"event":"stream.update","content":"partial"}"#))
     #expect(lines.contains(#"{"event":"stream.end","content":"final"}"#))
     #expect(lines.contains(#"{"event":"stop"}"#))
+}
+
+private func nodeIsAvailableForGatewayTests() -> Bool {
+    let process = Process()
+    process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+    process.arguments = ["node", "--version"]
+    process.standardOutput = Pipe()
+    process.standardError = Pipe()
+    do {
+        try process.run()
+        process.waitUntilExit()
+        return process.terminationStatus == 0
+    } catch {
+        return false
+    }
 }

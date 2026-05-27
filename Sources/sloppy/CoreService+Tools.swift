@@ -74,7 +74,7 @@ extension CoreService {
             )
         }
 
-        let authorization: ToolAuthorizationDecision
+        var authorization: ToolAuthorizationDecision
         do {
             authorization = try await toolsAuthorization.authorize(
                 agentID: normalizedAgentID,
@@ -107,6 +107,49 @@ extension CoreService {
             )
         }
 
+        var missingAccessApprovalGranted = false
+        if !authorization.allowed,
+           isToolApprovalAllowedForSession(
+            agentID: normalizedAgentID,
+            sessionID: normalizedSessionID,
+            channelID: nil,
+            toolID: trimmedToolID
+           ) {
+            authorization = ToolAuthorizationDecision(
+                allowed: true,
+                policy: applyApprovalGrants(
+                    [ToolApprovalGrant(kind: .tool, tool: trimmedToolID)],
+                    to: authorization.policy,
+                    matchingToolID: trimmedToolID
+                ),
+                error: nil
+            )
+        }
+        if !authorization.allowed,
+           authorization.error?.code == "tool_forbidden",
+           let accessState = await requestMissingAccessApprovalIfNeeded(
+            agentID: normalizedAgentID,
+            sessionID: normalizedSessionID,
+            channelID: nil,
+            topicID: nil,
+            request: request,
+            grants: [ToolApprovalGrant(kind: .tool, tool: trimmedToolID)] + missingDirectoryApprovalGrants(
+                for: request,
+                policy: authorization.policy,
+                currentDirectoryURL: nil
+            )
+           ) {
+            if let deniedResult = toolApprovalDeniedResult(tool: request.tool, approval: accessState.result) {
+                return deniedResult
+            }
+            authorization = ToolAuthorizationDecision(
+                allowed: true,
+                policy: applyApprovalGrants(accessState.grants, to: authorization.policy, matchingToolID: trimmedToolID),
+                error: nil
+            )
+            missingAccessApprovalGranted = true
+        }
+
         if authorization.allowed,
            let allowOverlay = sessionSubagentToolAllowList[normalizedSessionID],
            !allowOverlay.isEmpty,
@@ -136,6 +179,16 @@ extension CoreService {
         )
 
         var effectivePolicy = authorization.policy
+        let approvalSessionGrants = sessionApprovalGrants(
+            agentID: normalizedAgentID,
+            sessionID: normalizedSessionID,
+            channelID: nil
+        )
+        effectivePolicy = applyApprovalGrants(
+            approvalSessionGrants,
+            to: effectivePolicy,
+            matchingToolID: trimmedToolID
+        )
         if authorization.allowed,
            !sessionToolContext.extraRoots.isEmpty {
             effectivePolicy.guardrails.allowedExecRoots += sessionToolContext.extraRoots
@@ -151,6 +204,34 @@ extension CoreService {
         }
 
         var effectiveRequest = request
+        if authorization.allowed {
+            let missingGrants = missingDirectoryApprovalGrants(
+                for: request,
+                policy: effectivePolicy,
+                currentDirectoryURL: currentDirectoryURL
+            )
+            if !missingGrants.isEmpty,
+               let accessState = await requestMissingAccessApprovalIfNeeded(
+                agentID: normalizedAgentID,
+                sessionID: normalizedSessionID,
+                channelID: nil,
+                topicID: nil,
+                request: request,
+                grants: missingGrants
+               ) {
+                if let deniedResult = toolApprovalDeniedResult(tool: request.tool, approval: accessState.result) {
+                    return deniedResult
+                }
+                effectivePolicy = applyApprovalGrants(accessState.grants, to: effectivePolicy, matchingToolID: trimmedToolID)
+                missingAccessApprovalGranted = true
+            } else if matchingSessionDirectoryApprovalGrant(
+                in: approvalSessionGrants,
+                for: request,
+                currentDirectoryURL: currentDirectoryURL
+            ) {
+                missingAccessApprovalGranted = true
+            }
+        }
         var preHookBlockedResult: ToolInvocationResult?
         if authorization.allowed {
             switch await toolPreHookService.evaluate(
@@ -249,7 +330,7 @@ extension CoreService {
                         channelID: nil,
                         topicID: nil,
                         request: effectiveRequest,
-                        requireApproval: requireApproval || effectivePolicy.approval.enabled
+                        requireApproval: !missingAccessApprovalGranted && (requireApproval || effectivePolicy.approval.enabled)
                     ), let deniedResult = toolApprovalDeniedResult(tool: effectiveRequest.tool, approval: approval) {
                         result = deniedResult
                         break
@@ -430,7 +511,7 @@ extension CoreService {
             )
         }
 
-        let authorization: ToolAuthorizationDecision
+        var authorization: ToolAuthorizationDecision
         do {
             authorization = try await toolsAuthorization.authorize(agentID: normalizedAgentID, toolID: request.tool)
         } catch {
@@ -463,7 +544,60 @@ extension CoreService {
             )
         }
 
+        var missingAccessApprovalGranted = false
+        if !authorization.allowed,
+           isToolApprovalAllowedForSession(
+            agentID: normalizedAgentID,
+            sessionID: nil,
+            channelID: channelID,
+            toolID: trimmedToolID
+           ) {
+            authorization = ToolAuthorizationDecision(
+                allowed: true,
+                policy: applyApprovalGrants(
+                    [ToolApprovalGrant(kind: .tool, tool: trimmedToolID)],
+                    to: authorization.policy,
+                    matchingToolID: trimmedToolID
+                ),
+                error: nil
+            )
+        }
+        if !authorization.allowed,
+           authorization.error?.code == "tool_forbidden",
+           let accessState = await requestMissingAccessApprovalIfNeeded(
+            agentID: normalizedAgentID,
+            sessionID: nil,
+            channelID: channelID,
+            topicID: topicID,
+            request: request,
+            grants: [ToolApprovalGrant(kind: .tool, tool: trimmedToolID)] + missingDirectoryApprovalGrants(
+                for: request,
+                policy: authorization.policy,
+                currentDirectoryURL: nil
+            )
+           ) {
+            if let deniedResult = toolApprovalDeniedResult(tool: request.tool, approval: accessState.result) {
+                return deniedResult
+            }
+            authorization = ToolAuthorizationDecision(
+                allowed: true,
+                policy: applyApprovalGrants(accessState.grants, to: authorization.policy, matchingToolID: trimmedToolID),
+                error: nil
+            )
+            missingAccessApprovalGranted = true
+        }
+
         var effectivePolicy = authorization.policy
+        let approvalSessionGrants = sessionApprovalGrants(
+            agentID: normalizedAgentID,
+            sessionID: nil,
+            channelID: channelID
+        )
+        effectivePolicy = applyApprovalGrants(
+            approvalSessionGrants,
+            to: effectivePolicy,
+            matchingToolID: trimmedToolID
+        )
         let channelToolContext = await toolContextForChannel(channelID: channelID)
         if authorization.allowed, !channelToolContext.extraRoots.isEmpty {
             effectivePolicy.guardrails.allowedExecRoots += channelToolContext.extraRoots
@@ -474,6 +608,34 @@ extension CoreService {
         }
 
         var effectiveRequest = request
+        if authorization.allowed {
+            let missingGrants = missingDirectoryApprovalGrants(
+                for: request,
+                policy: effectivePolicy,
+                currentDirectoryURL: currentDirectoryURL
+            )
+            if !missingGrants.isEmpty,
+               let accessState = await requestMissingAccessApprovalIfNeeded(
+                agentID: normalizedAgentID,
+                sessionID: nil,
+                channelID: channelID,
+                topicID: topicID,
+                request: request,
+                grants: missingGrants
+               ) {
+                if let deniedResult = toolApprovalDeniedResult(tool: request.tool, approval: accessState.result) {
+                    return deniedResult
+                }
+                effectivePolicy = applyApprovalGrants(accessState.grants, to: effectivePolicy, matchingToolID: trimmedToolID)
+                missingAccessApprovalGranted = true
+            } else if matchingSessionDirectoryApprovalGrant(
+                in: approvalSessionGrants,
+                for: request,
+                currentDirectoryURL: currentDirectoryURL
+            ) {
+                missingAccessApprovalGranted = true
+            }
+        }
         var preHookBlockedResult: ToolInvocationResult?
         if authorization.allowed {
             switch await toolPreHookService.evaluate(
@@ -532,7 +694,7 @@ extension CoreService {
                         channelID: channelID,
                         topicID: topicID,
                         request: effectiveRequest,
-                        requireApproval: requireApproval || effectivePolicy.approval.enabled
+                        requireApproval: !missingAccessApprovalGranted && (requireApproval || effectivePolicy.approval.enabled)
                     ), let deniedResult = toolApprovalDeniedResult(tool: effectiveRequest.tool, approval: approval) {
                         result = deniedResult
                         break
@@ -583,6 +745,176 @@ extension CoreService {
             )
         }
 
+        return result
+    }
+
+    private struct MissingAccessApprovalState {
+        var result: ToolApprovalWaitResult
+        var grants: [ToolApprovalGrant]
+    }
+
+    private func requestMissingAccessApprovalIfNeeded(
+        agentID: String,
+        sessionID: String?,
+        channelID: String?,
+        topicID: String?,
+        request: ToolInvocationRequest,
+        grants: [ToolApprovalGrant]
+    ) async -> MissingAccessApprovalState? {
+        let normalizedGrants = normalizedMissingAccessGrants(grants)
+        guard !normalizedGrants.isEmpty else {
+            return nil
+        }
+        let result = await requestMissingAccessApproval(
+            agentID: agentID,
+            sessionID: sessionID,
+            channelID: channelID,
+            topicID: topicID,
+            request: request,
+            grants: normalizedGrants
+        )
+        return MissingAccessApprovalState(result: result, grants: normalizedGrants)
+    }
+
+    private func missingDirectoryApprovalGrants(
+        for request: ToolInvocationRequest,
+        policy: AgentToolsPolicy,
+        currentDirectoryURL: URL?
+    ) -> [ToolApprovalGrant] {
+        let toolID = request.tool.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard let requirement = directoryAccessRequirement(for: toolID, arguments: request.arguments) else {
+            return []
+        }
+        let rawPath = request.arguments[requirement.argumentName]?.asString?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !rawPath.isEmpty else {
+            return []
+        }
+        let extraRoots = requirement.operation == "exec"
+            ? policy.guardrails.allowedExecRoots
+            : policy.guardrails.allowedWriteRoots
+        if resolveToolPath(
+            rawPath,
+            workspaceRootURL: workspaceRootURL,
+            currentDirectoryURL: currentDirectoryURL,
+            extraRoots: extraRoots
+        ) != nil {
+            return []
+        }
+        let requestedURL = unrestrictedToolPath(rawPath, currentDirectoryURL: currentDirectoryURL)
+        let resource = approvalDirectoryResource(for: requestedURL, operation: requirement.operation)
+        return [
+            ToolApprovalGrant(
+                kind: .directory,
+                tool: toolID,
+                operation: requirement.operation,
+                resource: resource
+            )
+        ]
+    }
+
+    private func matchingSessionDirectoryApprovalGrant(
+        in grants: [ToolApprovalGrant],
+        for request: ToolInvocationRequest,
+        currentDirectoryURL: URL?
+    ) -> Bool {
+        let toolID = request.tool.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard let requirement = directoryAccessRequirement(for: toolID, arguments: request.arguments) else {
+            return false
+        }
+        let rawPath = request.arguments[requirement.argumentName]?.asString?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !rawPath.isEmpty else {
+            return false
+        }
+        let requestedURL = unrestrictedToolPath(rawPath, currentDirectoryURL: currentDirectoryURL)
+        return normalizedMissingAccessGrants(grants).contains { grant in
+            guard grant.kind == .directory,
+                  grant.tool == toolID,
+                  grant.operation == requirement.operation,
+                  let resource = grant.resource else {
+                return false
+            }
+            return isToolPath(requestedURL.path, withinRoot: resource)
+        }
+    }
+
+    private func directoryAccessRequirement(
+        for toolID: String,
+        arguments: [String: JSONValue]
+    ) -> (argumentName: String, operation: String)? {
+        switch toolID {
+        case "files.read", "files.list":
+            return ("path", "read")
+        case "files.grep":
+            let path = arguments["path"]?.asString?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "."
+            guard !path.isEmpty, path != "." else {
+                return nil
+            }
+            return ("path", "read")
+        case "files.write", "files.edit":
+            return ("path", "write")
+        case "runtime.exec":
+            let cwd = arguments["cwd"]?.asString?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            guard !cwd.isEmpty else {
+                return nil
+            }
+            return ("cwd", "exec")
+        case "runtime.process":
+            let action = arguments["action"]?.asString?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() ?? "list"
+            let cwd = arguments["cwd"]?.asString?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            guard action == "start", !cwd.isEmpty else {
+                return nil
+            }
+            return ("cwd", "exec")
+        default:
+            return nil
+        }
+    }
+
+    private func unrestrictedToolPath(_ rawPath: String, currentDirectoryURL: URL?) -> URL {
+        let trimmed = rawPath.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.hasPrefix("/") {
+            return URL(fileURLWithPath: trimmed).resolvingSymlinksInPath().standardizedFileURL
+        }
+        let baseURL = currentDirectoryURL ?? workspaceRootURL
+        return baseURL.appendingPathComponent(trimmed).resolvingSymlinksInPath().standardizedFileURL
+    }
+
+    private func approvalDirectoryResource(for url: URL, operation: String) -> String {
+        let standardized = url.standardizedFileURL
+        if operation == "exec" {
+            return standardized.path
+        }
+        var isDirectory: ObjCBool = false
+        if FileManager.default.fileExists(atPath: standardized.path, isDirectory: &isDirectory) {
+            return isDirectory.boolValue ? standardized.path : standardized.deletingLastPathComponent().path
+        }
+        return standardized.deletingLastPathComponent().path
+    }
+
+    private func isToolPath(_ path: String, withinRoot root: String) -> Bool {
+        let resolvedPath = URL(fileURLWithPath: path).resolvingSymlinksInPath().standardizedFileURL.path
+        let resolvedRoot = URL(fileURLWithPath: root).resolvingSymlinksInPath().standardizedFileURL.path
+        let rootPrefix = resolvedRoot.hasSuffix("/") ? resolvedRoot : resolvedRoot + "/"
+        return resolvedPath == resolvedRoot || resolvedPath.hasPrefix(rootPrefix)
+    }
+
+    private func normalizedMissingAccessGrants(_ grants: [ToolApprovalGrant]) -> [ToolApprovalGrant] {
+        var seen = Set<ToolApprovalGrant>()
+        var result: [ToolApprovalGrant] = []
+        for grant in grants {
+            let normalized = ToolApprovalGrant(
+                kind: grant.kind,
+                tool: grant.tool.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
+                operation: grant.operation?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
+                resource: grant.resource.map {
+                    URL(fileURLWithPath: $0.trimmingCharacters(in: .whitespacesAndNewlines)).standardizedFileURL.path
+                }
+            )
+            guard !normalized.tool.isEmpty, seen.insert(normalized).inserted else {
+                continue
+            }
+            result.append(normalized)
+        }
         return result
     }
 

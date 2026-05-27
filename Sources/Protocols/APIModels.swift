@@ -2924,15 +2924,46 @@ public enum ToolApprovalStatus: String, Codable, Sendable, Equatable, CaseIterab
     case timedOut = "timed_out"
 }
 
+public enum ToolApprovalKind: String, Codable, Sendable, Equatable, Hashable, CaseIterable {
+    case riskyTool = "risky_tool"
+    case missingAccess = "missing_access"
+}
+
+public enum ToolApprovalGrantKind: String, Codable, Sendable, Equatable, Hashable, CaseIterable {
+    case tool
+    case directory
+}
+
+public struct ToolApprovalGrant: Codable, Sendable, Equatable, Hashable {
+    public var kind: ToolApprovalGrantKind
+    public var tool: String
+    public var operation: String?
+    public var resource: String?
+
+    public init(
+        kind: ToolApprovalGrantKind,
+        tool: String,
+        operation: String? = nil,
+        resource: String? = nil
+    ) {
+        self.kind = kind
+        self.tool = tool
+        self.operation = operation
+        self.resource = resource
+    }
+}
+
 public struct ToolApprovalRecord: Codable, Sendable, Equatable, Identifiable {
     public var id: String
     public var status: ToolApprovalStatus
+    public var approvalKind: ToolApprovalKind?
     public var agentId: String
     public var sessionId: String?
     public var channelId: String?
     public var topicId: String?
     public var tool: String
     public var arguments: [String: JSONValue]
+    public var grants: [ToolApprovalGrant]
     public var reason: String?
     public var requestedBy: String?
     public var decidedBy: String?
@@ -2940,15 +2971,36 @@ public struct ToolApprovalRecord: Codable, Sendable, Equatable, Identifiable {
     public var updatedAt: Date
     public var expiresAt: Date
 
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case status
+        case approvalKind
+        case agentId
+        case sessionId
+        case channelId
+        case topicId
+        case tool
+        case arguments
+        case grants
+        case reason
+        case requestedBy
+        case decidedBy
+        case createdAt
+        case updatedAt
+        case expiresAt
+    }
+
     public init(
         id: String = UUID().uuidString,
         status: ToolApprovalStatus = .pending,
+        approvalKind: ToolApprovalKind? = nil,
         agentId: String,
         sessionId: String? = nil,
         channelId: String? = nil,
         topicId: String? = nil,
         tool: String,
         arguments: [String: JSONValue] = [:],
+        grants: [ToolApprovalGrant] = [],
         reason: String? = nil,
         requestedBy: String? = nil,
         decidedBy: String? = nil,
@@ -2958,18 +3010,40 @@ public struct ToolApprovalRecord: Codable, Sendable, Equatable, Identifiable {
     ) {
         self.id = id
         self.status = status
+        self.approvalKind = approvalKind
         self.agentId = agentId
         self.sessionId = sessionId
         self.channelId = channelId
         self.topicId = topicId
         self.tool = tool
         self.arguments = arguments
+        self.grants = grants
         self.reason = reason
         self.requestedBy = requestedBy
         self.decidedBy = decidedBy
         self.createdAt = createdAt
         self.updatedAt = updatedAt
         self.expiresAt = expiresAt
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.id = try container.decode(String.self, forKey: .id)
+        self.status = try container.decode(ToolApprovalStatus.self, forKey: .status)
+        self.approvalKind = try container.decodeIfPresent(ToolApprovalKind.self, forKey: .approvalKind)
+        self.agentId = try container.decode(String.self, forKey: .agentId)
+        self.sessionId = try container.decodeIfPresent(String.self, forKey: .sessionId)
+        self.channelId = try container.decodeIfPresent(String.self, forKey: .channelId)
+        self.topicId = try container.decodeIfPresent(String.self, forKey: .topicId)
+        self.tool = try container.decode(String.self, forKey: .tool)
+        self.arguments = try container.decodeIfPresent([String: JSONValue].self, forKey: .arguments) ?? [:]
+        self.grants = try container.decodeIfPresent([ToolApprovalGrant].self, forKey: .grants) ?? []
+        self.reason = try container.decodeIfPresent(String.self, forKey: .reason)
+        self.requestedBy = try container.decodeIfPresent(String.self, forKey: .requestedBy)
+        self.decidedBy = try container.decodeIfPresent(String.self, forKey: .decidedBy)
+        self.createdAt = try container.decode(Date.self, forKey: .createdAt)
+        self.updatedAt = try container.decode(Date.self, forKey: .updatedAt)
+        self.expiresAt = try container.decode(Date.self, forKey: .expiresAt)
     }
 }
 

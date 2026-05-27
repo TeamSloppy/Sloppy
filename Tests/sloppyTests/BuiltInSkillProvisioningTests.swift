@@ -45,6 +45,12 @@ func coreServiceCreateAgentInstallsBuiltInTaskSpecSkill() async throws {
     #expect(modePlan.name == "mode-plan")
     #expect(modePlan.userInvocable == false)
     #expect(modePlan.allowedTools.contains("planning.request_input"))
+    #expect(modePlan.allowedTools.contains("web.search"))
+    #expect(modePlan.allowedTools.contains("web.fetch"))
+
+    let modeAsk = try #require(response.skills.first { $0.id == BuiltInSkillCatalog.modeAskID })
+    #expect(modeAsk.allowedTools.contains("web.search"))
+    #expect(modeAsk.allowedTools.contains("web.fetch"))
 }
 
 @Test
