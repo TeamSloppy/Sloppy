@@ -75,3 +75,20 @@ func tuiHitRegionMatchesOnlyBoundedCells() {
     #expect(!region.contains(.init(row: 3, column: 10)))
     #expect(!region.contains(.init(row: 2, column: 4)))
 }
+
+@Test
+func tuiScrollRegionMatchesOnlyBoundedCells() {
+    let region = SloppyTUIScrollRegion(
+        startRow: 2,
+        endRow: 6,
+        startColumn: 4,
+        endColumn: 10,
+        target: .commandPalette
+    )
+
+    #expect(region.contains(.init(row: 2, column: 4)))
+    #expect(region.contains(.init(row: 5, column: 9)))
+    #expect(!region.contains(.init(row: 6, column: 9)))
+    #expect(!region.contains(.init(row: 5, column: 10)))
+    #expect(!region.contains(.init(row: 1, column: 4)))
+}

@@ -83,6 +83,29 @@ struct SloppyTUIHitRegion: Equatable {
     }
 }
 
+enum SloppyTUIScrollTarget: Equatable {
+    case activePicker
+    case commandPalette
+    case projectFile
+    case projectTask
+    case sessionList
+}
+
+struct SloppyTUIScrollRegion: Equatable {
+    var startRow: Int
+    var endRow: Int
+    var startColumn: Int
+    var endColumn: Int
+    var target: SloppyTUIScrollTarget
+
+    func contains(_ cell: SloppyTUIScreenCell) -> Bool {
+        cell.row >= startRow
+            && cell.row < endRow
+            && cell.column >= startColumn
+            && cell.column < endColumn
+    }
+}
+
 enum SloppyTUIClipboard {
     static func copy(_ text: String) -> Bool {
         #if canImport(AppKit)

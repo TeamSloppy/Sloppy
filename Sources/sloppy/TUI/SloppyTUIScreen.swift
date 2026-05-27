@@ -409,6 +409,7 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
     private var backgroundSessionTasks: [String: Task<Void, Never>] = [:]
     private var postingSessionIDs: Set<String> = []
     private var hitRegions: [SloppyTUIHitRegion] = []
+    private var scrollRegions: [SloppyTUIScrollRegion] = []
     private var selectionState = SloppyTUISelectionState()
     private var mouseHoverCell: SloppyTUIScreenCell?
     private var mouseHoverRegion: SloppyTUIHitRegion?
@@ -547,6 +548,7 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
 
     func render(width: Int) -> [String] {
         hitRegions.removeAll(keepingCapacity: true)
+        scrollRegions.removeAll(keepingCapacity: true)
         terminal?.setMouseReportingEnabled(true)
         let height = max(terminal?.rows ?? 24, 12)
         let lines = renderBaseScreen(width: width, height: height)
@@ -637,6 +639,8 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
 
         let cell = SloppyTUIScreenCell(row: event.row, column: event.column)
         switch event.phase {
+        case .scroll:
+            return handleMouseWheel(event, at: cell)
         case .move:
             updateMouseHover(at: cell)
             return true
@@ -674,9 +678,76 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
             }
             performHitAction(action)
             return true
-        case .scroll:
+        }
+    }
+
+    private func handleMouseWheel(_ event: TerminalMouseEvent, at cell: SloppyTUIScreenCell) -> Bool {
+        let delta: Int
+        switch event.button {
+        case .wheelUp:
+            delta = -3
+        case .wheelDown:
+            delta = 3
+        default:
             return false
         }
+        let target = scrollRegion(at: cell)?.target ?? hitRegion(at: cell).flatMap { scrollTarget(for: $0.action) }
+        return scrollList(target, by: delta)
+    }
+
+    private func scrollList(_ target: SloppyTUIScrollTarget?, by delta: Int) -> Bool {
+        guard let target else { return false }
+        switch target {
+        case .activePicker:
+            guard var picker = activePicker, !picker.items.isEmpty else { return true }
+            picker.selectedIndex = clampedListSelection(picker.selectedIndex + delta, count: picker.items.count)
+            activePicker = picker
+            requestRender()
+            return true
+        case .commandPalette:
+            let commands = commandPaletteSuggestions()
+            guard !commands.isEmpty else { return true }
+            commandPaletteSelection = clampedListSelection(commandPaletteSelection + delta, count: commands.count)
+            requestRender()
+            return true
+        case .projectFile:
+            guard let picker = projectFileSearchPicker(), !picker.items.isEmpty else { return true }
+            projectFileSearchSelection = clampedListSelection(projectFileSearchSelection + delta, count: picker.items.count)
+            requestRender()
+            return true
+        case .projectTask:
+            guard let picker = projectTaskSearchPicker(), !picker.items.isEmpty else { return true }
+            projectTaskSearchSelection = clampedListSelection(projectTaskSearchSelection + delta, count: picker.items.count)
+            requestRender()
+            return true
+        case .sessionList:
+            guard !sessionListEntries.isEmpty else { return true }
+            sessionListSelectedIndex = clampedListSelection(sessionListSelectedIndex + delta, count: sessionListEntries.count)
+            requestRender()
+            return true
+        }
+    }
+
+    private func scrollTarget(for action: SloppyTUIHitAction) -> SloppyTUIScrollTarget? {
+        switch action {
+        case .activePicker:
+            return .activePicker
+        case .commandPalette:
+            return .commandPalette
+        case .projectFile:
+            return .projectFile
+        case .projectTask:
+            return .projectTask
+        case .sessionList:
+            return .sessionList
+        case .reasoningEffort, .scrollbackMode, .toggleTranscript, .openSubSession:
+            return nil
+        }
+    }
+
+    private func clampedListSelection(_ index: Int, count: Int) -> Int {
+        guard count > 0 else { return 0 }
+        return max(0, min(count - 1, index))
     }
 
     private func updateMouseHover(at cell: SloppyTUIScreenCell) {
@@ -691,6 +762,10 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
 
     private func hitRegion(at cell: SloppyTUIScreenCell) -> SloppyTUIHitRegion? {
         hitRegions.last { $0.contains(cell) }
+    }
+
+    private func scrollRegion(at cell: SloppyTUIScreenCell) -> SloppyTUIScrollRegion? {
+        scrollRegions.last { $0.contains(cell) }
     }
 
     private func copySelectedText(in range: SloppyTUITextSelectionRange) {
@@ -873,11 +948,24 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
         case .side:
             listWidth = min(max(36, width / 3), min(72, max(1, width - 24)))
         }
+        registerScrollRegion(
+            startRow: 0,
+            endRow: height,
+            startColumn: 0,
+            endColumn: listWidth,
+            target: .sessionList
+        )
         registerSessionListHitRegions(startRow: 0, startColumn: 0, width: listWidth, height: height)
     }
 
     private func registerComposerHitRegions(startRow: Int, width: Int) {
         if let picker = activePicker {
+            registerPickerScrollRegion(
+                picker: picker,
+                startRow: startRow,
+                width: width,
+                target: .activePicker
+            )
             registerPickerHitRegions(
                 picker: picker,
                 startRow: startRow,
@@ -901,8 +989,15 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
                 action: { .scrollbackMode(index: $0) }
             )
         } else if commandPaletteVisible {
+            registerCommandPaletteScrollRegion(startRow: startRow, width: width)
             registerCommandPaletteHitRegions(startRow: startRow, width: width)
         } else if let picker = projectTaskSearchPicker() {
+            registerPickerScrollRegion(
+                picker: picker,
+                startRow: startRow,
+                width: width,
+                target: .projectTask
+            )
             registerPickerHitRegions(
                 picker: picker,
                 startRow: startRow,
@@ -910,6 +1005,12 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
                 action: { .projectTask(index: $0) }
             )
         } else if let picker = projectFileSearchPicker() {
+            registerPickerScrollRegion(
+                picker: picker,
+                startRow: startRow,
+                width: width,
+                target: .projectFile
+            )
             registerPickerHitRegions(
                 picker: picker,
                 startRow: startRow,
@@ -917,6 +1018,69 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
                 action: { .projectFile(index: $0) }
             )
         }
+    }
+
+    private func registerCommandPaletteScrollRegion(startRow: Int, width: Int) {
+        let commands = commandPaletteSuggestions()
+        guard !commands.isEmpty else { return }
+        let paletteWidth = max(1, min(max(1, width - 4), 96))
+        let left = max(0, (width - paletteWidth) / 2)
+        let visibleCount = max(1, min(9, commands.count))
+        let rowCount = visibleCount + (commands.count > visibleCount ? 1 : 0)
+        registerScrollRegion(
+            startRow: startRow,
+            endRow: startRow + rowCount,
+            startColumn: left,
+            endColumn: left + paletteWidth,
+            target: .commandPalette
+        )
+    }
+
+    private func registerPickerScrollRegion(
+        picker: SloppyTUIPicker,
+        startRow: Int,
+        width: Int,
+        target: SloppyTUIScrollTarget
+    ) {
+        let paletteWidth = max(1, min(max(1, width - 4), 96))
+        let left = max(0, (width - paletteWidth) / 2)
+        let visibleCount = max(1, min(9, picker.items.count))
+        var rowCount = 1
+        if picker.supportsSearch {
+            rowCount += 1
+        }
+        rowCount += visiblePickerRowCount(picker: picker, visibleCount: visibleCount)
+        if picker.items.count > visibleCount {
+            rowCount += 1
+        }
+        registerScrollRegion(
+            startRow: startRow,
+            endRow: startRow + rowCount,
+            startColumn: left,
+            endColumn: left + paletteWidth,
+            target: target
+        )
+    }
+
+    private func visiblePickerRowCount(picker: SloppyTUIPicker, visibleCount: Int) -> Int {
+        guard !picker.items.isEmpty else {
+            return picker.supportsSearch ? 1 : 0
+        }
+        let start = max(0, min(picker.selectedIndex - visibleCount / 2, picker.items.count - visibleCount))
+        let end = min(picker.items.count, start + visibleCount)
+        var rowCount = 0
+        var lastGroup: String?
+        for index in start..<end {
+            let item = picker.items[index]
+            if let group = item.group?.trimmingCharacters(in: .whitespacesAndNewlines),
+               !group.isEmpty,
+               group != lastGroup {
+                rowCount += 1
+                lastGroup = group
+            }
+            rowCount += 1
+        }
+        return rowCount
     }
 
     private func registerCommandPaletteHitRegions(startRow: Int, width: Int) {
@@ -1046,6 +1210,23 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
             startColumn: max(0, startColumn),
             endColumn: max(startColumn + 1, endColumn),
             action: action
+        ))
+    }
+
+    private func registerScrollRegion(
+        startRow: Int,
+        endRow: Int,
+        startColumn: Int,
+        endColumn: Int,
+        target: SloppyTUIScrollTarget
+    ) {
+        guard startRow >= 0, endRow > startRow, endColumn > startColumn else { return }
+        scrollRegions.append(SloppyTUIScrollRegion(
+            startRow: startRow,
+            endRow: endRow,
+            startColumn: max(0, startColumn),
+            endColumn: max(startColumn + 1, endColumn),
+            target: target
         ))
     }
 
@@ -1247,6 +1428,9 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
 
     private func handleActivePicker(input: TerminalInput) -> Bool {
         guard var picker = activePicker else { return false }
+        if case let .mouse(event) = input, event.phase == .scroll {
+            return false
+        }
         if picker.supportsSearch, case .paste(let text) = input {
             for character in text where !character.isNewline {
                 picker.appendSearchCharacter(character)

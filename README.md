@@ -15,6 +15,43 @@
 
 Sloppy is a multi-agent runtime for building operator-visible AI workflows in Swift 6 on macOS and Linux. It combines a rule-based orchestration core, branch and worker execution, persistent runtime state, model/provider plugins, channel integrations, a terminal UI, and a React dashboard for observing what the system is doing.
 
+## 🖼️ Gallery
+
+See Sloppy as operators experience it: a shared control plane for chatting with agents, tracking projects and tasks, and steering work from desktop or mobile.
+
+<table>
+  <tr>
+    <td width="50%">
+      <img src="Assets/gallery/sloppy-dashboard-overview.png" alt="Sloppy dashboard overview" />
+      <br />
+      <sub><strong>Runtime overview</strong> — channels, activity, and operator-visible state in one place.</sub>
+    </td>
+    <td width="50%">
+      <img src="Assets/gallery/sloppy-dashboard-chat.png" alt="Sloppy dashboard chat with an agent" />
+      <br />
+      <sub><strong>Agent chat</strong> — project-aware conversations with tool-driven execution.</sub>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%">
+      <img src="Assets/gallery/sloppy-dashboard-projects.png" alt="Sloppy dashboard project workspace" />
+      <br />
+      <sub><strong>Project workspace</strong> — organize channels, actors, and work context.</sub>
+    </td>
+    <td width="50%">
+      <img src="Assets/gallery/sloppy-dashboard-tasks.png" alt="Sloppy dashboard task board" />
+      <br />
+      <sub><strong>Task board</strong> — plan, execute, and audit autonomous work.</sub>
+    </td>
+  </tr>
+</table>
+
+<p align="center">
+  <img src="Assets/gallery/sloppy-mobile-client.png" alt="Sloppy mobile client" width="360" />
+  <br />
+  <sub><strong>Mobile control</strong> — keep your agents reachable from your phone.</sub>
+</p>
+
 ## 🎯 Sloppy is right for you if
 
 ✅ You vibe-code and want AI agents that handle the boring stuff while you focus on ideas
