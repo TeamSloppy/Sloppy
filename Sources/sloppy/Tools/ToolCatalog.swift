@@ -567,6 +567,11 @@ enum ToolCatalog {
                 "actorId": .object(["type": .string("string")]),
                 "teamId": .object(["type": .string("string")]),
                 "selectedModel": .object(["type": .string("string")]),
+                "tags": .object([
+                    "type": .string("array"),
+                    "items": .object(["type": .string("string")])
+                ]),
+                "changedBy": .object(["type": .string("string")]),
                 "projectId": .object(["type": .string("string")]),
                 "channelId": .object(["type": .string("string")]),
                 "topicId": .object(["type": .string("string")])

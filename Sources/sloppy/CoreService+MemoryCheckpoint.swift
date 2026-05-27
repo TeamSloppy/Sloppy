@@ -9,6 +9,7 @@ extension CoreService {
 
     static let memoryCheckpointToolAllowlist: Set<String> = [
         "visor.status",
+        "memory.search",
         "memory.save",
         "agent.documents.set_user_markdown",
         "agent.documents.set_memory_markdown",
@@ -37,7 +38,7 @@ extension CoreService {
         guard let parsed = Self.parseAgentSessionChannelId(event.channelId) else { return }
         guard let agentID = normalizedAgentID(parsed.agentID),
               let sessionID = normalizedSessionID(parsed.sessionID) else { return }
-        await runAgentMemoryCheckpoint(agentID: agentID, sessionID: sessionID, reason: "compaction_threshold")
+        scheduleAgentMemoryCheckpoint(agentID: agentID, sessionID: sessionID, reason: "compaction_threshold")
     }
 
     func handleGatewayChannelClosedForMemoryCheckpoint(_ summary: ChannelSessionSummary) async {
@@ -45,7 +46,7 @@ extension CoreService {
         guard let parsed = Self.parseAgentSessionChannelId(summary.channelId) else { return }
         guard let agentID = normalizedAgentID(parsed.agentID),
               let sessionID = normalizedSessionID(parsed.sessionID) else { return }
-        await runAgentMemoryCheckpoint(agentID: agentID, sessionID: sessionID, reason: "gateway_session_timeout")
+        scheduleAgentMemoryCheckpoint(agentID: agentID, sessionID: sessionID, reason: "gateway_session_timeout")
     }
 
     public func requestAgentMemoryCheckpoint(agentID: String, sessionID: String, reason: String?) async throws -> AgentMemoryCheckpointResponse {
@@ -238,6 +239,7 @@ extension CoreService {
 
         let uuid = UUID().uuidString.lowercased()
         let ephemeralChannelId = "agent:\(normalizedAgentID):session:\(normalizedSessionID):memory-checkpoint:\(uuid)"
+        let actionRecorder = MemoryCheckpointActionRecorder()
 
         await runtime.setChannelBootstrap(channelId: ephemeralChannelId, content: bootstrap)
 
@@ -253,22 +255,25 @@ extension CoreService {
                     )
                 )
             }
-            return await self.invokeToolFromRuntime(
+            let result = await self.invokeToolFromRuntime(
                 agentID: normalizedAgentID,
                 sessionID: normalizedSessionID,
                 request: request,
                 recordSessionEvents: false
             )
+            await actionRecorder.record(result)
+            return result
         }
 
         let userPrompt = """
-        Execute the memory checkpoint now: read visor status if useful, then update persistent memory via the allowed tools. \
+        Execute the memory checkpoint now: read visor status if useful, search existing memory before saving, then update persistent memory via the allowed tools. \
         Do not address the end user. Keep tool arguments concise. Prefer updating `agent.documents.set_memory_markdown`; \
         use `memory.save` with `scope_type: project` for durable project facts, and use `project.meta_memory_set` for \
-        durable project-wide facts that belong in the workspace-private `.meta/MEMORY.md` file.
+        durable project-wide facts that belong in the workspace-private `.meta/MEMORY.md` file. Save only durable, high-confidence information. \
+        Never save secrets, credentials, private tokens, speculative guesses, transient task status, or duplicate facts.
         """
 
-        await runtime.postMessage(
+        _ = await runtime.postMessage(
             channelId: ephemeralChannelId,
             request: ChannelMessageRequest(
                 userId: "memory_checkpoint",
@@ -282,6 +287,14 @@ extension CoreService {
         )
 
         await runtime.discardEphemeralCheckpointChannel(channelId: ephemeralChannelId)
+
+        if let review = await actionRecorder.review(reason: reason) {
+            await appendMemoryCheckpointReviewSummary(
+                agentID: normalizedAgentID,
+                sessionID: normalizedSessionID,
+                review: review
+            )
+        }
 
         do {
             try sessionStore.resetUserTurnCount(agentID: normalizedAgentID, sessionID: normalizedSessionID)
@@ -311,7 +324,7 @@ extension CoreService {
         return (try? String(contentsOf: projectMetaMemoryFileURL(projectID: normalizedID), encoding: .utf8)) ?? ""
     }
 
-    private static func formattedCheckpointTranscript(from detail: AgentSessionDetail, maxUTF16Scalars: Int) -> String {
+    static func formattedCheckpointTranscript(from detail: AgentSessionDetail, maxUTF16Scalars: Int) -> String {
         let sorted = detail.events.sorted { $0.createdAt < $1.createdAt }
         var lines: [String] = []
         for event in sorted {
@@ -365,9 +378,11 @@ extension CoreService {
         Agent: \(agentID)
         Session: \(sessionID)
 
-        Allowed tools only: `visor.status`, `memory.save`, `agent.documents.set_user_markdown`, `agent.documents.set_memory_markdown`, `project.meta_memory_set`.
+        Allowed tools only: `visor.status`, `memory.search`, `memory.save`, `agent.documents.set_user_markdown`, `agent.documents.set_memory_markdown`, `project.meta_memory_set`.
         Character limits: USER.md ≤ \(AgentMarkdownLimits.userMarkdownMaxCharacters), MEMORY.md ≤ \(AgentMarkdownLimits.memoryMarkdownMaxCharacters), `.meta/MEMORY.md` ≤ \(AgentMarkdownLimits.projectMetaMemoryMarkdownMaxCharacters).
         Project `.meta/MEMORY.md` is workspace-private at `~/.sloppy/projects/<projectId>/.meta/MEMORY.md`, not inside the source repository.
+
+        Before saving with `memory.save`, call `memory.search` in the intended scope to avoid duplicates. If a similar durable fact already exists, do not write a duplicate. If a new fact conflicts with existing memory, prefer no write unless the transcript clearly resolves the conflict.
 
         If the session is attached to a project, save durable project facts, decisions, conventions, preferences, and follow-ups with `memory.save` using:
         - `scope_type`: `project`
@@ -377,9 +392,10 @@ extension CoreService {
         - `class`: `semantic` or `procedural`
         - `source_type`: `memory_checkpoint`
         - `source_id`: `\(sessionID)`
+        - `confidence`: 0.8 or higher only when the transcript clearly supports the memory
         - `metadata`: include `agentId`, `sessionId`, and `reason`
 
-        Do not save runtime bulletins, transient status, or duplicate facts. Keep project memory writes high-signal; at most five project-scoped saves per checkpoint.
+        Do not save runtime bulletins, transient status, secrets, credentials, tokens, private URLs, low-confidence guesses, one-off task details, or duplicate facts. Keep project memory writes high-signal; at most five project-scoped saves per checkpoint. If uncertain, do not save.
 
         Projects (use `project.meta_memory_set` with a project id when appropriate):
         \(projectIndex)
@@ -407,5 +423,54 @@ extension CoreService {
         }
         let idx = text.unicodeScalars.index(text.unicodeScalars.startIndex, offsetBy: maxScalars)
         return String(text[..<idx]) + "\n…(truncated)"
+    }
+}
+
+actor MemoryCheckpointActionRecorder {
+    private var memorySaveCount = 0
+    private var userMarkdownUpdated = false
+    private var memoryMarkdownUpdated = false
+    private var projectMetaMemoryUpdated = false
+
+    func record(_ result: ToolInvocationResult) {
+        guard result.ok else { return }
+
+        switch result.tool {
+        case "memory.save":
+            memorySaveCount += 1
+        case "agent.documents.set_user_markdown":
+            userMarkdownUpdated = true
+        case "agent.documents.set_memory_markdown":
+            memoryMarkdownUpdated = true
+        case "project.meta_memory_set":
+            projectMetaMemoryUpdated = true
+        default:
+            break
+        }
+    }
+
+    func review(reason: String) -> AgentSelfImprovementReviewEvent? {
+        var actions: [String] = []
+        if memorySaveCount == 1 {
+            actions.append("1 memory saved")
+        } else if memorySaveCount > 1 {
+            actions.append("\(memorySaveCount) memories saved")
+        }
+        if userMarkdownUpdated {
+            actions.append("USER.md updated")
+        }
+        if memoryMarkdownUpdated {
+            actions.append("MEMORY.md updated")
+        }
+        if projectMetaMemoryUpdated {
+            actions.append("project memory updated")
+        }
+
+        guard !actions.isEmpty else { return nil }
+        return AgentSelfImprovementReviewEvent(
+            summary: "Self-improvement review: \(actions.joined(separator: ", "))",
+            actions: actions,
+            reason: reason
+        )
     }
 }

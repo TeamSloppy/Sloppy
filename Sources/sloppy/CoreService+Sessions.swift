@@ -467,7 +467,7 @@ extension CoreService {
                         sessionID: normalizedSessionID
                     )
                     if count >= CoreService.agentMemoryCheckpointUserTurnThreshold {
-                        await runAgentMemoryCheckpoint(
+                        scheduleAgentMemoryCheckpoint(
                             agentID: normalizedAgentID,
                             sessionID: normalizedSessionID,
                             reason: "user_turn_threshold"
@@ -480,6 +480,12 @@ extension CoreService {
                     )
                 }
             }
+            maybeScheduleSelfImprovementProposalReviewAfterTurn(
+                agentID: normalizedAgentID,
+                sessionID: normalizedSessionID,
+                response: response,
+                userID: request.userId
+            )
             return response
         } catch {
             throw mapSessionOrchestratorError(error)

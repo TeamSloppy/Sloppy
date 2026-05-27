@@ -82,7 +82,7 @@ struct AgentPromptComposer {
             if !context.installedSkills.isEmpty {
                 ""
                 "[Skills]"
-                skillsEntries
+                buildSkillsPrompt(entries: skillsEntries)
             }
             ""
             capabilities
@@ -109,6 +109,24 @@ struct AgentPromptComposer {
             ""
             documentationAwareness
         }
+    }
+
+    func buildSkillsPrompt(entries: String) -> String {
+        """
+        ## Skills (mandatory)
+        Before replying, scan the skills below. If a skill matches or is even partially relevant to your task, you MUST read it before answering and follow its instructions.
+        Err on the side of loading — it is always better to have context you do not need than to miss critical steps, pitfalls, or established workflows.
+        Skills contain specialized knowledge, tool-specific commands, proven workflows, and the user's preferred conventions and quality standards. Load the skill even if you think you could handle the task with basic tools.
+        Use `files.read` on the skill path plus `/SKILL.md`; do not proceed without loading a genuinely relevant skill.
+        If a loaded skill is missing steps, has wrong commands, or lacks pitfalls you discovered, mention that it should be updated before finishing.
+        After difficult or iterative tasks, offer to save the workflow as a skill.
+
+        <available_skills>
+        \(entries)
+        </available_skills>
+
+        Only proceed without loading a skill if genuinely none are relevant to the task.
+        """
     }
 
     func buildSkillsEntries(skills: [InstalledSkill]) -> String {

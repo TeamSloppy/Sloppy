@@ -235,6 +235,7 @@ public actor CoreService {
     var cronRunner: CronRunner?
     var heartbeatRunner: HeartbeatRunner?
     var taskSyncRunner: TaskSyncRunner?
+    var selfImprovementCuratorRunner: SelfImprovementCuratorRunner?
     var memoryOutboxIndexer: MemoryOutboxIndexer?
     var recoveryManager: RecoveryManager
     var oauthModelCache: [String: ProviderModelOption] = [:]
@@ -252,6 +253,10 @@ public actor CoreService {
     var toolApprovalSessionAllowances: [String: Set<String>] = [:]
     /// Prevents overlapping memory checkpoints per agent/session pair.
     var memoryCheckpointLocks: Set<String> = []
+    /// Prevents overlapping proposal reviews per agent/session pair.
+    var selfImprovementProposalReviewLocks: Set<String> = []
+    /// Tracks tool-result thresholds already reviewed for a session.
+    var selfImprovementProposalReviewToolBuckets: [String: Int] = [:]
     public let notificationService: NotificationService
     public let kanbanEventService: KanbanEventService
     public let pendingApprovalService: PendingApprovalService
@@ -935,7 +940,7 @@ extension CoreService: ProjectToolService {
     }
 
     func requestProjectMemoryCheckpoint(agentID: String, sessionID: String, projectID: String, taskID: String, status: String) async {
-        await runAgentMemoryCheckpoint(
+        scheduleAgentMemoryCheckpoint(
             agentID: agentID,
             sessionID: sessionID,
             reason: "project_task_\(status):\(projectID):\(taskID)"

@@ -68,6 +68,7 @@ func projectContextRefreshLoadsWorkspacePrivateMetaMemory() async throws {
 
 @Test
 func memoryCheckpointAllowsProjectMemorySaveAndMentionsWorkspaceMetaPath() {
+    #expect(CoreService.memoryCheckpointToolAllowlist.contains("memory.search"))
     #expect(CoreService.memoryCheckpointToolAllowlist.contains("memory.save"))
 
     let bootstrap = CoreService.memoryCheckpointBootstrap(
@@ -83,7 +84,11 @@ func memoryCheckpointAllowsProjectMemorySaveAndMentionsWorkspaceMetaPath() {
     )
 
     #expect(bootstrap.contains("`memory.save`"))
+    #expect(bootstrap.contains("`memory.search`"))
     #expect(bootstrap.contains("scope_type`: `project"))
+    #expect(bootstrap.contains("Before saving with `memory.save`, call `memory.search`"))
+    #expect(bootstrap.contains("secrets, credentials, tokens, private URLs"))
+    #expect(bootstrap.contains("confidence`: 0.8"))
     #expect(bootstrap.contains("~/.sloppy/projects/<projectId>/.meta/MEMORY.md"))
     #expect(bootstrap.contains("Existing workspace project memory"))
 }
@@ -119,6 +124,51 @@ func memoryCheckpointScopedProjectSaveAppearsInProjectMemories() async throws {
     decoder.dateDecodingStrategy = .iso8601
     let page = try decoder.decode(ProjectMemoryListResponse.self, from: listResponse.body)
     #expect(page.items.contains(where: { $0.id == ref.id }))
+}
+
+@Test
+func memoryCheckpointActionRecorderBuildsSummaryOnlyForWrites() async {
+    let recorder = MemoryCheckpointActionRecorder()
+
+    await recorder.record(ToolInvocationResult(tool: "memory.search", ok: true, data: .object([:])))
+    let empty = await recorder.review(reason: "test")
+    #expect(empty == nil)
+
+    await recorder.record(ToolInvocationResult(tool: "memory.save", ok: true, data: .object([:])))
+    await recorder.record(ToolInvocationResult(tool: "agent.documents.set_memory_markdown", ok: true, data: .object([:])))
+    let review = await recorder.review(reason: "test")
+
+    #expect(review?.summary == "Self-improvement review: 1 memory saved, MEMORY.md updated")
+    #expect(review?.actions == ["1 memory saved", "MEMORY.md updated"])
+}
+
+@Test
+func memoryCheckpointSummaryEventPersistsAsSelfImprovementReview() async throws {
+    let service = CoreService(config: .test, persistenceBuilder: InMemoryCorePersistenceBuilder())
+    let agentID = "review-summary-\(UUID().uuidString.prefix(8).lowercased())"
+    _ = try await service.createAgent(
+        AgentCreateRequest(id: agentID, displayName: "Review Summary", role: "Testing")
+    )
+    let session = try await service.createAgentSession(
+        agentID: agentID,
+        request: AgentSessionCreateRequest(title: "Summary")
+    )
+
+    await service.appendMemoryCheckpointReviewSummary(
+        agentID: agentID,
+        sessionID: session.id,
+        review: AgentSelfImprovementReviewEvent(
+            summary: "Self-improvement review: 1 memory saved",
+            actions: ["1 memory saved"],
+            reason: "test"
+        )
+    )
+
+    let detail = try await service.getAgentSession(agentID: agentID, sessionID: session.id)
+    let event = try #require(detail.events.last(where: { $0.type == .selfImprovementReview }))
+    #expect(event.selfImprovementReview?.summary == "Self-improvement review: 1 memory saved")
+    #expect(event.selfImprovementReview?.actions == ["1 memory saved"])
+    #expect(event.selfImprovementReview?.reason == "test")
 }
 
 @Test

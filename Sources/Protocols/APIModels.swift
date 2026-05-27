@@ -1139,6 +1139,8 @@ public struct ProjectTaskCreateRequest: Codable, Sendable {
     public var teamId: String?
     public var parentTaskId: String?
     public var selectedModel: String?
+    public var tags: [String]?
+    public var changedBy: String?
 
     public init(
         title: String,
@@ -1152,7 +1154,9 @@ public struct ProjectTaskCreateRequest: Codable, Sendable {
         actorId: String? = nil,
         teamId: String? = nil,
         parentTaskId: String? = nil,
-        selectedModel: String? = nil
+        selectedModel: String? = nil,
+        tags: [String]? = nil,
+        changedBy: String? = nil
     ) {
         self.title = title
         self.description = description
@@ -1166,6 +1170,8 @@ public struct ProjectTaskCreateRequest: Codable, Sendable {
         self.teamId = teamId
         self.parentTaskId = parentTaskId
         self.selectedModel = selectedModel
+        self.tags = tags
+        self.changedBy = changedBy
     }
 }
 
@@ -3216,6 +3222,7 @@ public enum AgentSessionEventType: String, Codable, Sendable {
     case toolResult = "tool_result"
     case inputRequest = "input_request"
     case inputResponse = "input_response"
+    case selfImprovementReview = "self_improvement_review"
 }
 
 public enum AgentMessageRole: String, Codable, Sendable {
@@ -3444,6 +3451,28 @@ public struct AgentToolResultEvent: Codable, Sendable, Equatable {
     }
 }
 
+public struct AgentSelfImprovementReviewEvent: Codable, Sendable, Equatable {
+    public var title: String
+    public var summary: String
+    public var actions: [String]
+    public var reason: String
+    public var createdAt: Date
+
+    public init(
+        title: String = "Self-improvement review",
+        summary: String,
+        actions: [String],
+        reason: String,
+        createdAt: Date = Date()
+    ) {
+        self.title = title
+        self.summary = summary
+        self.actions = actions
+        self.reason = reason
+        self.createdAt = createdAt
+    }
+}
+
 public struct PlanInputOption: Codable, Sendable, Equatable {
     public var id: String
     public var label: String
@@ -3608,6 +3637,7 @@ public struct AgentSessionEvent: Codable, Sendable, Equatable {
     public var toolResult: AgentToolResultEvent?
     public var inputRequest: PlanInputRequest?
     public var inputResponse: PlanInputResponse?
+    public var selfImprovementReview: AgentSelfImprovementReviewEvent?
 
     public init(
         id: String = UUID().uuidString,
@@ -3626,7 +3656,8 @@ public struct AgentSessionEvent: Codable, Sendable, Equatable {
         toolCall: AgentToolCallEvent? = nil,
         toolResult: AgentToolResultEvent? = nil,
         inputRequest: PlanInputRequest? = nil,
-        inputResponse: PlanInputResponse? = nil
+        inputResponse: PlanInputResponse? = nil,
+        selfImprovementReview: AgentSelfImprovementReviewEvent? = nil
     ) {
         self.id = id
         self.version = version
@@ -3645,6 +3676,7 @@ public struct AgentSessionEvent: Codable, Sendable, Equatable {
         self.toolResult = toolResult
         self.inputRequest = inputRequest
         self.inputResponse = inputResponse
+        self.selfImprovementReview = selfImprovementReview
     }
 }
 

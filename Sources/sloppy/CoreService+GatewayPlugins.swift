@@ -104,6 +104,17 @@ extension CoreService {
         if currentConfig.visor.scheduler.enabled {
             await visorScheduler?.start()
         }
+
+        if selfImprovementCuratorRunner == nil {
+            selfImprovementCuratorRunner = SelfImprovementCuratorRunner(
+                config: .weekly,
+                logger: Logger(label: "sloppy.self-improvement.curator")
+            ) { [weak self] in
+                guard let self else { return }
+                _ = await self.runScheduledSelfImprovementCurator(reason: "weekly")
+            }
+        }
+        await selfImprovementCuratorRunner?.start()
         
         if cronRunner == nil {
             cronRunner = CronRunner(
@@ -175,6 +186,7 @@ extension CoreService {
         activeGatewayPlugins.removeAll()
 
         await visorScheduler?.stop()
+        await selfImprovementCuratorRunner?.stop()
         await runtime.stopVisorSupervision()
         await memoryOutboxIndexer?.stop()
         await cronRunner?.stop()

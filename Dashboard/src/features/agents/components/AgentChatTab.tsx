@@ -1352,6 +1352,31 @@ function buildTechnicalRecord(
     };
   }
 
+  if (eventItem?.type === "self_improvement_review" && eventItem.selfImprovementReview) {
+    const review = eventItem.selfImprovementReview;
+    const title = review.title || "Self-improvement review";
+    const actions = Array.isArray(review.actions) ? review.actions.filter(Boolean) : [];
+    const detailParts = [];
+    if (review.summary) {
+      detailParts.push(review.summary);
+    }
+    if (actions.length > 0) {
+      detailParts.push(actions.map((action) => `- ${action}`).join("\n"));
+    }
+    if (review.reason) {
+      detailParts.push(`Reason: ${review.reason}`);
+    }
+
+    return {
+      id: `${eventKey}-self-improvement-review`,
+      icon: "psychology",
+      title,
+      summary: previewText(review.summary || actions.join(", "), title),
+      detail: detailParts.join("\n\n"),
+      createdAt: eventItem.createdAt || review.createdAt
+    };
+  }
+
   if (eventItem?.type === "tool_call" && eventItem.toolCall) {
     const reason = String(eventItem.toolCall.reason || "").trim();
     const argumentsText = formatStructuredData(eventItem.toolCall.arguments);

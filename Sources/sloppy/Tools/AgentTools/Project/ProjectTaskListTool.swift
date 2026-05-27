@@ -53,7 +53,8 @@ struct ProjectTaskListTool: CoreTool {
                 "priority": .string(task.priority),
                 "actorId": task.actorId.map { .string($0) } ?? .null,
                 "teamId": task.teamId.map { .string($0) } ?? .null,
-                "claimedActorId": task.claimedActorId.map { .string($0) } ?? .null
+                "claimedActorId": task.claimedActorId.map { .string($0) } ?? .null,
+                "tags": .array(task.tags.map { .string($0) })
             ])
         }
 

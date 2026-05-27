@@ -858,12 +858,26 @@ extension CoreService {
             actorId: try normalizeOptionalTaskActorID(request.actorId),
             teamId: try normalizeOptionalTaskTeamID(request.teamId),
             selectedModel: normalizeOptionalTaskSelectedModel(request.selectedModel),
+            tags: normalizeTaskTags(request.tags ?? []),
             createdAt: now,
             updatedAt: now
         )
         project.tasks.append(task)
         project.updatedAt = now
         await store.saveProject(project)
+        if let changedBy = request.changedBy?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !changedBy.isEmpty,
+           changedBy != "user" {
+            appendTaskLifecycleLog(
+                projectID: normalizedID,
+                taskID: task.id,
+                stage: "created",
+                channelID: task.originChannelId,
+                workerID: nil,
+                message: "Task created.",
+                actorID: changedBy
+            )
+        }
         await kanbanEventService.push(KanbanEvent(type: .taskCreated, projectId: normalizedID, task: task))
         await syncOutboundTaskIfNeeded(projectID: normalizedID, taskID: task.id)
         if normalizedStatus == ProjectTaskStatus.ready.rawValue {

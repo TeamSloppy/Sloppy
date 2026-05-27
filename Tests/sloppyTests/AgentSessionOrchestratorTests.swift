@@ -1377,6 +1377,12 @@ func agentSessionBootstrapIncludesInstalledSkillsSummary() async throws {
     })?.content ?? ""
 
     #expect(bootstrapMessage.contains("[Skills]"))
+    #expect(bootstrapMessage.contains("Before replying, scan the skills below."))
+    #expect(bootstrapMessage.contains("If a skill matches or is even partially relevant to your task, you MUST read it before answering and follow its instructions."))
+    #expect(bootstrapMessage.contains("Use `files.read` on the skill path plus `/SKILL.md`; do not proceed without loading a genuinely relevant skill."))
+    #expect(bootstrapMessage.contains("Only proceed without loading a skill if genuinely none are relevant to the task."))
+    #expect(bootstrapMessage.contains("<available_skills>"))
+    #expect(bootstrapMessage.contains("</available_skills>"))
     #expect(bootstrapMessage.contains("`acme/release-skills`"))
     #expect(bootstrapMessage.contains("release-helper"))
     #expect(bootstrapMessage.contains("Guides release execution"))
@@ -1413,6 +1419,9 @@ func agentSessionBootstrapBackfillsBuiltInTaskSpecSkillWhenAgentHasNoSkills() as
     })?.content ?? ""
 
     #expect(bootstrapMessage.contains("[Skills]"))
+    #expect(bootstrapMessage.contains("Before replying, scan the skills below."))
+    #expect(bootstrapMessage.contains("<available_skills>"))
+    #expect(bootstrapMessage.contains("</available_skills>"))
     #expect(bootstrapMessage.contains("`sloppy/task-spec-writer`"))
     #expect(bootstrapMessage.contains("task-spec-writer"))
     #expect(bootstrapMessage.contains("user-invocable: false"))
