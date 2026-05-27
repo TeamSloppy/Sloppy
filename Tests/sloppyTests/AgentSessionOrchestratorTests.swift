@@ -1379,7 +1379,7 @@ func agentSessionBootstrapIncludesInstalledSkillsSummary() async throws {
     #expect(bootstrapMessage.contains("[Skills]"))
     #expect(bootstrapMessage.contains("Before replying, scan the skills below."))
     #expect(bootstrapMessage.contains("If a skill matches or is even partially relevant to your task, you MUST read it before answering and follow its instructions."))
-    #expect(bootstrapMessage.contains("Use `files.read` on the skill path plus `/SKILL.md`; do not proceed without loading a genuinely relevant skill."))
+    #expect(bootstrapMessage.contains("Use `files.read` on `entrypoint` when provided, otherwise on the skill path plus `/SKILL.md`; do not proceed without loading a genuinely relevant skill."))
     #expect(bootstrapMessage.contains("Only proceed without loading a skill if genuinely none are relevant to the task."))
     #expect(bootstrapMessage.contains("<available_skills>"))
     #expect(bootstrapMessage.contains("</available_skills>"))
@@ -1388,7 +1388,76 @@ func agentSessionBootstrapIncludesInstalledSkillsSummary() async throws {
     #expect(bootstrapMessage.contains("Guides release execution"))
     #expect(bootstrapMessage.contains("`sloppy/task-spec-writer`"))
     #expect(bootstrapMessage.contains("user-invocable: false"))
-    #expect(bootstrapMessage.contains("path: `\(agentsRootURL.appendingPathComponent("skills-agent", isDirectory: true).appendingPathComponent("skills", isDirectory: true).appendingPathComponent("acme/release-skills", isDirectory: true).path)`"))
+    let releaseSkillPath = agentsRootURL.appendingPathComponent("skills-agent", isDirectory: true)
+        .appendingPathComponent("skills", isDirectory: true)
+        .appendingPathComponent("acme/release-skills", isDirectory: true)
+    #expect(bootstrapMessage.contains("path: `\(releaseSkillPath.path)`"))
+}
+
+@Test
+func agentSessionBootstrapIncludesReadableEntrypointsForInstalledSkills() async throws {
+    let availableModels = [
+        ProviderModelOption(id: "openai:gpt-5.4-mini", title: "openai:gpt-5.4-mini", capabilities: ["tools"])
+    ]
+    let (catalogStore, sessionStore, agentsRootURL) = try makeAgentSessionFixture(
+        agentID: "skill-entrypoint-agent",
+        selectedModel: "openai:gpt-5.4-mini",
+        availableModels: availableModels
+    )
+    let skillsStore = AgentSkillsFileStore(agentsRootURL: agentsRootURL)
+
+    let uiSkillDirectory = agentsRootURL.appendingPathComponent("skill-entrypoint-agent", isDirectory: true)
+        .appendingPathComponent("skills", isDirectory: true)
+        .appendingPathComponent("nextlevelbuilder/ui-ux-pro-max-skill", isDirectory: true)
+    try FileManager.default.createDirectory(at: uiSkillDirectory, withIntermediateDirectories: true)
+    try "# UI UX Pro Max\n".write(to: uiSkillDirectory.appendingPathComponent("README.md"), atomically: true, encoding: .utf8)
+    _ = try skillsStore.installSkill(
+        agentID: "skill-entrypoint-agent",
+        owner: "nextlevelbuilder",
+        repo: "ui-ux-pro-max-skill",
+        name: "ui-ux-pro-max",
+        description: "Design intelligence",
+        localPath: uiSkillDirectory.path
+    )
+
+    let codeRabbitDirectory = agentsRootURL.appendingPathComponent("skill-entrypoint-agent", isDirectory: true)
+        .appendingPathComponent("skills", isDirectory: true)
+        .appendingPathComponent("coderabbitai/skills", isDirectory: true)
+    let codeReviewSkill = codeRabbitDirectory
+        .appendingPathComponent("skills/code-review", isDirectory: true)
+        .appendingPathComponent("SKILL.md")
+    try FileManager.default.createDirectory(at: codeReviewSkill.deletingLastPathComponent(), withIntermediateDirectories: true)
+    try "---\nname: code-review\n---\n# Code review\n".write(to: codeReviewSkill, atomically: true, encoding: .utf8)
+    _ = try skillsStore.installSkill(
+        agentID: "skill-entrypoint-agent",
+        owner: "coderabbitai",
+        repo: "skills",
+        name: "skills",
+        description: "CodeRabbit skills collection",
+        localPath: codeRabbitDirectory.path
+    )
+
+    let runtime = RuntimeSystem()
+    let orchestrator = AgentSessionOrchestrator(
+        runtime: runtime,
+        sessionStore: sessionStore,
+        agentCatalogStore: catalogStore,
+        agentSkillsStore: skillsStore,
+        availableModels: availableModels
+    )
+
+    let session = try await orchestrator.createSession(agentID: "skill-entrypoint-agent", request: AgentSessionCreateRequest())
+    let snapshot = await runtime.channelState(channelId: "agent:skill-entrypoint-agent:session:\(session.id)")
+    let bootstrapMessage = snapshot?.messages.first(where: {
+        $0.userId == "system" && $0.content.contains("[agent_session_context_bootstrap_v1]")
+    })?.content ?? ""
+
+    #expect(bootstrapMessage.contains("`nextlevelbuilder/ui-ux-pro-max-skill`"))
+    #expect(bootstrapMessage.contains("path: `\(uiSkillDirectory.path)`"))
+    #expect(bootstrapMessage.contains("entrypoint: `\(uiSkillDirectory.appendingPathComponent("README.md").path)`"))
+    #expect(bootstrapMessage.contains("`coderabbitai/skills`"))
+    #expect(bootstrapMessage.contains("path: `\(codeRabbitDirectory.path)`"))
+    #expect(bootstrapMessage.contains("entrypoint: `\(codeReviewSkill.path)`"))
 }
 
 @Test

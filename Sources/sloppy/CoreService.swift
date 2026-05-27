@@ -579,6 +579,16 @@ public actor CoreService {
                     events: events
                 )
             }
+            await self.sessionOrchestrator.updateTokenUsageObserver { [weak self] agentID, sessionID, usage in
+                guard let self else {
+                    return
+                }
+                await self.store.persistTokenUsage(
+                    channelId: "agent:\(agentID):session:\(sessionID)",
+                    taskId: nil,
+                    usage: usage
+                )
+            }
         }
     }
 

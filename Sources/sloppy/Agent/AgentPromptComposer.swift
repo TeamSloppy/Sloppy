@@ -8,9 +8,11 @@ struct AgentPromptComposer {
     }
 
     private let templateLoader: PromptTemplateLoader
+    private let fileManager: FileManager
 
-    init(templateLoader: PromptTemplateLoader = PromptTemplateLoader()) {
+    init(templateLoader: PromptTemplateLoader = PromptTemplateLoader(), fileManager: FileManager = .default) {
         self.templateLoader = templateLoader
+        self.fileManager = fileManager
     }
 
     func compose(context: PromptRenderContext) throws -> Prompt {
@@ -117,7 +119,7 @@ struct AgentPromptComposer {
         Before replying, scan the skills below. If a skill matches or is even partially relevant to your task, you MUST read it before answering and follow its instructions.
         Err on the side of loading — it is always better to have context you do not need than to miss critical steps, pitfalls, or established workflows.
         Skills contain specialized knowledge, tool-specific commands, proven workflows, and the user's preferred conventions and quality standards. Load the skill even if you think you could handle the task with basic tools.
-        Use `files.read` on the skill path plus `/SKILL.md`; do not proceed without loading a genuinely relevant skill.
+        Use `files.read` on `entrypoint` when provided, otherwise on the skill path plus `/SKILL.md`; do not proceed without loading a genuinely relevant skill.
         If a loaded skill is missing steps, has wrong commands, or lacks pitfalls you discovered, mention that it should be updated before finishing.
         After difficult or iterative tasks, offer to save the workflow as a skill.
 
@@ -151,8 +153,61 @@ struct AgentPromptComposer {
                     parts.append("agent: \(agent)")
                 }
                 parts.append("path: `\(skill.localPath)`")
+                if let entrypoint = skillEntrypointPath(for: skill) {
+                    parts.append("entrypoint: `\(entrypoint)`")
+                }
                 return "- " + parts.joined(separator: " | ")
             }
             .joined(separator: "\n")
+    }
+
+    private func skillEntrypointPath(for skill: InstalledSkill) -> String? {
+        let localPath = skill.localPath.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !localPath.isEmpty else {
+            return nil
+        }
+
+        let skillDirectory = URL(fileURLWithPath: localPath, isDirectory: true)
+        let directSkillFile = skillDirectory.appendingPathComponent("SKILL.md")
+        if fileManager.fileExists(atPath: directSkillFile.path) {
+            return directSkillFile.path
+        }
+
+        if let nestedSkillFile = firstNestedSkillFile(in: skillDirectory) {
+            return nestedSkillFile.path
+        }
+
+        for fallbackName in ["README.md", "CLAUDE.md", "skill.json"] {
+            let fallbackFile = skillDirectory.appendingPathComponent(fallbackName)
+            if fileManager.fileExists(atPath: fallbackFile.path) {
+                return fallbackFile.path
+            }
+        }
+
+        return nil
+    }
+
+    private func firstNestedSkillFile(in directory: URL) -> URL? {
+        guard let enumerator = fileManager.enumerator(
+            at: directory,
+            includingPropertiesForKeys: [.isRegularFileKey],
+            options: [.skipsHiddenFiles, .skipsPackageDescendants]
+        ) else {
+            return nil
+        }
+
+        var candidates: [URL] = []
+        for case let fileURL as URL in enumerator {
+            guard fileURL.lastPathComponent.lowercased() == "skill.md" else {
+                continue
+            }
+            if let values = try? fileURL.resourceValues(forKeys: [.isRegularFileKey]), values.isRegularFile == false {
+                continue
+            }
+            candidates.append(fileURL.standardizedFileURL)
+        }
+        return candidates.sorted { lhs, rhs in
+            lhs.path.localizedCaseInsensitiveCompare(rhs.path) == .orderedAscending
+        }.first
     }
 }

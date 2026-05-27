@@ -22,6 +22,7 @@ actor AgentSessionOrchestrator {
     typealias ToolInvoker = @Sendable (String, String, ToolInvocationRequest, AgentChatMode?) async -> ToolInvocationResult
     typealias ResponseChunkObserver = @Sendable (String, String, String) async -> Void
     typealias EventAppendObserver = @Sendable (String, String, AgentSessionSummary, [AgentSessionEvent]) async -> Void
+    typealias TokenUsageObserver = @Sendable (String, String, TokenUsage) async -> Void
     typealias PlanArtifactRecorder = @Sendable (String, String, String, String?, String, String, Date) async throws -> AgentPlanArtifactEvent
 
     private struct SessionStoreFingerprint: Equatable {
@@ -52,6 +53,7 @@ actor AgentSessionOrchestrator {
     private var toolInvokerRecordsEvents: Bool
     private var responseChunkObserver: ResponseChunkObserver?
     private var eventAppendObserver: EventAppendObserver?
+    private var tokenUsageObserver: TokenUsageObserver?
     private var planArtifactRecorder: PlanArtifactRecorder?
     /// Loads `[project_context_bootstrap_v1]` markdown for a project id (agent session dashboard).
     private var projectBootstrapProvider: (@Sendable (String) async -> String?)?
@@ -82,6 +84,7 @@ actor AgentSessionOrchestrator {
         toolInvokerRecordsEvents: Bool = false,
         responseChunkObserver: ResponseChunkObserver? = nil,
         eventAppendObserver: EventAppendObserver? = nil,
+        tokenUsageObserver: TokenUsageObserver? = nil,
         planArtifactRecorder: PlanArtifactRecorder? = nil,
         logger: Logger = Logger(label: "sloppy.core.sessions")
     ) {
@@ -97,6 +100,7 @@ actor AgentSessionOrchestrator {
         self.toolInvokerRecordsEvents = toolInvokerRecordsEvents
         self.responseChunkObserver = responseChunkObserver
         self.eventAppendObserver = eventAppendObserver
+        self.tokenUsageObserver = tokenUsageObserver
         self.planArtifactRecorder = planArtifactRecorder
         self.logger = logger
     }
@@ -150,6 +154,10 @@ actor AgentSessionOrchestrator {
 
     func updateEventAppendObserver(_ observer: EventAppendObserver?) {
         self.eventAppendObserver = observer
+    }
+
+    func updateTokenUsageObserver(_ observer: TokenUsageObserver?) {
+        self.tokenUsageObserver = observer
     }
 
     func updatePlanArtifactRecorder(_ recorder: PlanArtifactRecorder?) {
@@ -1118,18 +1126,25 @@ actor AgentSessionOrchestrator {
                 return result
             },
             observationHandler: { [weak self] observation in
-                guard let self, case .thinking(let text) = observation else { return }
+                guard let self else { return }
                 guard await self.shouldContinueSessionRun(channelID: channelID, runID: runID) else { return }
-                let thinkingEvent = AgentSessionEvent(
-                    agentId: agentID,
-                    sessionId: sessionID,
-                    type: .message,
-                    message: AgentSessionMessage(
-                        role: .assistant,
-                        segments: [AgentMessageSegment(kind: .thinking, text: text)]
+                switch observation {
+                case .thinking(let text):
+                    let thinkingEvent = AgentSessionEvent(
+                        agentId: agentID,
+                        sessionId: sessionID,
+                        type: .message,
+                        message: AgentSessionMessage(
+                            role: .assistant,
+                            segments: [AgentMessageSegment(kind: .thinking, text: text)]
+                        )
                     )
-                )
-                await self.appendEventsSafely(agentID: agentID, sessionID: sessionID, events: [thinkingEvent])
+                    await self.appendEventsSafely(agentID: agentID, sessionID: sessionID, events: [thinkingEvent])
+                case .usage(let tokenUsage):
+                    await self.tokenUsageObserver?(agentID, sessionID, tokenUsage)
+                case .toolCall, .toolResult:
+                    break
+                }
             },
             nativeLoopConfig: nativeLoopConfig,
             nativeLoopOutcomeHandler: { outcome in

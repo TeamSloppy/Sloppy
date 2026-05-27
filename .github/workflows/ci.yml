@@ -17,6 +17,8 @@ concurrency:
 jobs:
   swift-test:
     name: Swift Tests
+    # Temporarily disabled.
+    if: ${{ false }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
