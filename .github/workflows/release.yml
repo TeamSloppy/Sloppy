@@ -155,11 +155,13 @@ jobs:
       - name: Resolve Swift Packages
         run: swift package resolve
 
-      - name: Run Test Suite
-        timeout-minutes: 25
+      - name: Run macOS Smoke Tests
+        timeout-minutes: 20
         run: |
-          # Swift Testing's parallel console recorder can deadlock under heavy log output.
-          swift test --no-parallel --xunit-output swift-test-results.xml > swift-test.log 2>&1 || {
+          # Linux runs the full suite; macOS covers Darwin/AppKit-sensitive paths.
+          swift test --no-parallel \
+            --filter "SloppyTUIThemeTests|DashboardTerminalTests|DesktopNotificationTests|CoreMainTests" \
+            --xunit-output swift-test-results.xml > swift-test.log 2>&1 || {
             status=$?
             tail -n 1000 swift-test.log
             exit "$status"
@@ -257,16 +259,21 @@ jobs:
           $binPath = swift build --show-bin-path -c release
           $stage = Join-Path $env:RUNNER_TEMP "sloppy-node-stage"
           New-Item -ItemType Directory -Force -Path (Join-Path $stage "bin") | Out-Null
-          Copy-Item (Join-Path $binPath "SloppyNode.exe") (Join-Path $stage "bin/sloppy-node.exe")
+          $exe = Join-Path $env:RUNNER_TEMP "SloppyNode-windows-x86_64.exe"
+          Copy-Item (Join-Path $binPath "SloppyNode.exe") $exe
+          Copy-Item $exe (Join-Path $stage "bin/sloppy-node.exe")
           $out = Join-Path $env:RUNNER_TEMP "SloppyNode-windows-x86_64.zip"
           Compress-Archive -Force -Path (Join-Path $stage "bin") -DestinationPath $out
+          "exe_path=$exe" >> $env:GITHUB_OUTPUT
           "zip_path=$out" >> $env:GITHUB_OUTPUT
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: windows-node-zip
-          path: ${{ steps.pack.outputs.zip_path }}
+          name: windows-node
+          path: |
+            ${{ steps.pack.outputs.exe_path }}
+            ${{ steps.pack.outputs.zip_path }}
 
   publish:
     name: Publish Release
@@ -322,7 +329,7 @@ jobs:
       - name: Download Windows SloppyNode Artifact
         uses: actions/download-artifact@v4
         with:
-          name: windows-node-zip
+          name: windows-node
           path: release-assets
 
       - name: Write sloppy-version.json and SHA256SUMS
@@ -341,11 +348,12 @@ jobs:
           LINUX=$(ls Sloppy-linux-x86_64.tar.gz)
           MACOS=$(ls Sloppy-macos-*.tar.gz | head -1)
           NODE_MACOS=$(ls SloppyNode-macos-*.tar.gz | head -1)
+          NODE_WINDOWS_EXE=$(ls SloppyNode-windows-x86_64.exe)
           NODE_WINDOWS=$(ls SloppyNode-windows-x86_64.zip)
           LINUX_SHA=$(sha256sum "$LINUX" | awk '{print $1}')
           MACOS_SHA=$(sha256sum "$MACOS" | awk '{print $1}')
           NODE_MACOS_SHA=$(sha256sum "$NODE_MACOS" | awk '{print $1}')
-          sha256sum sloppy-version.json "$LINUX" "$MACOS" "$NODE_MACOS" "$NODE_WINDOWS" > SHA256SUMS.txt
+          sha256sum sloppy-version.json "$LINUX" "$MACOS" "$NODE_MACOS" "$NODE_WINDOWS_EXE" "$NODE_WINDOWS" > SHA256SUMS.txt
           {
             echo "linux_sha256=$LINUX_SHA"
             echo "macos_sha256=$MACOS_SHA"
@@ -368,6 +376,7 @@ jobs:
             release-assets/Sloppy-linux-x86_64.tar.gz
             release-assets/Sloppy-macos-*.tar.gz
             release-assets/SloppyNode-macos-*.tar.gz
+            release-assets/SloppyNode-windows-x86_64.exe
             release-assets/SloppyNode-windows-x86_64.zip
 
   bump-homebrew:

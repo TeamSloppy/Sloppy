@@ -40,9 +40,6 @@ jobs:
       - name: Resolve Swift Packages
         run: swift package resolve
 
-      - name: Run TUI Theme Tests
-        run: swift test --filter SloppyTUIThemeTests
-
       - name: Run Test Suite
         timeout-minutes: 25
         run: |
@@ -84,14 +81,13 @@ jobs:
       - name: Resolve Swift Packages
         run: swift package resolve
 
-      - name: Run TUI Theme Tests
-        run: swift test --filter SloppyTUIThemeTests
-
-      - name: Run Test Suite
-        timeout-minutes: 25
+      - name: Run macOS Smoke Tests
+        timeout-minutes: 20
         run: |
-          # Swift Testing's parallel console recorder can deadlock under heavy log output.
-          swift test --no-parallel --xunit-output swift-test-results.xml > swift-test.log 2>&1 || {
+          # Linux runs the full suite; macOS covers Darwin/AppKit-sensitive paths.
+          swift test --no-parallel \
+            --filter "SloppyTUIThemeTests|DashboardTerminalTests|DesktopNotificationTests|CoreMainTests" \
+            --xunit-output swift-test-results.xml > swift-test.log 2>&1 || {
             status=$?
             tail -n 1000 swift-test.log
             exit "$status"
