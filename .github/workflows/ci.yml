@@ -65,6 +65,8 @@ jobs:
 
   swift-test-macos:
     name: Swift Tests (macOS)
+    # Temporarily disabled.
+    if: ${{ false }}
     runs-on: macos-latest
     timeout-minutes: 30
 

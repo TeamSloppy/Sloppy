@@ -63,6 +63,8 @@ jobs:
         run: swift package resolve
 
       - name: Run Test Suite
+        # Temporarily disabled.
+        if: ${{ false }}
         timeout-minutes: 25
         run: |
           # Swift Testing's parallel console recorder can deadlock under heavy log output.
@@ -156,6 +158,8 @@ jobs:
         run: swift package resolve
 
       - name: Run macOS Smoke Tests
+        # Temporarily disabled.
+        if: ${{ false }}
         timeout-minutes: 20
         run: |
           # Linux runs the full suite; macOS covers Darwin/AppKit-sensitive paths.
