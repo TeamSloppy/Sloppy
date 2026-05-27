@@ -1169,6 +1169,37 @@ func putConfigEndpoint() async throws {
 }
 
 @Test
+func updateConfigBacksUpExistingConfigBeforeReplacingIt() async throws {
+    let tempRoot = FileManager.default.temporaryDirectory
+        .appendingPathComponent("sloppy-config-backup-\(UUID().uuidString)", isDirectory: true)
+    try FileManager.default.createDirectory(at: tempRoot, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: tempRoot) }
+
+    let configPath = tempRoot.appendingPathComponent("sloppy.json").path
+    var initialConfig = CoreConfig.test
+    initialConfig.listen.port = 25101
+    var updatedConfig = initialConfig
+    updatedConfig.listen.port = 26003
+
+    let encoder = JSONEncoder()
+    encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+    try (encoder.encode(initialConfig) + Data("\n".utf8))
+        .write(to: URL(fileURLWithPath: configPath))
+
+    let service = CoreService(config: initialConfig, configPath: configPath)
+    _ = try await service.updateConfig(updatedConfig)
+
+    let decoder = JSONDecoder()
+    let primary = try decoder.decode(CoreConfig.self, from: Data(contentsOf: URL(fileURLWithPath: configPath)))
+    let backup = try decoder.decode(
+        CoreConfig.self,
+        from: Data(contentsOf: URL(fileURLWithPath: CoreConfigFileStore.backupPath(for: configPath)))
+    )
+    #expect(primary.listen.port == 26003)
+    #expect(backup.listen.port == 25101)
+}
+
+@Test
 func putConfigHotReloadsRuntimeModelProvider() async throws {
     let tempPath = FileManager.default.temporaryDirectory
         .appendingPathComponent("sloppy-config-\(UUID().uuidString).json")

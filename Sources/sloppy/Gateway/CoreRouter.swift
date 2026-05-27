@@ -1032,6 +1032,8 @@ public actor CoreRouter {
             return json(status: HTTPStatus.notFound, payload: ["error": ErrorCode.skillNotFound])
         case .skillAlreadyExists:
             return json(status: HTTPStatus.conflict, payload: ["error": ErrorCode.skillAlreadyExists])
+        case .localPathFailure:
+            return json(status: HTTPStatus.badRequest, payload: ["error": ErrorCode.invalidBody])
         case .storageFailure, .networkFailure, .downloadFailure:
             return json(status: HTTPStatus.internalServerError, payload: ["error": fallback])
         }

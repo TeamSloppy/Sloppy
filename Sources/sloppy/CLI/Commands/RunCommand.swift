@@ -38,7 +38,7 @@ struct RunCommand: AsyncParsableCommand {
         do {
             let homeDirectory = CoreConfig.resolvedHomeDirectoryPath()
             var explicitConfigPath = normalizedServerConfigPath(configPath)
-            var config = CoreConfig.load(from: explicitConfigPath, currentDirectory: homeDirectory)
+            var config: CoreConfig
 
             if #available(macOS 15.0, *) {
                 let envConfig = ConfigReader(providers: [EnvironmentVariablesProvider()])
@@ -46,9 +46,9 @@ struct RunCommand: AsyncParsableCommand {
                     envConfig.string(forKey: "core.config.path", default: "")
                 ) {
                     explicitConfigPath = envConfigPath
-                    config = CoreConfig.load(from: explicitConfigPath, currentDirectory: homeDirectory)
                 }
 
+                config = try loadServerConfigRecovering(from: explicitConfigPath, currentDirectory: homeDirectory)
                 applyServerEnvironmentOverrides(
                     config: &config,
                     envConfig: envConfig,
@@ -60,8 +60,8 @@ struct RunCommand: AsyncParsableCommand {
                         for: config.workspace,
                         currentDirectory: homeDirectory
                     )
-                    if FileManager.default.fileExists(atPath: workspaceConfigPath) {
-                        config = CoreConfig.load(from: workspaceConfigPath, currentDirectory: homeDirectory)
+                    if CoreConfigFileStore.hasConfigOrBackup(at: workspaceConfigPath) {
+                        config = try loadServerConfigRecovering(from: workspaceConfigPath, currentDirectory: homeDirectory)
                         applyServerEnvironmentOverrides(
                             config: &config,
                             envConfig: envConfig,
@@ -70,13 +70,16 @@ struct RunCommand: AsyncParsableCommand {
                     }
                 }
             } else if explicitConfigPath == nil {
+                config = try loadServerConfigRecovering(from: explicitConfigPath, currentDirectory: homeDirectory)
                 let workspaceConfigPath = CoreConfig.defaultConfigPath(
                     for: config.workspace,
                     currentDirectory: homeDirectory
                 )
-                if FileManager.default.fileExists(atPath: workspaceConfigPath) {
-                    config = CoreConfig.load(from: workspaceConfigPath, currentDirectory: homeDirectory)
+                if CoreConfigFileStore.hasConfigOrBackup(at: workspaceConfigPath) {
+                    config = try loadServerConfigRecovering(from: workspaceConfigPath, currentDirectory: homeDirectory)
                 }
+            } else {
+                config = try loadServerConfigRecovering(from: explicitConfigPath, currentDirectory: homeDirectory)
             }
 
             let workspaceRoot = try prepareServerWorkspace(config: &config, currentDirectory: homeDirectory)
@@ -422,6 +425,17 @@ func normalizedServerConfigPath(_ raw: String?) -> String? {
     let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !trimmed.isEmpty else { return nil }
     return trimmed
+}
+
+func loadServerConfigRecovering(from path: String?, currentDirectory: String) throws -> CoreConfig {
+    let resolvedPath = path ?? CoreConfig.defaultConfigPath(currentDirectory: currentDirectory)
+    let result = try CoreConfigFileStore.loadRecovering(path: resolvedPath, currentDirectory: currentDirectory)
+    if result.restoredFromBackup {
+        emitServerBootstrapWarning(
+            "Restored config at \(result.path) from backup \(result.backupPath)."
+        )
+    }
+    return result.config
 }
 
 func ensureServerConfigFileExists(path: String, config: CoreConfig, logger: Logger) throws {

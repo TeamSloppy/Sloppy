@@ -63,29 +63,49 @@ extension CoreService {
         }
         _ = try getAgent(id: normalizedAgentID)
 
+        let localPath = request.localPath?.trimmingCharacters(in: .whitespacesAndNewlines)
         let owner = request.owner.trimmingCharacters(in: .whitespacesAndNewlines)
         let repo = request.repo.trimmingCharacters(in: .whitespacesAndNewlines)
 
-        guard !owner.isEmpty, !repo.isEmpty else {
+        let installingLocalSkill = localPath?.isEmpty == false
+        if !installingLocalSkill, (owner.isEmpty || repo.isEmpty) {
             throw AgentSkillsError.invalidPayload
         }
 
         do {
             let existingSkills = try agentSkillsStore.listSkills(agentID: normalizedAgentID)
-            let skillID = "\(owner)/\(repo)"
-            if existingSkills.contains(where: { $0.id == skillID }) {
-                throw AgentSkillsError.skillAlreadyExists
-            }
 
-            guard let skillDestination = agentSkillsStore.skillDirectoryURL(agentID: normalizedAgentID, skillID: skillID) else {
-                throw AgentSkillsError.storageFailure
+            let downloadedSkill: SkillsGitHubClient.DownloadedSkill
+            if let localPath, !localPath.isEmpty {
+                let localRepo = repo.isEmpty ? Self.defaultLocalSkillRepo(from: localPath) : repo
+                let skillID = "\(owner.isEmpty ? "local" : owner)/\(localRepo)"
+                if existingSkills.contains(where: { $0.id == skillID }) {
+                    throw AgentSkillsError.skillAlreadyExists
+                }
+                guard let destination = agentSkillsStore.skillDirectoryURL(agentID: normalizedAgentID, skillID: skillID) else {
+                    throw AgentSkillsError.storageFailure
+                }
+                downloadedSkill = try await skillsGitHubClient.installLocalSkill(
+                    sourcePath: localPath,
+                    destination: destination,
+                    owner: owner.isEmpty ? nil : owner,
+                    repo: localRepo
+                )
+            } else {
+                let skillID = "\(owner)/\(repo)"
+                if existingSkills.contains(where: { $0.id == skillID }) {
+                    throw AgentSkillsError.skillAlreadyExists
+                }
+                guard let destination = agentSkillsStore.skillDirectoryURL(agentID: normalizedAgentID, skillID: skillID) else {
+                    throw AgentSkillsError.storageFailure
+                }
+                downloadedSkill = try await skillsGitHubClient.downloadSkill(
+                    owner: owner,
+                    repo: repo,
+                    version: request.version,
+                    destination: destination
+                )
             }
-            let downloadedSkill = try await skillsGitHubClient.downloadSkill(
-                owner: owner,
-                repo: repo,
-                version: request.version,
-                destination: skillDestination
-            )
 
             let fm = downloadedSkill.frontmatter
             let userInvocable = request.userInvocable ?? fm?.userInvocable ?? true
@@ -98,8 +118,8 @@ extension CoreService {
 
             let installedSkill = try agentSkillsStore.installSkill(
                 agentID: normalizedAgentID,
-                owner: owner,
-                repo: repo,
+                owner: downloadedSkill.owner,
+                repo: downloadedSkill.repo,
                 name: downloadedSkill.name,
                 description: downloadedSkill.description,
                 userInvocable: userInvocable,
@@ -116,15 +136,15 @@ extension CoreService {
             throw mapAgentSkillsError(error)
         } catch let clientError as SkillsGitHubClient.ClientError {
             logger.error(
-                "skills.install.download_failed",
+                installingLocalSkill ? "skills.install.local_failed" : "skills.install.download_failed",
                 metadata: [
                     "agent_id": .string(normalizedAgentID),
-                    "owner": .string(owner),
-                    "repo": .string(repo),
-                    "github_error": .string(clientError.logDescription)
+                    "owner": .string(owner.isEmpty ? "local" : owner),
+                    "repo": .string(repo.isEmpty ? (localPath.map { Self.defaultLocalSkillRepo(from: $0) } ?? "") : repo),
+                    "skill_error": .string(clientError.logDescription)
                 ]
             )
-            throw AgentSkillsError.downloadFailure
+            throw installingLocalSkill ? AgentSkillsError.localPathFailure : AgentSkillsError.downloadFailure
         } catch {
             logger.error(
                 "skills.install.unexpected_error",
@@ -138,6 +158,15 @@ extension CoreService {
             throw AgentSkillsError.storageFailure
         }
     }
+
+    private static func defaultLocalSkillRepo(from localPath: String) -> String {
+        let lastPathComponent = URL(fileURLWithPath: localPath).standardizedFileURL.lastPathComponent
+        let allowed = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_.")
+        var result = String(lastPathComponent.unicodeScalars.map { allowed.contains($0) ? Character($0) : "-" })
+        result = result.trimmingCharacters(in: CharacterSet(charactersIn: "-_."))
+        return result.isEmpty ? "skill" : result
+    }
+
 
     /// Uninstall a skill from an agent
     public func uninstallAgentSkill(agentID: String, skillID: String) async throws {

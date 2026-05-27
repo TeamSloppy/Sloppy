@@ -2,6 +2,7 @@ import Foundation
 import Logging
 import Testing
 @testable import AgentRuntime
+import PluginSDK
 @testable import sloppy
 @testable import Protocols
 
@@ -72,5 +73,47 @@ struct ProjectChannelLinkToolTests {
         )
         #expect(result.ok == false)
         #expect(result.error?.code == "channel_already_linked")
+    }
+
+    @Test
+    func projectLinkAgentOptionsResolveCustomActorWithoutChannel() async throws {
+        let config = CoreConfig.test
+        defer {
+            try? FileManager.default.removeItem(at: config.resolvedWorkspaceRootURL())
+            try? FileManager.default.removeItem(atPath: config.sqlitePath)
+        }
+
+        let service = CoreService(config: config)
+        _ = try await service.createAgent(
+            AgentCreateRequest(id: "builder", displayName: "Builder", role: "Developer")
+        )
+        _ = try await service.createActorNode(
+            node: ActorNode(
+                id: "actor:builder",
+                displayName: "Builder Actor",
+                kind: .agent,
+                linkedAgentId: "builder"
+            )
+        )
+        _ = try await service.createProject(
+            ProjectCreateRequest(
+                id: "sloppy",
+                name: "Sloppy",
+                channels: [.init(title: "Main", channelId: "main")],
+                actors: ["actor:builder"]
+            )
+        )
+
+        let restartedService = CoreService(config: config)
+        let options = await restartedService.projectLinkAgentOptions(projectId: "sloppy")
+
+        #expect(options == [
+            ChannelProjectLinkAgentOption(
+                actorId: "actor:builder",
+                agentId: "builder",
+                name: "Builder Actor",
+                channelId: "agent:builder"
+            )
+        ])
     }
 }

@@ -2,6 +2,7 @@ import Foundation
 import Testing
 @testable import sloppy
 import Configuration
+import Logging
 #if canImport(CSQLite3)
 import CSQLite3
 #endif
@@ -43,6 +44,91 @@ func serverEnvironmentOverridesUseSloppyTokenForLegacyAndDashboardAuth() {
 
     #expect(config.auth.token == "env-secret-token")
     #expect(config.ui.dashboardAuth.token == "env-secret-token")
+}
+
+@Test
+func configFileStoreRestoresInvalidPrimaryFromBackup() throws {
+    let tempRoot = FileManager.default.temporaryDirectory
+        .appendingPathComponent("sloppy-config-restore-\(UUID().uuidString)", isDirectory: true)
+    try FileManager.default.createDirectory(at: tempRoot, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: tempRoot) }
+
+    let configPath = tempRoot.appendingPathComponent("sloppy.json").path
+    let backupPath = CoreConfigFileStore.backupPath(for: configPath)
+    try Data("{ nope".utf8).write(to: URL(fileURLWithPath: configPath))
+
+    var backupConfig = CoreConfig.default
+    backupConfig.listen.port = 26001
+    try encodeConfig(backupConfig).write(to: URL(fileURLWithPath: backupPath))
+
+    let result = try CoreConfigFileStore.loadRecovering(path: configPath, currentDirectory: tempRoot.path)
+
+    #expect(result.restoredFromBackup)
+    #expect(result.config.listen.port == 26001)
+    let restored = try JSONDecoder().decode(CoreConfig.self, from: Data(contentsOf: URL(fileURLWithPath: configPath)))
+    #expect(restored.listen.port == 26001)
+}
+
+@Test
+func configFileStoreRejectsInvalidPrimaryWithoutBackup() throws {
+    let tempRoot = FileManager.default.temporaryDirectory
+        .appendingPathComponent("sloppy-config-invalid-\(UUID().uuidString)", isDirectory: true)
+    try FileManager.default.createDirectory(at: tempRoot, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: tempRoot) }
+
+    let configURL = tempRoot.appendingPathComponent("sloppy.json")
+    try Data("{ nope".utf8).write(to: configURL)
+
+    #expect(throws: CoreConfigFileError.self) {
+        _ = try CoreConfigFileStore.loadRecovering(path: configURL.path, currentDirectory: tempRoot.path)
+    }
+    let raw = try String(contentsOf: configURL, encoding: .utf8)
+    #expect(raw == "{ nope")
+}
+
+@Test
+func configFileStoreRestoresMissingPrimaryFromBackup() throws {
+    let tempRoot = FileManager.default.temporaryDirectory
+        .appendingPathComponent("sloppy-config-missing-primary-\(UUID().uuidString)", isDirectory: true)
+    try FileManager.default.createDirectory(at: tempRoot, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: tempRoot) }
+
+    let configPath = tempRoot.appendingPathComponent("sloppy.json").path
+    let backupPath = CoreConfigFileStore.backupPath(for: configPath)
+    var backupConfig = CoreConfig.default
+    backupConfig.listen.port = 26002
+    try encodeConfig(backupConfig).write(to: URL(fileURLWithPath: backupPath))
+
+    let result = try CoreConfigFileStore.loadRecovering(path: configPath, currentDirectory: tempRoot.path)
+
+    #expect(result.restoredFromBackup)
+    #expect(result.config.listen.port == 26002)
+    #expect(FileManager.default.fileExists(atPath: configPath))
+}
+
+@Test
+func missingConfigWithoutBackupInitializesDefaultConfig() throws {
+    let tempRoot = FileManager.default.temporaryDirectory
+        .appendingPathComponent("sloppy-config-default-\(UUID().uuidString)", isDirectory: true)
+    defer { try? FileManager.default.removeItem(at: tempRoot) }
+
+    let configPath = tempRoot.appendingPathComponent("sloppy.json").path
+    let result = try CoreConfigFileStore.loadRecovering(path: configPath, currentDirectory: tempRoot.path)
+
+    #expect(result.initializedFromDefault)
+    try ensureServerConfigFileExists(
+        path: configPath,
+        config: result.config,
+        logger: Logger(label: "sloppy.test.config")
+    )
+    let initialized = try JSONDecoder().decode(CoreConfig.self, from: Data(contentsOf: URL(fileURLWithPath: configPath)))
+    #expect(initialized.listen.port == CoreConfig.default.listen.port)
+}
+
+private func encodeConfig(_ config: CoreConfig) throws -> Data {
+    let encoder = JSONEncoder()
+    encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+    return try encoder.encode(config) + Data("\n".utf8)
 }
 
 #if canImport(CSQLite3)

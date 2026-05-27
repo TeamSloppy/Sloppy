@@ -15,6 +15,7 @@ extension CoreService {
         let encoded = try encoder.encode(config)
         let payload = encoded + Data("\n".utf8)
         let url = URL(fileURLWithPath: configPath)
+        try CoreConfigFileStore.backupExistingConfigIfValid(path: configPath)
         try payload.write(to: url, options: .atomic)
 
         let previousChannels = currentConfig.channels

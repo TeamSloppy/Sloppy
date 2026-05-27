@@ -4684,20 +4684,27 @@ public struct InstalledSkill: Codable, Sendable, Equatable {
     }
 }
 
-/// Request to install a skill from GitHub
+/// Request to install a skill from GitHub or a local skill directory.
 public struct SkillInstallRequest: Codable, Sendable {
     public var owner: String
     public var repo: String
     public var version: String?
+    /// Local directory containing a skill. When set, the skill is copied into the agent skills store.
+    public var localPath: String?
     public var userInvocable: Bool?
     public var allowedTools: [String]?
     public var context: SkillContext?
     public var agent: String?
 
+    enum CodingKeys: String, CodingKey {
+        case owner, repo, version, localPath, userInvocable, allowedTools, context, agent
+    }
+
     public init(
-        owner: String,
-        repo: String,
+        owner: String = "",
+        repo: String = "",
         version: String? = nil,
+        localPath: String? = nil,
         userInvocable: Bool? = nil,
         allowedTools: [String]? = nil,
         context: SkillContext? = nil,
@@ -4706,10 +4713,23 @@ public struct SkillInstallRequest: Codable, Sendable {
         self.owner = owner
         self.repo = repo
         self.version = version
+        self.localPath = localPath
         self.userInvocable = userInvocable
         self.allowedTools = allowedTools
         self.context = context
         self.agent = agent
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        owner = try container.decodeIfPresent(String.self, forKey: .owner) ?? ""
+        repo = try container.decodeIfPresent(String.self, forKey: .repo) ?? ""
+        version = try container.decodeIfPresent(String.self, forKey: .version)
+        localPath = try container.decodeIfPresent(String.self, forKey: .localPath)
+        userInvocable = try container.decodeIfPresent(Bool.self, forKey: .userInvocable)
+        allowedTools = try container.decodeIfPresent([String].self, forKey: .allowedTools)
+        context = try container.decodeIfPresent(SkillContext.self, forKey: .context)
+        agent = try container.decodeIfPresent(String.self, forKey: .agent)
     }
 }
 

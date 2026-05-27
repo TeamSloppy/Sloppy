@@ -600,8 +600,9 @@ struct AgentSkillInstallCommand: AsyncParsableCommand {
     static let configuration = CommandConfiguration(commandName: "install", abstract: "Install a skill for an agent.")
 
     @Argument(help: "Agent ID") var agentId: String
-    @Option(name: .long, help: "GitHub owner") var owner: String
-    @Option(name: .long, help: "GitHub repo") var repo: String
+    @Option(name: .long, help: "GitHub owner. Required unless --local-path is provided.") var owner: String?
+    @Option(name: .long, help: "GitHub repo. Required unless --local-path is provided.") var repo: String?
+    @Option(name: .long, help: "Local skill directory containing SKILL.md") var localPath: String?
     @Option(name: .long) var url: String?
     @Option(name: .long) var token: String?
     @Option(name: .long) var format: String = "json"
@@ -609,15 +610,40 @@ struct AgentSkillInstallCommand: AsyncParsableCommand {
 
     mutating func run() async throws {
         let client = SloppyCLIClient.resolve(url: url, token: token, verbose: verbose)
-        let payload: [String: Any] = ["owner": owner, "repo": repo]
+        let payload = try Self.makePayload(owner: owner, repo: repo, localPath: localPath)
         do {
             let body = try JSONSerialization.data(withJSONObject: payload)
             let data = try await client.post("/v1/agents/\(agentId)/skills", body: body)
             CLIStyle.success("Skill installed.")
             CLIFormatters.output(data, format: CLIFormatters.resolveFormat(format))
+        } catch let error as ValidationError {
+            CLIStyle.error(error.message)
+            throw ExitCode.failure
         } catch {
             CLIStyle.error(error.localizedDescription); throw ExitCode.failure
         }
+    }
+
+    struct ValidationError: Error {
+        let message: String
+    }
+
+    static func makePayload(owner: String?, repo: String?, localPath: String?) throws -> [String: Any] {
+        var payload: [String: Any] = [:]
+        let trimmedOwner = owner?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let trimmedRepo = repo?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let trimmedLocalPath = localPath?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if !trimmedLocalPath.isEmpty {
+            payload["localPath"] = trimmedLocalPath
+            if !trimmedOwner.isEmpty { payload["owner"] = trimmedOwner }
+            if !trimmedRepo.isEmpty { payload["repo"] = trimmedRepo }
+        } else if !trimmedOwner.isEmpty && !trimmedRepo.isEmpty {
+            payload["owner"] = trimmedOwner
+            payload["repo"] = trimmedRepo
+        } else {
+            throw ValidationError(message: "Provide either --local-path or both --owner and --repo.")
+        }
+        return payload
     }
 }
 

@@ -168,6 +168,7 @@ public actor CoreService {
         case storageFailure
         case networkFailure
         case downloadFailure
+        case localPathFailure
     }
 
     public enum GenerateError: Error {

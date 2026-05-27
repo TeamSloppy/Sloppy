@@ -1219,25 +1219,103 @@ extension CoreService: InboundMessageReceiver {
         else {
             return []
         }
-        let projectActorIDs = Set(project.actors.map { $0.lowercased() })
         let board = (try? getActorBoard()) ?? ActorBoardSnapshot(nodes: [], links: [], teams: [])
-        let nodes = board.nodes
-            .filter { node in
-                node.kind == .agent
-                    && !normalizeWhitespace(node.channelId ?? "").isEmpty
-                    && !normalizeWhitespace(node.linkedAgentId ?? "").isEmpty
-                    && (projectActorIDs.isEmpty || projectActorIDs.contains(node.id.lowercased()))
+        let projectActorIDs = projectLinkSelectedActorIDs(project: project, board: board)
+        let options = board.nodes.compactMap { node -> (score: Int, option: ChannelProjectLinkAgentOption)? in
+            guard node.kind == .agent else {
+                return nil
             }
-            .sorted { $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending }
-
-        return nodes.map {
-            ChannelProjectLinkAgentOption(
-                actorId: $0.id,
-                agentId: normalizeWhitespace($0.linkedAgentId ?? ""),
-                name: $0.displayName,
-                channelId: normalizeWhitespace($0.channelId ?? "")
+            let linkedAgentId = normalizeWhitespace(node.linkedAgentId ?? "")
+            guard !linkedAgentId.isEmpty else {
+                return nil
+            }
+            guard let score = projectLinkSelectionScore(
+                node: node,
+                linkedAgentId: linkedAgentId,
+                selectedActorIDs: projectActorIDs
+            ) else {
+                return nil
+            }
+            let channelId = projectLinkChannelId(node: node, linkedAgentId: linkedAgentId)
+            return (
+                score,
+                ChannelProjectLinkAgentOption(
+                    actorId: node.id,
+                    agentId: linkedAgentId,
+                    name: node.displayName,
+                    channelId: channelId
+                )
             )
         }
+        .sorted { left, right in
+            if left.score != right.score {
+                return left.score < right.score
+            }
+            return left.option.name.localizedCaseInsensitiveCompare(right.option.name) == .orderedAscending
+        }
+
+        var seenRoutes = Set<String>()
+        return options.compactMap { entry in
+            let key = "\(entry.option.agentId.lowercased())\u{001E}\(entry.option.channelId.lowercased())"
+            guard seenRoutes.insert(key).inserted else {
+                return nil
+            }
+            return entry.option
+        }
+    }
+
+    private func projectLinkSelectedActorIDs(project: ProjectRecord, board: ActorBoardSnapshot) -> Set<String> {
+        var selected = Set(
+            project.actors
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
+                .filter { !$0.isEmpty }
+        )
+        let selectedTeamIDs = Set(
+            project.teams
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
+                .filter { !$0.isEmpty }
+        )
+        guard !selectedTeamIDs.isEmpty else {
+            return selected
+        }
+        for team in board.teams where selectedTeamIDs.contains(team.id.lowercased()) {
+            for memberID in team.memberActorIds {
+                let normalized = memberID.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+                if !normalized.isEmpty {
+                    selected.insert(normalized)
+                }
+            }
+        }
+        return selected
+    }
+
+    private func projectLinkSelectionScore(
+        node: ActorNode,
+        linkedAgentId: String,
+        selectedActorIDs: Set<String>
+    ) -> Int? {
+        guard !selectedActorIDs.isEmpty else {
+            return 2
+        }
+        let nodeID = node.id.lowercased()
+        if selectedActorIDs.contains(nodeID) {
+            return 0
+        }
+        let agentID = linkedAgentId.lowercased()
+        let compatibleIDs = [
+            agentID,
+            "agent:\(agentID)",
+            "actor:\(agentID)"
+        ]
+        return compatibleIDs.contains(where: selectedActorIDs.contains) ? 1 : nil
+    }
+
+    private func projectLinkChannelId(node: ActorNode, linkedAgentId: String) -> String {
+        let channelId = normalizeWhitespace(node.channelId ?? "")
+        if !channelId.isEmpty {
+            return channelId
+        }
+        return "agent:\(linkedAgentId)"
     }
 
     public func linkProjectChannel(

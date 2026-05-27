@@ -228,7 +228,7 @@ export interface CoreApi {
   ) => Promise<AnyRecord | null>;
   fetchSkillsRegistry: (search?: string, sort?: string, limit?: number, offset?: number) => Promise<AnyRecord | null>;
   fetchAgentSkills: (agentId: string) => Promise<AnyRecord | null>;
-  installAgentSkill: (agentId: string, owner: string, repo: string) => Promise<AnyRecord | null>;
+  installAgentSkill: (agentId: string, payload: { owner?: string; repo?: string; localPath?: string }) => Promise<AnyRecord | null>;
   uninstallAgentSkill: (agentId: string, skillId: string) => Promise<boolean>;
   fetchAgentCronTasks: (agentId: string) => Promise<AnyRecord[] | null>;
   createAgentCronTask: (agentId: string, payload: AnyRecord) => Promise<AnyRecord | null>;
@@ -1780,11 +1780,11 @@ export function createCoreApi(): CoreApi {
       return response.data;
     },
 
-    installAgentSkill: async (agentId, owner, repo) => {
+    installAgentSkill: async (agentId, payload) => {
       const response = await requestJson<AnyRecord, AnyRecord>({
         path: `/v1/agents/${encodeURIComponent(agentId)}/skills`,
         method: "POST",
-        body: { owner, repo }
+        body: payload
       });
       if (!response.ok) {
         return null;

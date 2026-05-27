@@ -28,7 +28,7 @@ struct SloppyTUIBootstrap {
     func prepare() async throws -> SloppyTUIRuntime {
         let homeDirectory = CoreConfig.resolvedHomeDirectoryPath(environment: environment)
         var explicitConfigPath = normalizedServerConfigPath(configPath)
-        var config = CoreConfig.load(from: explicitConfigPath, currentDirectory: homeDirectory)
+        var config: CoreConfig
 
         if #available(macOS 15.0, *) {
             let envConfig = ConfigReader(providers: [EnvironmentVariablesProvider()])
@@ -36,9 +36,9 @@ struct SloppyTUIBootstrap {
                 envConfig.string(forKey: "core.config.path", default: "")
             ) {
                 explicitConfigPath = envConfigPath
-                config = CoreConfig.load(from: explicitConfigPath, currentDirectory: homeDirectory)
             }
 
+            config = try loadServerConfigRecovering(from: explicitConfigPath, currentDirectory: homeDirectory)
             applyServerEnvironmentOverrides(config: &config, envConfig: envConfig, environment: environment)
 
             if explicitConfigPath == nil {
@@ -46,19 +46,22 @@ struct SloppyTUIBootstrap {
                     for: config.workspace,
                     currentDirectory: homeDirectory
                 )
-                if FileManager.default.fileExists(atPath: workspaceConfigPath) {
-                    config = CoreConfig.load(from: workspaceConfigPath, currentDirectory: homeDirectory)
+                if CoreConfigFileStore.hasConfigOrBackup(at: workspaceConfigPath) {
+                    config = try loadServerConfigRecovering(from: workspaceConfigPath, currentDirectory: homeDirectory)
                     applyServerEnvironmentOverrides(config: &config, envConfig: envConfig, environment: environment)
                 }
             }
         } else if explicitConfigPath == nil {
+            config = try loadServerConfigRecovering(from: explicitConfigPath, currentDirectory: homeDirectory)
             let workspaceConfigPath = CoreConfig.defaultConfigPath(
                 for: config.workspace,
                 currentDirectory: homeDirectory
             )
-            if FileManager.default.fileExists(atPath: workspaceConfigPath) {
-                config = CoreConfig.load(from: workspaceConfigPath, currentDirectory: homeDirectory)
+            if CoreConfigFileStore.hasConfigOrBackup(at: workspaceConfigPath) {
+                config = try loadServerConfigRecovering(from: workspaceConfigPath, currentDirectory: homeDirectory)
             }
+        } else {
+            config = try loadServerConfigRecovering(from: explicitConfigPath, currentDirectory: homeDirectory)
         }
 
         let workspaceRoot = try prepareServerWorkspace(config: &config, currentDirectory: homeDirectory)

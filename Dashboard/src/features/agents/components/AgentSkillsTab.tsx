@@ -257,7 +257,9 @@ export function AgentSkillsTab({ agentId }: AgentSkillsTabProps) {
   const [installingSkillId, setInstallingSkillId] = useState<string | null>(null);
   const [uninstallingSkillId, setUninstallingSkillId] = useState<string | null>(null);
   const [githubInput, setGithubInput] = useState("");
+  const [localPathInput, setLocalPathInput] = useState("");
   const [isInstallingFromGithub, setIsInstallingFromGithub] = useState(false);
+  const [isInstallingFromLocal, setIsInstallingFromLocal] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   // Debounce search input → searchQuery
@@ -340,7 +342,7 @@ export function AgentSkillsTab({ agentId }: AgentSkillsTabProps) {
     setInstallingSkillId(skill.id);
     setError(null);
     try {
-      const result = await installAgentSkill(agentId, skill.owner, skill.repo);
+      const result = await installAgentSkill(agentId, { owner: skill.owner, repo: skill.repo });
       if (result) {
         await loadInstalledSkills();
       } else {
@@ -385,7 +387,7 @@ export function AgentSkillsTab({ agentId }: AgentSkillsTabProps) {
     setError(null);
 
     try {
-      const result = await installAgentSkill(agentId, owner, repo);
+      const result = await installAgentSkill(agentId, { owner, repo });
       if (result) {
         setGithubInput("");
         await loadInstalledSkills();
@@ -397,6 +399,29 @@ export function AgentSkillsTab({ agentId }: AgentSkillsTabProps) {
       setError(`Failed to install ${owner}/${repo}`);
     } finally {
       setIsInstallingFromGithub(false);
+    }
+  };
+
+  const handleInstallFromLocal = async () => {
+    const localPath = localPathInput.trim();
+    if (!localPath) return;
+
+    setIsInstallingFromLocal(true);
+    setError(null);
+
+    try {
+      const result = await installAgentSkill(agentId, { localPath });
+      if (result) {
+        setLocalPathInput("");
+        await loadInstalledSkills();
+        setActiveTab("installed");
+      } else {
+        setError(`Failed to install local skill from ${localPath}`);
+      }
+    } catch (err) {
+      setError(`Failed to install local skill from ${localPath}`);
+    } finally {
+      setIsInstallingFromLocal(false);
     }
   };
 
@@ -496,6 +521,38 @@ export function AgentSkillsTab({ agentId }: AgentSkillsTabProps) {
                   <>
                     <span className="material-symbols-rounded">download</span>
                     Install
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+
+          {/* Install from local directory */}
+          <div className="skills-github-section skills-local-section">
+            <h4>Install from local directory</h4>
+            <p className="skills-github-description">
+              Copy a local skill directory that contains SKILL.md into this agent's skills.
+            </p>
+            <div className="skills-github-input-group">
+              <input
+                type="text"
+                placeholder="/absolute/path/to/my-skill"
+                value={localPathInput}
+                onChange={(e) => setLocalPathInput(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && handleInstallFromLocal()}
+              />
+              <button
+                type="button"
+                className="skills-install-btn"
+                onClick={handleInstallFromLocal}
+                disabled={isInstallingFromLocal || !localPathInput.trim()}
+              >
+                {isInstallingFromLocal ? (
+                  <span className="material-symbols-rounded">hourglass_empty</span>
+                ) : (
+                  <>
+                    <span className="material-symbols-rounded">folder_open</span>
+                    Install local
                   </>
                 )}
               </button>

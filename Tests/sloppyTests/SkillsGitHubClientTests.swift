@@ -465,3 +465,72 @@ func agentSkillsStoreReturnsPersistedNestedSkillPath() throws {
     #expect(installed.localPath == nestedSkillPath.standardizedFileURL.path)
     #expect(try store.getSkillPath(agentID: "nested-agent", skillID: "JuliusBrussee/caveman") == nestedSkillPath.standardizedFileURL.path)
 }
+
+
+@Test
+func installLocalSkillCopiesDirectoryAndUsesFrontmatterMetadata() async throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+    let source = root.appendingPathComponent("source skill", isDirectory: true)
+    let nested = source.appendingPathComponent("docs", isDirectory: true)
+    let destination = root.appendingPathComponent("agent", isDirectory: true)
+        .appendingPathComponent("skills/local/local-skill", isDirectory: true)
+    try FileManager.default.createDirectory(at: nested, withIntermediateDirectories: true)
+    try """
+    ---
+    name: Local Skill
+    description: Installed from disk
+    user_invocable: false
+    allowed_tools: files.read, files.grep
+    ---
+
+    Use local project knowledge.
+    """.write(to: source.appendingPathComponent("SKILL.md"), atomically: true, encoding: .utf8)
+    try "notes".write(to: nested.appendingPathComponent("notes.md"), atomically: true, encoding: .utf8)
+    defer { try? FileManager.default.removeItem(at: root) }
+
+    let client = SkillsGitHubClient()
+    let downloaded = try await client.installLocalSkill(
+        sourcePath: source.path,
+        destination: destination,
+        owner: nil,
+        repo: "local-skill"
+    )
+
+    #expect(downloaded.owner == "local")
+    #expect(downloaded.repo == "local-skill")
+    #expect(downloaded.name == "Local Skill")
+    #expect(downloaded.description == "Installed from disk")
+    #expect(downloaded.version == "local")
+    #expect(downloaded.localPath == destination.standardizedFileURL.path)
+    #expect(downloaded.files.contains("SKILL.md"))
+    #expect(downloaded.files.contains("docs/notes.md"))
+    #expect(FileManager.default.fileExists(atPath: destination.appendingPathComponent("SKILL.md").path))
+    #expect(downloaded.frontmatter?.userInvocable == false)
+    #expect(downloaded.frontmatter?.allowedTools == ["files.read", "files.grep"])
+}
+
+@Test
+func agentSkillInstallCommandBuildsLocalPayload() throws {
+    let payload = try AgentSkillInstallCommand.makePayload(
+        owner: nil,
+        repo: nil,
+        localPath: " /tmp/my-skill "
+    )
+
+    #expect(payload["localPath"] as? String == "/tmp/my-skill")
+    #expect(payload["owner"] == nil)
+    #expect(payload["repo"] == nil)
+}
+
+@Test
+func agentSkillInstallCommandBuildsGitHubPayload() throws {
+    let payload = try AgentSkillInstallCommand.makePayload(
+        owner: " acme ",
+        repo: " skill ",
+        localPath: nil
+    )
+
+    #expect(payload["owner"] as? String == "acme")
+    #expect(payload["repo"] as? String == "skill")
+    #expect(payload["localPath"] == nil)
+}

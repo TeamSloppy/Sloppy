@@ -5,16 +5,16 @@ struct EmbeddedCoreServiceFactory {
     static func make(configPath: String?, loggerLabel: String) async throws -> CoreService {
         let homeDirectory = CoreConfig.resolvedHomeDirectoryPath()
         var explicitConfigPath = normalizedServerConfigPath(configPath)
-        var config = CoreConfig.load(from: explicitConfigPath, currentDirectory: homeDirectory)
+        var config = try loadServerConfigRecovering(from: explicitConfigPath, currentDirectory: homeDirectory)
 
         if explicitConfigPath == nil {
             let workspaceConfigPath = CoreConfig.defaultConfigPath(
                 for: config.workspace,
                 currentDirectory: homeDirectory
             )
-            if FileManager.default.fileExists(atPath: workspaceConfigPath) {
+            if CoreConfigFileStore.hasConfigOrBackup(at: workspaceConfigPath) {
                 explicitConfigPath = workspaceConfigPath
-                config = CoreConfig.load(from: workspaceConfigPath, currentDirectory: homeDirectory)
+                config = try loadServerConfigRecovering(from: workspaceConfigPath, currentDirectory: homeDirectory)
             }
         }
 

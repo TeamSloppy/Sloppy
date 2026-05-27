@@ -160,6 +160,73 @@ actor SkillsGitHubClient {
         )
     }
 
+    /// Install a skill from a local directory by copying it into the agent skills store.
+    func installLocalSkill(
+        sourcePath: String,
+        destination: URL,
+        owner requestedOwner: String? = nil,
+        repo requestedRepo: String? = nil
+    ) throws -> DownloadedSkill {
+        let source = URL(fileURLWithPath: sourcePath.trimmingCharacters(in: .whitespacesAndNewlines))
+            .standardizedFileURL
+        let fileManager = FileManager.default
+        var isDirectory: ObjCBool = false
+        guard fileManager.fileExists(atPath: source.path, isDirectory: &isDirectory), isDirectory.boolValue else {
+            throw ClientError.contentNotFound
+        }
+
+        let skillFiles = try localSkillFiles(in: source)
+        guard !skillFiles.isEmpty else {
+            throw ClientError.contentNotFound
+        }
+
+        let normalizedRepoHint = requestedRepo?.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let entrypoint = resolveSkillEntrypoint(
+            destination: source,
+            downloadedFiles: skillFiles,
+            repo: normalizedRepoHint?.isEmpty == false ? normalizedRepoHint! : source.lastPathComponent
+        ) else {
+            throw ClientError.contentNotFound
+        }
+
+        let fm = entrypoint.frontmatter
+        let derivedName = fm?.name?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let repo = normalizedRepoHint?.isEmpty == false
+            ? normalizedRepoHint!
+            : Self.skillIDComponent(from: derivedName ?? source.lastPathComponent)
+        let owner = {
+            let raw = requestedOwner?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            return raw.isEmpty ? "local" : raw
+        }()
+
+        if fileManager.fileExists(atPath: destination.path) {
+            try fileManager.removeItem(at: destination)
+        }
+        try fileManager.createDirectory(at: destination.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try fileManager.copyItem(at: source, to: destination)
+
+        let relativeEntrypoint = entrypoint.directory.standardizedFileURL.path
+            .dropFirst(source.path.count)
+            .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        let storedEntrypoint = relativeEntrypoint.isEmpty
+            ? destination
+            : destination.appendingPathComponent(relativeEntrypoint, isDirectory: true)
+
+        let name = derivedName?.isEmpty == false ? derivedName! : repo
+        let description = fm?.description?.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        return DownloadedSkill(
+            owner: owner,
+            repo: repo,
+            name: name,
+            description: description?.isEmpty == false ? description : nil,
+            version: "local",
+            files: skillFiles,
+            localPath: storedEntrypoint.standardizedFileURL.path,
+            frontmatter: fm
+        )
+    }
+
     /// Get the raw URL for a specific file in a repository
     func rawFileURL(
         owner: String,
@@ -172,6 +239,38 @@ actor SkillsGitHubClient {
     }
 
     // MARK: - Private Helpers
+
+    private func localSkillFiles(in source: URL) throws -> [String] {
+        let fileManager = FileManager.default
+        guard let enumerator = fileManager.enumerator(
+            at: source,
+            includingPropertiesForKeys: [.isRegularFileKey, .isDirectoryKey],
+            options: [.skipsHiddenFiles, .skipsPackageDescendants]
+        ) else {
+            throw ClientError.contentNotFound
+        }
+
+        var files: [String] = []
+        for case let fileURL as URL in enumerator {
+            let values = try fileURL.resourceValues(forKeys: [.isRegularFileKey])
+            guard values.isRegularFile == true else { continue }
+            let relative = fileURL.standardizedFileURL.path
+                .dropFirst(source.path.count)
+                .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+            if !relative.isEmpty {
+                files.append(relative)
+            }
+        }
+        return files.sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
+    }
+
+    private static func skillIDComponent(from raw: String) -> String {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        let allowed = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_.")
+        var result = String(trimmed.unicodeScalars.map { allowed.contains($0) ? Character($0) : "-" })
+        result = result.trimmingCharacters(in: CharacterSet(charactersIn: "-_."))
+        return result.isEmpty ? "skill" : result
+    }
 
     private func fetchRepositoryContents(
         owner: String,

@@ -91,12 +91,13 @@ struct SkillsInstallTool: CoreTool {
     let title = "Install skill"
     let status = "fully_functional"
     let name = "skills.install"
-    let description = "Install a skill for this agent from the registry or a GitHub repository. Use 'skills.search' first to find the owner and repo."
+    let description = "Install a skill for this agent from the registry, a GitHub repository, or a local directory containing SKILL.md. Use 'skills.search' first for registry/GitHub installs."
 
     var parameters: GenerationSchema {
         .objectSchema([
-            .init(name: "owner", description: "GitHub repository owner", schema: DynamicGenerationSchema(type: String.self)),
-            .init(name: "repo", description: "GitHub repository name", schema: DynamicGenerationSchema(type: String.self))
+            .init(name: "owner", description: "GitHub repository owner. Optional for local installs; defaults to 'local'.", schema: DynamicGenerationSchema(type: String.self), isOptional: true),
+            .init(name: "repo", description: "GitHub repository name. Optional for local installs; defaults to the local skill directory or SKILL.md name.", schema: DynamicGenerationSchema(type: String.self), isOptional: true),
+            .init(name: "localPath", description: "Local directory path containing a skill (for example /path/to/my-skill with SKILL.md).", schema: DynamicGenerationSchema(type: String.self), isOptional: true)
         ])
     }
 
@@ -105,17 +106,23 @@ struct SkillsInstallTool: CoreTool {
             return toolFailure(tool: name, code: "not_available", message: "Skills service is unavailable.", retryable: true)
         }
 
-        guard let owner = arguments["owner"]?.asString?.trimmingCharacters(in: .whitespacesAndNewlines), !owner.isEmpty else {
-            return toolFailure(tool: name, code: "invalid_arguments", message: "`owner` is required.", retryable: false)
-        }
-        guard let repo = arguments["repo"]?.asString?.trimmingCharacters(in: .whitespacesAndNewlines), !repo.isEmpty else {
-            return toolFailure(tool: name, code: "invalid_arguments", message: "`repo` is required.", retryable: false)
+        let owner = arguments["owner"]?.asString?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let repo = arguments["repo"]?.asString?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let localPath = arguments["localPath"]?.asString?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+
+        if localPath.isEmpty && (owner.isEmpty || repo.isEmpty) {
+            return toolFailure(tool: name, code: "invalid_arguments", message: "Provide either `localPath` or both `owner` and `repo`.", retryable: false)
         }
 
+        let requestedID = localPath.isEmpty ? "\(owner)/\(repo)" : localPath
         do {
             let skill = try await svc.installAgentSkill(
                 agentID: context.agentID,
-                request: SkillInstallRequest(owner: owner, repo: repo)
+                request: SkillInstallRequest(
+                    owner: owner,
+                    repo: repo,
+                    localPath: localPath.isEmpty ? nil : localPath
+                )
             )
             return toolSuccess(tool: name, data: .object([
                 "id": .string(skill.id),
@@ -123,14 +130,17 @@ struct SkillsInstallTool: CoreTool {
                 "owner": .string(skill.owner),
                 "repo": .string(skill.repo),
                 "description": skill.description.map { .string($0) } ?? .null,
+                "localPath": .string(skill.localPath),
                 "status": .string("installed")
             ]))
         } catch CoreService.AgentSkillsError.skillAlreadyExists {
-            return toolFailure(tool: name, code: "already_installed", message: "Skill '\(owner)/\(repo)' is already installed.", retryable: false)
+            return toolFailure(tool: name, code: "already_installed", message: "Skill '\(requestedID)' is already installed.", retryable: false)
+        } catch CoreService.AgentSkillsError.localPathFailure {
+            return toolFailure(tool: name, code: "local_path_failed", message: "Failed to install local skill from '\(localPath)'. Ensure it is a directory containing SKILL.md.", retryable: false)
         } catch CoreService.AgentSkillsError.downloadFailure {
             return toolFailure(tool: name, code: "download_failed", message: "Failed to download skill '\(owner)/\(repo)' from GitHub.", retryable: true)
         } catch {
-            return toolFailure(tool: name, code: "install_error", message: "Failed to install skill '\(owner)/\(repo)'.", retryable: true)
+            return toolFailure(tool: name, code: "install_error", message: "Failed to install skill '\(requestedID)'.", retryable: true)
         }
     }
 }
