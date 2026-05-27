@@ -2959,6 +2959,7 @@ public struct ToolApprovalRecord: Codable, Sendable, Equatable, Identifiable {
     public var approvalKind: ToolApprovalKind?
     public var agentId: String
     public var sessionId: String?
+    public var displaySessionId: String?
     public var channelId: String?
     public var topicId: String?
     public var tool: String
@@ -2977,6 +2978,7 @@ public struct ToolApprovalRecord: Codable, Sendable, Equatable, Identifiable {
         case approvalKind
         case agentId
         case sessionId
+        case displaySessionId
         case channelId
         case topicId
         case tool
@@ -2996,6 +2998,7 @@ public struct ToolApprovalRecord: Codable, Sendable, Equatable, Identifiable {
         approvalKind: ToolApprovalKind? = nil,
         agentId: String,
         sessionId: String? = nil,
+        displaySessionId: String? = nil,
         channelId: String? = nil,
         topicId: String? = nil,
         tool: String,
@@ -3013,6 +3016,7 @@ public struct ToolApprovalRecord: Codable, Sendable, Equatable, Identifiable {
         self.approvalKind = approvalKind
         self.agentId = agentId
         self.sessionId = sessionId
+        self.displaySessionId = displaySessionId
         self.channelId = channelId
         self.topicId = topicId
         self.tool = tool
@@ -3033,6 +3037,7 @@ public struct ToolApprovalRecord: Codable, Sendable, Equatable, Identifiable {
         self.approvalKind = try container.decodeIfPresent(ToolApprovalKind.self, forKey: .approvalKind)
         self.agentId = try container.decode(String.self, forKey: .agentId)
         self.sessionId = try container.decodeIfPresent(String.self, forKey: .sessionId)
+        self.displaySessionId = try container.decodeIfPresent(String.self, forKey: .displaySessionId)
         self.channelId = try container.decodeIfPresent(String.self, forKey: .channelId)
         self.topicId = try container.decodeIfPresent(String.self, forKey: .topicId)
         self.tool = try container.decode(String.self, forKey: .tool)

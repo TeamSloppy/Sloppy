@@ -3695,7 +3695,7 @@ export function AgentChatTab({
       if (String(approval?.agentId || "").trim() !== currentAgentId) {
         return false;
       }
-      const approvalSessionId = String(approval?.sessionId || "").trim();
+      const approvalSessionId = String(approval?.displaySessionId || approval?.sessionId || "").trim();
       return !currentSessionId || !approvalSessionId || approvalSessionId === currentSessionId;
     });
   }, [agentId, activeSessionId, pendingToolApprovals]);

@@ -81,6 +81,42 @@ struct ChatModelsTests {
         #expect(summary.projectId == "project-1")
     }
 
+    @Test("ChatSessionDetail decodes messages when server returns messages directly")
+    func chatSessionDetailDecodesDirectMessages() throws {
+        let json = """
+        {
+            "summary": {
+                "id": "sess-1",
+                "agentId": "agent-1",
+                "title": "Selected Chat",
+                "messageCount": 2,
+                "updatedAt": "2026-01-01T00:00:00Z",
+                "kind": "chat"
+            },
+            "messages": [
+                {
+                    "id": "msg-1",
+                    "role": "user",
+                    "segments": [{"kind": "text", "text": "Hello"}],
+                    "createdAt": "2026-01-01T00:00:00Z"
+                },
+                {
+                    "id": "msg-2",
+                    "role": "assistant",
+                    "segments": [{"kind": "text", "text": "Hi"}],
+                    "createdAt": "2026-01-01T00:00:01Z"
+                }
+            ]
+        }
+        """.data(using: .utf8)!
+
+        let detail = try isoDecoder.decode(ChatSessionDetail.self, from: json)
+
+        #expect(detail.summary.id == "sess-1")
+        #expect(detail.messages.map(\.id) == ["msg-1", "msg-2"])
+        #expect(detail.messages.last?.textContent == "Hi")
+    }
+
     @Test("ChatStreamUpdate sessionReady kind decodes")
     func chatStreamUpdateSessionReady() throws {
         let json = """

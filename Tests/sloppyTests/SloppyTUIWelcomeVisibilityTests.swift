@@ -45,3 +45,18 @@ func welcomeScreenRendersOnlyBeforeAnyTimelineContent() {
 
     #expect(shouldRender)
 }
+
+@Test
+func transientNoticeDoesNotHideWelcomeScreen() {
+    let shouldRender = SloppyTUIWelcomeVisibility.shouldRender(
+        welcomeDismissed: false,
+        hasPersistedSession: false,
+        hasSessionCards: false,
+        hasLiveAssistantDraft: false,
+        hasQueuedMessages: false,
+        hasLocalCards: false,
+        hasTransientNotice: true
+    )
+
+    #expect(shouldRender)
+}

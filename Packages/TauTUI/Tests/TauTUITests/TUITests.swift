@@ -335,6 +335,50 @@ struct TUIRenderingTests {
     }
 
     @Test
+    func mouseButtonDragAndReleaseNormalizeFromSGRSequences() throws {
+        let parser = ProcessTerminal()
+        let events = parser.parseForTests("\u{001B}[<0;3;4M\u{001B}[<32;5;4M\u{001B}[<0;5;4m")
+
+        #expect(events.contains(where: {
+            if case let .mouse(event) = $0 {
+                return event.button == .left
+                    && event.phase == .press
+                    && event.column == 2
+                    && event.row == 3
+            }
+            return false
+        }))
+        #expect(events.contains(where: {
+            if case let .mouse(event) = $0 {
+                return event.button == .left
+                    && event.phase == .drag
+                    && event.column == 4
+                    && event.row == 3
+            }
+            return false
+        }))
+        #expect(events.contains(where: {
+            if case let .mouse(event) = $0 {
+                return event.button == .left
+                    && event.phase == .release
+                    && event.column == 4
+                    && event.row == 3
+            }
+            return false
+        }))
+    }
+
+    @MainActor @Test
+    func virtualTerminalRecordsButtonDragMouseReportingMode() throws {
+        let terminal = VirtualTerminal(columns: 20, rows: 5)
+        terminal.setMouseReportingEnabled(true)
+        terminal.setMouseReportingEnabled(false)
+
+        #expect(terminal.outputLog.contains("\u{001B}[?1002h\u{001B}[?1006h"))
+        #expect(terminal.outputLog.contains("\u{001B}[?1006l\u{001B}[?1002l"))
+    }
+
+    @Test
     func mouseWheelEventsNormalizeWhenEscapeByteWasReadSeparately() throws {
         let parser = ProcessTerminal()
         parser.setMouseReportingEnabled(true)

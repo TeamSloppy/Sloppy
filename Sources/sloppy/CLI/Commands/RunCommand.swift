@@ -472,6 +472,8 @@ func createServerWorkspaceDirectories(at workspaceRoot: URL) throws {
         workspaceRoot.appendingPathComponent("sessions", isDirectory: true),
         workspaceRoot.appendingPathComponent("memory", isDirectory: true),
         workspaceRoot.appendingPathComponent("logs", isDirectory: true),
+        workspaceRoot.appendingPathComponent("tui", isDirectory: true),
+        workspaceRoot.appendingPathComponent("tui", isDirectory: true).appendingPathComponent("themes", isDirectory: true),
         workspaceRoot.appendingPathComponent("worktrees", isDirectory: true),
         workspaceRoot.appendingPathComponent("plugins", isDirectory: true),
         workspaceRoot.appendingPathComponent("plugin-cache", isDirectory: true),
@@ -481,6 +483,7 @@ func createServerWorkspaceDirectories(at workspaceRoot: URL) throws {
     for directory in directories {
         try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
     }
+    try SloppyTUIThemeStore(workspaceRoot: workspaceRoot, fileManager: fileManager).ensureSeedThemes()
 }
 
 func verifyWorkspaceWritable(at workspaceRoot: URL) throws {

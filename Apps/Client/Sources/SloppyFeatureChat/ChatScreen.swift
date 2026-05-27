@@ -194,20 +194,18 @@ private struct ChatScreenContent: View {
         let isPhone = idiom == .phone
 
         return HStack(spacing: isPhone ? sp.xs : sp.s) {
-            if viewModel.selectedSessionId != nil {
-                Button(action: { viewModel.showSessionPicker = true }) {
-                    if isPhone {
-                        Icons.symbol(.chatAddOn, size: ty.body)
+            Button(action: { viewModel.showSessionPicker = true }) {
+                if isPhone {
+                    Icons.symbol(.chatAddOn, size: ty.body)
+                        .foregroundColor(c.textMuted)
+                        .frame(width: 28, height: 28)
+                } else {
+                    HStack(spacing: sp.s) {
+                        Text("Sessions")
+                            .font(.system(size: ty.caption))
+                            .foregroundColor(c.textSecondary)
+                        Icons.symbol(.expandMore, size: ty.micro)
                             .foregroundColor(c.textMuted)
-                            .frame(width: 28, height: 28)
-                    } else {
-                        HStack(spacing: sp.s) {
-                            Text("Sessions")
-                                .font(.system(size: ty.caption))
-                                .foregroundColor(c.textSecondary)
-                            Icons.symbol(.expandMore, size: ty.micro)
-                                .foregroundColor(c.textMuted)
-                        }
                     }
                 }
             }
@@ -381,7 +379,7 @@ private struct ChatScreenContent: View {
     }
 
     private var phoneAgentPickerWidth: Float {
-        let reservedButtonCount: Float = viewModel.selectedSessionId == nil ? 2 : 3
+        let reservedButtonCount: Float = 3
         let reserved = reservedButtonCount * 36 + reservedButtonCount * theme.spacing.s + theme.spacing.s * 2
         return min(160, max(112, contentWidth - reserved))
     }

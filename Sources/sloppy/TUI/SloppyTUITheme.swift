@@ -345,6 +345,24 @@ enum SloppyTUITheme {
         return muted(text)
     }
 
+    static func noticeToastLines(_ text: String, width: Int) -> [String] {
+        let toastWidth = max(1, min(width, max(24, min(72, width - 4))))
+        let innerWidth = max(1, toastWidth - 2)
+        let message = truncateEnd(
+            text.replacingOccurrences(of: "\n", with: " "),
+            maxWidth: max(1, innerWidth - 6)
+        )
+        let empty = centeredToastLine("", toastWidth: toastWidth, screenWidth: width)
+        let messagePadding = max(0, innerWidth - VisibleWidth.measure(message))
+        let leftPadding = messagePadding / 2
+        let rightPadding = messagePadding - leftPadding
+        let content = String(repeating: " ", count: leftPadding)
+            + foreground(message)
+            + String(repeating: " ", count: rightPadding)
+        let messageLine = centeredToastLine(content, toastWidth: toastWidth, screenWidth: width)
+        return [empty, messageLine, empty]
+    }
+
     static func sessionStatusLine(context: String, attachments: String, sessionID: String) -> String {
         let details = (context + attachments).trimmingCharacters(in: .whitespacesAndNewlines)
         let suffix = details.isEmpty ? "" : "\(details)  "
@@ -1892,6 +1910,13 @@ enum SloppyTUITheme {
             return nil
         }
         return trimmed
+    }
+
+    private static func centeredToastLine(_ content: String, toastWidth: Int, screenWidth: Int) -> String {
+        let innerWidth = max(1, toastWidth - 2)
+        let fitted = padded(fittedLine(content, width: innerWidth), width: innerWidth)
+        let panel = applyPanelBackground(accent("▌") + fitted + accent("▐"), width: toastWidth)
+        return center(panel, width: screenWidth)
     }
 
     private static func applyPanelBackground(_ line: String, width: Int) -> String {

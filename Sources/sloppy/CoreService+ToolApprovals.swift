@@ -63,19 +63,26 @@ extension CoreService: ToolApprovalBridge {
             return nil
         }
 
+        let displaySessionID = toolApprovalDisplaySessionID(agentID: agentID, sessionID: sessionID)
         let record = await toolApprovalService.createPending(
             agentId: agentID,
             sessionId: sessionID,
+            displaySessionId: displaySessionID,
             channelId: channelID,
             topicId: topicID,
             request: request,
             approvalKind: .riskyTool
         )
-        await appendToolApprovalPausedStatusIfNeeded(agentID: agentID, sessionID: sessionID, record: record)
-        if let sessionID {
+        await appendToolApprovalPausedStatusIfNeeded(
+            agentID: agentID,
+            sessionID: sessionID,
+            displaySessionID: displaySessionID,
+            record: record
+        )
+        if let waitingSessionID = displaySessionID ?? sessionID {
             await markTaskWaitingInputForAgentSession(
                 agentID: agentID,
-                sessionID: sessionID,
+                sessionID: waitingSessionID,
                 reason: "Tool approval required for \(request.tool).",
                 source: "agent"
             )
@@ -201,20 +208,27 @@ extension CoreService: ToolApprovalBridge {
             reason: reason,
             argumentDiagnostics: request.argumentDiagnostics
         )
+        let displaySessionID = toolApprovalDisplaySessionID(agentID: agentID, sessionID: sessionID)
         let record = await toolApprovalService.createPending(
             agentId: agentID,
             sessionId: sessionID,
+            displaySessionId: displaySessionID,
             channelId: channelID,
             topicId: topicID,
             request: approvalRequest,
             approvalKind: .missingAccess,
             grants: grants
         )
-        await appendToolApprovalPausedStatusIfNeeded(agentID: agentID, sessionID: sessionID, record: record)
-        if let sessionID {
+        await appendToolApprovalPausedStatusIfNeeded(
+            agentID: agentID,
+            sessionID: sessionID,
+            displaySessionID: displaySessionID,
+            record: record
+        )
+        if let waitingSessionID = displaySessionID ?? sessionID {
             await markTaskWaitingInputForAgentSession(
                 agentID: agentID,
-                sessionID: sessionID,
+                sessionID: waitingSessionID,
                 reason: "Access approval required for \(request.tool).",
                 source: "agent"
             )
@@ -351,7 +365,35 @@ extension CoreService: ToolApprovalBridge {
         return "Allow access to \(tool)."
     }
 
+    private func toolApprovalDisplaySessionID(agentID: String, sessionID: String?) -> String? {
+        guard let sessionID = sessionID?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !sessionID.isEmpty,
+              let detail = try? getAgentSession(agentID: agentID, sessionID: sessionID),
+              let parentSessionID = detail.summary.parentSessionId?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !parentSessionID.isEmpty
+        else {
+            return nil
+        }
+        return parentSessionID
+    }
+
     private func appendToolApprovalPausedStatusIfNeeded(
+        agentID: String,
+        sessionID: String?,
+        displaySessionID: String?,
+        record: ToolApprovalRecord
+    ) async {
+        await appendToolApprovalPausedStatus(agentID: agentID, sessionID: sessionID, record: record)
+        let sourceSessionID = sessionID?.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let displaySessionID,
+              displaySessionID != sourceSessionID
+        else {
+            return
+        }
+        await appendToolApprovalPausedStatus(agentID: agentID, sessionID: displaySessionID, record: record)
+    }
+
+    private func appendToolApprovalPausedStatus(
         agentID: String,
         sessionID: String?,
         record: ToolApprovalRecord

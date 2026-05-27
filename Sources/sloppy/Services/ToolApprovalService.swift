@@ -36,6 +36,7 @@ actor ToolApprovalService {
     func createPending(
         agentId: String,
         sessionId: String?,
+        displaySessionId: String? = nil,
         channelId: String?,
         topicId: String?,
         request: ToolInvocationRequest,
@@ -49,6 +50,7 @@ actor ToolApprovalService {
             approvalKind: approvalKind,
             agentId: agentId,
             sessionId: sessionId,
+            displaySessionId: displaySessionId,
             channelId: channelId,
             topicId: topicId,
             tool: request.tool,
@@ -168,6 +170,7 @@ actor ToolApprovalService {
         ]
         if let approvalKind = record.approvalKind { payload["approvalKind"] = .string(approvalKind.rawValue) }
         if let sessionId = record.sessionId { payload["sessionId"] = .string(sessionId) }
+        if let displaySessionId = record.displaySessionId { payload["displaySessionId"] = .string(displaySessionId) }
         if let channelId = record.channelId { payload["channelId"] = .string(channelId) }
         if let topicId = record.topicId { payload["topicId"] = .string(topicId) }
         if let reason = record.reason { payload["reason"] = .string(reason) }
@@ -176,7 +179,7 @@ actor ToolApprovalService {
 
         await eventBus.publish(EventEnvelope(
             messageType: messageType,
-            channelId: record.channelId ?? record.sessionId ?? "agent:\(record.agentId)",
+            channelId: record.channelId ?? record.displaySessionId ?? record.sessionId ?? "agent:\(record.agentId)",
             payload: .object(payload)
         ))
     }

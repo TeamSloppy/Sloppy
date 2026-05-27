@@ -18,10 +18,42 @@ struct SloppyTUIThemeStore {
     var workspaceRoot: URL
     var fileManager: FileManager = .default
 
+    static let opencodeThemeFileName = "opencode.json"
+    static let opencodeThemeJSON = """
+    {
+      "name": "OpenCode",
+      "colors": {
+        "accent": "#78dce8",
+        "accentBright": "#a6e3ff",
+        "foreground": "#e6e6e6",
+        "muted": "#8b94a7",
+        "blue": "#7aa2f7",
+        "green": "#9ece6a",
+        "yellow": "#e0af68",
+        "orange": "#ff9e64",
+        "red": "#f7768e",
+        "panelBackground": "#151515",
+        "userMessageBackground": "#242424",
+        "toolBackground": "#1e2428",
+        "thinkingBackground": "#1b1b1b",
+        "attachmentBackground": "#162325",
+        "textBackground": "#101010",
+        "truncatedBackground": "#101010"
+      }
+    }
+    """
+
     var themesURL: URL {
         workspaceRoot
             .appendingPathComponent("tui", isDirectory: true)
             .appendingPathComponent("themes", isDirectory: true)
+    }
+
+    func ensureSeedThemes() throws {
+        try fileManager.createDirectory(at: themesURL, withIntermediateDirectories: true)
+        let opencodeURL = themesURL.appendingPathComponent(Self.opencodeThemeFileName)
+        guard !fileManager.fileExists(atPath: opencodeURL.path) else { return }
+        try Data((Self.opencodeThemeJSON + "\n").utf8).write(to: opencodeURL, options: .atomic)
     }
 
     func loadCatalog() -> SloppyTUIThemeCatalog {

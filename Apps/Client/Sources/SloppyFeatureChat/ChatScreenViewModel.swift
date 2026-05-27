@@ -131,11 +131,17 @@ public final class ChatScreenViewModel {
             if let agent {
                 selectedAgent = agent
                 await loadSessions(for: agent)
-                selectedSessionId = nil
-                transcript.clear()
-                activeContextTitle = nil
-                activeProjectId = nil
-                settings.lastSessionId = nil
+
+                if let lastSessionId = settings.lastSessionId,
+                   sessions.contains(where: { $0.id == lastSessionId }) {
+                    selectSession(lastSessionId)
+                } else {
+                    selectedSessionId = nil
+                    transcript.clear()
+                    activeContextTitle = nil
+                    activeProjectId = nil
+                    settings.lastSessionId = nil
+                }
             }
 
             if let pendingNavigationRequest {

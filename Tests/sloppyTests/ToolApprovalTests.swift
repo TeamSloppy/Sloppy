@@ -473,6 +473,81 @@ func sessionScopedCwdApprovalSkipsNextMatchingRiskyApproval() async throws {
 }
 
 @Test
+func subagentApprovalDisplaysOnParentSessionButScopesToChildSession() async throws {
+    let service = CoreService(config: .test, persistenceBuilder: InMemoryCorePersistenceBuilder())
+    let agentID = "approval-subagent-parent"
+    _ = try await service.createAgent(AgentCreateRequest(
+        id: agentID,
+        displayName: agentID,
+        role: "Tests delegated tool approvals"
+    ))
+    let parent = try await service.createAgentSession(
+        agentID: agentID,
+        request: AgentSessionCreateRequest(title: "Parent")
+    )
+    let child = try await service.createAgentSession(
+        agentID: agentID,
+        request: AgentSessionCreateRequest(title: "Child", parentSessionId: parent.id)
+    )
+    let allowedDir = try makeApprovalTempDirectory()
+    let firstFile = allowedDir.appendingPathComponent("first.txt")
+    let secondFile = allowedDir.appendingPathComponent("second.txt")
+    try "first".write(to: firstFile, atomically: true, encoding: .utf8)
+    try "second".write(to: secondFile, atomically: true, encoding: .utf8)
+
+    let first = Task {
+        await service.invokeToolFromRuntime(
+            agentID: agentID,
+            sessionID: child.id,
+            request: ToolInvocationRequest(tool: "files.read", arguments: ["path": .string(firstFile.path)]),
+            recordSessionEvents: false
+        )
+    }
+
+    let pending = try await waitForPendingToolApproval(service)
+    #expect(pending.approvalKind == .missingAccess)
+    #expect(pending.sessionId == child.id)
+    #expect(pending.displaySessionId == parent.id)
+
+    let parentDetail = try await service.getAgentSession(agentID: agentID, sessionID: parent.id)
+    #expect(parentDetail.events.contains(where: {
+        $0.runStatus?.stage == .paused &&
+            $0.runStatus?.label == "Tool approval required"
+    }))
+    let childDetail = try await service.getAgentSession(agentID: agentID, sessionID: child.id)
+    #expect(childDetail.events.contains(where: {
+        $0.runStatus?.stage == .paused &&
+            $0.runStatus?.label == "Tool approval required"
+    }))
+
+    _ = await service.approveToolApproval(id: pending.id, decidedBy: "test", scope: .session)
+    #expect((await first.value).ok == true)
+
+    let childSameDirectory = await service.invokeToolFromRuntime(
+        agentID: agentID,
+        sessionID: child.id,
+        request: ToolInvocationRequest(tool: "files.read", arguments: ["path": .string(secondFile.path)]),
+        recordSessionEvents: false
+    )
+    #expect(childSameDirectory.ok == true)
+    #expect(await service.listPendingToolApprovals().isEmpty)
+
+    let parentRead = Task {
+        await service.invokeToolFromRuntime(
+            agentID: agentID,
+            sessionID: parent.id,
+            request: ToolInvocationRequest(tool: "files.read", arguments: ["path": .string(secondFile.path)]),
+            recordSessionEvents: false
+        )
+    }
+    let parentPending = try await waitForPendingToolApproval(service)
+    #expect(parentPending.sessionId == parent.id)
+    #expect(parentPending.displaySessionId == nil)
+    _ = await service.rejectToolApproval(id: parentPending.id, decidedBy: "test")
+    #expect((await parentRead.value).error?.code == "tool_approval_rejected")
+}
+
+@Test
 func legacyToolApprovalRecordDecodesWithoutGrantMetadata() throws {
     let json = """
     {

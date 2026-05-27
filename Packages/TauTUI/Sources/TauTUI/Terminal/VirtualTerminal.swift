@@ -15,6 +15,7 @@ public final class VirtualTerminal: Terminal {
     private var inputHandler: ((TerminalInput) -> Void)?
     private var resizeHandler: (() -> Void)?
     private var isRunning = false
+    private var mouseReportingEnabled = false
 
     public init(columns: Int = 80, rows: Int = 24) {
         self.columns = max(1, columns)
@@ -67,6 +68,16 @@ public final class VirtualTerminal: Terminal {
 
     public func clearScreen() {
         self.outputLog.append("\u{001B}[2J\u{001B}[H")
+    }
+
+    public func setMouseReportingEnabled(_ enabled: Bool) {
+        guard self.mouseReportingEnabled != enabled else { return }
+        self.mouseReportingEnabled = enabled
+        if enabled {
+            self.outputLog.append("\u{001B}[?1002h\u{001B}[?1006h")
+        } else {
+            self.outputLog.append("\u{001B}[?1006l\u{001B}[?1002l")
+        }
     }
 
     public func flush() {}

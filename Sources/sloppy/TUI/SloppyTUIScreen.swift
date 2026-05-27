@@ -407,6 +407,11 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
     private var sessionListRefreshTask: Task<Void, Never>?
     private var backgroundSessionTasks: [String: Task<Void, Never>] = [:]
     private var postingSessionIDs: Set<String> = []
+    private var hitRegions: [SloppyTUIHitRegion] = []
+    private var selectionState = SloppyTUISelectionState()
+    private var mousePressCell: SloppyTUIScreenCell?
+    private var mousePressAction: SloppyTUIHitAction?
+    private var lastRenderedSelectionLines: [String] = []
 
     init(
         runtime: SloppyTUIRuntime,
@@ -537,13 +542,21 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
     }
 
     func render(width: Int) -> [String] {
+        hitRegions.removeAll(keepingCapacity: true)
+        terminal?.setMouseReportingEnabled(true)
         let height = max(terminal?.rows ?? 24, 12)
         let lines = renderBaseScreen(width: width, height: height)
-        return SloppyTUITheme.normalize(lines: lines, width: width, height: max(height, lines.count))
+        let normalized = SloppyTUITheme.normalize(lines: lines, width: width, height: max(height, lines.count))
+        registerTextHitRegions(lines: normalized, width: width)
+        lastRenderedSelectionLines = normalized
+        return SloppyTUISelectionRenderer.applySelectionOverlay(lines: normalized, range: selectionState.activeRange)
     }
 
     func handle(input: TerminalInput) {
         controlCExitDetector.reset()
+        if handleMouseInput(input) {
+            return
+        }
         if handleQueuedMessageCancel(input) {
             return
         }
@@ -607,6 +620,104 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
         }
 
         showSystemNotice("Press Ctrl+C again to exit. Active agent run will be interrupted.", autoDismissAfter: 4)
+    }
+
+    private func handleMouseInput(_ input: TerminalInput) -> Bool {
+        guard case let .mouse(event) = input else { return false }
+        guard event.button == .left else { return false }
+
+        let cell = SloppyTUIScreenCell(row: event.row, column: event.column)
+        switch event.phase {
+        case .press:
+            mousePressCell = cell
+            mousePressAction = hitRegion(at: cell)?.action
+            selectionState.press(at: cell)
+            requestRender()
+            return true
+        case .drag:
+            selectionState.drag(to: cell)
+            requestRender()
+            return true
+        case .release:
+            let copiedRange = selectionState.release()
+            defer {
+                mousePressCell = nil
+                mousePressAction = nil
+                requestRender()
+            }
+            if let copiedRange {
+                copySelectedText(in: copiedRange)
+                return true
+            }
+            guard mousePressCell == cell,
+                  let action = mousePressAction,
+                  hitRegion(at: cell)?.action == action else {
+                return true
+            }
+            performHitAction(action)
+            return true
+        case .scroll:
+            return false
+        }
+    }
+
+    private func hitRegion(at cell: SloppyTUIScreenCell) -> SloppyTUIHitRegion? {
+        hitRegions.last { $0.contains(cell) }
+    }
+
+    private func copySelectedText(in range: SloppyTUITextSelectionRange) {
+        let text = SloppyTUISelectionRenderer.selectedText(lines: lastRenderedSelectionLines, range: range)
+        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return
+        }
+        if SloppyTUIClipboard.copy(text) {
+            showSystemNotice("Copied selection to clipboard.")
+        } else {
+            showSystemNotice("Clipboard copy is not available on this platform.")
+        }
+    }
+
+    private func performHitAction(_ action: SloppyTUIHitAction) {
+        switch action {
+        case .activePicker(let index):
+            guard var picker = activePicker, picker.items.indices.contains(index) else { return }
+            picker.selectedIndex = index
+            let item = picker.items[index]
+            activePicker = nil
+            requestRender()
+            Task { @MainActor in
+                await self.applyPickerItem(item, kind: picker.kind)
+            }
+        case .commandPalette(let index):
+            let commands = commandPaletteSuggestions()
+            guard commands.indices.contains(index) else { return }
+            applyCommandPaletteSelection(commands[index])
+        case .projectFile(let index):
+            guard let picker = projectFileSearchPicker(), picker.items.indices.contains(index) else { return }
+            projectFileSearchSelection = index
+            applyProjectFileSearchItem(picker.items[index])
+        case .projectTask(let index):
+            guard let picker = projectTaskSearchPicker(), picker.items.indices.contains(index) else { return }
+            projectTaskSearchSelection = index
+            applyProjectTaskSearchItem(picker.items[index])
+        case .reasoningEffort(let index):
+            effortSliderSelectionIndex = index
+            applyReasoningEffortSelection()
+        case .scrollbackMode(let index):
+            scrollbackModeSelectionIndex = index
+            applyScrollbackModeSelection()
+        case .sessionList(let index):
+            sessionListSelectedIndex = SloppyTUISessionList.clampedSelection(index, entryCount: sessionListEntries.count)
+            openSelectedSessionFromList(reply: false)
+        case .toggleTranscript:
+            transcriptExpanded.toggle()
+            refreshStaticChrome()
+            renderTimeline()
+        case .openSubSession(let sessionID):
+            Task { @MainActor in
+                await self.switchSession(sessionID)
+            }
+        }
     }
 
     private func handleQueuedMessageCancel(_ input: TerminalInput) -> Bool {
@@ -718,7 +829,196 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
 
         let bodyHeight = max(1, height - composer.count)
         let body = renderBody(width: width, height: bodyHeight)
+        registerBodyHitRegions(width: width, height: bodyHeight)
+        registerComposerHitRegions(startRow: bodyHeight, width: width)
         return body + composer
+    }
+
+    private func registerBodyHitRegions(width: Int, height: Int) {
+        guard sessionListMode != .hidden else { return }
+        let listWidth: Int
+        switch sessionListMode {
+        case .hidden:
+            return
+        case .full:
+            listWidth = width
+        case .side:
+            listWidth = min(max(36, width / 3), min(72, max(1, width - 24)))
+        }
+        registerSessionListHitRegions(startRow: 0, startColumn: 0, width: listWidth, height: height)
+    }
+
+    private func registerComposerHitRegions(startRow: Int, width: Int) {
+        if let picker = activePicker {
+            registerPickerHitRegions(
+                picker: picker,
+                startRow: startRow,
+                width: width,
+                action: { .activePicker(index: $0) }
+            )
+        } else if reasoningEffortSelectorVisible {
+            registerSliderHitRegions(
+                startRow: startRow,
+                width: width,
+                optionCount: SloppyTUIReasoningEffortSelector.options.count,
+                labelRowOffset: 2,
+                action: { .reasoningEffort(index: $0) }
+            )
+        } else if scrollbackModeSelectorVisible {
+            registerSliderHitRegions(
+                startRow: startRow,
+                width: width,
+                optionCount: SloppyTUIScrollbackModeSelector.options.count,
+                labelRowOffset: 2,
+                action: { .scrollbackMode(index: $0) }
+            )
+        } else if commandPaletteVisible {
+            registerCommandPaletteHitRegions(startRow: startRow, width: width)
+        } else if let picker = projectTaskSearchPicker() {
+            registerPickerHitRegions(
+                picker: picker,
+                startRow: startRow,
+                width: width,
+                action: { .projectTask(index: $0) }
+            )
+        } else if let picker = projectFileSearchPicker() {
+            registerPickerHitRegions(
+                picker: picker,
+                startRow: startRow,
+                width: width,
+                action: { .projectFile(index: $0) }
+            )
+        }
+    }
+
+    private func registerCommandPaletteHitRegions(startRow: Int, width: Int) {
+        let commands = commandPaletteSuggestions()
+        guard !commands.isEmpty else { return }
+        let paletteWidth = max(1, min(max(1, width - 4), 96))
+        let left = max(0, (width - paletteWidth) / 2)
+        let visibleCount = max(1, min(9, commands.count))
+        let start = max(0, min(commandPaletteSelection - visibleCount / 2, commands.count - visibleCount))
+        let end = min(commands.count, start + visibleCount)
+        var row = startRow
+        for index in start..<end {
+            registerHitRegion(
+                row: row,
+                startColumn: left,
+                endColumn: left + paletteWidth,
+                action: .commandPalette(index: index)
+            )
+            row += 1
+        }
+    }
+
+    private func registerPickerHitRegions(
+        picker: SloppyTUIPicker,
+        startRow: Int,
+        width: Int,
+        action: (Int) -> SloppyTUIHitAction
+    ) {
+        let paletteWidth = max(1, min(max(1, width - 4), 96))
+        let left = max(0, (width - paletteWidth) / 2)
+        let visibleCount = max(1, min(9, picker.items.count))
+        let start = max(0, min(picker.selectedIndex - visibleCount / 2, picker.items.count - visibleCount))
+        let end = min(picker.items.count, start + visibleCount)
+        var row = startRow + 1
+        if picker.supportsSearch {
+            row += 1
+        }
+
+        var lastGroup: String?
+        for index in start..<end {
+            let item = picker.items[index]
+            if let group = item.group?.trimmingCharacters(in: .whitespacesAndNewlines),
+               !group.isEmpty,
+               group != lastGroup {
+                row += 1
+                lastGroup = group
+            }
+            registerHitRegion(
+                row: row,
+                startColumn: left,
+                endColumn: left + paletteWidth,
+                action: action(index)
+            )
+            row += 1
+        }
+    }
+
+    private func registerSliderHitRegions(
+        startRow: Int,
+        width: Int,
+        optionCount: Int,
+        labelRowOffset: Int,
+        action: (Int) -> SloppyTUIHitAction
+    ) {
+        guard optionCount > 0 else { return }
+        let paletteWidth = max(1, min(max(1, width - 4), 96))
+        let left = max(0, (width - paletteWidth) / 2)
+        let innerWidth = max(1, paletteWidth - 4)
+        let sliderWidth = max(1, min(innerWidth, max(24, optionCount * 13 - 1)))
+        let sliderLeft = max(0, (paletteWidth - sliderWidth) / 2)
+        let base = left + sliderLeft
+        let row = startRow + labelRowOffset
+        for index in 0..<optionCount {
+            let startColumn = base + (index * sliderWidth / optionCount)
+            let endColumn = base + ((index + 1) * sliderWidth / optionCount)
+            registerHitRegion(
+                row: row,
+                startColumn: startColumn,
+                endColumn: max(startColumn + 1, endColumn),
+                action: action(index)
+            )
+        }
+    }
+
+    private func registerSessionListHitRegions(startRow: Int, startColumn: Int, width: Int, height: Int) {
+        var row = startRow + 3
+        var entryIndex = 0
+        for section in SloppyTUISessionListSection.allCases {
+            let sectionEntries = sessionListEntries.filter { $0.section == section }
+            guard !sectionEntries.isEmpty else { continue }
+            row += 1
+            for _ in sectionEntries {
+                if row < startRow + height {
+                    registerHitRegion(
+                        row: row,
+                        startColumn: startColumn,
+                        endColumn: startColumn + width,
+                        action: .sessionList(index: entryIndex)
+                    )
+                }
+                row += 1
+                entryIndex += 1
+            }
+            row += 1
+        }
+    }
+
+    private func registerTextHitRegions(lines: [String], width: Int) {
+        for (row, line) in lines.enumerated() {
+            let plain = SloppyTUISelectionRenderer.stripANSI(line)
+            if plain.contains("(ctrl+o to expand)") || plain.contains("ctrl+o toggles") {
+                registerHitRegion(row: row, startColumn: 0, endColumn: width, action: .toggleTranscript)
+            }
+            for card in subSessionCards {
+                let id = SloppyTUITheme.shortID(card.childSessionId)
+                if plain.contains("subagent"), plain.contains(id) {
+                    registerHitRegion(row: row, startColumn: 0, endColumn: width, action: .openSubSession(card.childSessionId))
+                }
+            }
+        }
+    }
+
+    private func registerHitRegion(row: Int, startColumn: Int, endColumn: Int, action: SloppyTUIHitAction) {
+        guard row >= 0, endColumn > startColumn else { return }
+        hitRegions.append(SloppyTUIHitRegion(
+            row: row,
+            startColumn: max(0, startColumn),
+            endColumn: max(startColumn + 1, endColumn),
+            action: action
+        ))
     }
 
     private func renderBody(width: Int, height: Int) -> [String] {
@@ -760,7 +1060,6 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
 
     private func renderChatBody(width: Int, height: Int) -> [String] {
         if shouldRenderWelcome {
-            terminal?.setMouseReportingEnabled(false)
             let raw = SloppyTUITheme.welcomeScreen(
                 width: width,
                 cwd: runtime.cwd,
@@ -772,19 +1071,25 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
                 tipOffset: welcomeTipCursor,
                 includeFooter: false
             )
-            return centerWelcome(raw, height: height)
+            let lines = centerWelcome(raw, height: height)
+            return applyTransientNoticeOverlay(
+                to: lines,
+                width: width,
+                preferredRow: max(0, lines.count - 1)
+            )
         }
 
         let headerLines = header.render(width: width)
         let statusLines = status.render(width: width)
         let timelineHeight = max(1, height - headerLines.count - statusLines.count)
-        terminal?.setMouseReportingEnabled(usesViewportTimelineScroll(width: width))
         let visibleTimeline = renderTimelineBlocks(width: width, height: timelineHeight)
         let bottomPadding = max(0, height - headerLines.count - visibleTimeline.count - statusLines.count)
-        return headerLines
+        let lines = headerLines
             + visibleTimeline
             + Array(repeating: "", count: bottomPadding)
             + statusLines
+        let noticeRow = headerLines.count + visibleTimeline.count + bottomPadding - 1
+        return applyTransientNoticeOverlay(to: lines, width: width, preferredRow: noticeRow)
     }
 
     nonisolated static func zippedPaneLines(
@@ -819,6 +1124,18 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
         return Array(repeating: "", count: topPadding)
             + content
             + Array(repeating: "", count: bottomPadding)
+    }
+
+    private func applyTransientNoticeOverlay(to lines: [String], width: Int, preferredRow: Int) -> [String] {
+        guard let transientNoticeLine, !lines.isEmpty else { return lines }
+        let noticeLines = SloppyTUITheme.noticeToastLines(transientNoticeLine, width: width)
+        let row = max(0, min(preferredRow, lines.count - 1))
+        let startRow = max(0, min(row - noticeLines.count + 1, lines.count - noticeLines.count))
+        var result = lines
+        for (offset, noticeLine) in noticeLines.enumerated() where result.indices.contains(startRow + offset) {
+            result[startRow + offset] = noticeLine
+        }
+        return result
     }
 
     private func handleSessionListOpenShortcut(_ input: TerminalInput) -> Bool {
@@ -1368,10 +1685,6 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
             scrollTimeline(by: page)
         case .function(6):
             scrollTimeline(by: -page)
-        case .arrowUp where modifiers.isEmpty || modifiers.contains(.option) || modifiers.contains(.control):
-            scrollTimeline(by: 3)
-        case .arrowDown where modifiers.isEmpty || modifiers.contains(.option) || modifiers.contains(.control):
-            scrollTimeline(by: -3)
         case .home where modifiers.contains(.option) || modifiers.contains(.control):
             scrollTimelineToTop()
         case .end where modifiers.contains(.option) || modifiers.contains(.control):
@@ -6024,9 +6337,8 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
             sessionID: hasPersistedSession ? session.id : "not created"
         )
         let busyStatus = (statusLine ?? shellRunStatusLine ?? liveRunStatusLine).map { $0 + elapsed.busySuffix }
-        let noticeStatus = transientNoticeLine.map { "notice: \($0)" + elapsed.idleSuffix }
         status.text = SloppyTUITheme.status(
-            busyStatus ?? noticeStatus ?? defaultStatus,
+            busyStatus ?? defaultStatus,
             isBusy: busyStatus != nil
         )
         refreshTerminalTitle()

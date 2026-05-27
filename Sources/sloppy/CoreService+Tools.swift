@@ -1266,6 +1266,9 @@ private func toolInvocationHardTimeoutMs(request: ToolInvocationRequest, policy:
     case "runtime.exec":
         return resolvedExecTimeoutMs(arguments: request.arguments, guardrails: policy.guardrails) + 3_000
 
+    case "agents.delegate_task":
+        return Int(ToolApprovalService.defaultTimeoutSeconds * 1_000) + 5_000
+
     case "tools.sleep":
         let rawSeconds = request.arguments["seconds"]?.asInt ?? 0
         let seconds = min(max(0, rawSeconds), SleepTool.maxSeconds)

@@ -102,7 +102,9 @@ public actor NotificationService {
             "expiresAt": ISO8601DateFormatter().string(from: approval.expiresAt),
             "source": "agent"
         ]
-        if let sessionId = approval.sessionId { metadata["sessionId"] = sessionId }
+        if let sessionId = approval.displaySessionId ?? approval.sessionId { metadata["sessionId"] = sessionId }
+        if let sourceSessionId = approval.sessionId { metadata["sourceSessionId"] = sourceSessionId }
+        if let displaySessionId = approval.displaySessionId { metadata["displaySessionId"] = displaySessionId }
         if let channelId = approval.channelId { metadata["channelId"] = channelId }
         if let topicId = approval.topicId { metadata["topicId"] = topicId }
         if let reason = approval.reason { metadata["reason"] = reason }

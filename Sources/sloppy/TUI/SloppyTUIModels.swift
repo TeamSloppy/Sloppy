@@ -374,7 +374,7 @@ enum SloppyTUIWelcomeVisibility {
         hasLiveAssistantDraft: Bool,
         hasQueuedMessages: Bool,
         hasLocalCards: Bool,
-        hasTransientNotice: Bool
+        hasTransientNotice _: Bool
     ) -> Bool {
         !welcomeDismissed
             && !hasPersistedSession
@@ -382,7 +382,6 @@ enum SloppyTUIWelcomeVisibility {
             && !hasLiveAssistantDraft
             && !hasQueuedMessages
             && !hasLocalCards
-            && !hasTransientNotice
     }
 }
 

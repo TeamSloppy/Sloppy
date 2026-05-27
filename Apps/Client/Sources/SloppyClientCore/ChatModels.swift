@@ -85,14 +85,27 @@ public struct ChatSessionSummary: Codable, Sendable, Equatable, Identifiable {
 public struct ChatSessionDetail: Decodable, Sendable {
     public var summary: ChatSessionSummary
     public var events: [ChatEventEnvelope]
+    private var directMessages: [ChatMessage]
 
     public var messages: [ChatMessage] {
-        events.compactMap { $0.message }
+        directMessages.isEmpty ? events.compactMap { $0.message } : directMessages
     }
 
-    public init(summary: ChatSessionSummary, events: [ChatEventEnvelope] = []) {
+    public init(summary: ChatSessionSummary, events: [ChatEventEnvelope] = [], messages: [ChatMessage] = []) {
         self.summary = summary
         self.events = events
+        self.directMessages = messages
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case summary, events, messages
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        summary = try container.decode(ChatSessionSummary.self, forKey: .summary)
+        events = try container.decodeIfPresent([ChatEventEnvelope].self, forKey: .events) ?? []
+        directMessages = try container.decodeIfPresent([ChatMessage].self, forKey: .messages) ?? []
     }
 }
 

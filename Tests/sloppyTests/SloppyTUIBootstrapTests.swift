@@ -82,6 +82,25 @@ func tuiBootstrapRegistersSourceControlPluginsBeforeRendering() async throws {
     #expect(plugins.isEmpty)
 }
 
+@Test
+func serverWorkspaceDirectoryCreationSeedsOpenCodeTUITheme() throws {
+    let tempRoot = FileManager.default.temporaryDirectory
+        .appendingPathComponent("sloppy-tui-theme-bootstrap-\(UUID().uuidString)", isDirectory: true)
+    defer { try? FileManager.default.removeItem(at: tempRoot) }
+
+    try createServerWorkspaceDirectories(at: tempRoot)
+
+    let themeURL = tempRoot
+        .appendingPathComponent("tui", isDirectory: true)
+        .appendingPathComponent("themes", isDirectory: true)
+        .appendingPathComponent("opencode.json")
+    #expect(FileManager.default.fileExists(atPath: themeURL.path))
+
+    let catalog = SloppyTUIThemeStore(workspaceRoot: tempRoot).loadCatalog()
+    let theme = try #require(catalog.theme(id: "custom:opencode"))
+    #expect(theme.name == "OpenCode")
+}
+
 private let tuiSourceControlPluginManifest = """
 {
   "name": "tui-source-control",

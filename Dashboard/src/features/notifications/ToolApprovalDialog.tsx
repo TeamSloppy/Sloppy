@@ -11,6 +11,7 @@ interface ToolApprovalRecord {
   approvalKind?: "risky_tool" | "missing_access";
   agentId: string;
   sessionId?: string;
+  displaySessionId?: string;
   channelId?: string;
   topicId?: string;
   tool: string;
@@ -115,7 +116,7 @@ export function ToolApprovalDialog({
   function openSession() {
     if (!entry || !onNavigateToAgent) return;
     onClose();
-    onNavigateToAgent(entry.agentId, entry.sessionId);
+    onNavigateToAgent(entry.agentId, entry.displaySessionId || entry.sessionId);
   }
 
   return (
@@ -178,7 +179,10 @@ export function ToolApprovalDialog({
                 <span className="tg-modal-field-label">Agent</span>
                 <span style={{ fontSize: "0.9rem", color: "var(--text-muted)" }}>
                   {entry.agentId}
-                  {entry.sessionId ? ` / ${entry.sessionId}` : ""}
+                  {entry.displaySessionId || entry.sessionId ? ` / ${entry.displaySessionId || entry.sessionId}` : ""}
+                  {entry.displaySessionId && entry.sessionId && entry.displaySessionId !== entry.sessionId
+                    ? ` (subagent: ${entry.sessionId})`
+                    : ""}
                 </span>
               </div>
 

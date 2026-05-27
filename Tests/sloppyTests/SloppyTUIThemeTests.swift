@@ -462,6 +462,23 @@ func defaultSessionStatusAvoidsComposerMetadataDuplication() {
 }
 
 @Test
+func noticeToastLinesRenderCenteredPopupAndStayWidthBounded() {
+    let lines = SloppyTUITheme.noticeToastLines(
+        "Copied selection to clipboard with a bit of extra detail",
+        width: 48
+    )
+    let plain = lines.map(stripANSI)
+
+    #expect(lines.count == 3)
+    #expect(plain[1].contains("Copied selection"))
+    #expect(plain[1].contains("▌"))
+    #expect(plain[1].contains("▐"))
+    for line in lines {
+        #expect(VisibleWidth.measure(line) <= 48)
+    }
+}
+
+@Test
 func backgroundBlocksIncludeBreathingRoom() {
     let width = 40
     let lines = SloppyTUITheme.userMessageLines("hello", width: width)
@@ -799,6 +816,31 @@ func tuiThemeStoreUsesCustomPrefixForDuplicateSafeIDs() throws {
 
     #expect(catalog.theme(id: "default")?.source == "built-in")
     #expect(catalog.theme(id: "custom:default")?.name == "Custom Default")
+}
+
+@Test
+func tuiThemeStoreSeedsOpenCodeThemeWithoutOverwriting() throws {
+    let root = try makeThemeTestWorkspace()
+    defer { try? FileManager.default.removeItem(at: root) }
+    let store = SloppyTUIThemeStore(workspaceRoot: root)
+
+    try store.ensureSeedThemes()
+    let themeURL = store.themesURL.appendingPathComponent(SloppyTUIThemeStore.opencodeThemeFileName)
+    let firstPayload = try String(contentsOf: themeURL, encoding: .utf8)
+    let catalog = store.loadCatalog()
+    let theme = try #require(catalog.theme(id: "custom:opencode"))
+
+    #expect(firstPayload.contains(#""name": "OpenCode""#))
+    #expect(theme.name == "OpenCode")
+    #expect(theme.source == "opencode.json")
+    #expect(theme.accent == SloppyTUIColor(red: 120, green: 220, blue: 232))
+    #expect(theme.panelBackground == SloppyTUIColor(red: 21, green: 21, blue: 21))
+    #expect(theme.textBackground == SloppyTUIColor(red: 16, green: 16, blue: 16))
+
+    try Data(##"{"name":"Mine","colors":{"accent":"#ffffff"}}"##.utf8).write(to: themeURL)
+    try store.ensureSeedThemes()
+    let secondPayload = try String(contentsOf: themeURL, encoding: .utf8)
+    #expect(secondPayload.contains(#""name":"Mine""#))
 }
 
 @Test

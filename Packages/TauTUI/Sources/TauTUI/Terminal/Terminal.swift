@@ -147,8 +147,8 @@ public final class ProcessTerminal: Terminal {
     // https://sw.kovidgoyal.net/kitty/keyboard-protocol/
     private static let kittyKeyboardProtocolEnable = "\u{001B}[>1u"
     private static let kittyKeyboardProtocolDisable = "\u{001B}[<u"
-    private static let mouseReportingEnable = "\u{001B}[?1000h\u{001B}[?1006h"
-    private static let mouseReportingDisable = "\u{001B}[?1006l\u{001B}[?1000l"
+    private static let mouseReportingEnable = "\u{001B}[?1002h\u{001B}[?1006h"
+    private static let mouseReportingDisable = "\u{001B}[?1006l\u{001B}[?1002l"
 
     // Enter variants some terminals emit with modifiers.
     private static let shiftEnterCSI = "\u{001B}[13;2~"
