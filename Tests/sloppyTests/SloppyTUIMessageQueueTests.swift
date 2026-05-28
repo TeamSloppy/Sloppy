@@ -57,3 +57,45 @@ import Testing
     #expect(rendered.contains("queued body"))
     #expect(rendered.contains("context"))
 }
+
+@Test func queuedNormalMessageRequestsInterruptWhilePosting() {
+    #expect(SloppyTUIQueuedMessageInterruptPolicy.shouldRequestInterrupt(
+        interruptActiveRun: true,
+        isPosting: true,
+        isInterruptingRun: false,
+        hasQueuedInterruptRequest: false
+    ))
+}
+
+@Test func queuedSkillInvocationRequestsInterruptWhilePosting() {
+    #expect(SloppyTUIQueuedMessageInterruptPolicy.shouldRequestInterrupt(
+        interruptActiveRun: true,
+        isPosting: true,
+        isInterruptingRun: false,
+        hasQueuedInterruptRequest: false
+    ))
+}
+
+@Test func queuedBtwMessageDoesNotRequestInterrupt() {
+    #expect(!SloppyTUIQueuedMessageInterruptPolicy.shouldRequestInterrupt(
+        interruptActiveRun: false,
+        isPosting: true,
+        isInterruptingRun: false,
+        hasQueuedInterruptRequest: false
+    ))
+}
+
+@Test func queuedMessageDoesNotRequestDuplicateInterrupt() {
+    #expect(!SloppyTUIQueuedMessageInterruptPolicy.shouldRequestInterrupt(
+        interruptActiveRun: true,
+        isPosting: true,
+        isInterruptingRun: true,
+        hasQueuedInterruptRequest: false
+    ))
+    #expect(!SloppyTUIQueuedMessageInterruptPolicy.shouldRequestInterrupt(
+        interruptActiveRun: true,
+        isPosting: true,
+        isInterruptingRun: false,
+        hasQueuedInterruptRequest: true
+    ))
+}

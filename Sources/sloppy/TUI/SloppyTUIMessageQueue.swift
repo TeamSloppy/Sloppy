@@ -64,3 +64,17 @@ struct SloppyTUIMessageQueue {
         return messages.remove(at: index)
     }
 }
+
+enum SloppyTUIQueuedMessageInterruptPolicy {
+    static func shouldRequestInterrupt(
+        interruptActiveRun: Bool,
+        isPosting: Bool,
+        isInterruptingRun: Bool,
+        hasQueuedInterruptRequest: Bool
+    ) -> Bool {
+        interruptActiveRun
+            && isPosting
+            && !isInterruptingRun
+            && !hasQueuedInterruptRequest
+    }
+}

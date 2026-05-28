@@ -380,6 +380,7 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
     private var isPosting = false
     private var queuedMessages = SloppyTUIMessageQueue()
     private var isDrainingQueuedMessages = false
+    private var queuedMessageInterruptRequested = false
     private var isRunningShellCommand = false
     private var isInterruptingRun = false
     private var sendTimingStart: Date?
@@ -2453,7 +2454,13 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
             welcomeDismissed = true
             dismissFirstStartBootstrapCard()
             if isPosting {
-                queueMessage(skillInvocation, context: pendingContext, uploads: pendingUploads, clearsPendingInputs: true)
+                await queueMessage(
+                    skillInvocation,
+                    context: pendingContext,
+                    uploads: pendingUploads,
+                    clearsPendingInputs: true,
+                    interruptActiveRun: true
+                )
                 return
             }
             await sendMessage(skillInvocation)
@@ -2468,7 +2475,13 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
         welcomeDismissed = true
         dismissFirstStartBootstrapCard()
         if isPosting {
-            queueMessage(value, context: pendingContext, uploads: pendingUploads, clearsPendingInputs: true)
+            await queueMessage(
+                value,
+                context: pendingContext,
+                uploads: pendingUploads,
+                clearsPendingInputs: true,
+                interruptActiveRun: true
+            )
             return
         }
         await sendMessage(value)
@@ -2543,13 +2556,18 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
         return "/bin/sh"
     }
 
-    private func sendMessage(_ value: String, spawnSubSession: Bool = false) async {
+    private func sendMessage(
+        _ value: String,
+        spawnSubSession: Bool = false,
+        interruptActiveRunOnQueue: Bool = true
+    ) async {
         await sendMessage(
             value,
             context: pendingContext,
             uploads: pendingUploads,
             spawnSubSession: spawnSubSession,
-            clearsPendingInputsOnSuccess: true
+            clearsPendingInputsOnSuccess: true,
+            interruptActiveRunOnQueue: interruptActiveRunOnQueue
         )
     }
 
@@ -2558,10 +2576,17 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
         context: String?,
         uploads: [AgentAttachmentUpload],
         spawnSubSession: Bool = false,
-        clearsPendingInputsOnSuccess: Bool
+        clearsPendingInputsOnSuccess: Bool,
+        interruptActiveRunOnQueue: Bool = true
     ) async {
         guard !isPosting else {
-            queueMessage(value, context: context, uploads: uploads, spawnSubSession: spawnSubSession)
+            await queueMessage(
+                value,
+                context: context,
+                uploads: uploads,
+                spawnSubSession: spawnSubSession,
+                interruptActiveRun: interruptActiveRunOnQueue
+            )
             return
         }
 
@@ -2578,6 +2603,7 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
 
         dismissLocalCardsForUserMessage()
         isPosting = true
+        queuedMessageInterruptRequested = false
         taskStartedAt = Date()
         resetSendTiming()
         lastTaskElapsed = nil
@@ -2678,6 +2704,7 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
         }
         taskStartedAt = nil
         isPosting = false
+        queuedMessageInterruptRequested = false
         stopThinkingAnimation()
         clearLiveAssistantDraft()
         liveRunStatusLine = nil
@@ -2894,8 +2921,9 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
         context: String? = nil,
         uploads: [AgentAttachmentUpload] = [],
         spawnSubSession: Bool = false,
-        clearsPendingInputs: Bool = false
-    ) {
+        clearsPendingInputs: Bool = false,
+        interruptActiveRun: Bool = false
+    ) async {
         _ = queuedMessages.enqueue(
             text: value,
             context: context,
@@ -2908,6 +2936,21 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
         }
         showSystemNotice("Queued message. Press ctrl+b to cancel next queued message.")
         renderTimeline()
+        guard SloppyTUIQueuedMessageInterruptPolicy.shouldRequestInterrupt(
+            interruptActiveRun: interruptActiveRun,
+            isPosting: isPosting,
+            isInterruptingRun: isInterruptingRun,
+            hasQueuedInterruptRequest: queuedMessageInterruptRequested
+        ) else {
+            return
+        }
+        queuedMessageInterruptRequested = true
+        await interruptCurrentRun(
+            reason: "TUI queued user message",
+            successMessage: "Interrupt requested. Queued message will send next.",
+            failurePrefix: "Interrupt failed",
+            useNotice: true
+        )
     }
 
     private func sendNextQueuedMessageIfIdle() async {
@@ -2979,7 +3022,7 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
                 appendLocalCard("Usage: `/btw <message>`")
                 return
             }
-            await sendMessage(raw)
+            await sendMessage(raw, interruptActiveRunOnQueue: false)
         case "compact":
             await compactCurrentSession()
         case "add_dir", "add-dir":
