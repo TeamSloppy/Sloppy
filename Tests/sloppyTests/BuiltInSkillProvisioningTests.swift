@@ -36,7 +36,7 @@ func coreServiceCreateAgentInstallsBuiltInTaskSpecSkill() async throws {
     let modeBuild = try #require(response.skills.first { $0.id == BuiltInSkillCatalog.modeBuildID })
     #expect(modeBuild.name == "mode-build")
     #expect(modeBuild.userInvocable == false)
-    #expect(modeBuild.allowedTools.contains("planning.progress_update"))
+    #expect(modeBuild.allowedTools.isEmpty)
     #expect(FileManager.default.fileExists(atPath: URL(fileURLWithPath: modeBuild.localPath)
         .appendingPathComponent("SKILL.md")
         .path))
@@ -44,13 +44,13 @@ func coreServiceCreateAgentInstallsBuiltInTaskSpecSkill() async throws {
     let modePlan = try #require(response.skills.first { $0.id == BuiltInSkillCatalog.modePlanID })
     #expect(modePlan.name == "mode-plan")
     #expect(modePlan.userInvocable == false)
-    #expect(modePlan.allowedTools.contains("planning.request_input"))
-    #expect(modePlan.allowedTools.contains("web.search"))
-    #expect(modePlan.allowedTools.contains("web.fetch"))
+    #expect(modePlan.allowedTools.isEmpty)
 
     let modeAsk = try #require(response.skills.first { $0.id == BuiltInSkillCatalog.modeAskID })
-    #expect(modeAsk.allowedTools.contains("web.search"))
-    #expect(modeAsk.allowedTools.contains("web.fetch"))
+    #expect(modeAsk.allowedTools.isEmpty)
+
+    let modeDebug = try #require(response.skills.first { $0.id == BuiltInSkillCatalog.modeDebugID })
+    #expect(modeDebug.allowedTools.isEmpty)
 }
 
 @Test

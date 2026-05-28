@@ -142,34 +142,12 @@ enum BuiltInSkillCatalog {
     }
 
     private static func modeSkillAllowedTools(for mode: AgentChatMode) -> [String] {
+        // Runtime modes are behavioral instructions, not tool capability filters.
+        // Keep this empty so mode metadata does not look like the whole tool surface;
+        // actual access is governed by the agent tool policy, guardrails, approvals, and sandbox.
         switch mode {
-        case .ask:
-            return [
-                "web.search",
-                "web.fetch"
-            ]
-        case .build:
-            return [
-                "planning.progress_update",
-                "project.task_get",
-                "project.task_list",
-                "agents.delegate_task"
-            ]
-        case .plan:
-            return [
-                "planning.request_input",
-                "web.search",
-                "web.fetch",
-                "project.current",
-                "project.task_list",
-                "project.task_create",
-                "project.task_update"
-            ]
-        case .debug:
-            return [
-                "planning.request_input",
-                "debug.read_logs"
-            ]
+        case .ask, .build, .plan, .debug:
+            return []
         }
     }
 

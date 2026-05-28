@@ -2,9 +2,6 @@
 name: mode-ask
 description: Runtime instructions for Ask mode: answer directly without code mutation.
 userInvocable: false
-allowedTools:
-  - web.search
-  - web.fetch
 ---
 
 # Ask Mode

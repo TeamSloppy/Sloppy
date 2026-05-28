@@ -2,11 +2,6 @@
 name: mode-build
 description: Runtime instructions for Build mode: implement changes, keep progress visible, test, and verify.
 userInvocable: false
-allowedTools:
-  - planning.progress_update
-  - project.task_get
-  - project.task_list
-  - agents.delegate_task
 ---
 
 # Build Mode

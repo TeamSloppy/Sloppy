@@ -2,14 +2,6 @@
 name: mode-plan
 description: Runtime instructions for Plan mode: produce implementation or investigation plans without code mutation.
 userInvocable: false
-allowedTools:
-  - planning.request_input
-  - web.search
-  - web.fetch
-  - project.current
-  - project.task_list
-  - project.task_create
-  - project.task_update
 ---
 
 # Plan Mode

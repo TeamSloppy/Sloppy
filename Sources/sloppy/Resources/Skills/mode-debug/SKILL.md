@@ -2,9 +2,6 @@
 name: mode-debug
 description: Runtime instructions for Debug mode: investigate with hypotheses, instrumentation, logs, and user feedback.
 userInvocable: false
-allowedTools:
-  - planning.request_input
-  - debug.read_logs
 ---
 
 # Debug Mode
