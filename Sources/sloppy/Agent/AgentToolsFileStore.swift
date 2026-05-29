@@ -122,6 +122,11 @@ final class AgentToolsFileStore {
     }
 
     private func validated(_ policy: AgentToolsPolicy, knownToolIDs: Set<String>) throws -> AgentToolsPolicy {
+        var policy = policy
+        if policy.guardrails.maxExecTimeoutMs == AgentToolsGuardrails.legacyDefaultMaxExecTimeoutMs {
+            policy.guardrails.maxExecTimeoutMs = AgentToolsGuardrails.defaultMaxExecTimeoutMs
+        }
+
         guard policy.version == 1 else {
             throw StoreError.invalidPayload
         }

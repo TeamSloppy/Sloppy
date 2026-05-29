@@ -279,7 +279,7 @@ public actor Visor {
         let now = Date()
         let timeout = TimeInterval(workerTimeoutSeconds)
         for worker in workers {
-            guard worker.status == .running || worker.status == .waitingInput else { continue }
+            guard worker.status == .running else { continue }
             guard let startedAt = worker.startedAt else { continue }
             let elapsed = now.timeIntervalSince(startedAt)
             guard elapsed >= timeout else { continue }

@@ -468,6 +468,7 @@ actor MemoryCheckpointActionRecorder {
 
         guard !actions.isEmpty else { return nil }
         return AgentSelfImprovementReviewEvent(
+            category: "memory",
             summary: "Self-improvement review: \(actions.joined(separator: ", "))",
             actions: actions,
             reason: reason

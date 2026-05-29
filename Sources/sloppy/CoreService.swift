@@ -201,6 +201,7 @@ public actor CoreService {
     let sessionStore: AgentSessionFileStore
     let actorBoardStore: ActorBoardFileStore
     let sessionOrchestrator: AgentSessionOrchestrator
+    let sessionGoalController: AgentSessionGoalController
     let acpSessionManager: ACPSessionManager
     let toolsAuthorization: ToolAuthorizationService
     let toolLoopGuard: ToolLoopGuard
@@ -254,8 +255,12 @@ public actor CoreService {
     var toolApprovalSessionAllowances: [String: Set<ToolApprovalGrant>] = [:]
     /// Prevents overlapping memory checkpoints per agent/session pair.
     var memoryCheckpointLocks: Set<String> = []
+    /// Background sessions started by TUI `/bg`; owned by CoreService so screen teardown does not cancel them.
+    var tuiBackgroundSessionTasks: [String: Task<Void, Never>] = [:]
     /// Prevents overlapping proposal reviews per agent/session pair.
     var selfImprovementProposalReviewLocks: Set<String> = []
+    /// Prevents overlapping proposal review queue runners.
+    var selfImprovementProposalReviewQueueRunning = false
     /// Tracks tool-result thresholds already reviewed for a session.
     var selfImprovementProposalReviewToolBuckets: [String: Int] = [:]
     public let notificationService: NotificationService
@@ -272,7 +277,8 @@ public actor CoreService {
         configPath: String = CoreConfig.defaultConfigPath,
         currentDirectory: String = FileManager.default.currentDirectoryPath,
         persistenceBuilder: any CorePersistenceBuilding = DefaultCorePersistenceBuilder(),
-        searchProviderService: SearchProviderService? = nil
+        searchProviderService: SearchProviderService? = nil,
+        sharedSkillsRootURLs: [URL]? = nil
     ) {
         self.init(
             config: config,
@@ -280,6 +286,7 @@ public actor CoreService {
             currentDirectory: currentDirectory,
             persistenceBuilder: persistenceBuilder,
             searchProviderService: searchProviderService,
+            sharedSkillsRootURLs: sharedSkillsRootURLs,
             builtInGatewayPluginFactory: .live
         )
     }
@@ -291,6 +298,7 @@ public actor CoreService {
         persistenceBuilder: any CorePersistenceBuilding = DefaultCorePersistenceBuilder(),
         searchProviderService: SearchProviderService? = nil,
         providerProbeService: ProviderProbeService? = nil,
+        sharedSkillsRootURLs: [URL]? = nil,
         builtInGatewayPluginFactory: BuiltInGatewayPluginFactory,
         updateChecker: UpdateCheckerService? = nil
     ) {
@@ -382,6 +390,15 @@ public actor CoreService {
         self.configPath = configPath
         self.agentsRootURL = self.workspaceRootURL
             .appendingPathComponent("agents", isDirectory: true)
+        let makeAgentSkillsStore: (URL) -> AgentSkillsFileStore = { agentsRootURL in
+            if let sharedSkillsRootURLs {
+                return AgentSkillsFileStore(
+                    agentsRootURL: agentsRootURL,
+                    sharedSkillsRootURLs: sharedSkillsRootURLs
+                )
+            }
+            return AgentSkillsFileStore(agentsRootURL: agentsRootURL)
+        }
         self.agentCatalogStore = AgentCatalogFileStore(agentsRootURL: self.agentsRootURL)
         self.sessionStore = AgentSessionFileStore(agentsRootURL: self.agentsRootURL)
         self.systemLogStore = SystemLogFileStore(workspaceRootURL: self.workspaceRootURL)
@@ -390,7 +407,7 @@ public actor CoreService {
         self.channelSessionStore = ChannelSessionFileStore(workspaceRootURL: self.workspaceRootURL)
         self.channelModelStore = ChannelModelStore(workspaceRootURL: self.workspaceRootURL)
         self.channelChatModeStore = ChannelChatModeStore(workspaceRootURL: self.workspaceRootURL)
-        self.agentSkillsStore = AgentSkillsFileStore(agentsRootURL: self.agentsRootURL)
+        self.agentSkillsStore = makeAgentSkillsStore(self.agentsRootURL)
         self.skillsRegistryService = SkillsRegistryService()
         let githubAuth = self.githubAuthService
         self.skillsGitHubClient = SkillsGitHubClient(tokenProvider: { githubAuth.currentToken() })
@@ -404,9 +421,10 @@ public actor CoreService {
         let githubTaskSyncProvider = GitHubProjectTaskSyncProvider()
         self.taskSyncProviders = [githubTaskSyncProvider.id: githubTaskSyncProvider]
         self.workspaceGitSyncService = WorkspaceGitSyncService()
+        self.sessionGoalController = AgentSessionGoalController()
         let orchestratorCatalogStore = AgentCatalogFileStore(agentsRootURL: self.agentsRootURL)
         let orchestratorSessionStore = AgentSessionFileStore(agentsRootURL: self.agentsRootURL)
-        let orchestratorSkillsStore = AgentSkillsFileStore(agentsRootURL: self.agentsRootURL)
+        let orchestratorSkillsStore = makeAgentSkillsStore(self.agentsRootURL)
         let initialAvailableAgentModels = Self.availableAgentModels(
             config: config,
             hasOAuthCredentials: hasOAuth,

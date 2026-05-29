@@ -1012,13 +1012,10 @@ extension CoreService {
             return "[failed] Agent \(agentID) has no effective tools available.\nError: no tools available"
         }
 
-        let sessionTitle = "task-\(taskID)"
-        let existingSession: AgentSessionSummary? = try? listAgentSessions(agentID: agentID)
-            .first(where: { $0.title == sessionTitle })
-
-        if let stale = existingSession {
-            try? await deleteAgentSession(agentID: agentID, sessionID: stale.id)
-        }
+        let sessionBaseTitle = "task-\(taskID)"
+        let existingSessions = (try? listAgentSessions(agentID: agentID)) ?? []
+        let attemptNumber = nextSubagentTaskAttemptNumber(baseTitle: sessionBaseTitle, existingSessions: existingSessions)
+        let sessionTitle = "\(sessionBaseTitle)-attempt-\(attemptNumber)"
 
         let session: AgentSessionSummary
         do {
@@ -1026,7 +1023,12 @@ extension CoreService {
                 agentID: agentID,
                 request: AgentSessionCreateRequest(title: sessionTitle, parentSessionId: parentSessionID)
             )
-            await appendSubagentSessionTaskCommentIfNeeded(agentID: agentID, taskID: taskID, session: session)
+            await appendSubagentSessionTaskCommentIfNeeded(
+                agentID: agentID,
+                taskID: taskID,
+                session: session,
+                attemptNumber: attemptNumber
+            )
         } catch {
             await appendSystemTaskComment(
                 taskID: taskID,
@@ -1130,7 +1132,8 @@ extension CoreService {
     func appendSubagentSessionTaskCommentIfNeeded(
         agentID: String,
         taskID: String,
-        session: AgentSessionSummary
+        session: AgentSessionSummary,
+        attemptNumber: Int? = nil
     ) async {
         let projects = await store.listProjects()
         guard let project = projects.first(where: { project in
@@ -1147,10 +1150,29 @@ extension CoreService {
             projectID: project.id,
             taskID: taskID,
             request: TaskCommentCreateRequest(
-                content: "Task delegated to subagent session [\(sessionName)](\(sessionURL)).",
+                content: "Task delegated to subagent \(attemptNumber.map { "attempt \($0) " } ?? "")session [\(sessionName)](\(sessionURL)).",
                 authorActorId: "system"
             )
         )
+    }
+
+    func nextSubagentTaskAttemptNumber(baseTitle: String, existingSessions: [AgentSessionSummary]) -> Int {
+        var maxAttempt = 0
+        for session in existingSessions {
+            if session.title == baseTitle {
+                maxAttempt = max(maxAttempt, 1)
+                continue
+            }
+
+            let prefix = "\(baseTitle)-attempt-"
+            guard session.title.hasPrefix(prefix),
+                  let attempt = Int(session.title.dropFirst(prefix.count))
+            else {
+                continue
+            }
+            maxAttempt = max(maxAttempt, attempt)
+        }
+        return maxAttempt + 1
     }
 
     func subagentToolContext(

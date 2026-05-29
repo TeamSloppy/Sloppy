@@ -138,6 +138,25 @@ CREATE INDEX IF NOT EXISTS idx_tool_invocations_project_created ON tool_invocati
 CREATE INDEX IF NOT EXISTS idx_tool_invocations_task_created ON tool_invocations(task_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_tool_invocations_tool_created ON tool_invocations(tool, created_at DESC);
 
+CREATE TABLE IF NOT EXISTS self_improvement_proposal_review_queue (
+    id TEXT PRIMARY KEY,
+    agent_id TEXT NOT NULL,
+    session_id TEXT NOT NULL,
+    project_id TEXT NOT NULL,
+    reason TEXT NOT NULL,
+    review_context TEXT,
+    status TEXT NOT NULL,
+    attempts INTEGER NOT NULL DEFAULT 0,
+    next_run_at TEXT NOT NULL,
+    last_error TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    UNIQUE(agent_id, session_id, reason)
+);
+
+CREATE INDEX IF NOT EXISTS idx_self_improvement_proposal_review_queue_due
+ON self_improvement_proposal_review_queue(status, next_run_at);
+
 CREATE TABLE IF NOT EXISTS project_event_facts (
     id TEXT PRIMARY KEY,
     project_id TEXT NOT NULL,

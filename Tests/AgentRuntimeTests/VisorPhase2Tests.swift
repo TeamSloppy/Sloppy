@@ -115,6 +115,33 @@ private actor EventCollector {
     #expect(timeoutEvents.isEmpty)
 }
 
+@Test func visorDoesNotTimeoutWorkersWaitingForInput() async {
+    let bus = EventBus()
+    let memory = InMemoryMemoryStore()
+    let visor = Visor(eventBus: bus, memoryStore: memory)
+
+    let waitingWorker = makeWorkerSnapshotWith(
+        workerId: "waiting-worker",
+        status: .waitingInput,
+        startedAt: Date().addingTimeInterval(-3_600)
+    )
+
+    let stream = await bus.subscribe()
+    let collector = EventCollector()
+    let collectTask = Task {
+        for await event in stream {
+            await collector.record(event)
+        }
+    }
+
+    await visor.checkWorkerHealth(workers: [waitingWorker], workerTimeoutSeconds: 600)
+    try? await Task.sleep(for: .milliseconds(50))
+    collectTask.cancel()
+
+    let timeoutEvents = await collector.ofType(.visorWorkerTimeout)
+    #expect(timeoutEvents.isEmpty)
+}
+
 // MARK: - Branch timeout
 
 private actor TimeoutTracker {

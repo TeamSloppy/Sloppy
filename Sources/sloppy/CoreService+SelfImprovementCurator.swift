@@ -87,7 +87,7 @@ extension CoreService {
         let grouped = Dictionary(grouping: proposals) { $0.groupKey }
         let duplicateGroups = grouped.values
             .filter { $0.count > 1 }
-            .map { group in group.sorted { $0.task.updatedAt > $1.task.updatedAt } }
+            .map { group in Self.sortedSelfImprovementCuratorGroup(group) }
             .sorted { lhs, rhs in
                 (lhs.first?.groupKey ?? "") < (rhs.first?.groupKey ?? "")
             }
@@ -367,7 +367,7 @@ extension CoreService {
     ) -> String {
         let duplicateGroups = groupedProposals.values
             .filter { $0.count > 1 }
-            .map { $0.sorted { $0.task.updatedAt > $1.task.updatedAt } }
+            .map { sortedSelfImprovementCuratorGroup($0) }
             .sorted { ($0.first?.groupKey ?? "") < ($1.first?.groupKey ?? "") }
 
         let duplicateSection: String
@@ -376,13 +376,26 @@ extension CoreService {
         } else {
             duplicateSection = duplicateGroups.enumerated().map { index, group in
                 let canonical = group[0]
+                let duplicateIDs = group
+                    .dropFirst()
+                    .map { "`\($0.task.id)`" }
+                    .joined(separator: ", ")
                 let tasks = group.map { "- `\($0.task.id)` \($0.task.title)" }.joined(separator: "\n")
+                let verification = selfImprovementCuratorVerificationCommands(from: group)
+                let verificationSection = verification.isEmpty
+                    ? "No required verification commands were found in the source proposals."
+                    : verification.map { "- \($0)" }.joined(separator: "\n")
                 return """
                 ### Group \(index + 1): \(canonical.subsystem)
                 Classification: \(canonical.classification ?? "general")
                 Canonical proposal: `\(canonical.task.id)` \(canonical.task.title)
+                Duplicate proposal ids: \(duplicateIDs.isEmpty ? "(none)" : duplicateIDs)
+                Recommended implementation task title: \(selfImprovementCuratorImplementationTaskTitle(for: canonical))
 
                 \(tasks)
+
+                Required verification commands:
+                \(verificationSection)
                 """
             }.joined(separator: "\n\n")
         }
@@ -482,5 +495,69 @@ extension CoreService {
             }
         }
         return nil
+    }
+
+    private static func sortedSelfImprovementCuratorGroup(
+        _ group: [SelfImprovementCuratorProposal]
+    ) -> [SelfImprovementCuratorProposal] {
+        group.sorted { lhs, rhs in
+            if lhs.task.createdAt == rhs.task.createdAt {
+                return lhs.task.id < rhs.task.id
+            }
+            return lhs.task.createdAt < rhs.task.createdAt
+        }
+    }
+
+    private static func selfImprovementCuratorImplementationTaskTitle(
+        for proposal: SelfImprovementCuratorProposal
+    ) -> String {
+        var title = proposal.task.title.trimmingCharacters(in: .whitespacesAndNewlines)
+        for prefix in [
+            "Self-improvement proposal:",
+            "Self improvement proposal:",
+            "Proposal:",
+        ] where title.lowercased().hasPrefix(prefix.lowercased()) {
+            title = String(title.dropFirst(prefix.count))
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            break
+        }
+        return "Implement self-improvement proposal: \(title)"
+    }
+
+    private static func selfImprovementCuratorVerificationCommands(
+        from proposals: [SelfImprovementCuratorProposal]
+    ) -> [String] {
+        var seen: Set<String> = []
+        var commands: [String] = []
+        for proposal in proposals {
+            guard let body = markdownHeadingBody("Tests / Verification", in: proposal.task.description) else {
+                continue
+            }
+            for line in body.split(separator: "\n", omittingEmptySubsequences: false) {
+                let command = line
+                    .trimmingCharacters(in: CharacterSet(charactersIn: "-*` "))
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !command.isEmpty, !seen.contains(command) else { continue }
+                seen.insert(command)
+                commands.append(command)
+            }
+        }
+        return commands
+    }
+
+    private static func markdownHeadingBody(_ heading: String, in description: String) -> String? {
+        let lines = description.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+        let target = "## \(heading)".lowercased()
+        guard let headingIndex = lines.firstIndex(where: {
+            $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == target
+        }) else {
+            return nil
+        }
+        let bodyLines = lines.dropFirst(headingIndex + 1).prefix { line in
+            !line.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("## ")
+        }
+        let body = bodyLines.joined(separator: "\n")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return body.isEmpty ? nil : body
     }
 }

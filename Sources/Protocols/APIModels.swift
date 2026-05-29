@@ -2624,6 +2624,10 @@ public enum AgentPolicyDefault: String, Codable, Sendable {
 }
 
 public struct AgentToolsGuardrails: Codable, Sendable, Equatable {
+    public static let defaultExecTimeoutMs = 15_000
+    public static let legacyDefaultMaxExecTimeoutMs = 120_000
+    public static let defaultMaxExecTimeoutMs = 6 * 60 * 60 * 1_000
+
     public var maxReadBytes: Int
     public var maxWriteBytes: Int
     public var execTimeoutMs: Int
@@ -2645,8 +2649,8 @@ public struct AgentToolsGuardrails: Codable, Sendable, Equatable {
     public init(
         maxReadBytes: Int = 512 * 1024,
         maxWriteBytes: Int = 512 * 1024,
-        execTimeoutMs: Int = 15_000,
-        maxExecTimeoutMs: Int = 120_000,
+        execTimeoutMs: Int = Self.defaultExecTimeoutMs,
+        maxExecTimeoutMs: Int = Self.defaultMaxExecTimeoutMs,
         maxExecOutputBytes: Int = 256 * 1024,
         maxProcessesPerSession: Int = 2,
         maxToolCallsPerMinute: Int = 60,
@@ -3381,6 +3385,133 @@ public enum AgentRunStage: String, Codable, Sendable {
     case interrupted
 }
 
+public enum AgentSessionGoalStatus: String, Codable, Sendable, Equatable, CaseIterable {
+    case active
+    case paused
+    case waitingInput = "waiting_input"
+    case completed
+    case blocked
+    case exhausted
+    case cleared
+
+    public var isTerminal: Bool {
+        switch self {
+        case .completed, .blocked, .exhausted, .cleared:
+            return true
+        case .active, .paused, .waitingInput:
+            return false
+        }
+    }
+}
+
+public struct AgentSessionGoalEvaluation: Codable, Sendable, Equatable {
+    public var status: AgentSessionGoalStatus
+    public var reason: String
+    public var shouldContinue: Bool
+    public var continuationPrompt: String?
+
+    public init(
+        status: AgentSessionGoalStatus,
+        reason: String,
+        shouldContinue: Bool,
+        continuationPrompt: String? = nil
+    ) {
+        self.status = status
+        self.reason = reason
+        self.shouldContinue = shouldContinue
+        self.continuationPrompt = continuationPrompt
+    }
+}
+
+public struct AgentSessionGoalRecord: Codable, Sendable, Equatable {
+    public var id: String
+    public var agentId: String
+    public var sessionId: String
+    public var objective: String
+    public var status: AgentSessionGoalStatus
+    public var attemptCount: Int
+    public var maxAttempts: Int
+    public var createdAt: Date
+    public var updatedAt: Date
+    public var lastEvaluation: AgentSessionGoalEvaluation?
+
+    public init(
+        id: String = UUID().uuidString,
+        agentId: String,
+        sessionId: String,
+        objective: String,
+        status: AgentSessionGoalStatus = .active,
+        attemptCount: Int = 0,
+        maxAttempts: Int = 8,
+        createdAt: Date = Date(),
+        updatedAt: Date = Date(),
+        lastEvaluation: AgentSessionGoalEvaluation? = nil
+    ) {
+        self.id = id
+        self.agentId = agentId
+        self.sessionId = sessionId
+        self.objective = objective
+        self.status = status
+        self.attemptCount = attemptCount
+        self.maxAttempts = maxAttempts
+        self.createdAt = createdAt
+        self.updatedAt = updatedAt
+        self.lastEvaluation = lastEvaluation
+    }
+}
+
+public struct AgentSessionGoalStartRequest: Codable, Sendable, Equatable {
+    public var objective: String
+    public var maxAttempts: Int?
+    public var userId: String
+    public var reasoningEffort: ReasoningEffort?
+    public var mode: AgentChatMode?
+
+    public init(
+        objective: String,
+        maxAttempts: Int? = nil,
+        userId: String = "goal",
+        reasoningEffort: ReasoningEffort? = nil,
+        mode: AgentChatMode? = nil
+    ) {
+        self.objective = objective
+        self.maxAttempts = maxAttempts
+        self.userId = userId
+        self.reasoningEffort = reasoningEffort
+        self.mode = mode
+    }
+}
+
+public struct AgentSessionGoalStatusRequest: Codable, Sendable, Equatable {
+    public init() {}
+}
+
+public struct AgentSessionGoalPauseRequest: Codable, Sendable, Equatable {
+    public init() {}
+}
+
+public struct AgentSessionGoalResumeRequest: Codable, Sendable, Equatable {
+    public init() {}
+}
+
+public struct AgentSessionGoalClearRequest: Codable, Sendable, Equatable {
+    public init() {}
+}
+
+public struct AgentSessionGoalResponse: Codable, Sendable, Equatable {
+    public var goal: AgentSessionGoalRecord?
+
+    public init(goal: AgentSessionGoalRecord?) {
+        self.goal = goal
+    }
+}
+
+public typealias AgentSessionGoalStartResponse = AgentSessionGoalResponse
+public typealias AgentSessionGoalStatusResponse = AgentSessionGoalResponse
+public typealias AgentSessionGoalPauseResponse = AgentSessionGoalResponse
+public typealias AgentSessionGoalResumeResponse = AgentSessionGoalResponse
+public typealias AgentSessionGoalClearResponse = AgentSessionGoalResponse
+
 public struct AgentRunStatusEvent: Codable, Sendable, Equatable {
     public var id: String
     public var stage: AgentRunStage
@@ -3532,6 +3663,8 @@ public struct AgentToolResultEvent: Codable, Sendable, Equatable {
 
 public struct AgentSelfImprovementReviewEvent: Codable, Sendable, Equatable {
     public var title: String
+    public var category: String?
+    public var jobId: String?
     public var summary: String
     public var actions: [String]
     public var reason: String
@@ -3539,12 +3672,16 @@ public struct AgentSelfImprovementReviewEvent: Codable, Sendable, Equatable {
 
     public init(
         title: String = "Self-improvement review",
+        category: String? = nil,
+        jobId: String? = nil,
         summary: String,
         actions: [String],
         reason: String,
         createdAt: Date = Date()
     ) {
         self.title = title
+        self.category = category
+        self.jobId = jobId
         self.summary = summary
         self.actions = actions
         self.reason = reason

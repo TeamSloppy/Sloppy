@@ -360,6 +360,114 @@ extension CoreService {
         )
     }
 
+    public struct TUIBackgroundSessionStartResult: Sendable {
+        public var session: AgentSessionSummary
+        public var worktree: SourceControlWorktreeResult
+    }
+
+    public func startTUIBackgroundSession(
+        agentID: String,
+        projectID: String,
+        task: String,
+        mode: AgentChatMode?,
+        reasoningEffort: ReasoningEffort?
+    ) async throws -> TUIBackgroundSessionStartResult {
+        let trimmedTask = task.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedTask.isEmpty else {
+            throw AgentSessionError.invalidPayload
+        }
+
+        let session = try await createAgentSession(
+            agentID: agentID,
+            request: AgentSessionCreateRequest(
+                title: "Background: \(String(trimmedTask.prefix(48)))",
+                projectId: projectID
+            )
+        )
+        let taskID = "tui-\(String(session.id.prefix(8)))"
+        let worktree = try await createTUIBackgroundWorktree(projectID: projectID, taskID: taskID)
+        _ = try await addAgentSessionDirectory(
+            agentID: agentID,
+            sessionID: session.id,
+            request: AgentSessionDirectoryRequest(path: worktree.worktreePath)
+        )
+
+        tuiBackgroundSessionTasks[session.id]?.cancel()
+        tuiBackgroundSessionTasks[session.id] = Task { [weak self] in
+            await self?.runTUIBackgroundSession(
+                agentID: agentID,
+                sessionID: session.id,
+                task: trimmedTask,
+                worktreePath: worktree.worktreePath,
+                mode: mode,
+                reasoningEffort: reasoningEffort
+            )
+        }
+
+        return TUIBackgroundSessionStartResult(session: session, worktree: worktree)
+    }
+
+    private func runTUIBackgroundSession(
+        agentID: String,
+        sessionID: String,
+        task: String,
+        worktreePath: String,
+        mode: AgentChatMode?,
+        reasoningEffort: ReasoningEffort?
+    ) async {
+        defer {
+            Task { [weak self] in
+                await self?.clearTUIBackgroundSessionTask(sessionID: sessionID)
+            }
+        }
+
+        do {
+            _ = try await postAgentSessionMessage(
+                agentID: agentID,
+                sessionID: sessionID,
+                request: AgentSessionPostMessageRequest(
+                    userId: "tui",
+                    content: """
+                    \(task)
+
+                    Work in this dedicated worktree:
+                    \(worktreePath)
+                    """,
+                    reasoningEffort: reasoningEffort,
+                    mode: mode
+                )
+            )
+        } catch {
+            logger.warning(
+                "tui.background_session.failed",
+                metadata: [
+                    "agent_id": .string(agentID),
+                    "session_id": .string(sessionID),
+                    "error": .string(error.localizedDescription)
+                ]
+            )
+            let event = AgentSessionEvent(
+                agentId: agentID,
+                sessionId: sessionID,
+                type: .runStatus,
+                runStatus: AgentRunStatusEvent(
+                    stage: .interrupted,
+                    label: "Background session failed",
+                    details: error.localizedDescription
+                )
+            )
+            _ = try? await appendAgentSessionEvents(
+                agentID: agentID,
+                sessionID: sessionID,
+                request: AgentSessionAppendEventsRequest(events: [event])
+            )
+        }
+    }
+
+    private func clearTUIBackgroundSessionTask(sessionID: String) {
+        tuiBackgroundSessionTasks.removeValue(forKey: sessionID)
+    }
+
     /// Reverts a tracked file under the project workspace through the configured source-control provider.
     public func restoreProjectWorkingTreeFile(projectID: String, path: String) async throws {
         guard let normalizedID = normalizedProjectID(projectID) else {

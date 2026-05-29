@@ -5,7 +5,11 @@ import Testing
 
 @Test
 func coreServiceCreateAgentInstallsBuiltInTaskSpecSkill() async throws {
-    let service = CoreService(config: .test, persistenceBuilder: InMemoryCorePersistenceBuilder())
+    let service = CoreService(
+        config: .test,
+        persistenceBuilder: InMemoryCorePersistenceBuilder(),
+        sharedSkillsRootURLs: []
+    )
     _ = try await service.createAgent(
         AgentCreateRequest(
             id: "task-spec-new-agent",
@@ -69,7 +73,7 @@ func builtInSkillsBackfillIsIdempotentForExistingAgents() throws {
             ProviderModelOption(id: "mock:test-model", title: "Mock", capabilities: ["tools"])
         ]
     )
-    let skillsStore = AgentSkillsFileStore(agentsRootURL: agentsRootURL)
+    let skillsStore = AgentSkillsFileStore(agentsRootURL: agentsRootURL, sharedSkillsRootURLs: [])
 
     try skillsStore.ensureSkillsDirectory(agentID: "existing-agent")
     try skillsStore.ensureSkillsDirectory(agentID: "existing-agent")
@@ -98,4 +102,64 @@ func builtInSkillsBackfillIsIdempotentForExistingAgents() throws {
         .appendingPathComponent("sloppy/mode-debug", isDirectory: true)
         .appendingPathComponent("SKILL.md")
         .path))
+}
+
+@Test
+func agentSkillsStoreListsSharedSkillsFromAgentsRoot() throws {
+    let root = FileManager.default.temporaryDirectory
+        .appendingPathComponent("shared-skill-provisioning-\(UUID().uuidString)", isDirectory: true)
+    let agentsRootURL = root.appendingPathComponent("agents", isDirectory: true)
+    let sharedRootURL = root.appendingPathComponent(".agents", isDirectory: true)
+    let catalogStore = AgentCatalogFileStore(agentsRootURL: agentsRootURL)
+    _ = try catalogStore.createAgent(
+        AgentCreateRequest(
+            id: "shared-agent",
+            displayName: "Shared Agent",
+            role: "Planner"
+        ),
+        availableModels: [
+            ProviderModelOption(id: "mock:test-model", title: "Mock", capabilities: ["tools"])
+        ]
+    )
+
+    let sharedSkillURL = sharedRootURL
+        .appendingPathComponent("skills", isDirectory: true)
+        .appendingPathComponent("prd", isDirectory: true)
+    try FileManager.default.createDirectory(at: sharedSkillURL, withIntermediateDirectories: true)
+    try """
+    ---
+    name: prd
+    description: Shared PRD writer
+    user_invocable: false
+    allowed_tools: project.task_create, files.read
+    context: fork
+    agent: planner
+    ---
+    # PRD
+    """.write(to: sharedSkillURL.appendingPathComponent("SKILL.md"), atomically: true, encoding: .utf8)
+
+    let skillsStore = AgentSkillsFileStore(
+        agentsRootURL: agentsRootURL,
+        sharedSkillsRootURLs: [sharedRootURL]
+    )
+    try skillsStore.ensureSkillsDirectory(agentID: "shared-agent")
+
+    #expect(skillsStore.sharedSkillsRootPaths() == [
+        sharedRootURL.appendingPathComponent("skills", isDirectory: true).standardizedFileURL.path
+    ])
+
+    let installed = try skillsStore.listSkills(agentID: "shared-agent")
+    let sharedSkill = try #require(installed.first { $0.id == "shared/prd" })
+
+    #expect(sharedSkill.owner == "shared")
+    #expect(sharedSkill.repo == "prd")
+    #expect(sharedSkill.name == "prd")
+    #expect(sharedSkill.description == "Shared PRD writer")
+    #expect(sharedSkill.version == "shared")
+    #expect(sharedSkill.localPath == sharedSkillURL.standardizedFileURL.path)
+    #expect(sharedSkill.userInvocable == false)
+    #expect(sharedSkill.allowedTools == ["project.task_create", "files.read"])
+    #expect(sharedSkill.context == SkillContext.fork)
+    #expect(sharedSkill.agent == "planner")
+    #expect(try skillsStore.getSkillPath(agentID: "shared-agent", skillID: "shared/prd") == sharedSkillURL.standardizedFileURL.path)
 }

@@ -141,6 +141,7 @@ final class ToolExecutionService: @unchecked Sendable {
             sessionID: sessionID,
             policy: policy,
             workspaceRootURL: workspaceRootURL,
+            readOnlyRoots: agentSkillsStore?.sharedSkillsRootPaths() ?? [],
             currentDirectoryURL: currentDirectoryURL,
             currentProjectID: currentProjectID,
             runtime: runtime,

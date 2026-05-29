@@ -50,6 +50,19 @@ struct RuntimeExecTool: CoreTool {
                 timeoutMs: timeoutMs,
                 maxOutputBytes: context.policy.guardrails.maxExecOutputBytes
             )
+            if payload.asObject?["timedOut"]?.asBool == true {
+                return ToolInvocationResult(
+                    tool: name,
+                    ok: false,
+                    data: payload,
+                    error: ToolErrorPayload(
+                        code: "tool_timeout",
+                        message: "Command execution timed out after \(timeoutMs) ms.",
+                        retryable: true,
+                        hint: "Use a larger timeoutMs for long-running commands, or runtime.process when the command must stay alive across steps."
+                    )
+                )
+            }
             return toolSuccess(tool: name, data: payload)
         } catch {
             context.logger.error(

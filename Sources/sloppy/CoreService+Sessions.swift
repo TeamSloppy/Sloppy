@@ -459,7 +459,7 @@ extension CoreService {
                 request: request
             )
             let uid = request.userId.lowercased()
-            let skipUserTurnCount = uid == "system_task_worker" || uid == "memory_checkpoint" || uid == "onboarding"
+            let skipUserTurnCount = uid == "system_task_worker" || uid == "memory_checkpoint" || uid == "onboarding" || uid == "goal" || uid == "goal_loop"
             if !skipUserTurnCount {
                 do {
                     let count = try sessionStore.incrementUserTurnCount(
@@ -486,9 +486,155 @@ extension CoreService {
                 response: response,
                 userID: request.userId
             )
+            await scheduleGoalContinuationIfNeeded(
+                agentID: normalizedAgentID,
+                sessionID: normalizedSessionID,
+                request: request,
+                response: response
+            )
             return response
         } catch {
             throw mapSessionOrchestratorError(error)
+        }
+    }
+
+    public func startAgentSessionGoal(
+        agentID: String,
+        sessionID: String,
+        request: AgentSessionGoalStartRequest
+    ) async throws -> AgentSessionGoalRecord {
+        await waitForStartup()
+        guard let normalizedAgentID = normalizedAgentID(agentID) else {
+            throw AgentSessionError.invalidAgentID
+        }
+        guard let normalizedSessionID = normalizedSessionID(sessionID) else {
+            throw AgentSessionError.invalidSessionID
+        }
+        _ = try getAgent(id: normalizedAgentID)
+        _ = try getAgentSession(agentID: normalizedAgentID, sessionID: normalizedSessionID)
+
+        let objective = request.objective.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !objective.isEmpty else {
+            throw AgentSessionError.invalidPayload
+        }
+
+        let goal = await sessionGoalController.start(
+            agentID: normalizedAgentID,
+            sessionID: normalizedSessionID,
+            objective: objective,
+            maxAttempts: request.maxAttempts ?? 8
+        )
+        let userID = request.userId.trimmingCharacters(in: .whitespacesAndNewlines)
+        _ = try await postAgentSessionMessage(
+            agentID: normalizedAgentID,
+            sessionID: normalizedSessionID,
+            request: AgentSessionPostMessageRequest(
+                userId: userID.isEmpty ? "goal" : userID,
+                content: SloppyTUIGoalPromptFormatter.initialPrompt(objective: objective),
+                reasoningEffort: request.reasoningEffort,
+                mode: request.mode
+            )
+        )
+        return (await sessionGoalController.goal(agentID: normalizedAgentID, sessionID: normalizedSessionID)) ?? goal
+    }
+
+    public func getAgentSessionGoal(agentID: String, sessionID: String) async throws -> AgentSessionGoalRecord? {
+        guard let normalizedAgentID = normalizedAgentID(agentID) else {
+            throw AgentSessionError.invalidAgentID
+        }
+        guard let normalizedSessionID = normalizedSessionID(sessionID) else {
+            throw AgentSessionError.invalidSessionID
+        }
+        return await sessionGoalController.goal(agentID: normalizedAgentID, sessionID: normalizedSessionID)
+    }
+
+    public func pauseAgentSessionGoal(agentID: String, sessionID: String) async throws -> AgentSessionGoalRecord? {
+        guard let normalizedAgentID = normalizedAgentID(agentID) else {
+            throw AgentSessionError.invalidAgentID
+        }
+        guard let normalizedSessionID = normalizedSessionID(sessionID) else {
+            throw AgentSessionError.invalidSessionID
+        }
+        return await sessionGoalController.pause(agentID: normalizedAgentID, sessionID: normalizedSessionID)
+    }
+
+    public func resumeAgentSessionGoal(agentID: String, sessionID: String) async throws -> AgentSessionGoalRecord? {
+        guard let normalizedAgentID = normalizedAgentID(agentID) else {
+            throw AgentSessionError.invalidAgentID
+        }
+        guard let normalizedSessionID = normalizedSessionID(sessionID) else {
+            throw AgentSessionError.invalidSessionID
+        }
+        guard let goal = await sessionGoalController.resume(agentID: normalizedAgentID, sessionID: normalizedSessionID) else {
+            return nil
+        }
+        if goal.status == .active {
+            _ = try await postAgentSessionMessage(
+                agentID: normalizedAgentID,
+                sessionID: normalizedSessionID,
+                request: AgentSessionPostMessageRequest(
+                    userId: "goal_loop",
+                    content: SloppyTUIGoalPromptFormatter.continuationPrompt(goal: goal)
+                )
+            )
+        }
+        return await sessionGoalController.goal(agentID: normalizedAgentID, sessionID: normalizedSessionID)
+    }
+
+    public func clearAgentSessionGoal(agentID: String, sessionID: String) async throws -> AgentSessionGoalRecord? {
+        guard let normalizedAgentID = normalizedAgentID(agentID) else {
+            throw AgentSessionError.invalidAgentID
+        }
+        guard let normalizedSessionID = normalizedSessionID(sessionID) else {
+            throw AgentSessionError.invalidSessionID
+        }
+        return await sessionGoalController.clear(agentID: normalizedAgentID, sessionID: normalizedSessionID)
+    }
+
+    private func scheduleGoalContinuationIfNeeded(
+        agentID: String,
+        sessionID: String,
+        request: AgentSessionPostMessageRequest,
+        response: AgentSessionMessageResponse
+    ) async {
+        let userID = request.userId.lowercased()
+        guard userID == "goal" || userID == "goal_loop" else {
+            return
+        }
+        guard let evaluation = await sessionGoalController.evaluateTurn(
+            agentID: agentID,
+            sessionID: sessionID,
+            events: response.appendedEvents
+        ),
+              evaluation.shouldContinue,
+              let prompt = evaluation.continuationPrompt?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !prompt.isEmpty
+        else {
+            return
+        }
+
+        Task { [weak self] in
+            do {
+                _ = try await self?.postAgentSessionMessage(
+                    agentID: agentID,
+                    sessionID: sessionID,
+                    request: AgentSessionPostMessageRequest(
+                        userId: "goal_loop",
+                        content: prompt,
+                        reasoningEffort: request.reasoningEffort,
+                        mode: request.mode
+                    )
+                )
+            } catch {
+                self?.logger.warning(
+                    "session.goal.continuation_failed",
+                    metadata: [
+                        "agent_id": .string(agentID),
+                        "session_id": .string(sessionID),
+                        "error": .string(error.localizedDescription)
+                    ]
+                )
+            }
         }
     }
 

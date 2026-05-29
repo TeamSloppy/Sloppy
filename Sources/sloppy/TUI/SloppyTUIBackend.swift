@@ -17,6 +17,7 @@ protocol SloppyTUIBackend: Sendable {
     func updateConfig(_ config: CoreConfig) async throws -> CoreConfig
     func listProjects() async throws -> [ProjectRecord]
     func getProject(id: String) async throws -> ProjectRecord
+    func createProjectTask(projectID: String, request: ProjectTaskCreateRequest) async throws -> ProjectRecord
     func getActorBoard() async throws -> ActorBoardSnapshot
     func resolveOrCreateProjectForCurrentDirectory(_ cwd: String) async throws -> ProjectRecord
     func resolveProjectWorkspaceRoot(projectID: String) async throws -> URL
@@ -32,6 +33,11 @@ protocol SloppyTUIBackend: Sendable {
     func getAgentSession(agentID: String, sessionID: String) async throws -> AgentSessionDetail
     func deleteAgentSession(agentID: String, sessionID: String) async throws
     func postAgentSessionMessage(agentID: String, sessionID: String, request: AgentSessionPostMessageRequest) async throws -> AgentSessionMessageResponse
+    func startAgentSessionGoal(agentID: String, sessionID: String, request: AgentSessionGoalStartRequest) async throws -> AgentSessionGoalRecord
+    func getAgentSessionGoal(agentID: String, sessionID: String) async throws -> AgentSessionGoalRecord?
+    func pauseAgentSessionGoal(agentID: String, sessionID: String) async throws -> AgentSessionGoalRecord?
+    func resumeAgentSessionGoal(agentID: String, sessionID: String) async throws -> AgentSessionGoalRecord?
+    func clearAgentSessionGoal(agentID: String, sessionID: String) async throws -> AgentSessionGoalRecord?
     func addAgentSessionDirectory(agentID: String, sessionID: String, request: AgentSessionDirectoryRequest) async throws -> AgentSessionDirectoryResponse
     func controlAgentSession(agentID: String, sessionID: String, request: AgentSessionControlRequest) async throws -> AgentSessionMessageResponse
     func answerAgentPlanInput(agentID: String, sessionID: String, requestID: String, payload: PlanInputAnswerRequest) async throws -> AgentSessionMessageResponse
@@ -42,6 +48,7 @@ protocol SloppyTUIBackend: Sendable {
     func streamProjectWorkingTreeChanges(projectID: String) async throws -> AsyncStream<ProjectWorkingTreeChangeBatch>
     func projectWorkingTreeSourceControl(projectID: String) async throws -> ProjectWorkingTreeSourceControlResponse
     func createTUIBackgroundWorktree(projectID: String, taskID: String) async throws -> SourceControlWorktreeResult
+    func startTUIBackgroundSession(agentID: String, projectID: String, task: String, mode: AgentChatMode?, reasoningEffort: ReasoningEffort?) async throws -> CoreService.TUIBackgroundSessionStartResult
     func searchProjectFiles(projectID: String, query: String, limit: Int) async throws -> [ProjectFileSearchEntry]
     func readProjectFile(projectID: String, path: String) async throws -> ProjectFileContentResponse
     func listMCPServerStatuses() async -> [MCPServerStatus]
@@ -103,6 +110,9 @@ struct LocalSloppyTUIBackend: SloppyTUIBackend {
     func updateConfig(_ config: CoreConfig) async throws -> CoreConfig { try await service.updateConfig(config) }
     func listProjects() async throws -> [ProjectRecord] { await service.listProjects() }
     func getProject(id: String) async throws -> ProjectRecord { try await service.getProject(id: id) }
+    func createProjectTask(projectID: String, request: ProjectTaskCreateRequest) async throws -> ProjectRecord {
+        try await service.createProjectTask(projectID: projectID, request: request)
+    }
     func getActorBoard() async throws -> ActorBoardSnapshot { try await service.getActorBoard() }
     func resolveOrCreateProjectForCurrentDirectory(_ cwd: String) async throws -> ProjectRecord {
         try await service.resolveOrCreateProjectForCurrentDirectory(cwd)
@@ -146,6 +156,21 @@ struct LocalSloppyTUIBackend: SloppyTUIBackend {
     func postAgentSessionMessage(agentID: String, sessionID: String, request: AgentSessionPostMessageRequest) async throws -> AgentSessionMessageResponse {
         try await service.postAgentSessionMessage(agentID: agentID, sessionID: sessionID, request: request)
     }
+    func startAgentSessionGoal(agentID: String, sessionID: String, request: AgentSessionGoalStartRequest) async throws -> AgentSessionGoalRecord {
+        try await service.startAgentSessionGoal(agentID: agentID, sessionID: sessionID, request: request)
+    }
+    func getAgentSessionGoal(agentID: String, sessionID: String) async throws -> AgentSessionGoalRecord? {
+        try await service.getAgentSessionGoal(agentID: agentID, sessionID: sessionID)
+    }
+    func pauseAgentSessionGoal(agentID: String, sessionID: String) async throws -> AgentSessionGoalRecord? {
+        try await service.pauseAgentSessionGoal(agentID: agentID, sessionID: sessionID)
+    }
+    func resumeAgentSessionGoal(agentID: String, sessionID: String) async throws -> AgentSessionGoalRecord? {
+        try await service.resumeAgentSessionGoal(agentID: agentID, sessionID: sessionID)
+    }
+    func clearAgentSessionGoal(agentID: String, sessionID: String) async throws -> AgentSessionGoalRecord? {
+        try await service.clearAgentSessionGoal(agentID: agentID, sessionID: sessionID)
+    }
     func addAgentSessionDirectory(agentID: String, sessionID: String, request: AgentSessionDirectoryRequest) async throws -> AgentSessionDirectoryResponse {
         try await service.addAgentSessionDirectory(agentID: agentID, sessionID: sessionID, request: request)
     }
@@ -185,6 +210,15 @@ struct LocalSloppyTUIBackend: SloppyTUIBackend {
     }
     func createTUIBackgroundWorktree(projectID: String, taskID: String) async throws -> SourceControlWorktreeResult {
         try await service.createTUIBackgroundWorktree(projectID: projectID, taskID: taskID)
+    }
+    func startTUIBackgroundSession(agentID: String, projectID: String, task: String, mode: AgentChatMode?, reasoningEffort: ReasoningEffort?) async throws -> CoreService.TUIBackgroundSessionStartResult {
+        try await service.startTUIBackgroundSession(
+            agentID: agentID,
+            projectID: projectID,
+            task: task,
+            mode: mode,
+            reasoningEffort: reasoningEffort
+        )
     }
     func searchProjectFiles(projectID: String, query: String, limit: Int) async throws -> [ProjectFileSearchEntry] {
         try await service.searchProjectFiles(projectID: projectID, query: query, limit: limit)
@@ -269,6 +303,9 @@ struct RemoteSloppyTUIBackend: SloppyTUIBackend {
     }
     func listProjects() async throws -> [ProjectRecord] { try await get("/v1/projects", as: [ProjectRecord].self) }
     func getProject(id: String) async throws -> ProjectRecord { try await get("/v1/projects/\(Self.escape(id))", as: ProjectRecord.self) }
+    func createProjectTask(projectID: String, request: ProjectTaskCreateRequest) async throws -> ProjectRecord {
+        try await post("/v1/projects/\(Self.escape(projectID))/tasks", body: request, as: ProjectRecord.self)
+    }
     func getActorBoard() async throws -> ActorBoardSnapshot { try await get("/v1/actors/board", as: ActorBoardSnapshot.self) }
     func resolveOrCreateProjectForCurrentDirectory(_ cwd: String) async throws -> ProjectRecord {
         guard let projectID else { throw RemoteSloppyTUIBackendError.missingProject }
@@ -317,6 +354,21 @@ struct RemoteSloppyTUIBackend: SloppyTUIBackend {
     func postAgentSessionMessage(agentID: String, sessionID: String, request: AgentSessionPostMessageRequest) async throws -> AgentSessionMessageResponse {
         try await post("/v1/agents/\(Self.escape(agentID))/sessions/\(Self.escape(sessionID))/messages", body: request, as: AgentSessionMessageResponse.self)
     }
+    func startAgentSessionGoal(agentID: String, sessionID: String, request: AgentSessionGoalStartRequest) async throws -> AgentSessionGoalRecord {
+        throw RemoteSloppyTUIBackendError.unsupported("/goal")
+    }
+    func getAgentSessionGoal(agentID: String, sessionID: String) async throws -> AgentSessionGoalRecord? {
+        throw RemoteSloppyTUIBackendError.unsupported("/goal")
+    }
+    func pauseAgentSessionGoal(agentID: String, sessionID: String) async throws -> AgentSessionGoalRecord? {
+        throw RemoteSloppyTUIBackendError.unsupported("/goal")
+    }
+    func resumeAgentSessionGoal(agentID: String, sessionID: String) async throws -> AgentSessionGoalRecord? {
+        throw RemoteSloppyTUIBackendError.unsupported("/goal")
+    }
+    func clearAgentSessionGoal(agentID: String, sessionID: String) async throws -> AgentSessionGoalRecord? {
+        throw RemoteSloppyTUIBackendError.unsupported("/goal")
+    }
     func addAgentSessionDirectory(agentID: String, sessionID: String, request: AgentSessionDirectoryRequest) async throws -> AgentSessionDirectoryResponse {
         try await post("/v1/agents/\(Self.escape(agentID))/sessions/\(Self.escape(sessionID))/directories", body: request, as: AgentSessionDirectoryResponse.self)
     }
@@ -346,6 +398,9 @@ struct RemoteSloppyTUIBackend: SloppyTUIBackend {
     }
     func createTUIBackgroundWorktree(projectID: String, taskID: String) async throws -> SourceControlWorktreeResult {
         throw RemoteSloppyTUIBackendError.unsupported("/bg worktree sessions")
+    }
+    func startTUIBackgroundSession(agentID: String, projectID: String, task: String, mode: AgentChatMode?, reasoningEffort: ReasoningEffort?) async throws -> CoreService.TUIBackgroundSessionStartResult {
+        throw RemoteSloppyTUIBackendError.unsupported("/bg sessions")
     }
     func searchProjectFiles(projectID: String, query: String, limit: Int) async throws -> [ProjectFileSearchEntry] {
         try await get("/v1/projects/\(Self.escape(projectID))/files/search", query: ["q": query, "limit": String(limit)], as: [ProjectFileSearchEntry].self)

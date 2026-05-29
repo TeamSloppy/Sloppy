@@ -16,7 +16,7 @@ func slashCommandRouterIgnoresAbsolutePaths() {
 
 @Test
 func slashCommandRouterHandlesKnownCommandsAndAliases() {
-    let commandNames: Set<String> = ["help", "workspace", "keybindings", "shortcuts", "add-dir", "restore", "up", "undo", "redo", "themes", "plan-web", "plans", "open-plan"]
+    let commandNames: Set<String> = ["help", "workspace", "keybindings", "shortcuts", "add-dir", "restore", "up", "undo", "redo", "themes", "plan-web", "plans", "open-plan", "goal"]
 
     #expect(SloppyTUISlashCommandRouter.shouldHandle("/help", commandNames: commandNames, skillCommandNames: []))
     #expect(SloppyTUISlashCommandRouter.shouldHandle("/workspace", commandNames: commandNames, skillCommandNames: []))
@@ -31,6 +31,60 @@ func slashCommandRouterHandlesKnownCommandsAndAliases() {
     #expect(SloppyTUISlashCommandRouter.shouldHandle("/plan-web", commandNames: commandNames, skillCommandNames: []))
     #expect(SloppyTUISlashCommandRouter.shouldHandle("/plans latest-plan", commandNames: commandNames, skillCommandNames: []))
     #expect(SloppyTUISlashCommandRouter.shouldHandle("/open-plan latest-plan", commandNames: commandNames, skillCommandNames: []))
+    #expect(SloppyTUISlashCommandRouter.shouldHandle("/goal make tests pass", commandNames: commandNames, skillCommandNames: []))
+}
+
+@Test
+func goalCommandParserHandlesLifecycleAndBackgroundForms() {
+    #expect(SloppyTUIGoalCommand.parse([]) == .failure(SloppyTUIGoalCommand.usage))
+    #expect(SloppyTUIGoalCommand.parse(["status"]) == .status)
+    #expect(SloppyTUIGoalCommand.parse(["pause"]) == .pause)
+    #expect(SloppyTUIGoalCommand.parse(["resume"]) == .resume)
+    #expect(SloppyTUIGoalCommand.parse(["clear"]) == .clear)
+    #expect(SloppyTUIGoalCommand.parse(["fix", "tests"]) == .start("fix tests"))
+    #expect(SloppyTUIGoalCommand.parse(["task", "fix", "tests"]) == .task("fix tests"))
+    #expect(SloppyTUIGoalCommand.parse(["bg", "fix", "tests"]) == .task("fix tests"))
+    #expect(SloppyTUIGoalCommand.parse(["task"]) == .failure("Usage: `/goal task <objective>`"))
+}
+
+@Test
+func goalPromptFormatterBuildsInitialAndContinuationPrompts() {
+    let initial = SloppyTUIGoalPromptFormatter.initialPrompt(objective: "make swift test pass")
+
+    #expect(initial.contains("[Sloppy goal]"))
+    #expect(initial.contains("make swift test pass"))
+    #expect(initial.contains("session.complete"))
+    #expect(initial.contains("verify"))
+
+    let goal = AgentSessionGoalRecord(
+        id: "goal-1",
+        agentId: "agent",
+        sessionId: "session",
+        objective: "make swift test pass",
+        status: .active,
+        attemptCount: 1,
+        maxAttempts: 8,
+        createdAt: Date(timeIntervalSince1970: 10),
+        updatedAt: Date(timeIntervalSince1970: 20)
+    )
+    let continuation = SloppyTUIGoalPromptFormatter.continuationPrompt(goal: goal)
+
+    #expect(continuation.contains("[Sloppy goal continuation]"))
+    #expect(continuation.contains("make swift test pass"))
+    #expect(continuation.contains("Attempt 2 of 8"))
+}
+
+@Test
+func goalTaskFormatterBuildsReadyProjectTaskRequest() {
+    let request = SloppyTUIGoalTaskFormatter.request(objective: "make swift test pass")
+
+    #expect(request.title == "Goal: make swift test pass")
+    #expect(request.description?.contains("Goal objective:\nmake swift test pass") == true)
+    #expect(request.description?.contains("`/goal task`") == true)
+    #expect(request.status == ProjectTaskStatus.ready.rawValue)
+    #expect(request.kind == .execution)
+    #expect(request.tags == ["goal"])
+    #expect(request.changedBy == "tui_goal")
 }
 
 @Test

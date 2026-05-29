@@ -16,7 +16,7 @@ extension ToolContext {
             path,
             workspaceRootURL: workspaceRootURL,
             currentDirectoryURL: currentDirectoryURL,
-            extraRoots: policy.guardrails.allowedWriteRoots
+            extraRoots: policy.guardrails.allowedWriteRoots + readOnlyRoots
         )
     }
 
@@ -255,7 +255,7 @@ func runForegroundProcess(
 }
 
 func resolvedExecTimeoutMs(arguments: [String: JSONValue], guardrails: AgentToolsGuardrails) -> Int {
-    let requested = arguments["timeoutMs"]?.asInt ?? guardrails.execTimeoutMs
+    let requested = arguments["timeoutMs"]?.asInt ?? guardrails.maxExecTimeoutMs
     return min(max(1, requested), max(1, guardrails.maxExecTimeoutMs))
 }
 

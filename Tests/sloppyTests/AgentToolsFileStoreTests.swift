@@ -205,7 +205,7 @@ func toolsStoreLoadsLegacyGuardrailsWithLoopDefaults() throws {
     #expect(policy.guardrails.maxConsecutiveIdenticalToolCalls == 3)
     #expect(policy.guardrails.maxIdenticalToolCallsPerWindow == 6)
     #expect(policy.guardrails.maxRepeatedNonRetryableFailures == 2)
-    #expect(policy.guardrails.maxExecTimeoutMs == 120_000)
+    #expect(policy.guardrails.maxExecTimeoutMs == AgentToolsGuardrails.defaultMaxExecTimeoutMs)
     #expect(policy.approval.enabled == false)
 }
 

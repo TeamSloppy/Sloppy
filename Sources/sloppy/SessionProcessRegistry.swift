@@ -132,20 +132,19 @@ actor SessionProcessRegistry {
         return .array(items.map(processPayload))
     }
 
-    func cleanup(sessionID: String) {
+    func cleanup(sessionID: String) async {
         guard let sessionProcesses = processesBySession[sessionID] else {
             return
         }
         for process in sessionProcesses.values where process.process.isRunning {
-            process.process.terminate()
-            process.process.waitUntilExit()
+            await terminateProcess(process.process)
         }
         processesBySession.removeValue(forKey: sessionID)
     }
 
-    func shutdown() {
+    func shutdown() async {
         for sessionID in processesBySession.keys {
-            cleanup(sessionID: sessionID)
+            await cleanup(sessionID: sessionID)
         }
     }
 

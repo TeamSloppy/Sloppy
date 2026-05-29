@@ -219,6 +219,96 @@ enum SloppyTUISlashCommandRouter {
     }
 }
 
+enum SloppyTUIGoalCommand: Equatable {
+    case start(String)
+    case status
+    case pause
+    case resume
+    case clear
+    case task(String)
+    case failure(String)
+
+    static let usage = "Usage: `/goal <objective>` or `/goal [status|pause|resume|clear|task <objective>|bg <objective>]`"
+
+    static func parse(_ args: [String]) -> SloppyTUIGoalCommand {
+        guard let first = args.first?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !first.isEmpty
+        else {
+            return .failure(usage)
+        }
+
+        switch first.lowercased() {
+        case "status":
+            return args.count == 1 ? .status : .failure(usage)
+        case "pause":
+            return args.count == 1 ? .pause : .failure(usage)
+        case "resume":
+            return args.count == 1 ? .resume : .failure(usage)
+        case "clear":
+            return args.count == 1 ? .clear : .failure(usage)
+        case "task", "bg":
+            let objective = args.dropFirst().joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !objective.isEmpty else {
+                return .failure("Usage: `/goal \(first.lowercased()) <objective>`")
+            }
+            return .task(objective)
+        default:
+            let objective = args.joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !objective.isEmpty else {
+                return .failure(usage)
+            }
+            return .start(objective)
+        }
+    }
+}
+
+enum SloppyTUIGoalPromptFormatter {
+    static func initialPrompt(objective: String) -> String {
+        let trimmed = objective.trimmingCharacters(in: .whitespacesAndNewlines)
+        return """
+        [Sloppy goal]
+        Objective:
+        \(trimmed)
+
+        Work autonomously toward this objective until it is complete, blocked by something external, or requires user input. Prefer measurable verification such as tests, builds, lint, or exact command output when the objective provides it. If the goal is broad, make the smallest concrete plan needed and then execute it.
+
+        Before handing back, verify the objective. When it is truly complete, blocked, or waiting for user input, call `session.complete` with a concise summary and the evidence you used. Do not stop with only a promise to continue.
+        """
+    }
+
+    static func continuationPrompt(goal: AgentSessionGoalRecord) -> String {
+        """
+        [Sloppy goal continuation]
+        Objective:
+        \(goal.objective)
+
+        Attempt \(goal.attemptCount + 1) of \(goal.maxAttempts).
+        Continue from the current session state. If the objective is now verified complete, blocked, or waiting for user input, call `session.complete` with the result and evidence. Otherwise take the next concrete step toward the goal.
+        """
+    }
+}
+
+enum SloppyTUIGoalTaskFormatter {
+    static func request(objective: String) -> ProjectTaskCreateRequest {
+        let trimmed = objective.trimmingCharacters(in: .whitespacesAndNewlines)
+        return ProjectTaskCreateRequest(
+            title: "Goal: \(String(trimmed.prefix(72)))",
+            description: """
+            Goal objective:
+            \(trimmed)
+
+            Created from the TUI `/goal task` flow. Work until the objective is verified complete, blocked by an external issue, or waiting for user input. Update the task with status and evidence before handing off.
+            """,
+            priority: "medium",
+            status: ProjectTaskStatus.ready.rawValue,
+            kind: .execution,
+            originType: .dashboard,
+            tags: ["goal"],
+            changedBy: "tui_goal"
+        )
+    }
+}
+
 enum SloppyTUISkillInvocationRouter {
     static func commandName(in raw: String) -> String? {
         let value = raw.trimmingCharacters(in: .whitespacesAndNewlines)

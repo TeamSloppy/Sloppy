@@ -124,6 +124,69 @@ func tuiBackgroundWorktreeUsesProjectProviderAndManagedRoot() async throws {
     #expect(worktree.worktreePath.hasSuffix("/worktrees/tui-bg/tui-session"))
 }
 
+@Test
+func tuiBackgroundSessionIsCreatedAndOwnedByCoreService() async throws {
+    let config = CoreConfig.test
+    let service = CoreService(config: config, persistenceBuilder: InMemoryCorePersistenceBuilder())
+    defer {
+        try? FileManager.default.removeItem(at: config.resolvedWorkspaceRootURL())
+    }
+    await service.registerSourceControlProvider(TUIFakeSourceControlProvider())
+    let repo = FileManager.default.temporaryDirectory
+        .appendingPathComponent("sloppy-tui-bg-session-\(UUID().uuidString)", isDirectory: true)
+    try FileManager.default.createDirectory(at: repo, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: repo) }
+
+    _ = try await service.createAgent(AgentCreateRequest(id: "bg-agent", displayName: "BG Agent", role: "Testing"))
+    _ = try await service.createProject(ProjectCreateRequest(
+        id: "tui-bg-session",
+        name: "TUI BG Session",
+        repoPath: repo.path,
+        sourceControlProviderId: "tui-fake-sc"
+    ))
+
+    let result = try await service.startTUIBackgroundSession(
+        agentID: "bg-agent",
+        projectID: "tui-bg-session",
+        task: "Keep working after the TUI exits",
+        mode: .build,
+        reasoningEffort: .low
+    )
+
+    let sessions = try await service.listAgentSessions(agentID: "bg-agent", projectID: nil, limit: nil, offset: 0)
+    #expect(sessions.contains(where: { $0.id == result.session.id }))
+    #expect(result.session.title == "Background: Keep working after the TUI exits")
+    #expect(result.worktree.branchName.hasPrefix("fake/tui-"))
+}
+
+@Test
+func taskWorkerRetryPreservesExistingTaskSessions() async throws {
+    let config = CoreConfig.test
+    let service = CoreService(config: config, persistenceBuilder: InMemoryCorePersistenceBuilder())
+    defer {
+        try? FileManager.default.removeItem(at: config.resolvedWorkspaceRootURL())
+    }
+    let agentID = "retry-worker"
+    let taskID = "TASK-42"
+    _ = try await service.createAgent(AgentCreateRequest(id: agentID, displayName: "Retry Worker", role: "Testing"))
+    let existing = try await service.createAgentSession(
+        agentID: agentID,
+        request: AgentSessionCreateRequest(title: "task-\(taskID)")
+    )
+
+    _ = await service.runSubagentTask(
+        agentID: agentID,
+        taskID: taskID,
+        objective: "Do the retry without deleting evidence.",
+        workingDirectory: nil,
+        toolsetNames: ["file"]
+    )
+
+    let sessions = try await service.listAgentSessions(agentID: agentID, projectID: nil, limit: nil, offset: 0)
+    #expect(sessions.contains(where: { $0.id == existing.id && $0.title == "task-\(taskID)" }))
+    #expect(sessions.contains(where: { $0.title == "task-\(taskID)-attempt-2" }))
+}
+
 private func sessionListEntry(
     sessionID: String,
     pinned: Bool,

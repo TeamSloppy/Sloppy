@@ -203,6 +203,45 @@ func branchConclusionDecodesWithUnknownFields() throws {
 }
 
 @Test
+func agentSessionGoalRecordDecodesWithUnknownFieldsAndNoEvaluation() throws {
+    let json = """
+    {
+        "id": "goal-1",
+        "agentId": "agent",
+        "sessionId": "session",
+        "objective": "make tests pass",
+        "status": "active",
+        "attemptCount": 1,
+        "maxAttempts": 8,
+        "createdAt": "2026-05-29T10:00:00Z",
+        "updatedAt": "2026-05-29T10:01:00Z",
+        "unknown": "ignored"
+    }
+    """.data(using: .utf8)!
+
+    let decoder = JSONDecoder()
+    decoder.dateDecodingStrategy = .iso8601
+
+    let goal = try decoder.decode(AgentSessionGoalRecord.self, from: json)
+
+    #expect(goal.id == "goal-1")
+    #expect(goal.objective == "make tests pass")
+    #expect(goal.status == .active)
+    #expect(goal.lastEvaluation == nil)
+}
+
+@Test
+func agentSessionGoalControlRequestsDecodeWithUnknownFields() throws {
+    let json = #"{"unknown":"ignored"}"#.data(using: .utf8)!
+    let decoder = JSONDecoder()
+
+    _ = try decoder.decode(AgentSessionGoalStatusRequest.self, from: json)
+    _ = try decoder.decode(AgentSessionGoalPauseRequest.self, from: json)
+    _ = try decoder.decode(AgentSessionGoalResumeRequest.self, from: json)
+    _ = try decoder.decode(AgentSessionGoalClearRequest.self, from: json)
+}
+
+@Test
 func compactionJobDecodesWithUnknownFields() throws {
     // Given: JSON with extra fields
     let json = """

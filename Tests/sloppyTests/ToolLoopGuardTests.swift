@@ -114,7 +114,24 @@ struct ToolLoopGuardTests {
         }
     }
 
-    @Test("runtime.exec timeout returns promptly with timedOut payload")
+    @Test("runtime.exec accepts long explicit timeouts")
+    func runtimeExecAcceptsLongExplicitTimeouts() {
+        let timeoutMs = resolvedExecTimeoutMs(
+            arguments: ["timeoutMs": .number(3_600_000)],
+            guardrails: AgentToolsGuardrails()
+        )
+
+        #expect(timeoutMs == 3_600_000)
+    }
+
+    @Test("runtime.exec defaults to the exec maximum timeout")
+    func runtimeExecDefaultsToExecMaximumTimeout() {
+        let timeoutMs = resolvedExecTimeoutMs(arguments: [:], guardrails: AgentToolsGuardrails())
+
+        #expect(timeoutMs == AgentToolsGuardrails.defaultMaxExecTimeoutMs)
+    }
+
+    @Test("runtime.exec timeout returns promptly as a failed timedOut result")
     func runtimeExecTimeoutReturnsPromptly() async throws {
         let service = makeService()
         let agentID = "exec-timeout-\(UUID().uuidString)"
@@ -135,7 +152,8 @@ struct ToolLoopGuardTests {
             recordSessionEvents: false
         )
 
-        #expect(result.ok == true)
+        #expect(result.ok == false)
+        #expect(result.error?.code == "tool_timeout")
         #expect(result.data?.asObject?["timedOut"]?.asBool == true)
         #expect(Date().timeIntervalSince(startedAt) < 3)
     }
@@ -223,6 +241,8 @@ struct ToolLoopGuardTests {
         #expect(toolCalls.count == 1)
         #expect(toolResults.count == 1)
         #expect(toolResults.first?.toolResult?.tool == "runtime.exec")
+        #expect(toolResults.first?.toolResult?.ok == false)
+        #expect(toolResults.first?.toolResult?.error?.code == "tool_timeout")
     }
 
     @Test("repeated runtime.exec timeouts block further diagnostic commands")

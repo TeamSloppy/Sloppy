@@ -37,6 +37,7 @@ struct ToolContext: @unchecked Sendable {
     let sessionID: String
     let policy: AgentToolsPolicy
     let workspaceRootURL: URL
+    let readOnlyRoots: [String]
     let currentDirectoryURL: URL
     let currentProjectID: String?
     let runtime: RuntimeSystem
@@ -65,6 +66,7 @@ struct ToolContext: @unchecked Sendable {
         sessionID: String,
         policy: AgentToolsPolicy,
         workspaceRootURL: URL,
+        readOnlyRoots: [String] = [],
         currentDirectoryURL: URL? = nil,
         currentProjectID: String? = nil,
         runtime: RuntimeSystem,
@@ -90,6 +92,7 @@ struct ToolContext: @unchecked Sendable {
         self.sessionID = sessionID
         self.policy = policy
         self.workspaceRootURL = workspaceRootURL
+        self.readOnlyRoots = readOnlyRoots
         self.currentDirectoryURL = currentDirectoryURL ?? workspaceRootURL
         let trimmedProjectID = currentProjectID?.trimmingCharacters(in: .whitespacesAndNewlines)
         self.currentProjectID = trimmedProjectID?.isEmpty == false ? trimmedProjectID : nil

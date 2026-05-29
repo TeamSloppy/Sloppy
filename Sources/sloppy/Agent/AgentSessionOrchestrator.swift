@@ -1414,7 +1414,21 @@ actor AgentSessionOrchestrator {
     }
 
     private func appendEventsSafely(agentID: String, sessionID: String, events: [AgentSessionEvent]) {
-        _ = try? appendEventsAndNotify(agentID: agentID, sessionID: sessionID, events: events)
+        do {
+            _ = try appendEventsAndNotify(agentID: agentID, sessionID: sessionID, events: events)
+        } catch {
+            logger.error(
+                "session.events.append_failed",
+                metadata: [
+                    "agent_id": .string(agentID),
+                    "session_id": .string(sessionID),
+                    "event_count": .stringConvertible(events.count),
+                    "event_ids": .string(events.map(\.id).joined(separator: ",")),
+                    "event_types": .string(events.map { $0.type.rawValue }.joined(separator: ",")),
+                    "error": .string(error.localizedDescription)
+                ]
+            )
+        }
     }
 
     private func handleSessionResponseChunk(

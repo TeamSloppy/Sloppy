@@ -17,12 +17,18 @@ final class AgentSkillsFileStore {
 
     private let fileManager: FileManager
     private var agentsRootURL: URL
+    private let sharedSkillsRootURLs: [URL]
     private let encoder: JSONEncoder
     private let decoder: JSONDecoder
 
-    init(agentsRootURL: URL, fileManager: FileManager = .default) {
+    init(
+        agentsRootURL: URL,
+        sharedSkillsRootURLs: [URL] = AgentSkillsFileStore.defaultSharedSkillsRootURLs,
+        fileManager: FileManager = .default
+    ) {
         self.fileManager = fileManager
         self.agentsRootURL = agentsRootURL
+        self.sharedSkillsRootURLs = sharedSkillsRootURLs.map(\.standardizedFileURL)
 
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
@@ -36,6 +42,11 @@ final class AgentSkillsFileStore {
 
     func updateAgentsRootURL(_ url: URL) {
         self.agentsRootURL = url
+    }
+
+    func sharedSkillsRootPaths() -> [String] {
+        sharedSkillsRootURLs
+            .map { $0.appendingPathComponent("skills", isDirectory: true).standardizedFileURL.path }
     }
 
     // MARK: - Directory Paths
@@ -111,7 +122,7 @@ final class AgentSkillsFileStore {
         }
 
         let manifest = try readManifest(agentID: normalizedAgentID)
-        return manifest.installedSkills
+        return mergeInstalledSkills(manifest.installedSkills, with: sharedSkills())
     }
 
     /// Get a specific skill by ID
@@ -121,7 +132,9 @@ final class AgentSkillsFileStore {
 
         let manifest = try readManifest(agentID: normalizedAgentID)
 
-        guard let skill = manifest.installedSkills.first(where: { $0.id == normalizedSkillID }) else {
+        guard let skill = manifest.installedSkills.first(where: { $0.id == normalizedSkillID }) ??
+                sharedSkills().first(where: { $0.id == normalizedSkillID })
+        else {
             throw StoreError.skillNotFound
         }
 
@@ -335,6 +348,111 @@ final class AgentSkillsFileStore {
             throw StoreError.invalidSkillID
         }
         return destination
+    }
+
+    // MARK: - Shared Skills
+
+    private static var defaultSharedSkillsRootURLs: [URL] {
+        let home = FileManager.default.homeDirectoryForCurrentUser
+        return [home.appendingPathComponent(".agents", isDirectory: true)]
+    }
+
+    private func sharedSkills() -> [InstalledSkill] {
+        var skillsByID: [String: InstalledSkill] = [:]
+        for root in sharedSkillsRootURLs {
+            for skill in sharedSkills(in: root) {
+                if skillsByID[skill.id] == nil {
+                    skillsByID[skill.id] = skill
+                }
+            }
+        }
+        return skillsByID.values.sorted { lhs, rhs in
+            lhs.id.localizedCaseInsensitiveCompare(rhs.id) == .orderedAscending
+        }
+    }
+
+    private func sharedSkills(in root: URL) -> [InstalledSkill] {
+        let skillsRoot = root.appendingPathComponent("skills", isDirectory: true).standardizedFileURL
+        var isDirectory: ObjCBool = false
+        guard fileManager.fileExists(atPath: skillsRoot.path, isDirectory: &isDirectory),
+              isDirectory.boolValue,
+              let children = try? fileManager.contentsOfDirectory(
+                at: skillsRoot,
+                includingPropertiesForKeys: [.isDirectoryKey],
+                options: [.skipsHiddenFiles]
+              )
+        else {
+            return []
+        }
+
+        return children.compactMap { child -> InstalledSkill? in
+            guard let values = try? child.resourceValues(forKeys: [.isDirectoryKey]),
+                  values.isDirectory == true
+            else {
+                return nil
+            }
+            return sharedSkill(from: child.standardizedFileURL)
+        }
+    }
+
+    private func sharedSkill(from directory: URL) -> InstalledSkill? {
+        let skillFile = directory.appendingPathComponent("SKILL.md")
+        guard fileManager.fileExists(atPath: skillFile.path),
+              let markdown = try? String(contentsOf: skillFile, encoding: .utf8)
+        else {
+            return nil
+        }
+
+        let repo = skillIDComponent(from: directory.lastPathComponent)
+        let id = "shared/\(repo)"
+        let frontmatter = SkillsGitHubClient.parseFrontmatter(from: markdown)
+        let name = normalizedFrontmatterValue(frontmatter?.name) ?? repo
+        let description = normalizedFrontmatterValue(frontmatter?.description)
+        let userInvocable = frontmatter?.userInvocable ?? true
+        let allowedTools = frontmatter?.allowedTools ?? []
+        let context: SkillContext? = {
+            guard let raw = normalizedFrontmatterValue(frontmatter?.context) else {
+                return nil
+            }
+            return SkillContext(rawValue: raw)
+        }()
+
+        return InstalledSkill(
+            id: id,
+            owner: "shared",
+            repo: repo,
+            name: name,
+            description: description,
+            version: "shared",
+            localPath: directory.standardizedFileURL.path,
+            userInvocable: userInvocable,
+            allowedTools: allowedTools,
+            context: context,
+            agent: normalizedFrontmatterValue(frontmatter?.agent)
+        )
+    }
+
+    private func mergeInstalledSkills(_ primary: [InstalledSkill], with shared: [InstalledSkill]) -> [InstalledSkill] {
+        var merged = primary
+        var existingIDs = Set(primary.map(\.id))
+        for skill in shared where !existingIDs.contains(skill.id) {
+            merged.append(skill)
+            existingIDs.insert(skill.id)
+        }
+        return merged
+    }
+
+    private func normalizedFrontmatterValue(_ raw: String?) -> String? {
+        let trimmed = raw?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    private func skillIDComponent(from raw: String) -> String {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        let allowed = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_.")
+        var result = String(trimmed.unicodeScalars.map { allowed.contains($0) ? Character($0) : "-" })
+        result = result.trimmingCharacters(in: CharacterSet(charactersIn: "-_."))
+        return result.isEmpty ? "skill" : result
     }
 
     // MARK: - Validation

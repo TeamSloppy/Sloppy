@@ -12,8 +12,7 @@ extension CoreService {
         "visor.status",
         "project.current",
         "project.task_list",
-        "project.task_create",
-        "project.task_update",
+        "self_improvement.proposal_submit",
     ]
 
     enum SelfImprovementFailureClassification: String, CaseIterable, Sendable {
@@ -30,6 +29,83 @@ extension CoreService {
         var tool: String?
         var code: String?
         var message: String?
+    }
+
+    struct SelfImprovementProposalSubmitRequest: Sendable, Equatable {
+        var action: SelfImprovementProposalAction
+        var confidence: Double?
+        var durability: Double?
+        var affectedSubsystem: String?
+        var title: String?
+        var description: String?
+        var evidence: [SelfImprovementProposalEvidence]
+        var testsVerification: String?
+        var failureClassification: SelfImprovementFailureClassification?
+        var existingTaskID: String?
+        var failureReview: Bool
+
+        init(arguments: [String: JSONValue]) {
+            let rawAction = arguments["action"]?.asString?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .lowercased()
+            self.action = rawAction.flatMap(SelfImprovementProposalAction.init(rawValue:)) ?? .nothing
+            self.confidence = arguments["confidence"]?.asNumber
+            self.durability = arguments["durability"]?.asNumber
+            self.affectedSubsystem = arguments["affectedSubsystem"]?.asString
+                ?? arguments["affected_subsystem"]?.asString
+            self.title = arguments["title"]?.asString
+            self.description = arguments["description"]?.asString
+            self.evidence = (arguments["evidence"]?.asArray ?? [])
+                .compactMap(SelfImprovementProposalEvidence.init(value:))
+            self.testsVerification = arguments["testsVerification"]?.asString
+                ?? arguments["tests_verification"]?.asString
+            let rawClassification = arguments["failureClassification"]?.asString
+                ?? arguments["failure_classification"]?.asString
+            self.failureClassification = rawClassification.flatMap(CoreService.normalizedFailureClassification)
+            self.existingTaskID = arguments["existingTaskID"]?.asString
+                ?? arguments["existingTaskId"]?.asString
+                ?? arguments["existing_task_id"]?.asString
+            self.failureReview = arguments["failureReview"]?.asBool
+                ?? arguments["failure_review"]?.asBool
+                ?? false
+        }
+    }
+
+    struct SelfImprovementProposalEvidence: Sendable, Equatable {
+        var summary: String
+        var source: String?
+
+        init?(value: JSONValue) {
+            if let text = value.asString?.trimmingCharacters(in: .whitespacesAndNewlines),
+               !text.isEmpty {
+                self.summary = text
+                self.source = nil
+                return
+            }
+            guard let object = value.asObject else { return nil }
+            let summary = object["summary"]?.asString?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                ?? object["description"]?.asString?
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                ?? ""
+            guard !summary.isEmpty else { return nil }
+            self.summary = summary
+            self.source = object["source"]?.asString?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+
+        var markdownLine: String {
+            if let source, !source.isEmpty {
+                return "- \(summary) (`\(source)`)"
+            }
+            return "- \(summary)"
+        }
+    }
+
+    enum SelfImprovementProposalAction: String, Sendable {
+        case nothing
+        case create
+        case update
     }
 
     func maybeScheduleSelfImprovementProposalReviewAfterTurn(
@@ -122,15 +198,168 @@ extension CoreService {
             ]
         )
 
+        let projectID: String
+        do {
+            let detail = try sessionStore.loadSession(agentID: normalizedAgentID, sessionID: normalizedSessionID)
+            projectID = detail.summary.projectId?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        } catch {
+            logger.warning(
+                "self_improvement.proposal.enqueue_failed",
+                metadata: [
+                    "agent_id": .string(normalizedAgentID),
+                    "session_id": .string(normalizedSessionID),
+                    "reason": .string(reason),
+                    "error": .string("session_unavailable"),
+                ]
+            )
+            return
+        }
+        guard !projectID.isEmpty else { return }
+
         Task { [weak self] in
             guard let self else { return }
-            await self.runScheduledSelfImprovementProposalReview(
+            _ = await self.enqueueSelfImprovementProposalReview(
                 agentID: normalizedAgentID,
                 sessionID: normalizedSessionID,
+                projectID: projectID,
                 reason: reason,
                 reviewContext: reviewContext
             )
+            await self.runSelfImprovementProposalReviewQueue()
         }
+    }
+
+    @discardableResult
+    private func enqueueSelfImprovementProposalReview(
+        agentID: String,
+        sessionID: String,
+        projectID: String,
+        reason: String,
+        reviewContext: String? = nil
+    ) async -> SelfImprovementProposalReviewJob {
+        await store.upsertSelfImprovementProposalReviewJob(
+            agentId: agentID,
+            sessionId: sessionID,
+            projectId: projectID,
+            reason: reason,
+            reviewContext: reviewContext,
+            nextRunAt: Date()
+        )
+    }
+
+    func enqueueSelfImprovementProposalReviewForTests(
+        agentID: String,
+        sessionID: String,
+        projectID: String,
+        reason: String,
+        reviewContext: String? = nil
+    ) async -> SelfImprovementProposalReviewJob {
+        await enqueueSelfImprovementProposalReview(
+            agentID: agentID,
+            sessionID: sessionID,
+            projectID: projectID,
+            reason: reason,
+            reviewContext: reviewContext
+        )
+    }
+
+    func listSelfImprovementProposalReviewJobsForTests() async -> [SelfImprovementProposalReviewJob] {
+        await store.listSelfImprovementProposalReviewJobs(statuses: nil)
+    }
+
+    func forceSelfImprovementProposalReviewJobDueForTests(_ id: String) async {
+        let jobs = await store.listSelfImprovementProposalReviewJobs(statuses: nil)
+        guard var job = jobs.first(where: { $0.id == id }) else { return }
+        job.status = "pending"
+        job.nextRunAt = Date()
+        job.updatedAt = Date()
+        await store.saveSelfImprovementProposalReviewJob(job)
+    }
+
+    func runSelfImprovementProposalReviewQueueForTests() async {
+        await runSelfImprovementProposalReviewQueue()
+    }
+
+    private func runSelfImprovementProposalReviewQueue() async {
+        guard !selfImprovementProposalReviewQueueRunning else { return }
+        selfImprovementProposalReviewQueueRunning = true
+        defer { selfImprovementProposalReviewQueueRunning = false }
+
+        while var job = await store.claimNextSelfImprovementProposalReviewJob(now: Date()) {
+            let result = await runScheduledSelfImprovementProposalReview(job: job)
+            let now = Date()
+            job.attempts += 1
+            job.updatedAt = now
+            switch result {
+            case .success:
+                job.status = "succeeded"
+                job.lastError = nil
+            case .failure(let error):
+                job.lastError = error
+                job.status = job.attempts >= 3 ? "failed" : "pending"
+                job.nextRunAt = now.addingTimeInterval(TimeInterval(60 * max(1, job.attempts)))
+                await appendSelfImprovementReviewSummary(
+                    agentID: job.agentId,
+                    sessionID: job.sessionId,
+                    review: AgentSelfImprovementReviewEvent(
+                        category: "proposal",
+                        jobId: job.id,
+                        summary: "Self-improvement review failed: \(error)",
+                        actions: ["proposal review failed: \(error)"],
+                        reason: job.reason
+                    )
+                )
+                logger.warning(
+                    "self_improvement.proposal.queue_failed",
+                    metadata: [
+                        "actor_id": .string("system:self-improvement"),
+                        "job_id": .string(job.id),
+                        "agent_id": .string(job.agentId),
+                        "session_id": .string(job.sessionId),
+                        "reason": .string(job.reason),
+                        "error": .string(error),
+                    ]
+                )
+            }
+            await store.saveSelfImprovementProposalReviewJob(job)
+        }
+    }
+
+    private enum SelfImprovementProposalReviewRunResult {
+        case success
+        case failure(String)
+    }
+
+    private func runScheduledSelfImprovementProposalReview(job: SelfImprovementProposalReviewJob) async -> SelfImprovementProposalReviewRunResult {
+        logger.info(
+            "self_improvement.proposal.background_started",
+            metadata: [
+                "job_id": .string(job.id),
+                "agent_id": .string(job.agentId),
+                "session_id": .string(job.sessionId),
+                "reason": .string(job.reason),
+            ]
+        )
+        let result = await runSelfImprovementProposalReview(
+            agentID: job.agentId,
+            sessionID: job.sessionId,
+            reason: job.reason,
+            reviewContext: job.reviewContext,
+            jobID: job.id
+        )
+        logger.info(
+            "self_improvement.proposal.background_completed",
+            metadata: [
+                "job_id": .string(job.id),
+                "agent_id": .string(job.agentId),
+                "session_id": .string(job.sessionId),
+                "reason": .string(job.reason),
+            ]
+        )
+        if let error = result {
+            return .failure(error)
+        }
+        return .success
     }
 
     private func runScheduledSelfImprovementProposalReview(
@@ -147,7 +376,7 @@ extension CoreService {
                 "reason": .string(reason),
             ]
         )
-        await runSelfImprovementProposalReview(
+        _ = await runSelfImprovementProposalReview(
             agentID: agentID,
             sessionID: sessionID,
             reason: reason,
@@ -167,10 +396,11 @@ extension CoreService {
         agentID: String,
         sessionID: String,
         reason: String,
-        reviewContext: String? = nil
-    ) async {
-        guard let normalizedAgentID = normalizedAgentID(agentID) else { return }
-        guard let normalizedSessionID = normalizedSessionID(sessionID) else { return }
+        reviewContext: String? = nil,
+        jobID: String? = nil
+    ) async -> String? {
+        guard let normalizedAgentID = normalizedAgentID(agentID) else { return "invalid_agent_id" }
+        guard let normalizedSessionID = normalizedSessionID(sessionID) else { return "invalid_session_id" }
 
         let lockKey = selfImprovementProposalReviewLockKey(agentID: normalizedAgentID, sessionID: normalizedSessionID)
         guard !selfImprovementProposalReviewLocks.contains(lockKey) else {
@@ -181,7 +411,7 @@ extension CoreService {
                     "session_id": .string(normalizedSessionID),
                 ]
             )
-            return
+            return "overlapping_review"
         }
         selfImprovementProposalReviewLocks.insert(lockKey)
         defer { selfImprovementProposalReviewLocks.remove(lockKey) }
@@ -190,7 +420,7 @@ extension CoreService {
             _ = try getAgent(id: normalizedAgentID)
         } catch {
             logger.warning("self_improvement.proposal.agent_unavailable", metadata: ["agent_id": .string(normalizedAgentID)])
-            return
+            return "agent_unavailable"
         }
 
         let detail: AgentSessionDetail
@@ -198,7 +428,7 @@ extension CoreService {
             detail = try sessionStore.loadSession(agentID: normalizedAgentID, sessionID: normalizedSessionID)
         } catch {
             logger.warning("self_improvement.proposal.session_unavailable", metadata: ["error": .string(error.localizedDescription)])
-            return
+            return "session_unavailable"
         }
 
         guard let projectID = detail.summary.projectId?.trimmingCharacters(in: .whitespacesAndNewlines),
@@ -212,7 +442,7 @@ extension CoreService {
                     "session_id": .string(normalizedSessionID),
                 ]
             )
-            return
+            return "project_unavailable"
         }
 
         let models = availableAgentModels()
@@ -225,7 +455,7 @@ extension CoreService {
             )
         } catch {
             logger.warning("self_improvement.proposal.no_agent_config", metadata: ["agent_id": .string(normalizedAgentID)])
-            return
+            return "agent_config_unavailable"
         }
 
         let selectedModel = config.selectedModel?.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -260,24 +490,16 @@ extension CoreService {
                     )
                 )
             }
-            if request.tool == "project.task_create",
-               reviewContext?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false,
-               !Self.proposalDescriptionHasRequiredFailureClassification(request.arguments["description"]?.asString) {
-                return ToolInvocationResult(
-                    tool: request.tool,
-                    ok: false,
-                    error: ToolErrorPayload(
-                        code: "failure_classification_required",
-                        message: "Failure review proposal tasks must include `## Failure Classification` with exactly one allowed classification.",
-                        retryable: false
-                    )
-                )
+            var effectiveRequest = request
+            if request.tool == "self_improvement.proposal_submit",
+               reviewContext?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false {
+                effectiveRequest.arguments["failureReview"] = .bool(true)
             }
             let result = await self.invokeSelfImprovementProposalTool(
                 agentID: normalizedAgentID,
                 sessionID: normalizedSessionID,
                 projectID: project.id,
-                request: request
+                request: effectiveRequest
             )
             await actionRecorder.record(result)
             return result
@@ -285,7 +507,7 @@ extension CoreService {
 
         let userPrompt = """
         Run the self-improvement proposal review now. If there is no durable, reusable improvement proposal, reply exactly: Nothing to propose.
-        If there is a proposal, create or update one project task using only the allowed project tools. Do not address the end user.
+        If there is a proposal, submit one structured intent with `self_improvement.proposal_submit`. Do not address the end user.
         """
 
         _ = await runtime.postMessage(
@@ -304,7 +526,7 @@ extension CoreService {
 
         await runtime.discardEphemeralCheckpointChannel(channelId: ephemeralChannelId)
 
-        if let review = await actionRecorder.review(reason: reason) {
+        if let review = await actionRecorder.review(reason: reason, jobID: jobID) {
             await appendSelfImprovementReviewSummary(
                 agentID: normalizedAgentID,
                 sessionID: normalizedSessionID,
@@ -320,6 +542,7 @@ extension CoreService {
                 "reason": .string(reason),
             ]
         )
+        return nil
     }
 
     func invokeSelfImprovementProposalTool(
@@ -339,6 +562,14 @@ extension CoreService {
                 )
             )
         }
+        if request.tool == "self_improvement.proposal_submit" {
+            return await handleSelfImprovementProposalSubmit(
+                agentID: agentID,
+                sessionID: sessionID,
+                projectID: projectID,
+                arguments: request.arguments
+            )
+        }
         let sessionDetail = try? sessionStore.loadSession(agentID: agentID, sessionID: sessionID)
         let sessionContext = await toolContextForSession(
             sessionID: sessionID,
@@ -350,15 +581,10 @@ extension CoreService {
         }
         var policy = AgentToolsPolicy(defaultPolicy: .deny)
         for toolID in Self.selfImprovementProposalToolAllowlist {
+            guard toolID != "self_improvement.proposal_submit" else { continue }
             policy.tools[toolID] = true
         }
-        var effectiveRequest = request
-        if request.tool == "project.task_create" {
-            effectiveRequest.arguments = Self.normalizedProposalTaskCreateArguments(
-                request.arguments,
-                projectID: projectID
-            )
-        }
+        let effectiveRequest = request
         return await toolExecution.invoke(
             agentID: agentID,
             sessionID: sessionID,
@@ -367,6 +593,153 @@ extension CoreService {
             currentProjectID: projectID,
             currentDirectoryURL: currentDirectoryURL
         )
+    }
+
+    private func handleSelfImprovementProposalSubmit(
+        agentID: String,
+        sessionID: String,
+        projectID: String,
+        arguments: [String: JSONValue]
+    ) async -> ToolInvocationResult {
+        let request = SelfImprovementProposalSubmitRequest(arguments: arguments)
+        switch request.action {
+        case .nothing:
+            return ToolInvocationResult(
+                tool: "self_improvement.proposal_submit",
+                ok: true,
+                data: .object(["action": .string("nothing")])
+            )
+        case .create:
+            return await createSelfImprovementProposalTask(
+                projectID: projectID,
+                request: request
+            )
+        case .update:
+            return await updateSelfImprovementProposalTask(
+                projectID: projectID,
+                request: request
+            )
+        }
+    }
+
+    private func createSelfImprovementProposalTask(
+        projectID: String,
+        request: SelfImprovementProposalSubmitRequest
+    ) async -> ToolInvocationResult {
+        if let qualityResult = Self.selfImprovementProposalQualityResult(request) {
+            return qualityResult
+        }
+        if let validationFailure = Self.selfImprovementProposalValidationFailure(request) {
+            return validationFailure
+        }
+
+        let subsystem = Self.normalizedProposalSubsystem(request.affectedSubsystem)
+        let description = request.description?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        do {
+            let updated = try await createProjectTask(
+                projectID: projectID,
+                request: ProjectTaskCreateRequest(
+                    title: request.title?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "Self-improvement proposal",
+                    description: description,
+                    priority: "medium",
+                    status: ProjectTaskStatus.pendingApproval.rawValue,
+                    kind: .planning,
+                    tags: Self.normalizedProposalTags(subsystem: subsystem),
+                    changedBy: "system:self-improvement"
+                )
+            )
+            let created = updated.tasks.sorted { $0.createdAt > $1.createdAt }.first
+            return ToolInvocationResult(
+                tool: "self_improvement.proposal_submit",
+                ok: true,
+                data: .object([
+                    "action": .string("create"),
+                    "projectId": .string(updated.id),
+                    "taskId": .string(created?.id ?? ""),
+                    "title": .string(created?.title ?? request.title ?? ""),
+                    "status": .string(created?.status ?? ""),
+                ])
+            )
+        } catch {
+            return ToolInvocationResult(
+                tool: "self_improvement.proposal_submit",
+                ok: false,
+                error: ToolErrorPayload(
+                    code: "proposal_create_failed",
+                    message: "Failed to create self-improvement proposal task.",
+                    retryable: true
+                )
+            )
+        }
+    }
+
+    private func updateSelfImprovementProposalTask(
+        projectID: String,
+        request: SelfImprovementProposalSubmitRequest
+    ) async -> ToolInvocationResult {
+        if let qualityResult = Self.selfImprovementProposalQualityResult(request) {
+            return qualityResult
+        }
+        if let validationFailure = Self.selfImprovementProposalValidationFailure(request) {
+            return validationFailure
+        }
+        guard let taskID = request.existingTaskID?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !taskID.isEmpty,
+              let project = await store.project(id: projectID),
+              let task = project.tasks.first(where: { $0.id == taskID && Self.activeSelfImprovementProposalStatusesForReview.contains($0.status) }),
+              !task.isArchived,
+              task.tags.contains("self-improvement"),
+              task.tags.contains("proposal")
+        else {
+            return ToolInvocationResult(
+                tool: "self_improvement.proposal_submit",
+                ok: false,
+                error: ToolErrorPayload(
+                    code: "proposal_task_not_active",
+                    message: "`update` requires an active existing self-improvement proposal task id.",
+                    retryable: false
+                )
+            )
+        }
+
+        let updatedDescription = Self.descriptionByAppendingProposalEvidence(
+            task.description,
+            evidence: request.evidence,
+            testsVerification: request.testsVerification
+        )
+        do {
+            let updated = try await updateProjectTask(
+                projectID: projectID,
+                taskID: task.id,
+                request: ProjectTaskUpdateRequest(
+                    description: updatedDescription,
+                    changedBy: "system:self-improvement"
+                )
+            )
+            let updatedTask = updated.tasks.first(where: { $0.id == task.id }) ?? task
+            return ToolInvocationResult(
+                tool: "self_improvement.proposal_submit",
+                ok: true,
+                data: .object([
+                    "action": .string("update"),
+                    "projectId": .string(updated.id),
+                    "taskId": .string(updatedTask.id),
+                    "title": .string(updatedTask.title),
+                    "status": .string(updatedTask.status),
+                    "task": taskJSONValue(updatedTask),
+                ])
+            )
+        } catch {
+            return ToolInvocationResult(
+                tool: "self_improvement.proposal_submit",
+                ok: false,
+                error: ToolErrorPayload(
+                    code: "proposal_update_failed",
+                    message: "Failed to update self-improvement proposal task.",
+                    retryable: true
+                )
+            )
+        }
     }
 
     func appendSelfImprovementReviewSummary(
@@ -442,7 +815,7 @@ extension CoreService {
         Session: \(sessionID)
         Project: `\(project.id)` - \(project.name)
 
-        Allowed tools only: `visor.status`, `project.current`, `project.task_list`, `project.task_create`, `project.task_update`.
+        Allowed tools only: `visor.status`, `project.current`, `project.task_list`, `self_improvement.proposal_submit`.
         Forbidden: shell/runtime.exec, browser/web, files.*, MCP install/remove/config tools, skill install/uninstall/update tools, repo/source-control mutation, project delete, task delete.
 
         Goal:
@@ -457,16 +830,17 @@ extension CoreService {
 
         If there is no strong proposal, reply exactly: Nothing to propose.
 
-        Before creating a proposal, compare with existing proposal tasks. If an active task already covers the same issue, use `project.task_update` to add missing evidence instead of creating a duplicate.
-        Create at most one proposal task per review.
+        Before submitting a proposal, compare with existing proposal tasks. If an active task already covers the same issue, submit `action: "update"` with `existingTaskID` and added evidence instead of creating a duplicate.
+        Submit at most one proposal intent per review.
 
-        New proposal task requirements:
-        - tool: `project.task_create`
-        - `projectId`: `\(project.id)`
-        - `status`: `pending_approval`
-        - `kind`: `planning`
-        - `changedBy`: `system:self-improvement`
-        - `tags`: include `self-improvement`, `proposal`, and one affected subsystem tag such as `skills`, `runtime`, `tools`, `memory`, `dashboard`, `prompts`, or `mcp`
+        Proposal submit requirements:
+        - tool: `self_improvement.proposal_submit`
+        - `action`: `nothing`, `create`, or `update`
+        - `confidence`: at least 0.7 for `create` or `update`
+        - `durability`: at least 0.7 for `create` or `update`
+        - `affectedSubsystem`: one affected subsystem tag such as `skills`, `runtime`, `tools`, `memory`, `dashboard`, `prompts`, or `mcp`
+        - `evidence`: at least one typed evidence item
+        - `testsVerification`: required verification commands or focused test names
         - description must include these headings:
           - `## Goal`
           - `## Context`
@@ -505,6 +879,153 @@ extension CoreService {
             .sorted()
         normalized["tags"] = .array(mergedTags.map { .string($0) })
         return normalized
+    }
+
+    private static let requiredSelfImprovementProposalHeadings = [
+        "Goal",
+        "Context",
+        "Observed Issue",
+        "Evidence",
+        "Suggested Change",
+        "Risk",
+        "Affected Subsystem",
+        "Definition of Done",
+        "Tests / Verification",
+    ]
+
+    private static let activeSelfImprovementProposalStatusesForReview: Set<String> = [
+        ProjectTaskStatus.pendingApproval.rawValue,
+        ProjectTaskStatus.backlog.rawValue,
+        ProjectTaskStatus.ready.rawValue,
+        ProjectTaskStatus.inProgress.rawValue,
+        ProjectTaskStatus.waitingInput.rawValue,
+        ProjectTaskStatus.needsReview.rawValue,
+    ]
+
+    private static func selfImprovementProposalQualityResult(
+        _ request: SelfImprovementProposalSubmitRequest
+    ) -> ToolInvocationResult? {
+        if (request.confidence ?? 0) < 0.7 || (request.durability ?? 0) < 0.7 {
+            return ToolInvocationResult(
+                tool: "self_improvement.proposal_submit",
+                ok: true,
+                data: .object([
+                    "action": .string("nothing"),
+                    "reason": .string("confidence_or_durability_below_threshold"),
+                ])
+            )
+        }
+        return nil
+    }
+
+    private static func selfImprovementProposalValidationFailure(
+        _ request: SelfImprovementProposalSubmitRequest
+    ) -> ToolInvocationResult? {
+        guard request.confidence != nil,
+              request.durability != nil,
+              let subsystem = request.affectedSubsystem?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !subsystem.isEmpty,
+              let title = request.title?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !title.isEmpty,
+              let description = request.description?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !description.isEmpty,
+              let tests = request.testsVerification?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !tests.isEmpty
+        else {
+            return proposalSubmitFailure(
+                code: "proposal_required_fields_missing",
+                message: "`create` and `update` require confidence, durability, affectedSubsystem, title, description, and testsVerification."
+            )
+        }
+
+        guard !request.evidence.isEmpty else {
+            return proposalSubmitFailure(
+                code: "proposal_evidence_required",
+                message: "`create` and `update` require at least one evidence item."
+            )
+        }
+
+        let missingHeadings = requiredSelfImprovementProposalHeadings.filter { heading in
+            !proposalDescriptionContainsHeading(heading, in: description)
+        }
+        guard missingHeadings.isEmpty else {
+            return proposalSubmitFailure(
+                code: "proposal_headings_missing",
+                message: "Proposal description is missing required headings: \(missingHeadings.joined(separator: ", "))."
+            )
+        }
+
+        if request.failureReview {
+            guard let classification = request.failureClassification ?? failureClassification(in: description),
+                  classification != .ignore
+            else {
+                return proposalSubmitFailure(
+                    code: "failure_classification_required",
+                    message: "Failure review proposal tasks must include a valid failureClassification."
+                )
+            }
+        }
+        return nil
+    }
+
+    private static func proposalSubmitFailure(code: String, message: String) -> ToolInvocationResult {
+        ToolInvocationResult(
+            tool: "self_improvement.proposal_submit",
+            ok: false,
+            error: ToolErrorPayload(code: code, message: message, retryable: false)
+        )
+    }
+
+    private static func normalizedProposalSubsystem(_ raw: String?) -> String {
+        let trimmed = raw?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+            .replacingOccurrences(of: " ", with: "-")
+        return trimmed?.isEmpty == false ? trimmed! : "general"
+    }
+
+    private static func normalizedProposalTags(subsystem: String) -> [String] {
+        Array(Set(["self-improvement", "proposal", subsystem]))
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
+            .filter { !$0.isEmpty }
+            .sorted()
+    }
+
+    private static func proposalDescriptionContainsHeading(_ heading: String, in description: String) -> Bool {
+        let target = "## \(heading)".lowercased()
+        return description
+            .split(separator: "\n", omittingEmptySubsequences: false)
+            .contains { line in
+                line.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == target
+            }
+    }
+
+    private static func descriptionByAppendingProposalEvidence(
+        _ description: String,
+        evidence: [SelfImprovementProposalEvidence],
+        testsVerification: String?
+    ) -> String {
+        var section = """
+        ## Additional Evidence
+        \(evidence.map(\.markdownLine).joined(separator: "\n"))
+        """
+        if let tests = testsVerification?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !tests.isEmpty {
+            section += """
+
+            Verification:
+            \(tests)
+            """
+        }
+        return description.trimmingCharacters(in: .whitespacesAndNewlines) + "\n\n" + section
+    }
+
+    private static func normalizedFailureClassification(_ raw: String) -> SelfImprovementFailureClassification? {
+        let normalized = raw
+            .trimmingCharacters(in: CharacterSet(charactersIn: "-*: `"))
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        return SelfImprovementFailureClassification(rawValue: normalized)
     }
 
     static func formattedExistingSelfImprovementProposals(_ project: ProjectRecord) -> String {
@@ -733,7 +1254,15 @@ actor SelfImprovementProposalActionRecorder {
         guard result.ok else { return }
         guard let payload = result.data?.asObject else { return }
         switch result.tool {
-        case "project.task_create":
+        case "project.task_create", "self_improvement.proposal_submit":
+            guard result.data?.asObject?["action"]?.asString != "update" else {
+                let taskID = payload["taskId"]?.asString ?? ""
+                let title = payload["title"]?.asString ?? ""
+                if !taskID.isEmpty {
+                    updatedTasks.append((id: taskID, title: title))
+                }
+                return
+            }
             let taskID = payload["taskId"]?.asString ?? ""
             let title = payload["title"]?.asString ?? ""
             if !taskID.isEmpty {
@@ -750,7 +1279,7 @@ actor SelfImprovementProposalActionRecorder {
         }
     }
 
-    func review(reason: String) -> AgentSelfImprovementReviewEvent? {
+    func review(reason: String, jobID: String? = nil) -> AgentSelfImprovementReviewEvent? {
         var actions: [String] = []
         actions.append(contentsOf: createdTasks.map { task in
             task.title.isEmpty
@@ -764,6 +1293,8 @@ actor SelfImprovementProposalActionRecorder {
         })
         guard !actions.isEmpty else { return nil }
         return AgentSelfImprovementReviewEvent(
+            category: "proposal",
+            jobId: jobID,
             summary: "Self-improvement review: \(actions.joined(separator: ", "))",
             actions: actions,
             reason: reason

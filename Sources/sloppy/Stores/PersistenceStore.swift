@@ -114,6 +114,49 @@ public struct PersistedToolInvocationRecord: Sendable, Equatable {
     }
 }
 
+public struct SelfImprovementProposalReviewJob: Sendable, Equatable {
+    public var id: String
+    public var agentId: String
+    public var sessionId: String
+    public var projectId: String
+    public var reason: String
+    public var reviewContext: String?
+    public var status: String
+    public var attempts: Int
+    public var nextRunAt: Date
+    public var lastError: String?
+    public var createdAt: Date
+    public var updatedAt: Date
+
+    public init(
+        id: String,
+        agentId: String,
+        sessionId: String,
+        projectId: String,
+        reason: String,
+        reviewContext: String? = nil,
+        status: String = "pending",
+        attempts: Int = 0,
+        nextRunAt: Date = Date(),
+        lastError: String? = nil,
+        createdAt: Date = Date(),
+        updatedAt: Date = Date()
+    ) {
+        self.id = id
+        self.agentId = agentId
+        self.sessionId = sessionId
+        self.projectId = projectId
+        self.reason = reason
+        self.reviewContext = reviewContext
+        self.status = status
+        self.attempts = attempts
+        self.nextRunAt = nextRunAt
+        self.lastError = lastError
+        self.createdAt = createdAt
+        self.updatedAt = updatedAt
+    }
+}
+
 public struct ChannelAccessUser: Codable, Sendable, Equatable {
     public var id: String
     public var platform: String
@@ -187,6 +230,25 @@ public protocol PersistenceStore: Sendable {
 
     /// Lists recent tool invocation rows for a project/task timeline.
     func listToolInvocations(projectId: String?, taskId: String?, limit: Int) async -> [PersistedToolInvocationRecord]
+
+    /// Inserts or updates a pending self-improvement proposal review job.
+    func upsertSelfImprovementProposalReviewJob(
+        agentId: String,
+        sessionId: String,
+        projectId: String,
+        reason: String,
+        reviewContext: String?,
+        nextRunAt: Date
+    ) async -> SelfImprovementProposalReviewJob
+
+    /// Lists self-improvement proposal review jobs, optionally filtered by status.
+    func listSelfImprovementProposalReviewJobs(statuses: [String]?) async -> [SelfImprovementProposalReviewJob]
+
+    /// Claims one due pending self-improvement proposal review job.
+    func claimNextSelfImprovementProposalReviewJob(now: Date) async -> SelfImprovementProposalReviewJob?
+
+    /// Saves a self-improvement proposal review job lifecycle update.
+    func saveSelfImprovementProposalReviewJob(_ job: SelfImprovementProposalReviewJob) async
 
     /// Lists tool invocation durations (ms) for percentile computation.
     func listToolInvocationDurations(projectId: String, from: Date?, to: Date?, limit: Int) async -> [Int]

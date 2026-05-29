@@ -10,7 +10,12 @@ struct ToolPathResolutionTests {
 
     // MARK: - Helpers
 
-    private func makeContext(workspaceRootURL: URL, allowedExecRoots: [String] = [], allowedWriteRoots: [String] = []) -> ToolContext {
+    private func makeContext(
+        workspaceRootURL: URL,
+        allowedExecRoots: [String] = [],
+        allowedWriteRoots: [String] = [],
+        readOnlyRoots: [String] = []
+    ) -> ToolContext {
         let guardrails = AgentToolsGuardrails(
             allowedWriteRoots: allowedWriteRoots,
             allowedExecRoots: allowedExecRoots
@@ -22,6 +27,7 @@ struct ToolPathResolutionTests {
             sessionID: "session-test",
             policy: policy,
             workspaceRootURL: workspaceRootURL,
+            readOnlyRoots: readOnlyRoots,
             runtime: RuntimeSystem(),
             memoryStore: InMemoryMemoryStore(),
             sessionStore: AgentSessionFileStore(agentsRootURL: tmp),
@@ -147,6 +153,25 @@ struct ToolPathResolutionTests {
         let context = makeContext(workspaceRootURL: workspace, allowedWriteRoots: [repoRoot.path])
         let resolved = context.resolveReadablePath(filePath)
         #expect(resolved != nil)
+    }
+
+    @Test("resolveReadablePath accepts read-only roots without allowing writes")
+    func resolveReadableWithReadOnlyRoots() throws {
+        let tmp = FileManager.default.temporaryDirectory
+        let workspace = tmp.appendingPathComponent("sloppy-ws-\(UUID().uuidString)", isDirectory: true)
+        let sharedRoot = tmp.appendingPathComponent("sloppy-shared-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: workspace, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: sharedRoot, withIntermediateDirectories: true)
+        defer {
+            try? FileManager.default.removeItem(at: workspace)
+            try? FileManager.default.removeItem(at: sharedRoot)
+        }
+
+        let filePath = sharedRoot.appendingPathComponent("skills/prd/SKILL.md").path
+        let context = makeContext(workspaceRootURL: workspace, readOnlyRoots: [sharedRoot.path])
+
+        #expect(context.resolveReadablePath(filePath) != nil)
+        #expect(context.resolveWritablePath(filePath) == nil)
     }
 
     @Test("resolveReadablePath resolves relative paths from current session directory")

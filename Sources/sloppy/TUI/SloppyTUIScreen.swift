@@ -181,6 +181,7 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
         SloppyTUISlashCommand("parent", "Return to the parent session"),
         SloppyTUISlashCommand("new", "Create a new session"),
         SloppyTUISlashCommand("bg", "Create a background worktree session", argument: "task"),
+        SloppyTUISlashCommand("goal", "Set, inspect, pause, resume, or clear an autonomous goal", argument: "objective|status|pause|resume|clear|bg"),
         SloppyTUISlashCommand("pin", "Pin or unpin the current session"),
         SloppyTUISlashCommand("clear", "Clear local cards"),
         SloppyTUISlashCommand("stop", "Interrupt the current run"),
@@ -227,6 +228,7 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
         "session",
         "new",
         "bg",
+        "goal",
         "pin",
         "clear",
         "stop",
@@ -407,7 +409,6 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
     private var sessionListEntries: [SloppyTUISessionListEntry] = []
     private var sessionListSelectedIndex = 0
     private var sessionListRefreshTask: Task<Void, Never>?
-    private var backgroundSessionTasks: [String: Task<Void, Never>] = [:]
     private var postingSessionIDs: Set<String> = []
     private var hitRegions: [SloppyTUIHitRegion] = []
     private var scrollRegions: [SloppyTUIScrollRegion] = []
@@ -538,10 +539,6 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
         projectFileReindexTask?.cancel()
         sessionListRefreshTask?.cancel()
         sessionListRefreshTask = nil
-        for task in backgroundSessionTasks.values {
-            task.cancel()
-        }
-        backgroundSessionTasks.removeAll()
         transientNoticeTask?.cancel()
         transientNoticeTask = nil
         cancelLocalCardDismissTasks()
@@ -3003,6 +3000,8 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
             await createNewSession()
         case "bg":
             await createBackgroundSession(task: args.joined(separator: " "))
+        case "goal":
+            await handleGoalCommand(args)
         case "pin":
             togglePinForCurrentSession()
         case "clear":
@@ -3372,32 +3371,20 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
         }
 
         do {
-            let backgroundSession = try await service.createAgentSession(
+            let background = try await service.startTUIBackgroundSession(
                 agentID: agent.id,
-                request: AgentSessionCreateRequest(
-                    title: "Background: \(String(task.prefix(48)))",
-                    projectId: project.id
-                )
-            )
-            let taskID = "tui-\(SloppyTUITheme.shortID(backgroundSession.id))"
-            let worktree = try await service.createTUIBackgroundWorktree(projectID: project.id, taskID: taskID)
-            _ = try await service.addAgentSessionDirectory(
-                agentID: agent.id,
-                sessionID: backgroundSession.id,
-                request: AgentSessionDirectoryRequest(path: worktree.worktreePath)
+                projectID: project.id,
+                task: task,
+                mode: chatMode,
+                reasoningEffort: reasoningEffort
             )
             trackSession(
-                backgroundSession,
+                background.session,
                 background: true,
-                worktreePath: worktree.worktreePath,
-                worktreeBranch: worktree.branchName
+                worktreePath: background.worktree.worktreePath,
+                worktreeBranch: background.worktree.branchName
             )
-            startBackgroundSession(
-                backgroundSession,
-                task: task,
-                worktreePath: worktree.worktreePath
-            )
-            appendLocalCard("Background session started: `\(SloppyTUITheme.shortID(backgroundSession.id))` on `\(worktree.branchName)`.", autoDismissAfter: 8)
+            appendLocalCard("Background session started: `\(SloppyTUITheme.shortID(background.session.id))` on `\(background.worktree.branchName)`.", autoDismissAfter: 8)
             if sessionListMode != .hidden {
                 refreshSessionList()
             }
@@ -3406,44 +3393,116 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
         }
     }
 
-    private func startBackgroundSession(_ backgroundSession: AgentSessionSummary, task: String, worktreePath: String) {
-        backgroundSessionTasks[backgroundSession.id]?.cancel()
-        postingSessionIDs.insert(backgroundSession.id)
-        refreshSessionList()
-        let backgroundService = service
-        let backgroundAgentID = backgroundSession.agentId
-        let backgroundSessionID = backgroundSession.id
-        let mode = chatMode
-        let effort = reasoningEffort
-        backgroundSessionTasks[backgroundSessionID] = Task { [weak self] in
+    private func handleGoalCommand(_ args: [String]) async {
+        switch SloppyTUIGoalCommand.parse(args) {
+        case .failure(let message):
+            appendLocalCard(message)
+        case .task(let objective):
+            await createGoalTask(objective: objective)
+        case .start(let objective):
+            guard !service.isRemote else {
+                appendLocalCard("`/goal` is only available for the local Sloppy instance in v1.")
+                return
+            }
             do {
-                _ = try await backgroundService.postAgentSessionMessage(
-                    agentID: backgroundAgentID,
-                    sessionID: backgroundSessionID,
-                    request: AgentSessionPostMessageRequest(
-                        userId: "tui",
-                        content: """
-                        \(task)
-
-                        Work in this dedicated worktree:
-                        \(worktreePath)
-                        """,
-                        reasoningEffort: effort,
-                        mode: mode
+                _ = try await ensurePersistedSessionForMessage()
+                let goal = try await service.startAgentSessionGoal(
+                    agentID: agent.id,
+                    sessionID: session.id,
+                    request: AgentSessionGoalStartRequest(
+                        objective: objective,
+                        userId: "goal",
+                        reasoningEffort: reasoningEffort,
+                        mode: chatMode
                     )
                 )
+                appendLocalCard(goalStatusMarkdown(goal, title: "Goal started"), autoDismissAfter: 10)
+                await reloadSession()
             } catch {
-                await MainActor.run {
-                    self?.appendLocalCard("Background session `\(SloppyTUITheme.shortID(backgroundSessionID))` failed: \(String(describing: error))")
-                }
+                appendLocalCard("Goal failed: \(String(describing: error))")
             }
-            await MainActor.run {
-                guard let self else { return }
-                self.postingSessionIDs.remove(backgroundSessionID)
-                self.backgroundSessionTasks.removeValue(forKey: backgroundSessionID)
-                self.refreshSessionList()
+        case .status:
+            do {
+                if let goal = try await service.getAgentSessionGoal(agentID: agent.id, sessionID: session.id) {
+                    appendLocalCard(goalStatusMarkdown(goal, title: "Goal status"), autoDismissAfter: 12)
+                } else {
+                    appendLocalCard("No active goal for this session.", autoDismissAfter: 8)
+                }
+            } catch {
+                appendLocalCard("Goal status failed: \(String(describing: error))")
+            }
+        case .pause:
+            do {
+                if let goal = try await service.pauseAgentSessionGoal(agentID: agent.id, sessionID: session.id) {
+                    appendLocalCard(goalStatusMarkdown(goal, title: "Goal paused"), autoDismissAfter: 10)
+                } else {
+                    appendLocalCard("No active goal to pause.", autoDismissAfter: 8)
+                }
+            } catch {
+                appendLocalCard("Goal pause failed: \(String(describing: error))")
+            }
+        case .resume:
+            do {
+                if let goal = try await service.resumeAgentSessionGoal(agentID: agent.id, sessionID: session.id) {
+                    appendLocalCard(goalStatusMarkdown(goal, title: "Goal resumed"), autoDismissAfter: 10)
+                    await reloadSession()
+                } else {
+                    appendLocalCard("No paused goal to resume.", autoDismissAfter: 8)
+                }
+            } catch {
+                appendLocalCard("Goal resume failed: \(String(describing: error))")
+            }
+        case .clear:
+            do {
+                if let goal = try await service.clearAgentSessionGoal(agentID: agent.id, sessionID: session.id) {
+                    appendLocalCard(goalStatusMarkdown(goal, title: "Goal cleared"), autoDismissAfter: 8)
+                } else {
+                    appendLocalCard("No goal to clear.", autoDismissAfter: 8)
+                }
+            } catch {
+                appendLocalCard("Goal clear failed: \(String(describing: error))")
             }
         }
+    }
+
+    private func createGoalTask(objective: String) async {
+        let request = SloppyTUIGoalTaskFormatter.request(objective: objective)
+        do {
+            let updatedProject = try await service.createProjectTask(projectID: project.id, request: request)
+            project = updatedProject
+            let task = updatedProject.tasks.last { task in
+                task.title == request.title && task.description == request.description
+            } ?? updatedProject.tasks.last
+            if let task {
+                appendLocalCard("""
+                ## Goal task created
+                - task: `\(task.id)`
+                - status: `\(task.status)`
+                - objective: \(objective)
+                """, autoDismissAfter: 10)
+            } else {
+                appendLocalCard("Goal task created.", autoDismissAfter: 8)
+            }
+            refreshStaticChrome()
+            if sessionListMode != .hidden {
+                refreshSessionList()
+            }
+        } catch {
+            appendLocalCard("Goal task failed: \(String(describing: error))")
+        }
+    }
+
+    private func goalStatusMarkdown(_ goal: AgentSessionGoalRecord, title: String) -> String {
+        var lines = [
+            "## \(title)",
+            "- status: `\(goal.status.rawValue)`",
+            "- attempts: `\(goal.attemptCount)/\(goal.maxAttempts)`",
+            "- objective: \(goal.objective)",
+        ]
+        if let evaluation = goal.lastEvaluation {
+            lines.append("- last evaluation: \(evaluation.reason)")
+        }
+        return lines.joined(separator: "\n")
     }
 
     private func openSessionList(mode: SloppyTUISessionListMode) {

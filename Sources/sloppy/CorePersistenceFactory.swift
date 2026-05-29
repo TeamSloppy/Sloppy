@@ -31,6 +31,7 @@ public actor InMemoryPersistenceStore: PersistenceStore {
     private var channels: [String: PersistedChannelRecord] = [:]
     private var tasks: [String: PersistedTaskRecord] = [:]
     private var projects: [String: ProjectRecord] = [:]
+    private var selfImprovementProposalReviewJobs: [String: SelfImprovementProposalReviewJob] = [:]
 
     public init() {}
 
@@ -168,6 +169,66 @@ public actor InMemoryPersistenceStore: PersistenceStore {
             .sorted { $0.createdAt > $1.createdAt }
             .prefix(max(1, min(limit, 20_000)))
             .compactMap(\.durationMs)
+    }
+
+    public func upsertSelfImprovementProposalReviewJob(
+        agentId: String,
+        sessionId: String,
+        projectId: String,
+        reason: String,
+        reviewContext: String?,
+        nextRunAt: Date
+    ) async -> SelfImprovementProposalReviewJob {
+        let now = Date()
+        if var existing = selfImprovementProposalReviewJobs.values.first(where: {
+            $0.agentId == agentId && $0.sessionId == sessionId && $0.reason == reason
+        }) {
+            existing.projectId = projectId
+            existing.reviewContext = reviewContext
+            existing.status = "pending"
+            existing.nextRunAt = nextRunAt
+            existing.updatedAt = now
+            existing.lastError = nil
+            selfImprovementProposalReviewJobs[existing.id] = existing
+            return existing
+        }
+
+        let job = SelfImprovementProposalReviewJob(
+            id: UUID().uuidString.lowercased(),
+            agentId: agentId,
+            sessionId: sessionId,
+            projectId: projectId,
+            reason: reason,
+            reviewContext: reviewContext,
+            nextRunAt: nextRunAt,
+            createdAt: now,
+            updatedAt: now
+        )
+        selfImprovementProposalReviewJobs[job.id] = job
+        return job
+    }
+
+    public func listSelfImprovementProposalReviewJobs(statuses: [String]?) async -> [SelfImprovementProposalReviewJob] {
+        let allowed = statuses.map(Set.init)
+        return selfImprovementProposalReviewJobs.values
+            .filter { job in allowed?.contains(job.status) ?? true }
+            .sorted { $0.createdAt < $1.createdAt }
+    }
+
+    public func claimNextSelfImprovementProposalReviewJob(now: Date) async -> SelfImprovementProposalReviewJob? {
+        guard var job = selfImprovementProposalReviewJobs.values
+            .filter({ $0.status == "pending" && $0.nextRunAt <= now })
+            .sorted(by: { $0.nextRunAt < $1.nextRunAt })
+            .first
+        else { return nil }
+        job.status = "running"
+        job.updatedAt = now
+        selfImprovementProposalReviewJobs[job.id] = job
+        return job
+    }
+
+    public func saveSelfImprovementProposalReviewJob(_ job: SelfImprovementProposalReviewJob) async {
+        selfImprovementProposalReviewJobs[job.id] = job
     }
 
     public func persistBulletin(_ bulletin: MemoryBulletin) async {

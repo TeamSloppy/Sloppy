@@ -1275,6 +1275,6 @@ private func toolInvocationHardTimeoutMs(request: ToolInvocationRequest, policy:
         return seconds * 1_000 + 1_000
 
     default:
-        return max(30_000, policy.guardrails.maxExecTimeoutMs + 5_000)
+        return max(30_000, policy.guardrails.execTimeoutMs + 5_000)
     }
 }
