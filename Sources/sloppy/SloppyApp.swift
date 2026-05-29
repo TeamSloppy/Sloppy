@@ -50,7 +50,7 @@ struct SloppyApp: AsyncParsableCommand {
     @Option(name: .long, help: "Working directory for non-interactive prompt mode.")
     var cwd: String?
 
-    @Option(name: .long, help: "Chat mode for non-interactive prompt mode: ask, build, plan, or debug.")
+    @Option(name: .long, help: "Chat mode for non-interactive prompt mode: ask, build, plan, debug, or auto.")
     var mode: String?
 
     mutating func run() async throws {

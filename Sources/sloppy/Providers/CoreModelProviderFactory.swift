@@ -67,7 +67,11 @@ enum CoreModelProviderFactory {
             anthropicOAuthTokenProvider: anthropicOAuthTokenProvider,
             anthropicOAuthTokenRefresh: anthropicOAuthTokenRefresh,
             anthropicSettingsProvider: anthropicSettingsProvider,
-            geminiOAuthCredentialsProvider: geminiOAuthCredentialsProvider ?? { GeminiOAuthCredentials.load() },
+            geminiOAuthCredentialsProvider: geminiOAuthCredentialsProvider ?? {
+                GeminiOAuthCredentials.load(
+                    workspaceRootURL: config.resolvedWorkspaceRootURL(currentDirectory: currentDirectory)
+                )
+            },
             systemInstructions: systemInstructions,
             proxySession: proxySession
         )

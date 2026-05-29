@@ -157,9 +157,10 @@ Once connected, the following slash commands are available in the Telegram chat:
 | `/model [model_id]` | Show or switch the channel model |
 | `/ask <question>` | Answer once without code changes |
 | `/plan <request>` | Plan once without code changes |
+| `/auto <request>` | Choose ask, plan, debug, build, or skill route once |
 | `/context` | Show token usage and context info |
 | `/abort` | Abort current agent processing |
 
-Regular messages use build mode by default. `/ask` and `/plan` apply only to one message and do not persist a mode change.
+Regular messages use build mode by default. `/ask`, `/plan`, and `/auto` apply only to one message and do not persist a mode change.
 
 Any other text is forwarded to the linked Sloppy channel as a regular message.

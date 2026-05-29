@@ -1,9 +1,12 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   completeAnthropicOAuth,
+  completeGeminiOAuth,
   disconnectAnthropicOAuth,
+  disconnectGeminiOAuth,
   disconnectOpenAIOAuth,
   fetchAnthropicProviderStatus,
+  fetchGeminiProviderStatus,
   fetchOpenAIModels,
   fetchOpenAIProviderStatus,
   fetchRuntimeConfig,
@@ -14,6 +17,7 @@ import {
   importOpenAICodexCredentials,
   probeProvider,
   startAnthropicOAuth,
+  startGeminiOAuth,
   startOpenAIDeviceCode,
   pollOpenAIDeviceCode,
   updateRuntimeConfig,
@@ -124,6 +128,14 @@ export function ConfigView({
     oauthExpiresAt: "",
     oauthRefreshable: false
   });
+  const [geminiProviderStatus, setGeminiProviderStatus] = useState({
+    hasEnvironmentKey: false,
+    hasConfiguredKey: false,
+    hasAnyKey: false,
+    hasOAuthCredentials: false,
+    oauthEmail: "",
+    oauthExpiresAt: ""
+  });
   const [gitHubAuthStatus, setGitHubAuthStatus] = useState({ connected: false, username: null, connectedAt: null });
   const [gitHubToken, setGitHubToken] = useState("");
   const [gitHubStatusText, setGitHubStatusText] = useState("");
@@ -145,7 +157,12 @@ export function ConfigView({
   const providerModelPickerRef = useRef(null);
   const providerModelMenuRef = useRef(null);
   const anthropicOAuthPopupRef = useRef(null);
+  const geminiOAuthPopupRef = useRef(null);
   const [anthropicOAuthAuthorizationURL, setAnthropicOAuthAuthorizationURL] = useState("");
+  const [geminiOAuthAuthorizationURL, setGeminiOAuthAuthorizationURL] = useState("");
+  const [geminiOAuthManualCallback, setGeminiOAuthManualCallback] = useState("");
+  const [geminiOAuthManualCode, setGeminiOAuthManualCode] = useState("");
+  const [geminiOAuthState, setGeminiOAuthState] = useState("");
 
   useEffect(() => {
     loadConfig().catch(() => {
@@ -330,6 +347,7 @@ export function ConfigView({
     setProviderModelStatus({});
     await loadOpenAIProviderStatus();
     await loadAnthropicProviderStatus();
+    await loadGeminiProviderStatus();
     await loadSearchProviderStatus();
     await loadGitHubAuthStatus();
   }
@@ -369,6 +387,7 @@ export function ConfigView({
       }
       await loadOpenAIProviderStatus();
       await loadAnthropicProviderStatus();
+      await loadGeminiProviderStatus();
       await loadSearchProviderStatus();
       await loadGitHubAuthStatus();
       setStatusText("Config saved");
@@ -449,6 +468,23 @@ export function ConfigView({
       oauthSource: String(payload.oauthSource || ""),
       oauthExpiresAt: String(payload.oauthExpiresAt || ""),
       oauthRefreshable: Boolean(payload.oauthRefreshable)
+    });
+  }
+
+  async function loadGeminiProviderStatus() {
+    const response = await fetchGeminiProviderStatus();
+    if (!response) {
+      return;
+    }
+
+    const payload = response as any;
+    setGeminiProviderStatus({
+      hasEnvironmentKey: Boolean(payload.hasEnvironmentKey),
+      hasConfiguredKey: Boolean(payload.hasConfiguredKey),
+      hasAnyKey: Boolean(payload.hasAnyKey),
+      hasOAuthCredentials: Boolean(payload.hasOAuthCredentials),
+      oauthEmail: String(payload.oauthEmail || ""),
+      oauthExpiresAt: String(payload.oauthExpiresAt || "")
     });
   }
 
@@ -542,6 +578,7 @@ export function ConfigView({
       }
       await loadOpenAIProviderStatus();
       await loadAnthropicProviderStatus();
+      await loadGeminiProviderStatus();
       await loadSearchProviderStatus();
       await loadGitHubAuthStatus();
       setStatusText(successMessage);
@@ -690,13 +727,13 @@ export function ConfigView({
     setProviderStatus("openai-oauth", "Device code authorization cancelled.");
   }
 
-  function waitForAnthropicOAuthCallback(popup, redirectURI) {
+  function waitForOAuthCallback(popup, redirectURI, providerLabel) {
     return new Promise((resolve, reject) => {
       const startedAt = Date.now();
       const interval = window.setInterval(() => {
         if (!popup || popup.closed) {
           window.clearInterval(interval);
-          reject(new Error("Anthropic OAuth window was closed."));
+          reject(new Error(`${providerLabel} OAuth window was closed.`));
           return;
         }
 
@@ -707,7 +744,7 @@ export function ConfigView({
           } catch {
             // ignore
           }
-          reject(new Error("Anthropic OAuth timed out. Try again."));
+          reject(new Error(`${providerLabel} OAuth timed out. Try again.`));
           return;
         }
 
@@ -773,7 +810,7 @@ export function ConfigView({
     setProviderStatus("anthropic-oauth", "Waiting for Anthropic sign-in confirmation...");
 
     try {
-      const callbackURL = await waitForAnthropicOAuthCallback(popup, redirectURI);
+      const callbackURL = await waitForOAuthCallback(popup, redirectURI, "Anthropic");
       const completion = await completeAnthropicOAuth({ callbackURL });
       if (!completion?.ok) {
         setProviderStatus("anthropic-oauth", String(completion?.message || "Anthropic OAuth failed."));
@@ -823,6 +860,101 @@ export function ConfigView({
       ["anthropic-oauth"]: []
     }));
     await loadAnthropicProviderStatus();
+  }
+
+  async function openGeminiOAuthPopup() {
+    const redirectURI = `${window.location.origin}${window.location.pathname}`;
+    setProviderStatus("gemini", "Requesting Google OAuth URL...");
+    setGeminiOAuthAuthorizationURL("");
+    setGeminiOAuthManualCallback("");
+    setGeminiOAuthManualCode("");
+    setGeminiOAuthState("");
+
+    const response = await startGeminiOAuth({ redirectURI });
+    if (!response || typeof response.authorizationURL !== "string") {
+      setProviderStatus("gemini", "Failed to start Gemini OAuth.");
+      return;
+    }
+
+    const authorizationURL = String(response.authorizationURL);
+    setGeminiOAuthAuthorizationURL(authorizationURL);
+    setGeminiOAuthState(String(response.state || ""));
+
+    const width = 640;
+    const height = 860;
+    const left = Math.max(0, Math.round(window.screenX + (window.outerWidth - width) / 2));
+    const top = Math.max(0, Math.round(window.screenY + (window.outerHeight - height) / 2));
+    const popup = window.open(
+      authorizationURL,
+      "sloppy-gemini-oauth",
+      `popup=yes,width=${width},height=${height},left=${left},top=${top}`
+    );
+    geminiOAuthPopupRef.current = popup;
+    if (!popup) {
+      setProviderStatus("gemini", "Popup was blocked. Allow popups, scan the QR code, or open the login page manually.");
+      return;
+    }
+
+    setProviderStatus("gemini", "Waiting for Google sign-in confirmation...");
+
+    try {
+      const callbackURL = await waitForOAuthCallback(popup, redirectURI, "Gemini");
+      await completeGeminiOAuthFromPayload({ callbackURL });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Gemini OAuth failed.";
+      setProviderStatus("gemini", message);
+    } finally {
+      geminiOAuthPopupRef.current = null;
+    }
+  }
+
+  async function completeGeminiOAuthFromPayload(payload) {
+    const completion = await completeGeminiOAuth(payload);
+    if (!completion?.ok) {
+      setProviderStatus("gemini", String(completion?.message || "Gemini OAuth failed."));
+      return false;
+    }
+
+    setProviderStatus("gemini", String(completion.message || "Gemini OAuth connected."));
+    setStatusText("Gemini OAuth connected");
+    setGeminiOAuthAuthorizationURL("");
+    setGeminiOAuthManualCallback("");
+    setGeminiOAuthManualCode("");
+    setGeminiOAuthState("");
+    await loadGeminiProviderStatus();
+    await loadProviderModels("gemini", providerForm || getProviderDefinition("gemini").defaultEntry);
+    return true;
+  }
+
+  async function completeGeminiOAuthManually() {
+    const callbackURL = geminiOAuthManualCallback.trim();
+    const code = geminiOAuthManualCode.trim();
+    if (!callbackURL && !code) {
+      setProviderStatus("gemini", "Paste the Google callback URL or authorization code first.");
+      return;
+    }
+
+    const payload = callbackURL
+      ? { callbackURL }
+      : { code, state: geminiOAuthState };
+    setProviderStatus("gemini", "Completing Gemini OAuth...");
+    await completeGeminiOAuthFromPayload(payload);
+  }
+
+  async function handleGeminiOAuthDisconnect() {
+    const ok = await disconnectGeminiOAuth();
+    if (!ok) {
+      setProviderStatus("gemini", "Failed to disconnect Gemini OAuth.");
+      return;
+    }
+
+    setProviderStatus("gemini", "Gemini OAuth disconnected.");
+    setGeminiOAuthAuthorizationURL("");
+    setGeminiOAuthManualCallback("");
+    setGeminiOAuthManualCode("");
+    setGeminiOAuthState("");
+    setStatusText("Gemini OAuth disconnected");
+    await loadGeminiProviderStatus();
   }
 
   function setProviderStatus(providerId, message) {
@@ -1077,6 +1209,9 @@ export function ConfigView({
     if (provider.id === "anthropic-oauth") {
       await loadAnthropicProviderStatus();
     }
+    if (provider.id === "gemini") {
+      await loadGeminiProviderStatus();
+    }
   }
 
   async function testProviderConnection(providerId) {
@@ -1280,6 +1415,7 @@ export function ConfigView({
     const provider = providerModalMeta;
     const disconnectOpenAI = provider.id === "openai-oauth";
     const disconnectAnthropic = provider.id === "anthropic-oauth";
+    const disconnectGemini = provider.id === "gemini";
 
     const nextConfig = clone(draftConfig);
     const index =
@@ -1301,6 +1437,10 @@ export function ConfigView({
     if (saved && disconnectAnthropic) {
       await disconnectAnthropicOAuth();
       await loadAnthropicProviderStatus();
+    }
+    if (saved && disconnectGemini) {
+      await disconnectGeminiOAuth();
+      await loadGeminiProviderStatus();
     }
   }
 
@@ -1424,6 +1564,7 @@ export function ConfigView({
             customModelsCount={customModelsCount}
             openAIProviderStatus={openAIProviderStatus}
             anthropicProviderStatus={anthropicProviderStatus}
+            geminiProviderStatus={geminiProviderStatus}
             providerModalMeta={providerModalMeta}
             providerForm={providerForm}
             providerModelStatus={providerModelStatus}
@@ -1444,6 +1585,14 @@ export function ConfigView({
             onImportAnthropicClaudeCredentials={importClaudeCredentialsForAnthropic}
             onDisconnectAnthropicOAuth={handleAnthropicOAuthDisconnect}
             anthropicOAuthAuthorizationURL={anthropicOAuthAuthorizationURL}
+            onOpenGeminiOAuth={openGeminiOAuthPopup}
+            onCompleteGeminiOAuthManually={completeGeminiOAuthManually}
+            onDisconnectGeminiOAuth={handleGeminiOAuthDisconnect}
+            geminiOAuthAuthorizationURL={geminiOAuthAuthorizationURL}
+            geminiOAuthManualCallback={geminiOAuthManualCallback}
+            geminiOAuthManualCode={geminiOAuthManualCode}
+            onSetGeminiOAuthManualCallback={setGeminiOAuthManualCallback}
+            onSetGeminiOAuthManualCode={setGeminiOAuthManualCode}
             onCancelDeviceCode={cancelConfigDeviceCodePolling}
             onCopyDeviceCode={copyConfigDeviceCode}
             onOpenDeviceCodeLoginPage={openConfigDeviceCodeLoginPage}

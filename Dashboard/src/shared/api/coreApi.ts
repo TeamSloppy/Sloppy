@@ -98,6 +98,7 @@ export interface CoreApi {
   fetchOpenAIModels: (payload: AnyRecord) => Promise<AnyRecord | null>;
   fetchOpenAIProviderStatus: () => Promise<AnyRecord | null>;
   fetchAnthropicProviderStatus: () => Promise<AnyRecord | null>;
+  fetchGeminiProviderStatus: () => Promise<AnyRecord | null>;
   startOpenAIOAuth: (payload: AnyRecord) => Promise<AnyRecord | null>;
   completeOpenAIOAuth: (payload: AnyRecord) => Promise<AnyRecord | null>;
   importOpenAICodexCredentials: () => Promise<AnyRecord | null>;
@@ -108,6 +109,9 @@ export interface CoreApi {
   completeAnthropicOAuth: (payload: AnyRecord) => Promise<AnyRecord | null>;
   importAnthropicClaudeCredentials: () => Promise<AnyRecord | null>;
   disconnectAnthropicOAuth: () => Promise<boolean>;
+  startGeminiOAuth: (payload: AnyRecord) => Promise<AnyRecord | null>;
+  completeGeminiOAuth: (payload: AnyRecord) => Promise<AnyRecord | null>;
+  disconnectGeminiOAuth: () => Promise<boolean>;
   fetchGitHubAuthStatus: () => Promise<AnyRecord | null>;
   connectGitHub: (payload: AnyRecord) => Promise<AnyRecord | null>;
   disconnectGitHub: () => Promise<boolean>;
@@ -621,6 +625,16 @@ export function createCoreApi(): CoreApi {
       return response.data;
     },
 
+    fetchGeminiProviderStatus: async () => {
+      const response = await requestJson<AnyRecord>({
+        path: "/v1/providers/gemini/status"
+      });
+      if (!response.ok) {
+        return null;
+      }
+      return response.data;
+    },
+
     startOpenAIOAuth: async (payload) => {
       const response = await requestJson<AnyRecord, AnyRecord>({
         path: "/v1/providers/openai/oauth/start",
@@ -710,6 +724,35 @@ export function createCoreApi(): CoreApi {
     disconnectAnthropicOAuth: async () => {
       const response = await requestJson<AnyRecord>({
         path: "/v1/providers/anthropic/oauth/disconnect",
+        method: "POST"
+      });
+      return response.ok;
+    },
+
+    startGeminiOAuth: async (payload) => {
+      const response = await requestJson<AnyRecord, AnyRecord>({
+        path: "/v1/providers/gemini/oauth/start",
+        method: "POST",
+        body: payload
+      });
+      if (!response.ok) {
+        return null;
+      }
+      return response.data;
+    },
+
+    completeGeminiOAuth: async (payload) => {
+      const response = await requestJson<AnyRecord, AnyRecord>({
+        path: "/v1/providers/gemini/oauth/complete",
+        method: "POST",
+        body: payload
+      });
+      return response.data;
+    },
+
+    disconnectGeminiOAuth: async () => {
+      const response = await requestJson<AnyRecord>({
+        path: "/v1/providers/gemini/oauth/disconnect",
         method: "POST"
       });
       return response.ok;

@@ -25,6 +25,7 @@ func coreServiceCreateAgentInstallsBuiltInTaskSpecSkill() async throws {
         BuiltInSkillCatalog.modeBuildID,
         BuiltInSkillCatalog.modePlanID,
         BuiltInSkillCatalog.modeDebugID,
+        BuiltInSkillCatalog.modeAutoID,
         BuiltInSkillCatalog.taskSpecWriterID
     ]))
 
@@ -55,6 +56,11 @@ func coreServiceCreateAgentInstallsBuiltInTaskSpecSkill() async throws {
 
     let modeDebug = try #require(response.skills.first { $0.id == BuiltInSkillCatalog.modeDebugID })
     #expect(modeDebug.allowedTools.isEmpty)
+
+    let modeAuto = try #require(response.skills.first { $0.id == BuiltInSkillCatalog.modeAutoID })
+    #expect(modeAuto.name == "mode-auto")
+    #expect(modeAuto.userInvocable == false)
+    #expect(modeAuto.allowedTools.isEmpty)
 }
 
 @Test
@@ -81,12 +87,13 @@ func builtInSkillsBackfillIsIdempotentForExistingAgents() throws {
     let installed = try skillsStore.listSkills(agentID: "existing-agent")
     let builtInIDs = Set(installed.map(\.id))
 
-    #expect(installed.count == 5)
+    #expect(installed.count == 6)
     #expect(builtInIDs == Set([
         BuiltInSkillCatalog.modeAskID,
         BuiltInSkillCatalog.modeBuildID,
         BuiltInSkillCatalog.modePlanID,
         BuiltInSkillCatalog.modeDebugID,
+        BuiltInSkillCatalog.modeAutoID,
         BuiltInSkillCatalog.taskSpecWriterID
     ]))
     #expect(installed.allSatisfy { $0.userInvocable == false })
@@ -100,6 +107,12 @@ func builtInSkillsBackfillIsIdempotentForExistingAgents() throws {
         .appendingPathComponent("existing-agent", isDirectory: true)
         .appendingPathComponent("skills", isDirectory: true)
         .appendingPathComponent("sloppy/mode-debug", isDirectory: true)
+        .appendingPathComponent("SKILL.md")
+        .path))
+    #expect(FileManager.default.fileExists(atPath: agentsRootURL
+        .appendingPathComponent("existing-agent", isDirectory: true)
+        .appendingPathComponent("skills", isDirectory: true)
+        .appendingPathComponent("sloppy/mode-auto", isDirectory: true)
         .appendingPathComponent("SKILL.md")
         .path))
 }

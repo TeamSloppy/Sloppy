@@ -15,6 +15,10 @@ private func makeProbeHTTPResponse(url: URL, statusCode: Int = 200) -> HTTPURLRe
     )!
 }
 
+private final class ProbeRequestCounter: @unchecked Sendable {
+    var count = 0
+}
+
 @Test
 func providerProbeEndpointReturnsFailureWhenOpenAIKeyIsMissing() async throws {
     let config = CoreConfig.test
@@ -199,11 +203,44 @@ func providerProbeGeminiPrefersRequestAPIKeyOverOAuthCredentialsFile() async thr
 }
 
 @Test
-func providerProbeGeminiRejectsOAuthCredentialsWithoutGeminiScope() async throws {
+func providerProbeGeminiUsesAntigravityModelsForOAuthCredentials() async throws {
+    let seenRequests = ProbeRequestCounter()
     let service = ProviderProbeService(
         transport: { request in
-            Issue.record("Unexpected Gemini probe request: \(request)")
-            return (Data(), makeProbeHTTPResponse(url: request.url!, statusCode: 500))
+            seenRequests.count += 1
+            #expect(request.value(forHTTPHeaderField: "Authorization") == "Bearer oauth-access-token")
+            #expect(request.value(forHTTPHeaderField: "User-Agent") == "antigravity")
+            if request.url?.absoluteString == "https://daily-cloudcode-pa.googleapis.com/v1internal:loadCodeAssist" {
+                let body = try #require(request.httpBody)
+                let object = try #require(JSONSerialization.jsonObject(with: body) as? [String: Any])
+                #expect(object["cloudaicompanionProject"] == nil)
+                let metadata = try #require(object["metadata"] as? [String: Any])
+                #expect(metadata["ideType"] as? String == "ANTIGRAVITY")
+                #expect((metadata["platform"] as? String)?.contains("_") == true)
+                #expect(metadata["platform"] as? String != "MACOS")
+                #expect(metadata["pluginType"] as? String == "GEMINI")
+                let payload =
+                    """
+                    {
+                      "cloudaicompanionProject": "companion-project-123"
+                    }
+                """
+                return (Data(payload.utf8), makeProbeHTTPResponse(url: request.url!))
+            }
+            #expect(request.url?.absoluteString == "https://daily-cloudcode-pa.googleapis.com/v1internal:fetchAvailableModels")
+            let body = try #require(request.httpBody)
+            let object = try #require(JSONSerialization.jsonObject(with: body) as? [String: Any])
+            #expect(object["project"] as? String == "companion-project-123")
+            let payload =
+                """
+                {
+                  "models": {
+                    "gemini-3-pro-low": { "displayName": "Gemini 3 Pro Low" },
+                    "chat_20706": { "displayName": "Internal", "isInternal": true }
+                  }
+                }
+                """
+            return (Data(payload.utf8), makeProbeHTTPResponse(url: request.url!))
         },
         geminiOAuthCredentialsProvider: {
             GeminiOAuthCredentials(
@@ -224,7 +261,39 @@ func providerProbeGeminiRejectsOAuthCredentialsWithoutGeminiScope() async throws
         )
     )
 
+    #expect(response.ok == true)
+    #expect(response.message == "Connected to Gemini with Antigravity CLI OAuth. Loaded 1 models.")
+    #expect(response.models.map(\.id) == ["gemini-3-pro-low"])
+    #expect(seenRequests.count == 2)
+}
+
+@Test
+func providerProbeGeminiRejectsOAuthCredentialsWithoutAntigravityScope() async throws {
+    let service = ProviderProbeService(
+        transport: { request in
+            Issue.record("Unexpected Gemini probe request: \(request)")
+            return (Data(), makeProbeHTTPResponse(url: request.url!, statusCode: 500))
+        },
+        geminiOAuthCredentialsProvider: {
+            GeminiOAuthCredentials(
+                accessToken: "oauth-access-token",
+                refreshToken: nil,
+                tokenType: "Bearer",
+                expiryDate: nil,
+                scope: "https://www.googleapis.com/auth/drive.readonly"
+            )
+        }
+    )
+
+    let response = await service.probe(
+        config: .test,
+        request: ProviderProbeRequest(
+            providerId: .gemini,
+            apiUrl: "https://generativelanguage.googleapis.com"
+        )
+    )
+
     #expect(response.ok == false)
-    #expect(response.message.contains(GeminiOAuthCredentials.requiredGenerativeLanguageScope))
+    #expect(response.message.contains(GeminiOAuthCredentials.requiredAntigravityScope))
     #expect(response.models.isEmpty)
 }

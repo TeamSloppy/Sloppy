@@ -354,8 +354,13 @@ actor AgentSessionOrchestrator {
             throw mapSessionStoreError(error)
         }
 
+        let requestMode = request.mode ?? .defaultMode
+        let installedSkills = requestMode == .auto ? loadInstalledSkills(agentID: agentID) : []
+        let autoRouteCatalog = requestMode == .auto
+            ? AutoRouteCatalog.markdown(installedSkills: installedSkills)
+            : nil
         let runtimeContent = Self.contentWithFriendReminder(
-            Self.runtimeContent(content, mode: request.mode),
+            Self.runtimeContent(content, mode: request.mode, autoRouteCatalog: autoRouteCatalog),
             documents: agentConfig.documents
         )
 
@@ -364,7 +369,6 @@ actor AgentSessionOrchestrator {
             content: runtimeContent,
             attachments: attachments
         )
-        let requestMode = request.mode ?? .defaultMode
         var runtimeOutcome: SessionRuntimeOutcome
         switch agentConfig.runtime.type {
         case .native:
@@ -884,6 +888,7 @@ actor AgentSessionOrchestrator {
     static func runtimeContent(
         _ content: String,
         mode: AgentChatMode?,
+        autoRouteCatalog: String? = nil,
         modeInstructionProvider: (AgentChatMode) -> String = { BuiltInSkillCatalog.modeSkillMarkdown(for: $0) }
     ) -> String {
         let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -900,10 +905,18 @@ actor AgentSessionOrchestrator {
 
             \(instruction)
             """
-        guard !trimmed.isEmpty else {
-            return header
+        let headerWithCatalog: String
+        if resolvedMode == .auto,
+           let catalog = autoRouteCatalog?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !catalog.isEmpty {
+            headerWithCatalog = "\(header)\n\n\(catalog)"
+        } else {
+            headerWithCatalog = header
         }
-        return "\(header)\n\n[User request]\n\(trimmed)"
+        guard !trimmed.isEmpty else {
+            return headerWithCatalog
+        }
+        return "\(headerWithCatalog)\n\n[User request]\n\(trimmed)"
     }
 
     private static func recoverySourceSessionID(from request: AgentSessionCreateRequest) -> String? {

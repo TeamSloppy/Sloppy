@@ -115,6 +115,7 @@ extension CoreService {
                 return nil
             }()
             let agentValue = request.agent ?? fm?.agent
+            let autoRouteValue = request.autoRoute ?? fm?.autoRoute
 
             let installedSkill = try agentSkillsStore.installSkill(
                 agentID: normalizedAgentID,
@@ -126,6 +127,7 @@ extension CoreService {
                 allowedTools: allowedTools,
                 context: contextValue,
                 agent: agentValue,
+                autoRoute: autoRouteValue,
                 localPath: downloadedSkill.localPath
             )
 

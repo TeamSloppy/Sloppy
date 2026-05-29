@@ -43,7 +43,7 @@ extension CoreService {
         let lower = trimmed.lowercased()
         guard lower == "/mode" || lower.hasPrefix("/mode ") else { return nil }
 
-        return "Chat mode is no longer changed with /mode. Regular messages run in build mode. Use /ask <question> for a no-code answer or /plan <request> for a no-code plan."
+        return "Chat mode is no longer changed with /mode. Regular messages run in build mode. Use /ask <question>, /plan <request>, or /auto <request> for one-shot mode behavior."
     }
 
     func handleContextCommand(channelId: String, content: String) async -> String? {

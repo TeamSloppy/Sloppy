@@ -906,6 +906,7 @@ func installedSkillDecodesWithoutNewFields() throws {
     #expect(skill.allowedTools.isEmpty)
     #expect(skill.context == nil)
     #expect(skill.agent == nil)
+    #expect(skill.autoRoute == nil)
 }
 
 @Test
@@ -921,7 +922,8 @@ func installedSkillDecodesWithAllNewFields() throws {
         "userInvocable": false,
         "allowedTools": ["Bash", "Read"],
         "context": "fork",
-        "agent": "Explore"
+        "agent": "Explore",
+        "autoRoute": "Use when deployment is requested."
     }
     """.data(using: .utf8)!
 
@@ -934,6 +936,7 @@ func installedSkillDecodesWithAllNewFields() throws {
     #expect(skill.allowedTools == ["Bash", "Read"])
     #expect(skill.context == .fork)
     #expect(skill.agent == "Explore")
+    #expect(skill.autoRoute == "Use when deployment is requested.")
 }
 
 @Test
@@ -947,7 +950,8 @@ func installedSkillRoundTripsWithNewFields() throws {
         userInvocable: false,
         allowedTools: ["Read", "Grep"],
         context: .fork,
-        agent: "Explorer"
+        agent: "Explorer",
+        autoRoute: "Use when reading source context."
     )
 
     let encoder = JSONEncoder()
@@ -967,6 +971,7 @@ func installedSkillRoundTripsWithNewFields() throws {
     #expect(decoded.allowedTools == ["Read", "Grep"])
     #expect(decoded.context == .fork)
     #expect(decoded.agent == "Explorer")
+    #expect(decoded.autoRoute == "Use when reading source context.")
 }
 
 @Test

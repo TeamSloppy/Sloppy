@@ -114,7 +114,8 @@ const CHAT_MODES = [
   { id: "ask", label: "Ask", icon: "chat_bubble", description: "Ask mode" },
   { id: "build", label: "Build", icon: "code", description: "Build mode" },
   { id: "plan", label: "Plan", icon: "schema", description: "Plan mode" },
-  { id: "debug", label: "Debug", icon: "bug_report", description: "Debug mode" }
+  { id: "debug", label: "Debug", icon: "bug_report", description: "Debug mode" },
+  { id: "auto", label: "Auto", icon: "auto_mode", description: "Auto mode" }
 ];
 const DEFAULT_CHAT_MODE = "build";
 const CHAT_MODE_STORAGE_PREFIX = "sloppy.agentChat.mode";

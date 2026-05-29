@@ -36,17 +36,19 @@ struct GeminiModelProviderFactory: ModelProviderFactory {
                 supportedModels: geminiModels,
                 apiKey: { tokenBox.accessToken() },
                 refreshTokenIfNeeded: {
-                    guard tokenBox.credentials().isUsableForGenerativeLanguageAPI else {
+                    guard tokenBox.credentials().isUsableForAntigravityCLI else {
                         throw GeminiOAuthCredentialsError.missingRequiredScope(
-                            currentScopes: tokenBox.credentials().generativeLanguageScopeDescription
+                            currentScopes: tokenBox.credentials().antigravityScopeDescription
                         )
                     }
                     let refreshed = try await tokenBox.credentials().refreshedIfNeeded()
-                    guard refreshed.isUsableForGenerativeLanguageAPI else {
+                    guard refreshed.isUsableForAntigravityCLI else {
                         throw GeminiOAuthCredentialsError.missingRequiredScope(
-                            currentScopes: refreshed.generativeLanguageScopeDescription
+                            currentScopes: refreshed.antigravityScopeDescription
                         )
                     }
+                    let companionProjectID = try await GeminiCodeAssistProjectResolver.resolve(credentials: refreshed)
+                    GeminiOAuthURLProtocol.setCompanionProjectID(companionProjectID)
                     tokenBox.update(refreshed)
                 },
                 baseURL: baseURL,

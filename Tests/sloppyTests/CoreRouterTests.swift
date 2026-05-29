@@ -668,6 +668,19 @@ func openAIProviderStatusEndpoint() async throws {
 }
 
 @Test
+func geminiProviderStatusEndpoint() async throws {
+    let service = CoreService(config: .test)
+    let router = CoreRouter(service: service)
+
+    let response = await router.handle(method: "GET", path: "/v1/providers/gemini/status", body: nil)
+    #expect(response.status == 200)
+
+    let payload = try JSONDecoder().decode(GeminiProviderStatusResponse.self, from: response.body)
+    #expect(payload.provider == "gemini")
+    #expect(payload.hasAnyKey == (payload.hasEnvironmentKey || payload.hasConfiguredKey || payload.hasOAuthCredentials))
+}
+
+@Test
 func channelStateReturnsEmptySnapshotWhenChannelMissing() async throws {
     let config = CoreConfig.test
     let service = CoreService(config: config)

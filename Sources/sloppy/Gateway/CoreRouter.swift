@@ -479,6 +479,10 @@ public actor CoreRouter {
             "/v1/providers/anthropic/oauth/start",
             "/v1/providers/anthropic/oauth/complete",
             "/v1/providers/anthropic/oauth/import-claude",
+            "/v1/providers/gemini/status",
+            "/v1/providers/gemini/oauth/start",
+            "/v1/providers/gemini/oauth/complete",
+            "/v1/providers/gemini/oauth/disconnect",
             "/v1/agents",
             "/v1/generate"
         ])

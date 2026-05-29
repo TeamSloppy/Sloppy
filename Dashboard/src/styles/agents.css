@@ -3127,6 +3127,10 @@ body.agent-chat-no-page-scroll .page {
   color: #fbbf24;
 }
 
+.agent-chat-mode-button--auto {
+  color: #e879f9;
+}
+
 .agent-chat-reasoning-select {
   min-width: auto;
   border: 1px solid var(--line);

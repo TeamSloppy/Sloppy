@@ -497,7 +497,20 @@ extension CoreService {
             topicId: topicId
         )
         let mode = forcedMode ?? .build
-        let modeContent = AgentSessionOrchestrator.runtimeContent(contentForModel, mode: mode)
+        let autoRouteCatalog: String?
+        if mode == .auto, let linkedAgentID {
+            let skills = (try? await getAgentSkillsForRuntime(agentID: linkedAgentID)) ?? []
+            autoRouteCatalog = AutoRouteCatalog.markdown(installedSkills: skills)
+        } else if mode == .auto {
+            autoRouteCatalog = AutoRouteCatalog.defaultMarkdown()
+        } else {
+            autoRouteCatalog = nil
+        }
+        let modeContent = AgentSessionOrchestrator.runtimeContent(
+            contentForModel,
+            mode: mode,
+            autoRouteCatalog: autoRouteCatalog
+        )
         let contentForRuntime = contentWithFriendReminderIfNeeded(
             modeContent,
             linkedAgentID: linkedAgentID
@@ -971,9 +984,17 @@ extension CoreService: InboundMessageReceiver {
         let lower = trimmed.lowercased()
         let oneShotModeCommand = inboundOneShotChatModeCommand(content)
         if let oneShotModeCommand, oneShotModeCommand.message.isEmpty {
-            let usage = oneShotModeCommand.mode == .ask
-                ? "Usage: /ask <question>"
-                : "Usage: /plan <request>"
+            let usage: String
+            switch oneShotModeCommand.mode {
+            case .ask:
+                usage = "Usage: /ask <question>"
+            case .plan:
+                usage = "Usage: /plan <request>"
+            case .auto:
+                usage = "Usage: /auto <request>"
+            case .build, .debug:
+                usage = "Usage: /\(oneShotModeCommand.mode.rawValue) <request>"
+            }
             await deliverToChannelPlugin(channelId: sessionChannelId, content: usage, topicId: topicId)
             return true
         }
@@ -1105,6 +1126,9 @@ extension CoreService: InboundMessageReceiver {
         } else if lower == "/plan" || lower.hasPrefix("/plan ") {
             command = "/plan"
             mode = .plan
+        } else if lower == "/auto" || lower.hasPrefix("/auto ") {
+            command = "/auto"
+            mode = .auto
         } else {
             return nil
         }

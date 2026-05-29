@@ -512,6 +512,7 @@ extension SkillsGitHubClient {
         var allowedTools: [String]?
         var context: String?
         var agent: String?
+        var autoRoute: String?
     }
 
     struct SkillEntrypoint {
@@ -608,6 +609,8 @@ extension SkillsGitHubClient {
                 fm.context = value
             case "agent":
                 fm.agent = value
+            case "auto_route", "autoroute", "use_when", "usewhen":
+                fm.autoRoute = value
             default:
                 break
             }

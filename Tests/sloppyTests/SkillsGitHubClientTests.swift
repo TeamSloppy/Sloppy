@@ -154,6 +154,33 @@ func parseFrontmatterExtractsAllFields() {
     #expect(fm?.allowedTools == ["Bash", "Read", "Grep"])
     #expect(fm?.context == "fork")
     #expect(fm?.agent == "Explore")
+    #expect(fm?.autoRoute == nil)
+}
+
+@Test
+func parseFrontmatterExtractsAutoRouteAliases() {
+    let camel = """
+    ---
+    name: review
+    autoRoute: Use when the user asks for a code review.
+    ---
+    """
+    let snake = """
+    ---
+    name: debugger
+    auto_route: Use when logs or failing tests need investigation.
+    ---
+    """
+    let useWhen = """
+    ---
+    name: prd
+    use_when: Use when the user asks for a PRD.
+    ---
+    """
+
+    #expect(SkillsGitHubClient.parseFrontmatter(from: camel)?.autoRoute == "Use when the user asks for a code review.")
+    #expect(SkillsGitHubClient.parseFrontmatter(from: snake)?.autoRoute == "Use when logs or failing tests need investigation.")
+    #expect(SkillsGitHubClient.parseFrontmatter(from: useWhen)?.autoRoute == "Use when the user asks for a PRD.")
 }
 
 @Test

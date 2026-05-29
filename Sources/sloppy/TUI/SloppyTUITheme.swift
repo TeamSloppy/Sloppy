@@ -822,6 +822,8 @@ enum SloppyTUITheme {
             return accentBright(mode.title)
         case .debug:
             return yellow(mode.title)
+        case .auto:
+            return foreground(mode.title)
         }
     }
 

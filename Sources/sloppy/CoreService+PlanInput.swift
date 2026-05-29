@@ -300,7 +300,7 @@ extension CoreService {
 
     private func inputRequestMode(from chatMode: AgentChatMode?) -> AgentChatMode? {
         switch chatMode {
-        case .plan, .debug:
+        case .plan, .debug, .auto:
             return chatMode
         case .ask, .build, nil:
             return nil

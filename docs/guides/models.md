@@ -13,7 +13,7 @@ Sloppy supports multiple LLM providers. Each provider is configured as an entry 
 | --- | --- | --- | --- | --- |
 | OpenAI API | `openai:` | `https://api.openai.com/v1` | `OPENAI_API_KEY` | API key |
 | OpenAI Codex (OAuth) | `openai:` | `https://chatgpt.com/backend-api` | — | OAuth device code |
-| Google Gemini | `gemini:` | `https://generativelanguage.googleapis.com` | `GEMINI_API_KEY` | API key |
+| Google Gemini | `gemini:` | `https://generativelanguage.googleapis.com` | `GEMINI_API_KEY` | API key or Antigravity CLI OAuth |
 | Anthropic | `anthropic:` | `https://api.anthropic.com` | `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN` | OAuth / setup token (see below) |
 | Ollama | `ollama:` | `http://127.0.0.1:11434` | — | None |
 | OpenCode import | `opencode:` | From OpenCode provider config | From OpenCode resolved config/auth | OpenAI-compatible providers |
@@ -84,6 +84,8 @@ With `OPENAI_API_KEY` set in the environment, `apiKey` can stay empty. Supports 
 ```
 
 Get an API key from [Google AI Studio](https://aistudio.google.com/apikey). The probe endpoint fetches the full model list from the Gemini API.
+
+When no API key is configured, Sloppy can also use local Google OAuth credentials from Antigravity CLI style auth. In that mode requests are routed through Google's Cloud Code Assist endpoint (`https://cloudcode-pa.googleapis.com/v1internal:*`) and wrapped in the Antigravity request envelope.
 
 ### Anthropic
 

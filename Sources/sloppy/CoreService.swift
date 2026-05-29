@@ -194,6 +194,7 @@ public actor CoreService {
     let openAIProviderCatalog: OpenAIProviderCatalogService
     let openAIOAuthService: OpenAIOAuthService
     let anthropicOAuthService: AnthropicOAuthService
+    let geminiOAuthService: GeminiOAuthService
     let githubAuthService: GitHubAuthService
     let providerProbeService: ProviderProbeService
     let searchProviderService: SearchProviderService
@@ -306,6 +307,7 @@ public actor CoreService {
         let workspaceRootURL = config.resolvedWorkspaceRootURL(currentDirectory: currentDirectory)
         self.openAIOAuthService = OpenAIOAuthService(workspaceRootURL: workspaceRootURL)
         self.anthropicOAuthService = AnthropicOAuthService(workspaceRootURL: workspaceRootURL)
+        self.geminiOAuthService = GeminiOAuthService(workspaceRootURL: workspaceRootURL)
         self.githubAuthService = GitHubAuthService(workspaceRootURL: workspaceRootURL)
         let anthropicSettingsProvider: @Sendable () -> ClaudeSettingsEnvironment = {
             ClaudeSettingsEnvironment.load(workspaceRootURL: workspaceRootURL)
@@ -316,6 +318,7 @@ public actor CoreService {
         )
         let oauthService = self.openAIOAuthService
         let anthropicOAuthService = self.anthropicOAuthService
+        let geminiOAuthService = self.geminiOAuthService
         let hasOAuth = oauthService.currentAccessToken() != nil
         let resolvedModels = CoreModelProviderFactory.resolveModelIdentifiers(
             config: config,
@@ -333,6 +336,7 @@ public actor CoreService {
             anthropicOAuthTokenProvider: { anthropicOAuthService.currentAccessToken() },
             anthropicOAuthTokenRefresh: { try await anthropicOAuthService.ensureValidToken() },
             anthropicSettingsProvider: anthropicSettingsProvider,
+            geminiOAuthCredentialsProvider: { geminiOAuthService.currentCredentials() },
             systemInstructions: "You are Sloppy core channel assistant.",
             proxySession: ProxySessionFactory.makeSession(proxy: config.proxy),
             currentDirectory: currentDirectory
@@ -383,8 +387,12 @@ public actor CoreService {
         self.workspaceRootURL = config
             .resolvedWorkspaceRootURL(currentDirectory: currentDirectory)
         self.openAIProviderCatalog = OpenAIProviderCatalogService()
+        let providerWorkspaceRootURL = self.workspaceRootURL
         self.providerProbeService = providerProbeService ?? ProviderProbeService(
-            claudeSettingsProvider: anthropicSettingsProvider
+            claudeSettingsProvider: anthropicSettingsProvider,
+            geminiOAuthCredentialsProvider: {
+                GeminiOAuthCredentials.load(workspaceRootURL: providerWorkspaceRootURL)
+            }
         )
         self.searchProviderService = searchProviderService ?? SearchProviderService(config: config.searchTools)
         self.configPath = configPath

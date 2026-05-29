@@ -254,6 +254,20 @@ actor ACPSessionManager {
         let sessionKey = Self.sessionKey(agentID: agentID, sloppySessionID: sloppySessionID)
         let target = try resolveTarget(for: runtime)
         let effectiveCwd = resolveCwd(runtime: runtime, target: target)
+        logger.info(
+            "ACP prompt dispatch started",
+            metadata: acpMetadata(
+                agentID: agentID,
+                sloppySessionID: sloppySessionID,
+                target: target,
+                effectiveCwd: effectiveCwd,
+                extra: [
+                    "content_blocks": .stringConvertible(content.count),
+                    "local_session_had_prior_messages": .stringConvertible(localSessionHadPriorMessages),
+                    "chat_mode": .string(chatMode?.rawValue ?? "unspecified")
+                ]
+            )
+        )
 
         let prepared = try await prepareSession(
             agentID: agentID,
@@ -279,6 +293,16 @@ actor ACPSessionManager {
                 await terminateSession(forKey: sessionKey)
                 sessions.removeValue(forKey: sessionKey)
                 try? stateStore.delete(agentID: agentID, sessionID: sloppySessionID)
+                logger.warning(
+                    "ACP primer turn failed",
+                    metadata: acpMetadata(
+                        agentID: agentID,
+                        sloppySessionID: sloppySessionID,
+                        target: target,
+                        effectiveCwd: effectiveCwd,
+                        extra: ["error": .string(error.localizedDescription)]
+                    )
+                )
                 throw error
             }
         }
@@ -311,10 +335,36 @@ actor ACPSessionManager {
                 content: content
             )
         } catch {
+            logger.warning(
+                "ACP prompt failed",
+                metadata: acpMetadata(
+                    agentID: agentID,
+                    sloppySessionID: sloppySessionID,
+                    target: target,
+                    upstreamSessionId: managed.upstreamSessionId,
+                    effectiveCwd: effectiveCwd,
+                    extra: ["error": .string(error.localizedDescription)]
+                )
+            )
             throw ACPError.launchFailed(error.localizedDescription)
         }
 
         let assistantText = sessions[sessionKey]?.currentRun?.assistantText.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        logger.info(
+            "ACP prompt completed",
+            metadata: acpMetadata(
+                agentID: agentID,
+                sloppySessionID: sloppySessionID,
+                target: target,
+                upstreamSessionId: managed.upstreamSessionId,
+                effectiveCwd: effectiveCwd,
+                extra: [
+                    "stop_reason": .string(response.stopReason.rawValue),
+                    "assistant_text_characters": .stringConvertible(assistantText.count),
+                    "did_reset_context": .stringConvertible(prepared.didResetContext)
+                ]
+            )
+        )
         return ACPMessageRunResult(
             assistantText: assistantText,
             stopReason: response.stopReason,
@@ -367,10 +417,34 @@ actor ACPSessionManager {
 
         if let existing = sessions[sessionKey] {
             if existing.target != target || existing.effectiveCwd != effectiveCwd || existing.transportFingerprint != transportFingerprint {
+                logger.info(
+                    "ACP managed session reset before prompt",
+                    metadata: acpMetadata(
+                        agentID: agentID,
+                        sloppySessionID: sloppySessionID,
+                        target: target,
+                        upstreamSessionId: existing.upstreamSessionId,
+                        effectiveCwd: effectiveCwd,
+                        extra: [
+                            "previous_target_id": .string(existing.target.id),
+                            "previous_cwd": .string(existing.effectiveCwd)
+                        ]
+                    )
+                )
                 await terminateSession(forKey: sessionKey)
                 sessions.removeValue(forKey: sessionKey)
                 didResetContext = true
             } else {
+                logger.info(
+                    "ACP managed session reused",
+                    metadata: acpMetadata(
+                        agentID: agentID,
+                        sloppySessionID: sloppySessionID,
+                        target: target,
+                        upstreamSessionId: existing.upstreamSessionId,
+                        effectiveCwd: effectiveCwd
+                    )
+                )
                 return ACPPreparedSession(managed: existing, didResetContext: false)
             }
         }
@@ -403,9 +477,32 @@ actor ACPSessionManager {
                     didResetContext = true
                 }
             } else {
+                logger.info(
+                    "ACP persisted session state ignored",
+                    metadata: acpMetadata(
+                        agentID: agentID,
+                        sloppySessionID: sloppySessionID,
+                        target: target,
+                        effectiveCwd: effectiveCwd,
+                        extra: [
+                            "persisted_target_id": .string(sidecar.targetId),
+                            "persisted_cwd": .string(sidecar.effectiveCwd),
+                            "persisted_supports_load_session": .stringConvertible(sidecar.supportsLoadSession)
+                        ]
+                    )
+                )
                 didResetContext = true
             }
         } else if localSessionHadPriorMessages {
+            logger.info(
+                "ACP local session has history without persisted upstream state",
+                metadata: acpMetadata(
+                    agentID: agentID,
+                    sloppySessionID: sloppySessionID,
+                    target: target,
+                    effectiveCwd: effectiveCwd
+                )
+            )
             didResetContext = true
         }
 
@@ -467,10 +564,14 @@ actor ACPSessionManager {
         sessions[sessionKey] = managed
         logger.info(
             "ACP primer turn sent",
-            metadata: [
-                "agent_id": .string(agentID),
-                "session_id": .string(sloppySessionID)
-            ]
+            metadata: acpMetadata(
+                agentID: agentID,
+                sloppySessionID: sloppySessionID,
+                target: managed.target,
+                upstreamSessionId: managed.upstreamSessionId,
+                effectiveCwd: managed.effectiveCwd,
+                extra: ["primer_characters": .stringConvertible(primerContent.count)]
+            )
         )
     }
 
@@ -493,6 +594,15 @@ actor ACPSessionManager {
             )
             if response.success {
                 managed.currentModeID = modeID
+                logger.info(
+                    "ACP chat mode applied",
+                    metadata: acpMetadata(
+                        target: managed.target,
+                        upstreamSessionId: managed.upstreamSessionId,
+                        effectiveCwd: managed.effectiveCwd,
+                        extra: ["mode_id": .string(modeID)]
+                    )
+                )
             }
         } catch {
             throw ACPError.launchFailed(error.localizedDescription)
@@ -727,6 +837,18 @@ actor ACPSessionManager {
                 workingDirectory: effectiveCwd,
                 timeout: timeoutSeconds(target)
             )
+            logger.info(
+                "ACP upstream session created",
+                metadata: acpMetadata(
+                    target: target,
+                    upstreamSessionId: newSession.sessionId,
+                    effectiveCwd: effectiveCwd,
+                    extra: [
+                        "current_mode_id": .string(newSession.modes?.currentModeId ?? "unspecified"),
+                        "available_modes": .string(Self.availableModeIDs(from: newSession.modes).sorted().joined(separator: ","))
+                    ]
+                )
+            )
             return ACPManagedSession(
                 client: client,
                 target: target,
@@ -772,6 +894,19 @@ actor ACPSessionManager {
 
         do {
             let loaded = try await client.loadSession(sessionId: upstreamSessionId, cwd: effectiveCwd)
+            logger.info(
+                "ACP upstream session restored",
+                metadata: acpMetadata(
+                    target: target,
+                    upstreamSessionId: loaded.sessionId,
+                    effectiveCwd: effectiveCwd,
+                    extra: [
+                        "requested_upstream_session_id": .string(upstreamSessionId.value),
+                        "current_mode_id": .string(loaded.modes?.currentModeId ?? "unspecified"),
+                        "available_modes": .string(Self.availableModeIDs(from: loaded.modes).sorted().joined(separator: ","))
+                    ]
+                )
+            )
             return ACPManagedSession(
                 client: client,
                 target: target,
@@ -832,6 +967,21 @@ actor ACPSessionManager {
                 clientInfo: ClientInfo(name: "sloppy", title: "Sloppy ACP Gateway", version: "1.0.0"),
                 timeout: timeoutSeconds(target)
             )
+            logger.info(
+                "ACP client initialized",
+                metadata: acpMetadata(
+                    target: target,
+                    effectiveCwd: effectiveCwd,
+                    extra: [
+                        "agent_name": .string(response.agentInfo?.name ?? "unknown"),
+                        "agent_version": .string(response.agentInfo?.version ?? "unknown"),
+                        "supports_load_session": .stringConvertible(response.agentCapabilities.loadSession == true),
+                        "supports_prompt_image": .stringConvertible(response.agentCapabilities.promptCapabilities?.image == true),
+                        "supports_mcp_http": .stringConvertible(response.agentCapabilities.mcpCapabilities?.http == true),
+                        "supports_mcp_sse": .stringConvertible(response.agentCapabilities.mcpCapabilities?.sse == true)
+                    ]
+                )
+            )
             return (client, delegate, response)
         } catch {
             await client.terminate()
@@ -861,6 +1011,8 @@ actor ACPSessionManager {
             return ["plan"]
         case .debug:
             return ["debug"]
+        case .auto:
+            return ["auto", "build", "code"]
         }
     }
 
@@ -878,6 +1030,38 @@ actor ACPSessionManager {
             agentID: agentID,
             sessionID: sloppySessionID
         )
+    }
+
+    private func acpMetadata(
+        agentID: String? = nil,
+        sloppySessionID: String? = nil,
+        target: CoreConfig.ACP.Target? = nil,
+        upstreamSessionId: SessionId? = nil,
+        effectiveCwd: String? = nil,
+        extra: Logging.Logger.Metadata = [:]
+    ) -> Logging.Logger.Metadata {
+        var metadata = extra
+        metadata["component"] = .string("acp")
+        if let agentID {
+            metadata["agent_id"] = .string(agentID)
+        }
+        if let sloppySessionID {
+            metadata["session_id"] = .string(sloppySessionID)
+        }
+        if let target {
+            metadata["target_id"] = .string(target.id)
+            metadata["target_title"] = .string(target.title)
+            metadata["transport"] = .string(target.transport.rawValue)
+            metadata["permission_mode"] = .string(target.permissionMode.rawValue)
+            metadata["timeout_ms"] = .stringConvertible(target.timeoutMs)
+        }
+        if let upstreamSessionId {
+            metadata["upstream_session_id"] = .string(upstreamSessionId.value)
+        }
+        if let effectiveCwd {
+            metadata["cwd"] = .string(effectiveCwd)
+        }
+        return metadata
     }
 
     private func resolveTarget(for runtime: AgentRuntimeConfig) throws -> CoreConfig.ACP.Target {

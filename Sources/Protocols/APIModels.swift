@@ -3948,6 +3948,7 @@ public enum AgentChatMode: String, Codable, Sendable, Equatable, CaseIterable {
     case build
     case plan
     case debug
+    case auto
 
     public static let defaultMode: AgentChatMode = .build
 }
@@ -4178,6 +4179,34 @@ public struct AnthropicProviderStatusResponse: Codable, Sendable {
     }
 }
 
+public struct GeminiProviderStatusResponse: Codable, Sendable {
+    public var provider: String
+    public var hasEnvironmentKey: Bool
+    public var hasConfiguredKey: Bool
+    public var hasAnyKey: Bool
+    public var hasOAuthCredentials: Bool
+    public var oauthEmail: String?
+    public var oauthExpiresAt: String?
+
+    public init(
+        provider: String = "gemini",
+        hasEnvironmentKey: Bool = false,
+        hasConfiguredKey: Bool = false,
+        hasAnyKey: Bool = false,
+        hasOAuthCredentials: Bool = false,
+        oauthEmail: String? = nil,
+        oauthExpiresAt: String? = nil
+    ) {
+        self.provider = provider
+        self.hasEnvironmentKey = hasEnvironmentKey
+        self.hasConfiguredKey = hasConfiguredKey
+        self.hasAnyKey = hasAnyKey
+        self.hasOAuthCredentials = hasOAuthCredentials
+        self.oauthEmail = oauthEmail
+        self.oauthExpiresAt = oauthExpiresAt
+    }
+}
+
 public struct OpenAIOAuthStartRequest: Codable, Sendable {
     public var redirectURI: String
 
@@ -4311,6 +4340,52 @@ public struct AnthropicOAuthImportClaudeResponse: Codable, Sendable {
         self.source = source
         self.expiresAt = expiresAt
         self.refreshable = refreshable
+    }
+}
+
+public struct GeminiOAuthStartRequest: Codable, Sendable {
+    public var redirectURI: String
+
+    public init(redirectURI: String) {
+        self.redirectURI = redirectURI
+    }
+}
+
+public struct GeminiOAuthStartResponse: Codable, Sendable {
+    public var authorizationURL: String
+    public var redirectURI: String
+    public var state: String
+
+    public init(authorizationURL: String, redirectURI: String, state: String) {
+        self.authorizationURL = authorizationURL
+        self.redirectURI = redirectURI
+        self.state = state
+    }
+}
+
+public struct GeminiOAuthCompleteRequest: Codable, Sendable {
+    public var callbackURL: String?
+    public var code: String?
+    public var state: String?
+
+    public init(callbackURL: String? = nil, code: String? = nil, state: String? = nil) {
+        self.callbackURL = callbackURL
+        self.code = code
+        self.state = state
+    }
+}
+
+public struct GeminiOAuthCompleteResponse: Codable, Sendable {
+    public var ok: Bool
+    public var message: String
+    public var email: String?
+    public var expiresAt: String?
+
+    public init(ok: Bool, message: String, email: String? = nil, expiresAt: String? = nil) {
+        self.ok = ok
+        self.message = message
+        self.email = email
+        self.expiresAt = expiresAt
     }
 }
 
@@ -4770,6 +4845,7 @@ public struct InstalledSkill: Codable, Sendable, Equatable {
     public var allowedTools: [String]
     public var context: SkillContext?
     public var agent: String?
+    public var autoRoute: String?
 
     public init(
         id: String,
@@ -4783,7 +4859,8 @@ public struct InstalledSkill: Codable, Sendable, Equatable {
         userInvocable: Bool = true,
         allowedTools: [String] = [],
         context: SkillContext? = nil,
-        agent: String? = nil
+        agent: String? = nil,
+        autoRoute: String? = nil
     ) {
         self.id = id
         self.owner = owner
@@ -4797,11 +4874,12 @@ public struct InstalledSkill: Codable, Sendable, Equatable {
         self.allowedTools = allowedTools
         self.context = context
         self.agent = agent
+        self.autoRoute = autoRoute
     }
 
     enum CodingKeys: String, CodingKey {
         case id, owner, repo, name, description, installedAt, version, localPath
-        case userInvocable, allowedTools, context, agent
+        case userInvocable, allowedTools, context, agent, autoRoute
     }
 
     public init(from decoder: Decoder) throws {
@@ -4818,6 +4896,7 @@ public struct InstalledSkill: Codable, Sendable, Equatable {
         allowedTools = try container.decodeIfPresent([String].self, forKey: .allowedTools) ?? []
         context = try container.decodeIfPresent(SkillContext.self, forKey: .context)
         agent = try container.decodeIfPresent(String.self, forKey: .agent)
+        autoRoute = try container.decodeIfPresent(String.self, forKey: .autoRoute)
     }
 }
 
@@ -4832,9 +4911,10 @@ public struct SkillInstallRequest: Codable, Sendable {
     public var allowedTools: [String]?
     public var context: SkillContext?
     public var agent: String?
+    public var autoRoute: String?
 
     enum CodingKeys: String, CodingKey {
-        case owner, repo, version, localPath, userInvocable, allowedTools, context, agent
+        case owner, repo, version, localPath, userInvocable, allowedTools, context, agent, autoRoute
     }
 
     public init(
@@ -4845,7 +4925,8 @@ public struct SkillInstallRequest: Codable, Sendable {
         userInvocable: Bool? = nil,
         allowedTools: [String]? = nil,
         context: SkillContext? = nil,
-        agent: String? = nil
+        agent: String? = nil,
+        autoRoute: String? = nil
     ) {
         self.owner = owner
         self.repo = repo
@@ -4855,6 +4936,7 @@ public struct SkillInstallRequest: Codable, Sendable {
         self.allowedTools = allowedTools
         self.context = context
         self.agent = agent
+        self.autoRoute = autoRoute
     }
 
     public init(from decoder: Decoder) throws {
@@ -4867,6 +4949,7 @@ public struct SkillInstallRequest: Codable, Sendable {
         allowedTools = try container.decodeIfPresent([String].self, forKey: .allowedTools)
         context = try container.decodeIfPresent(SkillContext.self, forKey: .context)
         agent = try container.decodeIfPresent(String.self, forKey: .agent)
+        autoRoute = try container.decodeIfPresent(String.self, forKey: .autoRoute)
     }
 }
 

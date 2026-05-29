@@ -1088,7 +1088,7 @@ extension CoreService {
         projectID: String?,
         fallbackWorkingDirectory: String? = nil
     ) async {
-        guard chatMode == .debug,
+        guard chatMode == .debug || chatMode == .auto,
               let rootPath = await debugDirectoryRootForSession(
                 sessionID: sessionID,
                 sessionTitle: sessionTitle,

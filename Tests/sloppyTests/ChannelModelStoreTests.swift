@@ -70,11 +70,14 @@ func oneShotAskAndPlanCommandsParseWithoutPersistingMode() async throws {
 
     let ask = await service.inboundOneShotChatModeCommand("/ask What changed?")
     let plan = await service.inboundOneShotChatModeCommand("  /plan Add endpoint  ")
+    let auto = await service.inboundOneShotChatModeCommand("  /auto Route this  ")
 
     #expect(ask?.mode == .ask)
     #expect(ask?.message == "What changed?")
     #expect(plan?.mode == .plan)
     #expect(plan?.message == "Add endpoint")
+    #expect(auto?.mode == .auto)
+    #expect(auto?.message == "Route this")
     #expect(await service.channelChatModeStore.get(channelId: "unused") == .build)
 }
 

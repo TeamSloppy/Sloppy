@@ -124,7 +124,7 @@ export const PROVIDER_CATALOG = [
     id: "gemini",
     brandProviderKey: "gemini",
     title: "Google Gemini",
-    description: "Google Gemini via API key or scoped OAuth.",
+    description: "Google Gemini via API key or Antigravity CLI OAuth.",
     modelHint: "gemini-2.5-flash",
     authMethod: "cli_or_api_key",
     requiresApiKey: false,

@@ -15,7 +15,7 @@ func agentChatModeIncludesBuildInPublicContract() throws {
     let decoded = try JSONDecoder().decode(AgentSessionPostMessageRequest.self, from: encoded)
 
     #expect(decoded.mode == .build)
-    #expect(AgentChatMode.allCases == [.ask, .build, .plan, .debug])
+    #expect(AgentChatMode.allCases == [.ask, .build, .plan, .debug, .auto])
     #expect(AgentChatMode.defaultMode == .build)
 }
 
@@ -26,6 +26,11 @@ func agentChatModeRuntimeInstructionsMatchModeSemantics() {
     let build = AgentSessionOrchestrator.runtimeContent("Add the endpoint", mode: .build)
     let plan = AgentSessionOrchestrator.runtimeContent("Add the endpoint", mode: .plan)
     let debug = AgentSessionOrchestrator.runtimeContent("Trace the failure", mode: .debug)
+    let auto = AgentSessionOrchestrator.runtimeContent(
+        "Figure out the right workflow",
+        mode: .auto,
+        autoRouteCatalog: AutoRouteCatalog.defaultMarkdown()
+    )
 
     #expect(defaulted.contains("mode: build"))
     #expect(defaulted.contains("Instructions are loaded from built-in skill `sloppy/mode-build`"))
@@ -90,6 +95,53 @@ func agentChatModeRuntimeInstructionsMatchModeSemantics() {
     #expect(debug.contains("mark_as_fixed"))
     #expect(debug.contains("Bug is repeated"))
     #expect(debug.contains("remove the session log file"))
+    #expect(auto.contains("Instructions are loaded from built-in skill `sloppy/mode-auto`"))
+    #expect(auto.contains("# Auto Mode"))
+    #expect(auto.contains("[Auto route catalog]"))
+    #expect(auto.contains("route: mode-plan"))
+    #expect(auto.contains("route: mode-debug"))
+    #expect(auto.contains("route: mode-build"))
+    #expect(auto.contains("route: mode-ask"))
+    #expect(auto.contains("Do not mutate files unless the selected route permits it"))
+}
+
+@Test
+func autoRouteCatalogIncludesOnlyOptInInstalledSkills() {
+    let optIn = InstalledSkill(
+        id: "shared/code-review",
+        owner: "shared",
+        repo: "code-review",
+        name: "code-review",
+        description: "Review code",
+        localPath: "/tmp/code-review",
+        userInvocable: false,
+        autoRoute: "Use when the user asks for code review."
+    )
+    let regular = InstalledSkill(
+        id: "shared/general",
+        owner: "shared",
+        repo: "general",
+        name: "general",
+        description: "General helper",
+        localPath: "/tmp/general",
+        userInvocable: false
+    )
+
+    let markdown = AutoRouteCatalog.markdown(installedSkills: [regular, optIn])
+
+    #expect(markdown.contains("route: skill:shared/code-review"))
+    #expect(markdown.contains("Use when the user asks for code review."))
+    #expect(!markdown.contains("skill:shared/general"))
+}
+
+@Test
+func tuiModeCycleIncludesAuto() {
+    #expect(AgentChatMode.ask.next == .build)
+    #expect(AgentChatMode.build.next == .plan)
+    #expect(AgentChatMode.plan.next == .debug)
+    #expect(AgentChatMode.debug.next == .auto)
+    #expect(AgentChatMode.auto.next == .ask)
+    #expect(AgentChatMode.auto.title == "Auto")
 }
 
 @Test

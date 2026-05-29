@@ -432,6 +432,23 @@ struct ProviderProbeService {
         let models: [ModelItem]
     }
 
+    private struct AntigravityModelsResponse: Decodable {
+        struct ModelInfo: Decodable {
+            struct QuotaInfo: Decodable {
+                let remainingFraction: Double?
+                let resetTime: String?
+                let isExhausted: Bool?
+            }
+
+            let displayName: String?
+            let model: String?
+            let quotaInfo: QuotaInfo?
+            let isInternal: Bool?
+        }
+
+        let models: [String: ModelInfo]?
+    }
+
     private func probeGemini(
         config: CoreConfig,
         request: ProviderProbeRequest
@@ -468,23 +485,23 @@ struct ProviderProbeService {
             usedEnvironmentKey = true
             authSource = envKey.name
         } else if let oauthCredentials = geminiOAuthCredentialsProvider() {
-            guard oauthCredentials.isUsableForGenerativeLanguageAPI else {
+            guard oauthCredentials.isUsableForAntigravityCLI else {
                 return ProviderProbeResponse(
                     providerId: .gemini,
                     ok: false,
                     usedEnvironmentKey: false,
-                    message: "Gemini CLI OAuth credentials are missing the required scope \(GeminiOAuthCredentials.requiredGenerativeLanguageScope). Current scopes: \(oauthCredentials.generativeLanguageScopeDescription). Provide a Gemini API key or re-authenticate OAuth with the Gemini API scope.",
+                    message: "Antigravity CLI OAuth credentials are missing the required scope \(GeminiOAuthCredentials.requiredAntigravityScope). Current scopes: \(oauthCredentials.antigravityScopeDescription). Provide a Gemini API key or re-authenticate Antigravity CLI OAuth.",
                     models: []
                 )
             }
             do {
                 let refreshed = try await oauthCredentials.refreshedIfNeeded()
-                guard refreshed.isUsableForGenerativeLanguageAPI else {
+                guard refreshed.isUsableForAntigravityCLI else {
                     return ProviderProbeResponse(
                         providerId: .gemini,
                         ok: false,
                         usedEnvironmentKey: false,
-                        message: "Gemini CLI OAuth credentials are missing the required scope \(GeminiOAuthCredentials.requiredGenerativeLanguageScope). Current scopes: \(refreshed.generativeLanguageScopeDescription). Provide a Gemini API key or re-authenticate OAuth with the Gemini API scope.",
+                        message: "Antigravity CLI OAuth credentials are missing the required scope \(GeminiOAuthCredentials.requiredAntigravityScope). Current scopes: \(refreshed.antigravityScopeDescription). Provide a Gemini API key or re-authenticate Antigravity CLI OAuth.",
                         models: []
                     )
                 }
@@ -494,18 +511,18 @@ struct ProviderProbeService {
                     providerId: .gemini,
                     ok: false,
                     usedEnvironmentKey: false,
-                    message: "Gemini CLI OAuth credentials could not be refreshed: \(error.localizedDescription)",
+                    message: "Antigravity CLI OAuth credentials could not be refreshed: \(error.localizedDescription)",
                     models: []
                 )
             }
             usedEnvironmentKey = false
-            authSource = "OAuth credentials"
+            authSource = "Antigravity CLI OAuth"
         } else {
             return ProviderProbeResponse(
                 providerId: .gemini,
                 ok: false,
                 usedEnvironmentKey: false,
-                message: "Gemini credentials are missing. Provide a key, set GEMINI_API_KEY or GOOGLE_API_KEY, or use OAuth credentials that include \(GeminiOAuthCredentials.requiredGenerativeLanguageScope).",
+                message: "Gemini credentials are missing. Provide a key, set GEMINI_API_KEY or GOOGLE_API_KEY, or use Antigravity CLI OAuth credentials that include \(GeminiOAuthCredentials.requiredAntigravityScope).",
                 models: []
             )
         }
@@ -559,7 +576,7 @@ struct ProviderProbeService {
                     providerId: .gemini,
                     ok: false,
                     usedEnvironmentKey: usedEnvironmentKey,
-                    message: "Gemini OAuth token was rejected for insufficient scopes. Provide a Gemini API key or re-authenticate OAuth with \(GeminiOAuthCredentials.requiredGenerativeLanguageScope).",
+                    message: "Antigravity CLI OAuth token was rejected for insufficient scopes. Provide a Gemini API key or re-authenticate Antigravity CLI OAuth with \(GeminiOAuthCredentials.requiredAntigravityScope).",
                     models: []
                 )
             }
@@ -578,6 +595,10 @@ struct ProviderProbeService {
         baseURL: URL,
         userProject: String?
     ) async throws -> [ProviderModelOption] {
+        if case .oauth(let credentials) = credential {
+            return try await fetchAntigravityModels(credentials: credentials, userProject: userProject)
+        }
+
         let endpoint = baseURL
             .appendingPathComponent("v1beta")
             .appendingPathComponent("models")
@@ -608,6 +629,53 @@ struct ProviderProbeService {
                 return ProviderModelOption(
                     id: modelId,
                     title: item.displayName ?? modelId,
+                    contextWindow: geminiContextWindow(for: modelId),
+                    capabilities: geminiCapabilities(for: modelId)
+                )
+            }
+            .filter { $0.id.contains("gemini") }
+            .sorted { $0.id < $1.id }
+    }
+
+    private func fetchAntigravityModels(
+        credentials: GeminiOAuthCredentials,
+        userProject: String?
+    ) async throws -> [ProviderModelOption] {
+        let companionProjectID = try await GeminiCodeAssistProjectResolver.resolve(
+            credentials: credentials,
+            preferredProjectID: userProject,
+            transport: transport
+        )
+        let endpoint = GeminiCodeAssistProjectResolver.defaultBaseURL
+            .appendingPathComponent("v1internal:fetchAvailableModels")
+        var urlRequest = URLRequest(url: endpoint)
+        urlRequest.httpMethod = "POST"
+        GeminiCodeAssistProjectResolver.applyHeaders(
+            to: &urlRequest,
+            authorizationHeaderValue: credentials.authorizationHeaderValue,
+            accept: "application/json"
+        )
+
+        let project = companionProjectID?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let payload: [String: String] = project.isEmpty ? [:] : ["project": project]
+        urlRequest.httpBody = try JSONSerialization.data(withJSONObject: payload)
+
+        let (data, response) = try await transport(urlRequest)
+        guard (200..<300).contains(response.statusCode) else {
+            throw ProviderProbeError.httpFailure(statusCode: response.statusCode, body: Self.sanitizedPayloadSnippet(data))
+        }
+
+        let decoded = try JSONDecoder().decode(AntigravityModelsResponse.self, from: data)
+        return (decoded.models ?? [:])
+            .compactMap { key, info -> ProviderModelOption? in
+                guard info.isInternal != true else { return nil }
+                let modelId = (info.model ?? key).trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !modelId.isEmpty else { return nil }
+                let displayName = info.displayName?.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard displayName?.isEmpty != true else { return nil }
+                return ProviderModelOption(
+                    id: modelId,
+                    title: displayName ?? modelId,
                     contextWindow: geminiContextWindow(for: modelId),
                     capabilities: geminiCapabilities(for: modelId)
                 )

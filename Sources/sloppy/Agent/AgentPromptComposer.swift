@@ -152,6 +152,9 @@ struct AgentPromptComposer {
                 if let agent = skill.agent, !agent.isEmpty {
                     parts.append("agent: \(agent)")
                 }
+                if let autoRoute = skill.autoRoute?.trimmingCharacters(in: .whitespacesAndNewlines), !autoRoute.isEmpty {
+                    parts.append("auto-route: \(autoRoute)")
+                }
                 parts.append("path: `\(skill.localPath)`")
                 if let entrypoint = skillEntrypointPath(for: skill) {
                     parts.append("entrypoint: `\(entrypoint)`")

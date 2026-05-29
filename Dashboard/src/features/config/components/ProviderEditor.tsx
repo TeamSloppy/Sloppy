@@ -33,9 +33,9 @@ const CLI_AUTH_TOOLS = [
   },
   {
     providerId: "gemini",
-    title: "Gemini CLI",
-    command: "gemini auth login",
-    source: "~/.gemini/oauth_creds.json"
+    title: "Google Gemini",
+    command: "Google OAuth",
+    source: "Sloppy-owned OAuth credentials"
   }
 ];
 
@@ -45,6 +45,7 @@ export function ProviderEditor({
   customModelsCount,
   openAIProviderStatus,
   anthropicProviderStatus,
+  geminiProviderStatus,
   providerModalMeta,
   providerForm,
   providerModelStatus,
@@ -65,6 +66,14 @@ export function ProviderEditor({
   onImportAnthropicClaudeCredentials,
   onDisconnectAnthropicOAuth,
   anthropicOAuthAuthorizationURL,
+  onOpenGeminiOAuth,
+  onCompleteGeminiOAuthManually,
+  onDisconnectGeminiOAuth,
+  geminiOAuthAuthorizationURL,
+  geminiOAuthManualCallback,
+  geminiOAuthManualCode,
+  onSetGeminiOAuthManualCallback,
+  onSetGeminiOAuthManualCode,
   onCancelDeviceCode,
   onCopyDeviceCode,
   onOpenDeviceCodeLoginPage,
@@ -171,7 +180,9 @@ export function ProviderEditor({
                 ? openAIProviderStatus.hasOAuthCredentials
                 : tool.providerId === "anthropic-oauth"
                   ? anthropicProviderStatus.hasOAuthCredentials
-                  : false;
+                  : tool.providerId === "gemini"
+                    ? geminiProviderStatus.hasOAuthCredentials
+                    : false;
             const status = isConnected
               ? "connected"
               : row
@@ -418,14 +429,35 @@ export function ProviderEditor({
                 catalogId === "anthropic" &&
                 Boolean(String(entry?.apiKey || "").trim()) &&
                 Boolean(String(entry?.model || "").trim());
+              const configuredViaGeminiOAuth =
+                catalogId === "gemini" &&
+                geminiProviderStatus.hasOAuthCredentials &&
+                Boolean(String(entry?.model || "").trim());
+              const configuredViaGeminiAPI =
+                catalogId === "gemini" &&
+                (geminiProviderStatus.hasEnvironmentKey || Boolean(String(entry?.apiKey || "").trim())) &&
+                Boolean(String(entry?.model || "").trim());
               let configured = false;
-              if (configuredViaEnvironment || configuredViaOAuth || configuredViaAnthropicOAuth || configuredViaAnthropicAPI) {
+              if (
+                configuredViaEnvironment ||
+                configuredViaOAuth ||
+                configuredViaAnthropicOAuth ||
+                configuredViaAnthropicAPI ||
+                configuredViaGeminiOAuth ||
+                configuredViaGeminiAPI
+              ) {
                 configured = true;
-              } else if (meta && catalogId !== "openai-oauth") {
+              } else if (meta && catalogId !== "openai-oauth" && catalogId !== "gemini") {
                 configured = providerIsConfigured(meta, entry);
               }
               const configuredBadgeText =
-                configuredViaEnvironment ? "env" : configuredViaOAuth || configuredViaAnthropicOAuth ? "oauth" : configured ? "configured" : "not set";
+                configuredViaEnvironment
+                  ? "env"
+                  : configuredViaOAuth || configuredViaAnthropicOAuth || configuredViaGeminiOAuth
+                    ? "oauth"
+                    : configured
+                      ? "configured"
+                      : "not set";
 
               return (
                 <div
@@ -563,7 +595,7 @@ export function ProviderEditor({
                     onChange={(event) => onUpdateProviderForm("apiKey", event.target.value)}
                     placeholder={
                       isGeminiModal
-                        ? "Leave empty for scoped OAuth or GEMINI_API_KEY"
+                        ? "Leave empty for Sloppy OAuth or GEMINI_API_KEY"
                         : providerModalMeta.id === "anthropic-oauth"
                         ? "Paste token or leave empty for ANTHROPIC_AUTH_TOKEN"
                         : providerModalMeta.id === "anthropic"
@@ -581,7 +613,7 @@ export function ProviderEditor({
                   ) : null}
                   {isGeminiModal ? (
                     <span className="placeholder-text">
-                      Sloppy checks this key first, then GEMINI_API_KEY or GOOGLE_API_KEY, then scoped OAuth.
+                      Sloppy checks this key first, then GEMINI_API_KEY or GOOGLE_API_KEY, then Sloppy-owned Google OAuth.
                     </span>
                   ) : null}
                 </label>
@@ -744,15 +776,78 @@ export function ProviderEditor({
                   <div className="provider-cli-auth-panel">
                     <div className="provider-cli-auth-panel-head">
                       <span className="material-symbols-rounded" aria-hidden>
-                        terminal
+                        account_circle
                       </span>
-                      <strong>Gemini CLI OAuth</strong>
+                      <strong>Google OAuth</strong>
                     </div>
                     <p className="placeholder-text">
-                      Sign in with Gemini CLI and Sloppy will read <code>~/.gemini/oauth_creds.json</code> automatically.
-                      OAuth tokens must include the Gemini API scope; otherwise use an API key.
+                      Sign in with Google here and Sloppy will save refreshable Gemini credentials in{" "}
+                      <code>.sloppy/auth/gemini-oauth-auth.json</code>. OAuth tokens must include the Cloud Platform scope.
                     </p>
-                    <code className="provider-cli-command">gemini auth login</code>
+                    <div className="provider-modal-actions">
+                      <button type="button" onClick={onOpenGeminiOAuth}>
+                        {geminiProviderStatus.hasOAuthCredentials ? "Reconnect Gemini" : "Connect Gemini"}
+                      </button>
+                      {geminiProviderStatus.hasOAuthCredentials ? (
+                        <button type="button" onClick={onDisconnectGeminiOAuth}>
+                          Disconnect
+                        </button>
+                      ) : null}
+                    </div>
+                    {geminiOAuthAuthorizationURL ? (
+                      <div className="provider-device-code-card">
+                        <div className="provider-device-code-step">
+                          <span className="provider-device-code-step-number">1</span>
+                          <span>Open Google in this browser or scan the QR code</span>
+                        </div>
+                        <div className="provider-device-code-qr">
+                          <QRCodeSVG
+                            value={geminiOAuthAuthorizationURL}
+                            size={132}
+                            bgColor="#ffffff"
+                            fgColor="#000000"
+                            level="M"
+                          />
+                        </div>
+                        <a
+                          className="provider-device-code-link"
+                          href={geminiOAuthAuthorizationURL}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                        >
+                          Open login page
+                        </a>
+                        <div className="provider-device-code-step">
+                          <span className="provider-device-code-step-number">2</span>
+                          <span>Paste the callback URL or authorization code if the popup cannot return automatically</span>
+                        </div>
+                        <label>
+                          Callback URL
+                          <textarea
+                            rows={2}
+                            value={geminiOAuthManualCallback}
+                            onChange={(event) => onSetGeminiOAuthManualCallback?.(event.target.value)}
+                            placeholder="http://localhost:5173/settings/providers?code=...&state=..."
+                          />
+                        </label>
+                        <label>
+                          Authorization code
+                          <input
+                            value={geminiOAuthManualCode}
+                            onChange={(event) => onSetGeminiOAuthManualCode?.(event.target.value)}
+                            placeholder="Paste code instead of callback URL"
+                          />
+                        </label>
+                        <button type="button" onClick={onCompleteGeminiOAuthManually}>
+                          Complete sign-in
+                        </button>
+                      </div>
+                    ) : null}
+                    <p className="placeholder-text">
+                      {geminiProviderStatus.hasOAuthCredentials
+                        ? `Connected${geminiProviderStatus.oauthEmail ? ` as ${geminiProviderStatus.oauthEmail}` : ""}${geminiProviderStatus.oauthExpiresAt ? `, expires ${geminiProviderStatus.oauthExpiresAt}` : ""}.`
+                        : "Connect Google OAuth or use a Gemini API key."}
+                    </p>
                   </div>
                 ) : null}
               </div>

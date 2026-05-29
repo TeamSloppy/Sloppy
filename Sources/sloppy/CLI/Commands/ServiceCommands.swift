@@ -161,6 +161,13 @@ enum ServiceManager {
         """
     }
 
+    static func macOSRestartCommands(plistPath: String) -> [[String]] {
+        [
+            ["launchctl", "unload", "-w", plistPath],
+            ["launchctl", "load", "-w", plistPath],
+        ]
+    }
+
     private static func xmlEscaped(_ value: String) -> String {
         value
             .replacingOccurrences(of: "&", with: "&amp;")
@@ -459,8 +466,8 @@ struct ServiceStopCommand: AsyncParsableCommand {
 
 // MARK: - restart
 
-/// Stops and then immediately starts the service. Useful after changing
-/// `sloppy.json` when no config reload API call is needed.
+/// Restarts the service. On macOS this reloads the LaunchAgent plist so
+/// launchd refreshes the executable metadata before starting it again.
 struct ServiceRestartCommand: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "restart",
@@ -468,10 +475,40 @@ struct ServiceRestartCommand: AsyncParsableCommand {
     )
 
     mutating func run() async throws {
-        var stop = ServiceStopCommand()
-        try? await stop.run()
-        var start = ServiceStartCommand()
-        try await start.run()
+        switch ServicePlatform.current {
+        case .macOS:
+            try restartMacOS()
+        case .linux:
+            let status = ServiceManager.shellStatus(["systemctl", "--user", "restart", "sloppy.service"])
+            if status == 0 {
+                CLIStyle.success("Sloppy service restarted.")
+            } else {
+                CLIStyle.error("systemctl restart failed (exit \(status)). Is the service installed? Run: sloppy service install")
+                throw ExitCode.failure
+            }
+        case .unsupported(let name):
+            CLIStyle.error("Unsupported platform: \(name).")
+            throw ExitCode.failure
+        }
+    }
+
+    private func restartMacOS() throws {
+        let plistURL = ServiceManager.launchAgentsPlistURL
+        guard FileManager.default.fileExists(atPath: plistURL.path) else {
+            CLIStyle.error("Service is not installed (no plist at \(plistURL.path)). Run: sloppy service install")
+            throw ExitCode.failure
+        }
+
+        let commands = ServiceManager.macOSRestartCommands(plistPath: plistURL.path)
+        _ = ServiceManager.shellStatus(commands[0])
+
+        let status = ServiceManager.shellStatus(commands[1])
+        guard status == 0 else {
+            CLIStyle.error("launchctl load failed (exit \(status)). Check: sloppy service status")
+            throw ExitCode.failure
+        }
+
+        CLIStyle.success("Sloppy service restarted.")
     }
 }
 

@@ -829,7 +829,8 @@ extension AgentChatMode {
         case .ask: return .build
         case .build: return .plan
         case .plan: return .debug
-        case .debug: return .ask
+        case .debug: return .auto
+        case .auto: return .ask
         }
     }
 
@@ -839,6 +840,7 @@ extension AgentChatMode {
         case .build: return "Build"
         case .plan: return "Plan"
         case .debug: return "Debug"
+        case .auto: return "Auto"
         }
     }
 }

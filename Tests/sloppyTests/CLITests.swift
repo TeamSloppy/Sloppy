@@ -80,6 +80,18 @@ func serviceLaunchAgentPlistIncludesPathEnvironmentOnly() throws {
     #expect(!plist.contains("secret"))
 }
 
+@Test
+func serviceMacOSRestartReloadsLaunchAgentPlist() {
+    let commands = ServiceManager.macOSRestartCommands(
+        plistPath: "/Users/example/Library/LaunchAgents/com.sloppy.server.plist"
+    )
+
+    #expect(commands == [
+        ["launchctl", "unload", "-w", "/Users/example/Library/LaunchAgents/com.sloppy.server.plist"],
+        ["launchctl", "load", "-w", "/Users/example/Library/LaunchAgents/com.sloppy.server.plist"],
+    ])
+}
+
 // MARK: - CLIFormatters tests
 
 @Test

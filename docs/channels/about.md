@@ -136,13 +136,14 @@ Both built-in plugins register a shared set of slash commands. These are handled
 | `/model [model_id]` | Show or switch the channel model |
 | `/ask <question>` | Answer once without code changes |
 | `/plan <request>` | Plan once without code changes |
+| `/auto <request>` | Choose ask, plan, debug, build, or skill route once |
 | `/context` | Show token usage and context info |
 | `/abort` | Abort current agent processing |
 | `/create-skill <description>` | Create a new agent skill |
 | `/create-subagent <description>` | Create a subagent |
 | `/fork <task>` | Fork an operation to a subagent |
 
-Regular Telegram and Discord messages use build mode by default, so the agent may answer, edit code, and use tools. `/ask` and `/plan` apply only to that single message and do not change the channel's future behavior.
+Regular Telegram and Discord messages use build mode by default, so the agent may answer, edit code, and use tools. `/ask`, `/plan`, and `/auto` apply only to that single message and do not change the channel's future behavior.
 
 ## Streaming
 

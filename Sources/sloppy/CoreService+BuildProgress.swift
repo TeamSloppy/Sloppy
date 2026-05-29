@@ -10,13 +10,13 @@ extension CoreService {
         request: ToolInvocationRequest,
         chatMode: AgentChatMode?
     ) async -> ToolInvocationResult {
-        guard chatMode == .build else {
+        guard chatMode == .build || chatMode == .auto else {
             return ToolInvocationResult(
                 tool: request.tool,
                 ok: false,
                 error: ToolErrorPayload(
                     code: "build_mode_required",
-                    message: "`planning.progress_update` is only available in build mode.",
+                    message: "`planning.progress_update` is only available in build or auto mode.",
                     retryable: false
                 )
             )

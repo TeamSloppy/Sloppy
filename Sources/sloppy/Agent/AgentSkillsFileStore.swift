@@ -153,6 +153,7 @@ final class AgentSkillsFileStore {
         allowedTools: [String] = [],
         context: SkillContext? = nil,
         agent: String? = nil,
+        autoRoute: String? = nil,
         localPath: String? = nil
     ) throws -> InstalledSkill {
         let normalizedAgentID = try normalizedAgentID(agentID)
@@ -197,7 +198,8 @@ final class AgentSkillsFileStore {
             userInvocable: userInvocable,
             allowedTools: allowedTools,
             context: context,
-            agent: agent
+            agent: agent,
+            autoRoute: normalizedFrontmatterValue(autoRoute)
         )
 
         manifest.installedSkills.append(skill)
@@ -310,7 +312,8 @@ final class AgentSkillsFileStore {
                 userInvocable: definition.userInvocable,
                 allowedTools: definition.allowedTools,
                 context: existing.context,
-                agent: existing.agent
+                agent: existing.agent,
+                autoRoute: existing.autoRoute
             )
             manifest.installedSkills[index] = installed
         } else {
@@ -428,7 +431,8 @@ final class AgentSkillsFileStore {
             userInvocable: userInvocable,
             allowedTools: allowedTools,
             context: context,
-            agent: normalizedFrontmatterValue(frontmatter?.agent)
+            agent: normalizedFrontmatterValue(frontmatter?.agent),
+            autoRoute: normalizedFrontmatterValue(frontmatter?.autoRoute)
         )
     }
 

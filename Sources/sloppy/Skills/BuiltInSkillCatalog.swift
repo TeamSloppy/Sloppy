@@ -17,6 +17,7 @@ enum BuiltInSkillCatalog {
     static let modeBuildID = "sloppy/mode-build"
     static let modePlanID = "sloppy/mode-plan"
     static let modeDebugID = "sloppy/mode-debug"
+    static let modeAutoID = "sloppy/mode-auto"
 
     static func all() -> [BuiltInSkillDefinition] {
         [
@@ -24,6 +25,7 @@ enum BuiltInSkillCatalog {
             modeSkill(for: .build),
             modeSkill(for: .plan),
             modeSkill(for: .debug),
+            modeSkill(for: .auto),
             taskSpecWriter()
         ]
     }
@@ -45,6 +47,8 @@ enum BuiltInSkillCatalog {
             return "mode-plan"
         case .debug:
             return "mode-debug"
+        case .auto:
+            return "mode-auto"
         }
     }
 
@@ -138,6 +142,8 @@ enum BuiltInSkillCatalog {
             return "Runtime instructions for Plan mode: produce implementation or investigation plans without code mutation."
         case .debug:
             return "Runtime instructions for Debug mode: investigate with hypotheses, instrumentation, logs, and user feedback."
+        case .auto:
+            return "Runtime instructions for Auto mode: select the best behavior route from the route catalog, then follow that route."
         }
     }
 
@@ -146,7 +152,7 @@ enum BuiltInSkillCatalog {
         // Keep this empty so mode metadata does not look like the whole tool surface;
         // actual access is governed by the agent tool policy, guardrails, approvals, and sandbox.
         switch mode {
-        case .ask, .build, .plan, .debug:
+        case .ask, .build, .plan, .debug, .auto:
             return []
         }
     }
@@ -211,6 +217,19 @@ enum BuiltInSkillCatalog {
             Improve the existing debug session in a hypothesis-driven loop.
             Add focused diagnostic logging or instrumentation, wrap temporary blocks with `// #region agent debug` and `// #endregion`, and write NDJSON logs under `.sloppy/debug/debug-<shortSessionId>.log`.
             Use `planning.request_input` to pause for Proceed, Bug is repeated, or Mark as fixed, then use logs to classify hypotheses as CONFIRMED, REJECTED, or INCONCLUSIVE.
+            """
+        case .auto:
+            return """
+            ---
+            name: mode-auto
+            description: Runtime instructions for Auto mode.
+            userInvocable: false
+            ---
+
+            # Auto Mode
+
+            Choose one route from the Auto route catalog before acting, then follow that route's referenced mode or skill instructions in the same turn.
+            Do not mutate files unless the selected route permits it. If no route is a good fit, use the Ask route and answer directly or ask for the smallest clarification needed.
             """
         }
     }

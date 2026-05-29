@@ -1,9 +1,67 @@
 import ACP
 import ACPModel
 import Foundation
+import Logging
 import Testing
 @testable import Protocols
 @testable import sloppy
+
+private typealias SwiftLogger = Logging.Logger
+
+private final class ACPLogRecorder: @unchecked Sendable {
+    private let lock = NSLock()
+    private var records: [(level: SwiftLogger.Level, message: String, metadata: [String: String])] = []
+
+    func append(level: SwiftLogger.Level, message: SwiftLogger.Message, metadata: SwiftLogger.Metadata) {
+        lock.withLock {
+            records.append((
+                level: level,
+                message: message.description,
+                metadata: metadata.mapValues { value in
+                    String(describing: value)
+                }
+            ))
+        }
+    }
+
+    func snapshot() -> [(level: SwiftLogger.Level, message: String, metadata: [String: String])] {
+        lock.withLock {
+            records
+        }
+    }
+}
+
+private struct ACPRecordingLogHandler: LogHandler {
+    let label: String
+    let recorder: ACPLogRecorder
+    var metadata: SwiftLogger.Metadata = [:]
+    var logLevel: SwiftLogger.Level = .trace
+
+    subscript(metadataKey key: String) -> SwiftLogger.Metadata.Value? {
+        get { metadata[key] }
+        set { metadata[key] = newValue }
+    }
+
+    func log(event: LogEvent) {
+        var merged = metadata
+        if let explicitMetadata = event.metadata {
+            for (key, value) in explicitMetadata {
+                merged[key] = value
+            }
+        }
+        recorder.append(level: event.level, message: event.message, metadata: merged)
+    }
+}
+
+private func makeRecordingLogger(_ recorder: ACPLogRecorder) -> SwiftLogger {
+    SwiftLogger(label: "test.acp") { label in
+        ACPRecordingLogHandler(label: label, recorder: recorder)
+    }
+}
+
+private func makeNoOpLogger() -> SwiftLogger {
+    SwiftLogger(label: "sloppy.acp.test") { _ in SwiftLogNoOpLogHandler() }
+}
 
 private final class MockACPClientQueue: @unchecked Sendable {
     private let lock = NSLock()
@@ -169,7 +227,8 @@ private func makeInitializeResponse(loadSession: Bool) -> InitializeResponse {
 
 private func makeSessionManagerFixture(
     target: CoreConfig.ACP.Target,
-    clients: [MockACPTransportClient]
+    clients: [MockACPTransportClient],
+    logger: SwiftLogger? = nil
 ) throws -> (manager: ACPSessionManager, agentsRootURL: URL, sessionID: String) {
     let root = FileManager.default.temporaryDirectory
         .appendingPathComponent("acp-session-manager-\(UUID().uuidString)", isDirectory: true)
@@ -182,12 +241,49 @@ private func makeSessionManagerFixture(
         config: .init(enabled: true, targets: [target]),
         workspaceRootURL: root,
         agentsRootURL: agentsRootURL,
+        logger: logger ?? makeNoOpLogger(),
         clientFactory: ACPClientFactory { _ in
             queue.next()
         }
     )
 
     return (manager, agentsRootURL, "session-1")
+}
+
+@Test
+func acpSessionManagerLogsLifecycleEventsForDashboard() async throws {
+    let target = CoreConfig.ACP.Target(
+        id: "local",
+        title: "Local ACP",
+        transport: .stdio,
+        command: "/bin/echo"
+    )
+    let recorder = ACPLogRecorder()
+    let logger = makeRecordingLogger(recorder)
+    let client = MockACPTransportClient(initializeResponse: makeInitializeResponse(loadSession: true))
+    let (manager, _, sessionID) = try makeSessionManagerFixture(
+        target: target,
+        clients: [client],
+        logger: logger
+    )
+
+    _ = try await manager.postMessage(
+        agentID: "agent-1",
+        sloppySessionID: sessionID,
+        runtime: .init(type: .acp, acp: .init(targetId: "local")),
+        content: [.text(TextContent(text: "hello"))],
+        localSessionHadPriorMessages: false,
+        primerContent: nil,
+        onChunk: { _ in },
+        onEvent: { _ in }
+    )
+
+    let logs = recorder.snapshot()
+    #expect(logs.contains { $0.message == "ACP prompt dispatch started" })
+    #expect(logs.contains { $0.message == "ACP client initialized" })
+    #expect(logs.contains { $0.message == "ACP upstream session created" })
+    #expect(logs.contains { $0.message == "ACP prompt completed" })
+    #expect(logs.allSatisfy { $0.metadata["agent_id"] == "agent-1" || $0.metadata["agent_id"] == nil })
 }
 
 @Test
@@ -305,6 +401,7 @@ func acpSessionManagerRestoresMatchingSidecarViaLoadSessionWithoutPrimer() async
         config: .init(enabled: true, targets: [target]),
         workspaceRootURL: fixture.agentsRootURL.deletingLastPathComponent(),
         agentsRootURL: fixture.agentsRootURL,
+        logger: makeNoOpLogger(),
         clientFactory: ACPClientFactory { _ in queue.next() }
     )
 
@@ -364,6 +461,7 @@ func acpSessionManagerDropsMismatchedSidecarAndCreatesNewUpstreamSession() async
         config: .init(enabled: true, targets: [changedTarget]),
         workspaceRootURL: fixture.agentsRootURL.deletingLastPathComponent(),
         agentsRootURL: fixture.agentsRootURL,
+        logger: makeNoOpLogger(),
         clientFactory: ACPClientFactory { _ in queue.next() }
     )
 

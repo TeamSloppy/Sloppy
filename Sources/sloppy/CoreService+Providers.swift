@@ -85,6 +85,25 @@ extension CoreService {
         )
     }
 
+    public func geminiProviderStatus() -> GeminiProviderStatusResponse {
+        let config = currentConfig
+        let hasEnvironmentKey = ["GEMINI_API_KEY", "GOOGLE_API_KEY"]
+            .compactMap { ProcessInfo.processInfo.environment[$0]?.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .contains { !$0.isEmpty }
+        let hasConfiguredKey = Self.geminiHasApiKey(config: config)
+        let oauthStatus = geminiOAuthService.status()
+
+        return GeminiProviderStatusResponse(
+            provider: "gemini",
+            hasEnvironmentKey: hasEnvironmentKey,
+            hasConfiguredKey: hasConfiguredKey,
+            hasAnyKey: hasEnvironmentKey || hasConfiguredKey || oauthStatus.hasCredentials,
+            hasOAuthCredentials: oauthStatus.hasCredentials,
+            oauthEmail: oauthStatus.email,
+            oauthExpiresAt: oauthStatus.expiresAt
+        )
+    }
+
     /// Probes provider connectivity and returns remote model options on success.
     public func probeProvider(request: ProviderProbeRequest) async -> ProviderProbeResponse {
         if request.providerId == .openAIOAuth {
@@ -125,6 +144,7 @@ extension CoreService {
         let config = currentConfig
         let oauthService = openAIOAuthService
         let anthropicOAuthService = self.anthropicOAuthService
+        let geminiOAuthService = self.geminiOAuthService
         let workspaceRootURL = self.workspaceRootURL
         let hasOAuth = oauthService.currentAccessToken() != nil
         let resolvedModels = CoreModelProviderFactory.resolveModelIdentifiers(
@@ -142,6 +162,7 @@ extension CoreService {
             anthropicOAuthTokenProvider: { anthropicOAuthService.currentAccessToken() },
             anthropicOAuthTokenRefresh: { try await anthropicOAuthService.ensureValidToken() },
             anthropicSettingsProvider: { ClaudeSettingsEnvironment.load(workspaceRootURL: workspaceRootURL) },
+            geminiOAuthCredentialsProvider: { geminiOAuthService.currentCredentials() },
             proxySession: ProxySessionFactory.makeSession(proxy: config.proxy),
             currentDirectory: workspaceCurrentDirectory
         ) else {
@@ -199,6 +220,18 @@ extension CoreService {
 
     public func disconnectAnthropicOAuth() throws {
         try anthropicOAuthService.disconnect()
+    }
+
+    public func startGeminiOAuth(request: GeminiOAuthStartRequest) throws -> GeminiOAuthStartResponse {
+        try geminiOAuthService.startLogin(redirectURI: request.redirectURI)
+    }
+
+    public func completeGeminiOAuth(request: GeminiOAuthCompleteRequest) async throws -> GeminiOAuthCompleteResponse {
+        try await geminiOAuthService.completeLogin(request: request)
+    }
+
+    public func disconnectGeminiOAuth() throws {
+        try geminiOAuthService.disconnect()
     }
 
     public func gitHubAuthStatus() -> GitHubAuthStatusResponse {
@@ -398,7 +431,9 @@ extension CoreService {
                 .first { !$0.isEmpty } ?? ""
             if !env.isEmpty { return true }
             return geminiHasApiKey(config: config)
-                || GeminiOAuthCredentials.load()?.isUsableForGenerativeLanguageAPI == true
+                || GeminiOAuthCredentials.load(
+                    workspaceRootURL: config.resolvedWorkspaceRootURL(currentDirectory: FileManager.default.currentDirectoryPath)
+                )?.isUsableForAntigravityCLI == true
         case "anthropic":
             guard knowsProvider else { return false }
             let env = ProcessInfo.processInfo.environment["ANTHROPIC_API_KEY"]?

@@ -19,6 +19,11 @@ struct ProvidersAPIRouter: APIRouter {
             return CoreRouter.encodable(status: HTTPStatus.ok, payload: status)
         }
 
+        router.get("/v1/providers/gemini/status", metadata: RouteMetadata(summary: "Gemini status", description: "Returns the current status of the Gemini provider", tags: ["Providers"])) { _ in
+            let status = await service.geminiProviderStatus()
+            return CoreRouter.encodable(status: HTTPStatus.ok, payload: status)
+        }
+
         router.get("/v1/providers/models", metadata: RouteMetadata(summary: "List available provider models", description: "Returns runtime-routable models for agent and channel model pickers", tags: ["Providers"])) { _ in
             let models = await service.listAvailableProviderModels()
             return CoreRouter.encodable(status: HTTPStatus.ok, payload: models)
@@ -169,6 +174,51 @@ struct ProvidersAPIRouter: APIRouter {
         router.post("/v1/providers/anthropic/oauth/disconnect", metadata: RouteMetadata(summary: "Disconnect Anthropic OAuth", description: "Removes stored Anthropic OAuth credentials", tags: ["Providers"])) { _ in
             do {
                 try await service.disconnectAnthropicOAuth()
+                return CoreRouter.json(status: HTTPStatus.ok, payload: ["ok": "true"])
+            } catch {
+                return CoreRouter.json(status: HTTPStatus.badRequest, payload: ["error": error.localizedDescription])
+            }
+        }
+
+        router.post("/v1/providers/gemini/oauth/start", metadata: RouteMetadata(summary: "Start Gemini OAuth", description: "Creates a Google OAuth authorization URL for Gemini", tags: ["Providers"])) { request in
+            guard let body = request.body,
+                  let payload = CoreRouter.decode(body, as: GeminiOAuthStartRequest.self)
+            else {
+                return CoreRouter.json(status: HTTPStatus.badRequest, payload: ["error": ErrorCode.invalidBody])
+            }
+
+            do {
+                let response = try await service.startGeminiOAuth(request: payload)
+                return CoreRouter.encodable(status: HTTPStatus.ok, payload: response)
+            } catch {
+                return CoreRouter.json(status: HTTPStatus.badRequest, payload: ["error": error.localizedDescription])
+            }
+        }
+
+        router.post("/v1/providers/gemini/oauth/complete", metadata: RouteMetadata(summary: "Complete Gemini OAuth", description: "Exchanges the Google OAuth authorization code for Gemini tokens", tags: ["Providers"])) { request in
+            guard let body = request.body,
+                  let payload = CoreRouter.decode(body, as: GeminiOAuthCompleteRequest.self)
+            else {
+                return CoreRouter.json(status: HTTPStatus.badRequest, payload: ["error": ErrorCode.invalidBody])
+            }
+
+            do {
+                let response = try await service.completeGeminiOAuth(request: payload)
+                return CoreRouter.encodable(status: HTTPStatus.ok, payload: response)
+            } catch {
+                return CoreRouter.encodable(
+                    status: HTTPStatus.ok,
+                    payload: GeminiOAuthCompleteResponse(
+                        ok: false,
+                        message: error.localizedDescription
+                    )
+                )
+            }
+        }
+
+        router.post("/v1/providers/gemini/oauth/disconnect", metadata: RouteMetadata(summary: "Disconnect Gemini OAuth", description: "Removes stored Gemini OAuth credentials", tags: ["Providers"])) { _ in
+            do {
+                try await service.disconnectGeminiOAuth()
                 return CoreRouter.json(status: HTTPStatus.ok, payload: ["ok": "true"])
             } catch {
                 return CoreRouter.json(status: HTTPStatus.badRequest, payload: ["error": error.localizedDescription])

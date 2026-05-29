@@ -51,6 +51,7 @@ public struct ChannelCommandHandler: Sendable {
         BotCommand(name: "model", description: "Show or switch model", argument: "model_id"),
         BotCommand(name: "ask", description: "Ask a question without code changes", argument: "message", surfaces: [.telegram, .discord]),
         BotCommand(name: "plan", description: "Create a plan without code changes", argument: "message", surfaces: [.telegram, .discord]),
+        BotCommand(name: "auto", description: "Automatically choose ask, plan, debug, build, or skill route", argument: "message", surfaces: [.telegram, .discord]),
         BotCommand(name: "channel_link", description: "Link this channel or topic to a project"),
         BotCommand(name: "context", description: "Show token usage and context info"),
         BotCommand(name: "abort", description: "Abort current agent processing"),
@@ -137,6 +138,10 @@ public struct ChannelCommandHandler: Sendable {
         }
 
         if lower == "/plan" || lower.hasPrefix("/plan ") {
+            return nil
+        }
+
+        if lower == "/auto" || lower.hasPrefix("/auto ") {
             return nil
         }
 

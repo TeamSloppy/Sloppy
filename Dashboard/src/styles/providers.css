@@ -1027,6 +1027,13 @@
   background: var(--surface-3);
 }
 
+.provider-device-code-card label {
+  display: grid;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 0.88rem;
+}
+
 .provider-device-code-step {
   display: flex;
   align-items: center;
