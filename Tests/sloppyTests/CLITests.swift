@@ -41,6 +41,19 @@ func cliStyleWhiteBoldContainsInput() {
     #expect(CLIStyle.whiteBold("id-123").contains("id-123"))
 }
 
+@Test
+func rootCommandDoesNotStartTUIWhenStdioIsNotInteractive() {
+    #expect(!SloppyApp.shouldStartTUI(prompt: nil, stdinIsTTY: false, stdoutIsTTY: false))
+    #expect(!SloppyApp.shouldStartTUI(prompt: nil, stdinIsTTY: true, stdoutIsTTY: false))
+    #expect(!SloppyApp.shouldStartTUI(prompt: nil, stdinIsTTY: false, stdoutIsTTY: true))
+}
+
+@Test
+func rootCommandAllowsTUIOnlyForInteractiveStdioWithoutPrompt() {
+    #expect(SloppyApp.shouldStartTUI(prompt: nil, stdinIsTTY: true, stdoutIsTTY: true))
+    #expect(!SloppyApp.shouldStartTUI(prompt: "hello", stdinIsTTY: true, stdoutIsTTY: true))
+}
+
 // MARK: - Service command tests
 
 @Test

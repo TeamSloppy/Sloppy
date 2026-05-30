@@ -2,6 +2,7 @@ import ACP
 import ACPModel
 import ArgumentParser
 import Foundation
+import Logging
 
 struct ACPCommand: SloppyGroupCommand {
     static let configuration = CommandConfiguration(
@@ -48,7 +49,11 @@ struct ACPServeCommand: AsyncParsableCommand {
                 ? cwd
                 : config.acp.server.cwd
 
-            let transport = StdinTransport()
+            let stdioTransport = StdinTransport()
+            let transport = ACPLoggingTransport(
+                wrapping: stdioTransport,
+                logger: Logger(label: "sloppy.acp.server.stdio")
+            )
             let acpAgent = ACP.Agent(transport: transport)
             let delegate = SloppyACPServerDelegate(
                 service: service,
@@ -59,7 +64,7 @@ struct ACPServeCommand: AsyncParsableCommand {
                 }
             )
             await acpAgent.setDelegate(delegate)
-            await transport.start()
+            await stdioTransport.start()
             await acpAgent.start()
         } catch let exit as ExitCode {
             throw exit

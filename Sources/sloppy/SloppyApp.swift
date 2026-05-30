@@ -1,5 +1,10 @@
 import ArgumentParser
 import Foundation
+#if canImport(Darwin)
+import Darwin
+#elseif canImport(Glibc)
+import Glibc
+#endif
 
 @main
 struct SloppyApp: AsyncParsableCommand {
@@ -79,6 +84,18 @@ struct SloppyApp: AsyncParsableCommand {
                 throw ExitCode.failure
             }
         }
+        guard Self.shouldStartTUI(
+            prompt: prompt,
+            stdinIsTTY: isatty(STDIN_FILENO) != 0,
+            stdoutIsTTY: isatty(STDOUT_FILENO) != 0
+        ) else {
+            CLIStyle.error("Refusing to start the interactive TUI on non-interactive stdio. Use `sloppy acp serve` for ACP stdio or `sloppy -p <prompt>` for one-shot prompts.")
+            throw ExitCode.failure
+        }
         try await SloppyTUIApp(requestedSessionID: session).run()
+    }
+
+    static func shouldStartTUI(prompt: String?, stdinIsTTY: Bool, stdoutIsTTY: Bool) -> Bool {
+        prompt == nil && stdinIsTTY && stdoutIsTTY
     }
 }

@@ -2,6 +2,7 @@ import ACP
 import ACPHTTP
 import ACPModel
 import Foundation
+import Logging
 #if canImport(FoundationNetworking)
 import FoundationNetworking
 #endif
@@ -49,11 +50,21 @@ actor LocalProcessACPClient: ACPTransportClient {
     private let command: String
     private let arguments: [String]
     private let environment: [String: String]
+    private let logger: Logging.Logger
+    private let transportName: String
 
-    init(command: String, arguments: [String], environment: [String: String]) {
+    init(
+        command: String,
+        arguments: [String],
+        environment: [String: String],
+        logger: Logging.Logger = Logging.Logger(label: "sloppy.acp.transport.local"),
+        transportName: String = "stdio"
+    ) {
         self.command = command
         self.arguments = arguments
         self.environment = environment
+        self.logger = logger
+        self.transportName = transportName
     }
 
     func setDelegate(_ delegate: ClientDelegate?) async {
@@ -70,54 +81,110 @@ actor LocalProcessACPClient: ACPTransportClient {
         clientInfo: ClientInfo,
         timeout: TimeInterval?
     ) async throws -> InitializeResponse {
-        try await client.launch(
-            agentPath: command,
-            arguments: arguments,
-            workingDirectory: workingDirectory,
-            environment: environment
-        )
-        return try await client.initialize(
-            capabilities: capabilities,
-            clientInfo: clientInfo,
-            timeout: timeout
-        )
+        try await logged(method: "initialize") {
+            try await client.launch(
+                agentPath: command,
+                arguments: arguments,
+                workingDirectory: workingDirectory,
+                environment: environment
+            )
+            return try await client.initialize(
+                capabilities: capabilities,
+                clientInfo: clientInfo,
+                timeout: timeout
+            )
+        }
     }
 
     func newSession(workingDirectory: String, timeout: TimeInterval?) async throws -> NewSessionResponse {
-        try await client.newSession(workingDirectory: workingDirectory, timeout: timeout)
+        try await logged(method: "session/new") {
+            try await client.newSession(workingDirectory: workingDirectory, timeout: timeout)
+        }
     }
 
     func loadSession(sessionId: SessionId, cwd: String?) async throws -> LoadSessionResponse {
-        try await client.loadSession(sessionId: sessionId, cwd: cwd)
+        try await logged(method: "session/load", sessionId: sessionId) {
+            try await client.loadSession(sessionId: sessionId, cwd: cwd)
+        }
     }
 
     func setMode(sessionId: SessionId, modeId: String) async throws -> SetModeResponse {
-        try await client.setMode(sessionId: sessionId, modeId: modeId)
+        try await logged(method: "session/set_mode", sessionId: sessionId) {
+            try await client.setMode(sessionId: sessionId, modeId: modeId)
+        }
     }
 
     func sendPrompt(sessionId: SessionId, content: [ContentBlock]) async throws -> SessionPromptResponse {
-        try await client.sendPrompt(sessionId: sessionId, content: content)
+        try await logged(method: "session/prompt", sessionId: sessionId) {
+            try await client.sendPrompt(sessionId: sessionId, content: content)
+        }
     }
 
     func cancelSession(sessionId: SessionId) async throws {
-        try await client.cancelSession(sessionId: sessionId)
+        try await logged(method: "session/cancel", sessionId: sessionId) {
+            try await client.cancelSession(sessionId: sessionId)
+        }
     }
 
     func terminate() async {
         await client.terminate()
+    }
+
+    private func logged<T>(
+        method: String,
+        sessionId: SessionId? = nil,
+        operation: () async throws -> T
+    ) async throws -> T {
+        do {
+            return try await operation()
+        } catch {
+            logFailure(method: method, sessionId: sessionId, error: error)
+            throw error
+        }
+    }
+
+    private func logFailure(method: String, sessionId: SessionId?, error: Error) {
+        var metadata: Logging.Logger.Metadata = [
+            "transport": .string(transportName),
+            "method": .string(method),
+            "error": .string(error.localizedDescription),
+        ]
+        if let sessionId {
+            metadata["sessionId"] = .string(sessionId.value)
+        }
+        logger.error("ACP transport method failed", metadata: metadata)
     }
 }
 
 actor SSHProcessACPClient: ACPTransportClient {
     private let inner: LocalProcessACPClient
 
-    init(target: CoreConfig.ACP.Target) throws {
+    init(
+        target: CoreConfig.ACP.Target,
+        logger: Logging.Logger = Logging.Logger(label: "sloppy.acp.transport.ssh")
+    ) throws {
         let command = "ssh"
-        let arguments = try Self.buildArguments(target: target)
+        let arguments: [String]
+        do {
+            arguments = try Self.buildArguments(target: target)
+        } catch {
+            logger.error(
+                "ACP transport method failed",
+                metadata: [
+                    "transport": .string("ssh"),
+                    "method": .string("init"),
+                    "target": .string(target.id),
+                    "error": .string(error.localizedDescription),
+                ]
+            )
+            throw error
+        }
         self.inner = LocalProcessACPClient(
             command: command,
             arguments: arguments,
-            environment: [:]
+            environment: [:],
+            logger: logger,
+            transportName: "ssh"
         )
     }
 
@@ -206,6 +273,7 @@ actor WebSocketACPClient: ACPTransportClient {
     private let session: URLSession
     private let encoder = JSONEncoder()
     private let decoder = JSONDecoder()
+    private let logger: Logging.Logger
 
     private var pendingRequests: [RequestId: CheckedContinuation<JSONRPCResponse, Error>] = [:]
     private var nextRequestId = 1
@@ -219,12 +287,25 @@ actor WebSocketACPClient: ACPTransportClient {
     private let notificationContinuation: AsyncStream<JSONRPCNotification>.Continuation
     private let notificationStream: AsyncStream<JSONRPCNotification>
 
-    init(target: CoreConfig.ACP.Target) throws {
+    init(
+        target: CoreConfig.ACP.Target,
+        logger: Logging.Logger = Logging.Logger(label: "sloppy.acp.transport.websocket")
+    ) throws {
         let rawURL = (target.url ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         guard let url = URL(string: rawURL), !rawURL.isEmpty else {
+            logger.error(
+                "ACP transport method failed",
+                metadata: [
+                    "transport": .string("websocket"),
+                    "method": .string("init"),
+                    "target": .string(target.id),
+                    "error": .string("ACP WebSocket target '\(target.id)' requires a valid url."),
+                ]
+            )
             throw ACPSessionManager.ACPError.invalidTarget("ACP WebSocket target '\(target.id)' requires a valid url.")
         }
 
+        self.logger = logger
         let configuration = URLSessionConfiguration.default
         if !target.headers.isEmpty {
             configuration.httpAdditionalHeaders = target.headers
@@ -255,46 +336,72 @@ actor WebSocketACPClient: ACPTransportClient {
         clientInfo: ClientInfo,
         timeout: TimeInterval?
     ) async throws -> InitializeResponse {
-        guard !isConnected else {
-            throw ClientError.transportError("Already connected")
-        }
-
-        try await transport.connect()
-        isConnected = true
-        receiverTask = Task { [weak self] in
-            guard let self else { return }
-            for await data in transport.messages {
-                await self.handleMessage(data)
+        try await logged(method: "initialize") {
+            guard !isConnected else {
+                throw ClientError.transportError("Already connected")
             }
-            await self.handleConnectionClosed()
-        }
 
-        return try await initialize(
-            capabilities: capabilities,
-            clientInfo: clientInfo,
-            timeout: timeout
-        )
+            try await transport.connect()
+            isConnected = true
+            receiverTask = Task { [weak self] in
+                guard let self else { return }
+                for await data in transport.messages {
+                    await self.handleMessage(data)
+                }
+                await self.handleConnectionClosed()
+            }
+
+            return try await initialize(
+                capabilities: capabilities,
+                clientInfo: clientInfo,
+                timeout: timeout
+            )
+        }
     }
 
     func newSession(workingDirectory: String, timeout: TimeInterval?) async throws -> NewSessionResponse {
-        let request = NewSessionRequest(cwd: workingDirectory)
-        let response = try await sendRequest(method: "session/new", params: request, timeout: timeout)
-        return try decodeResult(response, as: NewSessionResponse.self)
+        try await logged(method: "session/new") {
+            let request = NewSessionRequest(cwd: workingDirectory)
+            let response = try await sendRequest(method: "session/new", params: request, timeout: timeout)
+            return try decodeResult(response, as: NewSessionResponse.self)
+        }
     }
 
     func loadSession(sessionId: SessionId, cwd: String?) async throws -> LoadSessionResponse {
-        let request = LoadSessionRequest(sessionId: sessionId, cwd: cwd, mcpServers: nil)
-        let response = try await sendRequest(method: "session/load", params: request, timeout: nil)
+        try await logged(method: "session/load", sessionId: sessionId) {
+            let request = LoadSessionRequest(sessionId: sessionId, cwd: cwd, mcpServers: nil)
+            let response = try await sendRequest(method: "session/load", params: request, timeout: nil)
 
-        if let error = response.error {
-            if isSessionAlreadyActive(error) {
-                return LoadSessionResponse(sessionId: sessionId, modes: nil, models: nil, configOptions: nil)
+            if let error = response.error {
+                if isSessionAlreadyActive(error) {
+                    return LoadSessionResponse(sessionId: sessionId, modes: nil, models: nil, configOptions: nil)
+                }
+                throw ClientError.agentError(error)
             }
-            throw ClientError.agentError(error)
-        }
 
-        let extractedSessionId = extractSessionId(from: response.result)
-        guard let result = response.result else {
+            let extractedSessionId = extractSessionId(from: response.result)
+            guard let result = response.result else {
+                return LoadSessionResponse(
+                    sessionId: extractedSessionId ?? sessionId,
+                    modes: nil,
+                    models: nil,
+                    configOptions: nil
+                )
+            }
+
+            let data = try encoder.encode(result)
+            if let payload = try? decoder.decode(LoadSessionResponsePayload.self, from: data) {
+                return LoadSessionResponse(
+                    sessionId: payload.sessionId ?? extractedSessionId ?? sessionId,
+                    modes: payload.modes,
+                    models: payload.models,
+                    configOptions: payload.configOptions
+                )
+            }
+            if let decoded = try? decoder.decode(LoadSessionResponse.self, from: data) {
+                return decoded
+            }
+
             return LoadSessionResponse(
                 sessionId: extractedSessionId ?? sessionId,
                 modes: nil,
@@ -302,38 +409,22 @@ actor WebSocketACPClient: ACPTransportClient {
                 configOptions: nil
             )
         }
-
-        let data = try encoder.encode(result)
-        if let payload = try? decoder.decode(LoadSessionResponsePayload.self, from: data) {
-            return LoadSessionResponse(
-                sessionId: payload.sessionId ?? extractedSessionId ?? sessionId,
-                modes: payload.modes,
-                models: payload.models,
-                configOptions: payload.configOptions
-            )
-        }
-        if let decoded = try? decoder.decode(LoadSessionResponse.self, from: data) {
-            return decoded
-        }
-
-        return LoadSessionResponse(
-            sessionId: extractedSessionId ?? sessionId,
-            modes: nil,
-            models: nil,
-            configOptions: nil
-        )
     }
 
     func setMode(sessionId: SessionId, modeId: String) async throws -> SetModeResponse {
-        let request = SetModeRequest(sessionId: sessionId, modeId: modeId)
-        let response = try await sendRequest(method: "session/set_mode", params: request, timeout: nil)
-        return try decodeResult(response, as: SetModeResponse.self)
+        try await logged(method: "session/set_mode", sessionId: sessionId) {
+            let request = SetModeRequest(sessionId: sessionId, modeId: modeId)
+            let response = try await sendRequest(method: "session/set_mode", params: request, timeout: nil)
+            return try decodeResult(response, as: SetModeResponse.self)
+        }
     }
 
     func sendPrompt(sessionId: SessionId, content: [ContentBlock]) async throws -> SessionPromptResponse {
-        let request = SessionPromptRequest(sessionId: sessionId, prompt: content)
-        let response = try await sendRequest(method: "session/prompt", params: request, timeout: nil)
-        return try decodeResult(response, as: SessionPromptResponse.self)
+        try await logged(method: "session/prompt", sessionId: sessionId) {
+            let request = SessionPromptRequest(sessionId: sessionId, prompt: content)
+            let response = try await sendRequest(method: "session/prompt", params: request, timeout: nil)
+            return try decodeResult(response, as: SessionPromptResponse.self)
+        }
     }
 
     func cancelSession(sessionId: SessionId) async throws {
@@ -341,7 +432,9 @@ actor WebSocketACPClient: ACPTransportClient {
             let sessionId: SessionId
         }
 
-        try await sendNotification(method: "session/cancel", params: CancelParams(sessionId: sessionId))
+        try await logged(method: "session/cancel", sessionId: sessionId) {
+            try await sendNotification(method: "session/cancel", params: CancelParams(sessionId: sessionId))
+        }
     }
 
     func terminate() async {
@@ -485,6 +578,7 @@ actor WebSocketACPClient: ACPTransportClient {
             let result = try await routeRequest(request)
             try await sendResponse(JSONRPCResponse(id: request.id, result: result, error: nil))
         } catch let error as ClientError {
+            logFailure(method: request.method, sessionId: nil, error: error)
             let code: Int
             switch error {
             case .invalidResponse:
@@ -499,6 +593,7 @@ actor WebSocketACPClient: ACPTransportClient {
             )
             try? await sendResponse(response)
         } catch {
+            logFailure(method: request.method, sessionId: nil, error: error)
             let response = JSONRPCResponse(
                 id: request.id,
                 result: nil,
@@ -510,6 +605,31 @@ actor WebSocketACPClient: ACPTransportClient {
 
     private func sendResponse(_ response: JSONRPCResponse) async throws {
         try await writeMessage(response)
+    }
+
+    private func logged<T>(
+        method: String,
+        sessionId: SessionId? = nil,
+        operation: () async throws -> T
+    ) async throws -> T {
+        do {
+            return try await operation()
+        } catch {
+            logFailure(method: method, sessionId: sessionId, error: error)
+            throw error
+        }
+    }
+
+    private func logFailure(method: String, sessionId: SessionId?, error: Error) {
+        var metadata: Logging.Logger.Metadata = [
+            "transport": .string("websocket"),
+            "method": .string(method),
+            "error": .string(error.localizedDescription),
+        ]
+        if let sessionId {
+            metadata["sessionId"] = .string(sessionId.value)
+        }
+        logger.error("ACP transport method failed", metadata: metadata)
     }
 
     private func routeRequest(_ request: JSONRPCRequest) async throws -> AnyCodable {
