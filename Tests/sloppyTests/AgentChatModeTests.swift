@@ -16,7 +16,7 @@ func agentChatModeIncludesBuildInPublicContract() throws {
 
     #expect(decoded.mode == .build)
     #expect(AgentChatMode.allCases == [.ask, .build, .plan, .debug, .auto])
-    #expect(AgentChatMode.defaultMode == .build)
+    #expect(AgentChatMode.defaultMode == .auto)
 }
 
 @Test
@@ -32,13 +32,11 @@ func agentChatModeRuntimeInstructionsMatchModeSemantics() {
         autoRouteCatalog: AutoRouteCatalog.defaultMarkdown()
     )
 
-    #expect(defaulted.contains("mode: build"))
-    #expect(defaulted.contains("Instructions are loaded from built-in skill `sloppy/mode-build`"))
-    #expect(defaulted.contains("# Build Mode"))
-    #expect(defaulted.contains("Implement the requested change"))
-    #expect(defaulted.contains("Continue using tools until the requested work is finished"))
-    #expect(defaulted.contains("`session.complete` is optional"))
-    #expect(!defaulted.contains("After any tool-driven work, call `session.complete`"))
+    #expect(defaulted.contains("mode: auto"))
+    #expect(defaulted.contains("Instructions are loaded from built-in skill `sloppy/mode-auto`"))
+    #expect(defaulted.contains("# Auto Mode"))
+    #expect(defaulted.contains("[Auto route catalog]"))
+    #expect(defaulted.contains("route: mode-build"))
     #expect(ask.contains("Instructions are loaded from built-in skill `sloppy/mode-ask`"))
     #expect(ask.contains("# Ask Mode"))
     #expect(ask.contains("Answer the user's question directly"))

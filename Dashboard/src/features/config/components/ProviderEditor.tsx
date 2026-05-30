@@ -827,7 +827,7 @@ export function ProviderEditor({
                             rows={2}
                             value={geminiOAuthManualCallback}
                             onChange={(event) => onSetGeminiOAuthManualCallback?.(event.target.value)}
-                            placeholder="http://localhost:5173/settings/providers?code=...&state=..."
+                            placeholder="http://localhost:25102/oauth2callback?code=...&state=..."
                           />
                         </label>
                         <label>

@@ -117,7 +117,7 @@ const CHAT_MODES = [
   { id: "debug", label: "Debug", icon: "bug_report", description: "Debug mode" },
   { id: "auto", label: "Auto", icon: "auto_mode", description: "Auto mode" }
 ];
-const DEFAULT_CHAT_MODE = "build";
+const DEFAULT_CHAT_MODE = "auto";
 const CHAT_MODE_STORAGE_PREFIX = "sloppy.agentChat.mode";
 const AGENT_CHAT_NO_PAGE_SCROLL_CLASS = "agent-chat-no-page-scroll";
 let agentChatPageScrollLockCount = 0;

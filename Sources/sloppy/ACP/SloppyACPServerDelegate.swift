@@ -110,7 +110,7 @@ final class SloppyACPServerDelegate: AgentDelegate, @unchecked Sendable {
             request: AgentSessionPostMessageRequest(
                 userId: "acp",
                 content: content,
-                mode: .build
+                mode: .defaultMode
             )
         )
         streamTask.cancel()

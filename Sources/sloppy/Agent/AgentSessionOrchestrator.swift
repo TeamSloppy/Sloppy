@@ -906,10 +906,10 @@ actor AgentSessionOrchestrator {
             \(instruction)
             """
         let headerWithCatalog: String
-        if resolvedMode == .auto,
-           let catalog = autoRouteCatalog?.trimmingCharacters(in: .whitespacesAndNewlines),
-           !catalog.isEmpty {
-            headerWithCatalog = "\(header)\n\n\(catalog)"
+        if resolvedMode == .auto {
+            let catalog = autoRouteCatalog?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            let resolvedCatalog = catalog.isEmpty ? AutoRouteCatalog.defaultMarkdown() : catalog
+            headerWithCatalog = "\(header)\n\n\(resolvedCatalog)"
         } else {
             headerWithCatalog = header
         }

@@ -63,9 +63,9 @@ enum OneShotPromptRunner {
 
     private static func resolvedMode(_ raw: String?) -> AgentChatMode? {
         guard let value = raw?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(), !value.isEmpty else {
-            return .build
+            return .defaultMode
         }
-        return AgentChatMode(rawValue: value) ?? .build
+        return AgentChatMode(rawValue: value) ?? .defaultMode
     }
 
     private static func assistantText(from events: [AgentSessionEvent]) -> String {

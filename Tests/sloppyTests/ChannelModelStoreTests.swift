@@ -42,7 +42,7 @@ func channelModelStoreRemove() async throws {
 }
 
 @Test
-func channelChatModeStoreDefaultsToBuild() async throws {
+func channelChatModeStoreDefaultsToAuto() async throws {
     let dir = FileManager.default.temporaryDirectory
         .appendingPathComponent("channel-chat-mode-store-\(UUID().uuidString)", isDirectory: true)
     try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
@@ -50,7 +50,7 @@ func channelChatModeStoreDefaultsToBuild() async throws {
 
     let store = ChannelChatModeStore(workspaceRootURL: dir)
 
-    #expect(await store.get(channelId: "general") == .build)
+    #expect(await store.get(channelId: "general") == .auto)
 }
 
 @Test
@@ -61,7 +61,7 @@ func modeCommandNoLongerChangesChannelChatMode() async throws {
     let reply = await service.handleModeCommand(channelId: channelId, content: "/mode ask")
 
     #expect(reply?.contains("no longer changed with /mode") == true)
-    #expect(await service.channelChatModeStore.get(channelId: channelId) == .build)
+    #expect(await service.channelChatModeStore.get(channelId: channelId) == .auto)
 }
 
 @Test
@@ -78,7 +78,7 @@ func oneShotAskAndPlanCommandsParseWithoutPersistingMode() async throws {
     #expect(plan?.message == "Add endpoint")
     #expect(auto?.mode == .auto)
     #expect(auto?.message == "Route this")
-    #expect(await service.channelChatModeStore.get(channelId: "unused") == .build)
+    #expect(await service.channelChatModeStore.get(channelId: "unused") == .auto)
 }
 
 @Test

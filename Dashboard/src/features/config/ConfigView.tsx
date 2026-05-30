@@ -33,6 +33,7 @@ import { NodeHostEditor } from "./components/NodeHostEditor";
 import { MCPEditor } from "./components/MCPEditor";
 import { PluginEditor } from "./components/PluginEditor";
 import { ProviderEditor } from "./components/ProviderEditor";
+import { buildOAuthRedirectURI } from "./oauthRedirect";
 import { SearchToolsEditor } from "./components/SearchToolsEditor";
 import { SettingsMainHeader } from "./components/SettingsMainHeader";
 import { SettingsPlaceholder } from "./components/SettingsPlaceholder";
@@ -863,7 +864,7 @@ export function ConfigView({
   }
 
   async function openGeminiOAuthPopup() {
-    const redirectURI = `${window.location.origin}${window.location.pathname}`;
+    const redirectURI = buildOAuthRedirectURI(window.location.href);
     setProviderStatus("gemini", "Requesting Google OAuth URL...");
     setGeminiOAuthAuthorizationURL("");
     setGeminiOAuthManualCallback("");

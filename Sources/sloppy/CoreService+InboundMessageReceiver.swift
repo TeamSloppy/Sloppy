@@ -496,7 +496,7 @@ extension CoreService {
             linkedAgentID: linkedAgentID,
             topicId: topicId
         )
-        let mode = forcedMode ?? .build
+        let mode = forcedMode ?? .defaultMode
         let autoRouteCatalog: String?
         if mode == .auto, let linkedAgentID {
             let skills = (try? await getAgentSkillsForRuntime(agentID: linkedAgentID)) ?? []
