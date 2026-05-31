@@ -2,6 +2,7 @@ import Foundation
 import Protocols
 
 enum SloppyTUIPickerKind: Equatable {
+    case project
     case model
     case agent
     case session
@@ -278,6 +279,26 @@ struct SloppyTUIPicker {
                 item.searchHaystack.contains(token)
             }
         }
+    }
+}
+
+enum SloppyTUIProjectPicker {
+    static func items(for projects: [ProjectRecord], currentProjectID: String) -> [SloppyTUIPickerItem] {
+        projects
+            .sorted { lhs, rhs in
+                if lhs.updatedAt != rhs.updatedAt {
+                    return lhs.updatedAt > rhs.updatedAt
+                }
+                return lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
+            }
+            .map { project in
+                SloppyTUIPickerItem(
+                    value: project.id,
+                    label: project.name,
+                    description: "\(project.id) · \(project.updatedAt.formatted(date: .abbreviated, time: .shortened))",
+                    isCurrent: project.id == currentProjectID
+                )
+            }
     }
 }
 

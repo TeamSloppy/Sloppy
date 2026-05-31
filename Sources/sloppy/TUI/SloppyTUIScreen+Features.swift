@@ -570,6 +570,8 @@ extension SloppyTUIScreen {
 
     func applyPickerItem(_ item: SloppyTUIPickerItem, kind: SloppyTUIPickerKind) async {
         switch kind {
+        case .project:
+            await switchProject(item.value)
         case .model:
             await applyModel(item.value)
             if exitAfterModelSelection {
@@ -914,6 +916,14 @@ extension SloppyTUIScreen {
         } catch {
             appendLocalCard("Agent switch failed: \(String(describing: error))")
         }
+    }
+
+    func switchProject(_ projectID: String) async {
+        guard projectID != project.id else {
+            appendLocalCard("Already in project `\(project.name)`.", autoDismissAfter: 6)
+            return
+        }
+        await switchBackend(service, projectID: projectID, statusPrefix: "\(service.displayName) project")
     }
 
     func switchSession(_ sessionID: String) async {

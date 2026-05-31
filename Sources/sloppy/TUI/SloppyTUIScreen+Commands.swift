@@ -23,6 +23,8 @@ extension SloppyTUIScreen {
             configureScrollback(args)
         case "workspace":
             await showWorkspace()
+        case "projects", "project":
+            await showProjectPicker()
         case "status":
             await showStatus()
         case "pet":
@@ -166,6 +168,29 @@ extension SloppyTUIScreen {
             return
         }
         await showRemoteInstancePicker()
+    }
+
+    func showProjectPicker() async {
+        refreshStaticChrome(statusLine: "loading projects from \(service.displayName)...")
+        do {
+            let projects = try await service.listProjects()
+            guard !projects.isEmpty else {
+                appendLocalCard("No projects available on `\(service.displayName)`.", autoDismissAfter: 8)
+                return
+            }
+            let items = SloppyTUIProjectPicker.items(for: projects, currentProjectID: project.id)
+            activePicker = SloppyTUIPicker(
+                kind: .project,
+                title: "Select project",
+                items: items,
+                selectedIndex: items.firstIndex(where: \.isCurrent) ?? 0,
+                allItems: items,
+                supportsSearch: true
+            )
+            refreshStaticChrome(statusLine: "choose project, Enter to switch workspace, Esc to cancel")
+        } catch {
+            appendLocalCard("Could not load projects from `\(service.displayName)`: \(String(describing: error))")
+        }
     }
 
     func addRemoteInstanceFromCommand(_ args: [String]) async {
@@ -317,6 +342,7 @@ extension SloppyTUIScreen {
         projectSourceControlFooterTask?.cancel()
         projectFileIndexTask?.cancel()
         projectFileReindexTask?.cancel()
+        projectTaskAutocompleteTask?.cancel()
         pendingRemoteProjectBackend = nil
         activePicker = nil
         projectSourceControlFooterStatus = nil
@@ -328,17 +354,35 @@ extension SloppyTUIScreen {
             } else {
                 project = try await service.resolveOrCreateProjectForCurrentDirectory(runtime.cwd)
             }
+            let selectionKey = SloppyTUIStateStore.selectionKey(projectId: project.id)
+            let selection = state.selections[selectionKey]
             let agents = (try? await service.listAgents(includeSystem: false)) ?? []
-            let resolved = try await SloppyTUIApp.resolveLaunchSelection(
-                service: service,
-                project: project,
-                requestedSessionID: nil,
-                selection: nil,
-                agents: agents
-            )
+            let resolved: SloppyTUILaunchSelection
+            if let sessionID = selection?.sessionId?.trimmingCharacters(in: .whitespacesAndNewlines),
+               !sessionID.isEmpty,
+               let persisted = try? await SloppyTUIApp.resolveLaunchSelection(
+                    service: service,
+                    project: project,
+                    requestedSessionID: sessionID,
+                    selection: selection,
+                    agents: agents
+               ) {
+                resolved = persisted
+            } else {
+                resolved = try await SloppyTUIApp.resolveLaunchSelection(
+                    service: service,
+                    project: project,
+                    requestedSessionID: nil,
+                    selection: selection,
+                    agents: agents
+                )
+            }
             agent = resolved.agent
             session = resolved.session
             hasPersistedSession = resolved.hasPersistedSession
+            if resolved.hasPersistedSession {
+                trackSession(resolved.session, opened: true)
+            }
             sessionCards = []
             subSessionCards = []
             workspaceDiffPreview = nil
@@ -346,10 +390,16 @@ extension SloppyTUIScreen {
             projectFileIndexLookup = nil
             projectFileRootURL = nil
             projectFileIndexGeneration += 1
+            projectTaskGeneration += 1
+            projectTaskSearchCache = nil
+            projectTaskAutocompleteLoading = false
             loadProjectFileIndex()
+            reloadProjectForTaskAutocompleteIfNeeded()
             streamSession()
             streamChanges()
             scheduleProjectSourceControlFooterRefresh()
+            await reloadSkillSlashCommands()
+            await refreshSelectedModel()
             await prepareCurrentSessionContext()
             await reloadSession()
             refreshStaticChrome(statusLine: "connected to \(statusPrefix)")

@@ -43,6 +43,48 @@ func feedbackCommandIsRegisteredInTUI() {
 }
 
 @Test
+@MainActor
+func projectsCommandIsRegisteredInTUI() {
+    #expect(SloppyTUIScreen.handledSlashCommandNames.contains("projects"))
+    #expect(SloppyTUIScreen.handledSlashCommandNames.contains("project"))
+    #expect(SloppyTUIScreen.baseSlashCommands.contains { $0.name == "projects" })
+}
+
+@Test
+func projectPickerItemsSortNewestFirstAndMarkCurrent() {
+    let older = ProjectRecord(
+        id: "older",
+        name: "Older",
+        description: "",
+        channels: [],
+        tasks: [],
+        updatedAt: Date(timeIntervalSince1970: 10)
+    )
+    let newer = ProjectRecord(
+        id: "newer",
+        name: "Newer",
+        description: "",
+        channels: [],
+        tasks: [],
+        updatedAt: Date(timeIntervalSince1970: 20)
+    )
+
+    let items = SloppyTUIProjectPicker.items(for: [older, newer], currentProjectID: "older")
+
+    #expect(items.map(\.value) == ["newer", "older"])
+    #expect(items.first?.label == "Newer")
+    #expect(items.last?.isCurrent == true)
+    #expect(items.last?.searchHaystack.contains("older") == true)
+}
+
+@Test
+func tuiStateKeepsTrackedSessionsProjectScoped() {
+    #expect(SloppyTUIStateStore.trackedSessionsKey(projectId: "alpha") == "project:alpha")
+    #expect(SloppyTUIStateStore.trackedSessionsKey(projectId: "beta") == "project:beta")
+    #expect(SloppyTUIStateStore.trackedSessionsKey(projectId: "alpha") != SloppyTUIStateStore.trackedSessionsKey(projectId: "beta"))
+}
+
+@Test
 func feedbackCommandTargetsGitHubIssues() throws {
     let url = try #require(SloppyTUIFeedbackCommand.issuesURL)
 
