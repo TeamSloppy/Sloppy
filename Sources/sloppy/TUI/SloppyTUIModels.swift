@@ -41,7 +41,9 @@ struct SloppyTUISessionListEntry: Equatable {
 }
 
 enum SloppyTUISessionList {
-    static func section(for events: [AgentSessionEvent], isPosting: Bool) -> SloppyTUISessionListSection {
+    static func section(for events: [AgentSessionEvent], isPosting: Bool)
+        -> SloppyTUISessionListSection
+    {
         if SloppyTUIPlanInputState.latestUnansweredRequest(in: events) != nil {
             return .waitingInput
         }
@@ -51,7 +53,8 @@ enum SloppyTUISessionList {
         return .completed
     }
 
-    static func sortedEntries(_ entries: [SloppyTUISessionListEntry]) -> [SloppyTUISessionListEntry] {
+    static func sortedEntries(_ entries: [SloppyTUISessionListEntry]) -> [SloppyTUISessionListEntry]
+    {
         entries.sorted { lhs, rhs in
             if lhs.section != rhs.section {
                 return sectionRank(lhs.section) < sectionRank(rhs.section)
@@ -97,9 +100,10 @@ enum SloppyTUISessionList {
 
 enum SloppyTUIPlanInputState {
     static func latestUnansweredRequest(in events: [AgentSessionEvent]) -> PlanInputRequest? {
-        let answered = Set(events.compactMap { event -> String? in
-            event.type == .inputResponse ? event.inputResponse?.requestId : nil
-        })
+        let answered = Set(
+            events.compactMap { event -> String? in
+                event.type == .inputResponse ? event.inputResponse?.requestId : nil
+            })
         return events.compactMap { event -> PlanInputRequest? in
             event.type == .inputRequest ? event.inputRequest : nil
         }.last { request in
@@ -208,12 +212,14 @@ struct SloppyTUIPickerItem {
         self.description = description
         self.isCurrent = isCurrent
         self.group = group
-        self.searchHaystack = searchHaystack ?? [
-            value,
-            label,
-            description ?? "",
-            group ?? "",
-        ].joined(separator: " ").lowercased()
+        self.searchHaystack =
+            searchHaystack
+            ?? [
+                value,
+                label,
+                description ?? "",
+                group ?? "",
+            ].joined(separator: " ").lowercased()
     }
 }
 
@@ -251,15 +257,19 @@ struct SloppyTUIPicker {
         searchQuery = query
         items = Self.filteredItems(allItems, query: query)
         if let previousValue,
-           let nextIndex = items.firstIndex(where: { $0.value == previousValue }) {
+            let nextIndex = items.firstIndex(where: { $0.value == previousValue })
+        {
             selectedIndex = nextIndex
         } else {
             selectedIndex = 0
         }
     }
 
-    static func filteredItems(_ items: [SloppyTUIPickerItem], query: String) -> [SloppyTUIPickerItem] {
-        let tokens = query
+    static func filteredItems(_ items: [SloppyTUIPickerItem], query: String)
+        -> [SloppyTUIPickerItem]
+    {
+        let tokens =
+            query
             .split(whereSeparator: { $0.isWhitespace })
             .map { String($0).lowercased() }
         guard !tokens.isEmpty else { return items }
@@ -276,7 +286,7 @@ enum SloppyTUIReasoningEffortSelector {
 
     static func index(for effort: ReasoningEffort?) -> Int {
         guard let effort,
-              let index = options.firstIndex(of: effort)
+            let index = options.firstIndex(of: effort)
         else {
             return options.firstIndex(of: .medium) ?? 0
         }
@@ -345,10 +355,12 @@ enum SloppyTUIWorkspaceAccess {
             guard !trimmed.isEmpty else {
                 return nil
             }
-            let normalized = URL(fileURLWithPath: (trimmed as NSString).expandingTildeInPath, isDirectory: true)
-                .resolvingSymlinksInPath()
-                .standardizedFileURL
-                .path
+            let normalized = URL(
+                fileURLWithPath: (trimmed as NSString).expandingTildeInPath, isDirectory: true
+            )
+            .resolvingSymlinksInPath()
+            .standardizedFileURL
+            .path
             guard seen.insert(normalized).inserted else {
                 return nil
             }
@@ -614,9 +626,11 @@ enum SloppyTUITimelineBlock {
     case buildProgress(AgentBuildProgressEvent)
     case planArtifact(PlanArtifactRecord)
     case inputRequest(PlanInputRequest)
-    case workspaceDiff(branch: String, linesAdded: Int, linesDeleted: Int, diff: String, truncated: Bool)
+    case workspaceDiff(
+        branch: String, linesAdded: Int, linesDeleted: Int, diff: String, truncated: Bool)
     case toolCall(tool: String, reason: String?, summary: String?, details: String?)
-    case toolResult(tool: String, rawTool: String, ok: Bool, error: String?, durationMs: Int?, details: String?)
+    case toolResult(
+        tool: String, rawTool: String, ok: Bool, error: String?, durationMs: Int?, details: String?)
 
     var plainText: String {
         switch self {
@@ -631,14 +645,17 @@ enum SloppyTUITimelineBlock {
         case .subSession(let childSessionId, let title, let status):
             return "\(title) \(childSessionId) \(status.plainText)"
         case .buildProgress(let progress):
-            let items = progress.items.map { "\($0.title) \($0.status.rawValue) \($0.definitionOfDone)" }
+            let items = progress.items.map {
+                "\($0.title) \($0.status.rawValue) \($0.definitionOfDone)"
+            }
             return ([progress.title] + items).joined(separator: " ")
         case .planArtifact(let artifact):
             return "Plan web page \(artifact.planName) \(artifact.webUrl)"
         case .inputRequest(let request):
             return SloppyTUIPlanInputPicker.requestText(request)
         case .workspaceDiff(let branch, let linesAdded, let linesDeleted, let diff, let truncated):
-            return "Patched \(branch) +\(linesAdded) -\(linesDeleted) \(truncated ? "truncated" : "") \(diff)"
+            return
+                "Patched \(branch) +\(linesAdded) -\(linesDeleted) \(truncated ? "truncated" : "") \(diff)"
         case .toolCall(let tool, let reason, let summary, let details):
             return ([tool] + [summary, reason, details].compactMap { $0 }).joined(separator: " ")
         case .toolResult(let tool, _, _, let error, _, let details):
@@ -648,7 +665,9 @@ enum SloppyTUITimelineBlock {
 }
 
 enum SloppyTUIToolTranscriptCompactor {
-    static func visibleExecutingBlocks(in blocks: [SloppyTUITimelineBlock]) -> [SloppyTUITimelineBlock] {
+    static func visibleExecutingBlocks(in blocks: [SloppyTUITimelineBlock])
+        -> [SloppyTUITimelineBlock]
+    {
         var pendingCalls: [(tool: String, block: SloppyTUITimelineBlock)] = []
 
         for block in blocks {
@@ -742,7 +761,7 @@ enum SloppyTUIPlanInputPicker {
             }
             let description = answers.compactMap { questionID, optionID -> String? in
                 guard let question = questions.first(where: { $0.id == questionID }),
-                      let option = question.options.first(where: { $0.id == optionID })
+                    let option = question.options.first(where: { $0.id == optionID })
                 else {
                     return nil
                 }
@@ -773,7 +792,7 @@ enum SloppyTUIPlanInputPicker {
         }
         let answers: [PlanInputAnswer] = request.questions.compactMap { question in
             guard let optionID = selectedByQuestion[question.id],
-                  question.options.contains(where: { $0.id == optionID })
+                question.options.contains(where: { $0.id == optionID })
             else {
                 return nil
             }
@@ -798,7 +817,9 @@ enum SloppyTUIPlanInputPicker {
         return "## \(title)\n\(questionText)"
     }
 
-    private static func optionCombinations(for questions: [PlanInputQuestion]) -> [[(String, String)]] {
+    private static func optionCombinations(for questions: [PlanInputQuestion]) -> [[(
+        String, String
+    )]] {
         questions.reduce([[]]) { combinations, question in
             combinations.flatMap { prefix in
                 question.options.map { option in
@@ -826,11 +847,11 @@ enum SloppyTUIPlanInputPicker {
 extension AgentChatMode {
     var next: AgentChatMode {
         switch self {
-        case .ask: return .build
+        case .auto: return .build
         case .build: return .plan
         case .plan: return .debug
-        case .debug: return .auto
-        case .auto: return .ask
+        case .debug: return .ask
+        case .ask: return .auto
         }
     }
 

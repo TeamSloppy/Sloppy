@@ -262,6 +262,92 @@ public enum ProjectLoopMode: String, Codable, Sendable, Equatable {
     case agent
 }
 
+public enum ProjectAutopilotMode: String, Codable, Sendable, Equatable {
+    case assistive
+    case sequential
+    case parallel
+}
+
+public struct ProjectAutopilotSettings: Codable, Sendable, Equatable {
+    public var enabled: Bool
+    public var mode: ProjectAutopilotMode
+    public var defaultAgentId: String?
+    public var reviewerAgentId: String?
+    public var includedTags: [String]
+    public var trustedAuthors: [String]
+    public var maxParallelTasks: Int
+    public var canUseWeb: Bool
+    public var canEditFiles: Bool
+    public var canRunCommands: Bool
+    public var canStartLocalhost: Bool
+    public var canCommit: Bool
+    public var canPush: Bool
+
+    public init(
+        enabled: Bool = false,
+        mode: ProjectAutopilotMode = .assistive,
+        defaultAgentId: String? = nil,
+        reviewerAgentId: String? = nil,
+        includedTags: [String] = ["autopilot"],
+        trustedAuthors: [String] = [],
+        maxParallelTasks: Int = 1,
+        canUseWeb: Bool = false,
+        canEditFiles: Bool = false,
+        canRunCommands: Bool = false,
+        canStartLocalhost: Bool = false,
+        canCommit: Bool = false,
+        canPush: Bool = false
+    ) {
+        self.enabled = enabled
+        self.mode = mode
+        self.defaultAgentId = defaultAgentId
+        self.reviewerAgentId = reviewerAgentId
+        self.includedTags = includedTags.isEmpty ? ["autopilot"] : includedTags
+        self.trustedAuthors = trustedAuthors
+        self.maxParallelTasks = max(1, maxParallelTasks)
+        self.canUseWeb = canUseWeb
+        self.canEditFiles = canEditFiles
+        self.canRunCommands = canRunCommands
+        self.canStartLocalhost = canStartLocalhost
+        self.canCommit = canCommit
+        self.canPush = canPush
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case enabled
+        case mode
+        case defaultAgentId
+        case reviewerAgentId
+        case includedTags
+        case trustedAuthors
+        case maxParallelTasks
+        case canUseWeb
+        case canEditFiles
+        case canRunCommands
+        case canStartLocalhost
+        case canCommit
+        case canPush
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        enabled = try container.decodeIfPresent(Bool.self, forKey: .enabled) ?? false
+        mode = try container.decodeIfPresent(ProjectAutopilotMode.self, forKey: .mode) ?? .assistive
+        defaultAgentId = try container.decodeIfPresent(String.self, forKey: .defaultAgentId)
+        reviewerAgentId = try container.decodeIfPresent(String.self, forKey: .reviewerAgentId)
+        let tags = try container.decodeIfPresent([String].self, forKey: .includedTags) ?? ["autopilot"]
+        includedTags = tags.isEmpty ? ["autopilot"] : tags
+        trustedAuthors = try container.decodeIfPresent([String].self, forKey: .trustedAuthors) ?? []
+        maxParallelTasks = max(1, try container.decodeIfPresent(Int.self, forKey: .maxParallelTasks) ?? 1)
+        canUseWeb = try container.decodeIfPresent(Bool.self, forKey: .canUseWeb) ?? false
+        canEditFiles = try container.decodeIfPresent(Bool.self, forKey: .canEditFiles) ?? false
+        canRunCommands = try container.decodeIfPresent(Bool.self, forKey: .canRunCommands) ?? false
+        canStartLocalhost = try container.decodeIfPresent(Bool.self, forKey: .canStartLocalhost) ?? false
+        canCommit = try container.decodeIfPresent(Bool.self, forKey: .canCommit) ?? false
+        canPush = try container.decodeIfPresent(Bool.self, forKey: .canPush) ?? false
+    }
+}
+
 public enum ProjectTaskKind: String, Codable, Sendable, Equatable {
     case planning
     case execution
@@ -335,6 +421,8 @@ public struct ProjectTask: Codable, Sendable, Equatable {
     public var claimedActorId: String?
     public var claimedAgentId: String?
     public var parentTaskId: String?
+    public var createdBy: String?
+    public var dependsOnTaskIds: [String]
     public var swarmId: String?
     public var swarmTaskId: String?
     public var swarmParentTaskId: String?
@@ -367,6 +455,8 @@ public struct ProjectTask: Codable, Sendable, Equatable {
         case claimedActorId
         case claimedAgentId
         case parentTaskId
+        case createdBy
+        case dependsOnTaskIds
         case swarmId
         case swarmTaskId
         case swarmParentTaskId
@@ -399,6 +489,8 @@ public struct ProjectTask: Codable, Sendable, Equatable {
         claimedActorId: String? = nil,
         claimedAgentId: String? = nil,
         parentTaskId: String? = nil,
+        createdBy: String? = nil,
+        dependsOnTaskIds: [String] = [],
         swarmId: String? = nil,
         swarmTaskId: String? = nil,
         swarmParentTaskId: String? = nil,
@@ -429,6 +521,8 @@ public struct ProjectTask: Codable, Sendable, Equatable {
         self.claimedActorId = claimedActorId
         self.claimedAgentId = claimedAgentId
         self.parentTaskId = parentTaskId
+        self.createdBy = createdBy
+        self.dependsOnTaskIds = dependsOnTaskIds
         self.swarmId = swarmId
         self.swarmTaskId = swarmTaskId
         self.swarmParentTaskId = swarmParentTaskId
@@ -462,6 +556,8 @@ public struct ProjectTask: Codable, Sendable, Equatable {
         claimedActorId = try container.decodeIfPresent(String.self, forKey: .claimedActorId)
         claimedAgentId = try container.decodeIfPresent(String.self, forKey: .claimedAgentId)
         parentTaskId = try container.decodeIfPresent(String.self, forKey: .parentTaskId)
+        createdBy = try container.decodeIfPresent(String.self, forKey: .createdBy)
+        dependsOnTaskIds = try container.decodeIfPresent([String].self, forKey: .dependsOnTaskIds) ?? []
         swarmId = try container.decodeIfPresent(String.self, forKey: .swarmId)
         swarmTaskId = try container.decodeIfPresent(String.self, forKey: .swarmTaskId)
         swarmParentTaskId = try container.decodeIfPresent(String.self, forKey: .swarmParentTaskId)
@@ -533,6 +629,7 @@ public struct ProjectRecord: Codable, Sendable, Equatable {
     public var worktreeRootPath: String?
     public var sourceControlProviderId: String?
     public var reviewSettings: ProjectReviewSettings
+    public var autopilotSettings: ProjectAutopilotSettings
     public var taskLoopMode: ProjectLoopMode
     public var taskSyncSettings: ProjectTaskSyncSettings
     public var isFavorite: Bool
@@ -545,7 +642,7 @@ public struct ProjectRecord: Codable, Sendable, Equatable {
 
     private enum CodingKeys: String, CodingKey {
         case id, name, description, icon, channels, tasks, actors, teams, models
-        case agentFiles, heartbeat, repoPath, worktreeRootPath, sourceControlProviderId, reviewSettings, taskLoopMode, taskSyncSettings, isFavorite, isArchived, createdAt, updatedAt
+        case agentFiles, heartbeat, repoPath, worktreeRootPath, sourceControlProviderId, reviewSettings, autopilotSettings, taskLoopMode, taskSyncSettings, isFavorite, isArchived, createdAt, updatedAt
         case parentProjectId, worktreeBranch, isWorktree
     }
 
@@ -565,6 +662,7 @@ public struct ProjectRecord: Codable, Sendable, Equatable {
         worktreeRootPath: String? = nil,
         sourceControlProviderId: String? = nil,
         reviewSettings: ProjectReviewSettings = ProjectReviewSettings(),
+        autopilotSettings: ProjectAutopilotSettings = ProjectAutopilotSettings(),
         taskLoopMode: ProjectLoopMode = .human,
         taskSyncSettings: ProjectTaskSyncSettings = ProjectTaskSyncSettings(),
         isFavorite: Bool = false,
@@ -590,6 +688,7 @@ public struct ProjectRecord: Codable, Sendable, Equatable {
         self.worktreeRootPath = worktreeRootPath
         self.sourceControlProviderId = sourceControlProviderId
         self.reviewSettings = reviewSettings
+        self.autopilotSettings = autopilotSettings
         self.taskLoopMode = taskLoopMode
         self.taskSyncSettings = taskSyncSettings
         self.isFavorite = isFavorite
@@ -618,6 +717,7 @@ public struct ProjectRecord: Codable, Sendable, Equatable {
         worktreeRootPath = try container.decodeIfPresent(String.self, forKey: .worktreeRootPath)
         sourceControlProviderId = try container.decodeIfPresent(String.self, forKey: .sourceControlProviderId)
         reviewSettings = try container.decodeIfPresent(ProjectReviewSettings.self, forKey: .reviewSettings) ?? ProjectReviewSettings()
+        autopilotSettings = try container.decodeIfPresent(ProjectAutopilotSettings.self, forKey: .autopilotSettings) ?? ProjectAutopilotSettings()
         taskLoopMode = try container.decodeIfPresent(ProjectLoopMode.self, forKey: .taskLoopMode) ?? .human
         taskSyncSettings = try container.decodeIfPresent(ProjectTaskSyncSettings.self, forKey: .taskSyncSettings) ?? ProjectTaskSyncSettings()
         isFavorite = try container.decodeIfPresent(Bool.self, forKey: .isFavorite) ?? false
@@ -1008,6 +1108,7 @@ public struct ProjectUpdateRequest: Codable, Sendable {
     public var repoPath: String?
     public var sourceControlProviderId: String?
     public var reviewSettings: ProjectReviewSettings?
+    public var autopilotSettings: ProjectAutopilotSettings?
     public var taskLoopMode: ProjectLoopMode?
     public var isFavorite: Bool?
     public var isArchived: Bool?
@@ -1024,6 +1125,7 @@ public struct ProjectUpdateRequest: Codable, Sendable {
         repoPath: String? = nil,
         sourceControlProviderId: String? = nil,
         reviewSettings: ProjectReviewSettings? = nil,
+        autopilotSettings: ProjectAutopilotSettings? = nil,
         taskLoopMode: ProjectLoopMode? = nil,
         isFavorite: Bool? = nil,
         isArchived: Bool? = nil
@@ -1039,6 +1141,7 @@ public struct ProjectUpdateRequest: Codable, Sendable {
         self.repoPath = repoPath
         self.sourceControlProviderId = sourceControlProviderId
         self.reviewSettings = reviewSettings
+        self.autopilotSettings = autopilotSettings
         self.taskLoopMode = taskLoopMode
         self.isFavorite = isFavorite
         self.isArchived = isArchived
@@ -1138,6 +1241,7 @@ public struct ProjectTaskCreateRequest: Codable, Sendable {
     public var actorId: String?
     public var teamId: String?
     public var parentTaskId: String?
+    public var dependsOnTaskIds: [String]?
     public var selectedModel: String?
     public var tags: [String]?
     public var changedBy: String?
@@ -1154,6 +1258,7 @@ public struct ProjectTaskCreateRequest: Codable, Sendable {
         actorId: String? = nil,
         teamId: String? = nil,
         parentTaskId: String? = nil,
+        dependsOnTaskIds: [String]? = nil,
         selectedModel: String? = nil,
         tags: [String]? = nil,
         changedBy: String? = nil
@@ -1169,6 +1274,7 @@ public struct ProjectTaskCreateRequest: Codable, Sendable {
         self.actorId = actorId
         self.teamId = teamId
         self.parentTaskId = parentTaskId
+        self.dependsOnTaskIds = dependsOnTaskIds
         self.selectedModel = selectedModel
         self.tags = tags
         self.changedBy = changedBy
@@ -1187,6 +1293,7 @@ public struct ProjectTaskUpdateRequest: Codable, Sendable {
     public var actorId: String?
     public var teamId: String?
     public var parentTaskId: String?
+    public var dependsOnTaskIds: [String]?
     public var selectedModel: String?
     public var tags: [String]?
     public var isArchived: Bool?
@@ -1204,6 +1311,7 @@ public struct ProjectTaskUpdateRequest: Codable, Sendable {
         actorId: String? = nil,
         teamId: String? = nil,
         parentTaskId: String? = nil,
+        dependsOnTaskIds: [String]? = nil,
         selectedModel: String? = nil,
         tags: [String]? = nil,
         isArchived: Bool? = nil,
@@ -1220,6 +1328,7 @@ public struct ProjectTaskUpdateRequest: Codable, Sendable {
         self.actorId = actorId
         self.teamId = teamId
         self.parentTaskId = parentTaskId
+        self.dependsOnTaskIds = dependsOnTaskIds
         self.selectedModel = selectedModel
         self.tags = tags
         self.isArchived = isArchived

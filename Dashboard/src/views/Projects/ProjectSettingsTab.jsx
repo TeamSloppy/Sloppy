@@ -16,6 +16,7 @@ const SETTINGS_TABS = [
     { id: "general", title: "General", icon: "settings" },
     { id: "actors", title: "Actors", icon: "group" },
     { id: "loop", title: "Task Loop Mode", icon: "sync" },
+    { id: "autopilot", title: "Autopilot", icon: "robot_2" },
     { id: "review", title: "Git Worktree & Review", icon: "rate_review" },
     { id: "task_sync", title: "Task Sync", icon: "sync_alt" }
 ];
@@ -41,12 +42,12 @@ const APPROVAL_MODES = [
     }
 ];
 
-const AUTONOMOUS_MODES = [
+const AUTOPILOT_MODES = [
     {
-        id: "off",
-        label: "Off",
-        icon: "block",
-        description: "Manual task management only."
+        id: "assistive",
+        label: "Assistive",
+        icon: "support_agent",
+        description: "Plan tagged tasks and run one safe task at a time."
     },
     {
         id: "sequential",
@@ -60,6 +61,15 @@ const AUTONOMOUS_MODES = [
         icon: "view_quilt",
         description: "Pick and execute multiple backlog tasks in parallel."
     }
+];
+
+const AUTOPILOT_PERMISSIONS = [
+    { id: "canUseWeb", label: "Web", icon: "travel_explore" },
+    { id: "canEditFiles", label: "Files", icon: "edit_document" },
+    { id: "canRunCommands", label: "Commands", icon: "terminal" },
+    { id: "canStartLocalhost", label: "Localhost", icon: "dns" },
+    { id: "canCommit", label: "Commit", icon: "commit" },
+    { id: "canPush", label: "Push", icon: "upload" }
 ];
 
 const PROJECT_ICONS = [
@@ -217,6 +227,107 @@ function SourceControlProviderDropdown({ providers, value, onChange }) {
     );
 }
 
+function AgentPickerDropdown({ agents, value, placeholder, onChange }) {
+    const [open, setOpen] = useState(false);
+    const ref = useRef(null);
+    const selected = agents.find((agent) => agent.id === value);
+
+    useEffect(() => {
+        if (!open) return;
+        function handleClick(e) {
+            if (ref.current && !ref.current.contains(e.target)) {
+                setOpen(false);
+            }
+        }
+        document.addEventListener("mousedown", handleClick);
+        return () => document.removeEventListener("mousedown", handleClick);
+    }, [open]);
+
+    return (
+        <div className="actor-team-search-wrap autopilot-agent-dropdown" ref={ref}>
+            <button
+                type="button"
+                className="actor-team-search autopilot-agent-dropdown-button"
+                onClick={() => setOpen((next) => !next)}
+            >
+                <span className="source-control-provider-current">
+                    <span>{selected?.label || value || placeholder}</span>
+                    <small>{selected?.id || value || "not set"}</small>
+                </span>
+                <span className="material-symbols-rounded" aria-hidden="true">expand_more</span>
+            </button>
+            {open && (
+                <ul className="actor-team-dropdown autopilot-agent-options">
+                    <li
+                        className={`actor-team-dropdown-item ${!value ? "selected" : ""}`}
+                        onMouseDown={(e) => {
+                            e.preventDefault();
+                            onChange("");
+                            setOpen(false);
+                        }}
+                    >
+                        <span className="actor-team-dropdown-name">{placeholder}</span>
+                        <span className="actor-team-dropdown-id">none</span>
+                        {!value && <span className="actor-team-dropdown-check">✓</span>}
+                    </li>
+                    {agents.map((agent) => {
+                        const active = agent.id === value;
+                        return (
+                            <li
+                                key={agent.id}
+                                className={`actor-team-dropdown-item ${active ? "selected" : ""}`}
+                                onMouseDown={(e) => {
+                                    e.preventDefault();
+                                    onChange(agent.id);
+                                    setOpen(false);
+                                }}
+                            >
+                                <span className="actor-team-dropdown-name">{agent.label}</span>
+                                <span className="actor-team-dropdown-id">{agent.id}</span>
+                                {active && <span className="actor-team-dropdown-check">✓</span>}
+                            </li>
+                        );
+                    })}
+                </ul>
+            )}
+        </div>
+    );
+}
+
+function parseList(value) {
+    return String(value || "")
+        .split(",")
+        .map((item) => item.trim())
+        .filter(Boolean);
+}
+
+function listText(values) {
+    return Array.isArray(values) ? values.join(", ") : "";
+}
+
+function cloneAutopilotSettings(project) {
+    const settings = project?.autopilotSettings || {};
+    return {
+        enabled: Boolean(settings.enabled),
+        mode: settings.mode || "assistive",
+        defaultAgentId: settings.defaultAgentId || "",
+        reviewerAgentId: settings.reviewerAgentId || "",
+        includedTags: Array.isArray(settings.includedTags) && settings.includedTags.length > 0
+            ? [...settings.includedTags]
+            : ["autopilot"],
+        trustedAuthors: Array.isArray(settings.trustedAuthors) ? [...settings.trustedAuthors] : [],
+        maxParallelTasks: Number.isFinite(Number(settings.maxParallelTasks))
+            ? Math.max(1, Number(settings.maxParallelTasks))
+            : 1,
+        canUseWeb: Boolean(settings.canUseWeb),
+        canEditFiles: Boolean(settings.canEditFiles),
+        canRunCommands: Boolean(settings.canRunCommands),
+        canStartLocalhost: Boolean(settings.canStartLocalhost),
+        canCommit: Boolean(settings.canCommit),
+        canPush: Boolean(settings.canPush)
+    };
+}
+
 function cloneDraft(project) {
     return {
         name: project?.name ?? "",
@@ -236,6 +347,7 @@ function cloneDraft(project) {
             approvalMode: project?.reviewSettings?.approvalMode ?? "human",
             autonomousMode: project?.reviewSettings?.autonomousMode ?? "off"
         },
+        autopilotSettings: cloneAutopilotSettings(project),
         taskLoopMode: project?.taskLoopMode ?? "human",
         actors: Array.isArray(project?.actors) ? [...project.actors] : [],
         teams: Array.isArray(project?.teams) ? [...project.teams] : []
@@ -354,6 +466,27 @@ export function ProjectSettingsTab({
         return JSON.stringify(draft) !== JSON.stringify(saved);
     }, [draft, project]);
 
+    const agentOptions = useMemo(() => {
+        const options = [];
+        const seen = new Set();
+        availableActors.forEach((actor) => {
+            const agentId = String(actor?.linkedAgentId || actor?.agentId || "").trim();
+            if (!agentId || seen.has(agentId)) return;
+            seen.add(agentId);
+            options.push({
+                id: agentId,
+                label: String(actor?.displayName || actor?.name || agentId).trim() || agentId
+            });
+        });
+        [draft.autopilotSettings.defaultAgentId, draft.autopilotSettings.reviewerAgentId].forEach((agentId) => {
+            const id = String(agentId || "").trim();
+            if (!id || seen.has(id)) return;
+            seen.add(id);
+            options.push({ id, label: id });
+        });
+        return options;
+    }, [availableActors, draft.autopilotSettings.defaultAgentId, draft.autopilotSettings.reviewerAgentId]);
+
     function mutateDraft(mutator) {
         setDraft((prev) => {
             const next = JSON.parse(JSON.stringify(prev));
@@ -389,6 +522,7 @@ export function ProjectSettingsTab({
             repoPath: draft.repoPath.trim() || null,
             sourceControlProviderId: draft.sourceControlProviderId || DEFAULT_SOURCE_CONTROL_PROVIDER.id,
             reviewSettings: draft.reviewSettings,
+            autopilotSettings: draft.autopilotSettings,
             taskLoopMode: draft.taskLoopMode,
             actors: draft.actors,
             teams: draft.teams
@@ -1046,7 +1180,6 @@ export function ProjectSettingsTab({
     }
 
     function renderLoop() {
-        const isEnabled = draft.reviewSettings.enabled;
         return (
             <section className="entry-editor-card">
                 <h3>Task Loop Mode</h3>
@@ -1073,36 +1206,50 @@ export function ProjectSettingsTab({
                         );
                     })}
                 </div>
+            </section>
+        );
+    }
 
-                <div className="review-toggle-row" style={{ marginTop: 24 }}>
+    function renderAutopilot() {
+        const settings = draft.autopilotSettings;
+        return (
+            <section className="entry-editor-card">
+                <h3>Autopilot</h3>
+                <div className="review-toggle-row">
                     <div className="review-toggle-label">
-                        <span className="material-symbols-rounded review-toggle-icon">robot</span>
+                        <span className="material-symbols-rounded review-toggle-icon">robot_2</span>
                         <div>
-                            <strong>Autonomous Execution (VISOR)</strong>
+                            <strong>Project Autopilot</strong>
                             <p className="review-toggle-desc">
-                                VISOR will automatically pick tasks from the backlog and execute them.
-                                Requires Git Worktree &amp; Review to be enabled in the Review tab.
+                                VISOR decomposes tagged backlog tasks and delegates child tasks through project workers.
                             </p>
                         </div>
                     </div>
+                    <label className="agent-tools-switch">
+                        <input
+                            type="checkbox"
+                            checked={settings.enabled}
+                            onChange={(e) => mutateDraft((d) => {
+                                d.autopilotSettings.enabled = e.target.checked;
+                            })}
+                        />
+                        <span className="agent-tools-switch-track" />
+                    </label>
                 </div>
 
-                <div className={`review-approval-grid ${!isEnabled ? "disabled" : ""}`}>
-                    {AUTONOMOUS_MODES.map((mode) => {
-                        const active = draft.reviewSettings.autonomousMode === mode.id;
+                <div className="review-section-divider" />
+                <div className="review-approval-section">
+                    <p className="review-approval-title">Mode</p>
+                    <div className="review-approval-options">
+                    {AUTOPILOT_MODES.map((mode) => {
+                        const active = settings.mode === mode.id;
                         return (
                             <button
                                 key={mode.id}
                                 type="button"
                                 className={`review-approval-option ${active ? "active" : ""}`}
                                 onClick={() => mutateDraft((d) => {
-                                    d.reviewSettings.autonomousMode = mode.id;
-                                    if (mode.id !== "off" && !d.reviewSettings.enabled) {
-                                        d.reviewSettings.enabled = true;
-                                        if (!String(d.repoPath || "").trim()) {
-                                            d.repoPath = `/projects/${project.id}`;
-                                        }
-                                    }
+                                    d.autopilotSettings.mode = mode.id;
                                 })}
                             >
                                 <span className="material-symbols-rounded review-approval-icon">{mode.icon}</span>
@@ -1114,18 +1261,83 @@ export function ProjectSettingsTab({
                             </button>
                         );
                     })}
-                </div>
-                {!isEnabled ? (
-                    <div className="review-agent-hint" style={{ marginTop: 10 }}>
-                        <span className="material-symbols-rounded" style={{ fontSize: "1rem", color: "var(--warn)" }}>
-                            info
-                        </span>
-                        <span>
-                            Choosing <strong>Sequential</strong> or <strong>Parallel</strong> will automatically enable
-                            <strong> Git Worktree &amp; Review</strong> for this project.
-                        </span>
                     </div>
-                ) : null}
+                </div>
+
+                <div className="entry-form-grid autopilot-form-grid" style={{ marginTop: 16 }}>
+                    <label>
+                        Default agent
+                        <AgentPickerDropdown
+                            agents={agentOptions}
+                            value={settings.defaultAgentId}
+                            placeholder="Choose default agent"
+                            onChange={(agentId) => mutateDraft((d) => { d.autopilotSettings.defaultAgentId = agentId; })}
+                        />
+                    </label>
+                    <label>
+                        Reviewer agent
+                        <AgentPickerDropdown
+                            agents={agentOptions}
+                            value={settings.reviewerAgentId}
+                            placeholder="Choose reviewer agent"
+                            onChange={(agentId) => mutateDraft((d) => { d.autopilotSettings.reviewerAgentId = agentId; })}
+                        />
+                    </label>
+                    <label>
+                        Included tags
+                        <input
+                            value={listText(settings.includedTags)}
+                            onChange={(e) => mutateDraft((d) => {
+                                const nextTags = parseList(e.target.value);
+                                d.autopilotSettings.includedTags = nextTags.length > 0 ? nextTags : ["autopilot"];
+                            })}
+                        />
+                    </label>
+                    <label>
+                        Trusted authors
+                        <input
+                            value={listText(settings.trustedAuthors)}
+                            onChange={(e) => mutateDraft((d) => {
+                                d.autopilotSettings.trustedAuthors = parseList(e.target.value);
+                            })}
+                        />
+                    </label>
+                    <label>
+                        Max parallel tasks
+                        <input
+                            type="number"
+                            min={1}
+                            value={settings.maxParallelTasks}
+                            onChange={(e) => mutateDraft((d) => {
+                                const value = parseInt(e.target.value, 10);
+                                d.autopilotSettings.maxParallelTasks = Number.isFinite(value) && value > 0 ? value : 1;
+                            })}
+                        />
+                    </label>
+                </div>
+
+                <div className="review-section-divider" />
+                <div className="task-sync-token-mode-field">
+                    <span className="task-sync-field-label">Worker permissions</span>
+                    <div className="autopilot-permission-grid">
+                        {AUTOPILOT_PERMISSIONS.map((permission) => {
+                            const active = Boolean(settings[permission.id]);
+                            return (
+                                <button
+                                    key={permission.id}
+                                    type="button"
+                                    className={`task-sync-token-option ${active ? "active" : ""}`}
+                                    onClick={() => mutateDraft((d) => {
+                                        d.autopilotSettings[permission.id] = !d.autopilotSettings[permission.id];
+                                    })}
+                                >
+                                    <span className="material-symbols-rounded">{permission.icon}</span>
+                                    <strong>{permission.label}</strong>
+                                </button>
+                            );
+                        })}
+                    </div>
+                </div>
             </section>
         );
     }
@@ -1556,6 +1768,8 @@ export function ProjectSettingsTab({
                 return renderHeartbeat();
             case "loop":
                 return renderLoop();
+            case "autopilot":
+                return renderAutopilot();
             case "review":
                 return renderReview();
             case "task_sync":

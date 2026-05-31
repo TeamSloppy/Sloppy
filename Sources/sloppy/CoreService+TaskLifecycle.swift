@@ -83,7 +83,19 @@ extension CoreService {
         } else {
             delegation = await resolveTaskDelegation(project: project, task: task)
         }
-        guard let delegation else {
+        let effectiveDelegation: TaskDelegation?
+        if let delegation {
+            let agentID = normalizeWhitespace(delegation.agentID ?? "")
+            if agentID.isEmpty, let fallback = autopilotDelegationFallback(project: project, task: task) {
+                effectiveDelegation = fallback
+            } else {
+                effectiveDelegation = delegation
+            }
+        } else {
+            effectiveDelegation = autopilotDelegationFallback(project: project, task: task)
+        }
+
+        guard let delegation = effectiveDelegation else {
             if shouldLeaveReadyForConstrainedRoute(project: project, task: task) {
                 appendTaskLifecycleLog(
                     projectID: project.id,
@@ -131,7 +143,8 @@ extension CoreService {
             return
         }
 
-        if await startSwarmIfHierarchical(projectID: project.id, taskID: task.id, delegation: delegation) {
+        if !isAutopilotManagedTask(project: project, task: task),
+           await startSwarmIfHierarchical(projectID: project.id, taskID: task.id, delegation: delegation) {
             return
         }
 
@@ -238,6 +251,7 @@ extension CoreService {
         let effectiveWorkingDirectory = worktreePath ?? project.repoPath
         let workerMode: WorkerMode = task.kind == .planning ? .interactive : .fireAndForget
         let workerObjective = buildWorkerObjective(task: task, project: project, worktreePath: worktreePath)
+        let workerTools = workerToolsForTask(task: task, project: project)
         let workerId = await runtime.createWorker(
             spec: WorkerTaskSpec(
                 taskId: task.id,
@@ -245,7 +259,7 @@ extension CoreService {
                 title: task.title,
                 objective: workerObjective,
                 agentID: delegation.agentID,
-                tools: ["shell", "file", "exec", "browser"],
+                tools: workerTools,
                 mode: workerMode,
                 workingDirectory: effectiveWorkingDirectory,
                 selectedModel: {
@@ -295,6 +309,41 @@ extension CoreService {
             channelId: delegation.channelID,
             content: spawnMessage
         )
+    }
+
+    func autopilotDelegationFallback(project: ProjectRecord, task: ProjectTask) -> TaskDelegation? {
+        guard project.autopilotSettings.enabled,
+              isAutopilotManagedTask(project: project, task: task),
+              let channelID = resolveExecutionChannelID(project: project, task: task)
+        else {
+            return nil
+        }
+        let agentID = normalizeWhitespace(project.autopilotSettings.defaultAgentId ?? "")
+        guard !agentID.isEmpty else {
+            return nil
+        }
+        return TaskDelegation(actorID: nil, agentID: agentID, channelID: channelID)
+    }
+
+    func workerToolsForTask(task: ProjectTask, project: ProjectRecord) -> [String] {
+        guard isAutopilotManagedTask(project: project, task: task) else {
+            return ["shell", "file", "exec", "browser"]
+        }
+        let settings = project.autopilotSettings
+        var tools: [String] = []
+        if settings.canRunCommands {
+            tools.append(contentsOf: ["shell", "exec"])
+        }
+        if settings.canEditFiles {
+            tools.append("file")
+        }
+        if settings.canStartLocalhost {
+            tools.append("browser")
+        }
+        if settings.canUseWeb {
+            tools.append(contentsOf: ["web.search", "web.fetch"])
+        }
+        return tools.isEmpty ? ["project"] : Array(Set(tools)).sorted()
     }
 
     func shouldLeaveReadyForConstrainedRoute(project: ProjectRecord, task: ProjectTask) -> Bool {
@@ -1370,6 +1419,34 @@ extension CoreService {
             taskLines.append(task.description)
         }
         sections.append(taskLines.joined(separator: "\n"))
+
+        if isAutopilotManagedTask(project: project, task: task) {
+            var autopilotLines: [String] = ["[Autopilot]"]
+            if let parentTaskId = task.parentTaskId,
+               let parent = project.tasks.first(where: { $0.id == parentTaskId }) {
+                autopilotLines.append("Parent objective: \(parent.title)")
+                if !parent.description.isEmpty {
+                    autopilotLines.append("Parent details: \(parent.description)")
+                }
+            }
+            if !task.dependsOnTaskIds.isEmpty {
+                autopilotLines.append("Dependency context:")
+                for dependencyID in task.dependsOnTaskIds {
+                    if let dependency = project.tasks.first(where: { $0.id == dependencyID }) {
+                        autopilotLines.append("- \(dependency.id): \(dependency.title) [\(dependency.status)]")
+                    } else {
+                        autopilotLines.append("- \(dependencyID): missing")
+                    }
+                }
+            }
+            let settings = project.autopilotSettings
+            autopilotLines.append("Allowed permissions: web=\(settings.canUseWeb), editFiles=\(settings.canEditFiles), runCommands=\(settings.canRunCommands), localhost=\(settings.canStartLocalhost), commit=\(settings.canCommit), push=\(settings.canPush)")
+            autopilotLines.append("Before marking done, provide explicit completion evidence in completionNote.")
+            if settings.canStartLocalhost {
+                autopilotLines.append("If a localhost server is started, include its URL in your report.")
+            }
+            sections.append(autopilotLines.joined(separator: "\n"))
+        }
 
         // --- Project context ---
         var projectLines: [String] = [

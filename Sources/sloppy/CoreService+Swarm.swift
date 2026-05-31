@@ -946,6 +946,19 @@ extension CoreService {
         return TeamRetryDelegate(actorID: targetActorID, agentID: node.linkedAgentId)
     }
 
+    func autopilotReviewerDelegate(project: ProjectRecord, task: ProjectTask) -> TeamRetryDelegate? {
+        guard project.autopilotSettings.enabled,
+              isAutopilotManagedTask(project: project, task: task)
+        else {
+            return nil
+        }
+        let reviewerAgentID = normalizeWhitespace(project.autopilotSettings.reviewerAgentId ?? "")
+        guard !reviewerAgentID.isEmpty else {
+            return nil
+        }
+        return TeamRetryDelegate(actorID: "agent:\(reviewerAgentID)", agentID: reviewerAgentID)
+    }
+
     func extractOriginChannelID(from description: String) -> String? {
         let pattern = #"(?im)^Origin channel:\s*(\S+)\s*$"#
         guard let regex = try? NSRegularExpression(pattern: pattern) else {
@@ -1209,8 +1222,14 @@ extension CoreService {
                     )
                 }
 
-                if resolvedStatus == ProjectTaskStatus.done.rawValue,
-                   let handoffDelegate = await nextTeamHandoffDelegate(project: project, task: task) {
+                let completionHandoffDelegate: TeamRetryDelegate?
+                if resolvedStatus == ProjectTaskStatus.done.rawValue {
+                    let teamDelegate = await nextTeamHandoffDelegate(project: project, task: task)
+                    completionHandoffDelegate = teamDelegate ?? autopilotReviewerDelegate(project: project, task: task)
+                } else {
+                    completionHandoffDelegate = nil
+                }
+                if let handoffDelegate = completionHandoffDelegate {
                     let previousHandoffActor = task.claimedAgentId ?? task.claimedActorId ?? "worker"
                     let prevRouteStatus = task.status
                     task.claimedActorId = handoffDelegate.actorID
@@ -1243,8 +1262,9 @@ extension CoreService {
                     let nodesByID = Dictionary(uniqueKeysWithValues: (board?.nodes ?? []).map { ($0.id, $0) })
                     let nextNode = nodesByID[handoffDelegate.actorID]
                     let isReviewer = nextNode?.systemRole == .reviewer
+                    let isAutopilotReviewer = normalizeWhitespace(handoffDelegate.agentID ?? "") == normalizeWhitespace(project.autopilotSettings.reviewerAgentId ?? "")
 
-                    if isReviewer, task.worktreeBranch != nil {
+                    if (isReviewer || isAutopilotReviewer), task.worktreeBranch != nil {
                         project.tasks[taskIndex] = task
                         project.updatedAt = Date()
                         await store.saveProject(project)

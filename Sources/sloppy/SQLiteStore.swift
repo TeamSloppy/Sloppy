@@ -1040,7 +1040,7 @@ public actor SQLiteStore: PersistenceStore {
                    models_json, agent_files_json, heartbeat_json,
                    created_at, updated_at, repo_path, review_settings_json,
                    icon, is_archived, task_loop_mode, task_sync_settings_json,
-                   is_favorite, source_control_provider_id
+                   is_favorite, source_control_provider_id, autopilot_settings_json
             FROM dashboard_projects
             ORDER BY created_at ASC;
             """
@@ -1083,6 +1083,8 @@ public actor SQLiteStore: PersistenceStore {
             let repoPath = optionalText(statement: statement, index: 10)
             let reviewSettingsJSON = sqlite3_column_text(statement, 11).map { String(cString: $0) }
             let reviewSettings = reviewSettingsJSON.flatMap { try? JSONDecoder().decode(ProjectReviewSettings.self, from: Data($0.utf8)) } ?? ProjectReviewSettings()
+            let autopilotSettingsJSON = sqlite3_column_text(statement, 18).map { String(cString: $0) } ?? "{}"
+            let autopilotSettings = (try? JSONDecoder().decode(ProjectAutopilotSettings.self, from: Data(autopilotSettingsJSON.utf8))) ?? ProjectAutopilotSettings()
             let icon = optionalText(statement: statement, index: 12)
             let isArchived = sqlite3_column_int(statement, 13) != 0
             let taskLoopModeRaw = optionalText(statement: statement, index: 14)
@@ -1109,6 +1111,7 @@ public actor SQLiteStore: PersistenceStore {
                     repoPath: repoPath,
                     sourceControlProviderId: sourceControlProviderId,
                     reviewSettings: reviewSettings,
+                    autopilotSettings: autopilotSettings,
                     taskLoopMode: taskLoopMode,
                     taskSyncSettings: taskSyncSettings,
                     isFavorite: isFavorite,
@@ -1221,7 +1224,7 @@ public actor SQLiteStore: PersistenceStore {
                        models_json, agent_files_json, heartbeat_json,
                        created_at, updated_at, repo_path, review_settings_json,
                        icon, is_archived, task_loop_mode, task_sync_settings_json,
-                       is_favorite, source_control_provider_id
+                       is_favorite, source_control_provider_id, autopilot_settings_json
                 FROM dashboard_projects
                 WHERE id = ?
                 LIMIT 1;
@@ -1258,6 +1261,8 @@ public actor SQLiteStore: PersistenceStore {
                 let repoPath = optionalText(statement: statement, index: 10)
                 let reviewSettingsJSON = sqlite3_column_text(statement, 11).map { String(cString: $0) }
                 let reviewSettings = reviewSettingsJSON.flatMap { try? JSONDecoder().decode(ProjectReviewSettings.self, from: Data($0.utf8)) } ?? ProjectReviewSettings()
+                let autopilotSettingsJSON = sqlite3_column_text(statement, 18).map { String(cString: $0) } ?? "{}"
+                let autopilotSettings = (try? JSONDecoder().decode(ProjectAutopilotSettings.self, from: Data(autopilotSettingsJSON.utf8))) ?? ProjectAutopilotSettings()
                 let icon = optionalText(statement: statement, index: 12)
                 let isArchived = sqlite3_column_int(statement, 13) != 0
                 let taskLoopModeRaw = optionalText(statement: statement, index: 14)
@@ -1281,6 +1286,7 @@ public actor SQLiteStore: PersistenceStore {
                     repoPath: repoPath,
                     sourceControlProviderId: sourceControlProviderId,
                     reviewSettings: reviewSettings,
+                    autopilotSettings: autopilotSettings,
                     taskLoopMode: taskLoopMode,
                     taskSyncSettings: taskSyncSettings,
                     isFavorite: isFavorite,
@@ -1318,13 +1324,14 @@ public actor SQLiteStore: PersistenceStore {
                 updated_at,
                 repo_path,
                 review_settings_json,
+                autopilot_settings_json,
                 icon,
                 is_archived,
                 task_loop_mode,
                 task_sync_settings_json,
                 is_favorite,
                 source_control_provider_id
-            ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+            ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
             """
 
         var projectStatement: OpaquePointer?
@@ -1339,6 +1346,7 @@ public actor SQLiteStore: PersistenceStore {
         let agentFilesJSON = (try? String(data: JSONEncoder().encode(project.agentFiles), encoding: .utf8)) ?? "[]"
         let heartbeatJSON = (try? String(data: JSONEncoder().encode(project.heartbeat), encoding: .utf8)) ?? "{}"
         let reviewSettingsJSON = (try? String(data: JSONEncoder().encode(project.reviewSettings), encoding: .utf8)) ?? "{}"
+        let autopilotSettingsJSON = (try? String(data: JSONEncoder().encode(project.autopilotSettings), encoding: .utf8)) ?? "{}"
         let taskSyncSettingsJSON = (try? String(data: JSONEncoder().encode(project.taskSyncSettings), encoding: .utf8)) ?? "{}"
 
         bindText(project.id, at: 1, statement: projectStatement)
@@ -1353,12 +1361,13 @@ public actor SQLiteStore: PersistenceStore {
         bindText(isoFormatter.string(from: project.updatedAt), at: 10, statement: projectStatement)
         bindOptionalText(project.repoPath, at: 11, statement: projectStatement)
         bindText(reviewSettingsJSON, at: 12, statement: projectStatement)
-        bindOptionalText(project.icon, at: 13, statement: projectStatement)
-        sqlite3_bind_int(projectStatement, 14, project.isArchived ? 1 : 0)
-        bindText(project.taskLoopMode.rawValue, at: 15, statement: projectStatement)
-        bindText(taskSyncSettingsJSON, at: 16, statement: projectStatement)
-        sqlite3_bind_int(projectStatement, 17, project.isFavorite ? 1 : 0)
-        bindOptionalText(project.sourceControlProviderId, at: 18, statement: projectStatement)
+        bindText(autopilotSettingsJSON, at: 13, statement: projectStatement)
+        bindOptionalText(project.icon, at: 14, statement: projectStatement)
+        sqlite3_bind_int(projectStatement, 15, project.isArchived ? 1 : 0)
+        bindText(project.taskLoopMode.rawValue, at: 16, statement: projectStatement)
+        bindText(taskSyncSettingsJSON, at: 17, statement: projectStatement)
+        sqlite3_bind_int(projectStatement, 18, project.isFavorite ? 1 : 0)
+        bindOptionalText(project.sourceControlProviderId, at: 19, statement: projectStatement)
         guard sqlite3_step(projectStatement) == SQLITE_DONE else {
             return
         }
@@ -1404,6 +1413,8 @@ public actor SQLiteStore: PersistenceStore {
                 claimed_actor_id,
                 claimed_agent_id,
                 parent_task_id,
+                created_by,
+                depends_on_task_ids_json,
                 swarm_id,
                 swarm_task_id,
                 swarm_parent_task_id,
@@ -1422,7 +1433,7 @@ public actor SQLiteStore: PersistenceStore {
                 selected_model,
                 external_metadata_json,
                 tags_json
-            ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+            ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
             """
 
         for task in project.tasks {
@@ -1432,6 +1443,7 @@ public actor SQLiteStore: PersistenceStore {
             }
             defer { sqlite3_finalize(taskStatement) }
             let dependencyIdsJSON = encodedStringArray(task.swarmDependencyIds ?? [])
+            let dependsOnTaskIdsJSON = encodedStringArray(task.dependsOnTaskIds)
             let actorPathJSON = encodedStringArray(task.swarmActorPath ?? [])
             let externalJSON = task.externalMetadata.flatMap { try? String(data: JSONEncoder().encode($0), encoding: .utf8) }
             let tagsJSON = encodedStringArray(task.tags)
@@ -1446,28 +1458,30 @@ public actor SQLiteStore: PersistenceStore {
             bindOptionalText(task.claimedActorId, at: 9, statement: taskStatement)
             bindOptionalText(task.claimedAgentId, at: 10, statement: taskStatement)
             bindOptionalText(task.parentTaskId, at: 11, statement: taskStatement)
-            bindOptionalText(task.swarmId, at: 12, statement: taskStatement)
-            bindOptionalText(task.swarmTaskId, at: 13, statement: taskStatement)
-            bindOptionalText(task.swarmParentTaskId, at: 14, statement: taskStatement)
-            bindText(dependencyIdsJSON, at: 15, statement: taskStatement)
+            bindOptionalText(task.createdBy, at: 12, statement: taskStatement)
+            bindText(dependsOnTaskIdsJSON, at: 13, statement: taskStatement)
+            bindOptionalText(task.swarmId, at: 14, statement: taskStatement)
+            bindOptionalText(task.swarmTaskId, at: 15, statement: taskStatement)
+            bindOptionalText(task.swarmParentTaskId, at: 16, statement: taskStatement)
+            bindText(dependencyIdsJSON, at: 17, statement: taskStatement)
             if let swarmDepth = task.swarmDepth {
-                sqlite3_bind_int(taskStatement, 16, Int32(swarmDepth))
+                sqlite3_bind_int(taskStatement, 18, Int32(swarmDepth))
             } else {
-                sqlite3_bind_null(taskStatement, 16)
+                sqlite3_bind_null(taskStatement, 18)
             }
-            bindText(actorPathJSON, at: 17, statement: taskStatement)
-            bindText(isoFormatter.string(from: task.createdAt), at: 18, statement: taskStatement)
-            bindText(isoFormatter.string(from: task.updatedAt), at: 19, statement: taskStatement)
-            bindOptionalText(task.worktreeBranch, at: 20, statement: taskStatement)
-            bindOptionalText(task.sourceControlProviderId, at: 21, statement: taskStatement)
-            bindOptionalText(task.kind?.rawValue, at: 22, statement: taskStatement)
-            bindOptionalText(task.loopModeOverride?.rawValue, at: 23, statement: taskStatement)
-            bindOptionalText(task.originType?.rawValue, at: 24, statement: taskStatement)
-            bindOptionalText(task.originChannelId, at: 25, statement: taskStatement)
-            sqlite3_bind_int(taskStatement, 26, task.isArchived ? 1 : 0)
-            bindOptionalText(task.selectedModel, at: 27, statement: taskStatement)
-            bindOptionalText(externalJSON, at: 28, statement: taskStatement)
-            bindText(tagsJSON, at: 29, statement: taskStatement)
+            bindText(actorPathJSON, at: 19, statement: taskStatement)
+            bindText(isoFormatter.string(from: task.createdAt), at: 20, statement: taskStatement)
+            bindText(isoFormatter.string(from: task.updatedAt), at: 21, statement: taskStatement)
+            bindOptionalText(task.worktreeBranch, at: 22, statement: taskStatement)
+            bindOptionalText(task.sourceControlProviderId, at: 23, statement: taskStatement)
+            bindOptionalText(task.kind?.rawValue, at: 24, statement: taskStatement)
+            bindOptionalText(task.loopModeOverride?.rawValue, at: 25, statement: taskStatement)
+            bindOptionalText(task.originType?.rawValue, at: 26, statement: taskStatement)
+            bindOptionalText(task.originChannelId, at: 27, statement: taskStatement)
+            sqlite3_bind_int(taskStatement, 28, task.isArchived ? 1 : 0)
+            bindOptionalText(task.selectedModel, at: 29, statement: taskStatement)
+            bindOptionalText(externalJSON, at: 30, statement: taskStatement)
+            bindText(tagsJSON, at: 31, statement: taskStatement)
             _ = sqlite3_step(taskStatement)
         }
 #endif
@@ -1930,21 +1944,22 @@ public actor SQLiteStore: PersistenceStore {
                 let descriptionPtr = sqlite3_column_text(statement, 2),
                 let priorityPtr = sqlite3_column_text(statement, 3),
                 let statusPtr = sqlite3_column_text(statement, 4),
-                let createdAtPtr = sqlite3_column_text(statement, 16),
-                let updatedAtPtr = sqlite3_column_text(statement, 17)
+                let createdAtPtr = sqlite3_column_text(statement, 18),
+                let updatedAtPtr = sqlite3_column_text(statement, 19)
             else {
                 continue
             }
             let createdAt = isoFormatter.date(from: String(cString: createdAtPtr)) ?? Date()
             let updatedAt = isoFormatter.date(from: String(cString: updatedAtPtr)) ?? createdAt
-            let dependencyIds = decodeOptionalStringArray(optionalText(statement: statement, index: 13))
-            let actorPath = decodeOptionalStringArray(optionalText(statement: statement, index: 15))
-            let kindRaw = optionalText(statement: statement, index: 20)
-            let loopOverrideRaw = optionalText(statement: statement, index: 21)
-            let originTypeRaw = optionalText(statement: statement, index: 22)
-            let externalJSON = optionalText(statement: statement, index: 26)
+            let dependsOnTaskIds = decodeOptionalStringArray(optionalText(statement: statement, index: 11)) ?? []
+            let dependencyIds = decodeOptionalStringArray(optionalText(statement: statement, index: 15))
+            let actorPath = decodeOptionalStringArray(optionalText(statement: statement, index: 17))
+            let kindRaw = optionalText(statement: statement, index: 22)
+            let loopOverrideRaw = optionalText(statement: statement, index: 23)
+            let originTypeRaw = optionalText(statement: statement, index: 24)
+            let externalJSON = optionalText(statement: statement, index: 28)
             let externalMetadata = externalJSON.flatMap { try? JSONDecoder().decode(TaskExternalMetadata.self, from: Data($0.utf8)) }
-            let tags = decodeOptionalStringArray(optionalText(statement: statement, index: 27)) ?? []
+            let tags = decodeOptionalStringArray(optionalText(statement: statement, index: 29)) ?? []
             result.append(
                 ProjectTask(
                     id: String(cString: idPtr),
@@ -1955,24 +1970,26 @@ public actor SQLiteStore: PersistenceStore {
                     kind: kindRaw.flatMap { ProjectTaskKind(rawValue: $0) },
                     loopModeOverride: loopOverrideRaw.flatMap { ProjectLoopMode(rawValue: $0) },
                     originType: originTypeRaw.flatMap { TaskOriginType(rawValue: $0) },
-                    originChannelId: optionalText(statement: statement, index: 22),
+                    originChannelId: optionalText(statement: statement, index: 25),
                     actorId: optionalText(statement: statement, index: 5),
                     teamId: optionalText(statement: statement, index: 6),
                     claimedActorId: optionalText(statement: statement, index: 7),
                     claimedAgentId: optionalText(statement: statement, index: 8),
                     parentTaskId: optionalText(statement: statement, index: 9),
-                    swarmId: optionalText(statement: statement, index: 10),
-                    swarmTaskId: optionalText(statement: statement, index: 11),
-                    swarmParentTaskId: optionalText(statement: statement, index: 12),
+                    createdBy: optionalText(statement: statement, index: 10),
+                    dependsOnTaskIds: dependsOnTaskIds,
+                    swarmId: optionalText(statement: statement, index: 12),
+                    swarmTaskId: optionalText(statement: statement, index: 13),
+                    swarmParentTaskId: optionalText(statement: statement, index: 14),
                     swarmDependencyIds: dependencyIds,
-                    swarmDepth: optionalInt(statement: statement, index: 14),
+                    swarmDepth: optionalInt(statement: statement, index: 16),
                     swarmActorPath: actorPath,
-                    worktreeBranch: optionalText(statement: statement, index: 18),
-                    sourceControlProviderId: optionalText(statement: statement, index: 19),
-                    selectedModel: optionalText(statement: statement, index: 25),
+                    worktreeBranch: optionalText(statement: statement, index: 20),
+                    sourceControlProviderId: optionalText(statement: statement, index: 21),
+                    selectedModel: optionalText(statement: statement, index: 27),
                     externalMetadata: externalMetadata,
                     tags: tags,
-                    isArchived: sqlite3_column_int(statement, 24) != 0,
+                    isArchived: sqlite3_column_int(statement, 26) != 0,
                     createdAt: createdAt,
                     updatedAt: updatedAt
                 )
@@ -2424,7 +2441,9 @@ public actor SQLiteStore: PersistenceStore {
             "ALTER TABLE dashboard_project_tasks ADD COLUMN swarm_depth INTEGER;",
             "ALTER TABLE dashboard_project_tasks ADD COLUMN swarm_actor_path_json TEXT NOT NULL DEFAULT '[]';",
             "ALTER TABLE dashboard_project_tasks ADD COLUMN is_archived INTEGER NOT NULL DEFAULT 0;",
-            "ALTER TABLE dashboard_project_tasks ADD COLUMN parent_task_id TEXT;"
+            "ALTER TABLE dashboard_project_tasks ADD COLUMN parent_task_id TEXT;",
+            "ALTER TABLE dashboard_project_tasks ADD COLUMN created_by TEXT;",
+            "ALTER TABLE dashboard_project_tasks ADD COLUMN depends_on_task_ids_json TEXT NOT NULL DEFAULT '[]';"
         ]
 
         for statement in statements {
@@ -3215,6 +3234,11 @@ public actor SQLiteStore: PersistenceStore {
         _ = sqlite3_exec(
             db,
             "ALTER TABLE dashboard_projects ADD COLUMN review_settings_json TEXT NOT NULL DEFAULT '{\"enabled\":false,\"approvalMode\":\"human\"}';",
+            nil, nil, nil
+        )
+        _ = sqlite3_exec(
+            db,
+            "ALTER TABLE dashboard_projects ADD COLUMN autopilot_settings_json TEXT NOT NULL DEFAULT '{}';",
             nil, nil, nil
         )
         _ = sqlite3_exec(

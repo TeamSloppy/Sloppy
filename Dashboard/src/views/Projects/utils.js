@@ -194,6 +194,42 @@ export function normalizeProject(project, index = 0) {
       autonomousMode: String(reviewSettingsRaw.autonomousMode || "off").trim() || "off"
     }
     : { enabled: false, approvalMode: "human", autonomousMode: "off" };
+  const autopilotRaw = project?.autopilotSettings;
+  const autopilotSettings = autopilotRaw && typeof autopilotRaw === "object"
+    ? {
+      enabled: Boolean(autopilotRaw.enabled),
+      mode: String(autopilotRaw.mode || "assistive").trim() || "assistive",
+      defaultAgentId: String(autopilotRaw.defaultAgentId || "").trim(),
+      reviewerAgentId: String(autopilotRaw.reviewerAgentId || "").trim(),
+      includedTags: Array.isArray(autopilotRaw.includedTags) && autopilotRaw.includedTags.length > 0
+        ? autopilotRaw.includedTags.map(String)
+        : ["autopilot"],
+      trustedAuthors: Array.isArray(autopilotRaw.trustedAuthors) ? autopilotRaw.trustedAuthors.map(String) : [],
+      maxParallelTasks: Number.isFinite(Number(autopilotRaw.maxParallelTasks))
+        ? Math.max(1, Number(autopilotRaw.maxParallelTasks))
+        : 1,
+      canUseWeb: Boolean(autopilotRaw.canUseWeb),
+      canEditFiles: Boolean(autopilotRaw.canEditFiles),
+      canRunCommands: Boolean(autopilotRaw.canRunCommands),
+      canStartLocalhost: Boolean(autopilotRaw.canStartLocalhost),
+      canCommit: Boolean(autopilotRaw.canCommit),
+      canPush: Boolean(autopilotRaw.canPush)
+    }
+    : {
+      enabled: false,
+      mode: "assistive",
+      defaultAgentId: "",
+      reviewerAgentId: "",
+      includedTags: ["autopilot"],
+      trustedAuthors: [],
+      maxParallelTasks: 1,
+      canUseWeb: false,
+      canEditFiles: false,
+      canRunCommands: false,
+      canStartLocalhost: false,
+      canCommit: false,
+      canPush: false
+    };
 
   return {
     id,
@@ -215,6 +251,7 @@ export function normalizeProject(project, index = 0) {
     worktreeRootPath: String(project?.worktreeRootPath || "").trim() || null,
     sourceControlProviderId: String(project?.sourceControlProviderId || "").trim() || null,
     reviewSettings,
+    autopilotSettings,
     taskLoopMode: String(project?.taskLoopMode || "human").trim(),
     isFavorite: Boolean(project?.isFavorite),
     isArchived: Boolean(project?.isArchived)

@@ -3022,6 +3022,30 @@
   font-weight: 600;
 }
 
+.autopilot-form-grid {
+  align-items: end;
+}
+
+.autopilot-agent-dropdown {
+  width: 100%;
+}
+
+.autopilot-agent-dropdown-button {
+  min-height: 42px;
+}
+
+.autopilot-permission-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+}
+
+@media (max-width: 760px) {
+  .autopilot-permission-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
 .task-sync-status-mappings {
   grid-column: 1 / -1;
 }

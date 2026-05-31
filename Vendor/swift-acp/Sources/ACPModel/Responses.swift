@@ -71,6 +71,10 @@ public struct NewSessionResponse: Codable, Sendable {
     }
 }
 
+public struct AuthorizationResponse: Codable, Sendable {
+    public init() {}
+}
+
 public struct LoadSessionResponse: Codable, Sendable {
     public let sessionId: SessionId
     public let modes: ModesInfo?

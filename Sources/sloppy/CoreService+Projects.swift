@@ -784,6 +784,9 @@ extension CoreService {
         if let nextReviewSettings = request.reviewSettings {
             project.reviewSettings = nextReviewSettings
         }
+        if let nextAutopilotSettings = request.autopilotSettings {
+            project.autopilotSettings = nextAutopilotSettings
+        }
         if let nextLoopMode = request.taskLoopMode {
             project.taskLoopMode = nextLoopMode
         }
@@ -965,6 +968,9 @@ extension CoreService {
             originChannelId: request.originChannelId,
             actorId: try normalizeOptionalTaskActorID(request.actorId),
             teamId: try normalizeOptionalTaskTeamID(request.teamId),
+            parentTaskId: normalizeOptionalTaskID(request.parentTaskId),
+            createdBy: normalizeOptionalTaskAuthor(request.changedBy),
+            dependsOnTaskIds: normalizeTaskDependencyIds(request.dependsOnTaskIds ?? []),
             selectedModel: normalizeOptionalTaskSelectedModel(request.selectedModel),
             tags: normalizeTaskTags(request.tags ?? []),
             createdAt: now,
@@ -1058,6 +1064,12 @@ extension CoreService {
         }
         if request.loopModeOverride != nil {
             task.loopModeOverride = request.loopModeOverride
+        }
+        if request.parentTaskId != nil {
+            task.parentTaskId = normalizeOptionalTaskID(request.parentTaskId)
+        }
+        if let dependsOnTaskIds = request.dependsOnTaskIds {
+            task.dependsOnTaskIds = normalizeTaskDependencyIds(dependsOnTaskIds)
         }
         if request.selectedModel != nil {
             task.selectedModel = normalizeOptionalTaskSelectedModel(request.selectedModel)
@@ -1334,6 +1346,22 @@ extension CoreService {
         return trimmed.isEmpty ? nil : trimmed
     }
 
+    func normalizeOptionalTaskID(_ raw: String?) -> String? {
+        guard let raw else {
+            return nil
+        }
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : String(trimmed.prefix(120))
+    }
+
+    func normalizeOptionalTaskAuthor(_ raw: String?) -> String? {
+        guard let raw else {
+            return nil
+        }
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : String(trimmed.prefix(120))
+    }
+
     func normalizeTaskReference(_ raw: String) -> String? {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
@@ -1462,6 +1490,23 @@ extension CoreService {
             }
         }
         return tags
+    }
+
+    func normalizeTaskDependencyIds(_ raw: [String]) -> [String] {
+        var seen = Set<String>()
+        var ids: [String] = []
+        for value in raw {
+            let id = String(value.trimmingCharacters(in: .whitespacesAndNewlines).prefix(120))
+            guard !id.isEmpty, !seen.contains(id) else {
+                continue
+            }
+            seen.insert(id)
+            ids.append(id)
+            if ids.count >= 64 {
+                break
+            }
+        }
+        return ids
     }
 
     func normalizedProjectID(_ raw: String) -> String? {

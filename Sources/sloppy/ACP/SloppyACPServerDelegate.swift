@@ -95,6 +95,17 @@ final class SloppyACPServerDelegate: AgentDelegate, @unchecked Sendable {
         }
     }
 
+    func handleAuthorization(_ request: AuthorizationRequest) async throws -> AuthorizationResponse {
+        logger.info(
+            "handle.request.authorization",
+            metadata: [
+                "request": .string(String(reflecting: request))
+            ]
+        )
+        try await validateReady()
+        return AuthorizationResponse()
+    }
+
     func handleNewSession(_ request: NewSessionRequest) async throws -> NewSessionResponse {
         logger.info(
             "handle.request.newSession",
