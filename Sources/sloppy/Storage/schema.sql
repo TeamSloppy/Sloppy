@@ -222,7 +222,10 @@ CREATE TABLE IF NOT EXISTS dashboard_project_tasks (
     origin_type TEXT,
     origin_channel_id TEXT,
     is_archived INTEGER NOT NULL DEFAULT 0,
-    selected_model TEXT
+    selected_model TEXT,
+    attachments_json TEXT NOT NULL DEFAULT '[]',
+    external_metadata_json TEXT,
+    tags_json TEXT NOT NULL DEFAULT '[]'
 );
 
 CREATE INDEX IF NOT EXISTS idx_dashboard_project_tasks_project ON dashboard_project_tasks(project_id);

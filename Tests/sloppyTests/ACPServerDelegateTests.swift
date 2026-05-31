@@ -53,7 +53,8 @@ func sloppyACPServerInitializeAdvertisesSessionCapabilities() async throws {
     #expect(response.agentCapabilities.promptCapabilities?.embeddedContext == nil)
     #expect(response.agentCapabilities.sessionCapabilities?.close == nil)
     #expect(response.agentCapabilities.sessionCapabilities?.list != nil)
-    #expect(response.agentCapabilities.sessionCapabilities?.resume == nil)
+    #expect(response.agentCapabilities.sessionCapabilities?.resume != nil)
+    #expect(response.authMethods?.isEmpty == true)
 }
 
 @Test

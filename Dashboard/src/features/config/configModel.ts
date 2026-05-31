@@ -401,7 +401,8 @@ export function normalizeModel(item, index) {
   if (typeof item === "string") {
     const [provider, name] = item.includes(":") ? item.split(":", 2) : ["", item];
     const apiUrlMap = {
-      openai: "https://api.openai.com/v1",
+      "openai-api": "https://api.openai.com/v1",
+      "openai-oauth": "https://chatgpt.com/backend-api",
       openrouter: "https://openrouter.ai/api/v1",
       ollama: "http://127.0.0.1:11434",
       gemini: "https://generativelanguage.googleapis.com",

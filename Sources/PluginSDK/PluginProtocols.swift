@@ -396,7 +396,7 @@ public protocol ModelProvider: Sendable {
     /// Unique provider identifier.
     var id: String { get }
 
-    /// The list of supported model identifiers (with provider prefix, e.g. "openai:gpt-4o").
+    /// The list of supported model identifiers (with provider prefix, e.g. "openai-api:gpt-4o").
     var supportedModels: [String] { get }
 
     /// System instructions injected into every session created from this provider.

@@ -304,7 +304,7 @@ func composerMetaLineShowsCompactContextIndicator() {
     let line = SloppyTUITheme.composerMetaLine(
         width: 120,
         mode: .build,
-        model: "openai:gpt-5.5",
+        model: "openai-api:gpt-5.5",
         agent: "Yadev",
         provider: "openai",
         tokenUsage: .init(
@@ -325,6 +325,24 @@ func composerMetaLineShowsCompactContextIndicator() {
     #expect(plain.contains("57s"))
     #expect(plain.contains("⏱ 27s"))
     #expect(!plain.contains("tokens:"))
+    #expect(VisibleWidth.measure(line) <= 120)
+}
+
+@Test
+func composerMetaLineRendersAutoModeAsRainbowText() {
+    let line = SloppyTUITheme.composerMetaLine(
+        width: 120,
+        mode: .auto,
+        model: "openai-api:gpt-5.5",
+        agent: "Yadev",
+        provider: "openai"
+    )
+
+    #expect(stripANSI(line).contains("Auto"))
+    #expect(line.contains("\u{001B}[38;2;248;113;113mA"))
+    #expect(line.contains("\u{001B}[38;2;251;178;123mu"))
+    #expect(line.contains("\u{001B}[38;2;250;204;21mt"))
+    #expect(line.contains("\u{001B}[38;2;74;222;128mo"))
     #expect(VisibleWidth.measure(line) <= 120)
 }
 
@@ -556,7 +574,7 @@ func welcomeScreenShowsSingleTip() {
         cwd: "/Users/vlad-prusakov/Developer/Sloppy",
         project: "Sloppy",
         agent: "sloppy",
-        model: "openai:gpt-5-codex-mini",
+        model: "openai-api:gpt-5-codex-mini",
         mode: .build,
         includeFooter: false
     )
@@ -574,7 +592,7 @@ func welcomeIntroBlockIsCenteredUnderLogo() throws {
         cwd: "/Users/vlad-prusakov/Developer/Sloppy",
         project: "Sloppy",
         agent: "sloppy",
-        model: "openai:gpt-5-codex-mini",
+        model: "openai-api:gpt-5-codex-mini",
         mode: .build,
         includeFooter: false
     )

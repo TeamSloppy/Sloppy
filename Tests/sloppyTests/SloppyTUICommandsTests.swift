@@ -16,7 +16,7 @@ func slashCommandRouterIgnoresAbsolutePaths() {
 
 @Test
 func slashCommandRouterHandlesKnownCommandsAndAliases() {
-    let commandNames: Set<String> = ["help", "workspace", "keybindings", "shortcuts", "add-dir", "restore", "up", "undo", "redo", "themes", "plan-web", "plans", "open-plan", "goal"]
+    let commandNames: Set<String> = ["help", "workspace", "keybindings", "shortcuts", "add-dir", "restore", "up", "undo", "redo", "themes", "plan-web", "plans", "open-plan", "goal", "feedback"]
 
     #expect(SloppyTUISlashCommandRouter.shouldHandle("/help", commandNames: commandNames, skillCommandNames: []))
     #expect(SloppyTUISlashCommandRouter.shouldHandle("/workspace", commandNames: commandNames, skillCommandNames: []))
@@ -32,6 +32,21 @@ func slashCommandRouterHandlesKnownCommandsAndAliases() {
     #expect(SloppyTUISlashCommandRouter.shouldHandle("/plans latest-plan", commandNames: commandNames, skillCommandNames: []))
     #expect(SloppyTUISlashCommandRouter.shouldHandle("/open-plan latest-plan", commandNames: commandNames, skillCommandNames: []))
     #expect(SloppyTUISlashCommandRouter.shouldHandle("/goal make tests pass", commandNames: commandNames, skillCommandNames: []))
+    #expect(SloppyTUISlashCommandRouter.shouldHandle("/feedback", commandNames: commandNames, skillCommandNames: []))
+}
+
+@Test
+@MainActor
+func feedbackCommandIsRegisteredInTUI() {
+    #expect(SloppyTUIScreen.handledSlashCommandNames.contains("feedback"))
+    #expect(SloppyTUIScreen.baseSlashCommands.contains { $0.name == "feedback" })
+}
+
+@Test
+func feedbackCommandTargetsGitHubIssues() throws {
+    let url = try #require(SloppyTUIFeedbackCommand.issuesURL)
+
+    #expect(url.absoluteString == "https://github.com/TeamSloppy/Sloppy/issues")
 }
 
 @Test
@@ -414,7 +429,7 @@ func pickerSearchFiltersAcrossLabelDescriptionAndGroup() {
             group: "OpenCode / yteam / internal"
         ),
         SloppyTUIPickerItem(
-            value: "openai:gpt-5.4-mini",
+            value: "openai-api:gpt-5.4-mini",
             label: "gpt-5.4-mini",
             description: "reasoning",
             isCurrent: false,
@@ -430,8 +445,8 @@ func pickerSearchFiltersAcrossLabelDescriptionAndGroup() {
 @Test
 func pickerSearchRestoresItemsAfterClearingQuery() {
     let items = [
-        SloppyTUIPickerItem(value: "openai:gpt-5.4-mini", label: "gpt-5.4-mini", description: nil, isCurrent: false, group: "OpenAI / gpt"),
-        SloppyTUIPickerItem(value: "openai:o4-mini", label: "o4-mini", description: nil, isCurrent: false, group: "OpenAI / o4"),
+        SloppyTUIPickerItem(value: "openai-api:gpt-5.4-mini", label: "gpt-5.4-mini", description: nil, isCurrent: false, group: "OpenAI / gpt"),
+        SloppyTUIPickerItem(value: "openai-api:o4-mini", label: "o4-mini", description: nil, isCurrent: false, group: "OpenAI / o4"),
     ]
     var picker = SloppyTUIPicker(
         kind: .model,
@@ -443,10 +458,10 @@ func pickerSearchRestoresItemsAfterClearingQuery() {
     )
 
     picker.setSearchQuery("o4")
-    #expect(picker.items.map(\.value) == ["openai:o4-mini"])
+    #expect(picker.items.map(\.value) == ["openai-api:o4-mini"])
 
     picker.clearSearchQuery()
-    #expect(picker.items.map(\.value) == ["openai:gpt-5.4-mini", "openai:o4-mini"])
+    #expect(picker.items.map(\.value) == ["openai-api:gpt-5.4-mini", "openai-api:o4-mini"])
 }
 
 @Test

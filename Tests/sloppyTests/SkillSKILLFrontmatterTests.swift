@@ -9,12 +9,12 @@ struct SkillSKILLFrontmatterTests {
         let md = """
         ---
         name: test-skill
-        model: openai:gpt-5.4-mini
+        model: openai-api:gpt-5.4-mini
         ---
 
         # Body
         """
-        #expect(SkillSKILLFrontmatter.preferredModel(fromMarkdown: md) == "openai:gpt-5.4-mini")
+        #expect(SkillSKILLFrontmatter.preferredModel(fromMarkdown: md) == "openai-api:gpt-5.4-mini")
     }
 
     @Test("Returns nil without frontmatter")

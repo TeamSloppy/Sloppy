@@ -12,7 +12,7 @@ extension CoreService {
         var providers: Set<String> = []
         for modelId in modelIds {
             let lowered = modelId.lowercased()
-            if lowered.hasPrefix("openai:") || lowered.contains("gpt") {
+            if lowered.hasPrefix("openai-api:") || lowered.hasPrefix("openai-oauth:") || lowered.contains("gpt") {
                 providers.insert("openai")
             }
             if lowered.hasPrefix("gemini:") || lowered.contains("gemini") || lowered.contains("google") {

@@ -993,7 +993,7 @@ export function ProjectSettingsTab({
                         Model identifiers
                         <textarea
                             rows={5}
-                            placeholder={"gpt-5.4-mini\nopenai:gpt-5.4\nollama:qwen3"}
+                            placeholder={"gpt-5.4-mini\nopenai-api:gpt-5.4\nollama:qwen3"}
                             value={draft.models.join("\n")}
                             onChange={(e) => {
                                 mutateDraft((d) => {

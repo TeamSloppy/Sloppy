@@ -196,6 +196,27 @@ extension SloppyTUIScreen {
         }
     }
 
+    func openFeedbackPage() {
+        guard let url = SloppyTUIFeedbackCommand.issuesURL else {
+            appendLocalCard("Could not open feedback page: invalid feedback URL.", autoDismissAfter: 10)
+            return
+        }
+        do {
+            try SloppyTUIExternalURLOpener.open(url)
+            appendLocalCard("""
+            Opened feedback page:
+
+            \(url.absoluteString)
+            """, autoDismissAfter: 8)
+        } catch {
+            appendLocalCard("""
+            Could not open feedback page: \(String(describing: error))
+
+            \(url.absoluteString)
+            """, autoDismissAfter: 10)
+        }
+    }
+
     func setReasoningEffort(_ raw: String?) {
         let value = raw?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() ?? ""
         guard !value.isEmpty else {
@@ -721,8 +742,10 @@ extension SloppyTUIScreen {
             return "Gemini"
         case "ollama":
             return "Ollama"
-        case "openai":
-            return "OpenAI"
+        case "openai-api":
+            return "OpenAI API"
+        case "openai-oauth":
+            return "OpenAI Codex"
         case "opencode":
             return "OpenCode"
         case "openrouter":
@@ -1050,7 +1073,8 @@ extension SloppyTUIScreen {
 
     func runtimeModelID(_ rawModel: String, provider: SloppyTUIProviderDefinition) -> String {
         let rawModel = rawModel.trimmingCharacters(in: .whitespacesAndNewlines)
-        if rawModel.hasPrefix("openai:")
+        if rawModel.hasPrefix("openai-api:")
+            || rawModel.hasPrefix("openai-oauth:")
             || rawModel.hasPrefix("openrouter:")
             || rawModel.hasPrefix("ollama:")
             || rawModel.hasPrefix("gemini:")
@@ -1084,8 +1108,11 @@ extension SloppyTUIScreen {
         if rawModel.hasPrefix("anthropic:") {
             return SloppyTUIProviderDefinition("anthropic")
         }
-        if rawModel.hasPrefix("openai:") {
-            return title.contains("oauth") ? SloppyTUIProviderDefinition("openai-oauth") : SloppyTUIProviderDefinition("openai-api")
+        if rawModel.hasPrefix("openai-api:") {
+            return SloppyTUIProviderDefinition("openai-api")
+        }
+        if rawModel.hasPrefix("openai-oauth:") {
+            return SloppyTUIProviderDefinition("openai-oauth")
         }
         if title.contains("openrouter") || apiURL.contains("openrouter") {
             return SloppyTUIProviderDefinition("openrouter")
@@ -1107,7 +1134,7 @@ extension SloppyTUIScreen {
 
     func configureProvider(_ args: [String]) async {
         guard let providerID = args.first else {
-            appendLocalCard("Usage: `/provider openai-api|openrouter|gemini|anthropic|ollama <api-key> [model]`")
+            appendLocalCard("Usage: `/provider openai-api|openai-oauth|openrouter|gemini|anthropic|ollama <api-key> [model]`")
             return
         }
         let key = args.dropFirst().first ?? ""

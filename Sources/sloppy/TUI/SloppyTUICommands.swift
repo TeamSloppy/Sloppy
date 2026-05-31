@@ -430,6 +430,14 @@ struct SloppyTUIPlanWebOpenTarget: Equatable {
     var display: String
 }
 
+enum SloppyTUIFeedbackCommand {
+    static let issuesURLString = "https://github.com/TeamSloppy/Sloppy/issues"
+
+    static var issuesURL: URL? {
+        URL(string: issuesURLString)
+    }
+}
+
 enum SloppyTUIPlanWebTargetResolver {
     static func target(
         for artifact: PlanArtifactRecord,

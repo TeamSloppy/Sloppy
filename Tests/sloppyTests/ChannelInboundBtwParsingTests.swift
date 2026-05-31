@@ -103,8 +103,8 @@ func slashBotTargeting_acceptsMatchingOrBare() {
 @Test
 func slashBotTargeting_stripsSuffix() {
     #expect(
-        ChannelSlashBotTargeting.stripTelegramBotUsernameSuffix(commandText: "/model@mybot openai:gpt", ourBotUsernameLowercased: "mybot")
-            == "/model openai:gpt"
+        ChannelSlashBotTargeting.stripTelegramBotUsernameSuffix(commandText: "/model@mybot openai-api:gpt", ourBotUsernameLowercased: "mybot")
+            == "/model openai-api:gpt"
     )
     #expect(
         ChannelSlashBotTargeting.stripTelegramBotUsernameSuffix(commandText: "/model@MYBOT", ourBotUsernameLowercased: "mybot")

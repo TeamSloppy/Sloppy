@@ -96,7 +96,8 @@ enum CoreModelProviderFactory {
     ) -> [String] {
         let modelConfigs = config.effectiveModels(currentDirectory: currentDirectory)
         var identifiers = modelConfigs.compactMap { resolvedIdentifier(for: $0) }
-        let hasOpenAI = identifiers.contains { $0.hasPrefix("openai:") }
+        let hasOpenAIAPI = identifiers.contains { $0.hasPrefix("openai-api:") }
+        let hasOpenAIOAuth = identifiers.contains { $0.hasPrefix("openai-oauth:") }
         let environmentKey = ProcessInfo.processInfo.environment["OPENAI_API_KEY"]?
             .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let hasOpenRouter = identifiers.contains { $0.hasPrefix("openrouter:") }
@@ -104,11 +105,11 @@ enum CoreModelProviderFactory {
             .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
 
         if !config.disableModelInference {
-            if !hasOpenAI, !environmentKey.isEmpty {
-                identifiers.append("openai:gpt-5.4-mini")
+            if !hasOpenAIAPI, !environmentKey.isEmpty {
+                identifiers.append("openai-api:gpt-5.4-mini")
             }
-            if !hasOpenAI, environmentKey.isEmpty, hasOAuthCredentials {
-                identifiers.append("openai:gpt-5-codex-mini")
+            if !hasOpenAIOAuth, environmentKey.isEmpty, hasOAuthCredentials {
+                identifiers.append("openai-oauth:gpt-5-codex-mini")
             }
             if !hasOpenRouter, !openRouterEnvKey.isEmpty {
                 identifiers.append("openrouter:openai/gpt-4o-mini")
@@ -118,7 +119,7 @@ enum CoreModelProviderFactory {
         return identifiers
     }
 
-    /// Returns the prefixed model identifier (e.g. "openai:gpt-4o") or `nil` if the
+    /// Returns the prefixed model identifier (e.g. "openai-api:gpt-4o") or `nil` if the
     /// provider cannot be inferred, rejecting unprefixed models.
     static func resolvedIdentifier(for model: CoreConfig.ModelConfig) -> String? {
         if model.disabled {
@@ -126,8 +127,12 @@ enum CoreModelProviderFactory {
         }
         let modelValue = model.model.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !modelValue.isEmpty else { return nil }
+        if modelValue.hasPrefix("openai:") {
+            return nil
+        }
 
-        if modelValue.hasPrefix("openai:") || modelValue.hasPrefix("openrouter:")
+        if modelValue.hasPrefix("openai-api:") || modelValue.hasPrefix("openai-oauth:")
+            || modelValue.hasPrefix("openrouter:")
             || modelValue.hasPrefix("ollama:")
             || modelValue.hasPrefix("gemini:") || modelValue.hasPrefix("anthropic:")
             || modelValue.hasPrefix("mock:") || modelValue.hasPrefix("opencode:") {
@@ -141,8 +146,10 @@ enum CoreModelProviderFactory {
     private static func inferredProvider(model: CoreConfig.ModelConfig) -> String? {
         if let catalog = model.providerCatalogId?.trimmingCharacters(in: .whitespacesAndNewlines), !catalog.isEmpty {
             switch catalog {
-            case "openai-api", "openai-oauth":
-                return "openai"
+            case "openai-api":
+                return "openai-api"
+            case "openai-oauth":
+                return "openai-oauth"
             case "openrouter":
                 return "openrouter"
             case "ollama":
@@ -161,8 +168,15 @@ enum CoreModelProviderFactory {
         let title = model.title.lowercased()
         let apiURL = model.apiUrl.lowercased()
 
+        if (title.contains("oauth") || title.contains("deeplink")) && !title.contains("anthropic") {
+            return "openai-oauth"
+        }
+        if apiURL.contains("chatgpt.com") {
+            return "openai-oauth"
+        }
+
         if title.contains("openai") || apiURL.contains("openai") {
-            return "openai"
+            return "openai-api"
         }
 
         if title.contains("openrouter") || apiURL.contains("openrouter") {
@@ -171,7 +185,7 @@ enum CoreModelProviderFactory {
 
         // LM Studio and many local OpenAI-compatible servers default to port 1234 (not Ollama /api/tags).
         if apiURL.contains(":1234") {
-            return "openai"
+            return "openai-api"
         }
 
         if title.contains("ollama") || apiURL.contains("ollama") || apiURL.contains("11434") {

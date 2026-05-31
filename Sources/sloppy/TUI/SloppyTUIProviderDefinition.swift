@@ -78,14 +78,14 @@ struct SloppyTUIProviderDefinition {
             setupDescription = "Local Ollama server"
         case "openai-oauth":
             id = "openai-oauth"
-            title = "openai-oauth"
+            title = "OpenAI Codex"
             apiURL = "https://chatgpt.com/backend-api"
             model = "gpt-5.3-codex"
             requiresAPIKey = false
             setupDescription = "Codex device auth"
         default:
             id = "openai-api"
-            title = "openai-api"
+            title = "OpenAI API"
             apiURL = "https://api.openai.com/v1"
             model = "gpt-5.4-mini"
             requiresAPIKey = true
@@ -98,7 +98,7 @@ struct SloppyTUIProviderDefinition {
         if id == "gemini" { return "gemini:\(modelID)" }
         if id == "anthropic" || id == "anthropic-oauth" { return "anthropic:\(modelID)" }
         if id == "ollama" { return "ollama:\(modelID)" }
-        return "openai:\(modelID)"
+        if id == "openai-oauth" { return "openai-oauth:\(modelID)" }
+        return "openai-api:\(modelID)"
     }
 }
-

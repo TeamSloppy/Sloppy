@@ -3,7 +3,95 @@ import XCTest
 
 final class ACPClientTests: XCTestCase {
 
+    private actor AgentTestTransport: Transport {
+        private let continuation: AsyncStream<Data>.Continuation
+        let messages: AsyncStream<Data>
+        private var sentMessages: [Data] = []
+
+        init() {
+            var continuation: AsyncStream<Data>.Continuation!
+            messages = AsyncStream { cont in
+                continuation = cont
+            }
+            self.continuation = continuation
+        }
+
+        var isConnected: Bool { true }
+
+        func receive(_ message: Message) throws {
+            continuation.yield(try JSONEncoder().encode(message))
+        }
+
+        func send(_ data: Data) async throws {
+            sentMessages.append(data)
+        }
+
+        func close() async {
+            continuation.finish()
+        }
+
+        func firstResponse() async throws -> JSONRPCResponse {
+            for _ in 0..<50 {
+                if let data = sentMessages.first {
+                    return try JSONDecoder().decode(JSONRPCResponse.self, from: data)
+                }
+                try await Task.sleep(nanoseconds: 10_000_000)
+            }
+            XCTFail("Expected agent to send a response.")
+            throw ClientError.invalidResponse
+        }
+    }
+
+    private final class AgentAuthenticationDelegate: AgentDelegate, @unchecked Sendable {
+        private(set) var authenticatedMethodId: String?
+
+        func handleInitialize(_ request: InitializeRequest) async throws -> InitializeResponse {
+            InitializeResponse(protocolVersion: 1, agentCapabilities: AgentCapabilities())
+        }
+
+        func handleAuthorization(_ request: AuthorizationRequest) async throws -> AuthorizationResponse {
+            AuthorizationResponse()
+        }
+
+        func handleAuthenticate(_ request: AuthenticateRequest) async throws -> AuthenticateResponse {
+            authenticatedMethodId = request.methodId
+            return AuthenticateResponse(success: true)
+        }
+
+        func handleNewSession(_ request: NewSessionRequest) async throws -> NewSessionResponse {
+            NewSessionResponse(sessionId: SessionId("test"))
+        }
+
+        func handlePrompt(_ request: SessionPromptRequest) async throws -> SessionPromptResponse {
+            SessionPromptResponse(stopReason: .endTurn)
+        }
+    }
+
     // MARK: - SessionId Tests
+
+    func testAgentRoutesAuthenticateRequestsToDelegate() async throws {
+        let transport = AgentTestTransport()
+        let agent = Agent(transport: transport)
+        let delegate = AgentAuthenticationDelegate()
+        await agent.setDelegate(delegate)
+
+        let task = Task { await agent.start() }
+        defer {
+            task.cancel()
+            Task { await transport.close() }
+        }
+
+        let paramsData = try JSONEncoder().encode(AuthenticateRequest(methodId: "agent-login"))
+        let params = try JSONDecoder().decode(AnyCodable.self, from: paramsData)
+        try await transport.receive(
+            .request(JSONRPCRequest(id: .number(1), method: "authenticate", params: params))
+        )
+
+        let response = try await transport.firstResponse()
+        XCTAssertNil(response.error)
+        XCTAssertEqual((response.result?.value as? [String: Any])?.isEmpty, true)
+        XCTAssertEqual(delegate.authenticatedMethodId, "agent-login")
+    }
 
     func testSessionIdEncoding() throws {
         let sessionId = SessionId("test-session-123")

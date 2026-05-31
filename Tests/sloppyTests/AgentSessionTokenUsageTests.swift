@@ -93,7 +93,7 @@ private actor TokenUsageObserverCapture {
 @Test
 func agentSessionOrchestratorForwardsModelTokenUsage() async throws {
     let agentID = "usage-agent"
-    let modelID = "openai:gpt-5.4-mini"
+    let modelID = "openai-api:gpt-5.4-mini"
     let models = [
         ProviderModelOption(id: modelID, title: modelID, contextWindow: "1.0M", capabilities: ["tools"])
     ]

@@ -106,8 +106,7 @@ extension EmbeddingService {
         let cfg = config.memory.embedding
 
         let openAIConfigs = config.models.filter {
-            CoreModelProviderFactory.resolvedIdentifier(for: $0)?.hasPrefix("openai:") == true
-                && !isOpenAIOAuthEntry($0)
+            CoreModelProviderFactory.resolvedIdentifier(for: $0)?.hasPrefix("openai-api:") == true
         }
         let preferredOpenAI = openAIConfigs.first {
             !$0.apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty

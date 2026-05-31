@@ -72,7 +72,8 @@ final class SloppyACPServerDelegate: AgentDelegate, @unchecked Sendable {
                     name: "sloppy",
                     version: SloppyVersion.current,
                     title: "Sloppy"
-                )
+                ),
+                authMethods: []
             )
 
             logger.info(

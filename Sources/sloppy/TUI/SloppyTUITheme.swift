@@ -252,6 +252,14 @@ enum SloppyTUITheme {
     private static func red(_ text: String) -> String { activeTheme.red.foregroundStyle(text) }
     private static func muted(_ text: String) -> String { activeTheme.muted.foregroundStyle(text) }
     private static func foreground(_ text: String) -> String { activeTheme.foreground.foregroundStyle(text) }
+    private static func rainbow(_ text: String) -> String {
+        let colors: [(String) -> String] = [red, orange, yellow, green, blue, accentBright]
+        return text.enumerated()
+            .map { index, character in
+                colors[index % colors.count](String(character))
+            }
+            .joined()
+    }
 
     private static var panelBackground: AnsiStyling.Background { activeTheme.panelBackground.background }
     private static var userMessageBackground: AnsiStyling.Background { activeTheme.userMessageBackground.background }
@@ -823,7 +831,7 @@ enum SloppyTUITheme {
         case .debug:
             return yellow(mode.title)
         case .auto:
-            return foreground(mode.title)
+            return rainbow(mode.title)
         }
     }
 

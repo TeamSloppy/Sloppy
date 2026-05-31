@@ -49,7 +49,7 @@ These settings control what goes into each bulletin and which model synthesizes 
 |---|---|---|
 | `visor.bootstrapBulletin` | `true` | Whether to generate an initial bulletin when Sloppy starts. Ensures agents have context from the very first message. |
 | `visor.bulletinMaxWords` | `300` | Target word count for the LLM-synthesized bulletin digest. The model is instructed to stay near this limit. |
-| `visor.model` | `null` | The model to use for bulletin synthesis, in the format `"provider:model-id"` (for example `"openai:gpt-4o-mini"`). When `null`, the default system model is used. If no model is available at all, Visor falls back to a plain-text summary. |
+| `visor.model` | `null` | The model to use for bulletin synthesis, in the format `"provider:model-id"` (for example `"openai-api:gpt-4o-mini"`). When `null`, the default system model is used. If no model is available at all, Visor falls back to a plain-text summary. |
 
 ## Supervision tick
 

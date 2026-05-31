@@ -135,12 +135,12 @@ sloppy agent get <agentId>
 
 # Create / delete
 sloppy agent create --name "Reviewer" --role "Code review agent"
-sloppy agent create --id "custom-id" --name "Worker" --model "openai:gpt-5.4-mini"
+sloppy agent create --id "custom-id" --name "Worker" --model "openai-api:gpt-5.4-mini"
 sloppy agent delete <agentId>
 
 # Config
 sloppy agent config get <agentId>
-sloppy agent config set <agentId> --model "openai:gpt-5.4"
+sloppy agent config set <agentId> --model "openai-api:gpt-5.4"
 sloppy agent config set <agentId> --name "New Name" --role "Updated role"
 
 # Tool policy
@@ -218,7 +218,7 @@ sloppy channel state <channelId>
 sloppy channel events <channelId> --limit 100
 sloppy channel message <channelId> --content "Trigger a reply" --user-id operator
 sloppy channel model get <channelId>
-sloppy channel model set <channelId> --model "openai:o4-mini"
+sloppy channel model set <channelId> --model "openai-api:o4-mini"
 sloppy channel model clear <channelId>
 sloppy channel control <channelId> --action abort
 ```
@@ -236,7 +236,7 @@ sloppy config set --json '{"listen":{"port":25102}}'
 ```bash
 sloppy providers list
 sloppy providers add --title "openai-api" --api-url "https://api.openai.com/v1" \
-  --api-key "$OPENAI_API_KEY" --model "openai:gpt-5.4"
+  --api-key "$OPENAI_API_KEY" --model "openai-api:gpt-5.4"
 sloppy providers remove "openai-api"
 sloppy providers probe --provider-id openai --api-key "$OPENAI_API_KEY"
 sloppy providers models --api-url "https://api.openai.com/v1" --api-key "$OPENAI_API_KEY"
@@ -336,7 +336,7 @@ sloppy agent cron create "my-agent" \
 ### Override a channel model temporarily
 
 ```bash
-sloppy channel model set main --model "openai:o4"
+sloppy channel model set main --model "openai-api:o4"
 # ... run your test ...
 sloppy channel model clear main
 ```

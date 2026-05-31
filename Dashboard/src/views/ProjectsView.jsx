@@ -12,7 +12,9 @@ import {
   deleteProjectChannel as deleteProjectChannelRequest,
   createProjectTask as createProjectTaskRequest,
   updateProjectTask as updateProjectTaskRequest,
-  deleteProjectTask as deleteProjectTaskRequest
+  deleteProjectTask as deleteProjectTaskRequest,
+  searchProjectFiles,
+  fetchSkillsRegistry
 } from "../api";
 import { useKanbanSocket } from "./Projects/useKanbanSocket";
 import { Breadcrumbs } from "../components/Breadcrumbs/Breadcrumbs";
@@ -413,12 +415,85 @@ function TaskCreateDropdown({ label, icon, color, isOpen, onToggle, children }) 
   );
 }
 
-function ProjectTaskCreateModal({ isOpen, draft, onChange, onClose, onCreate, actors = [], teams = [], creating = false }) {
-  const [openDropdown, setOpenDropdown] = useState(null);
-
-  if (!isOpen) {
-    return null;
+function formatBytes(bytes) {
+  const size = Number(bytes || 0);
+  if (size >= 1024 * 1024) {
+    return `${(size / (1024 * 1024)).toFixed(1)} MB`;
   }
+  if (size >= 1024) {
+    return `${Math.round(size / 1024)} KB`;
+  }
+  return `${size} B`;
+}
+
+function fileToBase64(file) {
+  return file.arrayBuffer().then((buffer) => {
+    const bytes = new Uint8Array(buffer);
+    let binary = "";
+    const chunkSize = 0x8000;
+    for (let index = 0; index < bytes.length; index += chunkSize) {
+      const chunk = bytes.subarray(index, index + chunkSize);
+      binary += String.fromCharCode.apply(null, chunk);
+    }
+    return btoa(binary);
+  });
+}
+
+function selectedItemKey(item) {
+  return String(item?.id || item?.path || item?.name || item?.title || "").trim();
+}
+
+function appendTaskContext(description, draft) {
+  const lines = [];
+  const files = Array.isArray(draft.contextFiles) ? draft.contextFiles : [];
+  const tasks = Array.isArray(draft.contextTasks) ? draft.contextTasks : [];
+  const skills = Array.isArray(draft.contextSkills) ? draft.contextSkills : [];
+  const attachments = Array.isArray(draft.attachments) ? draft.attachments : [];
+
+  if (files.length > 0) {
+    lines.push("Files:");
+    files.forEach((file) => lines.push(`- \`${file.path}\``));
+  }
+  if (tasks.length > 0) {
+    lines.push("Related tasks:");
+    tasks.forEach((task) => lines.push(`- #${task.id} ${task.title || ""}`.trim()));
+  }
+  if (skills.length > 0) {
+    lines.push("Skills:");
+    skills.forEach((skill) => lines.push(`- \`${skill.id}\`${skill.description ? ` - ${skill.description}` : ""}`));
+  }
+  if (attachments.length > 0) {
+    lines.push("Attachments:");
+    attachments.forEach((attachment) => {
+      lines.push(`- ${attachment.name} (${attachment.mimeType || "application/octet-stream"}, ${formatBytes(attachment.sizeBytes)})`);
+    });
+  }
+
+  const base = String(description || "").trim();
+  if (lines.length === 0) {
+    return base;
+  }
+  return [base, "## Context", ...lines].filter(Boolean).join("\n\n");
+}
+
+function ProjectTaskCreateModal({
+  isOpen,
+  draft,
+  onChange,
+  onClose,
+  onCreate,
+  project = null,
+  actors = [],
+  teams = [],
+  creating = false
+}) {
+  const [openDropdown, setOpenDropdown] = useState(null);
+  const [contextQuery, setContextQuery] = useState("");
+  const [fileResults, setFileResults] = useState([]);
+  const [skillResults, setSkillResults] = useState([]);
+  const [contextLoading, setContextLoading] = useState(false);
+  const [attachmentError, setAttachmentError] = useState("");
+  const attachmentInputRef = useRef(null);
 
   function toggle(name) {
     return (open) => setOpenDropdown(open ? name : null);
@@ -434,6 +509,88 @@ function ProjectTaskCreateModal({ isOpen, draft, onChange, onClose, onCreate, ac
     : currentTeam
       ? currentTeam.name
       : "Assignee";
+  const selectedFiles = Array.isArray(draft.contextFiles) ? draft.contextFiles : [];
+  const selectedTasks = Array.isArray(draft.contextTasks) ? draft.contextTasks : [];
+  const selectedSkills = Array.isArray(draft.contextSkills) ? draft.contextSkills : [];
+  const attachments = Array.isArray(draft.attachments) ? draft.attachments : [];
+  const taskResults = (Array.isArray(project?.tasks) ? project.tasks : [])
+    .filter((task) => {
+      const q = contextQuery.trim().toLowerCase();
+      if (!q) return true;
+      return (
+        String(task.title || "").toLowerCase().includes(q) ||
+        String(task.id || "").toLowerCase().includes(q) ||
+        String(task.description || "").toLowerCase().includes(q)
+      );
+    })
+    .slice(0, 6);
+
+  useEffect(() => {
+    if (!isOpen || !project?.id) {
+      return;
+    }
+    const q = contextQuery.trim();
+    if (!q) {
+      setFileResults([]);
+      setSkillResults([]);
+      setContextLoading(false);
+      return;
+    }
+    let isCancelled = false;
+    setContextLoading(true);
+    Promise.all([
+      searchProjectFiles(project.id, q, 8).catch(() => null),
+      fetchSkillsRegistry(q, "installs", 8, 0).catch(() => null)
+    ]).then(([files, skills]) => {
+      if (isCancelled) return;
+      setFileResults(Array.isArray(files) ? files : []);
+      setSkillResults(Array.isArray(skills?.skills) ? skills.skills : []);
+      setContextLoading(false);
+    });
+    return () => {
+      isCancelled = true;
+    };
+  }, [isOpen, project?.id, contextQuery]);
+
+  if (!isOpen) {
+    return null;
+  }
+
+  function toggleDraftList(field, item) {
+    const key = selectedItemKey(item);
+    if (!key) return;
+    const current = Array.isArray(draft[field]) ? draft[field] : [];
+    const exists = current.some((entry) => selectedItemKey(entry) === key);
+    onChange(field, exists ? current.filter((entry) => selectedItemKey(entry) !== key) : [...current, item]);
+  }
+
+  async function addAttachments(files) {
+    const nextFiles = Array.from(files || []);
+    if (nextFiles.length === 0) return;
+    setAttachmentError("");
+    const current = Array.isArray(draft.attachments) ? draft.attachments : [];
+    const maxFileBytes = 4 * 1024 * 1024;
+    const accepted = [];
+    for (const file of nextFiles) {
+      if (file.size > maxFileBytes) {
+        setAttachmentError(`${file.name} is larger than 4 MB.`);
+        continue;
+      }
+      const contentBase64 = await fileToBase64(file);
+      accepted.push({
+        name: file.name,
+        mimeType: file.type || "application/octet-stream",
+        sizeBytes: file.size,
+        contentBase64
+      });
+    }
+    if (accepted.length > 0) {
+      onChange("attachments", [...current, ...accepted].slice(0, 12));
+    }
+    if (attachmentInputRef.current) {
+      attachmentInputRef.current.value = "";
+    }
+  }
 
   return (
     <div className="project-modal-overlay" onClick={onClose}>
@@ -454,6 +611,150 @@ function ProjectTaskCreateModal({ isOpen, draft, onChange, onClose, onCreate, ac
               placeholder="Add description..."
               rows={6}
             />
+          </div>
+
+          <div className="tcm-context">
+            <div className="tcm-context-search">
+              <span className="material-symbols-rounded" aria-hidden="true">search</span>
+              <input
+                value={contextQuery}
+                onChange={(event) => setContextQuery(event.target.value)}
+                placeholder="Search files, tasks, skills..."
+                autoComplete="off"
+              />
+              {contextLoading ? <span className="tcm-context-loading">Searching</span> : null}
+            </div>
+
+            <div className="tcm-context-grid">
+              <div className="tcm-context-column">
+                <span className="tcm-context-title">Files</span>
+                {fileResults.length === 0 ? (
+                  <span className="tcm-context-empty">{contextQuery.trim() ? "No files" : "Type to search"}</span>
+                ) : fileResults.map((file) => {
+                  const path = String(file.path || file.name || "");
+                  const selected = selectedFiles.some((entry) => selectedItemKey(entry) === path);
+                  return (
+                    <button
+                      key={path}
+                      type="button"
+                      className={`tcm-context-result ${selected ? "selected" : ""}`}
+                      onClick={() => toggleDraftList("contextFiles", { path, name: String(file.name || path) })}
+                    >
+                      <span className="material-symbols-rounded" aria-hidden="true">description</span>
+                      <span>{path}</span>
+                    </button>
+                  );
+                })}
+              </div>
+
+              <div className="tcm-context-column">
+                <span className="tcm-context-title">Tasks</span>
+                {taskResults.length === 0 ? (
+                  <span className="tcm-context-empty">No tasks</span>
+                ) : taskResults.map((task) => {
+                  const selected = selectedTasks.some((entry) => selectedItemKey(entry) === task.id);
+                  return (
+                    <button
+                      key={task.id}
+                      type="button"
+                      className={`tcm-context-result ${selected ? "selected" : ""}`}
+                      onClick={() => toggleDraftList("contextTasks", { id: task.id, title: task.title })}
+                    >
+                      <span className="material-symbols-rounded" aria-hidden="true">task_alt</span>
+                      <span>#{task.id} {task.title}</span>
+                    </button>
+                  );
+                })}
+              </div>
+
+              <div className="tcm-context-column">
+                <span className="tcm-context-title">Skills</span>
+                {skillResults.length === 0 ? (
+                  <span className="tcm-context-empty">{contextQuery.trim() ? "No skills" : "Type to search"}</span>
+                ) : skillResults.map((skill) => {
+                  const id = String(skill.id || skill.name || "");
+                  const selected = selectedSkills.some((entry) => selectedItemKey(entry) === id);
+                  return (
+                    <button
+                      key={id}
+                      type="button"
+                      className={`tcm-context-result ${selected ? "selected" : ""}`}
+                      onClick={() => toggleDraftList("contextSkills", {
+                        id,
+                        name: String(skill.name || id),
+                        description: String(skill.description || "")
+                      })}
+                    >
+                      <span className="material-symbols-rounded" aria-hidden="true">extension</span>
+                      <span>{skill.name || id}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {[...selectedFiles, ...selectedTasks, ...selectedSkills].length > 0 ? (
+              <div className="tcm-selected-context">
+                {selectedFiles.map((file) => (
+                  <button key={`file-${file.path}`} type="button" onClick={() => toggleDraftList("contextFiles", file)}>
+                    <span className="material-symbols-rounded" aria-hidden="true">description</span>
+                    {file.path}
+                  </button>
+                ))}
+                {selectedTasks.map((task) => (
+                  <button key={`task-${task.id}`} type="button" onClick={() => toggleDraftList("contextTasks", task)}>
+                    <span className="material-symbols-rounded" aria-hidden="true">task_alt</span>
+                    #{task.id}
+                  </button>
+                ))}
+                {selectedSkills.map((skill) => (
+                  <button key={`skill-${skill.id}`} type="button" onClick={() => toggleDraftList("contextSkills", skill)}>
+                    <span className="material-symbols-rounded" aria-hidden="true">extension</span>
+                    {skill.name || skill.id}
+                  </button>
+                ))}
+              </div>
+            ) : null}
+          </div>
+
+          <div className="tcm-attachments">
+            <input
+              ref={attachmentInputRef}
+              type="file"
+              multiple
+              className="tcm-attachment-input"
+              onChange={(event) => addAttachments(event.target.files)}
+            />
+            <button
+              type="button"
+              className="tcm-attach-btn"
+              onClick={() => attachmentInputRef.current?.click()}
+            >
+              <span className="material-symbols-rounded" aria-hidden="true">attach_file</span>
+              Attach
+            </button>
+            {attachments.map((attachment, index) => (
+              <span key={`${attachment.name}-${index}`} className="tcm-attachment-chip">
+                {String(attachment.mimeType || "").startsWith("image/") && attachment.contentBase64 ? (
+                  <img
+                    src={`data:${attachment.mimeType};base64,${attachment.contentBase64}`}
+                    alt=""
+                  />
+                ) : (
+                  <span className="material-symbols-rounded" aria-hidden="true">draft</span>
+                )}
+                <span>{attachment.name}</span>
+                <small>{formatBytes(attachment.sizeBytes)}</small>
+                <button
+                  type="button"
+                  aria-label={`Remove ${attachment.name}`}
+                  onClick={() => onChange("attachments", attachments.filter((_, i) => i !== index))}
+                >
+                  ×
+                </button>
+              </span>
+            ))}
+            {attachmentError ? <span className="tcm-attachment-error">{attachmentError}</span> : null}
           </div>
 
           <div className="tcm-toolbar">
@@ -631,6 +932,14 @@ function ProjectTaskCreateModal({ isOpen, draft, onChange, onClose, onCreate, ac
             <div className="tcm-actions">
               <button type="button" className="tcm-discard-btn" onClick={onClose} disabled={creating}>
                 Discard
+              </button>
+              <button
+                type="button"
+                className="tcm-full-btn hover-levitate"
+                disabled={!draft.title.trim() || creating}
+                onClick={(event) => onCreate(event, { openFullTask: true })}
+              >
+                Full Task
               </button>
               <button type="submit" className="tcm-create-btn hover-levitate" disabled={!draft.title.trim() || creating}>
                 {creating ? "Creating…" : "Create Task"}
@@ -1471,7 +1780,7 @@ export function ProjectsView({
     setStatusText("Task deleted.");
   }
 
-  async function createTask(event) {
+  async function createTask(event, options = {}) {
     event.preventDefault();
 
     if (!selectedProject) {
@@ -1485,15 +1794,17 @@ export function ProjectsView({
 
     setCreatingTask(true);
 
+    const previousTaskIds = new Set((selectedProject.tasks || []).map((task) => String(task.id || "")));
     const updated = await createProjectTaskRequest(selectedProject.id, {
       title,
-      description: String(taskDraft.description || "").trim(),
+      description: appendTaskContext(taskDraft.description, taskDraft),
       priority: taskDraft.priority,
       status: taskDraft.status,
       kind: String(taskDraft.kind || "").trim() || null,
       loopModeOverride: String(taskDraft.loopModeOverride || "").trim() || null,
       actorId: String(taskDraft.actorId || "").trim() || null,
-      teamId: String(taskDraft.teamId || "").trim() || null
+      teamId: String(taskDraft.teamId || "").trim() || null,
+      attachments: Array.isArray(taskDraft.attachments) ? taskDraft.attachments : []
     });
 
     setCreatingTask(false);
@@ -1503,8 +1814,15 @@ export function ProjectsView({
       return;
     }
 
+    const createdTask = Array.isArray(updated.tasks)
+      ? updated.tasks.find((task) => !previousTaskIds.has(String(task.id || ""))) || updated.tasks[updated.tasks.length - 1]
+      : null;
     replaceProjectInState(updated);
     closeCreateTaskModal();
+    if (options.openFullTask && createdTask) {
+      openEditTaskModal(normalizeTask(createdTask));
+      onRouteProjectChange(selectedProject.id, "tasks", String(createdTask.id || "").trim());
+    }
     setStatusText("Task created.");
   }
 
@@ -1972,6 +2290,7 @@ export function ProjectsView({
         onChange={updateTaskDraft}
         onClose={closeCreateTaskModal}
         onCreate={createTask}
+        project={selectedProject}
         actors={createModalActors}
         teams={createModalTeams}
         creating={creatingTask}

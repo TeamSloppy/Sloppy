@@ -88,6 +88,13 @@ function resolveActorLinkedSloppie(actorId, createModalActors, agentDirectory) {
     };
 }
 
+function formatTaskAttachmentSize(bytes) {
+    const size = Number(bytes || 0);
+    if (size >= 1024 * 1024) return `${(size / (1024 * 1024)).toFixed(1)} MB`;
+    if (size >= 1024) return `${Math.round(size / 1024)} KB`;
+    return `${size} B`;
+}
+
 function ProjectKanbanClaimedAgentBadge({ task, agentDirectory }) {
     const ca = resolveClaimedAgentSloppie(task, agentDirectory);
     return (
@@ -1218,6 +1225,7 @@ function TaskDetailView({
     const githubIssueLabel = task.externalMetadata?.externalIssueNumber
         ? `GitHub #${task.externalMetadata.externalIssueNumber}`
         : "Open GitHub Issue";
+    const attachments = Array.isArray(task.attachments) ? task.attachments : [];
 
     useEffect(() => {
         const input = descriptionInputRef.current;
@@ -1315,6 +1323,26 @@ function TaskDetailView({
                         placeholder="Add description..."
                         rows={5}
                     />
+                    {attachments.length > 0 ? (
+                        <div className="td-attachments">
+                            {attachments.map((attachment, index) => (
+                                <div key={`${attachment.name}-${index}`} className="td-attachment">
+                                    {String(attachment.mimeType || "").startsWith("image/") && attachment.contentBase64 ? (
+                                        <img
+                                            src={`data:${attachment.mimeType};base64,${attachment.contentBase64}`}
+                                            alt=""
+                                        />
+                                    ) : (
+                                        <span className="material-symbols-rounded" aria-hidden="true">draft</span>
+                                    )}
+                                    <div>
+                                        <strong>{attachment.name}</strong>
+                                        <span>{attachment.mimeType || "application/octet-stream"} / {formatTaskAttachmentSize(attachment.sizeBytes)}</span>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    ) : null}
                 </div>
 
                 <div className="td-tabs-section">

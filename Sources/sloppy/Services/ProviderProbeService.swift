@@ -214,7 +214,7 @@ struct ProviderProbeService {
         authMethod: ProviderAuthMethod
     ) async -> ProviderProbeResponse {
         let primaryOpenAIConfig = config.models.first {
-            CoreModelProviderFactory.resolvedIdentifier(for: $0)?.hasPrefix("openai:") == true
+            CoreModelProviderFactory.resolvedIdentifier(for: $0)?.hasPrefix("openai-api:") == true
         }
 
         let apiURL = CoreModelProviderFactory.parseURL(request.apiUrl)

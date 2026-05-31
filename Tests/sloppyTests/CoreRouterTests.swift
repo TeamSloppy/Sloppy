@@ -248,7 +248,15 @@ func projectCrudEndpoints() async throws {
             title: "Wire API",
             description: "Implement CRUD for projects and tasks",
             priority: "high",
-            status: "backlog"
+            status: "backlog",
+            attachments: [
+                AgentAttachmentUpload(
+                    name: "brief.png",
+                    mimeType: "image/png",
+                    sizeBytes: 12,
+                    contentBase64: "YnJpZWY="
+                )
+            ]
         )
     )
     let createTaskResponse = await router.handle(
@@ -262,6 +270,8 @@ func projectCrudEndpoints() async throws {
 
     let taskID = try #require(withTask.tasks.first?.id)
     #expect(taskID == "PLATFORM-BOARD-1")
+    #expect(withTask.tasks.first?.attachments.first?.name == "brief.png")
+    #expect(withTask.tasks.first?.attachments.first?.mimeType == "image/png")
 
     let createSecondTaskResponse = await router.handle(
         method: "POST",
@@ -1981,7 +1991,7 @@ func agentConfigHeartbeatValidationAndBackfill() async throws {
 
     let invalidUpdate = AgentConfigUpdateRequest(
         role: nil,
-        selectedModel: "openai:gpt-5.4-mini",
+        selectedModel: "openai-api:gpt-5.4-mini",
         documents: AgentDocumentBundle(
             userMarkdown: "# User\nA\n",
             agentsMarkdown: "# Agent\nB\n",
@@ -2001,7 +2011,7 @@ func agentConfigHeartbeatValidationAndBackfill() async throws {
 
     let invalidChannelSessionUpdate = AgentConfigUpdateRequest(
         role: nil,
-        selectedModel: "openai:gpt-5.4-mini",
+        selectedModel: "openai-api:gpt-5.4-mini",
         documents: AgentDocumentBundle(
             userMarkdown: "# User\nA\n",
             agentsMarkdown: "# Agent\nB\n",

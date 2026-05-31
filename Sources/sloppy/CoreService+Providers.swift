@@ -302,7 +302,7 @@ extension CoreService {
         }
 
         for cached in oauthModelCache.values.sorted(by: { $0.id < $1.id }) {
-            let id = cached.id.hasPrefix("openai:") ? cached.id : "openai:\(cached.id)"
+            let id = cached.id.hasPrefix("openai-oauth:") ? cached.id : "openai-oauth:\(cached.id)"
             guard seen.insert(id).inserted else { continue }
             options.append(
                 ProviderModelOption(
@@ -374,7 +374,7 @@ extension CoreService {
         }
 
         if options.isEmpty {
-            options.append(Self.providerModelOption(for: "openai:gpt-5.4-mini"))
+            options.append(Self.providerModelOption(for: "openai-api:gpt-5.4-mini"))
         }
 
         return options
@@ -415,13 +415,15 @@ extension CoreService {
             if !env.isEmpty { return true }
             guard knowsProvider else { return false }
             return openRouterHasApiKey(config: config)
-        case "openai":
+        case "openai-api":
             let env = ProcessInfo.processInfo.environment["OPENAI_API_KEY"]?
                 .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
             if !env.isEmpty { return true }
-            if hasOAuthCredentials, knowsProvider { return true }
             guard knowsProvider else { return false }
             return openAIHasApiKey(config: config)
+        case "openai-oauth":
+            guard knowsProvider else { return false }
+            return hasOAuthCredentials || openAIOAuthHasToken(config: config)
         case "ollama":
             return knowsProvider
         case "gemini":
@@ -459,7 +461,14 @@ extension CoreService {
 
     nonisolated private static func openAIHasApiKey(config: CoreConfig) -> Bool {
         let primary = config.effectiveModels().first {
-            CoreModelProviderFactory.resolvedIdentifier(for: $0)?.hasPrefix("openai:") == true
+            CoreModelProviderFactory.resolvedIdentifier(for: $0)?.hasPrefix("openai-api:") == true
+        }
+        return !(primary?.apiKey ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    nonisolated private static func openAIOAuthHasToken(config: CoreConfig) -> Bool {
+        let primary = config.effectiveModels().first {
+            CoreModelProviderFactory.resolvedIdentifier(for: $0)?.hasPrefix("openai-oauth:") == true
         }
         return !(primary?.apiKey ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }

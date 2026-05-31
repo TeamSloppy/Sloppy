@@ -62,13 +62,12 @@ export function inferProviderId(entry: Record<string, unknown>): string {
   const lowerModel = modelVal.toLowerCase();
 
   // Routed ids already stored on the row — must win over URL/title heuristics (Chat tab uses server list; config tab probes here).
+  if (lowerModel.startsWith("openai-api:")) return "openai-api";
+  if (lowerModel.startsWith("openai-oauth:")) return "openai-oauth";
   if (lowerModel.startsWith("openrouter:")) return "openrouter";
   if (lowerModel.startsWith("ollama:")) return "ollama";
   if (lowerModel.startsWith("gemini:")) return "gemini";
   if (lowerModel.startsWith("anthropic:")) return "anthropic";
-  if (lowerModel.startsWith("openai:")) {
-    return title.includes("oauth") || title.includes("deeplink") ? "openai-oauth" : "openai-api";
-  }
 
   if (title.includes("oauth") && !title.includes("anthropic") && !apiUrl.includes("anthropic")) {
     return "openai-oauth";
@@ -97,7 +96,8 @@ export function prefixedRuntimeModelId(providerCatalogId: string, rawId: string)
     return trimmed;
   }
   if (
-    trimmed.startsWith("openai:") ||
+    trimmed.startsWith("openai-api:") ||
+    trimmed.startsWith("openai-oauth:") ||
     trimmed.startsWith("openrouter:") ||
     trimmed.startsWith("ollama:") ||
     trimmed.startsWith("gemini:") ||
@@ -107,8 +107,10 @@ export function prefixedRuntimeModelId(providerCatalogId: string, rawId: string)
   }
 
   let route: string;
-  if (providerCatalogId === "openai-api" || providerCatalogId === "openai-oauth") {
-    route = "openai";
+  if (providerCatalogId === "openai-api") {
+    route = "openai-api";
+  } else if (providerCatalogId === "openai-oauth") {
+    route = "openai-oauth";
   } else if (providerCatalogId === "openrouter") {
     route = "openrouter";
   } else if (providerCatalogId === "ollama") {
@@ -118,7 +120,7 @@ export function prefixedRuntimeModelId(providerCatalogId: string, rawId: string)
   } else if (providerCatalogId === "anthropic" || providerCatalogId === "anthropic-oauth") {
     route = "anthropic";
   } else {
-    route = "openai";
+    route = "openai-api";
   }
   return `${route}:${trimmed}`;
 }
@@ -133,7 +135,8 @@ export function coerceLegacySloppyModelId(modelId: string): string {
     return t;
   }
   if (
-    t.startsWith("openai:") ||
+    t.startsWith("openai-api:") ||
+    t.startsWith("openai-oauth:") ||
     t.startsWith("openrouter:") ||
     t.startsWith("ollama:") ||
     t.startsWith("gemini:") ||

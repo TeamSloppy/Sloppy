@@ -164,7 +164,7 @@ func visorModelConfigParsedFromJSON() throws {
           "plugins": [],
           "sqlitePath": "core.sqlite",
           "visor": {
-            "model": "openai:gpt-4o-mini",
+            "model": "openai-api:gpt-4o-mini",
             "bulletinMaxWords": 500,
             "bootstrapBulletin": false,
             "scheduler": { "enabled": false, "intervalSeconds": 600, "jitterSeconds": 30 }
@@ -174,7 +174,7 @@ func visorModelConfigParsedFromJSON() throws {
 
     let decoded = try JSONDecoder().decode(CoreConfig.self, from: Data(json.utf8))
 
-    #expect(decoded.visor.model == "openai:gpt-4o-mini")
+    #expect(decoded.visor.model == "openai-api:gpt-4o-mini")
     #expect(decoded.visor.bulletinMaxWords == 500)
     #expect(decoded.visor.bootstrapBulletin == false)
     #expect(decoded.visor.scheduler.enabled == false)

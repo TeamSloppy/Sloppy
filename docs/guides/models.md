@@ -5,14 +5,14 @@ title: Model Providers
 
 # Model Providers
 
-Sloppy supports multiple LLM providers. Each provider is configured as an entry in the `models` array inside `sloppy.json` (or via the Dashboard UI). At runtime, models are resolved by prefix (`openai:`, `gemini:`, `anthropic:`, `ollama:`) and routed to the corresponding provider implementation.
+Sloppy supports multiple LLM providers. Each provider is configured as an entry in the `models` array inside `sloppy.json` (or via the Dashboard UI). At runtime, models are resolved by prefix (`openai-api:`, `openai-oauth:`, `gemini:`, `anthropic:`, `ollama:`) and routed to the corresponding provider implementation.
 
 ## Supported providers
 
 | Provider | Prefix | Default API URL | Env variable | Auth |
 | --- | --- | --- | --- | --- |
-| OpenAI API | `openai:` | `https://api.openai.com/v1` | `OPENAI_API_KEY` | API key |
-| OpenAI Codex (OAuth) | `openai:` | `https://chatgpt.com/backend-api` | — | OAuth device code |
+| OpenAI API | `openai-api:` | `https://api.openai.com/v1` | `OPENAI_API_KEY` | API key |
+| OpenAI Codex (OAuth) | `openai-oauth:` | `https://chatgpt.com/backend-api` | — | OAuth device code |
 | Google Gemini | `gemini:` | `https://generativelanguage.googleapis.com` | `GEMINI_API_KEY` | API key or Antigravity CLI OAuth |
 | Anthropic | `anthropic:` | `https://api.anthropic.com` | `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN` | OAuth / setup token (see below) |
 | Ollama | `ollama:` | `http://127.0.0.1:11434` | — | None |
@@ -55,7 +55,7 @@ Each model entry in `sloppy.json` has four fields:
 | `title` | Identifier used to infer the provider when the model string has no prefix. Must contain the provider name (e.g. `openai-api`, `gemini`, `anthropic`, `ollama-local`). |
 | `apiKey` | API key for authenticated providers. Leave empty to use the environment variable. |
 | `apiUrl` | Base URL for the provider API. Override for proxied or self-hosted endpoints. |
-| `model` | Model identifier passed to the provider. Can include a prefix (`openai:gpt-5.4-mini`) or be plain (`gpt-5.4-mini`). |
+| `model` | Model identifier passed to the provider. Can include a prefix (`openai-api:gpt-5.4-mini`) or be plain (`gpt-5.4-mini`). |
 
 ## Provider examples
 
@@ -217,7 +217,7 @@ Each agent has a `selectedModel` field in its config that determines which model
 
 | Provider | Example `selectedModel` |
 | --- | --- |
-| OpenAI | `openai:gpt-5.4-mini` |
+| OpenAI | `openai-api:gpt-5.4-mini` |
 | Gemini | `gemini:gemini-2.5-flash` |
 | Anthropic | `anthropic:claude-sonnet-4-6` |
 | Ollama | `ollama:qwen3` |
@@ -232,7 +232,7 @@ Set this via:
 ## Model resolution flow
 
 1. `sloppy` reads the `models` array from config at startup.
-2. Each entry is resolved to a prefixed identifier (e.g. `openai:gpt-5.4-mini`) using either an explicit prefix in the `model` field or by inferring the provider from `title` and `apiUrl`.
+2. Each entry is resolved to a prefixed identifier (e.g. `openai-api:gpt-5.4-mini`) using either an explicit prefix in the `model` field or by inferring the provider from `title` and `apiUrl`.
 3. Factory classes build provider instances for each recognized prefix.
 4. A `CompositeModelProvider` combines all active providers.
 5. When an agent runs, its `selectedModel` is matched against supported models and routed to the correct provider.
@@ -250,7 +250,7 @@ sloppy providers add \
   --title "openai-api" \
   --api-url "https://api.openai.com/v1" \
   --api-key "$OPENAI_API_KEY" \
-  --model "openai:gpt-5.4"
+  --model "openai-api:gpt-5.4"
 
 # Test connectivity
 sloppy providers probe --provider-id openai --api-key "$OPENAI_API_KEY"

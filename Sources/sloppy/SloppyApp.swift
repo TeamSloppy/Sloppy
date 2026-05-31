@@ -6,7 +6,6 @@ import Darwin
 import Glibc
 #endif
 
-@main
 struct SloppyApp: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "sloppy",
@@ -97,5 +96,43 @@ struct SloppyApp: AsyncParsableCommand {
 
     static func shouldStartTUI(prompt: String?, stdinIsTTY: Bool, stdoutIsTTY: Bool) -> Bool {
         prompt == nil && stdinIsTTY && stdoutIsTTY
+    }
+}
+
+@main
+enum SloppyMain {
+    static func main() async {
+        await SloppyApp.mainWithStyledHelp()
+    }
+}
+
+extension SloppyApp {
+    static func mainWithStyledHelp(_ arguments: [String]? = nil) async {
+        do {
+            var command = try parseAsRoot(arguments)
+            if var asyncCommand = command as? AsyncParsableCommand {
+                try await asyncCommand.run()
+            } else {
+                try command.run()
+            }
+        } catch {
+            let fullText = CLIStyle.colorizedHelp(fullMessage(for: error))
+            if !fullText.isEmpty {
+                if exitCode(for: error) == .success {
+                    print(fullText)
+                } else {
+                    FileHandle.standardError.write(Data((fullText + "\n").utf8))
+                }
+            }
+            platformExit(exitCode(for: error).rawValue)
+        }
+    }
+
+    private static func platformExit(_ code: Int32) -> Never {
+        #if canImport(Darwin)
+        Darwin.exit(code)
+        #elseif canImport(Glibc)
+        Glibc.exit(code)
+        #endif
     }
 }

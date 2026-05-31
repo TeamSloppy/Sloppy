@@ -158,7 +158,7 @@ Each channel can use a model different from the system default. The override per
 Via the CLI:
 
 ```bash
-sloppy channel model set main --model "openai:gpt-5.4"
+sloppy channel model set main --model "openai-api:gpt-5.4"
 sloppy channel model get main
 sloppy channel model clear main
 ```
@@ -169,7 +169,7 @@ Via the HTTP API:
 PUT /v1/channels/{channelId}/model
 Content-Type: application/json
 
-{ "model": "openai:gpt-4o" }
+{ "model": "openai-api:gpt-4o" }
 ```
 
 Clear the override to return to the default:

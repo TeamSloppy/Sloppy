@@ -348,7 +348,7 @@ func channelMessageRequestDecodesWithReasoningFields() throws {
     {
         "userId": "user-123",
         "content": "Hello world",
-        "model": "openai:o4-mini",
+        "model": "openai-api:o4-mini",
         "reasoningEffort": "high"
     }
     """.data(using: .utf8)!
@@ -356,7 +356,7 @@ func channelMessageRequestDecodesWithReasoningFields() throws {
     let request = try JSONDecoder().decode(ChannelMessageRequest.self, from: json)
 
     #expect(request.userId == "user-123")
-    #expect(request.model == "openai:o4-mini")
+    #expect(request.model == "openai-api:o4-mini")
     #expect(request.reasoningEffort == .high)
 }
 

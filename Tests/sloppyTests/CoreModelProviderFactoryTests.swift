@@ -40,6 +40,34 @@ func coreModelProviderFactoryInfersOpenRouterFromApiHost() {
 }
 
 @Test
+func coreModelProviderFactoryUsesExplicitOpenAIPrefixes() {
+    let apiModel = CoreConfig.ModelConfig(
+        title: "OpenAI API",
+        apiKey: "sk-test",
+        apiUrl: "https://api.openai.com/v1",
+        model: "gpt-5.4-mini",
+        providerCatalogId: "openai-api"
+    )
+    let oauthModel = CoreConfig.ModelConfig(
+        title: "OpenAI Codex",
+        apiKey: "",
+        apiUrl: "https://chatgpt.com/backend-api",
+        model: "gpt-5-codex-mini",
+        providerCatalogId: "openai-oauth"
+    )
+    let legacyModel = CoreConfig.ModelConfig(
+        title: "OpenAI",
+        apiKey: "sk-test",
+        apiUrl: "https://api.openai.com/v1",
+        model: "openai:gpt-5.4-mini"
+    )
+
+    #expect(CoreModelProviderFactory.resolvedIdentifier(for: apiModel) == "openai-api:gpt-5.4-mini")
+    #expect(CoreModelProviderFactory.resolvedIdentifier(for: oauthModel) == "openai-oauth:gpt-5-codex-mini")
+    #expect(CoreModelProviderFactory.resolvedIdentifier(for: legacyModel) == nil)
+}
+
+@Test
 func openCodeImporterParsesOpenAICompatibleProviderModels() {
     let config: [String: Any] = [
         "provider": [
@@ -526,17 +554,19 @@ func openAIModelProviderResponsesModeUsesOpenAIResponsesVariant() async throws {
 func openAIModelProviderUsesDynamicOAuthTokenWhenCodexSessionIsCached() async throws {
     let box = OAuthTokenBox(token: "stale-oauth-token")
     let provider = OpenAIModelProvider(
-        supportedModels: ["openai:gpt-5-codex-mini"],
+        supportedModels: ["openai-oauth:gpt-5-codex-mini"],
         settings: .init(
             apiKey: { box.token },
             refreshTokenIfNeeded: {
                 box.refreshCount += 1
                 box.token = "fresh-oauth-token"
-            }
+            },
+            modelIdentifierPrefix: "openai-oauth:",
+            useOpenAICodexOAuthPath: true
         )
     )
 
-    let languageModel = try await provider.createLanguageModel(for: "openai:gpt-5-codex-mini")
+    let languageModel = try await provider.createLanguageModel(for: "openai-oauth:gpt-5-codex-mini")
     let oauthModel = try #require(languageModel as? OpenAIOAuthModel)
     let request = try await oauthModel.buildHTTPRequestForTesting(body: Data())
 
@@ -559,12 +589,12 @@ func openAIOAuthConfigPrefersOAuthTokenProviderOverAPIKey() async throws {
 
     let builtProvider = CoreModelProviderFactory.buildModelProvider(
         config: config,
-        resolvedModels: ["openai:gpt-5.4"],
+        resolvedModels: ["openai-oauth:gpt-5.4"],
         oauthTokenProvider: { "oauth-access-token" },
         oauthAccountId: "acct_test"
     )
     let provider = try #require(builtProvider)
-    let languageModel = try await provider.createLanguageModel(for: "openai:gpt-5.4")
+    let languageModel = try await provider.createLanguageModel(for: "openai-oauth:gpt-5.4")
     let oauthModel = try #require(languageModel as? OpenAIOAuthModel)
     let request = try await oauthModel.buildHTTPRequestForTesting(body: Data())
 
@@ -612,7 +642,7 @@ func availableAgentModelsIncludesCachedOpenAIOAuthCatalog() async throws {
     ])
 
     let models = await service.availableAgentModels()
-    let cached = models.first { $0.id == "openai:gpt-5.5" }
+    let cached = models.first { $0.id == "openai-oauth:gpt-5.5" }
     #expect(cached?.title == "GPT-5.5")
     #expect(cached?.contextWindow == "272K")
 }

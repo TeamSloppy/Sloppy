@@ -89,7 +89,11 @@ export function emptyTaskDraft(initialStatus = "backlog") {
     kind: "",
     loopModeOverride: "",
     actorId: "",
-    teamId: ""
+    teamId: "",
+    contextFiles: [],
+    contextTasks: [],
+    contextSkills: [],
+    attachments: []
   };
 }
 
@@ -136,6 +140,16 @@ export function normalizeTask(task, index = 0) {
     externalMetadata: task?.externalMetadata && typeof task.externalMetadata === "object"
       ? task.externalMetadata
       : null,
+    attachments: Array.isArray(task?.attachments)
+      ? task.attachments
+        .map((attachment) => ({
+          name: String(attachment?.name || "").trim(),
+          mimeType: String(attachment?.mimeType || "application/octet-stream").trim(),
+          sizeBytes: Number.isFinite(Number(attachment?.sizeBytes)) ? Number(attachment.sizeBytes) : 0,
+          contentBase64: typeof attachment?.contentBase64 === "string" ? attachment.contentBase64 : ""
+        }))
+        .filter((attachment) => attachment.name.length > 0)
+      : [],
     createdAt: String(task?.createdAt || new Date().toISOString()),
     updatedAt: String(task?.updatedAt || task?.createdAt || new Date().toISOString())
   };

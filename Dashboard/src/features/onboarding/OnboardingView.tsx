@@ -280,8 +280,11 @@ function initialProviderState(config: AnyRecord) {
 }
 
 function runtimeModelId(providerId: string, modelId: string) {
-  if (providerId.startsWith("openai")) {
-    return `openai:${modelId}`;
+  if (providerId === "openai-oauth") {
+    return `openai-oauth:${modelId}`;
+  }
+  if (providerId === "openai-api") {
+    return `openai-api:${modelId}`;
   }
   if (providerId === "openrouter") {
     return `openrouter:${modelId}`;

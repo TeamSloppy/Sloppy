@@ -1165,7 +1165,7 @@ public struct CoreConfig: Codable, Sendable {
 
         public var scheduler: Scheduler
         public var bootstrapBulletin: Bool
-        /// Model identifier used for bulletin LLM synthesis (e.g. "openai:gpt-4o-mini").
+        /// Model identifier used for bulletin LLM synthesis (e.g. "openai-api:gpt-4o-mini").
         /// When nil, falls back to the default system model.
         public var model: String?
         /// Target word count for LLM-synthesized bulletin summary.
@@ -1445,7 +1445,7 @@ public struct CoreConfig: Codable, Sendable {
     public var ui: UI
     public var toolHooks: ToolHooks
     public var sqlitePath: String
-    /// Optional aliases for model ids (e.g. `"fast"` → `"openai:gpt-5.4-mini"`) used when resolving `model` from SKILL.md or tools.
+    /// Optional aliases for model ids (e.g. `"fast"` -> `"openai-api:gpt-5.4-mini"`) used when resolving `model` from SKILL.md or tools.
     public var modelRouting: [String: String]
 
     public init(

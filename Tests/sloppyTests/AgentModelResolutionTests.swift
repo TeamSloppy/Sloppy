@@ -30,7 +30,7 @@ func resolveCanonicalAgentModelIDAcceptsPrefixedAndOpenRouterSlug() {
 func resolveCanonicalAgentModelIDRejectsAmbiguousSuffix() {
     let available = [
         ProviderModelOption(id: "openrouter:acme/foo", title: "A", capabilities: []),
-        ProviderModelOption(id: "openai:acme/foo", title: "B", capabilities: [])
+        ProviderModelOption(id: "openai-api:acme/foo", title: "B", capabilities: [])
     ]
     #expect(CoreService.resolveCanonicalAgentModelID("acme/foo", availableModels: available) == nil)
 }
@@ -45,8 +45,8 @@ func readingAgentConfigPreservesTemporarilyUnavailableSelectedModel() async thro
         try? FileManager.default.removeItem(at: agentsRootURL.deletingLastPathComponent())
     }
 
-    let installedModel = ProviderModelOption(id: "openai:temporary-model", title: "Temporary", capabilities: ["tools"])
-    let fallbackModel = ProviderModelOption(id: "openai:fallback-model", title: "Fallback", capabilities: ["tools"])
+    let installedModel = ProviderModelOption(id: "openai-api:temporary-model", title: "Temporary", capabilities: ["tools"])
+    let fallbackModel = ProviderModelOption(id: "openai-api:fallback-model", title: "Fallback", capabilities: ["tools"])
     let agent = try store.createAgent(
         AgentCreateRequest(id: "model-agent", displayName: "Model Agent", role: "Developer"),
         availableModels: [installedModel]

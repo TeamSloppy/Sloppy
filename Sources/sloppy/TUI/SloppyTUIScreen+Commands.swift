@@ -75,6 +75,8 @@ extension SloppyTUIScreen {
             copyLastAssistantResponse()
         case "diff":
             await showDiff()
+        case "feedback":
+            openFeedbackPage()
         case "plan-web", "plans", "open-plan":
             await openPlanWebPage(planName: args.first)
         case "effort":

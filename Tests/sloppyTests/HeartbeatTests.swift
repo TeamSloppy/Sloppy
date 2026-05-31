@@ -54,7 +54,7 @@ private actor FixedHeartbeatModelProvider: ModelProvider {
     nonisolated let supportedModels: [String]
     private let responseText: String
 
-    init(models: [String] = ["openai:gpt-5.4-mini"], responseText: String) {
+    init(models: [String] = ["openai-api:gpt-5.4-mini"], responseText: String) {
         self.supportedModels = models
         self.responseText = responseText
     }
@@ -128,7 +128,7 @@ func successfulHeartbeatCreatesHiddenSession() async throws {
     let (service, _) = makeHeartbeatService()
     await service.overrideModelProviderForTests(
         FixedHeartbeatModelProvider(responseText: "SLOPPY_ACTION_OK"),
-        defaultModel: "openai:gpt-5.4-mini"
+        defaultModel: "openai-api:gpt-5.4-mini"
     )
     try await configureHeartbeatAgent(
         service: service,
@@ -157,7 +157,7 @@ func failedHeartbeatStoresErrorAndNotifiesDefaultAgentChannel() async throws {
     let (service, _) = makeHeartbeatService()
     await service.overrideModelProviderForTests(
         FixedHeartbeatModelProvider(responseText: "Deployment drift detected"),
-        defaultModel: "openai:gpt-5.4-mini"
+        defaultModel: "openai-api:gpt-5.4-mini"
     )
     try await configureHeartbeatAgent(
         service: service,
@@ -182,7 +182,7 @@ func heartbeatRunnerLifecycleAndManualTrigger() async throws {
     let (service, _) = makeHeartbeatService()
     await service.overrideModelProviderForTests(
         FixedHeartbeatModelProvider(responseText: "SLOPPY_ACTION_OK"),
-        defaultModel: "openai:gpt-5.4-mini"
+        defaultModel: "openai-api:gpt-5.4-mini"
     )
     try await configureHeartbeatAgent(
         service: service,

@@ -77,7 +77,7 @@ Switch models with the picker:
 Or set a model directly:
 
 ```text
-/model openai:gpt-5.4-mini
+/model openai-api:gpt-5.4-mini
 /model anthropic:claude-sonnet-4-6
 ```
 

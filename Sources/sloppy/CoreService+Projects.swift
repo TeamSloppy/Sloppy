@@ -972,6 +972,7 @@ extension CoreService {
             createdBy: normalizeOptionalTaskAuthor(request.changedBy),
             dependsOnTaskIds: normalizeTaskDependencyIds(request.dependsOnTaskIds ?? []),
             selectedModel: normalizeOptionalTaskSelectedModel(request.selectedModel),
+            attachments: normalizeTaskAttachments(request.attachments ?? []),
             tags: normalizeTaskTags(request.tags ?? []),
             createdAt: now,
             updatedAt: now
@@ -1076,6 +1077,9 @@ extension CoreService {
         }
         if let tags = request.tags {
             task.tags = normalizeTaskTags(tags)
+        }
+        if let attachments = request.attachments {
+            task.attachments = normalizeTaskAttachments(attachments)
         }
         if let isArchived = request.isArchived {
             task.isArchived = isArchived
@@ -1458,6 +1462,14 @@ extension CoreService {
             "swarmDepth": task.swarmDepth.map { .number(Double($0)) } ?? .null,
             "swarmActorPath": task.swarmActorPath.map { .array($0.map { .string($0) }) } ?? .null,
             "selectedModel": task.selectedModel.map { .string($0) } ?? .null,
+            "attachments": .array(task.attachments.map { attachment in
+                .object([
+                    "name": .string(attachment.name),
+                    "mimeType": .string(attachment.mimeType),
+                    "sizeBytes": .number(Double(attachment.sizeBytes)),
+                    "contentBase64": attachment.contentBase64.map { .string($0) } ?? .null
+                ])
+            }),
             "createdAt": .string(ISO8601DateFormatter().string(from: task.createdAt)),
             "updatedAt": .string(ISO8601DateFormatter().string(from: task.updatedAt))
         ])
@@ -1490,6 +1502,35 @@ extension CoreService {
             }
         }
         return tags
+    }
+
+    func normalizeTaskAttachments(_ raw: [AgentAttachmentUpload]) -> [AgentAttachmentUpload] {
+        var seen = Set<String>()
+        var attachments: [AgentAttachmentUpload] = []
+        for attachment in raw {
+            let name = attachment.name.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !name.isEmpty else {
+                continue
+            }
+            let mimeType = attachment.mimeType.trimmingCharacters(in: .whitespacesAndNewlines)
+            let key = "\(name.lowercased())|\(attachment.sizeBytes)|\(mimeType.lowercased())"
+            guard !seen.contains(key) else {
+                continue
+            }
+            seen.insert(key)
+            attachments.append(
+                AgentAttachmentUpload(
+                    name: String(name.prefix(240)),
+                    mimeType: String((mimeType.isEmpty ? "application/octet-stream" : mimeType).prefix(120)),
+                    sizeBytes: max(0, attachment.sizeBytes),
+                    contentBase64: attachment.contentBase64
+                )
+            )
+            if attachments.count >= 12 {
+                break
+            }
+        }
+        return attachments
     }
 
     func normalizeTaskDependencyIds(_ raw: [String]) -> [String] {

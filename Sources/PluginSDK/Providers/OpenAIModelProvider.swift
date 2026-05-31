@@ -18,7 +18,7 @@ public struct OpenAIModelProvider: ModelProvider {
         public var refreshTokenIfNeeded: (@Sendable () async throws -> Void)?
         public var refreshTokenAfterInvalidToken: (@Sendable () async throws -> Void)?
         public var session: URLSession?
-        /// Strips this prefix from configured model ids (e.g. `openai:` or `openrouter:`).
+        /// Strips this prefix from configured model ids (e.g. `openai-api:` or `openrouter:`).
         public var modelIdentifierPrefix: String
         /// When `true`, bearer tokens that are not OpenAI-style `sk-…` keys are sent to ``OpenAIOAuthModel`` (ChatGPT Codex).
         public var useOpenAICodexOAuthPath: Bool
@@ -35,8 +35,8 @@ public struct OpenAIModelProvider: ModelProvider {
             refreshTokenIfNeeded: (@Sendable () async throws -> Void)? = nil,
             refreshTokenAfterInvalidToken: (@Sendable () async throws -> Void)? = nil,
             session: URLSession? = nil,
-            modelIdentifierPrefix: String = "openai:",
-            useOpenAICodexOAuthPath: Bool = true,
+            modelIdentifierPrefix: String = "openai-api:",
+            useOpenAICodexOAuthPath: Bool = false,
             allowResponsesAPIFallback: Bool = true,
             useOpenResponsesLanguageModel: Bool = false
         ) {

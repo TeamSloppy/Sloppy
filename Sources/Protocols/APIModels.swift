@@ -434,6 +434,7 @@ public struct ProjectTask: Codable, Sendable, Equatable {
     /// When set and present in the agent's available models, overrides the agent default model for this task's worker run.
     public var selectedModel: String?
     public var externalMetadata: TaskExternalMetadata?
+    public var attachments: [AgentAttachmentUpload]
     public var tags: [String]
     public var routeHistory: [ProjectTaskRouteStep]
     public var isArchived: Bool
@@ -467,6 +468,7 @@ public struct ProjectTask: Codable, Sendable, Equatable {
         case sourceControlProviderId
         case selectedModel
         case externalMetadata
+        case attachments
         case tags
         case routeHistory
         case isArchived
@@ -501,6 +503,7 @@ public struct ProjectTask: Codable, Sendable, Equatable {
         sourceControlProviderId: String? = nil,
         selectedModel: String? = nil,
         externalMetadata: TaskExternalMetadata? = nil,
+        attachments: [AgentAttachmentUpload] = [],
         tags: [String] = [],
         routeHistory: [ProjectTaskRouteStep] = [],
         isArchived: Bool = false,
@@ -533,6 +536,7 @@ public struct ProjectTask: Codable, Sendable, Equatable {
         self.sourceControlProviderId = sourceControlProviderId
         self.selectedModel = selectedModel
         self.externalMetadata = externalMetadata
+        self.attachments = attachments
         self.tags = tags
         self.routeHistory = routeHistory
         self.isArchived = isArchived
@@ -568,6 +572,7 @@ public struct ProjectTask: Codable, Sendable, Equatable {
         sourceControlProviderId = try container.decodeIfPresent(String.self, forKey: .sourceControlProviderId)
         selectedModel = try container.decodeIfPresent(String.self, forKey: .selectedModel)
         externalMetadata = try container.decodeIfPresent(TaskExternalMetadata.self, forKey: .externalMetadata)
+        attachments = try container.decodeIfPresent([AgentAttachmentUpload].self, forKey: .attachments) ?? []
         tags = try container.decodeIfPresent([String].self, forKey: .tags) ?? []
         routeHistory = try container.decodeIfPresent([ProjectTaskRouteStep].self, forKey: .routeHistory) ?? []
         isArchived = try container.decodeIfPresent(Bool.self, forKey: .isArchived) ?? false
@@ -1244,6 +1249,7 @@ public struct ProjectTaskCreateRequest: Codable, Sendable {
     public var dependsOnTaskIds: [String]?
     public var selectedModel: String?
     public var tags: [String]?
+    public var attachments: [AgentAttachmentUpload]?
     public var changedBy: String?
 
     public init(
@@ -1261,6 +1267,7 @@ public struct ProjectTaskCreateRequest: Codable, Sendable {
         dependsOnTaskIds: [String]? = nil,
         selectedModel: String? = nil,
         tags: [String]? = nil,
+        attachments: [AgentAttachmentUpload]? = nil,
         changedBy: String? = nil
     ) {
         self.title = title
@@ -1277,6 +1284,7 @@ public struct ProjectTaskCreateRequest: Codable, Sendable {
         self.dependsOnTaskIds = dependsOnTaskIds
         self.selectedModel = selectedModel
         self.tags = tags
+        self.attachments = attachments
         self.changedBy = changedBy
     }
 }
@@ -1296,6 +1304,7 @@ public struct ProjectTaskUpdateRequest: Codable, Sendable {
     public var dependsOnTaskIds: [String]?
     public var selectedModel: String?
     public var tags: [String]?
+    public var attachments: [AgentAttachmentUpload]?
     public var isArchived: Bool?
     public var changedBy: String?
 
@@ -1314,6 +1323,7 @@ public struct ProjectTaskUpdateRequest: Codable, Sendable {
         dependsOnTaskIds: [String]? = nil,
         selectedModel: String? = nil,
         tags: [String]? = nil,
+        attachments: [AgentAttachmentUpload]? = nil,
         isArchived: Bool? = nil,
         changedBy: String? = nil
     ) {
@@ -1331,6 +1341,7 @@ public struct ProjectTaskUpdateRequest: Codable, Sendable {
         self.dependsOnTaskIds = dependsOnTaskIds
         self.selectedModel = selectedModel
         self.tags = tags
+        self.attachments = attachments
         self.isArchived = isArchived
         self.changedBy = changedBy
     }
@@ -4027,7 +4038,7 @@ public struct AgentSessionDetail: Codable, Sendable, Equatable {
     }
 }
 
-public struct AgentAttachmentUpload: Codable, Sendable {
+public struct AgentAttachmentUpload: Codable, Sendable, Equatable {
     public var name: String
     public var mimeType: String
     public var sizeBytes: Int

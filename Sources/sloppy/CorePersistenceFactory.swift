@@ -780,6 +780,7 @@ enum CorePersistenceFactory {
             origin_channel_id TEXT,
             is_archived INTEGER NOT NULL DEFAULT 0,
             selected_model TEXT,
+            attachments_json TEXT NOT NULL DEFAULT '[]',
             external_metadata_json TEXT,
             tags_json TEXT NOT NULL DEFAULT '[]'
         );

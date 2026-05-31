@@ -14,6 +14,7 @@ public protocol AgentDelegate: AnyObject, Sendable {
     func handleInitialize(_ request: InitializeRequest) async throws -> InitializeResponse
 
     func handleAuthorization(_ request: AuthorizationRequest) async throws -> AuthorizationResponse
+    func handleAuthenticate(_ request: AuthenticateRequest) async throws -> AuthenticateResponse
 
     /// Handle new session request
     func handleNewSession(_ request: NewSessionRequest) async throws -> NewSessionResponse
@@ -33,6 +34,10 @@ public protocol AgentDelegate: AnyObject, Sendable {
 
 /// Default implementations for optional delegate methods
 extension AgentDelegate {
+    public func handleAuthenticate(_ request: AuthenticateRequest) async throws -> AuthenticateResponse {
+        AuthenticateResponse(success: true)
+    }
+
     public func handleCancel(_ sessionId: SessionId) async throws {
         // Default: no-op
     }
@@ -193,6 +198,11 @@ public actor Agent {
         case "initialize":
             let params = try decodeParams(InitializeRequest.self, from: request.params)
             let response = try await delegate.handleInitialize(params)
+            return try encodeResult(response)
+
+        case "authenticate":
+            let params = try decodeParams(AuthenticateRequest.self, from: request.params)
+            let response = try await delegate.handleAuthenticate(params)
             return try encodeResult(response)
 
         case "session/new":
