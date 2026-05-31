@@ -1,5 +1,5 @@
 {
-  "originHash" : "0afe88f3b1ffaa62fb8f9f6af108dba879bd530a82a5ebac943f5b5f05f3ca7d",
+  "originHash" : "1f7aa125fe8fd08775875b395ce2a3ab9d52cfd97186585a08f544d116215e80",
   "pins" : [
     {
       "identity" : "anylanguagemodel",
@@ -53,15 +53,6 @@
       "state" : {
         "revision" : "4d5b71ffbb296937dc5ee8472f64721bca771cf0",
         "version" : "0.4.0"
-      }
-    },
-    {
-      "identity" : "swift-acp",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/TeamSloppy/swift-acp",
-      "state" : {
-        "branch" : "main",
-        "revision" : "71cb789b66355bbeb82b402a4b61b7cb1e584ad8"
       }
     },
     {

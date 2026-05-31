@@ -8,7 +8,7 @@
       "args": ["${workspaceFolder}/utils/docker/scripts/build.sh"],
       "options": { "cwd": "${workspaceFolder}" },
       "group": "build",
-      "presentation": { "reveal": "always", "panel": "shared" }
+      "presentation": { "reveal": "always", "panel": "shared" },
     },
     {
       "label": "Docker: Up",
@@ -17,7 +17,7 @@
       "args": ["${workspaceFolder}/utils/docker/scripts/up.sh"],
       "options": { "cwd": "${workspaceFolder}" },
       "group": "none",
-      "presentation": { "reveal": "always", "panel": "dedicated" }
+      "presentation": { "reveal": "always", "panel": "dedicated" },
     },
     {
       "label": "Docker: Down",
@@ -26,32 +26,32 @@
       "args": ["${workspaceFolder}/utils/docker/scripts/down.sh"],
       "options": { "cwd": "${workspaceFolder}" },
       "group": "none",
-      "presentation": { "reveal": "always", "panel": "shared" }
+      "presentation": { "reveal": "always", "panel": "shared" },
     },
     {
       "label": "Docker: Build and Up",
       "dependsOrder": "sequence",
       "dependsOn": ["Docker: Build", "Docker: Up"],
-      "group": "none"
+      "group": "none",
     },
     {
-      "label": "Local: Build Core",
+      "label": "Local: Build Sloppy",
       "type": "shell",
       "command": "swift",
-      "args": ["build", "--product", "Core"],
+      "args": ["build", "--product", "Sloppy"],
       "options": { "cwd": "${workspaceFolder}" },
       "group": "build",
-      "presentation": { "reveal": "always", "panel": "shared" }
+      "presentation": { "reveal": "always", "panel": "shared" },
     },
     {
-      "label": "Local: Run Core",
+      "label": "Local: Run Sloppy",
       "type": "shell",
       "command": "swift",
-      "args": ["run", "Core"],
+      "args": ["run", "sloppy", "run"],
       "options": { "cwd": "${workspaceFolder}" },
       "group": "none",
       "isBackground": true,
-      "presentation": { "reveal": "always", "panel": "dedicated" }
+      "presentation": { "reveal": "always", "panel": "dedicated" },
     },
     {
       "label": "Local: Dashboard Dev",
@@ -61,19 +61,19 @@
       "options": { "cwd": "${workspaceFolder}/Dashboard" },
       "group": "none",
       "isBackground": true,
-      "presentation": { "reveal": "always", "panel": "dedicated" }
+      "presentation": { "reveal": "always", "panel": "dedicated" },
     },
     {
-      "label": "Local: Core + Dashboard",
-      "dependsOn": ["Local: Run Core", "Local: Dashboard Dev"],
+      "label": "Local: Sloppy + Dashboard",
+      "dependsOn": ["Local: Run Sloppy", "Local: Dashboard Dev"],
       "group": "none",
-      "presentation": { "reveal": "always" }
+      "presentation": { "reveal": "always" },
     },
     {
-      "label": "Local: Build and Run Core + Dashboard",
+      "label": "Local: Build and Run Sloppy + Dashboard",
       "dependsOrder": "sequence",
-      "dependsOn": ["Local: Build Core", "Local: Core + Dashboard"],
-      "group": "none"
+      "dependsOn": ["Local: Build Sloppy", "Local: Sloppy + Dashboard"],
+      "group": "none",
     },
     {
       "label": "swift: Build Debug Sloppy TUI",
@@ -82,7 +82,7 @@
       "args": ["build", "--product", "sloppy"],
       "options": { "cwd": "${workspaceFolder}" },
       "group": "build",
-      "presentation": { "reveal": "always", "panel": "shared" }
+      "presentation": { "reveal": "always", "panel": "shared" },
     },
     {
       "label": "swift: Build Release Sloppy TUI",
@@ -91,7 +91,7 @@
       "args": ["build", "-c", "release", "--product", "sloppy"],
       "options": { "cwd": "${workspaceFolder}" },
       "group": "build",
-      "presentation": { "reveal": "always", "panel": "shared" }
+      "presentation": { "reveal": "always", "panel": "shared" },
     },
     {
       "label": "swift: Run Debug Sloppy TUI in Terminal.app",
@@ -99,13 +99,13 @@
       "command": "/bin/bash",
       "args": [
         "-lc",
-        "set -euo pipefail\npidfile=\"${workspaceFolder}/.build/sloppy-tui.pid\"\nlldbfile=\"${workspaceFolder}/.build/sloppy-tui-attach.lldb\"\n/bin/rm -f \"$pidfile\" \"$lldbfile\"\n/usr/bin/osascript -e 'tell application \"Terminal\" to do script \"cd \" & quoted form of \"${workspaceFolder}\" & \" && printf %s $$ > .build/sloppy-tui.pid && exec ./.build/debug/sloppy tui\"'\nfor _ in {1..80}; do\n  if [[ -s \"$pidfile\" ]]; then\n    pid=\"$(/bin/cat \"$pidfile\")\"\n    if kill -0 \"$pid\" 2>/dev/null && /bin/ps -p \"$pid\" -o command= | /usr/bin/grep -q 'sloppy tui'; then\n      printf 'target create \"%s/.build/debug/sloppy\"\\nprocess attach --pid %s\\n' \"${workspaceFolder}\" \"$pid\" > \"$lldbfile\"\n      exit 0\n    fi\n  fi\n  /bin/sleep 0.1\ndone\necho \"Timed out waiting for sloppy tui to start in Terminal.app\" >&2\nexit 1"
+        "set -euo pipefail\npidfile=\"${workspaceFolder}/.build/sloppy-tui.pid\"\nlldbfile=\"${workspaceFolder}/.build/sloppy-tui-attach.lldb\"\n/bin/rm -f \"$pidfile\" \"$lldbfile\"\n/usr/bin/osascript -e 'tell application \"Terminal\" to do script \"cd \" & quoted form of \"${workspaceFolder}\" & \" && printf %s $$ > .build/sloppy-tui.pid && exec ./.build/debug/sloppy tui\"'\nfor _ in {1..80}; do\n  if [[ -s \"$pidfile\" ]]; then\n    pid=\"$(/bin/cat \"$pidfile\")\"\n    if kill -0 \"$pid\" 2>/dev/null && /bin/ps -p \"$pid\" -o command= | /usr/bin/grep -q 'sloppy tui'; then\n      printf 'target create \"%s/.build/debug/sloppy\"\\nprocess attach --pid %s\\n' \"${workspaceFolder}\" \"$pid\" > \"$lldbfile\"\n      exit 0\n    fi\n  fi\n  /bin/sleep 0.1\ndone\necho \"Timed out waiting for sloppy tui to start in Terminal.app\" >&2\nexit 1",
       ],
       "options": { "cwd": "${workspaceFolder}" },
       "dependsOrder": "sequence",
       "dependsOn": ["swift: Build Debug Sloppy TUI"],
       "group": "none",
-      "presentation": { "reveal": "always", "panel": "shared" }
-    }
-  ]
+      "presentation": { "reveal": "always", "panel": "shared" },
+    },
+  ],
 }

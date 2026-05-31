@@ -1,0 +1,11 @@
+//
+//  Updates.swift
+//  ACP
+//
+//  Re-exports from ACPModel for backward compatibility
+//
+
+import ACPModel
+
+// All session update types are now defined in ACPModel
+// This file provides backward compatibility for existing code

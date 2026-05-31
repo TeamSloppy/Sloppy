@@ -16,7 +16,7 @@ let package = Package(
         .library(name: "ChannelPluginDiscord", targets: ["ChannelPluginDiscord"]),
         .library(name: "SloppyNodeCore", targets: ["SloppyNodeCore"]),
         .executable(name: "sloppy", targets: ["sloppy"]),
-        .executable(name: "SloppyNode", targets: ["SloppyNode"])
+        .executable(name: "SloppyNode", targets: ["SloppyNode"]),
     ],
     dependencies: [
         .package(path: "Packages/SloppyComputerControl"),
@@ -30,15 +30,16 @@ let package = Package(
         .package(url: "https://github.com/TeamSloppy/CodexBar.git", branch: "main"),
         .package(path: "Packages/TauTUI"),
         .package(url: "https://github.com/modelcontextprotocol/swift-sdk.git", from: "0.11.0"),
-        .package(url: "https://github.com/TeamSloppy/swift-acp", branch: "main"),
-        .package(url: "https://github.com/swiftlang/swift-tools-protocols.git", branch: "main")
+        // .package(url: "https://github.com/TeamSloppy/swift-acp", branch: "main"),
+        .package(name: "swift-acp", path: "Vendor/swift-acp"),
+        .package(url: "https://github.com/swiftlang/swift-tools-protocols.git", branch: "main"),
     ],
     targets: [
         .target(
             name: "Protocols",
             dependencies: [
                 .product(name: "SloppyComputerControl", package: "SloppyComputerControl"),
-                .product(name: "Logging", package: "swift-log")
+                .product(name: "Logging", package: "swift-log"),
             ],
             path: "Sources/Protocols"
         ),
@@ -47,7 +48,7 @@ let package = Package(
             dependencies: [
                 "Protocols",
                 .product(name: "AnyLanguageModel", package: "AnyLanguageModel"),
-                .product(name: "Logging", package: "swift-log")
+                .product(name: "Logging", package: "swift-log"),
             ],
             path: "Sources/PluginSDK"
         ),
@@ -60,7 +61,7 @@ let package = Package(
             dependencies: [
                 "Protocols",
                 "PluginSDK",
-                .product(name: "Logging", package: "swift-log")
+                .product(name: "Logging", package: "swift-log"),
             ],
             path: "Sources/AgentRuntime"
         ),
@@ -99,14 +100,14 @@ let package = Package(
                 .product(name: "ACPHTTP", package: "swift-acp"),
                 .product(name: "SystemPackage", package: "swift-system"),
                 .product(name: "LanguageServerProtocol", package: "swift-tools-protocols"),
-                .product(name: "LanguageServerProtocolTransport", package: "swift-tools-protocols")
+                .product(name: "LanguageServerProtocolTransport", package: "swift-tools-protocols"),
             ],
             path: "Sources/sloppy",
             resources: [
                 .process("Resources/Prompts"),
                 .copy("Resources/Skills"),
                 .process("Resources/sloppy-version.json"),
-                .process("Storage/schema.sql")
+                .process("Storage/schema.sql"),
             ]
         ),
         .executableTarget(
@@ -116,7 +117,7 @@ let package = Package(
                 "Protocols",
                 "CSQLite3",
                 .product(name: "ArgumentParser", package: "swift-argument-parser"),
-                .product(name: "Logging", package: "swift-log")
+                .product(name: "Logging", package: "swift-log"),
             ],
             path: "Sources/Node"
         ),
@@ -124,7 +125,7 @@ let package = Package(
             name: "SloppyNodeCore",
             dependencies: [
                 "Protocols",
-                .product(name: "SloppyComputerControl", package: "SloppyComputerControl")
+                .product(name: "SloppyComputerControl", package: "SloppyComputerControl"),
             ],
             path: "Sources/NodeCore"
         ),
@@ -134,7 +135,7 @@ let package = Package(
                 "ChannelPluginSupport",
                 "Protocols",
                 "PluginSDK",
-                .product(name: "Logging", package: "swift-log")
+                .product(name: "Logging", package: "swift-log"),
             ],
             path: "Sources/ChannelPluginTelegram"
         ),
@@ -144,7 +145,7 @@ let package = Package(
                 "ChannelPluginSupport",
                 "Protocols",
                 "PluginSDK",
-                .product(name: "Logging", package: "swift-log")
+                .product(name: "Logging", package: "swift-log"),
             ],
             path: "Sources/ChannelPluginDiscord"
         ),
@@ -173,7 +174,7 @@ let package = Package(
                 "ChannelPluginSupport",
                 "Protocols",
                 "PluginSDK",
-                "CSQLite3"
+                "CSQLite3",
             ],
             path: "Tests/sloppyTests"
         ),
@@ -181,13 +182,13 @@ let package = Package(
             name: "SloppyNodeCoreTests",
             dependencies: [
                 "SloppyNodeCore",
-                "Protocols"
+                "Protocols",
             ],
             path: "Tests/SloppyNodeCoreTests"
         ),
         .target(
             name: "CSQLite3",
             path: "Sources/CSQLite3"
-        )
+        ),
     ]
 )

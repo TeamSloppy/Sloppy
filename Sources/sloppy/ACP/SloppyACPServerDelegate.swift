@@ -63,7 +63,9 @@ final class SloppyACPServerDelegate: AgentDelegate, @unchecked Sendable {
                     loadSession: true,
                     promptCapabilities: PromptCapabilities(image: false),
                     sessionCapabilities: SessionCapabilities(
+                        fork: SessionForkCapabilities(),
                         list: SessionListCapabilities(),
+                        resume: SessionResumeCapabilities(),
                     )
                 ),
                 agentInfo: AgentInfo(

@@ -1,0 +1,18 @@
+[submodule "reference/agent-client-protocol"]
+	path = reference/agent-client-protocol
+	url = https://github.com/agentclientprotocol/agent-client-protocol.git
+[submodule "reference/rust-sdk"]
+	path = reference/rust-sdk
+	url = https://github.com/agentclientprotocol/rust-sdk.git
+[submodule "reference/registry"]
+	path = reference/registry
+	url = https://github.com/agentclientprotocol/registry.git
+[submodule "reference/typescript-sdk"]
+	path = reference/typescript-sdk
+	url = https://github.com/agentclientprotocol/typescript-sdk.git
+[submodule "reference/python-sdk"]
+	path = reference/python-sdk
+	url = https://github.com/agentclientprotocol/python-sdk.git
+[submodule "reference/kotlin-sdk"]
+	path = reference/kotlin-sdk
+	url = https://github.com/agentclientprotocol/kotlin-sdk.git
