@@ -50,6 +50,11 @@ private struct DashboardAuthValidateResponse: Encodable {
     var capabilities: Capabilities
 }
 
+private struct HealthResponse: Encodable {
+    var status: String
+    var pid: Int32
+}
+
 private extension UpdateStatusResponse {
     init(_ status: UpdateStatus) {
         self.currentVersion = status.currentVersion
@@ -79,7 +84,10 @@ struct SystemAPIRouter: APIRouter {
 
     func configure(on router: CoreRouterRegistrar) {
         router.get("/health", metadata: RouteMetadata(summary: "Health check", description: "Returns the current status of the sloppy service", tags: ["System"])) { _ in
-            CoreRouter.json(status: HTTPStatus.ok, payload: ["status": "ok"])
+            CoreRouter.encodable(
+                status: HTTPStatus.ok,
+                payload: HealthResponse(status: "ok", pid: ProcessInfo.processInfo.processIdentifier)
+            )
         }
 
         router.get("/v1/channel/slash-commands", metadata: RouteMetadata(summary: "List channel slash commands", description: "Returns the same command metadata as Telegram/Discord channel plugins (ChannelCommandHandler)", tags: ["System"])) { _ in

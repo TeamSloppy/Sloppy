@@ -283,7 +283,8 @@ extension SloppyTUIScreen {
                 provider: providerLabel(from: selectedModel),
                 tokenUsage: tokenUsageSummary,
                 runElapsed: timing.runElapsed,
-                stageElapsed: timing.stageElapsed
+                stageElapsed: timing.stageElapsed,
+                animationFrame: thinkingFrame
             ))
         }
         composer.append(footer)
@@ -731,6 +732,17 @@ extension SloppyTUIScreen {
             result[startRow + offset] = noticeLine
         }
         return result
+    }
+
+    func shouldPrioritizeComposerSubmit(over input: TerminalInput) -> Bool {
+        guard sessionListMode != .hidden,
+              !editor.getText().trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              case .key(.enter, let modifiers) = input,
+              modifiers.isEmpty
+        else {
+            return false
+        }
+        return true
     }
 
     func handleSessionListOpenShortcut(_ input: TerminalInput) -> Bool {
@@ -1222,6 +1234,7 @@ extension SloppyTUIScreen {
             return false
         }
         chatMode = chatMode.next
+        startAutoModeAnimationIfNeeded()
         refreshStaticChrome()
         return true
     }

@@ -177,7 +177,7 @@ export function ConfigView({
   );
 
   useEffect(() => {
-    if (selectedSettings !== "model-routing") {
+    if (selectedSettings !== "model-routing" && selectedSettings !== "visor") {
       return;
     }
     let cancelled = false;
@@ -1705,7 +1705,15 @@ export function ConfigView({
     }
 
     if (selectedSettings === "visor") {
-      return <VisorEditor draftConfig={draftConfig} mutateDraft={mutateDraft} parseLines={parseLines} />;
+      return (
+        <VisorEditor
+          draftConfig={draftConfig}
+          mutateDraft={mutateDraft}
+          parseLines={parseLines}
+          modelRoutingCatalog={modelRoutingCatalog}
+          modelRoutingCatalogStatus={modelRoutingCatalogStatus}
+        />
+      );
     }
 
     if (selectedSettings === "model-routing") {

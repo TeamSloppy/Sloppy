@@ -34,6 +34,7 @@ import {
 } from "../../api";
 import { AgentPetIcon } from "../../features/agents/components/AgentPetSprite";
 import { ReviewDiffPanel } from "./ReviewDiffPanel";
+import { LoadingSkeleton } from "../../components/LoadingSkeleton";
 
 function assigneeInitials(name) {
     const parts = String(name || "?")
@@ -412,7 +413,7 @@ function CommentsTab({ project, task, createModalActors }) {
     return (
         <div className="td-comments">
             {loading ? (
-                <p className="placeholder-text">Loading comments…</p>
+                <LoadingSkeleton label="Loading comments…" variant="list" rows={3} />
             ) : comments.length === 0 ? (
                 <p className="placeholder-text">No comments yet.</p>
             ) : (
@@ -638,7 +639,7 @@ function ActivityTab({ project, task, createModalActors }) {
                 <span className="td-activity-time">{formatRelativeTime(task.createdAt)}</span>
             </div>
             {loading ? (
-                <p className="placeholder-text">Loading activity…</p>
+                <LoadingSkeleton label="Loading activity…" variant="list" rows={4} />
             ) : (
                 activities.map((activity) => {
                     const icon = ACTIVITY_FIELD_ICONS[activity.field] || "edit";
@@ -734,7 +735,7 @@ function TaskLogsTab({ project, task, createModalActors }) {
     return (
         <div className="td-task-logs">
             {loading ? (
-                <p className="placeholder-text">Loading logs…</p>
+                <LoadingSkeleton label="Loading logs…" variant="code" rows={6} />
             ) : entries.length === 0 ? (
                 <p className="placeholder-text">No task logs yet.</p>
             ) : (
@@ -912,7 +913,7 @@ function ReviewTab({ project, task, createModalActors }) {
     return (
         <div className="td-review-tab">
             {loadingDiff ? (
-                <p className="placeholder-text">Loading diff...</p>
+                <LoadingSkeleton label="Loading diff…" variant="code" rows={8} />
             ) : (
                 <ReviewDiffPanel
                     rawDiff={rawDiff}
@@ -1043,7 +1044,7 @@ function ClarificationsTab({ project, task }) {
         }));
     }
 
-    if (loading) return <p className="placeholder-text">Loading clarifications…</p>;
+    if (loading) return <LoadingSkeleton label="Loading clarifications…" variant="list" rows={3} />;
     if (clarifications.length === 0) return <p className="placeholder-text">No clarification requests.</p>;
 
     return (
@@ -2584,7 +2585,7 @@ export function ProjectTasksTab({
                             </button>
                         </div>
                         {archiveLoading ? (
-                            <p className="placeholder-text">Loading archived tasks...</p>
+                            <LoadingSkeleton label="Loading archived tasks…" variant="list" rows={5} />
                         ) : archivedTasks.length === 0 ? (
                             <p className="placeholder-text">No archived tasks.</p>
                         ) : (

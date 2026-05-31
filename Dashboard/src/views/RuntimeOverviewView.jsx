@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { fetchActorsBoard, fetchAgents, fetchProjects, fetchAgentSessions, fetchChannelSessions } from "../api";
 import { gatewayBindingChannelId } from "../shared/channelGatewayScope";
 import { Breadcrumbs } from "../components/Breadcrumbs/Breadcrumbs";
+import { LoadingSkeleton } from "../components/LoadingSkeleton";
 import { AgentPetIcon } from "../features/agents/components/AgentPetSprite";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -570,22 +571,28 @@ export function RuntimeOverviewView({ workers, events, onNavigateToProject, onNa
         style={{ marginBottom: '20px' }}
       />
 
-      <ActiveChannelsSection
-        agents={agents}
-        sessions={sessions}
-        channelSessions={channelSessions}
-        channelSessionDetails={channelSessionDetails}
-        projects={projects}
-        actorBoard={actorBoard}
-        onNavigateToProject={onNavigateToProject}
-        onNavigateToChannelSession={onNavigateToChannelSession}
-      />
+      {isLoading ? (
+        <LoadingSkeleton label="Loading runtime overview…" variant="page" rows={4} />
+      ) : (
+        <>
+          <ActiveChannelsSection
+            agents={agents}
+            sessions={sessions}
+            channelSessions={channelSessions}
+            channelSessionDetails={channelSessionDetails}
+            projects={projects}
+            actorBoard={actorBoard}
+            onNavigateToProject={onNavigateToProject}
+            onNavigateToChannelSession={onNavigateToChannelSession}
+          />
 
-      <CountersSection agents={agents} workers={normalizedWorkers} />
+          <CountersSection agents={agents} workers={normalizedWorkers} />
 
-      <BotActivitySection agents={agents} sessions={sessions} onNavigateToBots={onNavigateToBots} onNavigateToAgent={onNavigateToAgent} />
+          <BotActivitySection agents={agents} sessions={sessions} onNavigateToBots={onNavigateToBots} onNavigateToAgent={onNavigateToAgent} />
 
-      <ClosedTasksSection projects={projects} />
+          <ClosedTasksSection projects={projects} />
+        </>
+      )}
     </main>
   );
 }

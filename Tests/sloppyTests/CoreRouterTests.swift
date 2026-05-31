@@ -25,6 +25,11 @@ private struct DashboardAuthValidateResponsePayload: Decodable {
     let capabilities: Capabilities
 }
 
+private struct HealthResponsePayload: Decodable {
+    let status: String
+    let pid: Int32
+}
+
 @Test
 func postChannelMessageEndpoint() async throws {
     let service = CoreService(config: .test)
@@ -168,6 +173,9 @@ func routerRegistersRoutesAcrossDomainsOnInitialization() async throws {
 
     let healthResponse = await router.handle(method: "GET", path: "/health", body: nil)
     #expect(healthResponse.status == 200)
+    let healthPayload = try JSONDecoder().decode(HealthResponsePayload.self, from: healthResponse.body)
+    #expect(healthPayload.status == "ok")
+    #expect(healthPayload.pid == ProcessInfo.processInfo.processIdentifier)
 
     let channelStateResponse = await router.handle(method: "GET", path: "/v1/channels/general/state", body: nil)
     #expect(channelStateResponse.status == 200)

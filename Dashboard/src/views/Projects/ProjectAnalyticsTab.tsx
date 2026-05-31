@@ -12,6 +12,7 @@ import {
   YAxis
 } from "recharts";
 import { fetchProjectAnalytics } from "../../api";
+import { LoadingSkeleton } from "../../components/LoadingSkeleton";
 
 type WindowOption = "24h" | "7d" | "all";
 
@@ -180,7 +181,7 @@ export function ProjectAnalyticsTab({
         </div>
 
         {isLoading ? (
-          <p className="placeholder-text">Loading analytics…</p>
+          <LoadingSkeleton label="Loading analytics…" variant="cards" cards={3} />
         ) : !response ? (
           <div className="project-overview-empty">
             <p className="placeholder-text">No analytics available yet.</p>

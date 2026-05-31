@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { oneDark } from "react-syntax-highlighter/dist/esm/styles/prism";
 import { fetchProjectFiles, fetchProjectFileContent } from "../../api";
+import { LoadingSkeleton } from "../../components/LoadingSkeleton";
 
 const EXTENSION_LANGUAGE_MAP = {
   js: "javascript",
@@ -75,7 +76,7 @@ function useNarrowProjectFilesLayout() {
 
 function FileSyntaxBlock({ language, fileLoading, fileError, fileContent }) {
   if (fileLoading) {
-    return <div className="pft-status">Loading…</div>;
+    return <LoadingSkeleton label="Loading file…" variant="code" rows={8} />;
   }
   if (fileError) {
     return <div className="pft-status pft-status-error">{fileError}</div>;
@@ -284,7 +285,7 @@ export function ProjectFilesTab({ project }) {
         </div>
         <div className="pft-tree-body">
           {rootLoading ? (
-            <div className="pft-status">Loading…</div>
+            <LoadingSkeleton label="Loading project files…" variant="list" rows={6} />
           ) : rootEntries === null ? (
             <div className="pft-status pft-status-error">Failed to load files.</div>
           ) : rootEntries.length === 0 ? (

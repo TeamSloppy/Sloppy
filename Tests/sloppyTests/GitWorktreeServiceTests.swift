@@ -50,6 +50,22 @@ func gitWorktreeCreateAndRemove() async throws {
 }
 
 @Test
+func gitWorktreeCreateUsesFallbackBranchNameWhenTaskBranchExists() async throws {
+    let repoURL = try makeGitRepo()
+    defer { try? FileManager.default.removeItem(at: repoURL) }
+
+    try runGit(["branch", "sloppy/task-adaengin"], in: repoURL)
+
+    let service = GitWorktreeService()
+    let result = try await service.createWorktree(repoPath: repoURL.path, taskId: "adaengine-fix")
+
+    #expect(result.branchName == "sloppy/task-adaengin-2")
+    #expect(FileManager.default.fileExists(atPath: result.worktreePath))
+
+    try await service.removeWorktree(repoPath: repoURL.path, worktreePath: result.worktreePath)
+}
+
+@Test
 func gitWorktreePathIsConsistent() async throws {
     let repoURL = try makeGitRepo()
     defer { try? FileManager.default.removeItem(at: repoURL) }
@@ -174,6 +190,22 @@ func gitWorktreeErrorOnNonRepo() async throws {
         Issue.record("Expected error for non-repo path")
     } catch is GitWorktreeError {
         // expected
+    }
+}
+
+private func runGit(_ args: [String], in directory: URL) throws {
+    let process = Process()
+    process.executableURL = URL(fileURLWithPath: "/usr/bin/git")
+    process.arguments = args
+    process.currentDirectoryURL = directory
+    let pipe = Pipe()
+    process.standardOutput = pipe
+    process.standardError = pipe
+    try process.run()
+    try waitForProcessExit(process, timeoutSeconds: 10, operation: "git \(args.joined(separator: " "))")
+    guard process.terminationStatus == 0 else {
+        let out = String(data: pipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+        throw NSError(domain: "git", code: Int(process.terminationStatus), userInfo: [NSLocalizedDescriptionKey: out])
     }
 }
 

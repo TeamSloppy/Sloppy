@@ -3,6 +3,9 @@ import { useNotifications } from "./NotificationContext";
 import type { Notification, NotificationType } from "./NotificationContext";
 import { ApprovalDialog } from "../config/components/ApprovalDialog";
 import { ToolApprovalDialog } from "./ToolApprovalDialog";
+import { navigateToTaskScreen } from "../../app/routing/navigateToTaskScreen";
+import { getNotificationDropdownPlacement } from "./notificationDropdownPlacement";
+import { getNotificationNavigationTarget } from "./notificationNavigation";
 
 const TYPE_META: Record<NotificationType, { icon: string; color: string; label: string }> = {
   confirmation: { icon: "help_outline", color: "var(--warn)", label: "CONFIRM" },
@@ -23,29 +26,37 @@ function formatTime(ts: number): string {
   return new Date(ts).toLocaleDateString();
 }
 
-function sessionIdFromChannelId(channelId?: string): string | undefined {
-  const raw = channelId || "";
-  const sessionMarker = ":session:";
-  const sessionIdx = raw.indexOf(sessionMarker);
-  return sessionIdx >= 0 ? raw.slice(sessionIdx + sessionMarker.length) : undefined;
-}
-
 function NotificationItem({
   notification,
   onDismiss,
   onRead,
   onApprovalClick,
+  onNavigateToTask,
   onNavigateToAgent
 }: {
   notification: Notification;
   onDismiss: (id: string) => void;
   onRead: (id: string) => void;
   onApprovalClick?: (approvalId: string) => void;
+  onNavigateToTask?: (taskReference: string) => void;
   onNavigateToAgent?: (agentId: string, sessionId?: string) => void;
 }) {
   const meta = TYPE_META[notification.type];
+  const navigationTarget = getNotificationNavigationTarget(notification.metadata);
+  const canNavigate = Boolean(
+    navigationTarget && (navigationTarget.kind === "task" ? onNavigateToTask : onNavigateToAgent)
+  );
 
-  const hasAgentLink = Boolean(notification.metadata?.agentId);
+  function navigateToTarget() {
+    if (!navigationTarget) return;
+    if (navigationTarget.kind === "task") {
+      onNavigateToTask?.(navigationTarget.taskReference);
+      return;
+    }
+    if (onNavigateToAgent) {
+      onNavigateToAgent(navigationTarget.agentId, navigationTarget.sessionId);
+    }
+  }
 
   function handleClick() {
     onRead(notification.id);
@@ -57,19 +68,15 @@ function NotificationItem({
       onApprovalClick?.(notification.metadata.approvalId);
       return;
     }
-    if (notification.metadata?.agentId && onNavigateToAgent) {
-      const sessionId = notification.metadata.sessionId || sessionIdFromChannelId(notification.metadata.channelId);
-      onNavigateToAgent(notification.metadata.agentId, sessionId);
+    if (canNavigate) {
+      navigateToTarget();
     }
   }
 
   function handleNavigate(e: React.MouseEvent) {
     e.stopPropagation();
     onRead(notification.id);
-    const agentId = notification.metadata?.agentId;
-    if (!agentId || !onNavigateToAgent) return;
-    const sessionId = notification.metadata?.sessionId || sessionIdFromChannelId(notification.metadata?.channelId);
-    onNavigateToAgent(agentId, sessionId);
+    navigateToTarget();
   }
 
   return (
@@ -89,10 +96,10 @@ function NotificationItem({
         </div>
         <div className="notif-item-title">{notification.title}</div>
         {notification.message && <div className="notif-item-message">{notification.message}</div>}
-        {hasAgentLink && onNavigateToAgent && (
+        {canNavigate && navigationTarget && (
           <button type="button" className="notif-item-navigate" onClick={handleNavigate}>
             <span className="material-symbols-rounded">open_in_new</span>
-            View session
+            {navigationTarget.label}
           </button>
         )}
       </div>
@@ -176,8 +183,17 @@ export function NotificationBell({
     if (!open || !containerRef.current || !dropdownRef.current) return;
     const rect = containerRef.current.getBoundingClientRect();
     const dropdown = dropdownRef.current;
-    dropdown.style.left = `${rect.right + 8}px`;
-    dropdown.style.bottom = `${window.innerHeight - rect.bottom}px`;
+    const placement = getNotificationDropdownPlacement({
+      triggerLeft: rect.left,
+      triggerRight: rect.right,
+      triggerBottom: rect.bottom,
+      dropdownWidth: dropdown.getBoundingClientRect().width,
+      viewportWidth: window.innerWidth,
+      viewportHeight: window.innerHeight
+    });
+    dropdown.style.left = `${placement.left}px`;
+    dropdown.style.right = "auto";
+    dropdown.style.bottom = `${placement.bottom}px`;
   }, [open]);
 
   return (
@@ -240,6 +256,10 @@ export function NotificationBell({
                     } else {
                       setApprovalId(id);
                     }
+                  }}
+                  onNavigateToTask={(taskReference) => {
+                    setOpen(false);
+                    navigateToTaskScreen(taskReference);
                   }}
                   onNavigateToAgent={onNavigateToAgent ? (agentId, sessionId) => { setOpen(false); onNavigateToAgent(agentId, sessionId); } : undefined}
                 />

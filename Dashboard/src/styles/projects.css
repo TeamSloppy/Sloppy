@@ -84,33 +84,22 @@
 
 .project-grid-list {
   display: grid;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
   gap: 10px;
   align-content: start;
 }
 
-@media (max-width: 1200px) {
-  .project-grid-list {
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-  }
+.project-grid-list > .loading-skeleton--cards {
+  grid-column: 1 / -1;
 }
 
-@media (max-width: 900px) {
-  .project-grid-list {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-  }
+.project-grid-list > .loading-skeleton--cards .loading-skeleton__card-grid {
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
 }
 
-@media (max-width: 600px) {
-  .project-grid-list {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-}
-
-@media (max-width: 400px) {
-  .project-grid-list {
-    grid-template-columns: repeat(1, minmax(0, 1fr));
-  }
+.project-grid-list > .loading-skeleton--cards .loading-skeleton__card {
+  min-height: 220px;
+  aspect-ratio: 1 / 1;
 }
 
 .project-grid-list .project-grid-card:nth-child(1) { animation-delay: 60ms; }

@@ -60,6 +60,7 @@ export interface DashboardTerminalConnection {
 }
 
 export interface CoreApi {
+  fetchHealth: () => Promise<AnyRecord | null>;
   sendChannelMessage: (channelId: string, payload: AnyRecord) => Promise<AnyRecord | null>;
   fetchChannelState: (channelId: string) => Promise<AnyRecord | null>;
   fetchChannelEvents: (channelId: string, query?: ChannelEventsQuery) => Promise<AnyRecord | null>;
@@ -288,6 +289,16 @@ export interface CoreApi {
 
 export function createCoreApi(): CoreApi {
   return {
+    fetchHealth: async () => {
+      const response = await requestJson<AnyRecord>({
+        path: "/health"
+      });
+      if (!response.ok) {
+        return null;
+      }
+      return response.data;
+    },
+
     sendChannelMessage: async (channelId, payload) => {
       const response = await requestJson<AnyRecord, AnyRecord>({
         path: `/v1/channels/${encodeURIComponent(channelId)}/messages`,

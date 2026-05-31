@@ -42,11 +42,13 @@ extension SloppyTUIScreen {
                             if event.toolResult != nil {
                                 self.lastAgentToolActivityAt = Date()
                             }
+                            var shouldRefreshTokenUsageAfterRun = false
                             if let status = event.runStatus {
                                 if status.stage == .done || status.stage == .interrupted {
                                     self.liveRunStage = nil
                                     self.liveRunStatusLine = nil
                                     self.markSendTiming("final_status")
+                                    shouldRefreshTokenUsageAfterRun = true
                                 } else {
                                     self.liveRunStage = status.stage
                                     self.liveRunStatusLine = self.runStatusLine(status)
@@ -62,7 +64,12 @@ extension SloppyTUIScreen {
                                 self.clearLiveAssistantDraft()
                                 self.stopThinkingAnimation()
                             }
-                            Task { await self.reloadSession() }
+                            Task {
+                                if shouldRefreshTokenUsageAfterRun {
+                                    await self.refreshTokenUsage(includeCost: true)
+                                }
+                                await self.reloadSession()
+                            }
                         } else if update.kind == .sessionClosed {
                             self.clearLiveAssistantDraft()
                             self.stopThinkingAnimation()

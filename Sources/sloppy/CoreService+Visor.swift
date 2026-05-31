@@ -119,8 +119,21 @@ extension CoreService {
                     continue
                 }
 
+                if let retryAfter = await pendingAutopilotPlanningRetry(projectID: project.id, taskID: root.id, now: Date()) {
+                    logger.info(
+                        "project.autopilot.planning_retry_pending",
+                        metadata: [
+                            "project_id": .string(project.id),
+                            "task_id": .string(root.id),
+                            "retry_after": .string(Self.formatAutopilotRetryDate(retryAfter))
+                        ]
+                    )
+                    continue
+                }
+
                 do {
-                    let planned = try await makeProjectAutopilotPlanner().plan(project: project, rootTask: root)
+                    let planner = makeProjectAutopilotPlanner(project: project, rootTask: root)
+                    let planned = try await planner.plan(project: project, rootTask: root)
                     let newReadyIDs = createAutopilotChildTasks(
                         planned,
                         rootIndex: rootIndex,
@@ -135,17 +148,34 @@ extension CoreService {
                         metadata: [
                             "project_id": .string(project.id),
                             "task_id": .string(root.id),
-                            "subtask_count": .stringConvertible(planned.count)
+                            "subtask_count": .stringConvertible(planned.count),
+                            "agent_id": .string(planner.context.agentID ?? "(none)"),
+                            "model_id": .string(planner.context.modelID ?? "(none)"),
+                            "model_source": .string(planner.context.modelSource),
+                            "provider_id": .string(planner.context.providerID ?? "(none)"),
                         ]
                     )
                     await store.saveProject(project)
                 } catch {
-                    await blockAutopilotTask(
-                        project: project,
-                        taskID: root.id,
-                        message: "Autopilot planning failed: \(error.localizedDescription)"
-                    )
-                    project = await store.project(id: project.id) ?? project
+                    if isTransientAutopilotPlanningError(error) {
+                        let planner = makeProjectAutopilotPlanner(project: project, rootTask: root)
+                        await deferAutopilotPlanningRetry(
+                            project: project,
+                            taskID: root.id,
+                            error: error,
+                            context: planner.context,
+                            retryAfter: Date().addingTimeInterval(Self.autopilotPlanningRetryDelay)
+                        )
+                        project = await store.project(id: project.id) ?? project
+                        break
+                    } else {
+                        await blockAutopilotTask(
+                            project: project,
+                            taskID: root.id,
+                            message: "Autopilot planning failed: \(error.localizedDescription)"
+                        )
+                        project = await store.project(id: project.id) ?? project
+                    }
                 }
             } else {
                 let releasable = releasableAutopilotChildren(project: project, parentTaskID: root.id)
@@ -393,6 +423,100 @@ extension CoreService {
         return normalizeTaskDescription(lines.joined(separator: "\n"))
     }
 
+
+    private static let autopilotPlanningRetryDelay: TimeInterval = 5 * 60
+    private static let autopilotPlanningRetryCommentPrefix = "[Autopilot planning retry scheduled]"
+    private static func formatAutopilotRetryDate(_ date: Date) -> String {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter.string(from: date)
+    }
+
+    private static func parseAutopilotRetryDate(_ raw: String) -> Date? {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter.date(from: raw) ?? ISO8601DateFormatter().date(from: raw)
+    }
+
+    func isTransientAutopilotPlanningError(_ error: Error) -> Bool {
+        let nsError = error as NSError
+        if nsError.domain == NSURLErrorDomain {
+            return true
+        }
+
+        let typeName = String(describing: type(of: error)).lowercased()
+        let description = String(describing: error).lowercased()
+        let localized = error.localizedDescription.lowercased()
+        return typeName.contains("urlsessionerror")
+            || description.contains("urlsessionerror")
+            || localized.contains("urlsessionerror")
+            || localized.contains("timed out")
+            || localized.contains("timeout")
+            || localized.contains("temporarily unavailable")
+            || localized.contains("network connection")
+            || localized.contains("cannot connect")
+            || localized.contains("connection lost")
+    }
+
+    func pendingAutopilotPlanningRetry(projectID: String, taskID: String, now: Date) async -> Date? {
+        let comments = await listTaskComments(projectID: projectID, taskID: taskID)
+        for comment in comments.reversed() {
+            guard comment.authorActorId == "system",
+                  comment.content.contains(Self.autopilotPlanningRetryCommentPrefix)
+            else {
+                continue
+            }
+            guard let retryLine = comment.content
+                .components(separatedBy: .newlines)
+                .first(where: { $0.hasPrefix("Retry after: ") })
+            else {
+                continue
+            }
+            let rawDate = retryLine.replacingOccurrences(of: "Retry after: ", with: "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            if let retryAfter = Self.parseAutopilotRetryDate(rawDate), retryAfter > now {
+                return retryAfter
+            }
+        }
+        return nil
+    }
+
+    func deferAutopilotPlanningRetry(project: ProjectRecord, taskID: String, error: Error, retryAfter: Date) async {
+        await deferAutopilotPlanningRetry(
+            project: project,
+            taskID: taskID,
+            error: error,
+            context: makeProjectAutopilotPlanner(project: project, rootTaskID: taskID).context,
+            retryAfter: retryAfter
+        )
+    }
+
+    func deferAutopilotPlanningRetry(
+        project: ProjectRecord,
+        taskID: String,
+        error: Error,
+        context: AutopilotPlanningContext,
+        retryAfter: Date
+    ) async {
+        let retryAfterText = Self.formatAutopilotRetryDate(retryAfter)
+        let note = """
+        \(Self.autopilotPlanningRetryCommentPrefix)
+        Autopilot planning hit a transient model/network error and will retry automatically instead of blocking the task.
+        Error: \(error.localizedDescription)
+        Agent: \(context.agentID ?? "(none)")
+        Model: \(context.modelID ?? "(none)")
+        Retry after: \(retryAfterText)
+        """
+        await appendSystemTaskComment(projectID: project.id, taskID: taskID, content: note)
+        var metadata = context.metadata(projectID: project.id, taskID: taskID)
+        metadata["retry_after"] = .string(retryAfterText)
+        metadata.merge(Self.autopilotPlanningErrorMetadata(error), uniquingKeysWith: { _, new in new })
+        logger.warning(
+            "project.autopilot.planning_deferred",
+            metadata: metadata
+        )
+    }
+
     func blockAutopilotTask(project: ProjectRecord, taskID: String, message: String) async {
         guard var latest = await store.project(id: project.id),
               let index = latest.tasks.firstIndex(where: { $0.id == taskID })
@@ -420,20 +544,148 @@ extension CoreService {
         }
     }
 
-    func makeProjectAutopilotPlanner() -> ProjectAutopilotPlanner {
+    struct AutopilotPlanningContext: Sendable {
+        var agentID: String?
+        var agentRuntimeType: String
+        var modelID: String?
+        var modelSource: String
+        var providerID: String?
+        var maxTokens: Int
+        var reasoningEffort: String
+        var agentConfigError: String?
+
+        func metadata(projectID: String, taskID: String) -> Logger.Metadata {
+            var result: Logger.Metadata = [
+                "project_id": .string(projectID),
+                "task_id": .string(taskID),
+                "agent_id": .string(agentID ?? "(none)"),
+                "agent_runtime_type": .string(agentRuntimeType),
+                "model_id": .string(modelID ?? "(none)"),
+                "model_source": .string(modelSource),
+                "provider_id": .string(providerID ?? "(none)"),
+                "max_tokens": .stringConvertible(maxTokens),
+                "reasoning_effort": .string(reasoningEffort),
+            ]
+            if let agentConfigError {
+                result["agent_config_error"] = .string(agentConfigError)
+            }
+            return result
+        }
+    }
+
+    struct ContextualProjectAutopilotPlanner: Sendable {
+        var planner: ProjectAutopilotPlanner
+        var context: AutopilotPlanningContext
+
+        func plan(project: ProjectRecord, rootTask: ProjectTask) async throws -> [ProjectAutopilotPlanner.PlannedTask] {
+            try await planner.plan(project: project, rootTask: rootTask)
+        }
+    }
+
+    static func autopilotPlanningErrorMetadata(_ error: Error) -> Logger.Metadata {
+        let nsError = error as NSError
+        var metadata: Logger.Metadata = [
+            "error": .string(error.localizedDescription),
+            "error_type": .string(String(describing: type(of: error))),
+            "error_domain": .string(nsError.domain),
+            "error_code": .stringConvertible(nsError.code),
+            "error_description": .string(String(describing: error)),
+        ]
+        if let underlying = nsError.userInfo[NSUnderlyingErrorKey] as? Error {
+            let underlyingNSError = underlying as NSError
+            metadata["underlying_error"] = .string(underlying.localizedDescription)
+            metadata["underlying_error_type"] = .string(String(describing: type(of: underlying)))
+            metadata["underlying_error_domain"] = .string(underlyingNSError.domain)
+            metadata["underlying_error_code"] = .stringConvertible(underlyingNSError.code)
+        }
+        return metadata
+    }
+
+    func makeProjectAutopilotPlanner(project: ProjectRecord, rootTask: ProjectTask) -> ContextualProjectAutopilotPlanner {
+        makeProjectAutopilotPlanner(project: project, rootTaskID: rootTask.id)
+    }
+
+    func makeProjectAutopilotPlanner(project: ProjectRecord, rootTaskID: String) -> ContextualProjectAutopilotPlanner {
         let modelProvider = self.modelProvider
-        return ProjectAutopilotPlanner { prompt in
+        let context = autopilotPlanningContext(project: project, modelProvider: modelProvider)
+        let logger = self.logger
+        let planner = ProjectAutopilotPlanner { prompt in
             guard let modelProvider else {
                 return nil
             }
-            guard let modelID = modelProvider.supportedModels.first else {
+            guard let modelID = context.modelID else {
                 return nil
             }
-            let languageModel = try await modelProvider.createLanguageModel(for: modelID)
-            let session = LanguageModelSession(model: languageModel, tools: [])
-            let options = modelProvider.generationOptions(for: modelID, maxTokens: 4_096, reasoningEffort: nil)
-            return try await session.respond(to: prompt, options: options).content
+            var requestMetadata = context.metadata(projectID: project.id, taskID: rootTaskID)
+            requestMetadata["prompt_chars"] = .stringConvertible(prompt.count)
+            logger.info("project.autopilot.planning_request", metadata: requestMetadata)
+            do {
+                let languageModel = try await modelProvider.createLanguageModel(for: modelID)
+                let session = LanguageModelSession(model: languageModel, tools: [])
+                let options = modelProvider.generationOptions(for: modelID, maxTokens: context.maxTokens, reasoningEffort: nil)
+                let response = try await session.respond(to: prompt, options: options).content
+                var responseMetadata = context.metadata(projectID: project.id, taskID: rootTaskID)
+                responseMetadata["response_chars"] = .stringConvertible(response.count)
+                logger.info("project.autopilot.planning_response", metadata: responseMetadata)
+                return response
+            } catch {
+                var failureMetadata = context.metadata(projectID: project.id, taskID: rootTaskID)
+                failureMetadata.merge(Self.autopilotPlanningErrorMetadata(error), uniquingKeysWith: { _, new in new })
+                logger.warning("project.autopilot.planning_request_failed", metadata: failureMetadata)
+                throw error
+            }
         }
+        return ContextualProjectAutopilotPlanner(planner: planner, context: context)
+    }
+
+    func autopilotPlanningContext(
+        project: ProjectRecord,
+        modelProvider: (any ModelProvider)?
+    ) -> AutopilotPlanningContext {
+        let agentID = normalizeWhitespace(project.autopilotSettings.defaultAgentId ?? "")
+        var agentRuntimeType = "(unknown)"
+        var selectedModel: String?
+        var agentConfigError: String?
+        if !agentID.isEmpty {
+            do {
+                let config = try agentCatalogStore.getAgentConfig(
+                    agentID: agentID,
+                    availableModels: availableAgentModels(),
+                    persistedModelAllowed: makePersistedModelAllowance()
+                )
+                agentRuntimeType = config.runtime.type.rawValue
+                let rawModel = config.selectedModel?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                if config.runtime.type == .native, !rawModel.isEmpty {
+                    selectedModel = rawModel
+                }
+            } catch {
+                agentConfigError = error.localizedDescription
+            }
+        }
+
+        let modelID: String?
+        let modelSource: String
+        if let selectedModel, modelProvider?.supports(modelName: selectedModel) == true {
+            modelID = selectedModel
+            modelSource = "default_agent"
+        } else if let fallback = modelProvider?.supportedModels.first {
+            modelID = fallback
+            modelSource = selectedModel == nil ? "provider_default" : "provider_default_selected_unavailable"
+        } else {
+            modelID = nil
+            modelSource = "none"
+        }
+
+        return AutopilotPlanningContext(
+            agentID: agentID.isEmpty ? nil : agentID,
+            agentRuntimeType: agentRuntimeType,
+            modelID: modelID,
+            modelSource: modelSource,
+            providerID: modelProvider?.id,
+            maxTokens: 4_096,
+            reasoningEffort: "none",
+            agentConfigError: agentConfigError
+        )
     }
 
     func visorSchedulerRunning() async -> Bool {

@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
+import { LoadingSkeleton } from "../../components/LoadingSkeleton";
 import {
   createAgent as createAgentRequest,
   deleteAgent as deleteAgentRequest,
@@ -253,7 +254,7 @@ function AgentsIndexSection({
     <section className="agents-index">
       {isLoadingAgents ? (
         <div className="agents-empty-stage">
-          <p className="app-status-text">Loading agents from Sloppy...</p>
+          <LoadingSkeleton label="Loading agents from Sloppy…" variant="cards" cards={6} />
         </div>
       ) : agents.length === 0 ? (
         <div className="agents-empty-stage">

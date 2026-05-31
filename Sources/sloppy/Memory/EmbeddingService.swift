@@ -60,13 +60,41 @@ public actor EmbeddingService {
         }
         guard httpResponse.statusCode == 200 else {
             let body = String(data: data, encoding: .utf8) ?? ""
-            logger.warning("Embedding request failed [\(httpResponse.statusCode)]: \(body.prefix(200))")
+            logger.warning(
+                "Embedding request failed [\(httpResponse.statusCode)]",
+                metadata: [
+                    "endpoint": "\(Self.redactedEndpointString(endpoint))",
+                    "model": "\(model)",
+                    "dimensions": "\(dimensions)",
+                    "input_count": "\(texts.count)",
+                    "timeout_seconds": "\(timeoutSeconds)",
+                    "has_api_key": "\(apiKey?.isEmpty == false)",
+                    "response_body_preview": "\(Self.responseBodyPreview(body))"
+                ]
+            )
             throw EmbeddingError.httpError(httpResponse.statusCode)
         }
 
         let decoded = try JSONDecoder().decode(EmbeddingResponse.self, from: data)
         let sorted = decoded.data.sorted { $0.index < $1.index }
         return sorted.map { $0.embedding }
+    }
+
+    private static func redactedEndpointString(_ url: URL) -> String {
+        guard var components = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
+            return url.absoluteString
+        }
+        components.user = nil
+        components.password = nil
+        components.query = nil
+        components.fragment = nil
+        return components.string ?? url.absoluteString
+    }
+
+    private static func responseBodyPreview(_ body: String) -> String {
+        let trimmed = body.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return "<empty>" }
+        return String(trimmed.prefix(500))
     }
 }
 

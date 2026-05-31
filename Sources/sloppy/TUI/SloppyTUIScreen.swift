@@ -327,6 +327,7 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
     var autoDiffTask: Task<Void, Never>?
     var devicePollTask: Task<Void, Never>?
     var thinkingAnimationTask: Task<Void, Never>?
+    var autoModeAnimationTask: Task<Void, Never>?
     var projectFileIndexTask: Task<Void, Never>?
     var projectFileReindexTask: Task<Void, Never>?
     var lastChangeBatch: ProjectWorkingTreeChangeBatch?
@@ -521,6 +522,7 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
         }
         streamChanges()
         scheduleProjectSourceControlFooterRefresh()
+        startAutoModeAnimationIfNeeded()
         loadProjectFileIndex()
         reloadProjectForTaskAutocompleteIfNeeded()
         Task { @MainActor in await refreshMCPStatusSummary() }
@@ -537,6 +539,8 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
         autoDiffTask = nil
         devicePollTask?.cancel()
         thinkingAnimationTask?.cancel()
+        autoModeAnimationTask?.cancel()
+        autoModeAnimationTask = nil
         projectFileIndexTask?.cancel()
         projectSourceControlFooterTask?.cancel()
         projectSourceControlFooterTask = nil
@@ -588,6 +592,10 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
             return
         }
         if handleCommandPalette(input: input) {
+            return
+        }
+        if shouldPrioritizeComposerSubmit(over: input) {
+            editor.handle(input: input)
             return
         }
         if handleSessionListInput(input) {

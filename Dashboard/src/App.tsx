@@ -3,6 +3,7 @@ import { createDependencies } from "./app/di/createDependencies";
 import { DEFAULT_AGENT_TAB, DEFAULT_PROJECT_TAB } from "./app/routing/dashboardRouteAdapter";
 import { useDashboardRoute } from "./app/routing/useDashboardRoute";
 import { SidebarView } from "./components/SidebarView";
+import { LoadingSkeleton } from "./components/LoadingSkeleton";
 import { NotificationProvider } from "./features/notifications/NotificationContext";
 import { NotificationBell } from "./features/notifications/NotificationBell";
 import { NotificationToastContainer } from "./features/notifications/NotificationToast";
@@ -15,6 +16,7 @@ import { useRuntimeOverview } from "./features/runtime-overview/model/useRuntime
 import { TerminalDrawer } from "./features/terminal/TerminalDrawer";
 import { UpdateBanner } from "./features/updates/UpdateBanner";
 import { useUpdateCheck } from "./features/updates/useUpdateCheck";
+import { formatSecureSessionStatus } from "./app/sessionStatus";
 import { AgentsView } from "./views/AgentsView";
 import { ActorsView } from "./views/ActorsView";
 import { VisorChatView } from "./features/visor/VisorChatView";
@@ -125,6 +127,7 @@ function DashboardShell({
   const [sidebarProjects, setSidebarProjects] = useState<AnyRecord[]>([]);
   const [terminalClosedHost, setTerminalClosedHost] = useState<HTMLDivElement | null>(null);
   const [issueReportLoading, setIssueReportLoading] = useState(false);
+  const [runtimeProcessId, setRuntimeProcessId] = useState<number | null>(null);
   const sidebarChatRepairRef = useRef<string | null>(null);
   const { status: updateStatus } = useUpdateCheck();
   const { activeStep, startTutorial, startTutorialFromOnboarding } = useTutorial();
@@ -163,6 +166,25 @@ function DashboardShell({
   useEffect(() => {
     refreshSidebarProjects();
   }, [refreshSidebarProjects]);
+
+  useEffect(() => {
+    let disposed = false;
+
+    async function loadHealth() {
+      const health = await dependencies.coreApi.fetchHealth();
+      if (disposed) {
+        return;
+      }
+      const pid = Number(health?.pid);
+      setRuntimeProcessId(Number.isFinite(pid) && pid > 0 ? pid : null);
+    }
+
+    void loadHealth();
+
+    return () => {
+      disposed = true;
+    };
+  }, [dependencies]);
 
   useEffect(() => {
     if (autoStartTutorialAfterOnboarding) {
@@ -515,7 +537,7 @@ function DashboardShell({
             letterSpacing: "0.1em"
           }}
         >
-          [&gt;_ SECURE_SESSION_ACTIVE // PID: 9284]
+          {formatSecureSessionStatus(runtimeProcessId)}
         </div>
         <div
           style={{
@@ -692,29 +714,40 @@ export function App() {
     setBootAttempt((value) => value + 1);
   }
 
-  function handleApiBaseConnect() {
+  function applyApiBaseInput() {
     const trimmed = apiBaseInput.trim();
     if (!trimmed) {
       setStoredApiBaseOverride("");
       setApiBaseInput(resolveApiBase());
       setApiBaseError("");
-      retryBootstrap();
-      return;
+      return true;
     }
 
     const normalized = normalizeApiBaseInput(trimmed);
     if (!normalized) {
       setApiBaseError("Enter host:port or full http(s) URL.");
-      return;
+      return false;
     }
 
     setStoredApiBaseOverride(normalized);
     setApiBaseInput(normalized);
     setApiBaseError("");
+    return true;
+  }
+
+  function handleApiBaseConnect() {
+    if (!applyApiBaseInput()) {
+      return;
+    }
+
     retryBootstrap();
   }
 
   async function handleDashboardAuthSubmit() {
+    if (!applyApiBaseInput()) {
+      return;
+    }
+
     const token = dashboardTokenInput.trim();
     if (!token) {
       setAuthState({
@@ -745,6 +778,7 @@ export function App() {
         <div className="onboarding-loading-card">
           <span className="onboarding-loading-kicker">Sloppy init</span>
           <strong>Loading runtime config...</strong>
+          <LoadingSkeleton label="Preparing dashboard…" variant="panel" rows={3} />
         </div>
       </div>
     );
@@ -817,6 +851,7 @@ export function App() {
             <div className="onboarding-loading-card">
               <span className="onboarding-loading-kicker">Dashboard auth</span>
               <strong>Validating dashboard token...</strong>
+              <LoadingSkeleton label="Checking access…" variant="panel" rows={2} />
             </div>
           </div>
         );
@@ -856,6 +891,36 @@ export function App() {
                   }
                 }}
               />
+              <label className="onboarding-loading-label" htmlFor="sloppy-api-base-onboarding-auth">
+                Core API URL
+              </label>
+              <input
+                id="sloppy-api-base-onboarding-auth"
+                className="onboarding-loading-input"
+                type="text"
+                inputMode="url"
+                autoCapitalize="off"
+                autoCorrect="off"
+                spellCheck={false}
+                placeholder="192.168.1.50:25101"
+                value={apiBaseInput}
+                onChange={(event) => {
+                  setApiBaseInput(event.target.value);
+                  if (apiBaseError) {
+                    setApiBaseError("");
+                  }
+                }}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") {
+                    event.preventDefault();
+                    handleApiBaseConnect();
+                  }
+                }}
+              />
+              <span className="onboarding-loading-hint">
+                Enter `ip:port` or a full `http://` / `https://` URL for `sloppy-core`.
+              </span>
+              {apiBaseError ? <span className="onboarding-loading-error">{apiBaseError}</span> : null}
               <label className="agent-tools-guardrail agent-tools-guardrail-toggle">
                 <span className="agent-tools-guardrail-copy">
                   <span className="agent-tools-guardrail-title">Remember this token in this browser</span>
@@ -878,7 +943,7 @@ export function App() {
               <button
                 type="button"
                 className="onboarding-ghost-button"
-                onClick={retryBootstrap}
+                onClick={handleApiBaseConnect}
               >
                 Retry
               </button>
@@ -962,6 +1027,36 @@ export function App() {
                 }
               }}
             />
+            <label className="onboarding-loading-label" htmlFor="sloppy-api-base-auth">
+              Core API URL
+            </label>
+            <input
+              id="sloppy-api-base-auth"
+              className="onboarding-loading-input"
+              type="text"
+              inputMode="url"
+              autoCapitalize="off"
+              autoCorrect="off"
+              spellCheck={false}
+              placeholder="192.168.1.50:25101"
+              value={apiBaseInput}
+              onChange={(event) => {
+                setApiBaseInput(event.target.value);
+                if (apiBaseError) {
+                  setApiBaseError("");
+                }
+              }}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  event.preventDefault();
+                  handleApiBaseConnect();
+                }
+              }}
+            />
+            <span className="onboarding-loading-hint">
+              Enter `ip:port` or a full `http://` / `https://` URL for `sloppy-core`.
+            </span>
+            {apiBaseError ? <span className="onboarding-loading-error">{apiBaseError}</span> : null}
             <label className="agent-tools-guardrail agent-tools-guardrail-toggle">
               <span className="agent-tools-guardrail-copy">
                 <span className="agent-tools-guardrail-title">Remember this token in this browser</span>
@@ -984,7 +1079,7 @@ export function App() {
             <button
               type="button"
               className="onboarding-ghost-button"
-              onClick={retryBootstrap}
+              onClick={handleApiBaseConnect}
             >
               Retry
             </button>

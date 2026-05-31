@@ -5,6 +5,7 @@ import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { oneDark } from "react-syntax-highlighter/dist/esm/styles/prism";
 import { answerChannelInputRequest, deleteChannelSession, fetchActorsBoard, fetchAgents, fetchChannelEvents, fetchChannelModel, fetchChannelSession, fetchProjects, fetchTokenUsage, postChannelControl } from "../api";
 import { Breadcrumbs } from "../components/Breadcrumbs/Breadcrumbs";
+import { LoadingSkeleton } from "../components/LoadingSkeleton";
 import { PlanInputPanel } from "../components/PlanInputPanel/PlanInputPanel";
 import { AgentPetIcon } from "../features/agents/components/AgentPetSprite";
 
@@ -716,10 +717,7 @@ export function ChannelSessionView({ sessionId, onNavigateBack }) {
     return (
       <main className="channel-session-shell">
         <Breadcrumbs items={breadcrumbItems} style={{ marginBottom: "20px" }} />
-        <div className="overview-empty-state">
-          <span className="material-symbols-rounded overview-empty-icon">hourglass_empty</span>
-          <p>Loading channel session...</p>
-        </div>
+        <LoadingSkeleton label="Loading channel session…" variant="page" rows={4} />
       </main>
     );
   }

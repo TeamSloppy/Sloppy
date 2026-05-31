@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { Network, DataSet } from "vis-network/standalone";
 import { fetchAgentMemories, fetchAgentMemoryGraph, updateAgentMemory, deleteAgentMemory } from "../../../api";
 import { AgentMemoriesToolbar } from "./AgentMemoriesToolbar";
+import { LoadingSkeleton } from "../../../components/LoadingSkeleton";
 
 const PAGE_SIZE = 20;
 
@@ -1104,9 +1105,7 @@ export function AgentMemoriesTab({ agentId }: { agentId: string }) {
           {view === "list" ? (
             <div className="agent-memory-list-shell">
               {isLoadingList ? (
-                <div className="agent-memories-empty">
-                  <p className="placeholder-text">Loading memory records...</p>
-                </div>
+                <LoadingSkeleton label="Loading memory records…" variant="list" rows={5} />
               ) : listResponse.items.length === 0 ? (
                 <div className="agent-memories-empty">
                   <p className="placeholder-text">{listStatusText}</p>
@@ -1172,9 +1171,7 @@ export function AgentMemoriesTab({ agentId }: { agentId: string }) {
                 />
               )}
               {isLoadingGraph ? (
-                <div className="agent-memories-empty">
-                  <p className="placeholder-text">Loading memory graph...</p>
-                </div>
+                <LoadingSkeleton label="Loading memory graph…" variant="graph" />
               ) : graphResponse.nodes.length === 0 ? (
                 <div className="agent-memories-empty">
                   <p className="placeholder-text">{graphStatusText}</p>

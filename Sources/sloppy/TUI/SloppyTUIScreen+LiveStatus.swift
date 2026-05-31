@@ -124,6 +124,21 @@ extension SloppyTUIScreen {
         }
     }
 
+    func startAutoModeAnimationIfNeeded() {
+        guard chatMode == .auto, autoModeAnimationTask == nil else { return }
+        autoModeAnimationTask = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 220_000_000)
+                guard !Task.isCancelled else { break }
+                await MainActor.run {
+                    guard let self, self.chatMode == .auto else { return }
+                    self.thinkingFrame += 1
+                    self.refreshStaticChrome()
+                }
+            }
+        }
+    }
+
     func updateSendProgress(_ progress: SloppyTUISendProgress) {
         liveRunStage = nil
         liveRunStatusLine = progress.statusLine

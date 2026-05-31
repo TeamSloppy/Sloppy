@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import { fetchWorkers } from "../../../api";
+import { LoadingSkeleton } from "../../../components/LoadingSkeleton";
 
 const POLL_INTERVAL_MS = 5000;
 

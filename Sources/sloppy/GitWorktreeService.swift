@@ -58,7 +58,7 @@ struct GitWorktreeService: Sendable {
 
         let shortId = String(taskId.prefix(8)).lowercased()
             .replacingOccurrences(of: "[^a-z0-9]", with: "-", options: .regularExpression)
-        let branchName = "sloppy/task-\(shortId)"
+        let branchBaseName = "sloppy/task-\(shortId)"
         let worktreesDir = worktreeRootURL(repoPath: repoPath, worktreeRootPath: worktreeRootPath)
         guard repoURL.standardizedFileURL.path != worktreesDir.standardizedFileURL.path else {
             throw GitWorktreeError.invalidPath
@@ -71,15 +71,24 @@ struct GitWorktreeService: Sendable {
 
         try fileManager.createDirectory(at: worktreesDir, withIntermediateDirectories: true)
 
-        let (exitCode, output) = try await runGit(
-            args: ["worktree", "add", "-b", branchName, worktreePath, baseBranch],
-            cwd: repoPath
-        )
-        guard exitCode == 0 else {
-            throw GitWorktreeError.worktreeCreationFailed(output)
+        for attempt in 1...100 {
+            let branchName = attempt == 1 ? branchBaseName : "\(branchBaseName)-\(attempt)"
+            if try await branchExists(repoPath: repoPath, branchName: branchName) {
+                continue
+            }
+
+            let (exitCode, output) = try await runGit(
+                args: ["worktree", "add", "-b", branchName, worktreePath, baseBranch],
+                cwd: repoPath
+            )
+            guard exitCode == 0 else {
+                throw GitWorktreeError.worktreeCreationFailed(output)
+            }
+
+            return GitWorktreeResult(worktreePath: worktreePath, branchName: branchName)
         }
 
-        return GitWorktreeResult(worktreePath: worktreePath, branchName: branchName)
+        throw GitWorktreeError.worktreeCreationFailed("Could not find an available branch name for \(branchBaseName)")
     }
 
     /// Removes a git worktree and its directory.
@@ -450,6 +459,14 @@ struct GitWorktreeService: Sendable {
             return true
         }
         return false
+    }
+
+    private func branchExists(repoPath: String, branchName: String) async throws -> Bool {
+        let (exitCode, _) = try await runGit(
+            args: ["show-ref", "--verify", "--quiet", "refs/heads/\(branchName)"],
+            cwd: repoPath
+        )
+        return exitCode == 0
     }
 
     @discardableResult

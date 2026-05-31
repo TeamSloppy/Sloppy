@@ -1,34 +1,56 @@
 import React from "react";
+import { AggregatedModelPicker } from "./AggregatedModelPicker";
+import type { AggregatedModelOption } from "../../agents/utils/aggregateProviderModels";
 
-const EMBEDDING_PRESETS = [
-  { id: "text-embedding-3-small", label: "text-embedding-3-small (OpenAI)", model: "text-embedding-3-small", dimensions: 1536, endpoint: "", apiKeyEnv: "OPENAI_API_KEY" },
-  { id: "text-embedding-3-large", label: "text-embedding-3-large (OpenAI)", model: "text-embedding-3-large", dimensions: 3072, endpoint: "", apiKeyEnv: "OPENAI_API_KEY" },
-  { id: "nomic-embed-text", label: "nomic-embed-text (Ollama)", model: "nomic-embed-text", dimensions: 768, endpoint: "http://127.0.0.1:11434/v1/embeddings", apiKeyEnv: "" },
-  { id: "mxbai-embed-large", label: "mxbai-embed-large (Ollama)", model: "mxbai-embed-large", dimensions: 1024, endpoint: "http://127.0.0.1:11434/v1/embeddings", apiKeyEnv: "" },
-  { id: "snowflake-arctic-embed", label: "snowflake-arctic-embed (Ollama)", model: "snowflake-arctic-embed", dimensions: 1024, endpoint: "http://127.0.0.1:11434/v1/embeddings", apiKeyEnv: "" },
-  { id: "custom", label: "Custom", model: "", dimensions: 1536, endpoint: "", apiKeyEnv: "" },
-];
-
-function detectPreset(model, endpoint) {
-  const m = String(model || "").trim();
-  const e = String(endpoint || "").trim();
-  const match = EMBEDDING_PRESETS.find((p) => p.id !== "custom" && p.model === m && p.endpoint === e);
-  return match ? match.id : "custom";
-}
-
-function buildModelOptions(models) {
-  const options = [{ value: "", label: "Default system model" }];
-  for (const entry of Array.isArray(models) ? models : []) {
-    const title = String(entry?.title || "").trim();
-    const model = String(entry?.model || "").trim();
-    if (!model) continue;
-    const label = title ? `${title} — ${model}` : model;
-    options.push({ value: model, label });
+function embeddingRuntimeModelId(modelId: string) {
+  const trimmed = String(modelId || "").trim();
+  if (!trimmed) {
+    return "";
   }
-  return options;
+
+  const knownPrefixes = ["openai-api:", "openai-oauth:", "openrouter:", "ollama:", "gemini:", "anthropic:"];
+  const prefix = knownPrefixes.find((candidate) => trimmed.startsWith(candidate));
+  return prefix ? trimmed.slice(prefix.length) : trimmed;
 }
 
-export function VisorEditor({ draftConfig, mutateDraft, parseLines }) {
+function isEmbeddingModel(model: AggregatedModelOption) {
+  const id = embeddingRuntimeModelId(model.id).toLowerCase();
+  const title = String(model.title || "").toLowerCase();
+  return id.includes("embed") || title.includes("embed");
+}
+
+function inferEmbeddingDimensions(modelId: string, fallback: number) {
+  const id = embeddingRuntimeModelId(modelId).toLowerCase();
+  if (id.includes("text-embedding-3-large")) {
+    return 3072;
+  }
+  if (id.includes("text-embedding-3-small")) {
+    return 1536;
+  }
+  if (id.includes("nomic-embed-text")) {
+    return 768;
+  }
+  if (id.includes("mxbai-embed-large") || id.includes("snowflake-arctic-embed")) {
+    return 1024;
+  }
+  return fallback;
+}
+
+type VisorEditorProps = {
+  draftConfig: Record<string, any>;
+  mutateDraft: (mutator: (draft: Record<string, any>) => void) => void;
+  parseLines: (value: string) => string[];
+  modelRoutingCatalog?: AggregatedModelOption[];
+  modelRoutingCatalogStatus?: string;
+};
+
+export function VisorEditor({
+  draftConfig,
+  mutateDraft,
+  parseLines,
+  modelRoutingCatalog = [],
+  modelRoutingCatalogStatus = ""
+}: VisorEditorProps) {
   const visor = draftConfig.visor || {};
   const scheduler = visor.scheduler || {};
   const schedulerEnabled = Boolean(scheduler.enabled !== false);
@@ -58,7 +80,8 @@ export function VisorEditor({ draftConfig, mutateDraft, parseLines }) {
   const embeddingDimensions = embedding.dimensions ?? 1536;
   const embeddingEndpoint = String(embedding.endpoint || "");
   const embeddingApiKeyEnv = String(embedding.apiKeyEnv || "");
-  const selectedPreset = detectPreset(embeddingModel, embeddingEndpoint);
+  const embeddingModelCatalog = modelRoutingCatalog.filter(isEmbeddingModel);
+  const embeddingModelValue = embeddingModelCatalog.find((entry) => embeddingRuntimeModelId(entry.id) === embeddingModel)?.id ?? embeddingModel;
 
   function setVisor(field, value) {
     mutateDraft((draft) => {
@@ -80,17 +103,6 @@ export function VisorEditor({ draftConfig, mutateDraft, parseLines }) {
       if (!draft.memory) draft.memory = {};
       if (!draft.memory.embedding) draft.memory.embedding = {};
       Object.assign(draft.memory.embedding, patch);
-    });
-  }
-
-  function applyEmbeddingPreset(presetId) {
-    const preset = EMBEDDING_PRESETS.find((p) => p.id === presetId);
-    if (!preset || preset.id === "custom") return;
-    setEmbedding({
-      model: preset.model,
-      dimensions: preset.dimensions,
-      endpoint: preset.endpoint,
-      apiKeyEnv: preset.apiKeyEnv,
     });
   }
 
@@ -169,18 +181,17 @@ export function VisorEditor({ draftConfig, mutateDraft, parseLines }) {
       <section className="entry-editor-card">
         <h3>Bulletin Content</h3>
         <div className="entry-form-grid">
-          <label style={{ gridColumn: "1 / -1" }}>
-            Model
-            <select
-              value={model}
-              onChange={(event) => setVisor("model", event.target.value || null)}
-            >
-              {buildModelOptions(draftConfig.models).map((option) => (
-                <option key={option.value} value={option.value}>{option.label}</option>
-              ))}
-            </select>
-            <span className="entry-form-hint">Model used to synthesize bulletin text. When set to default, the first configured system model is used.</span>
-          </label>
+          <AggregatedModelPicker
+            label="Model"
+            value={model}
+            onChange={(id) => setVisor("model", id || null)}
+            aggregatedModels={modelRoutingCatalog}
+            hint={
+              modelRoutingCatalogStatus || "Model used to synthesize bulletin text. When set to default, the first configured system model is used."
+            }
+            emptyOptionTitle="Default system model"
+            emptyOptionSubtitle="Use the first configured system model"
+          />
 
           <label>
             Max Words
@@ -400,22 +411,30 @@ export function VisorEditor({ draftConfig, mutateDraft, parseLines }) {
             <span className="entry-form-hint">When enabled, memory entries are vectorized using the configured embedding model for semantic recall. Requires a compatible endpoint.</span>
           </label>
 
-          <label style={{ gridColumn: "1 / -1" }}>
-            Preset
-            <select
-              disabled={!embeddingEnabled}
-              value={selectedPreset}
-              onChange={(event) => applyEmbeddingPreset(event.target.value)}
-            >
-              {EMBEDDING_PRESETS.map((preset) => (
-                <option key={preset.id} value={preset.id}>{preset.label}</option>
-              ))}
-            </select>
-            <span className="entry-form-hint">Selecting a preset auto-fills the model name, dimensions, endpoint, and API key settings below.</span>
-          </label>
+          <AggregatedModelPicker
+            label="Model"
+            value={embeddingModelValue}
+            onChange={(id) => {
+              const nextModel = embeddingRuntimeModelId(id);
+              if (!nextModel) {
+                return;
+              }
+              setEmbedding({
+                model: nextModel,
+                dimensions: inferEmbeddingDimensions(nextModel, embeddingDimensions)
+              });
+            }}
+            aggregatedModels={embeddingModelCatalog}
+            disabled={!embeddingEnabled}
+            hint={
+              modelRoutingCatalogStatus || "Search embedding-capable models returned by configured providers. Endpoint, dimensions, and auth can still be adjusted below."
+            }
+            emptyOptionTitle="Keep current model"
+            emptyOptionSubtitle={embeddingModel}
+          />
 
           <label>
-            Model Name
+            Model ID
             <input
               type="text"
               disabled={!embeddingEnabled}

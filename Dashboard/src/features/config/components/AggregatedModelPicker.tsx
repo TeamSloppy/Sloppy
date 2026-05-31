@@ -11,6 +11,8 @@ type Props = {
   placeholder?: string;
   disabled?: boolean;
   hint?: React.ReactNode;
+  emptyOptionTitle?: React.ReactNode;
+  emptyOptionSubtitle?: React.ReactNode;
 };
 
 /**
@@ -23,7 +25,9 @@ export function AggregatedModelPicker({
   aggregatedModels,
   placeholder = "Select model id...",
   disabled = false,
-  hint = null
+  hint = null,
+  emptyOptionTitle = "None",
+  emptyOptionSubtitle = "Clear alias"
 }: Props) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [menuRect, setMenuRect] = useState<{
@@ -156,9 +160,9 @@ export function AggregatedModelPicker({
                   }}
                 >
                   <div className="provider-model-option-main">
-                    <strong>None</strong>
+                    <strong>{emptyOptionTitle}</strong>
                   </div>
-                  <span className="placeholder-text">Clear alias</span>
+                  {emptyOptionSubtitle ? <span className="placeholder-text">{emptyOptionSubtitle}</span> : null}
                 </button>
                 {filteredModels.length === 0 ? (
                   <div className="placeholder-text" style={{ padding: "10px 12px" }}>

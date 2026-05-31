@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { fetchAgents, fetchActorsBoard } from "../../api";
 import { ProjectIcon } from "../../components/ProjectIcon";
+import { LoadingSkeleton } from "../../components/LoadingSkeleton";
 import { AgentPetIcon } from "../../features/agents/components/AgentPetSprite";
 import { workersForProject, activeWorkersForProject, buildTaskCounts, formatRelativeTime } from "./utils";
 
@@ -112,9 +113,7 @@ export function ProjectList({
   if (isLoadingProjects) {
     return (
       <section className="project-grid-list">
-        <article className="project-grid-card">
-          <p className="app-status-text">Loading projects from Sloppy...</p>
-        </article>
+        <LoadingSkeleton label="Loading projects from Sloppy…" variant="cards" cards={6} />
       </section>
     );
   }

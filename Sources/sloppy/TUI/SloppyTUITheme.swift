@@ -253,10 +253,16 @@ enum SloppyTUITheme {
     private static func muted(_ text: String) -> String { activeTheme.muted.foregroundStyle(text) }
     private static func foreground(_ text: String) -> String { activeTheme.foreground.foregroundStyle(text) }
     private static func rainbow(_ text: String) -> String {
+        rainbow(text, frame: 0)
+    }
+
+    private static func rainbow(_ text: String, frame: Int) -> String {
         let colors: [(String) -> String] = [red, orange, yellow, green, blue, accentBright]
+        guard !colors.isEmpty else { return text }
+        let offset = ((frame % colors.count) + colors.count) % colors.count
         return text.enumerated()
             .map { index, character in
-                colors[index % colors.count](String(character))
+                colors[(index + offset) % colors.count](String(character))
             }
             .joined()
     }
@@ -525,14 +531,15 @@ enum SloppyTUITheme {
         provider: String,
         tokenUsage: SloppyTUITokenUsageSummary? = nil,
         runElapsed: TimeInterval? = nil,
-        stageElapsed: TimeInterval? = nil
+        stageElapsed: TimeInterval? = nil,
+        animationFrame: Int = 0
     ) -> String {
         let modelText = truncateEnd(compactModel(model), maxWidth: max(4, width / 3))
         let agentText = truncateEnd(agent, maxWidth: max(4, width / 5))
         let providerText = truncateEnd(provider, maxWidth: max(4, width / 5))
         let text: String
         if let tokenUsage {
-            text = "  " + modeTitle(mode) + muted(" │ ")
+            text = "  " + modeTitle(mode, frame: animationFrame) + muted(" │ ")
                 + contextIndicator(
                     model: modelText,
                     summary: tokenUsage,
@@ -540,7 +547,7 @@ enum SloppyTUITheme {
                     stageElapsed: stageElapsed
                 )
         } else {
-            text = "  " + modeTitle(mode) + muted(" · ") + foreground(modelText) + muted("  ") + muted(agentText) + muted("  ") + muted(providerText)
+            text = "  " + modeTitle(mode, frame: animationFrame) + muted(" · ") + foreground(modelText) + muted("  ") + muted(agentText) + muted("  ") + muted(providerText)
         }
         return applyPanelBackground(padded(fittedLine(text, width: width), width: width), width: width)
     }
@@ -820,7 +827,7 @@ enum SloppyTUITheme {
         }
     }
 
-    private static func modeTitle(_ mode: AgentChatMode) -> String {
+    private static func modeTitle(_ mode: AgentChatMode, frame: Int = 0) -> String {
         switch mode {
         case .ask:
             return green(mode.title)
@@ -831,7 +838,7 @@ enum SloppyTUITheme {
         case .debug:
             return yellow(mode.title)
         case .auto:
-            return rainbow(mode.title)
+            return rainbow(mode.title, frame: frame)
         }
     }
 

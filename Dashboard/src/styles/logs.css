@@ -1,6 +1,12 @@
 .logs-panel {
   display: grid;
   gap: 10px;
+  padding: 20px;
+  position: relative;
+}
+
+.logs-panel:hover {
+  border-color: var(--line);
 }
 
 .logs-header {
@@ -28,7 +34,8 @@
 }
 
 .logs-actions button:hover:not(:disabled) {
-  border-color: var(--line-strong);
+  border-color: var(--line);
+  box-shadow: none !important;
 }
 
 .logs-toolbar {
@@ -57,10 +64,11 @@
   gap: 8px;
   color: var(--muted);
   font-size: 0.88rem;
+  user-select: none;
 }
 
-.logs-autofollow input {
-  width: auto;
+.logs-switch {
+  flex: 0 0 auto;
 }
 
 .logs-levels {
@@ -73,6 +81,7 @@
   border: 1px solid var(--line);
   border-radius: 0;
   padding: 4px 10px;
+  position: relative;
   display: inline-flex;
   align-items: center;
   gap: 8px;
@@ -80,10 +89,47 @@
   font-size: 0.88rem;
   text-transform: lowercase;
   background: rgba(255, 255, 255, 0.01);
+  user-select: none;
+  cursor: pointer;
 }
 
 .logs-level-pill input {
-  width: auto;
+  position: absolute;
+  inset: 0;
+  margin: 0;
+  width: 100%;
+  height: 100%;
+  border: 0;
+  padding: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.logs-level-check {
+  width: 16px;
+  height: 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid currentColor;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.logs-level-check::after {
+  content: "";
+  width: 8px;
+  height: 8px;
+  background: currentColor;
+  opacity: 0;
+}
+
+.logs-level-pill input:checked+.logs-level-check::after {
+  opacity: 1;
+}
+
+.logs-level-pill:has(input:focus-visible) {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
 }
 
 .logs-level-pill.trace {
@@ -125,6 +171,33 @@
   min-height: 240px;
   max-height: 65vh;
   overflow: auto;
+  padding: 12px;
+}
+
+.logs-scroll-bottom {
+  position: absolute;
+  right: 32px;
+  bottom: 32px;
+  width: 38px;
+  height: 38px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-color: var(--line);
+  background: var(--surface-2);
+  color: var(--text);
+  box-shadow: none;
+}
+
+.logs-scroll-bottom:hover:not(:disabled) {
+  border-color: var(--line);
+  background: var(--surface-3);
+  box-shadow: none;
+}
+
+.logs-scroll-bottom .material-symbols-rounded {
+  font-size: 20px;
 }
 
 .logs-empty {

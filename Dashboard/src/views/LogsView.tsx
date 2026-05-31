@@ -1,4 +1,5 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { LoadingSkeleton } from "../components/LoadingSkeleton";
 
 type AnyRecord = Record<string, unknown>;
 type Level = "trace" | "debug" | "info" | "warning" | "error" | "fatal";
@@ -98,6 +99,7 @@ export function LogsView({ coreApi }: LogsViewProps) {
   const [filePath, setFilePath] = useState("");
   const [searchTerm, setSearchTerm] = useState("");
   const [autoFollow, setAutoFollow] = useState(true);
+  const [isAtBottom, setIsAtBottom] = useState(true);
   const [isLoading, setIsLoading] = useState(true);
   const [statusText, setStatusText] = useState("Loading logs...");
   const [levelState, setLevelState] = useState<Record<Level, boolean>>({
@@ -109,9 +111,30 @@ export function LogsView({ coreApi }: LogsViewProps) {
     fatal: true
   });
   const feedRef = useRef<HTMLDivElement | null>(null);
+  const autoFollowRef = useRef(autoFollow);
+  const pendingScrollTopRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    autoFollowRef.current = autoFollow;
+  }, [autoFollow]);
+
+  const updateIsAtBottom = useCallback(() => {
+    const feed = feedRef.current;
+    if (!feed) {
+      setIsAtBottom(true);
+      return;
+    }
+
+    const remainingScroll = feed.scrollHeight - feed.clientHeight - feed.scrollTop;
+    setIsAtBottom(remainingScroll <= 8);
+  }, []);
 
   const loadLogs = useCallback(
     async (silent = false) => {
+      if (!autoFollowRef.current && feedRef.current) {
+        pendingScrollTopRef.current = feedRef.current.scrollTop;
+      }
+
       if (!silent) {
         setIsLoading(true);
       }
@@ -142,16 +165,13 @@ export function LogsView({ coreApi }: LogsViewProps) {
   }, [loadLogs]);
 
   useEffect(() => {
-    if (!autoFollow) {
-      return;
-    }
     const timerId = window.setInterval(() => {
       loadLogs(true).catch(() => {
         setStatusText("Failed to refresh logs.");
       });
     }, 2000);
     return () => window.clearInterval(timerId);
-  }, [autoFollow, loadLogs]);
+  }, [loadLogs]);
 
   const visibleEntries = useMemo(() => {
     const query = searchTerm.trim().toLowerCase();
@@ -166,12 +186,42 @@ export function LogsView({ coreApi }: LogsViewProps) {
     });
   }, [entries, levelState, searchTerm]);
 
-  useEffect(() => {
-    if (!autoFollow || !feedRef.current) {
+  useLayoutEffect(() => {
+    const feed = feedRef.current;
+    if (!feed) {
       return;
     }
-    feedRef.current.scrollTop = feedRef.current.scrollHeight;
-  }, [autoFollow, visibleEntries]);
+
+    if (autoFollow) {
+      feed.scrollTop = feed.scrollHeight;
+    } else if (pendingScrollTopRef.current !== null) {
+      feed.scrollTop = pendingScrollTopRef.current;
+      pendingScrollTopRef.current = null;
+    }
+
+    updateIsAtBottom();
+  }, [autoFollow, updateIsAtBottom, visibleEntries]);
+
+  useEffect(() => {
+    const feed = feedRef.current;
+    if (!feed) {
+      return;
+    }
+
+    updateIsAtBottom();
+    feed.addEventListener("scroll", updateIsAtBottom, { passive: true });
+    return () => feed.removeEventListener("scroll", updateIsAtBottom);
+  }, [updateIsAtBottom]);
+
+  function scrollToBottom() {
+    const feed = feedRef.current;
+    if (!feed) {
+      return;
+    }
+
+    feed.scrollTo({ top: feed.scrollHeight, behavior: "smooth" });
+    setIsAtBottom(true);
+  }
 
   function toggleLevel(level: Level) {
     setLevelState((previous) => ({
@@ -236,7 +286,10 @@ export function LogsView({ coreApi }: LogsViewProps) {
           </label>
           <label className="logs-autofollow">
             <span>Auto-follow</span>
-            <input type="checkbox" checked={autoFollow} onChange={(event) => setAutoFollow(event.target.checked)} />
+            <span className="agent-tools-switch logs-switch">
+              <input type="checkbox" checked={autoFollow} onChange={(event) => setAutoFollow(event.target.checked)} />
+              <span className="agent-tools-switch-track" />
+            </span>
           </label>
         </div>
 
@@ -244,6 +297,7 @@ export function LogsView({ coreApi }: LogsViewProps) {
           {LOG_LEVELS.map((level) => (
             <label key={level} className={`logs-level-pill ${level}`}>
               <input type="checkbox" checked={levelState[level]} onChange={() => toggleLevel(level)} />
+              <span className="logs-level-check" aria-hidden="true" />
               <span>{LEVEL_LABELS[level]}</span>
             </label>
           ))}
@@ -254,9 +308,11 @@ export function LogsView({ coreApi }: LogsViewProps) {
 
         <div className="logs-feed" ref={feedRef}>
           {visibleEntries.length === 0 ? (
-            <div className="logs-empty placeholder-text">
-              {isLoading ? "Loading..." : "No log entries match current filters."}
-            </div>
+            isLoading ? (
+              <LoadingSkeleton label="Loading logs…" variant="list" rows={6} />
+            ) : (
+              <div className="logs-empty placeholder-text">No log entries match current filters.</div>
+            )
           ) : (
             visibleEntries.map((entry, index) => (
               <article key={`${entry.timestamp}-${index}`} className="logs-row">
@@ -271,6 +327,11 @@ export function LogsView({ coreApi }: LogsViewProps) {
             ))
           )}
         </div>
+        {!autoFollow && !isAtBottom ? (
+          <button type="button" className="logs-scroll-bottom" onClick={scrollToBottom} aria-label="Scroll logs to bottom" title="Scroll to bottom">
+            <span className="material-symbols-rounded" aria-hidden="true">arrow_downward</span>
+          </button>
+        ) : null}
       </section>
     </main>
   );
