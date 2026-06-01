@@ -330,7 +330,9 @@ extension CoreService {
                         channelID: nil,
                         topicID: nil,
                         request: effectiveRequest,
-                        requireApproval: !missingAccessApprovalGranted && (requireApproval || effectivePolicy.approval.enabled)
+                        requireApproval: !missingAccessApprovalGranted &&
+                            !sessionToolApprovalBypass.contains(normalizedSessionID) &&
+                            (requireApproval || effectivePolicy.approval.enabled)
                     ), let deniedResult = toolApprovalDeniedResult(tool: effectiveRequest.tool, approval: approval) {
                         result = deniedResult
                         break

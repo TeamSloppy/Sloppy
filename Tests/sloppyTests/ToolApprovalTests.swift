@@ -64,6 +64,33 @@ func toolsPolicyCanEnableToolApproval() async throws {
 }
 
 @Test
+func autonomousSessionBypassesRiskyToolApprovalPrompt() async throws {
+    let service = CoreService(config: .test, persistenceBuilder: InMemoryCorePersistenceBuilder())
+    let session = try await makeApprovalSession(service: service, agentID: "approval-autonomous-session")
+    _ = try await service.updateAgentToolsPolicy(
+        agentID: "approval-autonomous-session",
+        request: AgentToolsUpdateRequest(approval: AgentToolApprovalSettings(enabled: true))
+    )
+    await service.setSessionToolApprovalBypass(sessionID: session.id, enabled: true)
+
+    let result = await service.invokeToolFromRuntime(
+        agentID: "approval-autonomous-session",
+        sessionID: session.id,
+        request: ToolInvocationRequest(
+            tool: "runtime.exec",
+            arguments: [
+                "command": .string("/bin/echo"),
+                "arguments": .array([.string("autonomous")])
+            ]
+        ),
+        recordSessionEvents: false
+    )
+
+    #expect(result.ok == true)
+    #expect(await service.listPendingToolApprovals().isEmpty)
+}
+
+@Test
 func sessionScopedToolApprovalSkipsNextSameToolApproval() async throws {
     let service = CoreService(config: .test, persistenceBuilder: InMemoryCorePersistenceBuilder())
     let session = try await makeApprovalSession(service: service, agentID: "approval-session-allow")

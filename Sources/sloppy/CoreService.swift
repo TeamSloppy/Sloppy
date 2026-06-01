@@ -252,6 +252,8 @@ public actor CoreService {
     var sessionSubagentToolAllowList: [String: Set<String>] = [:]
     /// Sessions temporarily exempted from interactive TUI tool usage ceilings.
     var sessionToolUsageLimitBypass: Set<String> = []
+    /// Autonomous worker sessions allowed to use already-scoped project permissions without interactive tool approval.
+    var sessionToolApprovalBypass: Set<String> = []
     /// Tool approvals granted for the lifetime of an agent session/channel, keyed by agent and session scope.
     var toolApprovalSessionAllowances: [String: Set<ToolApprovalGrant>] = [:]
     /// Prevents overlapping memory checkpoints per agent/session pair.

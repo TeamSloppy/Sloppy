@@ -1012,13 +1012,15 @@ extension CoreService {
         workingDirectory: String?,
         selectedModel: String? = nil
     ) async -> String? {
-        await runSubagentTask(
+        let autopilotContext = await autopilotWorkerContext(taskID: taskID)
+        return await runSubagentTask(
             agentID: agentID,
             taskID: taskID,
             objective: objective,
             workingDirectory: workingDirectory,
-            toolsetNames: nil,
-            selectedModel: selectedModel
+            toolsetNames: autopilotContext?.toolsets,
+            selectedModel: selectedModel,
+            bypassToolApproval: autopilotContext?.bypassToolApproval == true
         )
     }
 
@@ -1030,7 +1032,8 @@ extension CoreService {
         workingDirectory: String?,
         toolsetNames: [String]?,
         selectedModel: String? = nil,
-        parentSessionID: String? = nil
+        parentSessionID: String? = nil,
+        bypassToolApproval: Bool = false
     ) async -> String? {
         let knownIDs = await ToolCatalog.knownToolIDs(mcpRegistry: mcpRegistry)
         guard let policy = try? await toolsAuthorization.policy(agentID: agentID) else {
@@ -1122,6 +1125,9 @@ extension CoreService {
 
         let channelId = sessionChannelID(agentID: agentID, sessionID: session.id)
         sessionSubagentToolAllowList[session.id] = effectiveTools
+        if bypassToolApproval {
+            sessionToolApprovalBypass.insert(session.id)
+        }
         await sessionOrchestrator.markDelegatedSubagentSession(sessionID: session.id)
         await runtime.setChannelToolAllowList(channelId: channelId, toolIDs: effectiveTools)
 
@@ -1149,6 +1155,7 @@ extension CoreService {
                 metadata: ["agent_id": .string(agentID), "task_id": .string(taskID), "error": .string(error.localizedDescription)]
             )
             sessionSubagentToolAllowList.removeValue(forKey: session.id)
+            sessionToolApprovalBypass.remove(session.id)
             await sessionOrchestrator.unmarkDelegatedSubagentSession(sessionID: session.id)
             await runtime.clearChannelToolAllowList(channelId: channelId)
             await runtime.invalidateChannelSession(channelId: channelId)
@@ -1172,10 +1179,68 @@ extension CoreService {
         }
         let text = delegatedTaskResultText(from: resultEvents)
         sessionSubagentToolAllowList.removeValue(forKey: session.id)
+        sessionToolApprovalBypass.remove(session.id)
         await sessionOrchestrator.unmarkDelegatedSubagentSession(sessionID: session.id)
         await runtime.clearChannelToolAllowList(channelId: channelId)
         await runtime.invalidateChannelSession(channelId: channelId)
         return text
+    }
+
+    private struct AutopilotWorkerContext {
+        var toolsets: [String]
+        var bypassToolApproval: Bool
+    }
+
+    private func autopilotWorkerContext(taskID: String) async -> AutopilotWorkerContext? {
+        let projects = await store.listProjects()
+        for project in projects {
+            guard let task = project.tasks.first(where: { $0.id == taskID }),
+                  project.autopilotSettings.enabled,
+                  isAutopilotManagedTask(project: project, task: task)
+            else {
+                continue
+            }
+            return AutopilotWorkerContext(
+                toolsets: subagentToolsets(forWorkerTools: workerToolsForTask(task: task, project: project)),
+                bypassToolApproval: true
+            )
+        }
+        return nil
+    }
+
+    private func subagentToolsets(forWorkerTools workerTools: [String]) -> [String] {
+        var result: [String] = []
+        var seen = Set<String>()
+        for rawTool in workerTools {
+            let tool = rawTool.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            let mapped: String?
+            switch tool {
+            case "shell", "exec", "terminal":
+                mapped = "terminal"
+            case "file", "files.list", "files.read", "files.write", "files.edit":
+                mapped = "file"
+            case "web", "web.search", "web.fetch":
+                mapped = "web"
+            case "browser",
+                 "browser.open",
+                 "browser.navigate",
+                 "browser.click",
+                 "browser.type",
+                 "browser.screenshot",
+                 "browser.status",
+                 "browser.close":
+                mapped = "browser"
+            case "project":
+                mapped = "project"
+            default:
+                mapped = nil
+            }
+            guard let mapped, seen.insert(mapped).inserted else {
+                continue
+            }
+            result.append(mapped)
+        }
+        return result
     }
 
     func appendSubagentSessionTaskCommentIfNeeded(

@@ -56,45 +56,289 @@ private struct ChatScreenContent: View {
     let rootSafeAreaInsets: EdgeInsets
     let onOpenSidebar: (@MainActor () -> Void)?
 
-    @Environment(ChatScreenViewModel.self) private var viewModel
-    @Environment(ConnectionMonitor.self) private var connectionMonitor
-    @Environment(\.safeAreaInsets) private var safeAreaInsets
     @Environment(\.userInterfaceIdiom) private var idiom
     @Environment(\.theme) private var theme
     @State private var keyboardOccludedHeight: Float = 0
 
     var body: some View {
         NavigationStack {
-            chatChrome
+            ChatChrome(
+                rootSafeAreaInsets: rootSafeAreaInsets,
+                keyboardOccludedHeight: keyboardOccludedHeight
+            )
                 .background(idiom == .phone ? theme.colors.background.ignoresSafeArea() : Color.clear.ignoresSafeArea())
                 .navigationBarLeadingItems {
-                    leadingNavigationItems
+                    ChatNavigationLeadingItems(onOpenSidebar: onOpenSidebar)
                 }
                 .navigationBarTrailingItems {
-                    navigationActions
+                    ChatNavigationActions()
                 }
-                .onAppear { viewModel.loadInitialData() }
+                .overlay {
+                    ChatInitialLoadTrigger()
+                }
+        }
+    }
+}
+
+@MainActor
+private struct ChatChrome: View {
+    let rootSafeAreaInsets: EdgeInsets
+    let keyboardOccludedHeight: Float
+
+    @Environment(\.safeAreaInsets) private var safeAreaInsets
+    @Environment(\.userInterfaceIdiom) private var idiom
+    @Environment(\.theme) private var theme
+
+    var body: some View {
+        ZStack(anchor: .topLeading) {
+            ZStack(anchor: .bottom) {
+                ChatTranscriptRegion(
+                    contentWidth: contentWidth,
+                    heroWidth: heroWidth,
+                    messagesTopInset: messagesTopInset,
+                    composerScrollInset: composerScrollInset
+                )
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+                ChatComposerOverlay(
+                    contentWidth: contentWidth,
+                    composerBottomInset: composerBottomInset
+                )
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+            ChatConnectionBar()
+
+            ChatOverlayLayer(
+                pickerWidth: pickerWidth,
+                overlayTopInset: overlayTopInset
+            )
         }
     }
 
-    private var chatChrome: some View {
-        ZStack(anchor: .topLeading) {
-            ZStack(anchor: .bottom) {
-                contentArea
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                
-                composerOverlay
+    private var contentWidth: Float {
+        if idiom == .phone {
+            return max(280, screenPointWidth - theme.spacing.s * 2)
+        }
+        return chatContentWidth
+    }
+
+    private var heroWidth: Float {
+        if idiom == .phone {
+            return contentWidth
+        }
+        return chatHeroWidth
+    }
+
+    private var pickerWidth: Float {
+        if idiom == .phone {
+            return max(280, min(320, screenPointWidth - theme.spacing.m * 2))
+        }
+        return 320
+    }
+
+    private var overlayTopInset: Float {
+        idiom == .phone ? rootSafeAreaInsets.top + 52 : 0
+    }
+
+    private var composerScrollInset: Float {
+        ChatComposerView.panelHeight(for: idiom) + composerScrollGap + keyboardLift
+    }
+
+    private var composerBottomInset: Float {
+        let base = idiom == .phone ? theme.spacing.s : theme.spacing.m
+        guard keyboardLift > 0 else {
+            return base
+        }
+        return keyboardLift + theme.spacing.s
+    }
+
+    private var keyboardLift: Float {
+        max(0, keyboardOccludedHeight - safeAreaInsets.bottom)
+    }
+
+    private var messagesTopInset: Float {
+        idiom == .phone ? theme.spacing.s : theme.spacing.xl
+    }
+
+    private var composerScrollGap: Float {
+        idiom == .phone ? theme.spacing.l : theme.spacing.xxl
+    }
+
+    private var screenPointWidth: Float {
+        guard let screen = Screen.main else {
+            return 390
+        }
+        return max(320, screen.size.width)
+    }
+}
+
+@MainActor
+private struct ChatInitialLoadTrigger: View {
+    @Environment(ChatScreenViewModel.self) private var viewModel
+
+    var body: some View {
+        EmptyView()
+            .onAppear {
+                viewModel.loadInitialData()
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            
-            connectionBar
-            
-            overlayContent
+    }
+}
+
+@MainActor
+private struct ChatNavigationLeadingItems: View {
+    let onOpenSidebar: (@MainActor () -> Void)?
+
+    @Environment(ChatScreenViewModel.self) private var viewModel
+    @Environment(\.userInterfaceIdiom) private var idiom
+    @Environment(\.theme) private var theme
+
+    var body: some View {
+        let c = theme.colors
+        let sp = theme.spacing
+        let ty = theme.typography
+        let isPhone = idiom == .phone
+
+        return HStack(spacing: isPhone ? sp.xs : sp.s) {
+            if let onOpenSidebar {
+                Button(action: onOpenSidebar) {
+                    Icons.symbol(.menu, size: ty.body)
+                        .foregroundColor(c.textSecondary)
+                        .frame(width: isPhone ? 28 : 30, height: isPhone ? 28 : 30)
+                }
+            }
+
+            agentNavigationButton
         }
     }
 
     @ViewBuilder
-    private var overlayContent: some View {
+    private var agentNavigationButton: some View {
+        let c = theme.colors
+        let sp = theme.spacing
+        let ty = theme.typography
+        let isPhone = idiom == .phone
+
+        let button = Button(action: { viewModel.showAgentPicker = true }) {
+            HStack(spacing: isPhone ? sp.xs : sp.s) {
+                Text(isPhone ? shortAgentName : (viewModel.selectedAgent?.displayName ?? "Select Agent"))
+                    .font(.system(size: isPhone ? ty.caption : ty.body))
+                    .foregroundColor(c.textPrimary)
+                    .lineLimit(1)
+                Icons.symbol(.expandMore, size: isPhone ? ty.micro : ty.caption)
+                    .foregroundColor(c.textMuted)
+            }
+        }
+
+        if isPhone {
+            button.frame(width: phoneAgentPickerWidth, alignment: .leading)
+        } else {
+            button
+        }
+    }
+
+    private var phoneAgentPickerWidth: Float {
+        let reservedButtonCount: Float = 3
+        let reserved = reservedButtonCount * 36 + reservedButtonCount * theme.spacing.s + theme.spacing.s * 2
+        return min(160, max(112, contentWidth - reserved))
+    }
+
+    private var shortAgentName: String {
+        let name = viewModel.selectedAgent?.displayName ?? "Agent"
+        guard name.count > 18 else {
+            return name.uppercased()
+        }
+        return String(name.prefix(17)).uppercased() + "..."
+    }
+
+    private var contentWidth: Float {
+        if idiom == .phone {
+            return max(280, screenPointWidth - theme.spacing.s * 2)
+        }
+        return chatContentWidth
+    }
+
+    private var screenPointWidth: Float {
+        guard let screen = Screen.main else {
+            return 390
+        }
+        return max(320, screen.size.width)
+    }
+}
+
+@MainActor
+private struct ChatNavigationActions: View {
+    @Environment(ChatScreenViewModel.self) private var viewModel
+    @Environment(\.userInterfaceIdiom) private var idiom
+    @Environment(\.theme) private var theme
+
+    var body: some View {
+        let c = theme.colors
+        let sp = theme.spacing
+        let ty = theme.typography
+        let isPhone = idiom == .phone
+
+        return HStack(spacing: isPhone ? sp.xs : sp.s) {
+            Button(action: { viewModel.showSessionPicker = true }) {
+                if isPhone {
+                    Icons.symbol(.chatAddOn, size: ty.body)
+                        .foregroundColor(c.textMuted)
+                        .frame(width: 28, height: 28)
+                } else {
+                    HStack(spacing: sp.s) {
+                        Text("Sessions")
+                            .font(.system(size: ty.caption))
+                            .foregroundColor(c.textSecondary)
+                        Icons.symbol(.expandMore, size: ty.micro)
+                            .foregroundColor(c.textMuted)
+                    }
+                }
+            }
+
+            Button(action: viewModel.openSettings) {
+                if isPhone {
+                    Icons.symbol(.settings, size: ty.body)
+                        .foregroundColor(c.textSecondary)
+                        .frame(width: 28, height: 28)
+                } else {
+                    Text("Settings")
+                        .font(.system(size: ty.caption))
+                        .foregroundColor(c.textSecondary)
+                }
+            }
+        }
+    }
+}
+
+@MainActor
+private struct ChatConnectionBar: View {
+    @Environment(ConnectionMonitor.self) private var connectionMonitor
+
+    @ViewBuilder
+    var body: some View {
+        if connectionMonitor.state != .connected {
+            HStack {
+                Spacer()
+                ConnectionBanner(
+                    state: connectionMonitor.state,
+                    endpoint: connectionMonitor.checkedURL?.absoluteString,
+                    message: connectionMonitor.lastFailureMessage
+                )
+                Spacer()
+            }
+        }
+    }
+}
+
+@MainActor
+private struct ChatOverlayLayer: View {
+    let pickerWidth: Float
+    let overlayTopInset: Float
+
+    @Environment(ChatScreenViewModel.self) private var viewModel
+
+    @ViewBuilder
+    var body: some View {
         if viewModel.showAgentPicker {
             overlayDim
                 .overlay(anchor: .topLeading) {
@@ -141,110 +385,25 @@ private struct ChatScreenContent: View {
         }
     }
 
-    // MARK: - Navigation Bar
-
-    private var leadingNavigationItems: some View {
-        let c = theme.colors
-        let sp = theme.spacing
-        let ty = theme.typography
-        let isPhone = idiom == .phone
-
-        return HStack(spacing: isPhone ? sp.xs : sp.s) {
-            if let onOpenSidebar {
-                Button(action: onOpenSidebar) {
-                    Icons.symbol(.menu, size: ty.body)
-                        .foregroundColor(c.textSecondary)
-                        .frame(width: isPhone ? 28 : 30, height: isPhone ? 28 : 30)
-                }
+    private var overlayDim: some View {
+        Color.black.opacity(0.4 as Float)
+            .ignoresSafeArea()
+            .onTap {
+                viewModel.dismissOverlays()
             }
-
-            agentNavigationButton
-        }
     }
+}
 
-    @ViewBuilder
-    private var agentNavigationButton: some View {
-        let c = theme.colors
-        let sp = theme.spacing
-        let ty = theme.typography
-        let isPhone = idiom == .phone
+@MainActor
+private struct ChatTranscriptRegion: View {
+    let contentWidth: Float
+    let heroWidth: Float
+    let messagesTopInset: Float
+    let composerScrollInset: Float
 
-        let button = Button(action: { viewModel.showAgentPicker = true }) {
-            HStack(spacing: isPhone ? sp.xs : sp.s) {
-                Text(isPhone ? shortAgentName : (viewModel.selectedAgent?.displayName ?? "Select Agent"))
-                    .font(.system(size: isPhone ? ty.caption : ty.body))
-                    .foregroundColor(c.textPrimary)
-                    .lineLimit(1)
-                Icons.symbol(.expandMore, size: isPhone ? ty.micro : ty.caption)
-                    .foregroundColor(c.textMuted)
-            }
-        }
+    @Environment(ChatScreenViewModel.self) private var viewModel
 
-        if isPhone {
-            button.frame(width: phoneAgentPickerWidth, alignment: .leading)
-        } else {
-            button
-        }
-    }
-
-    private var navigationActions: some View {
-        let c = theme.colors
-        let sp = theme.spacing
-        let ty = theme.typography
-        let isPhone = idiom == .phone
-
-        return HStack(spacing: isPhone ? sp.xs : sp.s) {
-            Button(action: { viewModel.showSessionPicker = true }) {
-                if isPhone {
-                    Icons.symbol(.chatAddOn, size: ty.body)
-                        .foregroundColor(c.textMuted)
-                        .frame(width: 28, height: 28)
-                } else {
-                    HStack(spacing: sp.s) {
-                        Text("Sessions")
-                            .font(.system(size: ty.caption))
-                            .foregroundColor(c.textSecondary)
-                        Icons.symbol(.expandMore, size: ty.micro)
-                            .foregroundColor(c.textMuted)
-                    }
-                }
-            }
-
-            Button(action: viewModel.openSettings) {
-                if isPhone {
-                    Icons.symbol(.settings, size: ty.body)
-                        .foregroundColor(c.textSecondary)
-                        .frame(width: 28, height: 28)
-                } else {
-                    Text("Settings")
-                        .font(.system(size: ty.caption))
-                        .foregroundColor(c.textSecondary)
-                }
-            }
-        }
-    }
-
-    // MARK: - Connection Bar
-
-    @ViewBuilder
-    private var connectionBar: some View {
-        if connectionMonitor.state != .connected {
-            HStack {
-                Spacer()
-                ConnectionBanner(
-                    state: connectionMonitor.state,
-                    endpoint: connectionMonitor.checkedURL?.absoluteString,
-                    message: connectionMonitor.lastFailureMessage
-                )
-                Spacer()
-            }
-        }
-    }
-
-    // MARK: - Content Area
-
-    @ViewBuilder
-    private var contentArea: some View {
+    var body: some View {
         ChatTranscriptPane(
             transcript: viewModel.transcript,
             agentName: viewModel.selectedAgent?.displayName ?? "Agent",
@@ -254,46 +413,16 @@ private struct ChatScreenContent: View {
             composerScrollInset: composerScrollInset
         )
     }
+}
 
-    private var quickActionRow: some View {
-        let sp = theme.spacing
+@MainActor
+private struct ChatComposerOverlay: View {
+    let contentWidth: Float
+    let composerBottomInset: Float
 
-        return HStack(spacing: sp.s) {
-            quickActionButton("Explain this project to me")
-            quickActionButton("Review the active tasks in this workspace")
-            quickActionButton("Suggest a starter implementation plan")
-        }
-    }
+    @Environment(ChatScreenViewModel.self) private var viewModel
 
-    private func quickActionButton(_ title: String) -> some View {
-        let c = theme.colors
-        let sp = theme.spacing
-        let ty = theme.typography
-
-        return Button(action: {
-            viewModel.sendMessage(content: title)
-        }) {
-            HStack(spacing: sp.s) {
-                Icons.symbol(.openInNew, size: ty.caption)
-                    .foregroundColor(c.accentCyan)
-
-                Text(title)
-                    .font(.system(size: ty.body))
-                    .foregroundColor(c.textSecondary)
-
-                Spacer(minLength: 0)
-            }
-            .padding(.horizontal, sp.m)
-            .padding(.vertical, sp.m)
-            .glassEffect(.regular, in: .rect(cornerRadius: 18))
-        }
-        .frame(width: chatHeroWidth)
-    }
-
-    // MARK: - Composer
-
-    @ViewBuilder
-    private var composerOverlay: some View {
+    var body: some View {
         HStack {
             Spacer(minLength: 0)
             composerBar
@@ -301,30 +430,6 @@ private struct ChatScreenContent: View {
             Spacer(minLength: 0)
         }
         .padding(.bottom, composerBottomInset)
-    }
-
-    private var composerScrollInset: Float {
-        ChatComposerView.panelHeight(for: idiom) + composerScrollGap + keyboardLift
-    }
-
-    private var composerBottomInset: Float {
-        let base = idiom == .phone ? theme.spacing.s : theme.spacing.m
-        guard keyboardLift > 0 else {
-            return base
-        }
-        return keyboardLift + theme.spacing.s
-    }
-
-    private var keyboardLift: Float {
-        max(0, keyboardOccludedHeight - safeAreaInsets.bottom)
-    }
-
-    private var messagesTopInset: Float {
-        idiom == .phone ? theme.spacing.s : theme.spacing.xl
-    }
-
-    private var composerScrollGap: Float {
-        idiom == .phone ? theme.spacing.l : theme.spacing.xxl
     }
 
     @ViewBuilder
@@ -337,66 +442,6 @@ private struct ChatScreenContent: View {
             ChatComposerView(draft: viewModel.composerDraft, agentName: "Agent") { _ in }
                 .disabled(true)
         }
-    }
-
-    // MARK: - Overlay dim
-
-    private var overlayDim: some View {
-        Color.black.opacity(0.4 as Float)
-            .ignoresSafeArea()
-            .onTap {
-                viewModel.dismissOverlays()
-            }
-    }
-
-    private var contentWidth: Float {
-        if idiom == .phone {
-            return max(280, screenPointWidth - theme.spacing.s * 2)
-        }
-        return chatContentWidth
-    }
-
-    private var heroWidth: Float {
-        if idiom == .phone {
-            return contentWidth
-        }
-        return chatHeroWidth
-    }
-
-    private var pickerWidth: Float {
-        if idiom == .phone {
-            return max(280, min(320, screenPointWidth - theme.spacing.m * 2))
-        }
-        return 320
-    }
-
-    private var navigationControlsTopOffset: Float {
-        idiom == .phone ? rootSafeAreaInsets.top : 0
-    }
-
-    private var overlayTopInset: Float {
-        idiom == .phone ? rootSafeAreaInsets.top + 52 : 0
-    }
-
-    private var phoneAgentPickerWidth: Float {
-        let reservedButtonCount: Float = 3
-        let reserved = reservedButtonCount * 36 + reservedButtonCount * theme.spacing.s + theme.spacing.s * 2
-        return min(160, max(112, contentWidth - reserved))
-    }
-
-    private var shortAgentName: String {
-        let name = viewModel.selectedAgent?.displayName ?? "Agent"
-        guard name.count > 18 else {
-            return name.uppercased()
-        }
-        return String(name.prefix(17)).uppercased() + "..."
-    }
-
-    private var screenPointWidth: Float {
-        guard let screen = Screen.main else {
-            return 390
-        }
-        return max(320, screen.size.width)
     }
 }
 

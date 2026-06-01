@@ -27,6 +27,7 @@ extension CoreService {
                 sessionWorkingDirectories.removeValue(forKey: summary.id)
                 sessionSubagentToolAllowList.removeValue(forKey: summary.id)
                 sessionToolUsageLimitBypass.remove(summary.id)
+                sessionToolApprovalBypass.remove(summary.id)
                 toolApprovalSessionAllowances.removeValue(forKey: "\(summary.agentId)\nsession:\(summary.id)")
             }
             if !deleted.isEmpty {

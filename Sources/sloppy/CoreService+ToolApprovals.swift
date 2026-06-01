@@ -304,6 +304,17 @@ extension CoreService: ToolApprovalBridge {
         }
     }
 
+    func setSessionToolApprovalBypass(sessionID: String, enabled: Bool) {
+        guard let sessionID = normalizedSessionID(sessionID) else {
+            return
+        }
+        if enabled {
+            sessionToolApprovalBypass.insert(sessionID)
+        } else {
+            sessionToolApprovalBypass.remove(sessionID)
+        }
+    }
+
     func sessionApprovalGrants(
         agentID: String,
         sessionID: String?,

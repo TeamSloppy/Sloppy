@@ -396,6 +396,7 @@ extension CoreService {
             sessionExtraRoots.removeValue(forKey: normalizedSessionID)
             sessionWorkingDirectories.removeValue(forKey: normalizedSessionID)
             sessionSubagentToolAllowList.removeValue(forKey: normalizedSessionID)
+            sessionToolApprovalBypass.remove(normalizedSessionID)
         } catch {
             throw mapSessionStoreError(error)
         }
