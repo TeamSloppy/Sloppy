@@ -244,7 +244,7 @@ Typical debugging flow:
 - `Dashboard/src/views`: larger route views and project subviews.
 - `Dashboard/src/shared`: API clients and shared browser-side types/utilities.
 - `Dashboard/src/styles`: global and feature CSS.
-- `docs/`: VitePress docs site; specs live in `docs/specs`, guides in `docs/guides`, architecture notes in `docs/architecture`.
+- `docs/`: VitePress docs site; specs live in `docs/specs`, guides in `docs/guides`, architecture notes in `docs/architecture`, and internal PRDs in `docs/product`.
 - `Apps/docs/adr`: app/client-specific ADRs.
 - `Packages/SloppyComputerControl`: local computer-control package used by core and client.
 - `Packages/TauTUI`: local TUI package used by `sloppy`.

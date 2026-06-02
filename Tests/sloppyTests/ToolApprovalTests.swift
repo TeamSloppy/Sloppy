@@ -118,6 +118,53 @@ func autonomousSessionBypassesMissingDirectoryAccessApproval() async throws {
 }
 
 @Test
+func autopilotWorkerSessionBypassesMissingDirectoryAccessApproval() async throws {
+    let service = CoreService(config: .test, persistenceBuilder: InMemoryCorePersistenceBuilder())
+    let session = try await makeApprovalSession(
+        service: service,
+        agentID: "approval-autopilot-worker",
+        title: "task-task-1-attempt-1"
+    )
+    let file = try makeApprovalTempFile(contents: "autopilot")
+    let task = ProjectTask(
+        id: "task-1",
+        title: "Autopilot worker",
+        description: "",
+        priority: "medium",
+        status: ProjectTaskStatus.inProgress.rawValue,
+        createdBy: "autopilot",
+        tags: ["autopilot"]
+    )
+    await service.store.saveProject(ProjectRecord(
+        id: "approval-autopilot-project",
+        name: "Approval Autopilot Project",
+        description: "",
+        channels: [],
+        tasks: [task],
+        autopilotSettings: ProjectAutopilotSettings(enabled: true, defaultAgentId: "approval-autopilot-worker")
+    ))
+
+    let invocation = Task {
+        await service.invokeToolFromRuntime(
+            agentID: "approval-autopilot-worker",
+            sessionID: session.id,
+            request: ToolInvocationRequest(tool: "files.read", arguments: ["path": .string(file.path)]),
+            recordSessionEvents: false
+        )
+    }
+
+    let pending = await waitForPendingToolApprovalIfAny(service)
+    if let pending {
+        _ = await service.rejectToolApproval(id: pending.id, decidedBy: "test")
+    }
+
+    let result = await invocation.value
+    #expect(pending == nil)
+    #expect(result.ok == true)
+    #expect(await service.listPendingToolApprovals().isEmpty)
+}
+
+@Test
 func sessionScopedToolApprovalSkipsNextSameToolApproval() async throws {
     let service = CoreService(config: .test, persistenceBuilder: InMemoryCorePersistenceBuilder())
     let session = try await makeApprovalSession(service: service, agentID: "approval-session-allow")
@@ -712,7 +759,11 @@ func telegramToolApprovalCallbackParsing() {
 
 }
 
-private func makeApprovalSession(service: CoreService, agentID: String) async throws -> AgentSessionSummary {
+private func makeApprovalSession(
+    service: CoreService,
+    agentID: String,
+    title: String = "Approval Session"
+) async throws -> AgentSessionSummary {
     _ = try await service.createAgent(AgentCreateRequest(
         id: agentID,
         displayName: agentID,
@@ -720,7 +771,7 @@ private func makeApprovalSession(service: CoreService, agentID: String) async th
     ))
     return try await service.createAgentSession(
         agentID: agentID,
-        request: AgentSessionCreateRequest(title: "Approval Session")
+        request: AgentSessionCreateRequest(title: title)
     )
 }
 

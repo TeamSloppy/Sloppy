@@ -767,22 +767,24 @@ extension CoreService {
         guard !normalizedGrants.isEmpty else {
             return nil
         }
-        if let normalizedSessionID = sessionID.flatMap(normalizedSessionID),
-           sessionToolApprovalBypass.contains(normalizedSessionID),
-           normalizedGrants.allSatisfy({ $0.kind == .directory }) {
+        if let bypassDecisionBy = await missingAccessApprovalBypassDecisionBy(
+            agentID: agentID,
+            sessionID: sessionID,
+            grants: normalizedGrants
+        ) {
             let now = Date()
             let record = ToolApprovalRecord(
                 status: .approved,
                 approvalKind: .missingAccess,
                 agentId: agentID,
-                sessionId: normalizedSessionID,
+                sessionId: sessionID.flatMap(normalizedSessionID),
                 channelId: channelID,
                 topicId: topicID,
                 tool: request.tool,
                 arguments: request.arguments,
                 grants: normalizedGrants,
                 reason: request.reason,
-                decidedBy: "session_tool_approval_bypass",
+                decidedBy: bypassDecisionBy,
                 createdAt: now,
                 updatedAt: now,
                 expiresAt: now
@@ -798,6 +800,62 @@ extension CoreService {
             grants: normalizedGrants
         )
         return MissingAccessApprovalState(result: result, grants: normalizedGrants)
+    }
+
+    private func missingAccessApprovalBypassDecisionBy(
+        agentID: String,
+        sessionID: String?,
+        grants: [ToolApprovalGrant]
+    ) async -> String? {
+        guard !grants.isEmpty,
+              let normalizedSessionID = sessionID.flatMap(normalizedSessionID)
+        else {
+            return nil
+        }
+        if sessionToolApprovalBypass.contains(normalizedSessionID) {
+            return "session_tool_approval_bypass"
+        }
+        if await isAutopilotManagedTaskSession(agentID: agentID, sessionID: normalizedSessionID) {
+            return "autopilot_task_session"
+        }
+        return nil
+    }
+
+    private func isAutopilotManagedTaskSession(agentID: String, sessionID: String) async -> Bool {
+        guard let detail = try? getAgentSession(agentID: agentID, sessionID: sessionID),
+              let taskID = taskIDFromWorkerSessionTitle(detail.summary.title)
+        else {
+            return false
+        }
+        for project in await store.listProjects() {
+            guard let task = project.tasks.first(where: { $0.id == taskID }),
+                  project.autopilotSettings.enabled,
+                  isAutopilotManagedTask(project: project, task: task)
+            else {
+                continue
+            }
+            return true
+        }
+        return false
+    }
+
+    private func taskIDFromWorkerSessionTitle(_ title: String) -> String? {
+        let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.hasPrefix("task-") else {
+            return nil
+        }
+        let rawTaskID = String(trimmed.dropFirst("task-".count))
+        guard !rawTaskID.isEmpty else {
+            return nil
+        }
+        if let range = rawTaskID.range(of: "-attempt-", options: .backwards) {
+            let suffix = rawTaskID[range.upperBound...]
+            if !suffix.isEmpty, suffix.allSatisfy(\.isNumber) {
+                let taskID = String(rawTaskID[..<range.lowerBound])
+                return taskID.isEmpty ? nil : taskID
+            }
+        }
+        return rawTaskID
     }
 
     private func missingDirectoryApprovalGrants(
