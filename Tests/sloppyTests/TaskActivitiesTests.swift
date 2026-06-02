@@ -347,3 +347,108 @@ func startupDispatchesPersistedReadyTasks() async throws {
     let updatedTask = try #require(updated.tasks.first(where: { $0.id == task.id }))
     #expect(updatedTask.status != ProjectTaskStatus.ready.rawValue)
 }
+
+@Test
+func readyTaskWithBlockedDependencyReturnsToBacklogWithoutWorker() async throws {
+    let service = CoreService(config: CoreConfig.test, persistenceBuilder: InMemoryCorePersistenceBuilder())
+    let router = CoreRouter(service: service)
+    let projectID = "dependency-ready-\(UUID().uuidString)"
+    let createBody = try JSONEncoder().encode(
+        ProjectCreateRequest(id: projectID, name: "Dependency Ready Test", description: "Test", channels: [])
+    )
+    let createResp = await router.handle(method: "POST", path: "/v1/projects", body: createBody)
+    #expect(createResp.status == 201)
+
+    let blockedBody = try JSONEncoder().encode(
+        ProjectTaskCreateRequest(
+            title: "Blocked dependency",
+            description: "",
+            priority: "medium",
+            status: ProjectTaskStatus.blocked.rawValue
+        )
+    )
+    let blockedResp = await router.handle(method: "POST", path: "/v1/projects/\(projectID)/tasks", body: blockedBody)
+    #expect(blockedResp.status == 200)
+
+    let decoder = JSONDecoder()
+    decoder.dateDecodingStrategy = .iso8601
+    let blockedProject = try decoder.decode(ProjectRecord.self, from: blockedResp.body)
+    let blockedTask = try #require(blockedProject.tasks.first)
+    let dependentBody = try JSONEncoder().encode(
+        ProjectTaskCreateRequest(
+            title: "Dependent task",
+            description: "",
+            priority: "medium",
+            status: ProjectTaskStatus.backlog.rawValue,
+            dependsOnTaskIds: [blockedTask.id]
+        )
+    )
+    let dependentResp = await router.handle(method: "POST", path: "/v1/projects/\(projectID)/tasks", body: dependentBody)
+    #expect(dependentResp.status == 200)
+    let dependentProject = try decoder.decode(ProjectRecord.self, from: dependentResp.body)
+    let dependentTask = try #require(dependentProject.tasks.first(where: { $0.id != blockedTask.id }))
+
+    let readyBody = try JSONEncoder().encode(ProjectTaskUpdateRequest(status: ProjectTaskStatus.ready.rawValue))
+    let readyResp = await router.handle(
+        method: "PATCH",
+        path: "/v1/projects/\(projectID)/tasks/\(dependentTask.id)",
+        body: readyBody
+    )
+    #expect(readyResp.status == 200)
+
+    let updatedProject = try decoder.decode(ProjectRecord.self, from: readyResp.body)
+    let updatedTask = try #require(updatedProject.tasks.first(where: { $0.id == dependentTask.id }))
+    #expect(updatedTask.status == ProjectTaskStatus.backlog.rawValue)
+    let workers = await service.workerSnapshots()
+    #expect(workers.allSatisfy { $0.taskId != dependentTask.id })
+
+    let commentsResp = await router.handle(
+        method: "GET",
+        path: "/v1/projects/\(projectID)/tasks/\(dependentTask.id)/comments",
+        body: nil
+    )
+    #expect(commentsResp.status == 200)
+    let comments = try decoder.decode([TaskComment].self, from: commentsResp.body)
+    #expect(comments.contains {
+        $0.authorActorId == "system"
+            && $0.content.contains("Task is waiting for dependencies")
+            && $0.content.contains(blockedTask.id)
+    })
+}
+
+@Test
+func startupReadyTaskWithBlockedDependencyReturnsToBacklogWithoutWorker() async throws {
+    let service = CoreService(config: CoreConfig.test, persistenceBuilder: InMemoryCorePersistenceBuilder())
+    let dependency = ProjectTask(
+        id: "task-startup-dependency",
+        title: "Blocked dependency",
+        description: "",
+        priority: "medium",
+        status: ProjectTaskStatus.blocked.rawValue
+    )
+    let dependent = ProjectTask(
+        id: "task-startup-dependent",
+        title: "Ready dependent on boot",
+        description: "",
+        priority: "medium",
+        status: ProjectTaskStatus.ready.rawValue,
+        dependsOnTaskIds: [dependency.id]
+    )
+    let projectID = "startup-ready-dependency-\(UUID().uuidString)"
+    let project = ProjectRecord(
+        id: projectID,
+        name: "Startup Ready Dependency",
+        description: "",
+        channels: [ProjectChannel(id: "project-channel-startup", title: "Startup", channelId: "startup-channel")],
+        tasks: [dependency, dependent]
+    )
+    await service.store.saveProject(project)
+
+    await service.waitForStartup()
+
+    let updated = try await service.getProject(id: projectID)
+    let updatedTask = try #require(updated.tasks.first(where: { $0.id == dependent.id }))
+    #expect(updatedTask.status == ProjectTaskStatus.backlog.rawValue)
+    let workers = await service.workerSnapshots()
+    #expect(workers.allSatisfy { $0.taskId != dependent.id })
+}

@@ -23,6 +23,10 @@ struct ProjectTaskUpdateTool: CoreTool {
             .init(name: "loopModeOverride", description: "Override loop mode: human or agent", schema: DynamicGenerationSchema(type: String.self), isOptional: true),
             .init(name: "actorId", description: "New assigned actor ID", schema: DynamicGenerationSchema(type: String.self), isOptional: true),
             .init(name: "teamId", description: "New assigned team ID", schema: DynamicGenerationSchema(type: String.self), isOptional: true),
+            .init(name: "parentTaskId", description: "New parent task ID", schema: DynamicGenerationSchema(type: String.self), isOptional: true),
+            .init(name: "dependsOnTaskIds", description: "Replacement dependency task IDs", schema: DynamicGenerationSchema(arrayOf: DynamicGenerationSchema(type: String.self)), isOptional: true),
+            .init(name: "selectedModel", description: "Optional model override for this task", schema: DynamicGenerationSchema(type: String.self), isOptional: true),
+            .init(name: "tags", description: "Replacement task tags", schema: DynamicGenerationSchema(arrayOf: DynamicGenerationSchema(type: String.self)), isOptional: true),
             .init(name: "projectId", description: "Project ID (e.g. 'sloppy'), NOT a task ID like 'SLOPPY-4'. Use instead of channelId when known.", schema: DynamicGenerationSchema(type: String.self), isOptional: true),
             .init(name: "channelId", description: "Channel ID (defaults to current session)", schema: DynamicGenerationSchema(type: String.self), isOptional: true),
             .init(name: "topicId", description: "Optional topic scoping", schema: DynamicGenerationSchema(type: String.self), isOptional: true)
@@ -111,6 +115,10 @@ struct ProjectTaskUpdateTool: CoreTool {
                     loopModeOverride: loopMode,
                     actorId: arguments["actorId"]?.asString,
                     teamId: arguments["teamId"]?.asString,
+                    parentTaskId: arguments["parentTaskId"]?.asString,
+                    dependsOnTaskIds: arguments["dependsOnTaskIds"]?.asArray?.compactMap(\.asString),
+                    selectedModel: arguments["selectedModel"]?.asString,
+                    tags: arguments["tags"]?.asArray?.compactMap(\.asString),
                     changedBy: context.agentID.isEmpty ? "agent" : "agent:\(context.agentID)"
                 )
             )
@@ -152,7 +160,7 @@ struct ProjectTaskUpdateTool: CoreTool {
                 code: "invalid_payload",
                 message: "Task update payload is invalid.",
                 retryable: false,
-                hint: "Allowed fields include title, description, priority, status, kind, loopModeOverride, actorId, and teamId. Allowed status values are pending_approval, backlog, ready, in_progress, waiting_input, done, blocked, needs_review, and cancelled."
+                hint: "Allowed fields include title, description, priority, status, kind, loopModeOverride, actorId, teamId, parentTaskId, dependsOnTaskIds, selectedModel, and tags. Allowed status values are pending_approval, backlog, ready, in_progress, waiting_input, done, blocked, needs_review, and cancelled."
             )
         case .notFound:
             return toolFailure(tool: name, code: "task_not_found", message: "Task `\(normalizedReference)` was not found.", retryable: false)

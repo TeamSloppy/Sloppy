@@ -563,6 +563,10 @@ enum ToolCatalog {
                 "status": .object(["type": .string("string")]),
                 "kind": .object(["type": .string("string")]),
                 "parentTaskId": .object(["type": .string("string")]),
+                "dependsOnTaskIds": .object([
+                    "type": .string("array"),
+                    "items": .object(["type": .string("string")])
+                ]),
                 "loopModeOverride": .object(["type": .string("string")]),
                 "actorId": .object(["type": .string("string")]),
                 "teamId": .object(["type": .string("string")]),
@@ -601,6 +605,16 @@ enum ToolCatalog {
                 "loopModeOverride": .object(["type": .string("string")]),
                 "actorId": .object(["type": .string("string")]),
                 "teamId": .object(["type": .string("string")]),
+                "parentTaskId": .object(["type": .string("string")]),
+                "dependsOnTaskIds": .object([
+                    "type": .string("array"),
+                    "items": .object(["type": .string("string")])
+                ]),
+                "selectedModel": .object(["type": .string("string")]),
+                "tags": .object([
+                    "type": .string("array"),
+                    "items": .object(["type": .string("string")])
+                ]),
                 "projectId": .object(["type": .string("string")]),
                 "channelId": .object(["type": .string("string")]),
                 "topicId": .object(["type": .string("string")])

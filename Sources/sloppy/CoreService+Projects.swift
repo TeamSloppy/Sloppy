@@ -1124,6 +1124,12 @@ extension CoreService {
         if task.status == ProjectTaskStatus.done.rawValue,
            previousStatus != ProjectTaskStatus.done.rawValue,
            let completionNote = requestedCompletionNote {
+            await appendExecutorCompletionComment(
+                projectID: normalizedProject,
+                taskID: task.id,
+                completionNote: completionNote,
+                authorActorId: changedBy
+            )
             appendTaskLifecycleLog(
                 projectID: normalizedProject,
                 taskID: task.id,

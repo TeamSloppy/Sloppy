@@ -259,6 +259,12 @@ func approveTaskWithoutWorktreeSetsDoneStatus() async throws {
         taskStatus: "needs_review"
     )
 
+    _ = await service.addTaskComment(
+        projectID: projectID,
+        taskID: taskID,
+        request: TaskCommentCreateRequest(content: "Human review complete. Looks good.", authorActorId: "user")
+    )
+
     let approveResp = await router.handle(
         method: "POST",
         path: "/v1/projects/\(projectID)/tasks/\(taskID)/approve",
@@ -272,6 +278,180 @@ func approveTaskWithoutWorktreeSetsDoneStatus() async throws {
     let task = try #require(project.tasks.first(where: { $0.id == taskID }))
     #expect(task.status == ProjectTaskStatus.done.rawValue)
     #expect(task.worktreeBranch == nil)
+}
+
+@Test
+func approveTaskRequiresReviewerTaskComment() async throws {
+    let config = CoreConfig.test
+    let service = CoreService(config: config, persistenceBuilder: InMemoryCorePersistenceBuilder())
+    let router = CoreRouter(service: service)
+    let decoder = JSONDecoder()
+    decoder.dateDecodingStrategy = .iso8601
+
+    let (projectID, taskID) = try await makeProjectWithTask(
+        service: service,
+        router: router,
+        taskStatus: "needs_review"
+    )
+
+    let approveWithoutComment = await router.handle(
+        method: "POST",
+        path: "/v1/projects/\(projectID)/tasks/\(taskID)/approve",
+        body: nil
+    )
+    #expect(approveWithoutComment.status == 400)
+
+    let afterBlockedApprove = try await service.getProject(id: projectID)
+    let blockedTask = try #require(afterBlockedApprove.tasks.first(where: { $0.id == taskID }))
+    #expect(blockedTask.status == ProjectTaskStatus.needsReview.rawValue)
+
+    _ = await service.addTaskComment(
+        projectID: projectID,
+        taskID: taskID,
+        request: TaskCommentCreateRequest(
+            content: "Review complete: implementation is acceptable.",
+            authorActorId: "user"
+        )
+    )
+
+    let approveWithComment = await router.handle(
+        method: "POST",
+        path: "/v1/projects/\(projectID)/tasks/\(taskID)/approve",
+        body: nil
+    )
+    #expect(approveWithComment.status == 200)
+
+    let getResp = await router.handle(method: "GET", path: "/v1/projects/\(projectID)", body: nil)
+    #expect(getResp.status == 200)
+    let project = try decoder.decode(ProjectRecord.self, from: getResp.body)
+    let task = try #require(project.tasks.first(where: { $0.id == taskID }))
+    #expect(task.status == ProjectTaskStatus.done.rawValue)
+}
+
+@Test
+func approveTaskIgnoresExecutorCommentCreatedBeforeReview() async throws {
+    let config = CoreConfig.test
+    let service = CoreService(config: config, persistenceBuilder: InMemoryCorePersistenceBuilder())
+    let router = CoreRouter(service: service)
+
+    let (projectID, taskID) = try await makeProjectWithTask(
+        service: service,
+        router: router,
+        reviewSettings: ProjectReviewSettings(enabled: true, approvalMode: .human),
+        taskStatus: "in_progress"
+    )
+
+    await service.appendExecutorCompletionComment(
+        projectID: projectID,
+        taskID: taskID,
+        completionNote: "Executor says the feature is complete.",
+        authorActorId: "agent:builder"
+    )
+
+    let project = try await service.getProject(id: projectID)
+    let taskIndex = try #require(project.tasks.firstIndex(where: { $0.id == taskID }))
+    let task = project.tasks[taskIndex]
+    await service.handleReviewHandoff(
+        project: project,
+        task: task,
+        taskIndex: taskIndex,
+        handoffDelegate: CoreService.TeamRetryDelegate(actorID: "human:reviewer", agentID: nil),
+        event: EventEnvelope(
+            messageType: .workerCompleted,
+            channelId: "review-channel",
+            taskId: taskID,
+            workerId: "worker-1",
+            payload: .object([:])
+        ),
+        completionArtifactPath: nil
+    )
+
+    let approveWithExecutorCommentOnly = await router.handle(
+        method: "POST",
+        path: "/v1/projects/\(projectID)/tasks/\(taskID)/approve",
+        body: nil
+    )
+    #expect(approveWithExecutorCommentOnly.status == 400)
+
+    _ = await service.addTaskComment(
+        projectID: projectID,
+        taskID: taskID,
+        request: TaskCommentCreateRequest(
+            content: "Reviewer summary: acceptable.",
+            authorActorId: "human:reviewer"
+        )
+    )
+
+    let approveWithReviewerComment = await router.handle(
+        method: "POST",
+        path: "/v1/projects/\(projectID)/tasks/\(taskID)/approve",
+        body: nil
+    )
+    #expect(approveWithReviewerComment.status == 200)
+}
+
+@Test
+func autoReviewWritesSystemCommentBeforeApproval() async throws {
+    let config = CoreConfig.test
+    let service = CoreService(config: config, persistenceBuilder: InMemoryCorePersistenceBuilder())
+    let router = CoreRouter(service: service)
+    let decoder = JSONDecoder()
+    decoder.dateDecodingStrategy = .iso8601
+
+    let (projectID, taskID) = try await makeProjectWithTask(
+        service: service,
+        router: router,
+        reviewSettings: ProjectReviewSettings(enabled: true, approvalMode: .auto),
+        taskStatus: "in_progress"
+    )
+    let project = try await service.getProject(id: projectID)
+    let taskIndex = try #require(project.tasks.firstIndex(where: { $0.id == taskID }))
+    let task = project.tasks[taskIndex]
+
+    await service.handleReviewHandoff(
+        project: project,
+        task: task,
+        taskIndex: taskIndex,
+        handoffDelegate: CoreService.TeamRetryDelegate(actorID: "system:auto-review", agentID: nil),
+        event: EventEnvelope(
+            messageType: .workerCompleted,
+            channelId: "review-channel",
+            taskId: taskID,
+            workerId: "worker-1",
+            payload: .object([:])
+        ),
+        completionArtifactPath: nil
+    )
+
+    let saved = try await service.getProject(id: projectID)
+    let savedTask = try #require(saved.tasks.first(where: { $0.id == taskID }))
+    #expect(savedTask.status == ProjectTaskStatus.done.rawValue)
+
+    let comments = await service.listTaskComments(projectID: projectID, taskID: taskID)
+    #expect(comments.contains {
+        $0.authorActorId == "system" &&
+            $0.content.contains("Auto-review complete") &&
+            $0.content.contains(taskID)
+    })
+}
+
+@Test
+func reviewObjectiveRequiresTaskLevelReviewSummaryBeforeDecision() async throws {
+    let service = CoreService(config: CoreConfig.test, persistenceBuilder: InMemoryCorePersistenceBuilder())
+    let task = ProjectTask(
+        id: "task-review-objective",
+        title: "Review objective",
+        description: "Check the handoff prompt.",
+        priority: "medium",
+        status: ProjectTaskStatus.needsReview.rawValue
+    )
+
+    let objective = await service.buildReviewObjective(task: task, projectID: "project-review-objective", diff: "diff --git")
+
+    #expect(objective.contains("task-level review summary comment"))
+    #expect(objective.contains("project.task_update"))
+    #expect(objective.contains("completionNote"))
+    #expect(objective.contains("Before approving or rejecting"))
 }
 
 @Test

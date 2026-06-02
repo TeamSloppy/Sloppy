@@ -90,8 +90,14 @@ private func projectCurrentJSONValue(
         "taskCount": .number(Double(project.tasks.count)),
         "actors": .array(project.actors.map { .string($0) }),
         "teams": .array(project.teams.map { .string($0) }),
+        "models": .array(project.models.map { .string($0) }),
         "repoPath": project.repoPath.map { .string($0) } ?? .null,
         "taskLoopMode": .string(project.taskLoopMode.rawValue),
+        "autopilotSettings": autopilotSettingsJSONValue(project.autopilotSettings),
+        "taskSyncSettings": .object([
+            "linkedProjects": .array(project.taskSyncSettings.linkedProjects.map(taskSyncLinkedProjectJSONValue))
+        ]),
+        "taskSyncLinkedProjects": .array(project.taskSyncSettings.linkedProjects.map(taskSyncLinkedProjectJSONValue)),
         "channels": .array(project.channels.map { ch in
             .object([
                 "id": .string(ch.id),
@@ -101,5 +107,33 @@ private func projectCurrentJSONValue(
         }),
         "createdAt": .string(ISO8601DateFormatter().string(from: project.createdAt)),
         "updatedAt": .string(ISO8601DateFormatter().string(from: project.updatedAt))
+    ])
+}
+
+private func taskSyncLinkedProjectJSONValue(_ linkedProject: ProjectTaskSyncLinkedProject) -> JSONValue {
+    .object([
+        "title": .string(linkedProject.title),
+        "projectURL": .string(linkedProject.projectURL),
+        "projectNodeId": linkedProject.projectNodeId.map { .string($0) } ?? .null,
+        "tag": .string(linkedProject.tag),
+        "statusOptions": .array(linkedProject.statusOptions.map { .string($0) })
+    ])
+}
+
+private func autopilotSettingsJSONValue(_ settings: ProjectAutopilotSettings) -> JSONValue {
+    .object([
+        "enabled": .bool(settings.enabled),
+        "mode": .string(settings.mode.rawValue),
+        "defaultAgentId": settings.defaultAgentId.map { .string($0) } ?? .null,
+        "reviewerAgentId": settings.reviewerAgentId.map { .string($0) } ?? .null,
+        "includedTags": .array(settings.includedTags.map { .string($0) }),
+        "trustedAuthors": .array(settings.trustedAuthors.map { .string($0) }),
+        "maxParallelTasks": .number(Double(settings.maxParallelTasks)),
+        "canUseWeb": .bool(settings.canUseWeb),
+        "canEditFiles": .bool(settings.canEditFiles),
+        "canRunCommands": .bool(settings.canRunCommands),
+        "canStartLocalhost": .bool(settings.canStartLocalhost),
+        "canCommit": .bool(settings.canCommit),
+        "canPush": .bool(settings.canPush)
     ])
 }

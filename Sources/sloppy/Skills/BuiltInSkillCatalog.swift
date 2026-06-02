@@ -13,6 +13,7 @@ struct BuiltInSkillDefinition: Sendable {
 
 enum BuiltInSkillCatalog {
     static let taskSpecWriterID = "sloppy/task-spec-writer"
+    static let kanbanTaskManagerID = "sloppy/kanban-task-manager"
     static let modeAskID = "sloppy/mode-ask"
     static let modeBuildID = "sloppy/mode-build"
     static let modePlanID = "sloppy/mode-plan"
@@ -26,6 +27,7 @@ enum BuiltInSkillCatalog {
             modeSkill(for: .plan),
             modeSkill(for: .debug),
             modeSkill(for: .auto),
+            kanbanTaskManager(),
             taskSpecWriter()
         ]
     }
@@ -71,6 +73,27 @@ enum BuiltInSkillCatalog {
         )
     }
 
+    static func kanbanTaskManager() -> BuiltInSkillDefinition {
+        BuiltInSkillDefinition(
+            owner: "sloppy",
+            repo: "kanban-task-manager",
+            name: "kanban-task-manager",
+            description: "Creates and maintains project-board tasks with correct dedupe, umbrella/root linking, dependencies, tags, authors, assignments, and autopilot queue placement.",
+            userInvocable: false,
+            allowedTools: [
+                "project.current",
+                "project.task_list",
+                "project.task_get",
+                "project.task_create",
+                "project.task_update",
+                "memory.save"
+            ],
+            files: [
+                "SKILL.md": loadKanbanTaskManagerMarkdown()
+            ]
+        )
+    }
+
     static func modeSkill(for mode: AgentChatMode) -> BuiltInSkillDefinition {
         let repo = modeSkillRepo(for: mode)
         return BuiltInSkillDefinition(
@@ -99,6 +122,23 @@ enum BuiltInSkillCatalog {
             # Task Spec Writer
 
             Write project tasks as structured briefs with Goal, Context, In Scope, Out of Scope, Technical Requirements, Implementation Notes, Definition of Done, Tests / Verification, RFC / ADR, and Memory / Follow-up.
+            """
+        )
+    }
+
+    private static func loadKanbanTaskManagerMarkdown() -> String {
+        loadSkillMarkdown(
+            repo: "kanban-task-manager",
+            fallback: """
+            ---
+            name: kanban-task-manager
+            description: Creates and maintains project-board tasks with correct dedupe, umbrella/root linking, dependencies, tags, authors, assignments, and autopilot queue placement.
+            userInvocable: false
+            ---
+
+            # Kanban Task Manager
+
+            Use this skill whenever you create, save, track, decompose, link, assign, retag, or enqueue work as project-board tasks. Inspect the current project and task list first, avoid duplicates, create umbrella/root tasks for multi-step work, use parent/dependency fields for the graph, preserve useful tags and assignments, and put autopilot-eligible root tasks in backlog with the configured autopilot tag and trusted author.
             """
         )
     }
@@ -199,7 +239,7 @@ enum BuiltInSkillCatalog {
 
             Produce a concise implementation or investigation plan with enough detail for a later Build-mode turn to execute without losing context.
             The final answer is saved by Sloppy as `PLAN_NAME.md` and rendered into a web page; safe raw HTML tags and attributes may be used in markdown, but scripts, event handlers, remote executable embeds, and `javascript:` links are not allowed.
-            For substantial work, offer to capture the plan as a project task and use project task tools when the user asks to create, save, or track it.
+            For substantial work, offer to capture the plan as a project task. When the user asks to create, save, track, decompose, link, update, or enqueue tasks, load and follow built-in skill `sloppy/kanban-task-manager`.
             Do not edit files, run code-changing commands, or make irreversible non-task changes unless the authoritative runtime mode is build or debug for this turn.
             Use `web.search` and `web.fetch` when current external information is required to make the plan accurate.
             Use `planning.request_input` after read-only inspection when an important user decision is needed before a correct plan can be written; ask 1-3 structured questions with 2-4 meaningful options each, then stop and wait.

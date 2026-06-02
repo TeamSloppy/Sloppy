@@ -18,6 +18,7 @@ struct ProjectTaskCreateTool: CoreTool {
             .init(name: "kind", description: "Task kind: planning, execution, bugfix", schema: DynamicGenerationSchema(type: String.self), isOptional: true),
             .init(name: "loopModeOverride", description: "Override loop mode: human or agent", schema: DynamicGenerationSchema(type: String.self), isOptional: true),
             .init(name: "parentTaskId", description: "Parent task ID (e.g. 'SLOPPY-123')", schema: DynamicGenerationSchema(type: String.self), isOptional: true),
+            .init(name: "dependsOnTaskIds", description: "Task IDs this task depends on", schema: DynamicGenerationSchema(arrayOf: DynamicGenerationSchema(type: String.self)), isOptional: true),
             .init(name: "selectedModel", description: "Optional model override for this task", schema: DynamicGenerationSchema(type: String.self), isOptional: true),
             .init(name: "actorId", description: "Assigned actor ID", schema: DynamicGenerationSchema(type: String.self), isOptional: true),
             .init(name: "teamId", description: "Assigned team ID", schema: DynamicGenerationSchema(type: String.self), isOptional: true),
@@ -77,6 +78,7 @@ struct ProjectTaskCreateTool: CoreTool {
                     actorId: arguments["actorId"]?.asString,
                     teamId: arguments["teamId"]?.asString,
                     parentTaskId: arguments["parentTaskId"]?.asString,
+                    dependsOnTaskIds: arguments["dependsOnTaskIds"]?.asArray?.compactMap(\.asString),
                     selectedModel: arguments["selectedModel"]?.asString,
                     tags: arguments["tags"]?.asArray?.compactMap(\.asString),
                     changedBy: trimmedStringArgument(arguments, "changedBy")

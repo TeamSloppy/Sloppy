@@ -4,6 +4,8 @@ import Protocols
 // MARK: - Task Comments
 
 extension CoreService {
+    static let autoReviewCommentPrefix = "Auto-review complete:"
+
     // MARK: - Task Comments
 
     public func listTaskComments(projectID: String, taskID: String) async -> [TaskComment] {
@@ -50,6 +52,95 @@ extension CoreService {
         }
 
         return comment
+    }
+
+    @discardableResult
+    func appendTaskComment(
+        projectID: String,
+        taskID: String,
+        content: String,
+        authorActorId: String,
+        mentionedActorId: String? = nil
+    ) async -> TaskComment? {
+        let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
+        let author = authorActorId.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, !author.isEmpty else {
+            return nil
+        }
+        return await addTaskComment(
+            projectID: projectID,
+            taskID: taskID,
+            request: TaskCommentCreateRequest(
+                content: trimmed,
+                authorActorId: author,
+                mentionedActorId: mentionedActorId
+            )
+        )
+    }
+
+    func appendExecutorCompletionComment(
+        projectID: String,
+        taskID: String,
+        completionNote: String,
+        authorActorId: String
+    ) async {
+        await appendTaskComment(
+            projectID: projectID,
+            taskID: taskID,
+            content: completionNote,
+            authorActorId: authorActorId
+        )
+    }
+
+    func appendAutoReviewTaskComment(
+        projectID: String,
+        taskID: String,
+        artifactPath: String?
+    ) async {
+        let artifactLine = artifactPath.map { "\nArtifact: \($0)" } ?? ""
+        await appendTaskComment(
+            projectID: projectID,
+            taskID: taskID,
+            content: "\(Self.autoReviewCommentPrefix) task \(taskID) was approved by project auto-review policy.\(artifactLine)",
+            authorActorId: "system"
+        )
+    }
+
+    func hasReviewCompletionComment(
+        projectID: String,
+        taskID: String,
+        reviewerActorID: String?,
+        reviewerAgentID: String?,
+        since: Date? = nil
+    ) async -> Bool {
+        let reviewerActor = normalizeWhitespace(reviewerActorID ?? "")
+        let reviewerAgent = normalizeWhitespace(reviewerAgentID ?? "")
+        var acceptedAuthors = Set<String>()
+        if !reviewerActor.isEmpty {
+            acceptedAuthors.insert(reviewerActor)
+        }
+        if !reviewerAgent.isEmpty {
+            acceptedAuthors.insert(reviewerAgent)
+            acceptedAuthors.insert("agent:\(reviewerAgent)")
+        }
+
+        let comments = await listTaskComments(projectID: projectID, taskID: taskID)
+        return comments.contains { comment in
+            guard !comment.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                return false
+            }
+            if let since, comment.createdAt < since {
+                return false
+            }
+            if comment.authorActorId == "system",
+               comment.content.contains(Self.autoReviewCommentPrefix) {
+                return true
+            }
+            if acceptedAuthors.isEmpty {
+                return comment.authorActorId != "system"
+            }
+            return acceptedAuthors.contains(comment.authorActorId)
+        }
     }
 
     public func deleteTaskComment(projectID: String, taskID: String, commentID: String) async -> Bool {

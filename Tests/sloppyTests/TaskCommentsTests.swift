@@ -185,3 +185,28 @@ func addTaskCommentInvalidPayloadReturns400() async throws {
     )
     #expect(resp.status == 400)
 }
+
+@Test
+func completionNoteCreatesExecutorTaskComment() async throws {
+    let service = CoreService(config: CoreConfig.test, persistenceBuilder: InMemoryCorePersistenceBuilder())
+    let router = CoreRouter(service: service)
+    let (projectID, taskID) = try await makeProjectWithTask(router: router)
+
+    _ = try await service.updateProjectTask(
+        projectID: projectID,
+        taskID: taskID,
+        request: ProjectTaskUpdateRequest(
+            status: ProjectTaskStatus.done.rawValue,
+            completionConfidence: .done,
+            completionNote: "Implemented parser cleanup and verified with swift test.",
+            changedBy: "agent:builder"
+        )
+    )
+
+    let comments = await service.listTaskComments(projectID: projectID, taskID: taskID)
+    #expect(comments.contains {
+        $0.authorActorId == "agent:builder" &&
+            $0.content.contains("Implemented parser cleanup") &&
+            $0.content.contains("swift test")
+    })
+}

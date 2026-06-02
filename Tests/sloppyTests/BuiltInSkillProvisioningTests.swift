@@ -26,6 +26,7 @@ func coreServiceCreateAgentInstallsBuiltInTaskSpecSkill() async throws {
         BuiltInSkillCatalog.modePlanID,
         BuiltInSkillCatalog.modeDebugID,
         BuiltInSkillCatalog.modeAutoID,
+        BuiltInSkillCatalog.kanbanTaskManagerID,
         BuiltInSkillCatalog.taskSpecWriterID
     ]))
 
@@ -35,6 +36,17 @@ func coreServiceCreateAgentInstallsBuiltInTaskSpecSkill() async throws {
     #expect(skill.userInvocable == false)
     #expect(skill.allowedTools.contains("project.task_create"))
     #expect(FileManager.default.fileExists(atPath: URL(fileURLWithPath: skill.localPath)
+        .appendingPathComponent("SKILL.md")
+        .path))
+
+    let kanbanSkill = try #require(response.skills.first { $0.id == BuiltInSkillCatalog.kanbanTaskManagerID })
+    #expect(kanbanSkill.name == "kanban-task-manager")
+    #expect(kanbanSkill.userInvocable == false)
+    #expect(kanbanSkill.allowedTools.contains("project.current"))
+    #expect(kanbanSkill.allowedTools.contains("project.task_get"))
+    #expect(kanbanSkill.allowedTools.contains("project.task_create"))
+    #expect(kanbanSkill.allowedTools.contains("project.task_update"))
+    #expect(FileManager.default.fileExists(atPath: URL(fileURLWithPath: kanbanSkill.localPath)
         .appendingPathComponent("SKILL.md")
         .path))
 
@@ -87,13 +99,14 @@ func builtInSkillsBackfillIsIdempotentForExistingAgents() throws {
     let installed = try skillsStore.listSkills(agentID: "existing-agent")
     let builtInIDs = Set(installed.map(\.id))
 
-    #expect(installed.count == 6)
+    #expect(installed.count == 7)
     #expect(builtInIDs == Set([
         BuiltInSkillCatalog.modeAskID,
         BuiltInSkillCatalog.modeBuildID,
         BuiltInSkillCatalog.modePlanID,
         BuiltInSkillCatalog.modeDebugID,
         BuiltInSkillCatalog.modeAutoID,
+        BuiltInSkillCatalog.kanbanTaskManagerID,
         BuiltInSkillCatalog.taskSpecWriterID
     ]))
     #expect(installed.allSatisfy { $0.userInvocable == false })
@@ -115,6 +128,19 @@ func builtInSkillsBackfillIsIdempotentForExistingAgents() throws {
         .appendingPathComponent("sloppy/mode-auto", isDirectory: true)
         .appendingPathComponent("SKILL.md")
         .path))
+    #expect(FileManager.default.fileExists(atPath: agentsRootURL
+        .appendingPathComponent("existing-agent", isDirectory: true)
+        .appendingPathComponent("skills", isDirectory: true)
+        .appendingPathComponent("sloppy/kanban-task-manager", isDirectory: true)
+        .appendingPathComponent("SKILL.md")
+        .path))
+}
+
+@Test
+func builtInModePlanReferencesKanbanTaskManager() throws {
+    let markdown = BuiltInSkillCatalog.modeSkillMarkdown(for: .plan)
+
+    #expect(markdown.contains("sloppy/kanban-task-manager"))
 }
 
 @Test

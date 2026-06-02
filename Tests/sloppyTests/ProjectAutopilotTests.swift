@@ -325,3 +325,166 @@ func projectAutopilotStopsPlanningTickAfterTransientPlannerFailure() async throw
     #expect(firstComments.count == 1)
     #expect(secondComments.isEmpty)
 }
+
+@Test
+func projectAutopilotSkipsBacklogRootWithBlockedDependency() async throws {
+    var config = CoreConfig.test
+    config.models = [
+        .init(title: "Planner", apiKey: "", apiUrl: "", model: "mock:planner"),
+    ]
+    let service = CoreService(config: config, persistenceBuilder: InMemoryCorePersistenceBuilder())
+    let output = """
+    {
+      "subtasks": [
+        {
+          "id": "build",
+          "title": "Build the fix",
+          "description": "Implement the requested change",
+          "dependsOn": []
+        }
+      ]
+    }
+    """
+    let provider = AutopilotRecordingModelProvider(models: ["mock:planner"], output: output)
+    await service.overrideModelProviderForTests(provider, defaultModel: "mock:planner")
+
+    let dependency = ProjectTask(
+        id: "task-1",
+        title: "Blocked dependency",
+        description: "",
+        priority: "medium",
+        status: ProjectTaskStatus.blocked.rawValue
+    )
+    let dependent = ProjectTask(
+        id: "task-2",
+        title: "Dependent autopilot root",
+        description: "",
+        priority: "medium",
+        status: ProjectTaskStatus.backlog.rawValue,
+        dependsOnTaskIds: [dependency.id],
+        tags: ["autopilot"]
+    )
+    let project = ProjectRecord(
+        id: "autopilot-blocked-root-dependency",
+        name: "Autopilot Blocked Root Dependency",
+        description: "",
+        channels: [ProjectChannel(id: "channel-1", title: "Main", channelId: "chan")],
+        tasks: [dependency, dependent],
+        autopilotSettings: ProjectAutopilotSettings(enabled: true, defaultAgentId: "builder")
+    )
+    await service.store.saveProject(project)
+
+    await service.processAutonomousExecution()
+
+    let saved = try #require(await service.store.project(id: project.id))
+    let savedDependent = try #require(saved.tasks.first(where: { $0.id == dependent.id }))
+    #expect(savedDependent.status == ProjectTaskStatus.backlog.rawValue)
+    #expect(saved.tasks.filter { $0.parentTaskId == dependent.id }.isEmpty)
+    #expect(await provider.requestedModelsSnapshot().isEmpty)
+}
+
+@Test
+func projectAutopilotPlansBacklogRootAfterDependencyDone() async throws {
+    var config = CoreConfig.test
+    config.models = [
+        .init(title: "Planner", apiKey: "", apiUrl: "", model: "mock:planner"),
+    ]
+    let service = CoreService(config: config, persistenceBuilder: InMemoryCorePersistenceBuilder())
+    let output = """
+    {
+      "subtasks": [
+        {
+          "id": "build",
+          "title": "Build the fix",
+          "description": "Implement the requested change",
+          "dependsOn": []
+        }
+      ]
+    }
+    """
+    let provider = AutopilotRecordingModelProvider(models: ["mock:planner"], output: output)
+    await service.overrideModelProviderForTests(provider, defaultModel: "mock:planner")
+
+    let dependency = ProjectTask(
+        id: "task-1",
+        title: "Completed dependency",
+        description: "",
+        priority: "medium",
+        status: ProjectTaskStatus.done.rawValue
+    )
+    let dependent = ProjectTask(
+        id: "task-2",
+        title: "Dependent autopilot root",
+        description: "",
+        priority: "medium",
+        status: ProjectTaskStatus.backlog.rawValue,
+        dependsOnTaskIds: [dependency.id],
+        tags: ["autopilot"]
+    )
+    let project = ProjectRecord(
+        id: "autopilot-done-root-dependency",
+        name: "Autopilot Done Root Dependency",
+        description: "",
+        channels: [ProjectChannel(id: "channel-1", title: "Main", channelId: "chan")],
+        tasks: [dependency, dependent],
+        autopilotSettings: ProjectAutopilotSettings(enabled: true, defaultAgentId: "builder")
+    )
+    await service.store.saveProject(project)
+
+    await service.processAutonomousExecution()
+
+    let saved = try #require(await service.store.project(id: project.id))
+    let savedDependent = try #require(saved.tasks.first(where: { $0.id == dependent.id }))
+    #expect(savedDependent.status == ProjectTaskStatus.inProgress.rawValue)
+    #expect(saved.tasks.contains { $0.parentTaskId == dependent.id })
+    #expect(await provider.requestedModelsSnapshot() == ["mock:planner"])
+}
+
+@Test
+func projectAutopilotKeepsChildBacklogWhenDependencyBlocked() async throws {
+    let service = CoreService(config: .test, persistenceBuilder: InMemoryCorePersistenceBuilder())
+    let root = ProjectTask(
+        id: "task-1",
+        title: "Root",
+        description: "",
+        priority: "medium",
+        status: ProjectTaskStatus.inProgress.rawValue,
+        tags: ["autopilot"]
+    )
+    let blockedChild = ProjectTask(
+        id: "task-2",
+        title: "Blocked child",
+        description: "",
+        priority: "medium",
+        status: ProjectTaskStatus.blocked.rawValue,
+        parentTaskId: root.id,
+        createdBy: "autopilot",
+        tags: ["autopilot"]
+    )
+    let dependentChild = ProjectTask(
+        id: "task-3",
+        title: "Dependent child",
+        description: "",
+        priority: "medium",
+        status: ProjectTaskStatus.backlog.rawValue,
+        parentTaskId: root.id,
+        createdBy: "autopilot",
+        dependsOnTaskIds: [blockedChild.id],
+        tags: ["autopilot"]
+    )
+    let project = ProjectRecord(
+        id: "autopilot-blocked-child-dependency",
+        name: "Autopilot Blocked Child Dependency",
+        description: "",
+        channels: [ProjectChannel(id: "channel-1", title: "Main", channelId: "chan")],
+        tasks: [root, blockedChild, dependentChild],
+        autopilotSettings: ProjectAutopilotSettings(enabled: true, defaultAgentId: "builder")
+    )
+    await service.store.saveProject(project)
+
+    await service.processAutonomousExecution()
+
+    let saved = try #require(await service.store.project(id: project.id))
+    let savedDependentChild = try #require(saved.tasks.first(where: { $0.id == dependentChild.id }))
+    #expect(savedDependentChild.status == ProjectTaskStatus.backlog.rawValue)
+}

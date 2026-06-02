@@ -22,6 +22,7 @@ enum AutoRouteCatalog {
             "- route: mode-plan | skill: `sloppy/mode-plan` | use_when: The user asks for a plan, design, investigation path, implementation breakdown, or wants to decide before code changes.",
             "- route: mode-debug | skill: `sloppy/mode-debug` | use_when: The user reports a bug, failing test, regression, runtime error, broken behavior, or asks to investigate evidence.",
             "- route: mode-build | skill: `sloppy/mode-build` | use_when: The user asks to implement, edit, create, refactor, wire, fix with code changes, or execute an approved plan.",
+            "- route: skill:sloppy/kanban-task-manager | skill: `sloppy/kanban-task-manager` | use_when: The user asks to create tasks, manage a project board, create an umbrella/root task, link task dependencies, set task tags/authors/assignees, or enqueue work for autopilot.",
             "- route: skill:sloppy/task-spec-writer | skill: `sloppy/task-spec-writer` | use_when: The user explicitly asks to create, save, track, or formalize work as a project task/spec."
         ]
     }
@@ -59,6 +60,7 @@ enum AutoRouteCatalog {
         BuiltInSkillCatalog.modePlanID,
         BuiltInSkillCatalog.modeDebugID,
         BuiltInSkillCatalog.modeAutoID,
+        BuiltInSkillCatalog.kanbanTaskManagerID,
         BuiltInSkillCatalog.taskSpecWriterID
     ]
 

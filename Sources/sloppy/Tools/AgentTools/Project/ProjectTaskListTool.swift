@@ -51,10 +51,17 @@ struct ProjectTaskListTool: CoreTool {
                 "title": .string(task.title),
                 "status": .string(task.status),
                 "priority": .string(task.priority),
+                "kind": task.kind.map { .string($0.rawValue) } ?? .null,
+                "loopModeOverride": task.loopModeOverride.map { .string($0.rawValue) } ?? .null,
                 "actorId": task.actorId.map { .string($0) } ?? .null,
                 "teamId": task.teamId.map { .string($0) } ?? .null,
                 "claimedActorId": task.claimedActorId.map { .string($0) } ?? .null,
-                "tags": .array(task.tags.map { .string($0) })
+                "parentTaskId": task.parentTaskId.map { .string($0) } ?? .null,
+                "createdBy": task.createdBy.map { .string($0) } ?? .null,
+                "dependsOnTaskIds": .array(task.dependsOnTaskIds.map { .string($0) }),
+                "selectedModel": task.selectedModel.map { .string($0) } ?? .null,
+                "tags": .array(task.tags.map { .string($0) }),
+                "isArchived": .bool(task.isArchived)
             ])
         }
 

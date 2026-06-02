@@ -293,7 +293,11 @@ extension CoreService {
         taskIDs: [String],
         timeoutSeconds: TimeInterval
     ) async -> Bool {
-        let runningStatuses = Set([ProjectTaskStatus.inProgress.rawValue])
+        let runningStatuses = Set([
+            ProjectTaskStatus.ready.rawValue,
+            ProjectTaskStatus.inProgress.rawValue,
+            ProjectTaskStatus.needsReview.rawValue
+        ])
         let deadline = Date().addingTimeInterval(timeoutSeconds)
 
         while Date() < deadline {
@@ -1223,7 +1227,11 @@ extension CoreService {
                 }
 
                 let completionHandoffDelegate: TeamRetryDelegate?
-                if resolvedStatus == ProjectTaskStatus.done.rawValue {
+                let board = try? getActorBoard()
+                let nodesByID = Dictionary(uniqueKeysWithValues: (board?.nodes ?? []).map { ($0.id, $0) })
+                let currentNode = task.claimedActorId.flatMap { nodesByID[$0] }
+                let currentActorIsReviewer = currentNode?.systemRole == .reviewer
+                if resolvedStatus == ProjectTaskStatus.done.rawValue, !currentActorIsReviewer {
                     let teamDelegate = await nextTeamHandoffDelegate(project: project, task: task)
                     completionHandoffDelegate = teamDelegate ?? autopilotReviewerDelegate(project: project, task: task)
                 } else {
@@ -1258,13 +1266,11 @@ extension CoreService {
                         )
                         return
                     }
-                    let board = try? getActorBoard()
-                    let nodesByID = Dictionary(uniqueKeysWithValues: (board?.nodes ?? []).map { ($0.id, $0) })
                     let nextNode = nodesByID[handoffDelegate.actorID]
                     let isReviewer = nextNode?.systemRole == .reviewer
                     let isAutopilotReviewer = normalizeWhitespace(handoffDelegate.agentID ?? "") == normalizeWhitespace(project.autopilotSettings.reviewerAgentId ?? "")
 
-                    if (isReviewer || isAutopilotReviewer), task.worktreeBranch != nil {
+                    if isReviewer || isAutopilotReviewer {
                         project.tasks[taskIndex] = task
                         project.updatedAt = Date()
                         await store.saveProject(project)

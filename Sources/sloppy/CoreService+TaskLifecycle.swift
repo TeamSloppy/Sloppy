@@ -50,6 +50,16 @@ extension CoreService {
             return
         }
 
+        if let waitingMessage = taskDependencyWaitingMessage(project: project, task: task) {
+            await returnReadyTaskToBacklogForDependencies(
+                project: project,
+                taskIndex: taskIndex,
+                task: task,
+                message: waitingMessage
+            )
+            return
+        }
+
         _ = await triggerVisorBulletin()
         logger.info(
             "visor.task.approved",
@@ -308,6 +318,65 @@ extension CoreService {
         await deliverToChannelPlugin(
             channelId: delegation.channelID,
             content: spawnMessage
+        )
+    }
+
+    func taskDependencyWaitingMessage(project: ProjectRecord, task: ProjectTask) -> String? {
+        let unmetDependencies = unmetProjectTaskDependencies(project: project, task: task)
+        guard !unmetDependencies.isEmpty else {
+            return nil
+        }
+        return dependencyWaitMessage(task: task, unmetDependencies: unmetDependencies)
+    }
+
+    func taskDependenciesSatisfied(project: ProjectRecord, task: ProjectTask) -> Bool {
+        unmetProjectTaskDependencies(project: project, task: task).isEmpty
+    }
+
+    func returnReadyTaskToBacklogForDependencies(
+        project: ProjectRecord,
+        taskIndex: Int,
+        task: ProjectTask,
+        message: String
+    ) async {
+        var project = project
+        var task = task
+        let previousStatus = task.status
+        task.status = ProjectTaskStatus.backlog.rawValue
+        task.claimedActorId = nil
+        task.claimedAgentId = nil
+        task.updatedAt = Date()
+        project.tasks[taskIndex] = task
+        project.updatedAt = Date()
+        await store.saveProject(project)
+        await kanbanEventService.push(KanbanEvent(type: .taskUpdated, projectId: project.id, task: task))
+        await recordSystemStatusChange(
+            projectID: project.id,
+            taskID: task.id,
+            from: previousStatus,
+            to: task.status,
+            source: "system"
+        )
+        appendTaskLifecycleLog(
+            projectID: project.id,
+            taskID: task.id,
+            stage: "dependency_wait",
+            channelID: resolveExecutionChannelID(project: project, task: task),
+            workerID: nil,
+            message: message,
+            actorID: task.actorId,
+            agentID: task.claimedAgentId
+        )
+        let existingComments = await listTaskComments(projectID: project.id, taskID: task.id)
+        if !existingComments.contains(where: { $0.authorActorId == "system" && $0.content.contains("Task is waiting for dependencies before it can run:") }) {
+            await appendSystemTaskComment(projectID: project.id, taskID: task.id, content: message)
+        }
+        logger.info(
+            "visor.task.dependency_wait",
+            metadata: [
+                "project_id": .string(project.id),
+                "task_id": .string(task.id)
+            ]
         )
     }
 
@@ -612,6 +681,11 @@ extension CoreService {
                 actorID: handoffDelegate.actorID,
                 agentID: handoffDelegate.agentID
             )
+            await appendAutoReviewTaskComment(
+                projectID: project.id,
+                taskID: task.id,
+                artifactPath: completionArtifactPath
+            )
             try? await approveTask(projectID: project.id, taskID: task.id)
 
         case .human:
@@ -675,7 +749,7 @@ extension CoreService {
                     channelId: reviewerChannelID,
                     title: "Review: \(task.title)",
                     objective: reviewObjective,
-                    tools: ["shell", "file"],
+                    tools: ["project_tasks", "shell", "file"],
                     mode: .fireAndForget
                 )
             )
@@ -694,8 +768,9 @@ extension CoreService {
             "",
             "Review instructions:",
             "- Evaluate whether the changes correctly and completely implement the task.",
-            "- If the changes are acceptable, call the approve tool.",
-            "- If the changes need work, call the reject tool with specific reasons."
+            "- Before approving or rejecting, leave a task-level review summary comment by calling project.task_update with completionConfidence and completionNote.",
+            "- If the changes are acceptable, call the approve command/tool after leaving the review summary.",
+            "- If the changes need work, call the reject command/tool with specific reasons after leaving the review summary."
         ].joined(separator: "\n"))
     }
 
@@ -708,6 +783,15 @@ extension CoreService {
         }
         var task = project.tasks[taskIndex]
         let prevApproveStatus = task.status
+
+        guard await hasReviewCompletionComment(
+            projectID: projectID,
+            taskID: taskID,
+            reviewerActorID: task.claimedActorId,
+            reviewerAgentID: task.claimedAgentId
+        ) else {
+            throw ProjectError.invalidPayload
+        }
 
         if let repoPath = project.repoPath, let branchName = task.worktreeBranch {
             let provider = sourceControlProvider(for: project, task: task)

@@ -104,6 +104,9 @@ extension CoreService {
 
         for root in candidates {
             guard capacity > 0 else { break }
+            guard taskDependenciesSatisfied(project: project, task: root) else {
+                continue
+            }
             guard let rootIndex = project.tasks.firstIndex(where: { $0.id == root.id }) else {
                 continue
             }
@@ -254,7 +257,9 @@ extension CoreService {
     }
 
     func isEligibleAutopilotBacklogRoot(project: ProjectRecord, task: ProjectTask) -> Bool {
-        task.status == ProjectTaskStatus.backlog.rawValue && isEligibleAutopilotRoot(project: project, task: task)
+        task.status == ProjectTaskStatus.backlog.rawValue
+            && isEligibleAutopilotRoot(project: project, task: task)
+            && unmetProjectTaskDependencies(project: project, task: task).isEmpty
     }
 
     func sortAutopilotTasks(_ lhs: ProjectTask, _ rhs: ProjectTask) -> Bool {
@@ -263,6 +268,37 @@ extension CoreService {
             return (priorities[lhs.priority] ?? 0) > (priorities[rhs.priority] ?? 0)
         }
         return lhs.createdAt < rhs.createdAt
+    }
+
+    struct ProjectTaskDependencyWait: Sendable, Equatable {
+        var id: String
+        var title: String?
+        var status: String
+    }
+
+    func unmetProjectTaskDependencies(project: ProjectRecord, task: ProjectTask) -> [ProjectTaskDependencyWait] {
+        guard !task.dependsOnTaskIds.isEmpty else {
+            return []
+        }
+        return task.dependsOnTaskIds.compactMap { dependencyID in
+            guard let dependency = project.tasks.first(where: { $0.id == dependencyID }) else {
+                return ProjectTaskDependencyWait(id: dependencyID, title: nil, status: "missing")
+            }
+            guard dependency.status == ProjectTaskStatus.done.rawValue else {
+                return ProjectTaskDependencyWait(id: dependency.id, title: dependency.title, status: dependency.status)
+            }
+            return nil
+        }
+    }
+
+    func dependencyWaitMessage(task: ProjectTask, unmetDependencies: [ProjectTaskDependencyWait]) -> String {
+        let dependencyList = unmetDependencies.map { dependency in
+            if let title = dependency.title, !title.isEmpty {
+                return "\(dependency.id) (\(title)) [\(dependency.status)]"
+            }
+            return "\(dependency.id) [\(dependency.status)]"
+        }.joined(separator: ", ")
+        return "Task is waiting for dependencies before it can run: \(dependencyList)."
     }
 
     struct AutopilotGraphReconciliation {
@@ -321,10 +357,9 @@ extension CoreService {
     }
 
     func releasableAutopilotChildren(project: ProjectRecord, parentTaskID: String) -> [String] {
-        let doneIDs = Set(project.tasks.filter { $0.status == ProjectTaskStatus.done.rawValue }.map(\.id))
         return project.tasks
             .filter { $0.parentTaskId == parentTaskID && $0.status == ProjectTaskStatus.backlog.rawValue }
-            .filter { task in task.dependsOnTaskIds.allSatisfy { doneIDs.contains($0) } }
+            .filter { task in unmetProjectTaskDependencies(project: project, task: task).isEmpty }
             .sorted(by: sortAutopilotTasks)
             .map(\.id)
     }
