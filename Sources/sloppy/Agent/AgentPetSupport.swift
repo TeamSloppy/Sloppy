@@ -127,7 +127,7 @@ enum AgentPetFactory {
             source: "preset",
             assetBaseURL: "/pets/presets/aurora-bun",
             terminalFaceSet: .init(idle: "/(o_o)\\", happy: "/(^v^)\\", sad: "/(._.)\\", sleep: "/(-_-)\\"),
-            parts: .init(headId: "head_kisya", bodyId: "body-puff", legsId: "legs-bouncer", faceId: "face-grin", accessoryId: "acc-scarf"),
+            parts: .init(headId: "head-shell", bodyId: "body-puff", legsId: "legs-bouncer", faceId: "face-grin", accessoryId: "acc-scarf"),
             partRarities: .init(head: .common, body: .common, legs: .common, face: .uncommon, accessory: .common),
             rarity: .common
         ),
@@ -137,7 +137,7 @@ enum AgentPetFactory {
             source: "preset",
             assetBaseURL: "/pets/presets/spark-fox",
             terminalFaceSet: .init(idle: "/(•_•)\\", happy: "/(^_^)\\", sad: "/(u_u)\\", sleep: "/(-.-)\\"),
-            parts: .init(headId: "head_bipbop", bodyId: "body-terminal", legsId: "legs-sprinter", faceId: "face-scan", accessoryId: "acc-bolt"),
+            parts: .init(headId: "head-probe", bodyId: "body-terminal", legsId: "legs-sprinter", faceId: "face-scan", accessoryId: "acc-bolt"),
             partRarities: .init(head: .uncommon, body: .uncommon, legs: .uncommon, face: .common, accessory: .legendary),
             rarity: .rare
         ),
@@ -147,7 +147,7 @@ enum AgentPetFactory {
             source: "preset",
             assetBaseURL: "/pets/presets/moss-moth",
             terminalFaceSet: .init(idle: "\\(o.o)/", happy: "\\(^.^)/", sad: "\\(._.)/", sleep: "\\(-.-)/"),
-            parts: .init(headId: "head_ada", bodyId: "body-relay", legsId: "legs-hover", faceId: "face-star", accessoryId: "acc-wings"),
+            parts: .init(headId: "head-oracle", bodyId: "body-relay", legsId: "legs-hover", faceId: "face-star", accessoryId: "acc-wings"),
             partRarities: .init(head: .common, body: .rare, legs: .rare, face: .rare, accessory: .rare),
             rarity: .rare
         )
@@ -155,13 +155,13 @@ enum AgentPetFactory {
 
     private static let heads: [AgentPetPartCatalogEntry] = [
         .init(id: "head_vladimir", rarity: .common, weight: 28),
-        .init(id: "head_kisya", rarity: .common, weight: 26),
-        .init(id: "head_ada", rarity: .common, weight: 24),
-        .init(id: "head_bipbop", rarity: .uncommon, weight: 18),
-        .init(id: "head_george", rarity: .uncommon, weight: 14),
-        .init(id: "head_hollow", rarity: .rare, weight: 9),
-        .init(id: "head_pooh", rarity: .rare, weight: 6),
-        .init(id: "head_proj1018_secret", rarity: .legendary, weight: 2)
+        .init(id: "head-cube", rarity: .common, weight: 26),
+        .init(id: "head-shell", rarity: .common, weight: 24),
+        .init(id: "head-fork", rarity: .uncommon, weight: 18),
+        .init(id: "head-visor", rarity: .uncommon, weight: 14),
+        .init(id: "head-probe", rarity: .rare, weight: 9),
+        .init(id: "head-oracle", rarity: .rare, weight: 6),
+        .init(id: "head-crown", rarity: .legendary, weight: 2)
     ]
 
     private static let bodies: [AgentPetPartCatalogEntry] = [

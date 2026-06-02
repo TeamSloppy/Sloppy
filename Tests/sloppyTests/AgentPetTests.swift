@@ -91,6 +91,44 @@ func generatedPetDraftAttachesToCreatedAgent() throws {
 }
 
 @Test
+func generatedPetPartsUseMiniSloppieHeads() {
+    let retiredSheetHeads: Set<String> = [
+        "head_kisya",
+        "head_ada",
+        "head_bipbop",
+        "head_george",
+        "head_hollow",
+        "head_pooh",
+        "head_proj1018_secret"
+    ]
+    let miniSloppieHeads: Set<String> = [
+        "head_vladimir",
+        "head-cube",
+        "head-shell",
+        "head-fork",
+        "head-visor",
+        "head-probe",
+        "head-oracle",
+        "head-crown"
+    ]
+
+    for seed in 0..<32 {
+        let pet = AgentPetFactory.makePet(genome: UInt64(seed))
+        #expect(!retiredSheetHeads.contains(pet.summary.parts.headId))
+        #expect(miniSloppieHeads.contains(pet.summary.parts.headId))
+    }
+
+    for prompt in ["a spark fox", "a moss moth", "an aurora bun"] {
+        let draft = AgentPetFactory.makePetDraft(
+            request: AgentPetGenerationRequest(mode: .prompt, prompt: prompt),
+            createdAt: Date(timeIntervalSince1970: 1_700_000_000)
+        )
+        #expect(!retiredSheetHeads.contains(draft.generated.summary.parts.headId))
+        #expect(miniSloppieHeads.contains(draft.generated.summary.parts.headId))
+    }
+}
+
+@Test
 func petEvolutionStageThresholdsMatchPlan() {
     #expect(AgentPetFactory.stage(for: 0) == 1)
     #expect(AgentPetFactory.stage(for: 119) == 1)

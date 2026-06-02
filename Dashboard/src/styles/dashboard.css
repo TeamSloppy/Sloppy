@@ -680,112 +680,8 @@
   white-space: pre-wrap;
 }
 
-.agent-pet-png-stack {
-  position: relative;
-  width: 100%;
-  padding: 16px;
-  aspect-ratio: 48 / 88;
-}
-
-.agent-pet-png-stack .agent-pet-tint-bundle {
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-}
-
-.agent-pet-png-layer {
-  position: absolute;
-  inset: 0;
-}
-
-.agent-pet-png-layer .sprite-layer {
-  width: 100%;
-  height: 100%;
-  object-fit: contain;
-  image-rendering: pixelated;
-}
-
-.agent-pet-png-layer .sprite-layer--sheet {
-  image-rendering: pixelated;
-}
-
-.agent-pet-png-shadow {
-  position: absolute;
-  bottom: 6%;
-  left: 50%;
-  transform: translateX(-50%);
-  width: 66%;
-  height: 8%;
-  border-radius: 50%;
-  background: rgba(0, 0, 0, 0.28);
-}
-
-/* Match SvgIcon viewBox="8 0 32 32" on the 48×88 pet canvas — PNG parts are full-canvas sheets. */
-.agent-pet-png-icon-stack {
-  position: relative;
-  width: 100%;
-  height: 100%;
-  overflow: hidden;
-}
-
-.agent-pet-png-icon-stack .agent-pet-tint-bundle--icon {
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-}
-
-.agent-pet-png-icon-stack .agent-pet-png-layer {
-  position: absolute;
-  left: 0;
-  top: 0;
-  width: 100%;
-  height: 100%;
-  pointer-events: none;
-}
-
-.agent-pet-png-icon-stack .agent-pet-png-layer .sprite-layer {
-  position: absolute;
-  left: calc(-100% * 8 / 32);
-  top: 0;
-  width: calc(100% * 48 / 32) !important;
-  height: calc(100% * 88 / 32) !important;
-  max-width: none;
-  object-fit: fill;
-  object-position: 0 0;
-}
-
-.agent-pet-png-icon-stack .agent-pet-png-layer .sprite-layer--sheet {
-  /* Crop matches SvgIcon viewBox; overrides inline sheet box from SpriteLayer (1-frame head PNGs) */
-  left: calc(-100% * 8 / 32) !important;
-  top: 0 !important;
-  width: calc(100% * 48 / 32) !important;
-  height: calc(100% * 88 / 32) !important;
-  max-width: none;
-}
-
-@keyframes sprite-sheet-play {
-  from { background-position: 0 0; }
-  to { background-position: -100% 0; }
-}
-
 .agent-pet-head {
   transform-origin: 24px 20px;
-}
-
-.agent-pet-png-layer.agent-pet-head {
-  transform-origin: center 23%;
-}
-
-.agent-pet-png-layer.agent-pet-face {
-  transform-origin: center 23%;
-}
-
-.agent-pet-png-layer.agent-pet-body {
-  transform-origin: center 42%;
-}
-
-.agent-pet-png-layer.agent-pet-accessory {
-  transform-origin: center 55%;
 }
 
 svg .agent-pet-body {
@@ -903,8 +799,7 @@ svg .agent-pet-body {
   .agent-pet-head.is-animated,
   .agent-pet-face.is-animated,
   .agent-pet-body.is-animated,
-  .agent-pet-accessory.is-animated,
-  .sprite-layer--sheet {
+  .agent-pet-accessory.is-animated {
     animation: none;
   }
 }

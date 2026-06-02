@@ -1,14 +1,4 @@
 import React, { useEffect, useState } from "react";
-import { SpriteLayer } from "./SpriteLayer";
-import {
-  type SpriteManifest,
-  loadManifest,
-  getManifestSync,
-  hasPngSprite,
-  resolveSpritePartId,
-  spriteSrc,
-  spritePartMeta,
-} from "./spriteManifest";
 import { tintFilterForGenomeSlot } from "./petGenomePalettes";
 
 type Pixel = [number, number, number?, number?];
@@ -97,26 +87,6 @@ function resolvePart<T extends Record<string, SpritePart>>(catalog: T, id: strin
     return catalog[id];
   }
   return catalog[fallbackKey as string];
-}
-
-function useManifest(): SpriteManifest | null {
-  const [manifest, setManifest] = useState<SpriteManifest | null>(getManifestSync);
-
-  useEffect(() => {
-    if (manifest) return;
-    let cancelled = false;
-    loadManifest().then((m) => {
-      if (!cancelled) setManifest(m);
-    });
-    return () => { cancelled = true; };
-  }, [manifest]);
-
-  return manifest;
-}
-
-function usePngAvailable(manifest: SpriteManifest | null, partIds: string[]): boolean {
-  if (!manifest) return false;
-  return partIds.some((id) => hasPngSprite(manifest, id));
 }
 
 function filterStyle(f: string | undefined): React.CSSProperties | undefined {
@@ -235,62 +205,6 @@ function SvgSprite({ parts, animated, genomeHex }: { parts?: any; animated: bool
   );
 }
 
-function PngSprite({
-  parts,
-  animated,
-  manifest,
-  genomeHex,
-}: {
-  parts?: any;
-  animated: boolean;
-  manifest: SpriteManifest;
-  genomeHex?: string;
-}) {
-  const headId = resolveSpritePartId(HEADS, parts?.headId, "head_vladimir", manifest);
-  const bodyId = resolveSpritePartId(BODIES, parts?.bodyId, "body-core", manifest);
-  const legsId = resolveSpritePartId(LEGS, parts?.legsId, "legs-stub", manifest);
-  const faceId = resolveSpritePartId(FACES, parts?.faceId, "face-default", manifest);
-  const accId = resolveSpritePartId(ACCESSORIES, parts?.accessoryId, "acc-none", manifest);
-
-  return (
-    <div className="agent-pet-png-stack">
-      <div className="agent-pet-shadow agent-pet-png-shadow" />
-      <div className="agent-pet-tint-bundle">
-        <div
-          className="agent-pet-legs agent-pet-png-layer"
-          style={filterStyle(tintFilterForGenomeSlot(genomeHex, "legs"))}
-        >
-          <SpriteLayer src={spriteSrc(legsId)} meta={spritePartMeta(manifest, legsId)} />
-        </div>
-        <div
-          className={`agent-pet-body agent-pet-png-layer ${animated ? "is-animated" : ""}`}
-          style={filterStyle(tintFilterForGenomeSlot(genomeHex, "body"))}
-        >
-          <SpriteLayer src={spriteSrc(bodyId)} meta={spritePartMeta(manifest, bodyId)} />
-        </div>
-        <div
-          className={`agent-pet-accessory agent-pet-png-layer ${animated ? "is-animated" : ""}`}
-          style={filterStyle(tintFilterForGenomeSlot(genomeHex, "acc"))}
-        >
-          <SpriteLayer src={spriteSrc(accId)} meta={spritePartMeta(manifest, accId)} />
-        </div>
-        <div
-          className={`agent-pet-head agent-pet-png-layer ${animated ? "is-animated" : ""}`}
-          style={filterStyle(tintFilterForGenomeSlot(genomeHex, "head"))}
-        >
-          <SpriteLayer src={spriteSrc(headId)} meta={spritePartMeta(manifest, headId)} />
-        </div>
-        <div
-          className={`agent-pet-face agent-pet-png-layer ${animated ? "is-animated" : ""}`}
-          style={filterStyle(tintFilterForGenomeSlot(genomeHex, "face"))}
-        >
-          <SpriteLayer src={spriteSrc(faceId)} meta={spritePartMeta(manifest, faceId)} />
-        </div>
-      </div>
-    </div>
-  );
-}
-
 export function AgentPetSprite({
   pet,
   parts,
@@ -306,7 +220,6 @@ export function AgentPetSprite({
   animated?: boolean;
   state?: string;
 }) {
-  const manifest = useManifest();
   if (pet?.visual && Array.isArray(pet.stageAssets) && pet.stageAssets.length > 0) {
     return (
       <div className={`agent-pet-sprite ${className}`.trim()} aria-hidden="true">
@@ -315,19 +228,9 @@ export function AgentPetSprite({
     );
   }
 
-  const headId = resolveSpritePartId(HEADS, parts?.headId, "head_vladimir", manifest);
-  const bodyId = resolveSpritePartId(BODIES, parts?.bodyId, "body-core", manifest);
-  const legsId = resolveSpritePartId(LEGS, parts?.legsId, "legs-stub", manifest);
-  const faceId = resolveSpritePartId(FACES, parts?.faceId, "face-default", manifest);
-  const accId = resolveSpritePartId(ACCESSORIES, parts?.accessoryId, "acc-none", manifest);
-  const usePng = usePngAvailable(manifest, [headId, bodyId, legsId, faceId, accId]);
-
   return (
     <div className={`agent-pet-sprite ${className}`.trim()} aria-hidden="true">
-      {usePng
-        ? <PngSprite parts={parts} animated={animated} manifest={manifest!} genomeHex={genomeHex} />
-        : <SvgSprite parts={parts} animated={animated} genomeHex={genomeHex} />
-      }
+      <SvgSprite parts={parts} animated={animated} genomeHex={genomeHex} />
     </div>
   );
 }
@@ -345,30 +248,6 @@ function SvgIcon({ parts, genomeHex }: { parts?: any; genomeHex?: string }) {
   );
 }
 
-function PngIcon({ parts, manifest, genomeHex }: { parts?: any; manifest: SpriteManifest; genomeHex?: string }) {
-  const headId = resolveSpritePartId(HEADS, parts?.headId, "head_vladimir", manifest);
-  const faceId = resolveSpritePartId(FACES, parts?.faceId, "face-default", manifest);
-
-  return (
-    <div className="agent-pet-png-icon-stack">
-      <div className="agent-pet-tint-bundle agent-pet-tint-bundle--icon">
-        <div
-          className="agent-pet-png-layer"
-          style={filterStyle(tintFilterForGenomeSlot(genomeHex, "head"))}
-        >
-          <SpriteLayer src={spriteSrc(headId)} meta={spritePartMeta(manifest, headId)} />
-        </div>
-        <div
-          className="agent-pet-png-layer"
-          style={filterStyle(tintFilterForGenomeSlot(genomeHex, "face"))}
-        >
-          <SpriteLayer src={spriteSrc(faceId)} meta={spritePartMeta(manifest, faceId)} />
-        </div>
-      </div>
-    </div>
-  );
-}
-
 export function AgentPetIcon({
   pet,
   parts,
@@ -380,7 +259,6 @@ export function AgentPetIcon({
   genomeHex?: string;
   className?: string;
 }) {
-  const manifest = useManifest();
   if (pet?.visual && Array.isArray(pet.stageAssets) && pet.stageAssets.length > 0) {
     return (
       <div className={`agent-pet-icon ${className}`.trim()} aria-hidden="true">
@@ -389,16 +267,9 @@ export function AgentPetIcon({
     );
   }
 
-  const headId = resolveSpritePartId(HEADS, parts?.headId, "head_vladimir", manifest);
-  const faceId = resolveSpritePartId(FACES, parts?.faceId, "face-default", manifest);
-  const usePng = usePngAvailable(manifest, [headId, faceId]);
-
   return (
     <div className={`agent-pet-icon ${className}`.trim()} aria-hidden="true">
-      {usePng
-        ? <PngIcon parts={parts} manifest={manifest!} genomeHex={genomeHex} />
-        : <SvgIcon parts={parts} genomeHex={genomeHex} />
-      }
+      <SvgIcon parts={parts} genomeHex={genomeHex} />
     </div>
   );
 }
