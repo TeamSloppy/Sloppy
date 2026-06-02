@@ -91,6 +91,33 @@ func autonomousSessionBypassesRiskyToolApprovalPrompt() async throws {
 }
 
 @Test
+func autonomousSessionBypassesMissingDirectoryAccessApproval() async throws {
+    let service = CoreService(config: .test, persistenceBuilder: InMemoryCorePersistenceBuilder())
+    let session = try await makeApprovalSession(service: service, agentID: "approval-autonomous-directory")
+    let file = try makeApprovalTempFile(contents: "autonomous")
+    await service.setSessionToolApprovalBypass(sessionID: session.id, enabled: true)
+
+    let invocation = Task {
+        await service.invokeToolFromRuntime(
+            agentID: "approval-autonomous-directory",
+            sessionID: session.id,
+            request: ToolInvocationRequest(tool: "files.read", arguments: ["path": .string(file.path)]),
+            recordSessionEvents: false
+        )
+    }
+
+    let pending = await waitForPendingToolApprovalIfAny(service)
+    if let pending {
+        _ = await service.rejectToolApproval(id: pending.id, decidedBy: "test")
+    }
+
+    let result = await invocation.value
+    #expect(pending == nil)
+    #expect(result.ok == true)
+    #expect(await service.listPendingToolApprovals().isEmpty)
+}
+
+@Test
 func sessionScopedToolApprovalSkipsNextSameToolApproval() async throws {
     let service = CoreService(config: .test, persistenceBuilder: InMemoryCorePersistenceBuilder())
     let session = try await makeApprovalSession(service: service, agentID: "approval-session-allow")
@@ -740,6 +767,16 @@ private func waitForPendingToolApproval(_ service: CoreService) async throws -> 
         try await Task.sleep(nanoseconds: 20_000_000)
     }
     throw ToolApprovalTestError.timeout
+}
+
+private func waitForPendingToolApprovalIfAny(_ service: CoreService) async -> ToolApprovalRecord? {
+    for _ in 0..<10 {
+        if let pending = await service.listPendingToolApprovals().first {
+            return pending
+        }
+        try? await Task.sleep(nanoseconds: 20_000_000)
+    }
+    return nil
 }
 
 private enum ToolApprovalTestError: Error {

@@ -13,6 +13,10 @@ import {
 } from "recharts";
 import { fetchProjectAnalytics } from "../../api";
 import { LoadingSkeleton } from "../../components/LoadingSkeleton";
+import {
+  analyticsTooltipContentStyle,
+  analyticsTooltipTextStyle
+} from "./projectAnalyticsTooltip";
 
 type WindowOption = "24h" | "7d" | "all";
 
@@ -46,16 +50,6 @@ function sortCounts(obj: any) {
   const entries = Object.entries(obj || {});
   entries.sort((a, b) => Number(b[1] || 0) - Number(a[1] || 0));
   return entries;
-}
-
-function analyticsTooltipStyle() {
-  return {
-    backgroundColor: "var(--surface-2, #1e293b)",
-    border: "1px solid var(--line-strong, #334155)",
-    borderRadius: 0,
-    fontSize: "0.76rem",
-    color: "var(--text, #e2e8f0)"
-  };
 }
 
 export function ProjectAnalyticsTab({
@@ -224,7 +218,9 @@ export function ProjectAnalyticsTab({
                           ))}
                         </Pie>
                         <Tooltip
-                          contentStyle={analyticsTooltipStyle()}
+                          contentStyle={analyticsTooltipContentStyle()}
+                          itemStyle={analyticsTooltipTextStyle()}
+                          labelStyle={analyticsTooltipTextStyle()}
                           formatter={(value: number, _name: string, item: any) => [
                             formatNumber(value),
                             item?.payload?.name ?? ""
@@ -270,7 +266,9 @@ export function ProjectAnalyticsTab({
                           tick={{ fill: "var(--muted)", fontSize: 10 }}
                         />
                         <Tooltip
-                          contentStyle={analyticsTooltipStyle()}
+                          contentStyle={analyticsTooltipContentStyle()}
+                          itemStyle={analyticsTooltipTextStyle()}
+                          labelStyle={analyticsTooltipTextStyle()}
                           formatter={(value: number) => [formatNumber(value), "Calls"]}
                           labelFormatter={(_label, payload) =>
                             payload?.[0]?.payload?.fullName || _label
@@ -297,7 +295,9 @@ export function ProjectAnalyticsTab({
                           tick={{ fill: "var(--muted)", fontSize: 10 }}
                         />
                         <Tooltip
-                          contentStyle={analyticsTooltipStyle()}
+                          contentStyle={analyticsTooltipContentStyle()}
+                          itemStyle={analyticsTooltipTextStyle()}
+                          labelStyle={analyticsTooltipTextStyle()}
                           formatter={(value: number) => [formatNumber(value), "Failures"]}
                           labelFormatter={(_label, payload) =>
                             payload?.[0]?.payload?.fullName || _label
@@ -332,7 +332,9 @@ export function ProjectAnalyticsTab({
                           tick={{ fill: "var(--muted)", fontSize: 10 }}
                         />
                         <Tooltip
-                          contentStyle={analyticsTooltipStyle()}
+                          contentStyle={analyticsTooltipContentStyle()}
+                          itemStyle={analyticsTooltipTextStyle()}
+                          labelStyle={analyticsTooltipTextStyle()}
                           formatter={(value: number) => [formatNumber(value), "Count"]}
                           labelFormatter={(_label, payload) =>
                             payload?.[0]?.payload?.fullName || _label
@@ -387,7 +389,9 @@ export function ProjectAnalyticsTab({
                           ))}
                         </Pie>
                         <Tooltip
-                          contentStyle={analyticsTooltipStyle()}
+                          contentStyle={analyticsTooltipContentStyle()}
+                          itemStyle={analyticsTooltipTextStyle()}
+                          labelStyle={analyticsTooltipTextStyle()}
                           formatter={(value: number, _name: string, item: any) => [
                             formatNumber(value),
                             item?.payload?.name ?? ""
@@ -410,4 +414,3 @@ export function ProjectAnalyticsTab({
     </section>
   );
 }
-

@@ -165,6 +165,18 @@ final class AgentSessionFileStore: @unchecked Sendable {
         }
     }
 
+    func sessionFilePath(agentID: String, sessionID: String) throws -> String {
+        try withLock {
+            let normalizedAgentID = try normalizedAgentID(agentID)
+            let normalizedSessionID = try normalizedSessionID(sessionID)
+            guard let fileURL = sessionFileURL(agentID: normalizedAgentID, sessionID: normalizedSessionID),
+                  fileManager.fileExists(atPath: fileURL.path) else {
+                throw StoreError.sessionNotFound
+            }
+            return fileURL.standardizedFileURL.path
+        }
+    }
+
     @discardableResult
     func appendEvents(agentID: String, sessionID: String, events: [AgentSessionEvent]) throws -> AgentSessionSummary {
         try withLock {

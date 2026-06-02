@@ -160,6 +160,46 @@ func tuiBackgroundSessionIsCreatedAndOwnedByCoreService() async throws {
 }
 
 @Test
+func consecutiveTUIBackgroundSessionsUseDistinctWorktrees() async throws {
+    let config = CoreConfig.test
+    let service = CoreService(config: config, persistenceBuilder: InMemoryCorePersistenceBuilder())
+    defer {
+        try? FileManager.default.removeItem(at: config.resolvedWorkspaceRootURL())
+    }
+    await service.registerSourceControlProvider(TUIFakeSourceControlProvider())
+    let repo = FileManager.default.temporaryDirectory
+        .appendingPathComponent("sloppy-tui-bg-distinct-\(UUID().uuidString)", isDirectory: true)
+    try FileManager.default.createDirectory(at: repo, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: repo) }
+
+    _ = try await service.createAgent(AgentCreateRequest(id: "bg-distinct-agent", displayName: "BG Agent", role: "Testing"))
+    _ = try await service.createProject(ProjectCreateRequest(
+        id: "tui-bg-distinct",
+        name: "TUI BG Distinct",
+        repoPath: repo.path,
+        sourceControlProviderId: "tui-fake-sc"
+    ))
+
+    let first = try await service.startTUIBackgroundSession(
+        agentID: "bg-distinct-agent",
+        projectID: "tui-bg-distinct",
+        task: "First background task",
+        mode: .build,
+        reasoningEffort: .low
+    )
+    let second = try await service.startTUIBackgroundSession(
+        agentID: "bg-distinct-agent",
+        projectID: "tui-bg-distinct",
+        task: "Second background task",
+        mode: .build,
+        reasoningEffort: .low
+    )
+
+    #expect(first.worktree.worktreePath != second.worktree.worktreePath)
+    #expect(first.worktree.branchName != second.worktree.branchName)
+}
+
+@Test
 func taskWorkerRetryPreservesExistingTaskSessions() async throws {
     let config = CoreConfig.test
     let service = CoreService(config: config, persistenceBuilder: InMemoryCorePersistenceBuilder())

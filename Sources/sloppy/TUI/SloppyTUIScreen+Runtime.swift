@@ -437,6 +437,8 @@ extension SloppyTUIScreen {
                 )
                 children.append(card)
                 blocks.append(.subSession(childSessionId: card.childSessionId, title: card.title, status: card.status))
+            } else if event.type == .memoryCheckpoint, let checkpoint = event.memoryCheckpoint {
+                blocks.append(.memoryCheckpoint(checkpoint))
             } else if let toolCall = event.toolCall {
                 let display = SloppyTUITimelineDisplay.toolCallDisplay(tool: toolCall.tool, arguments: toolCall.arguments)
                 blocks.append(.toolCall(

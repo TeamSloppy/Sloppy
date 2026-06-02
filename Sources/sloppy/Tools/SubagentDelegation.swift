@@ -42,6 +42,13 @@ enum SubagentDelegation {
         "lsp": ["lsp.query"],
         "visor": ["visor.status"],
         "system": ["system.list_tools"],
+        "project_tasks": [
+            "project.current",
+            "project.task_list",
+            "project.task_create",
+            "project.task_get",
+            "project.task_update",
+        ],
         "project": [
             "project.list",
             "project.current",

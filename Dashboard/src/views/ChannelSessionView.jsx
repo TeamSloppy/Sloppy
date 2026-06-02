@@ -965,6 +965,19 @@ export function ChannelSessionView({ sessionId, onNavigateBack }) {
                     );
                   }
 
+                  if (item.type === "compact_lifecycle") {
+                    const status = String(item.metadata?.status || "").toLowerCase();
+                    const title = status === "started" ? "Compacting context" : item.content || "Compact";
+                    return (
+                      <div key={item.id} className="agent-chat-tech-entry">
+                        <div className={`agent-chat-tech-trigger ${status === "started" ? "shimmer" : ""}`}>
+                          <span className="agent-chat-tech-trigger-label">{title}</span>
+                          <span className="agent-chat-tech-trigger-time">{formatEventTime(item.createdAt)}</span>
+                        </div>
+                      </div>
+                    );
+                  }
+
                   if (!item.isMessage) {
                     return (
                       <article key={item.id} className="agent-chat-technical">

@@ -24,6 +24,28 @@ struct DebugAPIRouter: APIRouter {
         }
 
         router.get(
+            "/v1/debug/session-file-path/:agentId/:sessionId",
+            metadata: RouteMetadata(summary: "Debug agent session file path", description: "Returns the local JSONL file path for an agent session", tags: ["Debug"])
+        ) { request in
+            let agentId = request.pathParam("agentId") ?? ""
+            let sessionId = request.pathParam("sessionId") ?? ""
+            guard !agentId.isEmpty, !sessionId.isEmpty else {
+                return CoreRouter.json(status: HTTPStatus.badRequest, payload: ["error": ErrorCode.invalidBody])
+            }
+
+            do {
+                let filePath = try await service.getAgentSessionFilePath(agentID: agentId, sessionID: sessionId)
+                return CoreRouter.json(status: HTTPStatus.ok, payload: [
+                    "agentId": agentId,
+                    "sessionId": sessionId,
+                    "filePath": filePath
+                ])
+            } catch {
+                return CoreRouter.json(status: HTTPStatus.notFound, payload: ["error": ErrorCode.notFound])
+            }
+        }
+
+        router.get(
             "/v1/debug/channels",
             metadata: RouteMetadata(summary: "Debug active channels", description: "Returns all active runtime channels with context utilization and bootstrap sizes", tags: ["Debug"])
         ) { _ in

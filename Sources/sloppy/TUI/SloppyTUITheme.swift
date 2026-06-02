@@ -561,7 +561,7 @@ enum SloppyTUITheme {
         let cwdText = truncateStart(cwd, maxWidth: max(8, width / 2))
         let agentText = truncateEnd(agent, maxWidth: max(4, width / 5))
         let providerText = truncateEnd(provider, maxWidth: max(4, width / 5))
-        let text = "  " + orange("shell") + muted(" · ") + foreground(cwdText) + muted("  ") + muted(agentText) + muted("  ") + muted(providerText)
+        let text = "  " + red(AnsiStyling.bold("shell")) + muted(" · ") + foreground(cwdText) + muted("  ") + muted(agentText) + muted("  ") + muted(providerText)
         return applyPanelBackground(padded(fittedLine(text, width: width), width: width), width: width)
     }
 
@@ -798,13 +798,16 @@ enum SloppyTUITheme {
         return green
     }
 
-    static func highlightedComposerLines(_ lines: [String]) -> [String] {
+    static func highlightedComposerLines(_ lines: [String], shellMode: Bool = false) -> [String] {
         var borderCount = 0
         var isContinuingProjectPath = false
         return lines.map { line in
             if isEditorBorderLine(line) {
                 borderCount += 1
                 isContinuingProjectPath = false
+                if shellMode {
+                    return red(strippingANSI(from: line))
+                }
                 return line
             }
             guard borderCount == 1 else {
@@ -1079,6 +1082,29 @@ enum SloppyTUITheme {
                 + muted(" · ")
                 + statusText
                 + muted(" · \(shortID(childSessionId)) · ctrl+g to enter"),
+            width: paddedBlockLineWidth(width)
+        )
+        return applyBackground(padded(line, width: width), width: width, background: toolBackground)
+    }
+
+    static func memoryCheckpointLine(_ checkpoint: AgentMemoryCheckpointEvent, frame: Int, width: Int) -> String {
+        let statusText: String
+        switch checkpoint.status {
+        case .started:
+            statusText = muted(waitingFrames[frame % waitingFrames.count] + " ") + accentBright("compacting context")
+        case .succeeded:
+            statusText = green(checkpoint.message)
+        case .failed:
+            statusText = red(checkpoint.message)
+        }
+        let reason = checkpoint.reason?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let reasonText = reason?.isEmpty == false ? muted(" · \(reason ?? "")") : ""
+        let line = fittedLine(
+            blockLeftPadding
+                + green("compact")
+                + muted(" · ")
+                + statusText
+                + reasonText,
             width: paddedBlockLineWidth(width)
         )
         return applyBackground(padded(line, width: width), width: width, background: toolBackground)

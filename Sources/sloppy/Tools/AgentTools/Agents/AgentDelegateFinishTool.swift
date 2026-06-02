@@ -67,6 +67,14 @@ struct AgentDelegateFinishTool: CoreTool {
 
         let error = arguments["error"]?.asString?
             .trimmingCharacters(in: .whitespacesAndNewlines)
+        if normalizedStatus == "completed", !(error ?? "").isEmpty {
+            return toolFailure(
+                tool: name,
+                code: "invalid_arguments",
+                message: "Use status `blocked` or `failed` when reporting an error; completed outcomes must not include `error`.",
+                retryable: false
+            )
+        }
         if normalizedStatus != "completed", (error ?? "").isEmpty {
             return toolFailure(
                 tool: name,

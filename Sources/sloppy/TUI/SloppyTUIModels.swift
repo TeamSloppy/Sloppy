@@ -644,6 +644,7 @@ enum SloppyTUITimelineBlock {
     case thinking(String)
     case attachment(name: String, mimeType: String, sizeBytes: Int)
     case subSession(childSessionId: String, title: String, status: SloppyTUISubSessionStatus)
+    case memoryCheckpoint(AgentMemoryCheckpointEvent)
     case buildProgress(AgentBuildProgressEvent)
     case planArtifact(PlanArtifactRecord)
     case inputRequest(PlanInputRequest)
@@ -665,6 +666,8 @@ enum SloppyTUITimelineBlock {
             return "\(name) \(mimeType)"
         case .subSession(let childSessionId, let title, let status):
             return "\(title) \(childSessionId) \(status.plainText)"
+        case .memoryCheckpoint(let event):
+            return event.message
         case .buildProgress(let progress):
             let items = progress.items.map {
                 "\($0.title) \($0.status.rawValue) \($0.definitionOfDone)"

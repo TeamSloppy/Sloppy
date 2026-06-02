@@ -21,6 +21,8 @@ struct AgentChatView: View {
     @State private var streamingFlushTask: Task<Void, Never>?
     @State private var pendingStreamingSessionId: String?
     @State private var pendingStreamingAssistantText: String?
+    @State private var sessionActionStatus: String?
+    @State private var settings = ClientSettings()
     @Environment(\.theme) private var theme
 
     var body: some View {
@@ -66,22 +68,50 @@ struct AgentChatView: View {
                 ScrollView(.horizontal) {
                     HStack(spacing: sp.s) {
                         ForEach(sessions) { session in
-                            EntityCard(
-                                title: session.title.isEmpty ? "Session" : session.title,
-                                subtitle: "\(session.messageCount) messages",
-                                accentColor: c.accentCyan,
-                                onTap: { selectSession(session.id) }
-                            )
-                            .frame(width: 200) // Give cards a fixed width so they scroll nicely
+                            sessionCard(session: session, c: c)
                         }
                     }
                     .padding(.horizontal, sp.l)
                 }
             }
+
+            if let sessionActionStatus {
+                Text(sessionActionStatus)
+                    .font(.system(size: ty.micro))
+                    .foregroundColor(c.textMuted)
+                    .lineLimit(2)
+                    .padding(.horizontal, sp.l)
+            }
         }
         .padding(.top, sp.l)
         .padding(.bottom, sp.m)
         .onAppear { loadSessions() }
+    }
+
+    private func sessionCard(session: ChatSessionSummary, c: AppColors) -> some View {
+        let isPinned = settings.isSessionPinned(session.id)
+
+        return EntityCard(
+            title: session.title.isEmpty ? "Session" : session.title,
+            subtitle: "\(session.messageCount) messages",
+            trailing: isPinned ? "PIN" : nil,
+            accentColor: c.accentCyan,
+            onTap: { selectSession(session.id) }
+        )
+        .frame(width: 200) // Give cards a fixed width so they scroll nicely
+        .contextMenu {
+            Button(isPinned ? "Unpin Chat" : "Pin Chat") {
+                toggleSessionPinned(session)
+            }
+
+            Button("Copy Session File Debug Link") {
+                copyDebugSessionFileLink(session)
+            }
+
+            Button("Delete Chat", role: .destructive) {
+                deleteSession(session)
+            }
+        }
     }
 
     // MARK: - Session management
@@ -114,6 +144,37 @@ struct AgentChatView: View {
 
     // MARK: - Actions
 
+    private func deleteSession(_ session: ChatSessionSummary) {
+        Task { @MainActor in
+            do {
+                try await apiClient.deleteAgentSession(agentId: agent.id, sessionId: session.id)
+                settings.setSessionPinned(session.id, isPinned: false)
+                sessions.removeAll { $0.id == session.id }
+
+                if selectedSessionId == session.id {
+                    disconnectAndClearSession()
+                }
+
+                showSessionStatus("Deleted \(displayTitle(for: session))")
+            } catch {
+                showSessionStatus("Could not delete \(displayTitle(for: session))")
+            }
+        }
+    }
+
+    private func toggleSessionPinned(_ session: ChatSessionSummary) {
+        let nextPinned = !settings.isSessionPinned(session.id)
+        settings.setSessionPinned(session.id, isPinned: nextPinned)
+        sessions = sortSessions(sessions)
+        showSessionStatus(nextPinned ? "Pinned \(displayTitle(for: session))" : "Unpinned \(displayTitle(for: session))")
+    }
+
+    private func copyDebugSessionFileLink(_ session: ChatSessionSummary) {
+        let url = debugSessionFilePathURL(for: session)
+        UIClipboard.setString(url.absoluteString)
+        showSessionStatus("Copied session file debug link")
+    }
+
     private func loadSessions(force: Bool = false) {
         guard force || !didLoadSessions else { return }
         guard !isLoadingSessions else { return }
@@ -124,7 +185,7 @@ struct AgentChatView: View {
                 didLoadSessions = true
                 isLoadingSessions = false
             }
-            sessions = (try? await apiClient.fetchAgentSessions(agentId: agent.id)) ?? []
+            sessions = sortSessions((try? await apiClient.fetchAgentSessions(agentId: agent.id)) ?? [])
         }
     }
 
@@ -135,6 +196,7 @@ struct AgentChatView: View {
                 title: "Chat with \(agent.displayName)"
             ) else { return }
             sessions.insert(summary, at: 0)
+            sessions = sortSessions(sessions)
             selectSession(summary.id)
         }
     }
@@ -259,6 +321,37 @@ struct AgentChatView: View {
 
     private func streamingAssistantMessageId(for sessionId: String) -> String {
         "streaming-assistant-\(sessionId)"
+    }
+
+    private func sortSessions(_ sessions: [ChatSessionSummary]) -> [ChatSessionSummary] {
+        sessions.sorted { lhs, rhs in
+            let lhsPinned = settings.isSessionPinned(lhs.id)
+            let rhsPinned = settings.isSessionPinned(rhs.id)
+            if lhsPinned != rhsPinned {
+                return lhsPinned
+            }
+            return lhs.updatedAt > rhs.updatedAt
+        }
+    }
+
+    private func debugSessionFilePathURL(for session: ChatSessionSummary) -> URL {
+        var components = URLComponents(url: apiClient.baseURL, resolvingAgainstBaseURL: false)
+            ?? URLComponents()
+        components.path = "/v1/debug/session-file-path/\(Self.urlPathEscape(agent.id))/\(Self.urlPathEscape(session.id))"
+        components.queryItems = nil
+        return components.url ?? apiClient.baseURL
+    }
+
+    private static func urlPathEscape(_ value: String) -> String {
+        value.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? value
+    }
+
+    private func displayTitle(for session: ChatSessionSummary) -> String {
+        session.title.isEmpty ? "Session" : session.title
+    }
+
+    private func showSessionStatus(_ status: String) {
+        sessionActionStatus = status
     }
 
     private func sendMessage(agentId: String, sessionId: String, content: String) {

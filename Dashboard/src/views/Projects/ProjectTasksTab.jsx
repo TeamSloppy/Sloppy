@@ -10,9 +10,13 @@ import {
     LOOP_MODES,
     buildTaskCounts,
     buildSwarmGroups,
-    formatRelativeTime,
-    sortTasksByDate
+    formatRelativeTime
 } from "./utils";
+import {
+    buildProjectTaskSelectionOrder,
+    sortProjectKanbanColumnTasks,
+    taskSelectionRangeIds
+} from "./taskSelection";
 import {
     fetchTaskComments,
     addTaskComment,
@@ -1738,6 +1742,7 @@ export function ProjectTasksTab({
     const [assigneeFilter, setAssigneeFilter] = useState("");
     const [selectionMode, setSelectionMode] = useState(false);
     const [selectedTaskIds, setSelectedTaskIds] = useState(() => new Set());
+    const [lastSelectedTaskId, setLastSelectedTaskId] = useState("");
     const [contextMenu, setContextMenu] = useState(null);
     const [bulkBusy, setBulkBusy] = useState(false);
 
@@ -1830,6 +1835,10 @@ export function ProjectTasksTab({
             return true;
         });
     }, [activeTasks, tagFilter, assigneeFilter]);
+    const visibleTaskSelectionOrder = useMemo(
+        () => buildProjectTaskSelectionOrder(filteredActiveTasks, TASK_STATUSES),
+        [filteredActiveTasks]
+    );
 
     const activeTaskIdSet = useMemo(
         () => new Set(activeTasks.map((task) => String(task.id || "").trim()).filter(Boolean)),
@@ -1856,6 +1865,12 @@ export function ProjectTasksTab({
             return changed ? next : previous;
         });
     }, [activeTaskIdSet]);
+
+    useEffect(() => {
+        setLastSelectedTaskId((previous) => (
+            previous && visibleTaskSelectionOrder.includes(previous) ? previous : ""
+        ));
+    }, [visibleTaskSelectionOrder]);
 
     useEffect(() => {
         if (!contextMenu) {
@@ -1888,6 +1903,7 @@ export function ProjectTasksTab({
 
     function clearSelection() {
         setSelectedTaskIds(new Set());
+        setLastSelectedTaskId("");
         setContextMenu(null);
     }
 
@@ -1906,6 +1922,28 @@ export function ProjectTasksTab({
             }
             return next;
         });
+        setLastSelectedTaskId(normalized);
+        setContextMenu(null);
+    }
+
+    function selectTaskRange(taskId) {
+        const normalized = String(taskId || "").trim();
+        if (!normalized) {
+            return;
+        }
+        const anchorTaskId = lastSelectedTaskId || (selectedTaskIdList.length === 1 ? selectedTaskIdList[0] : "");
+        const rangeIds = taskSelectionRangeIds(visibleTaskSelectionOrder, anchorTaskId, normalized);
+        if (rangeIds.length === 0) {
+            return;
+        }
+        setSelectionMode(true);
+        setSelectedTaskIds((previous) => {
+            const next = new Set(previous);
+            rangeIds.forEach((id) => next.add(id));
+            return next;
+        });
+        setLastSelectedTaskId(normalized);
+        setContextMenu(null);
     }
 
     function openTaskContextMenu(event, task) {
@@ -1920,6 +1958,7 @@ export function ProjectTasksTab({
             : [taskId];
         setSelectionMode(true);
         setSelectedTaskIds(new Set(taskIds));
+        setLastSelectedTaskId(taskId);
         setContextMenu({
             x: event.clientX,
             y: event.clientY,
@@ -2234,21 +2273,7 @@ export function ProjectTasksTab({
 
                 <div className="project-kanban-board">
                     {TASK_STATUSES.map((column) => {
-                        const tasks = sortTasksByDate(filteredActiveTasks.filter((task) => task.status === column.id)).sort((left, right) => {
-                            if (left.swarmId && right.swarmId && left.swarmId !== right.swarmId) {
-                                return left.swarmId.localeCompare(right.swarmId);
-                            }
-                            if (left.swarmId && !right.swarmId) {
-                                return -1;
-                            }
-                            if (!left.swarmId && right.swarmId) {
-                                return 1;
-                            }
-                            if ((left.swarmDepth ?? 0) !== (right.swarmDepth ?? 0)) {
-                                return (left.swarmDepth ?? 0) - (right.swarmDepth ?? 0);
-                            }
-                            return new Date(left.createdAt).getTime() - new Date(right.createdAt).getTime();
-                        });
+                        const tasks = sortProjectKanbanColumnTasks(filteredActiveTasks.filter((task) => task.status === column.id));
 
                         return (
                             <section
@@ -2336,6 +2361,11 @@ export function ProjectTasksTab({
                                                         tabIndex={0}
                                                         draggable={!selectionMode}
                                                         onClick={(event) => {
+                                                            if (event.shiftKey) {
+                                                                event.preventDefault();
+                                                                selectTaskRange(task.id);
+                                                                return;
+                                                            }
                                                             if (selectionMode || event.metaKey || event.ctrlKey) {
                                                                 event.preventDefault();
                                                                 setSelectionMode(true);
@@ -2379,6 +2409,10 @@ export function ProjectTasksTab({
                                                                         aria-label={selectedTaskIdSet.has(String(task.id || "").trim()) ? "Deselect task" : "Select task"}
                                                                         onClick={(event) => {
                                                                             event.stopPropagation();
+                                                                            if (event.shiftKey) {
+                                                                                selectTaskRange(task.id);
+                                                                                return;
+                                                                            }
                                                                             toggleTaskSelection(task.id);
                                                                         }}
                                                                     >

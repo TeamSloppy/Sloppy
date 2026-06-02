@@ -384,7 +384,13 @@ extension CoreService {
                 projectId: projectID
             )
         )
-        let taskID = "tui-\(String(session.id.prefix(8)))"
+        let sessionIDPrefix = "session-"
+        let taskIDSeed = if session.id.hasPrefix(sessionIDPrefix) {
+            String(session.id.dropFirst(sessionIDPrefix.count))
+        } else {
+            session.id
+        }
+        let taskID = "tui-\(String(taskIDSeed.prefix(8)))"
         let worktree = try await createTUIBackgroundWorktree(projectID: projectID, taskID: taskID)
         _ = try await addAgentSessionDirectory(
             agentID: agentID,

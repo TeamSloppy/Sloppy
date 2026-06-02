@@ -130,10 +130,65 @@ struct SloppyCLIClient {
         try await request(method: "DELETE", urlString: baseURL + path, body: nil)
     }
 
+    func streamAgentSessionEvents(agentID: String, sessionID: String) -> AsyncThrowingStream<AgentSessionStreamUpdate, Error> {
+        let path = "/v1/agents/\(Self.escape(agentID))/sessions/\(Self.escape(sessionID))/stream"
+        return stream(path: path, as: AgentSessionStreamUpdate.self)
+    }
+
     func encode<T: Encodable>(_ value: T) throws -> Data {
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
         return try encoder.encode(value)
+    }
+
+    static func escape(_ raw: String) -> String {
+        raw.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? raw
+    }
+
+    private func stream<T: Decodable & Sendable>(path: String, as type: T.Type) -> AsyncThrowingStream<T, Error> {
+        AsyncThrowingStream(bufferingPolicy: .bufferingNewest(128)) { continuation in
+            let task = Task {
+                guard let url = URL(string: baseURL + path) else {
+                    continuation.finish(throwing: CLIClientError.invalidURL)
+                    return
+                }
+                var request = URLRequest(url: url, timeoutInterval: 60 * 60)
+                request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+                request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
+
+                if verbose {
+                    let arrow = CLIStyle.dim("-->")
+                    let out = "  \(arrow) GET \(url.absoluteString)\n"
+                    FileHandle.standardError.write(Data(out.utf8))
+                }
+
+                do {
+                    let (lines, response) = try await SloppyCLILineStream.open(request: request)
+                    guard let httpResponse = response as? HTTPURLResponse else {
+                        continuation.finish(throwing: CLIClientError.noData)
+                        return
+                    }
+                    guard httpResponse.statusCode < 400 else {
+                        continuation.finish(throwing: CLIClientError.httpError(httpResponse.statusCode, "stream failed"))
+                        return
+                    }
+
+                    let decoder = JSONDecoder()
+                    decoder.dateDecodingStrategy = .iso8601
+                    for try await line in lines {
+                        guard line.hasPrefix("data: ") else { continue }
+                        let payload = String(line.dropFirst("data: ".count))
+                        guard let data = payload.data(using: .utf8) else { continue }
+                        guard let value = try? decoder.decode(type, from: data) else { continue }
+                        continuation.yield(value)
+                    }
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: CLIClientError.notConnected(baseURL))
+                }
+            }
+            continuation.onTermination = { _ in task.cancel() }
+        }
     }
 
     private func request(method: String, urlString: String, body: Data?) async throws -> Data {
@@ -185,5 +240,110 @@ struct SloppyCLIClient {
         }
 
         return data
+    }
+}
+
+private enum SloppyCLILineStream {
+    static func open(request: URLRequest) async throws -> (AsyncThrowingStream<String, Error>, URLResponse) {
+        let delegate = SloppyCLILineStreamDelegate()
+        let session = URLSession(configuration: .default, delegate: delegate, delegateQueue: nil)
+        let task = session.dataTask(with: request)
+        delegate.attach(session: session, task: task)
+        let response = try await delegate.start()
+        return (delegate.lines(), response)
+    }
+}
+
+private final class SloppyCLILineStreamDelegate: NSObject, URLSessionDataDelegate, @unchecked Sendable {
+    nonisolated(unsafe) private var responseContinuation: CheckedContinuation<URLResponse, Error>?
+    nonisolated(unsafe) private var streamContinuation: AsyncThrowingStream<Data, Error>.Continuation?
+    nonisolated(unsafe) private var session: URLSession?
+    nonisolated(unsafe) private var task: URLSessionDataTask?
+    private let chunks: AsyncThrowingStream<Data, Error>
+
+    override init() {
+        var continuation: AsyncThrowingStream<Data, Error>.Continuation!
+        self.chunks = AsyncThrowingStream { cont in
+            continuation = cont
+        }
+        self.streamContinuation = continuation
+        super.init()
+    }
+
+    func attach(session: URLSession, task: URLSessionDataTask) {
+        self.session = session
+        self.task = task
+    }
+
+    func start() async throws -> URLResponse {
+        try await withCheckedThrowingContinuation { continuation in
+            self.responseContinuation = continuation
+            self.task?.resume()
+        }
+    }
+
+    func lines() -> AsyncThrowingStream<String, Error> {
+        AsyncThrowingStream { continuation in
+            let task = Task {
+                var buffer = Data()
+                do {
+                    for try await chunk in chunks {
+                        buffer.append(chunk)
+                        while let newline = buffer.firstIndex(of: 0x0A) {
+                            let lineData = buffer[..<newline]
+                            buffer.removeSubrange(...newline)
+                            var line = String(data: lineData, encoding: .utf8) ?? ""
+                            if line.hasSuffix("\r") {
+                                line.removeLast()
+                            }
+                            continuation.yield(line)
+                        }
+                    }
+                    if !buffer.isEmpty,
+                       let line = String(data: buffer, encoding: .utf8) {
+                        continuation.yield(line)
+                    }
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+            continuation.onTermination = { _ in task.cancel() }
+        }
+    }
+
+    func urlSession(
+        _ session: URLSession,
+        dataTask: URLSessionDataTask,
+        didReceive response: URLResponse,
+        completionHandler: @escaping (URLSession.ResponseDisposition) -> Void
+    ) {
+        responseContinuation?.resume(returning: response)
+        responseContinuation = nil
+        completionHandler(.allow)
+    }
+
+    func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
+        streamContinuation?.yield(data)
+    }
+
+    func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
+        if let responseContinuation {
+            if let error {
+                responseContinuation.resume(throwing: error)
+            } else if let response = task.response {
+                responseContinuation.resume(returning: response)
+            } else {
+                responseContinuation.resume(throwing: CLIClientError.noData)
+            }
+            self.responseContinuation = nil
+        }
+
+        if let error {
+            streamContinuation?.finish(throwing: error)
+        } else {
+            streamContinuation?.finish()
+        }
+        self.session?.finishTasksAndInvalidate()
     }
 }

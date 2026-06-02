@@ -767,6 +767,28 @@ extension CoreService {
         guard !normalizedGrants.isEmpty else {
             return nil
         }
+        if let normalizedSessionID = sessionID.flatMap(normalizedSessionID),
+           sessionToolApprovalBypass.contains(normalizedSessionID),
+           normalizedGrants.allSatisfy({ $0.kind == .directory }) {
+            let now = Date()
+            let record = ToolApprovalRecord(
+                status: .approved,
+                approvalKind: .missingAccess,
+                agentId: agentID,
+                sessionId: normalizedSessionID,
+                channelId: channelID,
+                topicId: topicID,
+                tool: request.tool,
+                arguments: request.arguments,
+                grants: normalizedGrants,
+                reason: request.reason,
+                decidedBy: "session_tool_approval_bypass",
+                createdAt: now,
+                updatedAt: now,
+                expiresAt: now
+            )
+            return MissingAccessApprovalState(result: .approved(record), grants: normalizedGrants)
+        }
         let result = await requestMissingAccessApproval(
             agentID: agentID,
             sessionID: sessionID,

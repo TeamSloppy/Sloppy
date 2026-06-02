@@ -11,6 +11,7 @@ public final class ClientSettings {
         static let windowCloseBehavior = "client_window_close_behavior"
         static let lastAgentId = "client_last_agent_id"
         static let lastSessionId = "client_last_session_id"
+        static let pinnedSessionIds = "client_pinned_session_ids"
         static let savedServers = "client_saved_servers"
     }
 
@@ -36,6 +37,12 @@ public final class ClientSettings {
 
     public var lastSessionId: String? {
         didSet { UserDefaults.standard.set(lastSessionId, forKey: Keys.lastSessionId) }
+    }
+
+    public var pinnedSessionIds: Set<String> {
+        didSet {
+            UserDefaults.standard.set(Array(pinnedSessionIds).sorted(), forKey: Keys.pinnedSessionIds)
+        }
     }
 
     public var savedServers: [SavedServer] {
@@ -65,6 +72,7 @@ public final class ClientSettings {
             .flatMap(ClientWindowCloseBehavior.init(rawValue:)) ?? .keepProcess
         lastAgentId = defaults.string(forKey: Keys.lastAgentId)
         lastSessionId = defaults.string(forKey: Keys.lastSessionId)
+        pinnedSessionIds = Set(defaults.stringArray(forKey: Keys.pinnedSessionIds) ?? [])
 
         if let data = defaults.data(forKey: Keys.savedServers),
            let servers = try? JSONDecoder().decode([SavedServer].self, from: data) {
@@ -79,6 +87,18 @@ public final class ClientSettings {
         serverPort = server.port
         if !savedServers.contains(where: { $0.id == server.id }) {
             savedServers.append(server)
+        }
+    }
+
+    public func isSessionPinned(_ sessionId: String) -> Bool {
+        pinnedSessionIds.contains(sessionId)
+    }
+
+    public func setSessionPinned(_ sessionId: String, isPinned: Bool) {
+        if isPinned {
+            pinnedSessionIds.insert(sessionId)
+        } else {
+            pinnedSessionIds.remove(sessionId)
         }
     }
 }

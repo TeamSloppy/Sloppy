@@ -18,6 +18,7 @@ import {
 } from "../api";
 import { useKanbanSocket } from "./Projects/useKanbanSocket";
 import { Breadcrumbs } from "../components/Breadcrumbs/Breadcrumbs";
+import { useNotifications } from "../features/notifications/NotificationContext";
 
 import {
   ACTIVE_WORKER_STATUSES,
@@ -51,6 +52,10 @@ import {
   buildProjectChannels,
   emptyProjectDraft
 } from "./Projects/utils";
+import {
+  projectNotificationTargetsLiveUpdates,
+  resolveProjectLiveUpdatesId
+} from "./Projects/projectLiveUpdates";
 import { ProjectOverviewTab } from "./Projects/ProjectOverviewTab";
 import { ProjectTasksTab } from "./Projects/ProjectTasksTab";
 import { ProjectWorkersTab } from "./Projects/ProjectWorkersTab";
@@ -1117,6 +1122,7 @@ export function ProjectsView({
   onSidebarProjectsListChanged = () => { },
   onNavigateToChannelSession = (_sessionId) => { }
 }) {
+  const { notifications } = useNotifications();
   const [projects, setProjects] = useState([]);
   const [isLoadingProjects, setIsLoadingProjects] = useState(true);
   const [statusText, setStatusText] = useState("Loading projects...");
@@ -1136,8 +1142,38 @@ export function ProjectsView({
   const [availableChannels, setAvailableChannels] = useState([]);
   const [isTaskDetailFullscreen, setIsTaskDetailFullscreen] = useState(false);
   const [showArchived, setShowArchived] = useState(false);
+  const handledProjectNotificationIdsRef = useRef(new Set());
 
-  useKanbanSocket(routeProjectId, (event) => {
+  const activeProjects = useMemo(() => {
+    return projects
+      .filter((p) => !p.isArchived)
+      .sort((left, right) => {
+        const favoriteDelta = Number(Boolean(right.isFavorite)) - Number(Boolean(left.isFavorite));
+        if (favoriteDelta !== 0) {
+          return favoriteDelta;
+        }
+        return left.name.localeCompare(right.name, undefined, { sensitivity: "base" });
+      });
+  }, [projects]);
+  const archivedProjects = useMemo(() => projects.filter((p) => p.isArchived), [projects]);
+
+  const selectedProject = useMemo(() => {
+    if (routeProjectId) {
+      return projects.find((project) => project.id === routeProjectId) || null;
+    }
+    if (!routeProjectTaskReference) {
+      return null;
+    }
+    return (
+      projects.find((project) => resolveTaskByReference(project.id, project.tasks, routeProjectTaskReference)) || null
+    );
+  }, [projects, routeProjectId, routeProjectTaskReference]);
+  const liveUpdatesProjectId = useMemo(
+    () => resolveProjectLiveUpdatesId(routeProjectId, selectedProject),
+    [routeProjectId, selectedProject?.id]
+  );
+
+  useKanbanSocket(liveUpdatesProjectId, (event) => {
     setProjects((prev) => {
       const projectIndex = prev.findIndex((p) => p.id === event.projectId);
       if (projectIndex === -1) {
@@ -1190,31 +1226,6 @@ export function ProjectsView({
       return next;
     });
   });
-
-  const activeProjects = useMemo(() => {
-    return projects
-      .filter((p) => !p.isArchived)
-      .sort((left, right) => {
-        const favoriteDelta = Number(Boolean(right.isFavorite)) - Number(Boolean(left.isFavorite));
-        if (favoriteDelta !== 0) {
-          return favoriteDelta;
-        }
-        return left.name.localeCompare(right.name, undefined, { sensitivity: "base" });
-      });
-  }, [projects]);
-  const archivedProjects = useMemo(() => projects.filter((p) => p.isArchived), [projects]);
-
-  const selectedProject = useMemo(() => {
-    if (routeProjectId) {
-      return projects.find((project) => project.id === routeProjectId) || null;
-    }
-    if (!routeProjectTaskReference) {
-      return null;
-    }
-    return (
-      projects.find((project) => resolveTaskByReference(project.id, project.tasks, routeProjectTaskReference)) || null
-    );
-  }, [projects, routeProjectId, routeProjectTaskReference]);
   const selectedTab = useMemo(() => {
     if (!selectedProject) {
       return "overview";
@@ -1242,6 +1253,45 @@ export function ProjectsView({
       setIsLoadingProjects(false);
     });
   }, []);
+
+  useEffect(() => {
+    if (!liveUpdatesProjectId || notifications.length === 0) {
+      return;
+    }
+
+    let shouldRefresh = false;
+    for (const notification of notifications) {
+      const notificationId = String(notification?.id || "").trim();
+      if (!notificationId || handledProjectNotificationIdsRef.current.has(notificationId)) {
+        continue;
+      }
+      if (projectNotificationTargetsLiveUpdates(notification, liveUpdatesProjectId)) {
+        handledProjectNotificationIdsRef.current.add(notificationId);
+        shouldRefresh = true;
+      }
+    }
+
+    if (!shouldRefresh) {
+      return;
+    }
+
+    let isCancelled = false;
+    fetchProjectRequest(liveUpdatesProjectId)
+      .then((project) => {
+        if (!isCancelled && project) {
+          replaceProjectInState(project);
+        }
+      })
+      .catch(() => {
+        if (!isCancelled) {
+          setStatusText("Failed to refresh project tasks.");
+        }
+      });
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [notifications, liveUpdatesProjectId]);
 
   useEffect(() => {
     if (!routeProjectId || !selectedProject?.isSummary) {

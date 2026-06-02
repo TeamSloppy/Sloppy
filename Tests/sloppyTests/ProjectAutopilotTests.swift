@@ -181,6 +181,43 @@ func projectAutopilotBlocksTaggedTaskWithoutDefaultAgent() async throws {
 }
 
 @Test
+func projectAutopilotWorkerToolsAlwaysIncludeTaskLifecycleTools() async throws {
+    let service = CoreService(config: .test, persistenceBuilder: InMemoryCorePersistenceBuilder())
+    let task = ProjectTask(
+        id: "task-1",
+        title: "Plan file explorer",
+        description: "",
+        priority: "medium",
+        status: ProjectTaskStatus.ready.rawValue,
+        kind: .planning,
+        tags: ["autopilot"]
+    )
+    let project = ProjectRecord(
+        id: "autopilot-worker-tools",
+        name: "Autopilot Worker Tools",
+        description: "",
+        channels: [ProjectChannel(id: "channel-1", title: "Main", channelId: "chan")],
+        tasks: [task],
+        autopilotSettings: ProjectAutopilotSettings(
+            enabled: true,
+            defaultAgentId: "builder",
+            canUseWeb: true,
+            canEditFiles: true,
+            canRunCommands: true,
+            canStartLocalhost: true
+        )
+    )
+
+    let tools = await service.workerToolsForTask(task: task, project: project)
+
+    #expect(tools.contains("project_tasks"))
+    #expect(tools.contains("file"))
+    #expect(tools.contains("shell"))
+    #expect(tools.contains("browser"))
+    #expect(tools.contains("web.search"))
+}
+
+@Test
 func projectAutopilotPlannerUsesDefaultAgentSelectedModel() async throws {
     var config = CoreConfig.test
     config.models = [

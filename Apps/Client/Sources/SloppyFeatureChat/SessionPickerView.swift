@@ -7,9 +7,12 @@ public struct SessionPickerView: View {
     public let selectedSessionId: String?
     public let isLoading: Bool
     public let actionStatus: String?
+    public let pinnedSessionIds: Set<String>
     public let onSelect: (ChatSessionSummary) -> Void
     public let onNewSession: () -> Void
     public let onDelete: (ChatSessionSummary) -> Void
+    public let onTogglePin: (ChatSessionSummary) -> Void
+    public let onCopyDebugLink: (ChatSessionSummary) -> Void
     public let onDownloadDebug: ((ChatSessionSummary) -> Void)?
     public let onDismiss: () -> Void
 
@@ -18,9 +21,12 @@ public struct SessionPickerView: View {
         selectedSessionId: String?,
         isLoading: Bool,
         actionStatus: String? = nil,
+        pinnedSessionIds: Set<String> = [],
         onSelect: @escaping (ChatSessionSummary) -> Void,
         onNewSession: @escaping () -> Void,
         onDelete: @escaping (ChatSessionSummary) -> Void,
+        onTogglePin: @escaping (ChatSessionSummary) -> Void,
+        onCopyDebugLink: @escaping (ChatSessionSummary) -> Void,
         onDownloadDebug: ((ChatSessionSummary) -> Void)? = nil,
         onDismiss: @escaping () -> Void
     ) {
@@ -28,9 +34,12 @@ public struct SessionPickerView: View {
         self.selectedSessionId = selectedSessionId
         self.isLoading = isLoading
         self.actionStatus = actionStatus
+        self.pinnedSessionIds = pinnedSessionIds
         self.onSelect = onSelect
         self.onNewSession = onNewSession
         self.onDelete = onDelete
+        self.onTogglePin = onTogglePin
+        self.onCopyDebugLink = onCopyDebugLink
         self.onDownloadDebug = onDownloadDebug
         self.onDismiss = onDismiss
     }
@@ -90,6 +99,7 @@ public struct SessionPickerView: View {
                             SessionPickerRow(
                                 session: session,
                                 isSelected: isSelected,
+                                isPinned: pinnedSessionIds.contains(session.id),
                                 colors: c,
                                 spacing: sp,
                                 borders: bo,
@@ -99,6 +109,8 @@ public struct SessionPickerView: View {
                                     pendingDeleteSession = session
                                     isDeleteAlertPresented = true
                                 },
+                                onTogglePin: onTogglePin,
+                                onCopyDebugLink: onCopyDebugLink,
                                 onDownloadDebug: onDownloadDebug
                             )
                     }
@@ -136,12 +148,15 @@ public struct SessionPickerView: View {
 private struct SessionPickerRow: View {
     let session: ChatSessionSummary
     let isSelected: Bool
+    let isPinned: Bool
     let colors: AppColors
     let spacing: AppSpacing
     let borders: AppBorders
     let typography: AppTypography
     let onSelect: (ChatSessionSummary) -> Void
     let onDeleteRequest: (ChatSessionSummary) -> Void
+    let onTogglePin: (ChatSessionSummary) -> Void
+    let onCopyDebugLink: (ChatSessionSummary) -> Void
     let onDownloadDebug: ((ChatSessionSummary) -> Void)?
 
     @State private var isHovered = false
@@ -172,6 +187,11 @@ private struct SessionPickerRow: View {
 
                 Spacer()
 
+                if isPinned {
+                    Icons.symbol(.pushPin, size: typography.caption)
+                        .foregroundColor(colors.textMuted)
+                }
+
                 if isSelected {
                     Icons.symbol(.radioButtonChecked, size: typography.caption)
                         .foregroundColor(colors.accentCyan)
@@ -183,9 +203,17 @@ private struct SessionPickerRow: View {
         }
         .border(isSelected ? colors.accentCyan.opacity(0.62 as Float) : colors.border, lineWidth: borders.thin)
         .contextMenu {
+            Button(isPinned ? "Unpin Chat" : "Pin Chat") {
+                onTogglePin(session)
+            }
+
+            Button("Copy Debug Link") {
+                onCopyDebugLink(session)
+            }
+
             #if DEBUG
             if let onDownloadDebug {
-                Button("Download Session") {
+                Button("Download Session JSON") {
                     onDownloadDebug(session)
                 }
             }

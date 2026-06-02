@@ -264,7 +264,7 @@ extension SloppyTUIScreen {
         if sessionListMode != .hidden, editor.getText().isEmpty {
             composer.append(contentsOf: SloppyTUITheme.sessionListComposerPlaceholderLines(editorLines, width: width))
         } else {
-            composer.append(contentsOf: SloppyTUITheme.highlightedComposerLines(editorLines))
+            composer.append(contentsOf: SloppyTUITheme.highlightedComposerLines(editorLines, shellMode: shellModeEnabled))
         }
         if shellModeEnabled {
             composer.append(SloppyTUITheme.composerShellMetaLine(

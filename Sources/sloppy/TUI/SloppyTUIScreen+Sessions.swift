@@ -342,13 +342,14 @@ extension SloppyTUIScreen {
             appendLocalCard("No session yet. Send a message first or open an existing session with `/sessions`.")
             return
         }
+        refreshStaticChrome(statusLine: "compacting context...")
         do {
             _ = try await service.requestAgentMemoryCheckpoint(
                 agentID: agent.id,
                 sessionID: session.id,
                 reason: "tui_compact_command"
             )
-            appendLocalCard("Context compacted for `\(session.title)`. Memory checkpoint requested.", autoDismissAfter: 8)
+            refreshStaticChrome()
         } catch {
             appendLocalCard("Compact failed: \(String(describing: error))")
         }

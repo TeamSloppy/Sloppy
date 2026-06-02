@@ -61,6 +61,7 @@ public final class ChatScreenViewModel {
     public private(set) var selectedAgent: APIAgentRecord?
     public private(set) var sessions: [ChatSessionSummary] = []
     public var selectedSessionId: String?
+    public var pinnedSessionIds: Set<String> { settings.pinnedSessionIds }
     public private(set) var activeContextTitle: String?
     public private(set) var sessionActionStatus: String?
     public private(set) var isLoadingSessions = false
@@ -156,9 +157,7 @@ public final class ChatScreenViewModel {
         isLoadingSessions = true
         let fetched = (try? await apiClient.fetchAgentSessions(agentId: agent.id, projectId: projectId)) ?? []
         guard generation == sessionLoadGeneration else { return }
-        sessions = fetched
-            .filter { $0.kind != "heartbeat" }
-            .sorted { $0.updatedAt > $1.updatedAt }
+        sessions = sortSessions(fetched.filter { $0.kind != "heartbeat" })
         isLoadingSessions = false
     }
 
@@ -182,6 +181,7 @@ public final class ChatScreenViewModel {
         Task { @MainActor in
             do {
                 try await apiClient.deleteAgentSession(agentId: agent.id, sessionId: session.id)
+                settings.setSessionPinned(session.id, isPinned: false)
                 sessions.removeAll { $0.id == session.id }
 
                 if selectedSessionId == session.id {
@@ -198,6 +198,24 @@ public final class ChatScreenViewModel {
                 showSessionStatus("Could not delete \(displayTitle(for: session))")
             }
         }
+    }
+
+
+    public func toggleSessionPinned(_ session: ChatSessionSummary) {
+        let nextPinned = !settings.isSessionPinned(session.id)
+        settings.setSessionPinned(session.id, isPinned: nextPinned)
+        sessions = sortSessions(sessions)
+        showSessionStatus(nextPinned ? "Pinned \(displayTitle(for: session))" : "Unpinned \(displayTitle(for: session))")
+    }
+
+    public func copyDebugSessionLink(_ session: ChatSessionSummary) {
+        copyDebugSessionFileLink(session)
+    }
+
+    public func copyDebugSessionFileLink(_ session: ChatSessionSummary) {
+        let url = debugSessionFilePathURL(for: session)
+        UIClipboard.setString(url.absoluteString)
+        showSessionStatus("Copied session file debug link")
     }
 
     #if DEBUG
@@ -551,6 +569,30 @@ public final class ChatScreenViewModel {
 
     private func taskSessionTitle(for taskId: String) -> String {
         "task-\(taskId)"
+    }
+
+    private func sortSessions(_ sessions: [ChatSessionSummary]) -> [ChatSessionSummary] {
+        sessions.sorted { lhs, rhs in
+            let lhsPinned = settings.isSessionPinned(lhs.id)
+            let rhsPinned = settings.isSessionPinned(rhs.id)
+            if lhsPinned != rhsPinned {
+                return lhsPinned
+            }
+            return lhs.updatedAt > rhs.updatedAt
+        }
+    }
+
+    private func debugSessionFilePathURL(for session: ChatSessionSummary) -> URL {
+        var components = URLComponents(url: apiClient.baseURL, resolvingAgainstBaseURL: false)
+            ?? URLComponents()
+        let agentId = selectedAgent?.id ?? session.agentId
+        components.path = "/v1/debug/session-file-path/\(Self.urlPathEscape(agentId))/\(Self.urlPathEscape(session.id))"
+        components.queryItems = nil
+        return components.url ?? apiClient.baseURL
+    }
+
+    private static func urlPathEscape(_ value: String) -> String {
+        value.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? value
     }
 
     private func preferredSession(

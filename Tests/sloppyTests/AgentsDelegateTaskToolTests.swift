@@ -122,6 +122,24 @@ struct AgentsDelegateTaskToolTests {
         #expect(result.error?.code == "invalid_arguments")
     }
 
+    @Test("Finish tool rejects completed outcomes with an error")
+    func finishToolRejectsCompletedOutcomesWithError() async {
+        let tool = AgentDelegateFinishTool()
+        let context = makeContext(delegateSubagent: nil)
+        let result = await tool.invoke(
+            arguments: [
+                "status": .string("completed"),
+                "summary": .string("Inspected files but could not update the task."),
+                "error": .string("project.task_update is unavailable."),
+            ],
+            context: context
+        )
+
+        #expect(!result.ok)
+        #expect(result.error?.code == "invalid_arguments")
+        #expect(result.error?.message.contains("blocked") == true)
+    }
+
     @Test("Delegated task result synthesizes failure when finish tool is missing")
     func delegatedTaskResultSynthesizesFailureWhenFinishToolIsMissing() async {
         let service = CoreService(config: .test, persistenceBuilder: InMemoryCorePersistenceBuilder())

@@ -255,6 +255,42 @@ func channelSessionStorePersistsTechnicalEventsWithoutAffectingMessageCounters()
 }
 
 @Test
+func channelSessionStorePersistsCompactLifecycleEvents() async throws {
+    let workspaceRootURL = FileManager.default.temporaryDirectory
+        .appendingPathComponent("channel-session-compact-\(UUID().uuidString)", isDirectory: true)
+    let store = ChannelSessionFileStore(workspaceRootURL: workspaceRootURL)
+
+    let startedAt = Date(timeIntervalSince1970: 1_800_100_000)
+    let initialSummary = try await store.recordUserMessage(
+        channelId: "engineering",
+        userId: "user-1",
+        content: "/compact",
+        createdAt: startedAt
+    )
+    _ = try await store.recordCompactLifecycle(
+        channelId: "engineering",
+        status: .started,
+        reason: "channel_compact_command",
+        content: "Compacting context...",
+        createdAt: startedAt.addingTimeInterval(1)
+    )
+    _ = try await store.recordCompactLifecycle(
+        channelId: "engineering",
+        status: .succeeded,
+        reason: "channel_compact_command",
+        content: "Compact success.",
+        createdAt: startedAt.addingTimeInterval(2)
+    )
+
+    let detail = try await store.loadSessionDetail(sessionID: initialSummary.sessionId)
+    let compactEvents = detail.events.filter { $0.type == .compactLifecycle }
+
+    #expect(compactEvents.map(\.content) == ["Compacting context...", "Compact success."])
+    #expect(compactEvents.map { $0.metadata?["status"] } == ["started", "succeeded"])
+    #expect(compactEvents.map { $0.metadata?["reason"] } == ["channel_compact_command", "channel_compact_command"])
+}
+
+@Test
 func channelSessionStoreReturnsMessageHistoryForDateRangeOnly() async throws {
     let workspaceRootURL = FileManager.default.temporaryDirectory
         .appendingPathComponent("channel-session-range-\(UUID().uuidString)", isDirectory: true)

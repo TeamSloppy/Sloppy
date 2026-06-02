@@ -170,6 +170,11 @@ struct MainView: View {
         MainSidebarView(
             projects: projects,
             isLoadingProjects: isLoadingProjects,
+            chatSessions: chatViewModel.sessions,
+            selectedChatSessionId: chatViewModel.selectedSessionId,
+            isLoadingChatSessions: chatViewModel.isLoadingSessions,
+            chatActionStatus: chatViewModel.sessionActionStatus,
+            pinnedSessionIds: chatViewModel.pinnedSessionIds,
             expandedTaskLists: $expandedTaskLists,
             selectedItem: $selectedSidebarItem,
             isCollapsed: $isSidebarCollapsed.animation(),
@@ -178,6 +183,10 @@ struct MainView: View {
             onOpenSettings: onOpenSettings,
             onOpenWorkspace: onOpenWorkspace,
             onSelectNewChat: selectNewChat,
+            onSelectChatSession: selectChatSession,
+            onDeleteChatSession: deleteChatSession,
+            onTogglePinChatSession: togglePinChatSession,
+            onCopyDebugSessionFileLink: copyDebugSessionFileLink,
             onSelectProject: selectProject,
             onSelectTask: selectTask
         )
@@ -199,6 +208,24 @@ struct MainView: View {
         updateSelectedSidebarItem(.chats)
         dismissMobileSidebar()
         navigateChat(.blank)
+    }
+
+    private func selectChatSession(_ session: ChatSessionSummary) {
+        updateSelectedSidebarItem(.chats)
+        dismissMobileSidebar()
+        chatViewModel.pickSession(session)
+    }
+
+    private func deleteChatSession(_ session: ChatSessionSummary) {
+        chatViewModel.deleteSession(session)
+    }
+
+    private func togglePinChatSession(_ session: ChatSessionSummary) {
+        chatViewModel.toggleSessionPinned(session)
+    }
+
+    private func copyDebugSessionFileLink(_ session: ChatSessionSummary) {
+        chatViewModel.copyDebugSessionFileLink(session)
     }
 
     private func selectProject(_ project: APIProjectRecord) {

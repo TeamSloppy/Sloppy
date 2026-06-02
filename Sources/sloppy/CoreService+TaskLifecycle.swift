@@ -330,7 +330,7 @@ extension CoreService {
             return ["shell", "file", "exec", "browser"]
         }
         let settings = project.autopilotSettings
-        var tools: [String] = []
+        var tools: [String] = ["project_tasks"]
         if settings.canRunCommands {
             tools.append(contentsOf: ["shell", "exec"])
         }
@@ -1230,6 +1230,8 @@ extension CoreService {
                  "browser.status",
                  "browser.close":
                 mapped = "browser"
+            case "project_tasks", "project-tasks", "tasks", "task":
+                mapped = "project_tasks"
             case "project":
                 mapped = "project"
             default:

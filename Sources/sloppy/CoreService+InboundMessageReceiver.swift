@@ -381,7 +381,7 @@ extension CoreService {
                 } else {
                     input = nil
                 }
-            case .sessionCreated, .buildProgress, .planArtifact, .subSession, .runControl, .inputRequest, .inputResponse, .selfImprovementReview:
+            case .sessionCreated, .memoryCheckpoint, .buildProgress, .planArtifact, .subSession, .runControl, .inputRequest, .inputResponse, .selfImprovementReview:
                 input = nil
             }
 
@@ -964,8 +964,39 @@ extension CoreService: InboundMessageReceiver {
             return true
         }
 
-        if let compactReply = await handleCompactCommand(channelId: sessionChannelId, content: content) {
-            await deliverToChannelPlugin(channelId: sessionChannelId, content: compactReply, topicId: topicId)
+        if content.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "/compact" {
+            let reason = "channel_compact_command"
+            do {
+                try await channelSessionStore.recordUserMessage(
+                    channelId: sessionChannelId,
+                    userId: userId,
+                    content: content
+                )
+                try await channelSessionStore.recordCompactLifecycle(
+                    channelId: sessionChannelId,
+                    status: .started,
+                    reason: reason,
+                    content: "Compacting context..."
+                )
+            } catch {
+                logger.warning("Failed to persist channel compact start for \(sessionChannelId): \(error)")
+            }
+
+            await deliverToChannelPlugin(channelId: sessionChannelId, content: "Compacting context...", topicId: topicId)
+            await runtime.invalidateChannelSession(channelId: sessionChannelId)
+
+            do {
+                try await channelSessionStore.recordCompactLifecycle(
+                    channelId: sessionChannelId,
+                    status: .succeeded,
+                    reason: reason,
+                    content: "Compact success."
+                )
+            } catch {
+                logger.warning("Failed to persist channel compact success for \(sessionChannelId): \(error)")
+            }
+
+            await deliverToChannelPlugin(channelId: sessionChannelId, content: "Compact success.", topicId: topicId)
             return true
         }
 

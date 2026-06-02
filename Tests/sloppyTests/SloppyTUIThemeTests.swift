@@ -20,6 +20,37 @@ func composerHighlightsSlashCommandsAndAtPaths() {
 }
 
 @Test
+func shellModeComposerBordersUseRedAccent() {
+    let lines = [
+        "\u{001B}[38;2;82;211;194m────────\u{001B}[39m",
+        "echo hello",
+        "\u{001B}[38;2;82;211;194m────────\u{001B}[39m",
+    ]
+
+    let highlighted = SloppyTUITheme.highlightedComposerLines(lines, shellMode: true)
+
+    #expect(highlighted[0].contains("\u{001B}[38;2;248;113;113m"))
+    #expect(highlighted[2].contains("\u{001B}[38;2;248;113;113m"))
+    #expect(stripANSI(highlighted[0]) == stripANSI(lines[0]))
+    #expect(stripANSI(highlighted[2]) == stripANSI(lines[2]))
+}
+
+@Test
+func shellModeMetaLineUsesRedShellTitle() {
+    let line = SloppyTUITheme.composerShellMetaLine(
+        width: 80,
+        cwd: "/Users/vlad-prusakov/Developer/Sloppy",
+        agent: "Yadev",
+        provider: "openai"
+    )
+
+    #expect(stripANSI(line).contains("shell"))
+    #expect(line.contains("\u{001B}[38;2;248;113;113m"))
+    #expect(!line.contains("\u{001B}[38;2;251;178;123mshell"))
+    #expect(VisibleWidth.measure(line) <= 80)
+}
+
+@Test
 func composerContinuesAtPathHighlightAcrossWrappedLines() {
     let lines = [
         "\u{001B}[38;2;82;211;194m────────\u{001B}[39m",

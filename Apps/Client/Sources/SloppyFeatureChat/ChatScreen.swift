@@ -56,6 +56,8 @@ private struct ChatScreenContent: View {
     let rootSafeAreaInsets: EdgeInsets
     let onOpenSidebar: (@MainActor () -> Void)?
 
+    @Environment(ChatScreenViewModel.self) private var viewModel
+    @Environment(ConnectionMonitor.self) private var connectionMonitor
     @Environment(\.userInterfaceIdiom) private var idiom
     @Environment(\.theme) private var theme
     @State private var keyboardOccludedHeight: Float = 0
@@ -63,18 +65,23 @@ private struct ChatScreenContent: View {
     var body: some View {
         NavigationStack {
             ChatChrome(
+                viewModel: viewModel,
+                connectionMonitor: connectionMonitor,
                 rootSafeAreaInsets: rootSafeAreaInsets,
                 keyboardOccludedHeight: keyboardOccludedHeight
             )
                 .background(idiom == .phone ? theme.colors.background.ignoresSafeArea() : Color.clear.ignoresSafeArea())
                 .navigationBarLeadingItems {
-                    ChatNavigationLeadingItems(onOpenSidebar: onOpenSidebar)
+                    ChatNavigationLeadingItems(
+                        viewModel: viewModel,
+                        onOpenSidebar: onOpenSidebar
+                    )
                 }
                 .navigationBarTrailingItems {
-                    ChatNavigationActions()
+                    ChatNavigationActions(viewModel: viewModel)
                 }
                 .overlay {
-                    ChatInitialLoadTrigger()
+                    ChatInitialLoadTrigger(viewModel: viewModel)
                 }
         }
     }
@@ -82,6 +89,8 @@ private struct ChatScreenContent: View {
 
 @MainActor
 private struct ChatChrome: View {
+    let viewModel: ChatScreenViewModel
+    let connectionMonitor: ConnectionMonitor
     let rootSafeAreaInsets: EdgeInsets
     let keyboardOccludedHeight: Float
 
@@ -93,6 +102,7 @@ private struct ChatChrome: View {
         ZStack(anchor: .topLeading) {
             ZStack(anchor: .bottom) {
                 ChatTranscriptRegion(
+                    viewModel: viewModel,
                     contentWidth: contentWidth,
                     heroWidth: heroWidth,
                     messagesTopInset: messagesTopInset,
@@ -101,15 +111,17 @@ private struct ChatChrome: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
 
                 ChatComposerOverlay(
+                    viewModel: viewModel,
                     contentWidth: contentWidth,
                     composerBottomInset: composerBottomInset
                 )
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-            ChatConnectionBar()
+            ChatConnectionBar(connectionMonitor: connectionMonitor)
 
             ChatOverlayLayer(
+                viewModel: viewModel,
                 pickerWidth: pickerWidth,
                 overlayTopInset: overlayTopInset
             )
@@ -175,7 +187,7 @@ private struct ChatChrome: View {
 
 @MainActor
 private struct ChatInitialLoadTrigger: View {
-    @Environment(ChatScreenViewModel.self) private var viewModel
+    let viewModel: ChatScreenViewModel
 
     var body: some View {
         EmptyView()
@@ -187,9 +199,9 @@ private struct ChatInitialLoadTrigger: View {
 
 @MainActor
 private struct ChatNavigationLeadingItems: View {
+    let viewModel: ChatScreenViewModel
     let onOpenSidebar: (@MainActor () -> Void)?
 
-    @Environment(ChatScreenViewModel.self) private var viewModel
     @Environment(\.userInterfaceIdiom) private var idiom
     @Environment(\.theme) private var theme
 
@@ -268,7 +280,8 @@ private struct ChatNavigationLeadingItems: View {
 
 @MainActor
 private struct ChatNavigationActions: View {
-    @Environment(ChatScreenViewModel.self) private var viewModel
+    let viewModel: ChatScreenViewModel
+
     @Environment(\.userInterfaceIdiom) private var idiom
     @Environment(\.theme) private var theme
 
@@ -312,7 +325,7 @@ private struct ChatNavigationActions: View {
 
 @MainActor
 private struct ChatConnectionBar: View {
-    @Environment(ConnectionMonitor.self) private var connectionMonitor
+    let connectionMonitor: ConnectionMonitor
 
     @ViewBuilder
     var body: some View {
@@ -332,10 +345,9 @@ private struct ChatConnectionBar: View {
 
 @MainActor
 private struct ChatOverlayLayer: View {
+    let viewModel: ChatScreenViewModel
     let pickerWidth: Float
     let overlayTopInset: Float
-
-    @Environment(ChatScreenViewModel.self) private var viewModel
 
     @ViewBuilder
     var body: some View {
@@ -363,6 +375,7 @@ private struct ChatOverlayLayer: View {
                         selectedSessionId: viewModel.selectedSessionId,
                         isLoading: viewModel.isLoadingSessions,
                         actionStatus: viewModel.sessionActionStatus,
+                        pinnedSessionIds: viewModel.pinnedSessionIds,
                         onSelect: { session in
                             viewModel.pickSession(session)
                         },
@@ -371,6 +384,12 @@ private struct ChatOverlayLayer: View {
                         },
                         onDelete: { session in
                             viewModel.deleteSession(session)
+                        },
+                        onTogglePin: { session in
+                            viewModel.toggleSessionPinned(session)
+                        },
+                        onCopyDebugLink: { session in
+                            viewModel.copyDebugSessionLink(session)
                         },
                         onDownloadDebug: { session in
                             #if DEBUG
@@ -396,12 +415,11 @@ private struct ChatOverlayLayer: View {
 
 @MainActor
 private struct ChatTranscriptRegion: View {
+    let viewModel: ChatScreenViewModel
     let contentWidth: Float
     let heroWidth: Float
     let messagesTopInset: Float
     let composerScrollInset: Float
-
-    @Environment(ChatScreenViewModel.self) private var viewModel
 
     var body: some View {
         ChatTranscriptPane(
@@ -417,10 +435,9 @@ private struct ChatTranscriptRegion: View {
 
 @MainActor
 private struct ChatComposerOverlay: View {
+    let viewModel: ChatScreenViewModel
     let contentWidth: Float
     let composerBottomInset: Float
-
-    @Environment(ChatScreenViewModel.self) private var viewModel
 
     var body: some View {
         HStack {

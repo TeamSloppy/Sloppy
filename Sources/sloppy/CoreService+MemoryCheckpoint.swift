@@ -61,8 +61,54 @@ extension CoreService {
         _ = try getAgentSession(agentID: normalizedAgentID, sessionID: normalizedSessionID)
         let trimmedReason = reason?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let resolvedReason = trimmedReason.isEmpty ? "api_request" : trimmedReason
-        await runAgentMemoryCheckpoint(agentID: normalizedAgentID, sessionID: normalizedSessionID, reason: resolvedReason)
-        return AgentMemoryCheckpointResponse(ok: true, reason: reason)
+        try appendAgentMemoryCheckpointEvent(
+            agentID: normalizedAgentID,
+            sessionID: normalizedSessionID,
+            status: .started,
+            reason: resolvedReason,
+            message: "Compacting context..."
+        )
+        do {
+            await runAgentMemoryCheckpoint(agentID: normalizedAgentID, sessionID: normalizedSessionID, reason: resolvedReason)
+            try appendAgentMemoryCheckpointEvent(
+                agentID: normalizedAgentID,
+                sessionID: normalizedSessionID,
+                status: .succeeded,
+                reason: resolvedReason,
+                message: "Compact success."
+            )
+            return AgentMemoryCheckpointResponse(ok: true, reason: reason)
+        } catch {
+            try? appendAgentMemoryCheckpointEvent(
+                agentID: normalizedAgentID,
+                sessionID: normalizedSessionID,
+                status: .failed,
+                reason: resolvedReason,
+                message: "Compact failed."
+            )
+            throw error
+        }
+    }
+
+    private func appendAgentMemoryCheckpointEvent(
+        agentID: String,
+        sessionID: String,
+        status: AgentMemoryCheckpointStatus,
+        reason: String,
+        message: String
+    ) throws {
+        let event = AgentSessionEvent(
+            agentId: agentID,
+            sessionId: sessionID,
+            type: .memoryCheckpoint,
+            memoryCheckpoint: AgentMemoryCheckpointEvent(
+                status: status,
+                reason: reason,
+                message: message
+            )
+        )
+        let summary = try sessionStore.appendEvents(agentID: agentID, sessionID: sessionID, events: [event])
+        publishLiveSessionEvents(agentID: agentID, sessionID: sessionID, summary: summary, events: [event])
     }
 
     func scheduleAgentMemoryCheckpoint(agentID: String, sessionID: String, reason: String) {

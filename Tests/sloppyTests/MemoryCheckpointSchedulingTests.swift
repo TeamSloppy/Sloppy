@@ -316,6 +316,37 @@ func userTurnThresholdSchedulesMemoryCheckpointInBackground() async throws {
     #expect(response.appendedEvents.last?.runStatus?.stage == .done)
 }
 
+@Test
+func requestedMemoryCheckpointPersistsLifecycleEvents() async throws {
+    let service = CoreService(config: .test, persistenceBuilder: InMemoryCorePersistenceBuilder())
+    await service.overrideModelProviderForTests(
+        BlockingMemoryCheckpointResponseProvider(blockAtResponse: 99),
+        defaultModel: "mock:test-model"
+    )
+
+    let agentID = "checkpoint-events-\(UUID().uuidString.lowercased())"
+    _ = try await service.createAgent(
+        AgentCreateRequest(id: agentID, displayName: "Checkpoint Events", role: "Testing")
+    )
+    let session = try await service.createAgentSession(
+        agentID: agentID,
+        request: AgentSessionCreateRequest(title: "Lifecycle")
+    )
+
+    _ = try await service.requestAgentMemoryCheckpoint(
+        agentID: agentID,
+        sessionID: session.id,
+        reason: "tui_compact_command"
+    )
+
+    let detail = try await service.getAgentSession(agentID: agentID, sessionID: session.id)
+    let checkpointEvents = detail.events.compactMap(\.memoryCheckpoint)
+
+    #expect(checkpointEvents.map(\.status) == [.started, .succeeded])
+    #expect(checkpointEvents.map(\.reason) == ["tui_compact_command", "tui_compact_command"])
+    #expect(checkpointEvents.last?.message == "Compact success.")
+}
+
 private func waitForMemoryCheckpointCondition(
     timeoutNanoseconds: UInt64,
     condition: @escaping @Sendable () async -> Bool

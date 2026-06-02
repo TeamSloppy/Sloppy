@@ -83,7 +83,7 @@ enum AgentSessionTranscriptBuilder {
                     segments: [.text(.init(content: toolResultText(from: toolResult)))]
                 )))
 
-            case .sessionCreated, .runStatus, .buildProgress, .planArtifact, .subSession, .runControl, .inputRequest, .inputResponse, .selfImprovementReview:
+            case .sessionCreated, .runStatus, .memoryCheckpoint, .buildProgress, .planArtifact, .subSession, .runControl, .inputRequest, .inputResponse, .selfImprovementReview:
                 continue
             }
         }

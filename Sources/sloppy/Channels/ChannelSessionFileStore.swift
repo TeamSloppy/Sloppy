@@ -249,6 +249,27 @@ actor ChannelSessionFileStore {
     }
 
     @discardableResult
+    func recordCompactLifecycle(
+        channelId: String,
+        status: AgentMemoryCheckpointStatus,
+        reason: String,
+        content: String,
+        createdAt: Date = Date()
+    ) throws -> ChannelSessionSummary {
+        try appendEvent(
+            channelId: channelId,
+            userId: "system",
+            content: content,
+            type: .compactLifecycle,
+            metadata: [
+                "status": status.rawValue,
+                "reason": reason,
+            ],
+            createdAt: createdAt
+        )
+    }
+
+    @discardableResult
     func recordThinking(
         channelId: String,
         content: String,
@@ -862,6 +883,7 @@ public enum ChannelSessionEventType: String, Codable, Sendable {
     case userMessage = "user_message"
     case assistantMessage = "assistant_message"
     case systemMessage = "system_message"
+    case compactLifecycle = "compact_lifecycle"
     case thinking = "thinking"
     case toolCall = "tool_call"
     case toolResult = "tool_result"

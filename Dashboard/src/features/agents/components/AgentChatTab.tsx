@@ -1337,6 +1337,33 @@ function buildTechnicalRecord(
     };
   }
 
+  if (eventItem?.type === "memory_checkpoint" && eventItem.memoryCheckpoint) {
+    const checkpoint = eventItem.memoryCheckpoint;
+    const status = String(checkpoint.status || "").toLowerCase();
+    const reason = String(checkpoint.reason || "").trim();
+    const title = status === "started" ? "Compacting context" : checkpoint.message || "Compact";
+    const detailParts = [];
+    if (checkpoint.message) {
+      detailParts.push(checkpoint.message);
+    }
+    if (status) {
+      detailParts.push(`Status: ${status}`);
+    }
+    if (reason) {
+      detailParts.push(`Reason: ${reason}`);
+    }
+
+    return {
+      id: `${eventKey}-memory-checkpoint`,
+      icon: status === "failed" ? "error" : "compress",
+      title,
+      summary: previewText(checkpoint.message, title),
+      detail: detailParts.join("\n\n"),
+      createdAt: eventItem.createdAt || checkpoint.createdAt,
+      isActive: status === "started"
+    };
+  }
+
   if (eventItem?.type === "run_control" && eventItem.runControl) {
     const action = eventItem.runControl.action || "control";
     const title = `Control: ${action}`;
@@ -5151,6 +5178,48 @@ export function AgentChatTab({
     }
   }
 
+  async function persistCommandUserEvent(commandText) {
+    const sessionId = activeSessionId;
+    if (!sessionId) {
+      return;
+    }
+
+    const now = new Date().toISOString();
+    const userEvent = {
+      id: `cmd-user-${Date.now()}`,
+      agentId,
+      sessionId,
+      type: "message",
+      createdAt: now,
+      message: {
+        role: "user",
+        createdAt: now,
+        segments: [{ kind: "text", text: commandText }]
+      }
+    };
+
+    setActiveSession((previous) => {
+      if (!previous) {
+        return previous;
+      }
+      return {
+        ...previous,
+        events: [...(Array.isArray(previous.events) ? previous.events : []), userEvent]
+      };
+    });
+
+    try {
+      const response = await postAgentSessionEvents(agentId, sessionId, {
+        events: [userEvent]
+      });
+      if (response) {
+        await syncSessionDetail(sessionId);
+      }
+    } catch {
+      // Event already shown locally
+    }
+  }
+
   async function handleSlashCommand(text) {
     const lower = text.toLowerCase();
 
@@ -5218,11 +5287,14 @@ export function AgentChatTab({
         await persistCommandEvents(text, "No active session to compact.");
         return true;
       }
+      await persistCommandUserEvent(text);
+      setStatusText("Compacting context...");
       const response = await postAgentMemoryCheckpoint(agentId, activeSessionId, { reason: "dashboard_compact_command" }).catch(() => null);
-      await persistCommandEvents(
-        text,
-        response ? "Context compacted. Memory checkpoint requested for this session." : "Compact failed."
-      );
+      if (!response) {
+        await persistCommandEvents(text, "Compact failed.");
+      } else {
+        await syncSessionDetail(activeSessionId);
+      }
       return true;
     }
 

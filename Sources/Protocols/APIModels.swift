@@ -3417,6 +3417,7 @@ public enum AgentSessionEventType: String, Codable, Sendable {
     case sessionCreated = "session_created"
     case message
     case runStatus = "run_status"
+    case memoryCheckpoint = "memory_checkpoint"
     case buildProgress = "build_progress"
     case planArtifact = "plan_artifact"
     case subSession = "sub_session"
@@ -3653,6 +3654,31 @@ public struct AgentRunStatusEvent: Codable, Sendable, Equatable {
         self.label = label
         self.details = details
         self.expandedText = expandedText
+        self.createdAt = createdAt
+    }
+}
+
+public enum AgentMemoryCheckpointStatus: String, Codable, Sendable, Equatable {
+    case started
+    case succeeded
+    case failed
+}
+
+public struct AgentMemoryCheckpointEvent: Codable, Sendable, Equatable {
+    public var status: AgentMemoryCheckpointStatus
+    public var reason: String?
+    public var message: String
+    public var createdAt: Date
+
+    public init(
+        status: AgentMemoryCheckpointStatus,
+        reason: String? = nil,
+        message: String,
+        createdAt: Date = Date()
+    ) {
+        self.status = status
+        self.reason = reason
+        self.message = message
         self.createdAt = createdAt
     }
 }
@@ -3965,6 +3991,7 @@ public struct AgentSessionEvent: Codable, Sendable, Equatable {
     public var metadata: AgentSessionMetadataEvent?
     public var message: AgentSessionMessage?
     public var runStatus: AgentRunStatusEvent?
+    public var memoryCheckpoint: AgentMemoryCheckpointEvent?
     public var buildProgress: AgentBuildProgressEvent?
     public var planArtifact: AgentPlanArtifactEvent?
     public var subSession: AgentSubSessionEvent?
@@ -3985,6 +4012,7 @@ public struct AgentSessionEvent: Codable, Sendable, Equatable {
         metadata: AgentSessionMetadataEvent? = nil,
         message: AgentSessionMessage? = nil,
         runStatus: AgentRunStatusEvent? = nil,
+        memoryCheckpoint: AgentMemoryCheckpointEvent? = nil,
         buildProgress: AgentBuildProgressEvent? = nil,
         planArtifact: AgentPlanArtifactEvent? = nil,
         subSession: AgentSubSessionEvent? = nil,
@@ -4004,6 +4032,7 @@ public struct AgentSessionEvent: Codable, Sendable, Equatable {
         self.metadata = metadata
         self.message = message
         self.runStatus = runStatus
+        self.memoryCheckpoint = memoryCheckpoint
         self.buildProgress = buildProgress
         self.planArtifact = planArtifact
         self.subSession = subSession

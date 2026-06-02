@@ -19,6 +19,11 @@ struct MainSidebarView: View {
 
     let projects: [APIProjectRecord]
     let isLoadingProjects: Bool
+    let chatSessions: [ChatSessionSummary]
+    let selectedChatSessionId: String?
+    let isLoadingChatSessions: Bool
+    let chatActionStatus: String?
+    let pinnedSessionIds: Set<String>
     @Binding var expandedTaskLists: Set<String>
     @Binding var selectedItem: MainSidebarSelection?
     @Binding var isCollapsed: Bool
@@ -27,6 +32,10 @@ struct MainSidebarView: View {
     let onOpenSettings: @MainActor () -> Void
     let onOpenWorkspace: @MainActor () -> Void
     let onSelectNewChat: @MainActor () -> Void
+    let onSelectChatSession: @MainActor (ChatSessionSummary) -> Void
+    let onDeleteChatSession: @MainActor (ChatSessionSummary) -> Void
+    let onTogglePinChatSession: @MainActor (ChatSessionSummary) -> Void
+    let onCopyDebugSessionFileLink: @MainActor (ChatSessionSummary) -> Void
     let onSelectProject: @MainActor (APIProjectRecord) -> Void
     let onSelectTask: @MainActor (String, String, APIProjectTask, String?) -> Void
 
@@ -97,7 +106,7 @@ struct MainSidebarView: View {
 
             Spacer(minLength: 0)
 
-            sidebarIconButton(.chatAddOn, isActive: selectedItem == .chats, c: c) {
+            sidebarIconButton(.chatAddOn, isActive: selectedItem == .chats && selectedChatSessionId == nil, c: c) {
                 onSelectNewChat()
             }
 
@@ -154,15 +163,78 @@ struct MainSidebarView: View {
                 icon: .chatAddOn,
                 title: "New chat",
                 trailing: nil,
-                isSelected: selectedItem == .chats,
+                isSelected: selectedItem == .chats && selectedChatSessionId == nil,
                 c: c,
                 sp: sp
             ) {
                 onSelectNewChat()
             }
+
+            if isLoadingChatSessions && chatSessions.isEmpty {
+                Text("Loading chats…")
+                    .font(.system(size: ty.caption))
+                    .foregroundColor(c.textMuted)
+                    .padding(.horizontal, sp.m)
+                    .padding(.vertical, sp.s)
+            } else if chatSessions.isEmpty {
+                Text("No chats yet")
+                    .font(.system(size: ty.caption))
+                    .foregroundColor(c.textMuted)
+                    .padding(.horizontal, sp.m)
+                    .padding(.vertical, sp.s)
+            } else {
+                ForEach(chatSessions) { session in
+                    chatSessionRow(session: session, c: c, sp: sp)
+                }
+            }
+
+            if let chatActionStatus {
+                Text(chatActionStatus)
+                    .font(.system(size: ty.micro))
+                    .foregroundColor(c.textMuted)
+                    .lineLimit(2)
+                    .padding(.horizontal, sp.m)
+                    .padding(.top, sp.xs)
+            }
         }
         .padding(.top, sp.l)
         .padding(.horizontal, sp.s)
+    }
+
+    private func chatSessionRow(
+        session: ChatSessionSummary,
+        c: AppColors,
+        sp: AppSpacing
+    ) -> some View {
+        let isPinned = pinnedSessionIds.contains(session.id)
+        let title = session.title.isEmpty ? "Chat" : session.title
+        let trailing = isPinned ? "PIN" : "\(session.messageCount)"
+
+        return sidebarPlainRow(
+            icon: .chatAddOn,
+            title: title,
+            trailing: trailing,
+            isSelected: selectedChatSessionId == session.id,
+            c: c,
+            sp: sp,
+            titleColor: selectedChatSessionId == session.id ? c.textPrimary : c.textSecondary,
+            leadingInset: 12
+        ) {
+            onSelectChatSession(session)
+        }
+        .contextMenu {
+            Button(isPinned ? "Unpin Chat" : "Pin Chat") {
+                onTogglePinChatSession(session)
+            }
+
+            Button("Copy Session File Debug Link") {
+                onCopyDebugSessionFileLink(session)
+            }
+
+            Button("Delete Chat", role: .destructive) {
+                onDeleteChatSession(session)
+            }
+        }
     }
 
     private func projectsSection(c: AppColors, sp: AppSpacing) -> some View {
@@ -176,14 +248,10 @@ struct MainSidebarView: View {
                     .padding(.horizontal, sp.m)
                     .padding(.vertical, sp.s)
             } else {
-                LazyVStack(
-                    projects,
-                    alignment: .leading,
-                    spacing: sp.s,
-                    estimatedRowHeight: 212,
-                    overscan: 6
-                ) { project in
-                    projectGroup(project: project, c: c, sp: sp)
+                VStack(alignment: .leading, spacing: sp.s) {
+                    ForEach(projects) { project in
+                        projectGroup(project: project, c: c, sp: sp)
+                    }
                 }
             }
         }

@@ -90,6 +90,24 @@ extension CoreService {
         }
     }
 
+    public func getAgentSessionFilePath(agentID: String, sessionID: String) throws -> String {
+        guard let normalizedAgentID = normalizedAgentID(agentID) else {
+            throw AgentSessionError.invalidAgentID
+        }
+
+        guard let normalizedSessionID = normalizedSessionID(sessionID) else {
+            throw AgentSessionError.invalidSessionID
+        }
+
+        _ = try getAgent(id: normalizedAgentID)
+
+        do {
+            return try sessionStore.sessionFilePath(agentID: normalizedAgentID, sessionID: normalizedSessionID)
+        } catch {
+            throw mapSessionStoreError(error)
+        }
+    }
+
     public func prepareAgentSessionContext(agentID: String, sessionID: String) async throws -> AgentSessionSummary {
         await waitForStartup()
         guard let normalizedAgentID = normalizedAgentID(agentID) else {

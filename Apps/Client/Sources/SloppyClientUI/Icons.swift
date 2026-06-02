@@ -20,6 +20,7 @@ public enum MaterialSymbol: String, CaseIterable, Sendable {
     case openInNew = "\u{e89e}"
     case radioButtonChecked = "\u{e837}"
     case radioButtonPartial = "\u{f560}"
+    case pushPin = "\u{f10d}"
     case settings = "\u{e8b8}"
     case warning = "\u{e002}"
 

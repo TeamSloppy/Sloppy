@@ -50,6 +50,33 @@ func subagentTerminalToolsetDropsBlockedExec() {
 }
 
 @Test
+func subagentProjectTasksToolsetAllowsOnlyTaskLifecycleTools() {
+    let policy = AgentToolsPolicy(defaultPolicy: .allow, tools: [:])
+    let known: Set<String> = [
+        "project.current",
+        "project.task_list",
+        "project.task_create",
+        "project.task_get",
+        "project.task_update",
+        "project.delete",
+        "agent_delegate.finish",
+    ]
+    let eff = SubagentDelegation.effectiveToolIDs(
+        policy: policy,
+        knownToolIDs: known,
+        toolsetNames: ["project_tasks"]
+    )
+    #expect(eff == Set([
+        "project.current",
+        "project.task_list",
+        "project.task_create",
+        "project.task_get",
+        "project.task_update",
+        "agent_delegate.finish",
+    ]))
+}
+
+@Test
 func subagentRespectsParentDenyPolicy() {
     let policy = AgentToolsPolicy(
         defaultPolicy: .allow,

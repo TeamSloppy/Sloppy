@@ -108,6 +108,69 @@ func serviceMacOSRestartReloadsLaunchAgentPlist() {
 // MARK: - CLIFormatters tests
 
 @Test
+func eventWatchFormatterOutputsInputRequestAsJSONL() throws {
+    let request = PlanInputRequest(
+        id: "input-1",
+        mode: "plan",
+        title: "Pick a path",
+        questions: [
+            PlanInputQuestion(
+                id: "q1",
+                question: "Which path?",
+                options: [
+                    PlanInputOption(id: "a", label: "A"),
+                    PlanInputOption(id: "b", label: "B"),
+                ]
+            ),
+        ]
+    )
+    let event = AgentSessionEvent(
+        id: "event-1",
+        agentId: "agent-1",
+        sessionId: "session-1",
+        type: .inputRequest,
+        createdAt: Date(timeIntervalSince1970: 10),
+        inputRequest: request
+    )
+    let update = AgentSessionStreamUpdate(
+        kind: .sessionEvent,
+        cursor: 4,
+        event: event,
+        createdAt: Date(timeIntervalSince1970: 11)
+    )
+
+    let line = try #require(EventWatchOutputFormatter.line(for: update, format: .jsonl))
+    let data = try #require(line.data(using: .utf8))
+    let object = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+
+    #expect(object["kind"] as? String == "session_event")
+    #expect(object["event_type"] as? String == "input_request")
+    #expect(object["agent_id"] as? String == "agent-1")
+    #expect(object["session_id"] as? String == "session-1")
+    #expect(object["request_id"] as? String == "input-1")
+    #expect(object["title"] as? String == "Pick a path")
+}
+
+@Test
+func eventWatchFormatterOutputsRunStatusAsPrettyLine() throws {
+    let event = AgentSessionEvent(
+        id: "event-2",
+        agentId: "agent-1",
+        sessionId: "session-1",
+        type: .runStatus,
+        createdAt: Date(timeIntervalSince1970: 10),
+        runStatus: AgentRunStatusEvent(stage: .responding, label: "Responding")
+    )
+    let update = AgentSessionStreamUpdate(kind: .sessionEvent, cursor: 7, event: event)
+
+    let line = try #require(EventWatchOutputFormatter.line(for: update, format: .pretty))
+
+    #expect(line.contains("run_status"))
+    #expect(line.contains("responding"))
+    #expect(line.contains("Responding"))
+}
+
+@Test
 func cliFormattersResolvesKnownFormats() {
     #expect(CLIFormatters.resolveFormat("json") == .json)
     #expect(CLIFormatters.resolveFormat("table") == .table)

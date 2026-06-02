@@ -203,6 +203,8 @@ extension SloppyTUIScreen {
                     frame: thinkingFrame,
                     width: width
                 ))
+            case .memoryCheckpoint(let checkpoint):
+                lines.append(SloppyTUITheme.memoryCheckpointLine(checkpoint, frame: thinkingFrame, width: width))
             case .buildProgress(let progress):
                 lines.append(contentsOf: SloppyTUITheme.buildProgressLines(progress, width: width))
             case .planArtifact(let artifact):
@@ -256,6 +258,8 @@ extension SloppyTUIScreen {
         switch block {
         case .subSession:
             return true
+        case .memoryCheckpoint(let checkpoint):
+            return checkpoint.status == .started
         default:
             return false
         }
