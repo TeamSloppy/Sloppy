@@ -30,11 +30,13 @@ function useBoard() {
       const petMap = {};
       for (const node of nodes) {
         const name = String(node?.displayName || "").trim();
+        const nodeId = String(node?.id || "").trim();
         const agentId = String(node?.linkedAgentId || "").trim();
-        if (name && agentId) {
+        if ((name || nodeId) && agentId) {
           const agent = agentById.get(agentId);
           if (agent?.pet?.parts) {
-            petMap[name] = agent.pet;
+            if (name) petMap[name] = agent.pet;
+            if (nodeId) petMap[nodeId] = agent.pet;
           }
         }
       }

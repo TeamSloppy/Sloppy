@@ -522,6 +522,7 @@ public struct CoreConfig: Codable, Sendable {
 
             public enum PermissionMode: String, Codable, Sendable, Equatable {
                 case allowOnce = "allow_once"
+                case fullAccess = "full_access"
                 case deny
             }
 

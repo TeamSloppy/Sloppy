@@ -55,7 +55,7 @@ func acpConfigDecodesTargetsFromJSON() throws {
                 "environment": { "ANTHROPIC_API_KEY": "sk-test" },
                 "timeoutMs": 60000,
                 "enabled": true,
-                "permissionMode": "allow_once"
+                "permissionMode": "full_access"
               }
             ]
           }
@@ -79,7 +79,7 @@ func acpConfigDecodesTargetsFromJSON() throws {
     #expect(target.environment["ANTHROPIC_API_KEY"] == "sk-test")
     #expect(target.timeoutMs == 60000)
     #expect(target.enabled == true)
-    #expect(target.permissionMode == .allowOnce)
+    #expect(target.permissionMode == .fullAccess)
 }
 
 @Test

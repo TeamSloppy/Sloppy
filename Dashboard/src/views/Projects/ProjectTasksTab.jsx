@@ -17,6 +17,7 @@ import {
     sortProjectKanbanColumnTasks,
     taskSelectionRangeIds
 } from "./taskSelection";
+import { resolveLinkedAgentPet } from "./commentAvatars";
 import {
     fetchTaskComments,
     addTaskComment,
@@ -141,6 +142,23 @@ function ProjectKanbanAssignedActorBadge({ task, createModalActors, agentDirecto
                 </span>
             )}
             <span>Assigned actor: {actorLabel}</span>
+        </span>
+    );
+}
+
+function CommentAvatar({ comment, author, agentDirectory }) {
+    const avatar = resolveLinkedAgentPet(comment.authorActorId, author ? [author] : [], agentDirectory);
+    if (avatar) {
+        return (
+            <span className="td-comment-avatar td-comment-avatar--pet" aria-hidden="true">
+                <AgentPetIcon pet={avatar.pet} parts={avatar.parts} genomeHex={avatar.genomeHex} />
+            </span>
+        );
+    }
+
+    return (
+        <span className="material-symbols-rounded td-comment-avatar" aria-hidden="true">
+            {comment.isAgentReply ? "smart_toy" : "person"}
         </span>
     );
 }
@@ -350,7 +368,7 @@ function TaskBulkContextMenu({
     );
 }
 
-function CommentsTab({ project, task, createModalActors }) {
+function CommentsTab({ project, task, createModalActors, agentDirectory }) {
     const [comments, setComments] = useState([]);
     const [loading, setLoading] = useState(true);
     const [commentText, setCommentText] = useState("");
@@ -431,9 +449,7 @@ function CommentsTab({ project, task, createModalActors }) {
                         return (
                             <div key={comment.id} className={`td-comment-item ${comment.isAgentReply ? "td-comment-item--agent" : ""}`}>
                                 <div className="td-comment-header">
-                                    <span className="material-symbols-rounded td-comment-avatar">
-                                        {comment.isAgentReply ? "smart_toy" : "person"}
-                                    </span>
+                                    <CommentAvatar comment={comment} author={author} agentDirectory={agentDirectory} />
                                     <span className="td-comment-author">{authorLabel}</span>
                                     {comment.externalMetadata?.origin === "github" && (
                                         <span className="td-comment-agent-badge">GitHub{comment.sourceAuthor ? `: ${comment.sourceAuthor}` : ""}</span>
@@ -1140,6 +1156,7 @@ function TaskDetailView({
     deleteTaskFromModal,
     createModalActors,
     createModalTeams,
+    agentDirectory,
     onOpenReview
 }) {
     const [activeTab, setActiveTab] = useState("comments");
@@ -1410,6 +1427,7 @@ function TaskDetailView({
                                 project={project}
                                 task={task}
                                 createModalActors={createModalActors}
+                                agentDirectory={agentDirectory}
                             />
                         )}
                         {activeTab === "subtasks" && (
@@ -2044,6 +2062,7 @@ export function ProjectTasksTab({
                 deleteTaskFromModal={deleteTaskFromModal}
                 createModalActors={createModalActors}
                 createModalTeams={createModalTeams}
+                agentDirectory={agentDirectory}
                 onOpenReview={onOpenReview}
             />
         );

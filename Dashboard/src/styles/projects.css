@@ -4427,6 +4427,24 @@
   color: var(--muted);
 }
 
+.td-comment-avatar--pet {
+  width: 22px;
+  height: 22px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  background: var(--surface-3);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  color: var(--accent);
+}
+
+.td-comment-avatar--pet .agent-pet-icon {
+  width: 20px;
+  height: 20px;
+}
+
 .td-comment-author {
   font-size: 0.84rem;
   font-weight: 600;

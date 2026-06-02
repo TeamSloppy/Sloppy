@@ -35,6 +35,7 @@ final class AgentToolsFileStore {
             defaultPolicy: .allow,
             tools: [:],
             approval: .init(enabled: false),
+            sandbox: .init(),
             preToolsHook: .init(),
             guardrails: .init()
         )
@@ -93,6 +94,7 @@ final class AgentToolsFileStore {
             defaultPolicy: request.defaultPolicy,
             tools: request.tools,
             approval: request.approval,
+            sandbox: request.sandbox,
             preToolsHook: request.preToolsHook,
             guardrails: request.guardrails
         )

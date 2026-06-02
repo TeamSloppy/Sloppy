@@ -64,6 +64,38 @@ func toolsPolicyCanEnableToolApproval() async throws {
 }
 
 @Test
+func toolsPolicyCanEnableToolApprovalWithOnRequestPolicy() async throws {
+    let service = CoreService(config: .test, persistenceBuilder: InMemoryCorePersistenceBuilder())
+    let session = try await makeApprovalSession(service: service, agentID: "approval-policy-on-request")
+    _ = try await service.updateAgentToolsPolicy(
+        agentID: "approval-policy-on-request",
+        request: AgentToolsUpdateRequest(approval: AgentToolApprovalSettings(policy: .onRequest))
+    )
+
+    let invocation = Task {
+        await service.invokeToolFromRuntime(
+            agentID: "approval-policy-on-request",
+            sessionID: session.id,
+            request: ToolInvocationRequest(
+                tool: "runtime.exec",
+                arguments: [
+                    "command": .string("/bin/echo"),
+                    "arguments": .array([.string("policy-on-request")])
+                ]
+            ),
+            recordSessionEvents: false
+        )
+    }
+
+    let pending = try await waitForPendingToolApproval(service)
+    #expect(pending.approvalKind == .riskyTool)
+
+    _ = await service.approveToolApproval(id: pending.id, decidedBy: "test")
+    let result = await invocation.value
+    #expect(result.ok == true)
+}
+
+@Test
 func autonomousSessionBypassesRiskyToolApprovalPrompt() async throws {
     let service = CoreService(config: .test, persistenceBuilder: InMemoryCorePersistenceBuilder())
     let session = try await makeApprovalSession(service: service, agentID: "approval-autonomous-session")
@@ -113,6 +145,30 @@ func autonomousSessionBypassesMissingDirectoryAccessApproval() async throws {
 
     let result = await invocation.value
     #expect(pending == nil)
+    #expect(result.ok == true)
+    #expect(await service.listPendingToolApprovals().isEmpty)
+}
+
+@Test
+func fullAccessSandboxBypassesMissingDirectoryAccessApproval() async throws {
+    let service = CoreService(config: .test, persistenceBuilder: InMemoryCorePersistenceBuilder())
+    let session = try await makeApprovalSession(service: service, agentID: "approval-full-access-directory")
+    let file = try makeApprovalTempFile(contents: "full access")
+    _ = try await service.updateAgentToolsPolicy(
+        agentID: "approval-full-access-directory",
+        request: AgentToolsUpdateRequest(
+            approval: AgentToolApprovalSettings(policy: .onRequest),
+            sandbox: AgentSandboxSettings(mode: .fullAccess)
+        )
+    )
+
+    let result = await service.invokeToolFromRuntime(
+        agentID: "approval-full-access-directory",
+        sessionID: session.id,
+        request: ToolInvocationRequest(tool: "files.read", arguments: ["path": .string(file.path)]),
+        recordSessionEvents: false
+    )
+
     #expect(result.ok == true)
     #expect(await service.listPendingToolApprovals().isEmpty)
 }

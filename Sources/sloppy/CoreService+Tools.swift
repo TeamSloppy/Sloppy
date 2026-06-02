@@ -863,6 +863,9 @@ extension CoreService {
         policy: AgentToolsPolicy,
         currentDirectoryURL: URL?
     ) -> [ToolApprovalGrant] {
+        guard policy.sandbox.mode != .fullAccess else {
+            return []
+        }
         let toolID = request.tool.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         guard let requirement = directoryAccessRequirement(for: toolID, arguments: request.arguments) else {
             return []

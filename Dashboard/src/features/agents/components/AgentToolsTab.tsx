@@ -92,7 +92,11 @@ function defaultDraft() {
     defaultPolicy: "allow",
     tools: {},
     approval: {
+      policy: "never",
       enabled: false
+    },
+    sandbox: {
+      mode: "workspace_write"
     },
     preToolsHook: {
       enabled: null,
@@ -266,7 +270,12 @@ export function AgentToolsTab({ agentId }) {
         tools: typeof policy.tools === "object" && policy.tools ? policy.tools : {},
         approval: {
           ...defaultDraft().approval,
-          ...(policy.approval || {})
+          ...(policy.approval || {}),
+          policy: String(policy.approval?.policy || (policy.approval?.enabled ? "on_request" : "never"))
+        },
+        sandbox: {
+          ...defaultDraft().sandbox,
+          ...(policy.sandbox || {})
         },
         preToolsHook: {
           ...defaultDraft().preToolsHook,
@@ -339,6 +348,17 @@ export function AgentToolsTab({ agentId }) {
       ...previous,
       approval: {
         ...previous.approval,
+        [field]: value,
+        ...(field === "policy" ? { enabled: value === "on_request" } : {})
+      }
+    }));
+  }
+
+  function updateSandbox(field, value) {
+    setDraft((previous) => ({
+      ...previous,
+      sandbox: {
+        ...previous.sandbox,
         [field]: value
       }
     }));
@@ -397,7 +417,11 @@ export function AgentToolsTab({ agentId }) {
       defaultPolicy: draft.defaultPolicy === "deny" ? "deny" : "allow",
       tools: draft.tools,
       approval: {
-        enabled: Boolean(draft.approval?.enabled)
+        policy: draft.approval?.policy === "on_request" ? "on_request" : "never",
+        enabled: draft.approval?.policy === "on_request"
+      },
+      sandbox: {
+        mode: draft.sandbox?.mode === "full_access" ? "full_access" : "workspace_write"
       },
       preToolsHook: {
         enabled: typeof draft.preToolsHook?.enabled === "boolean" ? draft.preToolsHook.enabled : null,
@@ -490,24 +514,55 @@ export function AgentToolsTab({ agentId }) {
 
           <section className="agent-tools-panel">
             <div className="agent-tools-panel-head">
-              <h4>Tool Approval</h4>
-              <p>Ask before executing risky tools such as command execution, writes, cron, MCP mutations, and delegation.</p>
+              <h4>Agent Permissions</h4>
+              <p>Configure approval prompts and filesystem sandbox access for this agent.</p>
             </div>
 
-            <label className="agent-tools-guardrail agent-tools-guardrail-toggle">
-              <span className="agent-tools-guardrail-copy">
-                <span className="agent-tools-guardrail-title">Require Tool Approval</span>
-                <span className="agent-tools-guardrail-note">Off by default. When enabled, risky tool calls wait for a human decision.</span>
-              </span>
-              <span className="agent-tools-switch">
-                <input
-                  type="checkbox"
-                  checked={Boolean(draft.approval?.enabled)}
-                  onChange={(event) => updateApproval("enabled", event.target.checked)}
-                />
-                <span className="agent-tools-switch-track" />
-              </span>
-            </label>
+            <div>
+              <span className="agent-tools-guardrail-title">Approval Policy</span>
+              <div className="review-approval-options" style={{ marginTop: 8 }}>
+                {[
+                  { id: "never", label: "Never", icon: "lock_open" },
+                  { id: "on_request", label: "On Request", icon: "fact_check" }
+                ].map((option) => (
+                  <button
+                    key={option.id}
+                    type="button"
+                    className={`review-approval-option ${draft.approval?.policy === option.id ? "active" : ""}`}
+                    onClick={() => updateApproval("policy", option.id)}
+                  >
+                    <span className="material-symbols-rounded review-approval-icon">{option.icon}</span>
+                    <strong className="review-approval-name">{option.label}</strong>
+                  </button>
+                ))}
+              </div>
+              <p className="placeholder-text" style={{ marginTop: 8 }}>
+                On Request pauses risky tools and missing access requests until a human approves them.
+              </p>
+            </div>
+
+            <div style={{ marginTop: 18 }}>
+              <span className="agent-tools-guardrail-title">Sandbox Settings</span>
+              <div className="review-approval-options" style={{ marginTop: 8 }}>
+                {[
+                  { id: "workspace_write", label: "Workspace Access", icon: "folder_managed" },
+                  { id: "full_access", label: "Full Access", icon: "admin_panel_settings" }
+                ].map((option) => (
+                  <button
+                    key={option.id}
+                    type="button"
+                    className={`review-approval-option ${draft.sandbox?.mode === option.id ? "active" : ""}`}
+                    onClick={() => updateSandbox("mode", option.id)}
+                  >
+                    <span className="material-symbols-rounded review-approval-icon">{option.icon}</span>
+                    <strong className="review-approval-name">{option.label}</strong>
+                  </button>
+                ))}
+              </div>
+              <p className="placeholder-text" style={{ marginTop: 8 }}>
+                Full Access allows filesystem reads, writes, and command working directories outside the workspace while preserving command denylist and limits.
+              </p>
+            </div>
           </section>
 
           <section className="agent-tools-panel">

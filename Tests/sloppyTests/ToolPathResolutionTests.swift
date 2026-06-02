@@ -14,13 +14,14 @@ struct ToolPathResolutionTests {
         workspaceRootURL: URL,
         allowedExecRoots: [String] = [],
         allowedWriteRoots: [String] = [],
-        readOnlyRoots: [String] = []
+        readOnlyRoots: [String] = [],
+        sandbox: AgentSandboxSettings = .init()
     ) -> ToolContext {
         let guardrails = AgentToolsGuardrails(
             allowedWriteRoots: allowedWriteRoots,
             allowedExecRoots: allowedExecRoots
         )
-        let policy = AgentToolsPolicy(guardrails: guardrails)
+        let policy = AgentToolsPolicy(sandbox: sandbox, guardrails: guardrails)
         let tmp = FileManager.default.temporaryDirectory
         return ToolContext(
             agentID: "test-agent",
@@ -153,6 +154,42 @@ struct ToolPathResolutionTests {
         let context = makeContext(workspaceRootURL: workspace, allowedWriteRoots: [repoRoot.path])
         let resolved = context.resolveReadablePath(filePath)
         #expect(resolved != nil)
+    }
+
+    @Test("full access allows readable and writable paths outside workspace")
+    func resolvePathsOutsideWorkspaceWithFullAccess() throws {
+        let tmp = FileManager.default.temporaryDirectory
+        let workspace = tmp.appendingPathComponent("sloppy-ws-\(UUID().uuidString)", isDirectory: true)
+        let outside = tmp.appendingPathComponent("sloppy-full-access-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: workspace, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: outside, withIntermediateDirectories: true)
+        defer {
+            try? FileManager.default.removeItem(at: workspace)
+            try? FileManager.default.removeItem(at: outside)
+        }
+
+        let filePath = outside.appendingPathComponent("note.txt").path
+        let context = makeContext(workspaceRootURL: workspace, sandbox: .init(mode: .fullAccess))
+
+        #expect(context.resolveReadablePath(filePath) != nil)
+        #expect(context.resolveWritablePath(filePath) != nil)
+    }
+
+    @Test("full access allows exec cwd outside workspace")
+    func resolveExecCwdOutsideWorkspaceWithFullAccess() throws {
+        let tmp = FileManager.default.temporaryDirectory
+        let workspace = tmp.appendingPathComponent("sloppy-ws-\(UUID().uuidString)", isDirectory: true)
+        let outside = tmp.appendingPathComponent("sloppy-full-exec-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: workspace, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: outside, withIntermediateDirectories: true)
+        defer {
+            try? FileManager.default.removeItem(at: workspace)
+            try? FileManager.default.removeItem(at: outside)
+        }
+
+        let context = makeContext(workspaceRootURL: workspace, sandbox: .init(mode: .fullAccess))
+
+        #expect(context.resolveExecCwd(outside.path) != nil)
     }
 
     @Test("resolveReadablePath accepts read-only roots without allowing writes")

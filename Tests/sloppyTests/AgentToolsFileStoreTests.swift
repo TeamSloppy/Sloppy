@@ -18,9 +18,57 @@ func toolsStoreAutoCreatesDefaultPolicy() throws {
     #expect(policy.defaultPolicy == .allow)
     #expect(policy.tools.isEmpty)
     #expect(policy.approval.enabled == false)
+    #expect(policy.approval.policy == .never)
+    #expect(policy.sandbox.mode == .workspaceWrite)
 
     let toolsFile = agentDirectory.appendingPathComponent("tools/tools.json")
     #expect(FileManager.default.fileExists(atPath: toolsFile.path))
+}
+
+@Test
+func toolsStoreLoadsLegacyApprovalEnabledAndRoundTripsSandbox() throws {
+    let root = FileManager.default.temporaryDirectory
+        .appendingPathComponent("tools-store-approval-sandbox-\(UUID().uuidString)", isDirectory: true)
+    let agentsRoot = root.appendingPathComponent("agents", isDirectory: true)
+    let agentDirectory = agentsRoot.appendingPathComponent("agent-permissions", isDirectory: true)
+    let toolsDirectory = agentDirectory.appendingPathComponent("tools", isDirectory: true)
+    try FileManager.default.createDirectory(at: toolsDirectory, withIntermediateDirectories: true)
+
+    let legacyJSON = """
+    {
+      "version": 1,
+      "defaultPolicy": "allow",
+      "tools": {},
+      "approval": {
+        "enabled": true
+      },
+      "guardrails": {}
+    }
+    """
+    try Data(legacyJSON.utf8).write(to: toolsDirectory.appendingPathComponent("tools.json"))
+
+    let store = AgentToolsFileStore(agentsRootURL: agentsRoot)
+    let loaded = try store.getPolicy(agentID: "agent-permissions", knownToolIDs: ToolCatalog.knownToolIDs)
+    #expect(loaded.approval.enabled == true)
+    #expect(loaded.approval.policy == .onRequest)
+    #expect(loaded.sandbox.mode == .workspaceWrite)
+
+    let updated = try store.updatePolicy(
+        agentID: "agent-permissions",
+        request: AgentToolsUpdateRequest(
+            approval: AgentToolApprovalSettings(policy: .never),
+            sandbox: AgentSandboxSettings(mode: .fullAccess)
+        ),
+        knownToolIDs: ToolCatalog.knownToolIDs
+    )
+
+    #expect(updated.approval.enabled == false)
+    #expect(updated.approval.policy == .never)
+    #expect(updated.sandbox.mode == .fullAccess)
+
+    let reloaded = try store.getPolicy(agentID: "agent-permissions", knownToolIDs: ToolCatalog.knownToolIDs)
+    #expect(reloaded.approval.policy == .never)
+    #expect(reloaded.sandbox.mode == .fullAccess)
 }
 
 @Test

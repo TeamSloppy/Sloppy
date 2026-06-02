@@ -16,7 +16,7 @@ extension ToolContext {
             path,
             workspaceRootURL: workspaceRootURL,
             currentDirectoryURL: currentDirectoryURL,
-            extraRoots: policy.guardrails.allowedWriteRoots + readOnlyRoots
+            extraRoots: extraReadableRoots()
         )
     }
 
@@ -25,7 +25,7 @@ extension ToolContext {
             path,
             workspaceRootURL: workspaceRootURL,
             currentDirectoryURL: currentDirectoryURL,
-            extraRoots: policy.guardrails.allowedWriteRoots
+            extraRoots: extraWritableRoots()
         )
     }
 
@@ -34,8 +34,29 @@ extension ToolContext {
             path,
             workspaceRootURL: workspaceRootURL,
             currentDirectoryURL: currentDirectoryURL,
-            extraRoots: policy.guardrails.allowedExecRoots
+            extraRoots: extraExecRoots()
         )
+    }
+
+    private func extraReadableRoots() -> [String] {
+        if policy.sandbox.mode == .fullAccess {
+            return ["/"] + readOnlyRoots
+        }
+        return policy.guardrails.allowedWriteRoots + readOnlyRoots
+    }
+
+    private func extraWritableRoots() -> [String] {
+        if policy.sandbox.mode == .fullAccess {
+            return ["/"]
+        }
+        return policy.guardrails.allowedWriteRoots
+    }
+
+    private func extraExecRoots() -> [String] {
+        if policy.sandbox.mode == .fullAccess {
+            return ["/"]
+        }
+        return policy.guardrails.allowedExecRoots
     }
 
     /// True when the path targets an agent's `USER.md` or `MEMORY.md` under `/agents` (including `.system`).

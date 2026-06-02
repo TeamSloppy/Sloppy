@@ -524,6 +524,45 @@ func acpSessionManagerSelectsExactAllowOncePermissionOption() async throws {
 }
 
 @Test
+func acpSessionManagerFullAccessSelectsBestAllowPermissionOption() async throws {
+    let target = CoreConfig.ACP.Target(
+        id: "local",
+        title: "Local ACP",
+        transport: .stdio,
+        command: "/bin/echo",
+        permissionMode: .fullAccess
+    )
+    let client = MockACPTransportClient(
+        initializeResponse: makeInitializeResponse(loadSession: false),
+        permissionRequest: RequestPermissionRequest(
+            message: "Run dangerous tool?",
+            options: [
+                PermissionOption(kind: "decision", name: "Allow once", optionId: "allow_once"),
+                PermissionOption(kind: "decision", name: "Always allow", optionId: "allow_always")
+            ]
+        )
+    )
+    let (manager, _, sessionID) = try makeSessionManagerFixture(target: target, clients: [client])
+    let recorder = EventRecorder()
+
+    _ = try await manager.postMessage(
+        agentID: "agent-1",
+        sloppySessionID: sessionID,
+        runtime: .init(type: .acp, acp: .init(targetId: "local")),
+        content: [.text(TextContent(text: "hello"))],
+        localSessionHadPriorMessages: false,
+        primerContent: nil,
+        onChunk: { _ in },
+        onEvent: { event in await recorder.append(event: event) }
+    )
+
+    let snapshot = await client.snapshot()
+    #expect(snapshot.permissionOutcome?.outcome.optionId == "allow_always")
+    let permissionEvent = await recorder.events.last(where: { $0.type == .runStatus })
+    #expect(permissionEvent?.runStatus?.details?.contains("allow_always") == true)
+}
+
+@Test
 func acpSessionManagerRejectsWhenAllowOnceIsUnavailableOrDeniedByMode() async throws {
     let target = CoreConfig.ACP.Target(
         id: "local",

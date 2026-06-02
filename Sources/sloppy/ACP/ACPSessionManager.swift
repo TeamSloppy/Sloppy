@@ -1343,10 +1343,37 @@ private actor ACPClientDelegateAdapter: ClientDelegate {
             }
             await permissionEventSink("\(requested) -> denied (allow_once unavailable)")
             return RequestPermissionResponse(outcome: PermissionOutcome(cancelled: true))
+        case .fullAccess:
+            if let optionId = Self.fullAccessOptionId(from: request) {
+                await permissionEventSink("\(requested) -> \(optionId)")
+                return RequestPermissionResponse(outcome: PermissionOutcome(optionId: optionId))
+            }
+            await permissionEventSink("\(requested) -> denied (allow unavailable)")
+            return RequestPermissionResponse(outcome: PermissionOutcome(cancelled: true))
         case .deny:
             await permissionEventSink("\(requested) -> denied")
             return RequestPermissionResponse(outcome: PermissionOutcome(cancelled: true))
         }
+    }
+
+    private static func fullAccessOptionId(from request: RequestPermissionRequest) -> String? {
+        let options = request.options ?? []
+        let preferred = [
+            "allow_always",
+            "allow_session",
+            "allow_workspace",
+            "allow_all",
+            PermissionDecision.allowOnce.rawValue
+        ]
+        for id in preferred {
+            if let match = options.first(where: { $0.optionId == id }) {
+                return match.optionId
+            }
+        }
+        return options.first { option in
+            let normalized = option.optionId.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            return normalized.hasPrefix("allow") || normalized.contains("approve")
+        }?.optionId
     }
 
     private static func permissionRequestSummary(_ request: RequestPermissionRequest) -> String {

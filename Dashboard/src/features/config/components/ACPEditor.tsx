@@ -193,7 +193,9 @@ export function ACPEditor({ draftConfig, mutateDraft }) {
         environment: transport === "stdio" ? editTarget.environment || {} : {},
         timeoutMs: editTarget.timeoutMs || 30000,
         enabled: editTarget.enabled !== false,
-        permissionMode: editTarget.permissionMode === "deny" ? "deny" : "allow_once"
+        permissionMode: ["allow_once", "full_access", "deny"].includes(editTarget.permissionMode)
+          ? editTarget.permissionMode
+          : "allow_once"
       };
       if (existingIdx >= 0) {
         list[existingIdx] = entry;
@@ -557,6 +559,7 @@ export function ACPEditor({ draftConfig, mutateDraft }) {
             <div className="settings-toast-actions" style={{ marginTop: 0 }}>
               {[
                 { id: "allow_once", label: "Allow Once" },
+                { id: "full_access", label: "Full Access" },
                 { id: "deny", label: "Deny" }
               ].map((mode) => (
                 <button

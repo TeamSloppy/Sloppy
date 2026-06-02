@@ -327,7 +327,7 @@ actor ToolLoopGuard {
             trimmed,
             workspaceRootURL: workspaceRootURL,
             currentDirectoryURL: currentDirectoryURL,
-            extraRoots: policy.guardrails.allowedExecRoots
+            extraRoots: policy.sandbox.mode == .fullAccess ? ["/"] : policy.guardrails.allowedExecRoots
         ) {
             return .string(resolved.path)
         }
