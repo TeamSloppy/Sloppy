@@ -1248,7 +1248,7 @@ extension CoreService {
 
         let detail = try? getAgentSession(agentID: agentID, sessionID: session.id)
         var resultEvents = detail?.events ?? response.appendedEvents
-        if latestDelegateFinishSummary(from: resultEvents) == nil,
+        if latestDelegateFinishOutcome(from: resultEvents) == nil,
            let syntheticFinish = syntheticDelegateFinishEvent(
                agentID: agentID,
                sessionID: session.id,
@@ -1261,7 +1261,13 @@ extension CoreService {
             )
             resultEvents.append(syntheticFinish)
         }
-        let text = delegatedTaskResultText(from: resultEvents)
+        let outcome = delegatedTaskFinishOutcome(from: resultEvents) ?? fallbackDelegatedTaskFinishOutcome()
+        let text = delegatedTaskResultText(from: outcome)
+        await blockAutopilotTaskForSyntheticDelegatedFailureIfNeeded(
+            taskID: taskID,
+            resultText: text,
+            outcome: outcome
+        )
         sessionSubagentToolAllowList.removeValue(forKey: session.id)
         sessionToolApprovalBypass.remove(session.id)
         await sessionOrchestrator.unmarkDelegatedSubagentSession(sessionID: session.id)
@@ -1290,6 +1296,36 @@ extension CoreService {
             )
         }
         return nil
+    }
+
+    private func blockAutopilotTaskForSyntheticDelegatedFailureIfNeeded(
+        taskID: String,
+        resultText: String,
+        outcome: DelegatedTaskFinishOutcome
+    ) async {
+        guard outcome.synthetic,
+              outcome.status == "failed"
+        else {
+            return
+        }
+
+        for project in await store.listProjects() {
+            guard let task = project.tasks.first(where: { $0.id == taskID }),
+                  project.autopilotSettings.enabled,
+                  isAutopilotManagedTask(project: project, task: task),
+                  task.status != ProjectTaskStatus.done.rawValue,
+                  task.status != ProjectTaskStatus.cancelled.rawValue
+            else {
+                continue
+            }
+
+            await blockAutopilotTask(
+                project: project,
+                taskID: task.id,
+                message: "Delegated subagent failed to finish task \(task.id).\n\n\(resultText)"
+            )
+            return
+        }
     }
 
     private func subagentToolsets(forWorkerTools workerTools: [String]) -> [String] {
@@ -1428,13 +1464,41 @@ extension CoreService {
         """
     }
 
-    func delegatedTaskResultText(from events: [AgentSessionEvent]) -> String {
-        latestDelegateFinishSummary(from: events)
-            ?? syntheticDelegateFinishSummary(from: events)
-            ?? "[failed] Delegated subagent ended before calling `agent_delegate.finish`.\nError: The subagent ended without a structured delegated-task result."
+    private struct DelegatedTaskFinishOutcome: Sendable {
+        var status: String
+        var summary: String
+        var error: String?
+        var synthetic: Bool
     }
 
-    private func latestDelegateFinishSummary(from events: [AgentSessionEvent]) -> String? {
+    func delegatedTaskResultText(from events: [AgentSessionEvent]) -> String {
+        delegatedTaskFinishOutcome(from: events)
+            .map(delegatedTaskResultText(from:))
+            ?? delegatedTaskResultText(from: fallbackDelegatedTaskFinishOutcome())
+    }
+
+    private func delegatedTaskResultText(from outcome: DelegatedTaskFinishOutcome) -> String {
+        if let error = outcome.error?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !error.isEmpty {
+            return "[\(outcome.status)] \(outcome.summary)\nError: \(error)"
+        }
+        return "[\(outcome.status)] \(outcome.summary)"
+    }
+
+    private func delegatedTaskFinishOutcome(from events: [AgentSessionEvent]) -> DelegatedTaskFinishOutcome? {
+        latestDelegateFinishOutcome(from: events) ?? syntheticDelegateFinishOutcome(from: events)
+    }
+
+    private func fallbackDelegatedTaskFinishOutcome() -> DelegatedTaskFinishOutcome {
+        DelegatedTaskFinishOutcome(
+            status: "failed",
+            summary: "Delegated subagent ended before calling `agent_delegate.finish`.",
+            error: "The subagent ended without a structured delegated-task result.",
+            synthetic: true
+        )
+    }
+
+    private func latestDelegateFinishOutcome(from events: [AgentSessionEvent]) -> DelegatedTaskFinishOutcome? {
         for event in events.reversed() {
             guard event.type == .toolResult,
                   let result = event.toolResult,
@@ -1451,19 +1515,14 @@ extension CoreService {
             }
 
             let error = data["error"]?.asString?.trimmingCharacters(in: .whitespacesAndNewlines)
-            if let error, !error.isEmpty {
-                return "[\(status)] \(summary)\nError: \(error)"
-            }
-            return "[\(status)] \(summary)"
+            return DelegatedTaskFinishOutcome(
+                status: status,
+                summary: summary,
+                error: error,
+                synthetic: data["synthetic"]?.asBool == true
+            )
         }
         return nil
-    }
-
-    private func syntheticDelegateFinishSummary(from events: [AgentSessionEvent]) -> String? {
-        guard let outcome = syntheticDelegateFinishOutcome(from: events) else {
-            return nil
-        }
-        return "[failed] \(outcome.summary)\nError: \(outcome.error)"
     }
 
     private func syntheticDelegateFinishEvent(
@@ -1485,36 +1544,62 @@ extension CoreService {
                     "finished": .bool(true),
                     "status": .string("failed"),
                     "summary": .string(outcome.summary),
-                    "error": .string(outcome.error),
+                    "error": .string(outcome.error ?? "The subagent ended without a structured delegated-task result."),
                     "synthetic": .bool(true),
                 ])
             )
         )
     }
 
-    private func syntheticDelegateFinishOutcome(from events: [AgentSessionEvent]) -> (summary: String, error: String)? {
+    private func syntheticDelegateFinishOutcome(from events: [AgentSessionEvent]) -> DelegatedTaskFinishOutcome? {
         guard let status = events.reversed().compactMap(\.runStatus).first(where: {
             $0.stage == .done || $0.stage == .interrupted
         }) else {
             return nil
         }
 
-        let details = status.details?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let error: String
-        if let details, !details.isEmpty {
-            error = details
-        } else {
-            error = "The subagent ended without a structured delegated-task result."
-        }
-
         switch status.stage {
         case .interrupted:
-            return ("Delegated subagent ended before calling `agent_delegate.finish`.", error)
+            return DelegatedTaskFinishOutcome(
+                status: "failed",
+                summary: "Delegated subagent ended before calling `agent_delegate.finish`.",
+                error: syntheticDelegateFinishError(from: events, status: status),
+                synthetic: true
+            )
         case .done:
-            return ("Delegated subagent completed without calling `agent_delegate.finish`.", error)
+            return DelegatedTaskFinishOutcome(
+                status: "failed",
+                summary: "Delegated subagent completed without calling `agent_delegate.finish`.",
+                error: syntheticDelegateFinishError(from: events, status: status),
+                synthetic: true
+            )
         default:
             return nil
         }
+    }
+
+    private func syntheticDelegateFinishError(
+        from events: [AgentSessionEvent],
+        status: AgentRunStatusEvent
+    ) -> String {
+        if events.contains(where: { event in
+            event.toolResult?.error?.code == "tool_budget_exhausted"
+        }) {
+            return "The delegated subagent hit `tool_budget_exhausted` before calling `agent_delegate.finish`."
+        }
+
+        let details = status.details?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let details,
+           !details.isEmpty,
+           details != "Response is ready." {
+            return details
+        }
+
+        if status.stage == .interrupted {
+            return "The delegated subagent run was interrupted before calling `agent_delegate.finish`."
+        }
+
+        return "The subagent ended without a structured delegated-task result."
     }
 
     private func appendingUniqueRoots(_ additions: [String], to existing: [String]) -> [String] {

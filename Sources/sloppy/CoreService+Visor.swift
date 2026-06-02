@@ -575,6 +575,13 @@ extension CoreService {
     func launchAutopilotReadyTasks(projectID: String, taskIDs: [String]) async {
         var launched = Set<String>()
         for taskID in taskIDs where launched.insert(taskID).inserted {
+            guard let latest = await store.project(id: projectID),
+                  latest.tasks.contains(where: { task in
+                      task.id == taskID && task.status == ProjectTaskStatus.ready.rawValue
+                  })
+            else {
+                continue
+            }
             await handleTaskBecameReady(projectID: projectID, taskID: taskID)
         }
     }

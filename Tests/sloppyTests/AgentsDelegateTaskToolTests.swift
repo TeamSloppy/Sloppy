@@ -180,6 +180,40 @@ struct AgentsDelegateTaskToolTests {
         #expect(text == "[failed] Delegated subagent ended before calling `agent_delegate.finish`.\nError: Agent reached the tool turn limit before producing a final answer.")
     }
 
+    @Test("Delegated task result names tool budget exhaustion in synthetic failure")
+    func delegatedTaskResultUsesToolBudgetExhaustionAsSyntheticFinishError() async {
+        let service = CoreService(config: .test, persistenceBuilder: InMemoryCorePersistenceBuilder())
+        let events = [
+            AgentSessionEvent(
+                agentId: "test-agent",
+                sessionId: "session-child",
+                type: .toolResult,
+                toolResult: AgentToolResultEvent(
+                    tool: "files.list",
+                    ok: false,
+                    error: ToolErrorPayload(
+                        code: "tool_budget_exhausted",
+                        message: "Tool budget exhausted.",
+                        retryable: false
+                    )
+                )
+            ),
+            AgentSessionEvent(
+                agentId: "test-agent",
+                sessionId: "session-child",
+                type: .runStatus,
+                runStatus: AgentRunStatusEvent(
+                    stage: .done,
+                    label: "Done",
+                    details: "Response is ready."
+                )
+            )
+        ]
+
+        let text = await service.delegatedTaskResultText(from: events)
+        #expect(text.contains("tool_budget_exhausted"))
+    }
+
     @Test("Delegated task result uses finish tool summary")
     func delegatedTaskResultUsesFinishToolSummary() async {
         let service = CoreService(config: .test, persistenceBuilder: InMemoryCorePersistenceBuilder())

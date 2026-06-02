@@ -327,6 +327,93 @@ func projectAutopilotStopsPlanningTickAfterTransientPlannerFailure() async throw
 }
 
 @Test
+func projectAutopilotBlocksTaskWhenDelegatedSubagentMissesFinishTool() async throws {
+    var config = CoreConfig.test
+    config.models = [
+        .init(title: "Worker", apiKey: "", apiUrl: "", model: "mock:worker"),
+    ]
+    let service = CoreService(config: config, persistenceBuilder: InMemoryCorePersistenceBuilder())
+    let provider = AutopilotRecordingModelProvider(models: ["mock:worker"], output: "I investigated but did not finish structurally.")
+    await service.overrideModelProviderForTests(provider, defaultModel: "mock:worker")
+
+    let agent = try await service.createAgent(
+        AgentCreateRequest(id: "autopilot-worker", displayName: "Worker", role: "Developer")
+    )
+    let task = ProjectTask(
+        id: "task-1",
+        title: "Implement delegated fix",
+        description: "",
+        priority: "medium",
+        status: ProjectTaskStatus.inProgress.rawValue,
+        parentTaskId: "root",
+        createdBy: "autopilot",
+        tags: ["autopilot"]
+    )
+    let project = ProjectRecord(
+        id: "autopilot-delegated-failure",
+        name: "Autopilot Delegated Failure",
+        description: "",
+        channels: [ProjectChannel(id: "channel-1", title: "Main", channelId: "chan")],
+        tasks: [task],
+        autopilotSettings: ProjectAutopilotSettings(enabled: true, defaultAgentId: agent.id)
+    )
+    await service.store.saveProject(project)
+
+    let result = await service.runSubagentTask(
+        agentID: agent.id,
+        taskID: task.id,
+        objective: "Finish the task.",
+        workingDirectory: nil,
+        toolsetNames: ["file"],
+        selectedModel: "mock:worker"
+    )
+
+    let saved = try #require(await service.store.project(id: project.id))
+    let savedTask = try #require(saved.tasks.first(where: { $0.id == task.id }))
+    let comments = await service.listTaskComments(projectID: project.id, taskID: task.id)
+
+    #expect(result?.contains("agent_delegate.finish") == true)
+    #expect(savedTask.status == ProjectTaskStatus.blocked.rawValue)
+    #expect(comments.contains { $0.content.contains(result ?? "") })
+}
+
+@Test
+func projectAutopilotLauncherSkipsStaleBlockedReadyTaskID() async throws {
+    let service = CoreService(config: .test, persistenceBuilder: InMemoryCorePersistenceBuilder())
+    let agent = try await service.createAgent(
+        AgentCreateRequest(id: "autopilot-stale-worker", displayName: "Worker", role: "Developer")
+    )
+    let task = ProjectTask(
+        id: "task-1",
+        title: "Stale ready child",
+        description: "",
+        priority: "medium",
+        status: ProjectTaskStatus.blocked.rawValue,
+        parentTaskId: "root",
+        createdBy: "autopilot",
+        tags: ["autopilot"]
+    )
+    let project = ProjectRecord(
+        id: "autopilot-stale-ready-id",
+        name: "Autopilot Stale Ready ID",
+        description: "",
+        channels: [ProjectChannel(id: "channel-1", title: "Main", channelId: "chan")],
+        tasks: [task],
+        autopilotSettings: ProjectAutopilotSettings(enabled: true, defaultAgentId: agent.id)
+    )
+    await service.store.saveProject(project)
+
+    await service.launchAutopilotReadyTasks(projectID: project.id, taskIDs: [task.id])
+
+    let saved = try #require(await service.store.project(id: project.id))
+    let savedTask = try #require(saved.tasks.first(where: { $0.id == task.id }))
+    let sessions = try await service.listAgentSessions(agentID: agent.id, projectID: nil, limit: nil, offset: 0)
+
+    #expect(savedTask.status == ProjectTaskStatus.blocked.rawValue)
+    #expect(sessions.isEmpty)
+}
+
+@Test
 func projectAutopilotSkipsBacklogRootWithBlockedDependency() async throws {
     var config = CoreConfig.test
     config.models = [
