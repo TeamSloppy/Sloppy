@@ -40,6 +40,36 @@ extension CoreService {
 
         entries.append(contentsOf: listTaskLifecycleLogEntries(projectID: projectID, taskID: taskID))
 
+        let runs = await listTaskRuns(projectID: projectID, taskID: taskID)
+        entries.append(contentsOf: runs.map { run in
+            TaskLogEntry(
+                id: "run-\(run.id)",
+                taskId: run.taskId,
+                kind: "run",
+                title: "Task run \(run.outcome.rawValue)",
+                message: run.summary ?? run.failureReason,
+                actorId: run.actorId,
+                agentId: run.agentId,
+                channelId: run.channelId,
+                workerId: run.workerId,
+                createdAt: run.startedAt
+            )
+        })
+
+        let heartbeats = await listTaskWorkerHeartbeats(projectID: projectID, taskID: taskID)
+        entries.append(contentsOf: heartbeats.map { heartbeat in
+            TaskLogEntry(
+                id: "heartbeat-\(heartbeat.id)",
+                taskId: heartbeat.taskId,
+                kind: "worker_heartbeat",
+                title: "Worker heartbeat",
+                message: heartbeat.message,
+                agentId: heartbeat.agentId,
+                workerId: heartbeat.workerId,
+                createdAt: heartbeat.updatedAt
+            )
+        })
+
         let invocations = await store.listToolInvocations(projectId: projectID, taskId: taskID, limit: 200)
         entries.append(contentsOf: invocations.map { invocation in
             TaskLogEntry(
@@ -72,6 +102,161 @@ extension CoreService {
         return (try? decoder.decode([TaskActivity].self, from: data)) ?? []
     }
 
+    public func listTaskRuns(projectID: String, taskID: String) async -> [ProjectTaskRun] {
+        let url = taskRunsFileURL(projectID: projectID, taskID: taskID)
+        guard let data = try? Data(contentsOf: url) else { return [] }
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        return ((try? decoder.decode([ProjectTaskRun].self, from: data)) ?? [])
+            .sorted { left, right in
+                if left.startedAt == right.startedAt {
+                    return left.id < right.id
+                }
+                return left.startedAt < right.startedAt
+            }
+    }
+
+    public func listTaskWorkerHeartbeats(projectID: String, taskID: String) async -> [ProjectTaskWorkerHeartbeat] {
+        let url = taskWorkerHeartbeatsFileURL(projectID: projectID, taskID: taskID)
+        guard let data = try? Data(contentsOf: url) else { return [] }
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        return ((try? decoder.decode([ProjectTaskWorkerHeartbeat].self, from: data)) ?? [])
+            .sorted { left, right in
+                if left.updatedAt == right.updatedAt {
+                    return left.id < right.id
+                }
+                return left.updatedAt < right.updatedAt
+            }
+    }
+
+    @discardableResult
+    public func recordTaskWorkerHeartbeat(
+        projectID: String,
+        taskID: String,
+        workerID: String?,
+        agentID: String?,
+        status: ProjectTaskWorkerHeartbeatStatus,
+        message: String? = nil,
+        metadata: [String: String] = [:],
+        updatedAt: Date = Date()
+    ) async -> ProjectTaskWorkerHeartbeat {
+        var heartbeats = await listTaskWorkerHeartbeats(projectID: projectID, taskID: taskID)
+        let normalizedWorkerID = normalizedOptionalTaskRunValue(workerID)
+        let normalizedAgentID = normalizedOptionalTaskRunValue(agentID)
+        let normalizedMessage = normalizedOptionalTaskRunValue(message)
+        if let index = heartbeats.indices.reversed().first(where: { heartbeat in
+            heartbeats[heartbeat].workerId == normalizedWorkerID
+        }) {
+            heartbeats[index].agentId = normalizedAgentID ?? heartbeats[index].agentId
+            heartbeats[index].status = status
+            heartbeats[index].message = normalizedMessage ?? heartbeats[index].message
+            heartbeats[index].metadata = heartbeats[index].metadata.merging(metadata) { _, new in new }
+            heartbeats[index].updatedAt = updatedAt
+            let heartbeat = heartbeats[index]
+            saveTaskWorkerHeartbeats(heartbeats, projectID: projectID, taskID: taskID)
+            return heartbeat
+        }
+
+        let heartbeat = ProjectTaskWorkerHeartbeat(
+            id: UUID().uuidString,
+            projectId: projectID,
+            taskId: taskID,
+            workerId: normalizedWorkerID,
+            agentId: normalizedAgentID,
+            status: status,
+            message: normalizedMessage,
+            metadata: metadata,
+            updatedAt: updatedAt,
+            createdAt: updatedAt
+        )
+        heartbeats.append(heartbeat)
+        saveTaskWorkerHeartbeats(heartbeats, projectID: projectID, taskID: taskID)
+        return heartbeat
+    }
+
+    @discardableResult
+    func startTaskRun(
+        projectID: String,
+        taskID: String,
+        actorID: String?,
+        agentID: String?,
+        workerID: String?,
+        channelID: String?
+    ) async -> ProjectTaskRun {
+        var runs = await listTaskRuns(projectID: projectID, taskID: taskID)
+        let now = Date()
+        let run = ProjectTaskRun(
+            id: UUID().uuidString,
+            projectId: projectID,
+            taskId: taskID,
+            actorId: normalizedOptionalTaskRunValue(actorID),
+            agentId: normalizedOptionalTaskRunValue(agentID),
+            workerId: normalizedOptionalTaskRunValue(workerID),
+            channelId: normalizedOptionalTaskRunValue(channelID),
+            outcome: .running,
+            startedAt: now,
+            createdAt: now,
+            updatedAt: now
+        )
+        runs.append(run)
+        saveTaskRuns(runs, projectID: projectID, taskID: taskID)
+        return run
+    }
+
+    @discardableResult
+    func finishLatestTaskRun(
+        projectID: String,
+        taskID: String,
+        outcome: ProjectTaskRunOutcome,
+        summary: String? = nil,
+        metadata: [String: String] = [:],
+        failureReason: String? = nil,
+        actorID: String? = nil,
+        agentID: String? = nil,
+        workerID: String? = nil,
+        channelID: String? = nil
+    ) async -> ProjectTaskRun {
+        var runs = await listTaskRuns(projectID: projectID, taskID: taskID)
+        let now = Date()
+        if let index = runs.indices.reversed().first(where: { runs[$0].endedAt == nil }) {
+            runs[index].outcome = outcome
+            runs[index].summary = normalizedOptionalTaskRunValue(summary) ?? runs[index].summary
+            runs[index].metadata = runs[index].metadata.merging(metadata) { _, new in new }
+            runs[index].failureReason = normalizedOptionalTaskRunValue(failureReason) ?? runs[index].failureReason
+            runs[index].actorId = normalizedOptionalTaskRunValue(actorID) ?? runs[index].actorId
+            runs[index].agentId = normalizedOptionalTaskRunValue(agentID) ?? runs[index].agentId
+            runs[index].workerId = normalizedOptionalTaskRunValue(workerID) ?? runs[index].workerId
+            runs[index].channelId = normalizedOptionalTaskRunValue(channelID) ?? runs[index].channelId
+            runs[index].endedAt = now
+            runs[index].updatedAt = now
+            let run = runs[index]
+            saveTaskRuns(runs, projectID: projectID, taskID: taskID)
+            return run
+        }
+
+        let run = ProjectTaskRun(
+            id: UUID().uuidString,
+            projectId: projectID,
+            taskId: taskID,
+            actorId: normalizedOptionalTaskRunValue(actorID),
+            agentId: normalizedOptionalTaskRunValue(agentID),
+            workerId: normalizedOptionalTaskRunValue(workerID),
+            channelId: normalizedOptionalTaskRunValue(channelID),
+            outcome: outcome,
+            summary: normalizedOptionalTaskRunValue(summary),
+            metadata: metadata,
+            failureReason: normalizedOptionalTaskRunValue(failureReason),
+            startedAt: now,
+            endedAt: now,
+            createdAt: now,
+            updatedAt: now
+        )
+        runs.append(run)
+        saveTaskRuns(runs, projectID: projectID, taskID: taskID)
+        return run
+    }
+
     public func recordTaskActivity(
         projectID: String,
         taskID: String,
@@ -98,6 +283,16 @@ extension CoreService {
             .appendingPathComponent("task-activities-\(taskID).json")
     }
 
+    func taskRunsFileURL(projectID: String, taskID: String) -> URL {
+        projectMetaDirectoryURL(projectID: projectID)
+            .appendingPathComponent("task-runs-\(taskID).json")
+    }
+
+    func taskWorkerHeartbeatsFileURL(projectID: String, taskID: String) -> URL {
+        projectMetaDirectoryURL(projectID: projectID)
+            .appendingPathComponent("task-worker-heartbeats-\(taskID).json")
+    }
+
     func saveTaskActivities(_ activities: [TaskActivity], projectID: String, taskID: String) {
         ensureProjectWorkspaceDirectory(projectID: projectID)
         let encoder = JSONEncoder()
@@ -105,6 +300,46 @@ extension CoreService {
         guard let data = try? encoder.encode(activities) else { return }
         let url = taskActivitiesFileURL(projectID: projectID, taskID: taskID)
         try? data.write(to: url, options: .atomic)
+    }
+
+    func saveTaskRuns(_ runs: [ProjectTaskRun], projectID: String, taskID: String) {
+        ensureProjectWorkspaceDirectory(projectID: projectID)
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        guard let data = try? encoder.encode(runs) else { return }
+        let url = taskRunsFileURL(projectID: projectID, taskID: taskID)
+        try? data.write(to: url, options: .atomic)
+    }
+
+    func saveTaskWorkerHeartbeats(_ heartbeats: [ProjectTaskWorkerHeartbeat], projectID: String, taskID: String) {
+        ensureProjectWorkspaceDirectory(projectID: projectID)
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        guard let data = try? encoder.encode(heartbeats) else { return }
+        let url = taskWorkerHeartbeatsFileURL(projectID: projectID, taskID: taskID)
+        try? data.write(to: url, options: .atomic)
+    }
+
+    func normalizedOptionalTaskRunValue(_ value: String?) -> String? {
+        let trimmed = (value ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    func taskRunOutcome(forStatus status: String) -> ProjectTaskRunOutcome? {
+        switch ProjectTaskStatus(rawValue: status) {
+        case .done:
+            return .completed
+        case .needsReview:
+            return .needsReview
+        case .blocked:
+            return .blocked
+        case .waitingInput:
+            return .waitingInput
+        case .cancelled:
+            return .reclaimed
+        case .pendingApproval, .backlog, .ready, .inProgress, .none:
+            return nil
+        }
     }
 
     func recordSystemStatusChange(

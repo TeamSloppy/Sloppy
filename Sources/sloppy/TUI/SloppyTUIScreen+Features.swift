@@ -130,35 +130,27 @@ extension SloppyTUIScreen {
     }
 
     func showDiff() async {
-        guard !service.isRemote else {
-            appendLocalCard("Session diff is available only for local TUI workspaces because it uses local undo history.", autoDismissAfter: 10)
-            return
-        }
-        guard hasPersistedSession else {
-            appendLocalCard("No session yet. Send a message first or open an existing session with `/sessions`.")
-            return
-        }
-
         do {
-            let rootURL = try await service.resolveProjectWorkspaceRoot(projectID: project.id)
-            let sessionDiff = try sessionUndoManagers.sessionDiff(
-                sessionID: session.id,
-                rootURL: rootURL,
-                maxCharacters: 96 * 1024
-            )
-            guard sessionDiff.hasChanges else {
-                appendLocalCard("No file changes recorded in this TUI session.")
+            let sourceControl = try await service.projectWorkingTreeSourceControl(projectID: project.id)
+            updateProjectSourceControlFooter(sourceControl)
+            guard sourceControl.isRepository else {
+                appendLocalCard(sourceControl.message ?? "Project is not a source-control repository.")
                 return
             }
-            let truncated = sessionDiff.truncated ? "\n\nDiff was truncated by the TUI session history." : ""
+            guard !sourceControl.diff.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                appendLocalCard(sourceControl.message ?? "No uncommitted source-control changes.")
+                return
+            }
+            let branch = sourceControl.branch ?? "unknown"
+            let truncated = sourceControl.diffTruncated ? "\n\nDiff was truncated by the backend." : ""
             appendLocalCard("""
-            ## Session Diff
-            Current TUI session: +\(sessionDiff.linesAdded) -\(sessionDiff.linesDeleted)
+            ## Source-Control Diff
+            `\(sourceControl.providerId)` on `\(branch)`: +\(sourceControl.linesAdded) -\(sourceControl.linesDeleted)
 
-            \(fencedBlock("diff", sessionDiff.diff, maxCharacters: 12_000))\(truncated)
+            \(fencedBlock("diff", sourceControl.diff, maxCharacters: 12_000))\(truncated)
             """)
         } catch {
-            appendLocalCard("Could not read session diff: \(String(describing: error))")
+            appendLocalCard("Could not read source-control diff: \(String(describing: error))")
         }
     }
 

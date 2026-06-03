@@ -1815,7 +1815,7 @@ enum SloppyTUITheme {
                 "Type @skill to invoke a skill, or @path to attach project files as explicit context.",
                 "Type # to autocomplete active project tasks by id or title.",
                 "Use /btw for a side question without disturbing the main task.",
-                "Use /diff for current-session changes, or /context diff when you want the agent to inspect source-control changes.",
+                "Use /diff to preview source-control changes, or /context diff to attach them to the next message.",
             ]
         let count = min(tips.count, 1)
         let start = tips.isEmpty ? 0 : ((offset % tips.count) + tips.count) % tips.count

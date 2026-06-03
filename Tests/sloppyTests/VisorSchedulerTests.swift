@@ -55,6 +55,33 @@ func visorSchedulerRespectsDisabledConfig() async throws {
 }
 
 @Test
+func kanbanSchedulerStartStopLifecycle() async throws {
+    var config = CoreConfig.test
+    config.kanban.scheduler.enabled = true
+
+    let (_, service) = try makeSchedulerTestRouter(config: config)
+
+    await service.bootstrapChannelPlugins()
+    #expect(await service.kanbanSchedulerRunning())
+
+    await service.shutdownChannelPlugins()
+    #expect(!(await service.kanbanSchedulerRunning()))
+}
+
+@Test
+func kanbanSchedulerRespectsDisabledConfig() async throws {
+    var config = CoreConfig.test
+    config.kanban.scheduler.enabled = false
+
+    let (_, service) = try makeSchedulerTestRouter(config: config)
+
+    await service.bootstrapChannelPlugins()
+    #expect(!(await service.kanbanSchedulerRunning()))
+
+    await service.shutdownChannelPlugins()
+}
+
+@Test
 func visorSchedulerAutoGeneratesBulletinFromConfiguredInterval() async throws {
     var config = CoreConfig.test
     config.visor.scheduler.enabled = true

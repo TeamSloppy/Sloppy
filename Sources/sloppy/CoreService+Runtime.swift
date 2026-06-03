@@ -71,6 +71,7 @@ extension CoreService {
                         let enrichedEvent = await eventByInjectingSwarmMetadata(event)
                         await store.persist(event: enrichedEvent)
                         await recordProjectAnalyticsFactIfNeeded(enrichedEvent)
+                        await handleKanbanRuntimeEvent(enrichedEvent)
                         await handleVisorEvent(enrichedEvent)
                         await handleMemoryCheckpointRuntimeEvent(enrichedEvent)
                         await extractAndPersistTokenUsage(from: enrichedEvent)

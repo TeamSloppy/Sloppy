@@ -197,7 +197,7 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
         SloppyTUISlashCommand("themes", "Switch TUI color theme"),
         SloppyTUISlashCommand("bar", "Change color bar", argument: "red|blue|green|yellow|purple|orange|pink|cyan|default"),
         SloppyTUISlashCommand("copy", "Copy last agent response to clipboard"),
-        SloppyTUISlashCommand("diff", "Show changes recorded in the current TUI session"),
+        SloppyTUISlashCommand("diff", "Show source-control working tree diff"),
         SloppyTUISlashCommand("feedback", "Open GitHub issues for feedback"),
         SloppyTUISlashCommand("plan-web", "Open the latest Plan mode web page"),
         SloppyTUISlashCommand("effort", "Set reasoning effort level", argument: "low|medium|high"),

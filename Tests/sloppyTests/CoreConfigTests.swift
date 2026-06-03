@@ -148,6 +148,11 @@ func missingVisorConfigFallsBackToDefaults() throws {
     #expect(decoded.visor.bootstrapBulletin)
     #expect(decoded.visor.model == nil)
     #expect(decoded.visor.bulletinMaxWords == 300)
+    #expect(decoded.kanban.scheduler.enabled)
+    #expect(decoded.kanban.scheduler.intervalSeconds == 60)
+    #expect(decoded.kanban.scheduler.jitterSeconds == 5)
+    #expect(decoded.kanban.staleClaimTimeoutSeconds == 14_400)
+    #expect(decoded.kanban.spawnFailureLimit == 2)
 }
 
 @Test
@@ -179,6 +184,36 @@ func visorModelConfigParsedFromJSON() throws {
     #expect(decoded.visor.bootstrapBulletin == false)
     #expect(decoded.visor.scheduler.enabled == false)
     #expect(decoded.visor.scheduler.intervalSeconds == 600)
+}
+
+@Test
+func kanbanMaintenanceConfigParsedFromJSON() throws {
+    let json =
+        """
+        {
+          "listen": { "host": "0.0.0.0", "port": 25101 },
+          "auth": { "token": "dev-token" },
+          "models": [],
+          "memory": { "backend": "sqlite-local-vectors" },
+          "nodes": ["local"],
+          "gateways": [],
+          "plugins": [],
+          "sqlitePath": "core.sqlite",
+          "kanban": {
+            "scheduler": { "enabled": false, "intervalSeconds": 10, "jitterSeconds": 0 },
+            "staleClaimTimeoutSeconds": 30,
+            "spawnFailureLimit": 4
+          }
+        }
+        """
+
+    let decoded = try JSONDecoder().decode(CoreConfig.self, from: Data(json.utf8))
+
+    #expect(decoded.kanban.scheduler.enabled == false)
+    #expect(decoded.kanban.scheduler.intervalSeconds == 10)
+    #expect(decoded.kanban.scheduler.jitterSeconds == 0)
+    #expect(decoded.kanban.staleClaimTimeoutSeconds == 30)
+    #expect(decoded.kanban.spawnFailureLimit == 4)
 }
 
 @Test

@@ -5565,6 +5565,112 @@ public struct TaskLogEntry: Codable, Sendable, Identifiable {
     }
 }
 
+public enum ProjectTaskRunOutcome: String, Codable, Sendable, Equatable {
+    case running
+    case completed
+    case needsReview = "needs_review"
+    case blocked
+    case waitingInput = "waiting_input"
+    case failed
+    case reclaimed
+}
+
+public struct ProjectTaskRun: Codable, Sendable, Identifiable, Equatable {
+    public var id: String
+    public var projectId: String
+    public var taskId: String
+    public var actorId: String?
+    public var agentId: String?
+    public var workerId: String?
+    public var channelId: String?
+    public var outcome: ProjectTaskRunOutcome
+    public var summary: String?
+    public var metadata: [String: String]
+    public var failureReason: String?
+    public var startedAt: Date
+    public var endedAt: Date?
+    public var createdAt: Date
+    public var updatedAt: Date
+
+    public init(
+        id: String,
+        projectId: String,
+        taskId: String,
+        actorId: String? = nil,
+        agentId: String? = nil,
+        workerId: String? = nil,
+        channelId: String? = nil,
+        outcome: ProjectTaskRunOutcome = .running,
+        summary: String? = nil,
+        metadata: [String: String] = [:],
+        failureReason: String? = nil,
+        startedAt: Date = Date(),
+        endedAt: Date? = nil,
+        createdAt: Date = Date(),
+        updatedAt: Date = Date()
+    ) {
+        self.id = id
+        self.projectId = projectId
+        self.taskId = taskId
+        self.actorId = actorId
+        self.agentId = agentId
+        self.workerId = workerId
+        self.channelId = channelId
+        self.outcome = outcome
+        self.summary = summary
+        self.metadata = metadata
+        self.failureReason = failureReason
+        self.startedAt = startedAt
+        self.endedAt = endedAt
+        self.createdAt = createdAt
+        self.updatedAt = updatedAt
+    }
+}
+
+public enum ProjectTaskWorkerHeartbeatStatus: String, Codable, Sendable, Equatable {
+    case running
+    case waitingInput = "waiting_input"
+    case finishing
+    case blocked
+}
+
+public struct ProjectTaskWorkerHeartbeat: Codable, Sendable, Identifiable, Equatable {
+    public var id: String
+    public var projectId: String
+    public var taskId: String
+    public var workerId: String?
+    public var agentId: String?
+    public var status: ProjectTaskWorkerHeartbeatStatus
+    public var message: String?
+    public var metadata: [String: String]
+    public var updatedAt: Date
+    public var createdAt: Date
+
+    public init(
+        id: String,
+        projectId: String,
+        taskId: String,
+        workerId: String? = nil,
+        agentId: String? = nil,
+        status: ProjectTaskWorkerHeartbeatStatus,
+        message: String? = nil,
+        metadata: [String: String] = [:],
+        updatedAt: Date = Date(),
+        createdAt: Date = Date()
+    ) {
+        self.id = id
+        self.projectId = projectId
+        self.taskId = taskId
+        self.workerId = workerId
+        self.agentId = agentId
+        self.status = status
+        self.message = message
+        self.metadata = metadata
+        self.updatedAt = updatedAt
+        self.createdAt = createdAt
+    }
+}
+
 // MARK: - Task Clarification
 
 public enum ClarificationStatus: String, Codable, Sendable, Equatable {

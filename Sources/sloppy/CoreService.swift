@@ -235,6 +235,7 @@ public actor CoreService {
     var readyTaskStartupDispatchInProgress = false
     var activeGatewayPlugins: [any GatewayPlugin] = []
     var visorScheduler: VisorScheduler?
+    var kanbanScheduler: KanbanMaintenanceScheduler?
     var cronRunner: CronRunner?
     var heartbeatRunner: HeartbeatRunner?
     var taskSyncRunner: TaskSyncRunner?

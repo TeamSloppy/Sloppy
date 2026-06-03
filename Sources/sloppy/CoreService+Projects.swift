@@ -984,6 +984,7 @@ extension CoreService {
             updatedAt: now
         )
         project.tasks.append(task)
+        try validateProjectTaskDependencies(project: project)
         project.updatedAt = now
         await store.saveProject(project)
         if let changedBy = request.changedBy?.trimmingCharacters(in: .whitespacesAndNewlines),
@@ -1107,6 +1108,7 @@ extension CoreService {
         }
         task.updatedAt = Date()
         project.tasks[taskIndex] = task
+        try validateProjectTaskDependencies(project: project)
         project.updatedAt = Date()
         await store.saveProject(project)
         await kanbanEventService.push(KanbanEvent(type: .taskUpdated, projectId: normalizedProject, task: task))
@@ -1140,6 +1142,38 @@ extension CoreService {
                 actorID: task.claimedActorId,
                 agentID: task.claimedAgentId
             )
+        }
+
+        if previousStatus != task.status,
+           let runOutcome = taskRunOutcome(forStatus: task.status) {
+            var metadata: [String: String] = [
+                "source": changedBy,
+                "status": task.status
+            ]
+            if let confidence = request.completionConfidence {
+                metadata["completionConfidence"] = confidence.rawValue
+            }
+            await finishLatestTaskRun(
+                projectID: normalizedProject,
+                taskID: task.id,
+                outcome: runOutcome,
+                summary: requestedCompletionNote,
+                metadata: metadata,
+                failureReason: runOutcome == .blocked ? requestedCompletionNote : nil,
+                actorID: task.claimedActorId ?? task.actorId,
+                agentID: task.claimedAgentId,
+                workerID: nil,
+                channelID: resolveExecutionChannelID(project: project, task: task)
+            )
+        }
+
+        if previousStatus != ProjectTaskStatus.done.rawValue,
+           task.status == ProjectTaskStatus.done.rawValue,
+           let promotedProject = await promoteTasksUnblockedByCompletedDependency(
+                projectID: normalizedProject,
+                completedTaskID: task.id
+           ) {
+            project = promotedProject
         }
 
         let assigneeChangedWhileReady = (actorChanged || teamChanged)
@@ -1560,6 +1594,96 @@ extension CoreService {
             }
         }
         return ids
+    }
+
+    func validateProjectTaskDependencies(project: ProjectRecord) throws {
+        let tasksByID = Dictionary(uniqueKeysWithValues: project.tasks.map { ($0.id, $0) })
+        let taskIDs = Set(tasksByID.keys)
+
+        for task in project.tasks {
+            for dependencyID in task.dependsOnTaskIds {
+                guard taskIDs.contains(dependencyID) else {
+                    throw ProjectError.invalidPayload
+                }
+                guard dependencyID != task.id else {
+                    throw ProjectError.invalidPayload
+                }
+            }
+        }
+
+        var visiting = Set<String>()
+        var visited = Set<String>()
+
+        func visit(_ taskID: String) throws {
+            if visited.contains(taskID) {
+                return
+            }
+            guard !visiting.contains(taskID) else {
+                throw ProjectError.invalidPayload
+            }
+            visiting.insert(taskID)
+            for dependencyID in tasksByID[taskID]?.dependsOnTaskIds ?? [] {
+                try visit(dependencyID)
+            }
+            visiting.remove(taskID)
+            visited.insert(taskID)
+        }
+
+        for taskID in taskIDs {
+            try visit(taskID)
+        }
+    }
+
+    func promoteTasksUnblockedByCompletedDependency(projectID: String, completedTaskID: String) async -> ProjectRecord? {
+        guard var project = await store.project(id: projectID) else {
+            return nil
+        }
+
+        var promotedTasks: [ProjectTask] = []
+        let now = Date()
+        for index in project.tasks.indices {
+            var task = project.tasks[index]
+            guard task.status == ProjectTaskStatus.backlog.rawValue,
+                  task.dependsOnTaskIds.contains(completedTaskID),
+                  taskDependenciesSatisfied(project: project, task: task)
+            else {
+                continue
+            }
+
+            let previousStatus = task.status
+            task.status = ProjectTaskStatus.ready.rawValue
+            task.updatedAt = now
+            project.tasks[index] = task
+            promotedTasks.append(task)
+            appendTaskLifecycleLog(
+                projectID: project.id,
+                taskID: task.id,
+                stage: "dependency_promoted",
+                channelID: resolveExecutionChannelID(project: project, task: task),
+                workerID: nil,
+                message: "Task promoted to ready after dependencies completed.",
+                actorID: task.actorId,
+                agentID: task.claimedAgentId
+            )
+            await recordSystemStatusChange(
+                projectID: project.id,
+                taskID: task.id,
+                from: previousStatus,
+                to: task.status,
+                source: "system"
+            )
+        }
+
+        guard !promotedTasks.isEmpty else {
+            return project
+        }
+
+        project.updatedAt = now
+        await store.saveProject(project)
+        for task in promotedTasks {
+            await kanbanEventService.push(KanbanEvent(type: .taskUpdated, projectId: project.id, task: task))
+        }
+        return project
     }
 
     func normalizedProjectID(_ raw: String) -> String? {

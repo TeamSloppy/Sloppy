@@ -734,6 +734,10 @@ extension CoreService {
         await visorScheduler?.running() ?? false
     }
 
+    func kanbanSchedulerRunning() async -> Bool {
+        await kanbanScheduler?.running() ?? false
+    }
+
     func buildProjectTaskSummary() async -> String? {
         let projects = await store.listProjects()
         var lines: [String] = []
@@ -753,6 +757,14 @@ extension CoreService {
     func buildVisorSchedulerConfig() -> VisorSchedulerConfig {
         let scheduler = currentConfig.visor.scheduler
         return VisorSchedulerConfig(
+            interval: .seconds(max(1, scheduler.intervalSeconds)),
+            jitter: .seconds(max(0, scheduler.jitterSeconds))
+        )
+    }
+
+    func buildKanbanSchedulerConfig() -> KanbanMaintenanceSchedulerConfig {
+        let scheduler = currentConfig.kanban.scheduler
+        return KanbanMaintenanceSchedulerConfig(
             interval: .seconds(max(1, scheduler.intervalSeconds)),
             jitter: .seconds(max(0, scheduler.jitterSeconds))
         )

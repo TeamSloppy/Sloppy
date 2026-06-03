@@ -105,6 +105,19 @@ extension CoreService {
             await visorScheduler?.start()
         }
 
+        if kanbanScheduler == nil {
+            kanbanScheduler = KanbanMaintenanceScheduler(
+                config: buildKanbanSchedulerConfig(),
+                logger: Logger(label: "sloppy.kanban.scheduler")
+            ) { [weak self] in
+                guard let self else { return }
+                _ = await self.runKanbanMaintenanceNow()
+            }
+        }
+        if currentConfig.kanban.scheduler.enabled {
+            await kanbanScheduler?.start()
+        }
+
         if selfImprovementCuratorRunner == nil {
             selfImprovementCuratorRunner = SelfImprovementCuratorRunner(
                 config: .weekly,
@@ -186,6 +199,7 @@ extension CoreService {
         activeGatewayPlugins.removeAll()
 
         await visorScheduler?.stop()
+        await kanbanScheduler?.stop()
         await selfImprovementCuratorRunner?.stop()
         await runtime.stopVisorSupervision()
         await memoryOutboxIndexer?.stop()

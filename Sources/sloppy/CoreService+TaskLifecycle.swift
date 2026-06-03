@@ -279,6 +279,27 @@ extension CoreService {
             )
         )
 
+        await startTaskRun(
+            projectID: project.id,
+            taskID: task.id,
+            actorID: delegation.actorID,
+            agentID: delegation.agentID,
+            workerID: workerId,
+            channelID: delegation.channelID
+        )
+        await recordTaskWorkerHeartbeat(
+            projectID: project.id,
+            taskID: task.id,
+            workerID: workerId,
+            agentID: delegation.agentID,
+            status: .running,
+            message: "Worker started.",
+            metadata: [
+                "source": "worker_started",
+                "channelId": delegation.channelID
+            ]
+        )
+
         appendTaskLifecycleLog(
             projectID: project.id,
             taskID: task.id,
@@ -378,6 +399,294 @@ extension CoreService {
                 "task_id": .string(task.id)
             ]
         )
+    }
+
+    @discardableResult
+    public func reclaimStaleProjectTaskClaims(
+        staleAfter timeout: TimeInterval,
+        now: Date = Date()
+    ) async -> [ProjectTask] {
+        let activeWorkers = await runtime.workerSnapshots().filter { snapshot in
+            snapshot.status == .queued || snapshot.status == .running || snapshot.status == .waitingInput
+        }
+        let workersByTaskID = Dictionary(grouping: activeWorkers, by: \.taskId)
+        var reclaimed: [ProjectTask] = []
+
+        for var project in await store.listProjects() {
+            var changed = false
+            var projectReclaimedTasks: [ProjectTask] = []
+            for index in project.tasks.indices {
+                var task = project.tasks[index]
+                guard task.status == ProjectTaskStatus.inProgress.rawValue else {
+                    continue
+                }
+
+                let workers = workersByTaskID[task.id] ?? []
+                let heartbeats = await listTaskWorkerHeartbeats(projectID: project.id, taskID: task.id)
+                var hasFreshWorker = false
+                for worker in workers {
+                    if let heartbeat = latestHeartbeat(for: worker, in: heartbeats) {
+                        if now.timeIntervalSince(heartbeat.updatedAt) < timeout {
+                            hasFreshWorker = true
+                            break
+                        }
+                        continue
+                    }
+                    guard let startedAt = worker.startedAt else {
+                        hasFreshWorker = true
+                        break
+                    }
+                    if now.timeIntervalSince(startedAt) < timeout {
+                        hasFreshWorker = true
+                        break
+                    }
+                }
+                guard !hasFreshWorker else {
+                    continue
+                }
+
+                let previousStatus = task.status
+                task.status = ProjectTaskStatus.ready.rawValue
+                task.claimedActorId = nil
+                task.claimedAgentId = nil
+                task.updatedAt = now
+                project.tasks[index] = task
+                changed = true
+                reclaimed.append(task)
+                projectReclaimedTasks.append(task)
+
+                await finishLatestTaskRun(
+                    projectID: project.id,
+                    taskID: task.id,
+                    outcome: .reclaimed,
+                    summary: "Task claim reclaimed after worker became stale or disappeared.",
+                    metadata: [
+                        "source": "system",
+                        "reason": "stale_claim"
+                    ],
+                    failureReason: "Worker became stale or disappeared.",
+                    actorID: task.actorId,
+                    agentID: nil,
+                    workerID: workers.first?.workerId,
+                    channelID: resolveExecutionChannelID(project: project, task: task)
+                )
+                await recordSystemStatusChange(
+                    projectID: project.id,
+                    taskID: task.id,
+                    from: previousStatus,
+                    to: task.status,
+                    source: "system"
+                )
+                appendTaskLifecycleLog(
+                    projectID: project.id,
+                    taskID: task.id,
+                    stage: "stale_claim_reclaimed",
+                    channelID: resolveExecutionChannelID(project: project, task: task),
+                    workerID: workers.first?.workerId,
+                    message: "Task claim reclaimed after worker became stale or disappeared.",
+                    actorID: task.actorId,
+                    agentID: nil
+                )
+                await appendSystemTaskComment(
+                    projectID: project.id,
+                    taskID: task.id,
+                    content: "Task claim reclaimed after worker heartbeat became stale or disappeared. The task is ready for retry."
+                )
+            }
+
+            if changed {
+                project.updatedAt = now
+                await store.saveProject(project)
+                for task in projectReclaimedTasks {
+                    await kanbanEventService.push(KanbanEvent(type: .taskUpdated, projectId: project.id, task: task))
+                }
+            }
+        }
+
+        return reclaimed
+    }
+
+    func latestHeartbeat(
+        for worker: WorkerSnapshot,
+        in heartbeats: [ProjectTaskWorkerHeartbeat]
+    ) -> ProjectTaskWorkerHeartbeat? {
+        heartbeats.reversed().first { heartbeat in
+            heartbeat.workerId == worker.workerId
+        }
+    }
+
+    public struct KanbanMaintenanceResult: Sendable, Equatable {
+        public var reclaimedTaskIds: [String]
+        public var dispatchAttemptedTaskIds: [String]
+
+        public init(
+            reclaimedTaskIds: [String] = [],
+            dispatchAttemptedTaskIds: [String] = []
+        ) {
+            self.reclaimedTaskIds = reclaimedTaskIds
+            self.dispatchAttemptedTaskIds = dispatchAttemptedTaskIds
+        }
+    }
+
+    @discardableResult
+    public func runKanbanMaintenanceNow(now: Date = Date()) async -> KanbanMaintenanceResult {
+        await waitForStartup(dispatchReadyTasks: false)
+        let reclaimed = await reclaimStaleProjectTaskClaims(
+            staleAfter: TimeInterval(max(0, currentConfig.kanban.staleClaimTimeoutSeconds)),
+            now: now
+        )
+        let reclaimedIDs = Set(reclaimed.map(\.id))
+        let readyTasks = await store.listProjects().flatMap { project in
+            project.tasks
+                .filter { task in
+                    task.status == ProjectTaskStatus.ready.rawValue &&
+                        !reclaimedIDs.contains(task.id)
+                }
+                .map { (project.id, $0.id) }
+        }
+
+        var dispatched: [String] = []
+        var seen = Set<String>()
+        for (projectID, taskID) in readyTasks where seen.insert("\(projectID):\(taskID)").inserted {
+            await handleTaskBecameReady(projectID: projectID, taskID: taskID)
+            dispatched.append(taskID)
+        }
+
+        return KanbanMaintenanceResult(
+            reclaimedTaskIds: reclaimed.map(\.id),
+            dispatchAttemptedTaskIds: dispatched
+        )
+    }
+
+    func handleKanbanRuntimeEvent(_ event: EventEnvelope) async {
+        guard event.messageType == .workerFailed,
+              let taskID = event.taskId,
+              let projectID = await projectID(containingTaskID: taskID)
+        else {
+            return
+        }
+        let error = event.payload.objectValue["error"]?.stringValue ?? "Worker failed."
+        _ = try? await recordProjectTaskSpawnFailure(
+            projectID: projectID,
+            taskID: taskID,
+            error: error,
+            failureLimit: currentConfig.kanban.spawnFailureLimit
+        )
+    }
+
+    func projectID(containingTaskID taskID: String) async -> String? {
+        let lowercasedTaskID = taskID.lowercased()
+        return await store.listProjects().first { project in
+            project.tasks.contains { $0.id.lowercased() == lowercasedTaskID }
+        }?.id
+    }
+
+    func recordProjectTaskWorkerLaunchFailure(
+        taskID: String,
+        error: String
+    ) async {
+        guard let projectID = await projectID(containingTaskID: taskID) else {
+            return
+        }
+        _ = try? await recordProjectTaskSpawnFailure(
+            projectID: projectID,
+            taskID: taskID,
+            error: error,
+            failureLimit: currentConfig.kanban.spawnFailureLimit
+        )
+    }
+
+    @discardableResult
+    public func recordProjectTaskSpawnFailure(
+        projectID: String,
+        taskID: String,
+        error: String,
+        failureLimit: Int = 2
+    ) async throws -> ProjectRecord {
+        guard let normalizedProject = normalizedProjectID(projectID) else {
+            throw ProjectError.invalidProjectID
+        }
+        guard let normalizedTask = normalizedEntityID(taskID) else {
+            throw ProjectError.invalidTaskID
+        }
+        guard var project = await store.project(id: normalizedProject),
+              let taskIndex = project.tasks.firstIndex(where: { $0.id.lowercased() == normalizedTask.lowercased() })
+        else {
+            throw ProjectError.notFound
+        }
+
+        var task = project.tasks[taskIndex]
+        let previousStatus = task.status
+        let failureMessage = error.trimmingCharacters(in: .whitespacesAndNewlines)
+        let boundedFailure = String((failureMessage.isEmpty ? "Worker spawn failed." : failureMessage).prefix(1_000))
+        let run = await finishLatestTaskRun(
+            projectID: project.id,
+            taskID: task.id,
+            outcome: .failed,
+            summary: boundedFailure,
+            metadata: [
+                "source": "system",
+                "reason": "spawn_failed"
+            ],
+            failureReason: boundedFailure,
+            actorID: task.claimedActorId ?? task.actorId,
+            agentID: task.claimedAgentId,
+            workerID: nil,
+            channelID: resolveExecutionChannelID(project: project, task: task)
+        )
+        let consecutiveFailures = await consecutiveTaskRunFailures(projectID: project.id, taskID: task.id)
+        let effectiveLimit = max(1, failureLimit)
+        let shouldBlock = consecutiveFailures >= effectiveLimit
+
+        task.status = shouldBlock ? ProjectTaskStatus.blocked.rawValue : ProjectTaskStatus.ready.rawValue
+        if shouldBlock {
+            task.claimedActorId = nil
+            task.claimedAgentId = nil
+        }
+        task.updatedAt = Date()
+        project.tasks[taskIndex] = task
+        project.updatedAt = task.updatedAt
+        await store.saveProject(project)
+        await kanbanEventService.push(KanbanEvent(type: .taskUpdated, projectId: project.id, task: task))
+        await recordSystemStatusChange(projectID: project.id, taskID: task.id, from: previousStatus, to: task.status, source: "system")
+
+        appendTaskLifecycleLog(
+            projectID: project.id,
+            taskID: task.id,
+            stage: shouldBlock ? "circuit_breaker" : "spawn_failed",
+            channelID: resolveExecutionChannelID(project: project, task: task),
+            workerID: run.workerId,
+            message: shouldBlock
+                ? "Task blocked after \(consecutiveFailures) consecutive spawn failures. Last error: \(boundedFailure)"
+                : "Worker spawn failed; task remains ready for retry. Error: \(boundedFailure)",
+            actorID: task.claimedActorId ?? task.actorId,
+            agentID: task.claimedAgentId
+        )
+        if shouldBlock {
+            await appendSystemTaskComment(
+                projectID: project.id,
+                taskID: task.id,
+                content: "Task blocked after \(consecutiveFailures) consecutive spawn failures. Last error: \(boundedFailure)"
+            )
+        }
+
+        return project
+    }
+
+    func consecutiveTaskRunFailures(projectID: String, taskID: String) async -> Int {
+        let runs = await listTaskRuns(projectID: projectID, taskID: taskID)
+        var count = 0
+        for run in runs.reversed() {
+            guard run.endedAt != nil else {
+                continue
+            }
+            if run.outcome == .failed {
+                count += 1
+            } else {
+                break
+            }
+        }
+        return count
     }
 
     func autopilotDelegationFallback(project: ProjectRecord, task: ProjectTask) -> TaskDelegation? {
@@ -671,6 +980,17 @@ extension CoreService {
             await store.saveProject(project)
             await kanbanEventService.push(KanbanEvent(type: .taskUpdated, projectId: project.id, task: task))
             await recordSystemStatusChange(projectID: project.id, taskID: task.id, from: prevReviewStatus, to: task.status, source: "system")
+            await finishLatestTaskRun(
+                projectID: project.id,
+                taskID: task.id,
+                outcome: .needsReview,
+                summary: "Task completed and sent to auto-review.",
+                metadata: ["reviewMode": approvalMode.rawValue],
+                actorID: handoffDelegate.actorID,
+                agentID: handoffDelegate.agentID,
+                workerID: event.workerId,
+                channelID: event.channelId
+            )
             appendTaskLifecycleLog(
                 projectID: project.id,
                 taskID: task.id,
@@ -698,6 +1018,17 @@ extension CoreService {
             await store.saveProject(project)
             await kanbanEventService.push(KanbanEvent(type: .taskUpdated, projectId: project.id, task: task))
             await recordSystemStatusChange(projectID: project.id, taskID: task.id, from: prevReviewStatus, to: task.status, source: "system")
+            await finishLatestTaskRun(
+                projectID: project.id,
+                taskID: task.id,
+                outcome: .needsReview,
+                summary: "Task completed and is awaiting human review.",
+                metadata: ["reviewMode": approvalMode.rawValue],
+                actorID: handoffDelegate.actorID,
+                agentID: handoffDelegate.agentID,
+                workerID: event.workerId,
+                channelID: event.channelId
+            )
             appendTaskLifecycleLog(
                 projectID: project.id,
                 taskID: task.id,
@@ -732,6 +1063,17 @@ extension CoreService {
             await store.saveProject(project)
             await kanbanEventService.push(KanbanEvent(type: .taskUpdated, projectId: project.id, task: task))
             await recordSystemStatusChange(projectID: project.id, taskID: task.id, from: prevReviewStatus, to: task.status, source: handoffDelegate.agentID ?? "system")
+            await finishLatestTaskRun(
+                projectID: project.id,
+                taskID: task.id,
+                outcome: .needsReview,
+                summary: "Task completed and was delegated to reviewer agent.",
+                metadata: ["reviewMode": approvalMode.rawValue],
+                actorID: handoffDelegate.actorID,
+                agentID: handoffDelegate.agentID,
+                workerID: event.workerId,
+                channelID: event.channelId
+            )
             appendTaskLifecycleLog(
                 projectID: project.id,
                 taskID: task.id,
@@ -1017,6 +1359,20 @@ extension CoreService {
             guard project.tasks.contains(where: { $0.id == taskID }) else {
                 continue
             }
+            let agentID = event.payload.objectValue["agentId"]?.stringValue
+            await recordTaskWorkerHeartbeat(
+                projectID: project.id,
+                taskID: taskID,
+                workerID: event.workerId,
+                agentID: agentID,
+                status: progress == "waiting_for_route" ? .waitingInput : .running,
+                message: progress,
+                metadata: [
+                    "source": MessageType.workerProgress.rawValue,
+                    "channelId": event.channelId
+                ],
+                updatedAt: event.ts
+            )
 
             appendTaskLifecycleLog(
                 projectID: project.id,
@@ -1121,6 +1477,10 @@ extension CoreService {
     ) async -> String? {
         let knownIDs = await ToolCatalog.knownToolIDs(mcpRegistry: mcpRegistry)
         guard let policy = try? await toolsAuthorization.policy(agentID: agentID) else {
+            await recordProjectTaskWorkerLaunchFailure(
+                taskID: taskID,
+                error: "Could not load tool policy for agent \(agentID)."
+            )
             await appendSystemTaskComment(
                 taskID: taskID,
                 content: "Task flow problem: could not load tool policy for agent \(agentID)."
@@ -1137,6 +1497,10 @@ extension CoreService {
             toolsetNames: toolsetNames
         )
         guard !effectiveTools.isEmpty else {
+            await recordProjectTaskWorkerLaunchFailure(
+                taskID: taskID,
+                error: "Agent \(agentID) has no effective tools available."
+            )
             await appendSystemTaskComment(
                 taskID: taskID,
                 content: "Task flow problem: agent \(agentID) has no effective tools available for this task."
@@ -1169,6 +1533,10 @@ extension CoreService {
             await appendSystemTaskComment(
                 taskID: taskID,
                 content: "Task flow problem: failed to create worker session for agent \(agentID): \(error.localizedDescription)"
+            )
+            await recordProjectTaskWorkerLaunchFailure(
+                taskID: taskID,
+                error: "Failed to create worker session for agent \(agentID): \(error.localizedDescription)"
             )
             logger.warning(
                 "task.worker.session_create_failed",
@@ -1233,6 +1601,10 @@ extension CoreService {
             await appendSystemTaskComment(
                 taskID: taskID,
                 content: "Task flow problem: failed to start worker session for agent \(agentID): \(error.localizedDescription)"
+            )
+            await recordProjectTaskWorkerLaunchFailure(
+                taskID: taskID,
+                error: "Failed to start worker session for agent \(agentID): \(error.localizedDescription)"
             )
             logger.warning(
                 "task.worker.session_post_failed",

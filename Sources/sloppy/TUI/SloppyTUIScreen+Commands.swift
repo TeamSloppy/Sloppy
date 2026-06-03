@@ -158,7 +158,7 @@ extension SloppyTUIScreen {
         - `/pet` toggles the terminal Sloppie and shows its face/status.
         - `/undo` and `/redo` are scoped to the current session during this TUI run.
         - `/btw <message>` asks a quick side question without interrupting the main flow.
-        - `/diff` previews changes recorded in the current TUI session; `/context diff` attaches source-control changes to the next message.
+        - `/diff` previews source-control changes; `/context diff` attaches those changes to the next message.
         """)
     }
 

@@ -1284,6 +1284,51 @@ public struct CoreConfig: Codable, Sendable {
         }
     }
 
+    public struct Kanban: Codable, Sendable, Equatable {
+        public struct Scheduler: Codable, Sendable, Equatable {
+            public var enabled: Bool
+            public var intervalSeconds: Int
+            public var jitterSeconds: Int
+
+            public init(
+                enabled: Bool = true,
+                intervalSeconds: Int = 60,
+                jitterSeconds: Int = 5
+            ) {
+                self.enabled = enabled
+                self.intervalSeconds = intervalSeconds
+                self.jitterSeconds = jitterSeconds
+            }
+        }
+
+        public var scheduler: Scheduler
+        public var staleClaimTimeoutSeconds: Int
+        public var spawnFailureLimit: Int
+
+        public init(
+            scheduler: Scheduler = Scheduler(),
+            staleClaimTimeoutSeconds: Int = 14_400,
+            spawnFailureLimit: Int = 2
+        ) {
+            self.scheduler = scheduler
+            self.staleClaimTimeoutSeconds = staleClaimTimeoutSeconds
+            self.spawnFailureLimit = spawnFailureLimit
+        }
+
+        private enum CodingKeys: String, CodingKey {
+            case scheduler
+            case staleClaimTimeoutSeconds
+            case spawnFailureLimit
+        }
+
+        public init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            scheduler = try container.decodeIfPresent(Scheduler.self, forKey: .scheduler) ?? Scheduler()
+            staleClaimTimeoutSeconds = try container.decodeIfPresent(Int.self, forKey: .staleClaimTimeoutSeconds) ?? 14_400
+            spawnFailureLimit = try container.decodeIfPresent(Int.self, forKey: .spawnFailureLimit) ?? 2
+        }
+    }
+
     public struct UI: Codable, Sendable, Equatable {
         public struct DashboardAuth: Codable, Sendable, Equatable {
             public var enabled: Bool
@@ -1443,6 +1488,7 @@ public struct CoreConfig: Codable, Sendable {
     public var proxy: Proxy
     public var browser: Browser
     public var visor: Visor
+    public var kanban: Kanban
     public var ui: UI
     public var toolHooks: ToolHooks
     public var sqlitePath: String
@@ -1470,6 +1516,7 @@ public struct CoreConfig: Codable, Sendable {
         proxy: Proxy = Proxy(),
         browser: Browser = Browser(),
         visor: Visor = Visor(),
+        kanban: Kanban = Kanban(),
         ui: UI = UI(),
         toolHooks: ToolHooks = ToolHooks(),
         sqlitePath: String,
@@ -1496,6 +1543,7 @@ public struct CoreConfig: Codable, Sendable {
         self.proxy = proxy
         self.browser = browser
         self.visor = visor
+        self.kanban = kanban
         self.ui = ui
         self.toolHooks = toolHooks
         self.sqlitePath = sqlitePath
@@ -1537,6 +1585,7 @@ public struct CoreConfig: Codable, Sendable {
             proxy: .init(),
             browser: .init(),
             visor: .init(),
+            kanban: .init(),
             ui: .init(),
             toolHooks: .init(),
             sqlitePath: CoreConfig.defaultSQLiteFileName,
@@ -1607,6 +1656,7 @@ public struct CoreConfig: Codable, Sendable {
         case proxy
         case browser
         case visor
+        case kanban
         case ui
         case toolHooks
         case sqlitePath
@@ -1634,6 +1684,7 @@ public struct CoreConfig: Codable, Sendable {
         proxy = try container.decodeIfPresent(Proxy.self, forKey: .proxy) ?? .init()
         browser = try container.decodeIfPresent(Browser.self, forKey: .browser) ?? .init()
         visor = try container.decodeIfPresent(Visor.self, forKey: .visor) ?? .init()
+        kanban = try container.decodeIfPresent(Kanban.self, forKey: .kanban) ?? .init()
         ui = try container.decodeIfPresent(UI.self, forKey: .ui) ?? .init()
         toolHooks = try container.decodeIfPresent(ToolHooks.self, forKey: .toolHooks) ?? .init()
         sqlitePath = try container.decode(String.self, forKey: .sqlitePath)
@@ -1666,6 +1717,7 @@ public struct CoreConfig: Codable, Sendable {
         try container.encode(proxy, forKey: .proxy)
         try container.encode(browser, forKey: .browser)
         try container.encode(visor, forKey: .visor)
+        try container.encode(kanban, forKey: .kanban)
         try container.encode(ui, forKey: .ui)
         try container.encode(toolHooks, forKey: .toolHooks)
         try container.encode(sqlitePath, forKey: .sqlitePath)

@@ -675,6 +675,23 @@ struct ProjectsAPIRouter: APIRouter {
             }
         }
 
+        router.get("/v1/projects/:projectId/tasks/:taskId/runs", metadata: RouteMetadata(summary: "List task runs", description: "Returns worker attempt history and structured handoffs for a task", tags: ["Projects"])) { request in
+            let projectId = request.pathParam("projectId") ?? ""
+            let taskId = request.pathParam("taskId") ?? ""
+            do {
+                let project = try await service.getProject(id: projectId)
+                guard project.tasks.contains(where: { $0.id == taskId }) else {
+                    throw CoreService.ProjectError.notFound
+                }
+                let runs = await service.listTaskRuns(projectID: projectId, taskID: taskId)
+                return CoreRouter.encodable(status: HTTPStatus.ok, payload: runs)
+            } catch let error as CoreService.ProjectError {
+                return CoreRouter.projectErrorResponse(error, fallback: ErrorCode.projectReadFailed)
+            } catch {
+                return CoreRouter.json(status: HTTPStatus.internalServerError, payload: ["error": ErrorCode.projectReadFailed])
+            }
+        }
+
         router.get("/v1/projects/:projectId/memories", metadata: RouteMetadata(summary: "List project memories", description: "Returns a list of memory entries scoped to a specific project", tags: ["Projects"])) { request in
             let projectId = request.pathParam("projectId") ?? ""
             let search = request.queryParam("search")
