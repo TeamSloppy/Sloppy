@@ -44,6 +44,7 @@ final class ACPClientTests: XCTestCase {
 
     private final class AgentAuthenticationDelegate: AgentDelegate, @unchecked Sendable {
         private(set) var authenticatedMethodId: String?
+        private(set) var selectedModelId: String?
 
         func handleInitialize(_ request: InitializeRequest) async throws -> InitializeResponse {
             InitializeResponse(protocolVersion: 1, agentCapabilities: AgentCapabilities())
@@ -64,6 +65,11 @@ final class ACPClientTests: XCTestCase {
 
         func handlePrompt(_ request: SessionPromptRequest) async throws -> SessionPromptResponse {
             SessionPromptResponse(stopReason: .endTurn)
+        }
+
+        func handleSetModel(_ request: SetModelRequest) async throws -> SetModelResponse {
+            selectedModelId = request.modelId
+            return SetModelResponse(success: true)
         }
     }
 
@@ -91,6 +97,30 @@ final class ACPClientTests: XCTestCase {
         XCTAssertNil(response.error)
         XCTAssertEqual((response.result?.value as? [String: Any])?.isEmpty, true)
         XCTAssertEqual(delegate.authenticatedMethodId, "agent-login")
+    }
+
+    func testAgentRoutesSetModelRequestsToDelegate() async throws {
+        let transport = AgentTestTransport()
+        let agent = Agent(transport: transport)
+        let delegate = AgentAuthenticationDelegate()
+        await agent.setDelegate(delegate)
+
+        let task = Task { await agent.start() }
+        defer {
+            task.cancel()
+            Task { await transport.close() }
+        }
+
+        let paramsData = try JSONEncoder().encode(SetModelRequest(sessionId: SessionId("session-1"), modelId: "mock:fast"))
+        let params = try JSONDecoder().decode(AnyCodable.self, from: paramsData)
+        try await transport.receive(
+            .request(JSONRPCRequest(id: .number(1), method: "session/set_model", params: params))
+        )
+
+        let response = try await transport.firstResponse()
+        XCTAssertNil(response.error)
+        XCTAssertEqual((response.result?.value as? [String: Any])?["success"] as? Bool, true)
+        XCTAssertEqual(delegate.selectedModelId, "mock:fast")
     }
 
     func testSessionIdEncoding() throws {

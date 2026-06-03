@@ -32,7 +32,8 @@ actor SessionProcessRegistry {
         command: String,
         arguments: [String],
         cwd: String?,
-        maxProcesses: Int
+        maxProcesses: Int,
+        environmentOverrides: [String: String] = [:]
     ) throws -> JSONValue {
         guard !command.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             throw RegistryError.invalidPayload
@@ -59,7 +60,7 @@ actor SessionProcessRegistry {
             process.currentDirectoryURL = URL(fileURLWithPath: cwd, isDirectory: true)
         }
 
-        process.environment = childProcessEnvironment()
+        process.environment = childProcessEnvironment(overrides: environmentOverrides)
 
         do {
             try process.run()

@@ -40,6 +40,7 @@ struct ToolContext: @unchecked Sendable {
     let readOnlyRoots: [String]
     let currentDirectoryURL: URL
     let currentProjectID: String?
+    let environmentOverrides: [String: String]
     let runtime: RuntimeSystem
     let memoryStore: any MemoryStore
     let sessionStore: AgentSessionFileStore
@@ -69,6 +70,7 @@ struct ToolContext: @unchecked Sendable {
         readOnlyRoots: [String] = [],
         currentDirectoryURL: URL? = nil,
         currentProjectID: String? = nil,
+        environmentOverrides: [String: String] = [:],
         runtime: RuntimeSystem,
         memoryStore: any MemoryStore,
         sessionStore: AgentSessionFileStore,
@@ -96,6 +98,7 @@ struct ToolContext: @unchecked Sendable {
         self.currentDirectoryURL = currentDirectoryURL ?? workspaceRootURL
         let trimmedProjectID = currentProjectID?.trimmingCharacters(in: .whitespacesAndNewlines)
         self.currentProjectID = trimmedProjectID?.isEmpty == false ? trimmedProjectID : nil
+        self.environmentOverrides = environmentOverrides
         self.runtime = runtime
         self.memoryStore = memoryStore
         self.sessionStore = sessionStore

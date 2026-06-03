@@ -1574,6 +1574,13 @@ extension CoreService {
         if !inheritedContext.extraRoots.isEmpty {
             sessionExtraRoots[session.id] = inheritedContext.extraRoots
         }
+        var workerEnvironment = [
+            "SLOPPY_KANBAN_TASK": taskID
+        ]
+        if let projectID = await projectID(containingTaskID: taskID) {
+            workerEnvironment["SLOPPY_KANBAN_PROJECT"] = projectID
+        }
+        sessionEnvironmentOverrides[session.id] = workerEnvironment
 
         let channelId = sessionChannelID(agentID: agentID, sessionID: session.id)
         sessionSubagentToolAllowList[session.id] = effectiveTools
@@ -1611,6 +1618,7 @@ extension CoreService {
                 metadata: ["agent_id": .string(agentID), "task_id": .string(taskID), "error": .string(error.localizedDescription)]
             )
             sessionSubagentToolAllowList.removeValue(forKey: session.id)
+            sessionEnvironmentOverrides.removeValue(forKey: session.id)
             sessionToolApprovalBypass.remove(session.id)
             await sessionOrchestrator.unmarkDelegatedSubagentSession(sessionID: session.id)
             await runtime.clearChannelToolAllowList(channelId: channelId)
@@ -1641,6 +1649,7 @@ extension CoreService {
             outcome: outcome
         )
         sessionSubagentToolAllowList.removeValue(forKey: session.id)
+        sessionEnvironmentOverrides.removeValue(forKey: session.id)
         sessionToolApprovalBypass.remove(session.id)
         await sessionOrchestrator.unmarkDelegatedSubagentSession(sessionID: session.id)
         await runtime.clearChannelToolAllowList(channelId: channelId)

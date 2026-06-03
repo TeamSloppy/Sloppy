@@ -25,6 +25,7 @@ final class ToolExecutionService: @unchecked Sendable {
     /// `(agentID, field, markdown)` — used to build per-invocation `ToolContext.applyAgentMarkdown`.
     var applyAgentMarkdown: ((String, AgentMarkdownDocumentField, String) async throws -> Void)?
     var delegateSubagent: (@Sendable (String, String, String, String?, [String]?, String?, String?) async -> String?)?
+    var sessionEnvironmentOverrides: @Sendable (String) async -> [String: String]
 
     init(
         workspaceRootURL: URL,
@@ -59,6 +60,7 @@ final class ToolExecutionService: @unchecked Sendable {
         self.registry = ToolRegistry.makeDefault()
         self.applyAgentMarkdown = nil
         self.delegateSubagent = nil
+        self.sessionEnvironmentOverrides = { _ in [:] }
     }
 
     func updateWorkspaceRootURL(_ url: URL) {
@@ -105,7 +107,8 @@ final class ToolExecutionService: @unchecked Sendable {
             sessionID: sessionID,
             policy: policy,
             currentProjectID: currentProjectID,
-            currentDirectoryURL: currentDirectoryURL
+            currentDirectoryURL: currentDirectoryURL,
+            environmentOverrides: await sessionEnvironmentOverrides(sessionID)
         )
         if let result = await registry.invoke(request: request, context: context) {
             return result
@@ -129,7 +132,8 @@ final class ToolExecutionService: @unchecked Sendable {
         sessionID: String,
         policy: AgentToolsPolicy,
         currentProjectID: String? = nil,
-        currentDirectoryURL: URL? = nil
+        currentDirectoryURL: URL? = nil,
+        environmentOverrides: [String: String] = [:]
     ) -> ToolContext {
         let boundApply = applyAgentMarkdown.map { handler in
             { (field: AgentMarkdownDocumentField, markdown: String) async throws in
@@ -144,6 +148,7 @@ final class ToolExecutionService: @unchecked Sendable {
             readOnlyRoots: agentSkillsStore?.sharedSkillsRootPaths() ?? [],
             currentDirectoryURL: currentDirectoryURL,
             currentProjectID: currentProjectID,
+            environmentOverrides: environmentOverrides,
             runtime: runtime,
             memoryStore: memoryStore,
             sessionStore: sessionStore,

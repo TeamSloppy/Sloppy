@@ -75,6 +75,8 @@ func sloppyACPServerCreatesAndListsSessionsForConfiguredAgent() async throws {
 
     #expect(!created.sessionId.value.isEmpty)
     #expect(created.modes == nil)
+    #expect(created.models?.currentModelId == "mock:test-model")
+    #expect(created.models?.availableModels.map(\.modelId).contains("mock:test-model") == true)
     #expect(listed.sessions.map(\SessionInfo.sessionId).contains(created.sessionId))
     #expect(listed.nextCursor == nil)
     #expect(await recorder.updates.count == 1)
@@ -98,6 +100,28 @@ func sloppyACPServerLoadSessionDoesNotAdvertiseUnsupportedModes() async throws {
 
     #expect(loaded.sessionId == created.sessionId)
     #expect(loaded.modes == nil)
+    #expect(loaded.models?.currentModelId == "mock:test-model")
+}
+
+@Test
+func sloppyACPServerSetModelPersistsAgentSelection() async throws {
+    let service = try await makeACPServerService()
+    let recorder = ACPServerUpdateRecorder()
+    let delegate = SloppyACPServerDelegate(
+        service: service,
+        agentID: "dev",
+        defaultCwd: "/tmp",
+        sendUpdate: { sessionId, update in await recorder.append(sessionId: sessionId, update: update) }
+    )
+
+    let created = try await delegate.handleNewSession(NewSessionRequest(cwd: "/tmp"))
+    let response = try await delegate.handleSetModel(
+        SetModelRequest(sessionId: created.sessionId, modelId: "mock:test-model")
+    )
+    let config = try await service.getAgentConfig(agentID: "dev")
+
+    #expect(response.success == true)
+    #expect(config.selectedModel == "mock:test-model")
 }
 
 @Test
@@ -146,6 +170,33 @@ func sloppyACPServerLoadSessionReplaysStoredTranscript() async throws {
     let updates = await recorder.updates.map(\.1)
     #expect(ACPServerTestHelpers.acpText(updates[safe: 1], expectedCase: "user_message_chunk") == "Hello from VS Code")
     #expect(ACPServerTestHelpers.acpText(updates[safe: 2], expectedCase: "agent_message_chunk") == "Hello from Sloppy")
+}
+
+@Test
+func acpServerDeltaTrackerConvertsFullDraftsToACPChunks() async {
+    let tracker = ACPServerDeltaTracker()
+
+    #expect(await tracker.consume(fullDraft: "Пр") == "Пр")
+    #expect(await tracker.consume(fullDraft: "Привет") == "ивет")
+    #expect(await tracker.consume(fullDraft: "Привет! Чем") == "! Чем")
+    #expect(await tracker.consume(fullDraft: "Привет! Чем") == nil)
+    #expect(await tracker.didSendDelta)
+}
+
+@Test
+func acpServerDeltaTrackerSuppressesFinalAssistantReplayAfterLiveDeltas() async {
+    let tracker = ACPServerDeltaTracker()
+
+    _ = await tracker.consume(fullDraft: "Hello")
+
+    #expect(await tracker.shouldForwardFinalAssistantMessage() == false)
+}
+
+@Test
+func acpServerDeltaTrackerAllowsFinalAssistantMessageWhenNoLiveDeltasWereSent() async {
+    let tracker = ACPServerDeltaTracker()
+
+    #expect(await tracker.shouldForwardFinalAssistantMessage() == true)
 }
 
 private extension Array {

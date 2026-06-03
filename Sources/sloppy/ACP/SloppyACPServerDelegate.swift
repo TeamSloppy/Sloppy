@@ -135,7 +135,7 @@ final class SloppyACPServerDelegate: AgentDelegate, @unchecked Sendable {
             let response = NewSessionResponse(
                 sessionId: SessionId(summary.id),
                 modes: nil,
-                models: nil
+                models: try await modelsInfo()
             )
 
             logger.info(
@@ -177,7 +177,7 @@ final class SloppyACPServerDelegate: AgentDelegate, @unchecked Sendable {
 
             let stream = try await service.streamAgentSessionEvents(
                 agentID: agentID, sessionID: sessionID)
-            let deltaBox = ACPServerDeltaBox()
+            let deltaTracker = ACPServerDeltaTracker()
             let streamTask = Task {
                 for await update in stream {
                     if Task.isCancelled {
@@ -186,7 +186,7 @@ final class SloppyACPServerDelegate: AgentDelegate, @unchecked Sendable {
                     await self.forward(
                         update: update,
                         acpSessionID: request.sessionId,
-                        deltaBox: deltaBox
+                        deltaTracker: deltaTracker
                     )
                 }
             }
@@ -202,7 +202,7 @@ final class SloppyACPServerDelegate: AgentDelegate, @unchecked Sendable {
             )
             streamTask.cancel()
 
-            if !(await deltaBox.didSendDelta) {
+            if !(await deltaTracker.didSendDelta) {
                 let fallback = Self.assistantText(from: response.appendedEvents)
                 if !fallback.isEmpty {
                     try await sendUpdate(
@@ -264,6 +264,57 @@ final class SloppyACPServerDelegate: AgentDelegate, @unchecked Sendable {
         }
     }
 
+    func handleSetModel(_ request: SetModelRequest) async throws -> SetModelResponse {
+        logger.info(
+            "handle.request.setModel",
+            metadata: [
+                "request": .string(String(reflecting: request))
+            ]
+        )
+        do {
+            try await validateReady()
+            _ = try await service.getAgentSession(agentID: agentID, sessionID: request.sessionId.value)
+            let config = try await service.getAgentConfig(agentID: agentID)
+            guard config.runtime.type == .native,
+                  Self.modelIDs(from: config.availableModels).contains(request.modelId)
+            else {
+                return SetModelResponse(success: false)
+            }
+
+            _ = try await service.updateAgentConfig(
+                agentID: agentID,
+                request: AgentConfigUpdateRequest(
+                    role: config.role,
+                    selectedModel: request.modelId,
+                    documents: config.documents,
+                    heartbeat: config.heartbeat,
+                    channelSessions: config.channelSessions,
+                    runtime: config.runtime
+                )
+            )
+
+            let response = SetModelResponse(success: true)
+            logger.info(
+                "handle.response.setModel",
+                metadata: [
+                    "response": .string(String(reflecting: response)),
+                    "sessionId": .string(request.sessionId.value),
+                    "modelId": .string(request.modelId),
+                ]
+            )
+            return response
+        } catch {
+            logger.error(
+                "handle.request.setModel",
+                metadata: [
+                    "request": .string(String(reflecting: request)),
+                    "error": .string(error.localizedDescription),
+                ]
+            )
+            throw error
+        }
+    }
+
     func handleLoadSession(_ request: LoadSessionRequest) async throws -> LoadSessionResponse {
         logger.info(
             "handle.request.loadSession",
@@ -285,7 +336,7 @@ final class SloppyACPServerDelegate: AgentDelegate, @unchecked Sendable {
             let response = LoadSessionResponse(
                 sessionId: request.sessionId,
                 modes: nil,
-                models: nil
+                models: try await modelsInfo()
             )
 
             logger.info(
@@ -385,21 +436,60 @@ extension SloppyACPServerDelegate {
         )
     }
 
+    private func modelsInfo() async throws -> ModelsInfo? {
+        let config = try await service.getAgentConfig(agentID: agentID)
+        guard config.runtime.type == .native else {
+            return nil
+        }
+        let models = Self.modelInfo(from: config.availableModels)
+        guard !models.isEmpty else {
+            return nil
+        }
+        let selected = config.selectedModel?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let current = selected?.isEmpty == false ? selected! : models[0].modelId
+        return ModelsInfo(currentModelId: current, availableModels: models)
+    }
+
+    private static func modelInfo(from models: [ProviderModelOption]) -> [ModelInfo] {
+        models.map { model in
+            ModelInfo(
+                modelId: model.id,
+                name: model.title.isEmpty ? model.id : model.title,
+                description: modelDescription(model)
+            )
+        }
+    }
+
+    private static func modelIDs(from models: [ProviderModelOption]) -> Set<String> {
+        Set(models.map(\.id))
+    }
+
+    private static func modelDescription(_ model: ProviderModelOption) -> String? {
+        var parts: [String] = []
+        if let context = model.contextWindow?.trimmingCharacters(in: .whitespacesAndNewlines), !context.isEmpty {
+            parts.append("Context: \(context)")
+        }
+        if !model.capabilities.isEmpty {
+            parts.append("Capabilities: \(model.capabilities.joined(separator: ", "))")
+        }
+        return parts.isEmpty ? nil : parts.joined(separator: " | ")
+    }
+
     private func forward(
         update: AgentSessionStreamUpdate,
         acpSessionID: SessionId,
-        deltaBox: ACPServerDeltaBox
+        deltaTracker: ACPServerDeltaTracker
     ) async {
         do {
             switch update.kind {
             case .sessionDelta:
-                guard let message = update.message, !message.isEmpty else { return }
-                await deltaBox.markDeltaSent()
-                try await sendUpdate(
-                    acpSessionID, .agentMessageChunk(.text(TextContent(text: message))))
+                guard let message = update.message,
+                      let delta = await deltaTracker.consume(fullDraft: message)
+                else { return }
+                try await sendUpdate(acpSessionID, .agentMessageChunk(.text(TextContent(text: delta))))
             case .sessionEvent:
                 guard let event = update.event else { return }
-                try await forward(event: event, acpSessionID: acpSessionID)
+                try await forward(event: event, acpSessionID: acpSessionID, deltaTracker: deltaTracker)
             case .sessionReady, .heartbeat, .sessionClosed, .sessionError:
                 return
             }
@@ -408,13 +498,20 @@ extension SloppyACPServerDelegate {
         }
     }
 
-    private func forward(event: AgentSessionEvent, acpSessionID: SessionId) async throws {
+    private func forward(
+        event: AgentSessionEvent,
+        acpSessionID: SessionId,
+        deltaTracker: ACPServerDeltaTracker? = nil
+    ) async throws {
         switch event.type {
         case .message:
             guard let message = event.message else { return }
             let text = Self.text(from: message)
             guard !text.isEmpty else { return }
             if message.role == .assistant {
+                if let deltaTracker, !(await deltaTracker.shouldForwardFinalAssistantMessage()) {
+                    return
+                }
                 try await sendUpdate(
                     acpSessionID, .agentMessageChunk(.text(TextContent(text: text))))
             } else if message.role == .user {
@@ -546,10 +643,28 @@ extension SloppyACPServerDelegate {
     }
 }
 
-private actor ACPServerDeltaBox {
+actor ACPServerDeltaTracker {
     private(set) var didSendDelta = false
+    private var lastDraft = ""
 
-    func markDeltaSent() {
+    func consume(fullDraft: String) -> String? {
+        let normalized = fullDraft.replacingOccurrences(of: "\r\n", with: "\n")
+        let delta: String
+        if normalized.hasPrefix(lastDraft) {
+            delta = String(normalized.dropFirst(lastDraft.count))
+        } else {
+            delta = normalized
+        }
+        lastDraft = normalized
+
+        guard !delta.isEmpty else {
+            return nil
+        }
         didSendDelta = true
+        return delta
+    }
+
+    func shouldForwardFinalAssistantMessage() -> Bool {
+        !didSendDelta
     }
 }

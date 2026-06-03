@@ -68,7 +68,8 @@ struct RuntimeProcessTool: CoreTool {
             command: command,
             arguments: args,
             cwd: cwdPath,
-            maxProcesses: context.policy.guardrails.maxProcessesPerSession
+            maxProcesses: context.policy.guardrails.maxProcessesPerSession,
+            environmentOverrides: context.environmentOverrides
         )
         return toolSuccess(tool: name, data: payload)
     }

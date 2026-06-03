@@ -247,6 +247,7 @@ public actor CoreService {
     var liveSessionStreamCursor: [String: Int] = [:]
     var sessionExtraRoots: [String: [String]] = [:]
     var sessionWorkingDirectories: [String: String] = [:]
+    var sessionEnvironmentOverrides: [String: [String: String]] = [:]
     var channelExtraRoots: [String: [String]] = [:]
     var channelWorkingDirectories: [String: String] = [:]
     /// When set, only these tool IDs may execute for the session (subagent isolation overlay).
@@ -518,6 +519,10 @@ public actor CoreService {
                 parentSessionID: parentSessionID
             )
         }
+        toolExecution.sessionEnvironmentOverrides = { [weak self] sessionID in
+            guard let self else { return [:] }
+            return await self.environmentOverridesForSession(sessionID)
+        }
         Task { [weak self] in
             guard let self else {
                 return
@@ -620,6 +625,14 @@ public actor CoreService {
                 )
             }
         }
+    }
+
+    func environmentOverridesForSession(_ sessionID: String) -> [String: String] {
+        sessionEnvironmentOverrides[sessionID] ?? [:]
+    }
+
+    func setEnvironmentOverrides(_ environment: [String: String], forSession sessionID: String) {
+        sessionEnvironmentOverrides[sessionID] = environment
     }
 
     deinit {

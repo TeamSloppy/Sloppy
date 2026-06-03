@@ -48,7 +48,8 @@ struct RuntimeExecTool: CoreTool {
                 arguments: args,
                 cwd: cwdURL,
                 timeoutMs: timeoutMs,
-                maxOutputBytes: context.policy.guardrails.maxExecOutputBytes
+                maxOutputBytes: context.policy.guardrails.maxExecOutputBytes,
+                environmentOverrides: context.environmentOverrides
             )
             if payload.asObject?["timedOut"]?.asBool == true {
                 return ToolInvocationResult(

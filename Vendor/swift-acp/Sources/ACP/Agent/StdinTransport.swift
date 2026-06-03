@@ -16,6 +16,8 @@ public actor StdinTransport: Transport {
     private var readBuffer: Data = Data()
     private var isRunning = false
     private let logger: Logger
+    private let input: FileHandle
+    private let output: FileHandle
 
     private var messageContinuation: AsyncStream<Data>.Continuation?
     private let messageStream: AsyncStream<Data>
@@ -32,8 +34,10 @@ public actor StdinTransport: Transport {
 
     // MARK: - Initialization
 
-    public init() {
+    public init(input: FileHandle = .standardInput, output: FileHandle = .standardOutput) {
         self.logger = Logger.forCategory("StdinTransport")
+        self.input = input
+        self.output = output
 
         var continuation: AsyncStream<Data>.Continuation!
         self.messageStream = AsyncStream { cont in
@@ -46,24 +50,24 @@ public actor StdinTransport: Transport {
 
     /// Start reading from stdin
     public func start() async {
+        guard !isRunning else { return }
         isRunning = true
 
-        // Read from stdin in a background task
-        Task {
-            let stdin = FileHandle.standardInput
-
-            while isRunning {
-                let data = stdin.availableData
+        // Read from stdin outside the actor. FileHandle.availableData blocks
+        // until data or EOF, and blocking here would starve send(_:) calls.
+        Task.detached { [input] in
+            while await self.isConnected {
+                let data = input.availableData
 
                 if data.isEmpty {
                     // EOF reached
                     break
                 }
 
-                await processIncomingData(data)
+                await self.processIncomingData(data)
             }
 
-            messageContinuation?.finish()
+            await self.finishMessages()
         }
     }
 
@@ -71,7 +75,7 @@ public actor StdinTransport: Transport {
         var output = data
         output.append(0x0A) // newline
 
-        FileHandle.standardOutput.write(output)
+        self.output.write(output)
     }
 
     public func close() async {
@@ -80,6 +84,11 @@ public actor StdinTransport: Transport {
     }
 
     // MARK: - Private Methods
+
+    private func finishMessages() {
+        isRunning = false
+        messageContinuation?.finish()
+    }
 
     private func processIncomingData(_ data: Data) async {
         readBuffer.append(data)

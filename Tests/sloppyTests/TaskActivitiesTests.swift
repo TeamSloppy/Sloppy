@@ -1083,6 +1083,41 @@ func staleTaskWorkerHeartbeatReclaimsOldActiveWorkerWithoutCountingFailure() asy
 }
 
 @Test
+func workerSessionRuntimeExecReceivesKanbanTaskEnvironment() async throws {
+    let service = CoreService(config: CoreConfig.test, persistenceBuilder: InMemoryCorePersistenceBuilder())
+    let agentID = "kanban-env-agent-\(UUID().uuidString)"
+    _ = try await service.createAgent(AgentCreateRequest(id: agentID, displayName: "Kanban Env", role: "Testing"))
+    _ = try await service.updateAgentToolsPolicy(
+        agentID: agentID,
+        request: AgentToolsUpdateRequest(defaultPolicy: .allow)
+    )
+    let session = try await service.createAgentSession(
+        agentID: agentID,
+        request: AgentSessionCreateRequest(title: "task-TASK-ENV-attempt-1")
+    )
+    await service.setEnvironmentOverrides([
+        "SLOPPY_KANBAN_TASK": "TASK-ENV",
+        "SLOPPY_KANBAN_PROJECT": "PROJECT-ENV"
+    ], forSession: session.id)
+
+    let result = await service.invokeToolFromRuntime(
+        agentID: agentID,
+        sessionID: session.id,
+        request: ToolInvocationRequest(
+            tool: "runtime.exec",
+            arguments: [
+                "command": .string("/usr/bin/env")
+            ]
+        )
+    )
+
+    #expect(result.ok)
+    let stdout = try #require(result.data?.asObject?["stdout"]?.asString)
+    #expect(stdout.contains("SLOPPY_KANBAN_TASK=TASK-ENV"))
+    #expect(stdout.contains("SLOPPY_KANBAN_PROJECT=PROJECT-ENV"))
+}
+
+@Test
 func workerFailedRuntimeEventTripsConfiguredCircuitBreaker() async throws {
     var config = CoreConfig.test
     config.kanban.spawnFailureLimit = 1
