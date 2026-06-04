@@ -5795,3 +5795,318 @@ public struct GenerateTextResponse: Codable, Sendable {
         self.model = model
     }
 }
+
+// MARK: - Project Workflows
+
+public enum WorkflowNodeType: String, Codable, Sendable, CaseIterable {
+    case trigger
+    case projectTask = "project_task"
+    case agentStep = "agent_step"
+    case humanApproval = "human_approval"
+    case humanInput = "human_input"
+    case toolCheck = "tool_check"
+    case condition
+    case updateTask = "update_task"
+    case notify
+    case end
+}
+
+public enum WorkflowLaneKind: String, Codable, Sendable, CaseIterable {
+    case system
+    case human
+    case agent
+    case team
+}
+
+public enum WorkflowRunStatus: String, Codable, Sendable, CaseIterable {
+    case queued
+    case running
+    case waitingForHuman = "waiting_for_human"
+    case waitingForAgent = "waiting_for_agent"
+    case blocked
+    case failed
+    case completed
+    case cancelled
+}
+
+public enum WorkflowStepStatus: String, Codable, Sendable, CaseIterable {
+    case pending
+    case running
+    case waiting
+    case succeeded
+    case failed
+    case skipped
+}
+
+public enum WorkflowHumanDecision: String, Codable, Sendable, CaseIterable {
+    case approved
+    case rejected
+    case changesRequested = "changes_requested"
+}
+
+public struct WorkflowLane: Codable, Sendable, Equatable {
+    public var id: String
+    public var title: String
+    public var kind: WorkflowLaneKind
+    public var actorId: String?
+    public var teamId: String?
+
+    public init(id: String, title: String, kind: WorkflowLaneKind, actorId: String? = nil, teamId: String? = nil) {
+        self.id = id
+        self.title = title
+        self.kind = kind
+        self.actorId = actorId
+        self.teamId = teamId
+    }
+}
+
+public struct WorkflowNode: Codable, Sendable, Equatable {
+    public var id: String
+    public var type: WorkflowNodeType
+    public var title: String
+    public var laneId: String
+    public var config: [String: JSONValue]
+    public var positionX: Double
+    public var positionY: Double
+
+    public init(
+        id: String,
+        type: WorkflowNodeType,
+        title: String,
+        laneId: String,
+        config: [String: JSONValue] = [:],
+        positionX: Double = 0,
+        positionY: Double = 0
+    ) {
+        self.id = id
+        self.type = type
+        self.title = title
+        self.laneId = laneId
+        self.config = config
+        self.positionX = positionX
+        self.positionY = positionY
+    }
+}
+
+public struct WorkflowEdge: Codable, Sendable, Equatable {
+    public var id: String
+    public var sourceNodeId: String
+    public var targetNodeId: String
+    public var conditionKey: String?
+
+    public init(id: String, sourceNodeId: String, targetNodeId: String, conditionKey: String? = nil) {
+        self.id = id
+        self.sourceNodeId = sourceNodeId
+        self.targetNodeId = targetNodeId
+        self.conditionKey = conditionKey
+    }
+}
+
+public struct WorkflowDefinition: Codable, Sendable, Equatable {
+    public var id: String
+    public var projectId: String
+    public var name: String
+    public var version: Int
+    public var lanes: [WorkflowLane]
+    public var nodes: [WorkflowNode]
+    public var edges: [WorkflowEdge]
+    public var enabled: Bool
+    public var createdAt: Date
+    public var updatedAt: Date
+
+    public init(
+        id: String,
+        projectId: String,
+        name: String,
+        version: Int = 1,
+        lanes: [WorkflowLane] = [],
+        nodes: [WorkflowNode] = [],
+        edges: [WorkflowEdge] = [],
+        enabled: Bool = true,
+        createdAt: Date = Date(),
+        updatedAt: Date = Date()
+    ) {
+        self.id = id
+        self.projectId = projectId
+        self.name = name
+        self.version = version
+        self.lanes = lanes
+        self.nodes = nodes
+        self.edges = edges
+        self.enabled = enabled
+        self.createdAt = createdAt
+        self.updatedAt = updatedAt
+    }
+}
+
+public struct WorkflowDefinitionUpsertRequest: Codable, Sendable, Equatable {
+    public var name: String
+    public var lanes: [WorkflowLane]
+    public var nodes: [WorkflowNode]
+    public var edges: [WorkflowEdge]
+    public var enabled: Bool
+
+    public init(name: String, lanes: [WorkflowLane], nodes: [WorkflowNode], edges: [WorkflowEdge], enabled: Bool = true) {
+        self.name = name
+        self.lanes = lanes
+        self.nodes = nodes
+        self.edges = edges
+        self.enabled = enabled
+    }
+}
+
+public struct WorkflowRunCreateRequest: Codable, Sendable, Equatable {
+    public var taskId: String?
+    public var startedBy: String
+    public var input: [String: JSONValue]
+
+    public init(taskId: String? = nil, startedBy: String, input: [String: JSONValue] = [:]) {
+        self.taskId = taskId
+        self.startedBy = startedBy
+        self.input = input
+    }
+}
+
+public struct WorkflowRun: Codable, Sendable, Equatable {
+    public var id: String
+    public var workflowId: String
+    public var workflowVersion: Int
+    public var projectId: String
+    public var taskId: String?
+    public var status: WorkflowRunStatus
+    public var currentNodeIds: [String]
+    public var startedBy: String
+    public var startedAt: Date
+    public var finishedAt: Date?
+
+    public init(
+        id: String,
+        workflowId: String,
+        workflowVersion: Int,
+        projectId: String,
+        taskId: String? = nil,
+        status: WorkflowRunStatus,
+        currentNodeIds: [String] = [],
+        startedBy: String,
+        startedAt: Date = Date(),
+        finishedAt: Date? = nil
+    ) {
+        self.id = id
+        self.workflowId = workflowId
+        self.workflowVersion = workflowVersion
+        self.projectId = projectId
+        self.taskId = taskId
+        self.status = status
+        self.currentNodeIds = currentNodeIds
+        self.startedBy = startedBy
+        self.startedAt = startedAt
+        self.finishedAt = finishedAt
+    }
+}
+
+public struct WorkflowRunStep: Codable, Sendable, Equatable {
+    public var id: String
+    public var runId: String
+    public var nodeId: String
+    public var status: WorkflowStepStatus
+    public var input: [String: JSONValue]
+    public var output: [String: JSONValue]
+    public var error: String?
+    public var startedAt: Date
+    public var finishedAt: Date?
+
+    public init(
+        id: String,
+        runId: String,
+        nodeId: String,
+        status: WorkflowStepStatus,
+        input: [String: JSONValue] = [:],
+        output: [String: JSONValue] = [:],
+        error: String? = nil,
+        startedAt: Date = Date(),
+        finishedAt: Date? = nil
+    ) {
+        self.id = id
+        self.runId = runId
+        self.nodeId = nodeId
+        self.status = status
+        self.input = input
+        self.output = output
+        self.error = error
+        self.startedAt = startedAt
+        self.finishedAt = finishedAt
+    }
+}
+
+public struct WorkflowPendingAction: Codable, Sendable, Equatable {
+    public var id: String
+    public var projectId: String
+    public var workflowRunId: String
+    public var nodeId: String
+    public var taskId: String?
+    public var assignee: String
+    public var prompt: String
+    public var decisions: [WorkflowHumanDecision]
+    public var createdAt: Date
+    public var resolvedAt: Date?
+
+    public init(
+        id: String,
+        projectId: String,
+        workflowRunId: String,
+        nodeId: String,
+        taskId: String? = nil,
+        assignee: String,
+        prompt: String,
+        decisions: [WorkflowHumanDecision],
+        createdAt: Date = Date(),
+        resolvedAt: Date? = nil
+    ) {
+        self.id = id
+        self.projectId = projectId
+        self.workflowRunId = workflowRunId
+        self.nodeId = nodeId
+        self.taskId = taskId
+        self.assignee = assignee
+        self.prompt = prompt
+        self.decisions = decisions
+        self.createdAt = createdAt
+        self.resolvedAt = resolvedAt
+    }
+}
+
+public struct WorkflowActionResolveRequest: Codable, Sendable, Equatable {
+    public var decision: WorkflowHumanDecision
+    public var comment: String?
+    public var resolvedBy: String
+
+    public init(decision: WorkflowHumanDecision, comment: String? = nil, resolvedBy: String) {
+        self.decision = decision
+        self.comment = comment
+        self.resolvedBy = resolvedBy
+    }
+}
+
+public struct WorkflowRunDetail: Codable, Sendable, Equatable {
+    public var run: WorkflowRun
+    public var steps: [WorkflowRunStep]
+    public var pendingActions: [WorkflowPendingAction]
+
+    public init(run: WorkflowRun, steps: [WorkflowRunStep] = [], pendingActions: [WorkflowPendingAction] = []) {
+        self.run = run
+        self.steps = steps
+        self.pendingActions = pendingActions
+    }
+}
+
+public struct WorkflowValidationIssue: Codable, Sendable, Equatable {
+    public var severity: String
+    public var message: String
+    public var nodeId: String?
+
+    public init(severity: String, message: String, nodeId: String? = nil) {
+        self.severity = severity
+        self.message = message
+        self.nodeId = nodeId
+    }
+}
