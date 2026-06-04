@@ -11,6 +11,7 @@ struct RootShellView: View {
     var body: some View {
         RootShellContent(viewModel: viewModel)
             .environment(viewModel)
+            .theme(viewModel.settings.colorScheme.appTheme)
     }
 }
 
@@ -22,10 +23,9 @@ private struct RootShellContent: View {
 
     var body: some View {
         let rootViewModel = viewModel
-        let c = theme.colors
 
         return ZStack(anchor: .topLeading) {
-            c.background.ignoresSafeArea()
+            AppAtmosphericBackground()
 
             switch rootViewModel.appState {
             case .splash:
@@ -82,6 +82,17 @@ private struct RootShellContent: View {
         }
         .background {
             theme.colors.background.ignoresSafeArea()
+        }
+    }
+}
+
+private extension ClientColorScheme {
+    var appTheme: Theme {
+        switch self {
+        case .light:
+            return .sloppyLight
+        case .dark:
+            return .sloppyDark
         }
     }
 }

@@ -61,7 +61,7 @@ final class SloppyACPServerDelegate: AgentDelegate, @unchecked Sendable {
                 protocolVersion: 1,
                 agentCapabilities: AgentCapabilities(
                     loadSession: true,
-                    promptCapabilities: PromptCapabilities(image: false),
+                    promptCapabilities: PromptCapabilities(image: true),
                     sessionCapabilities: SessionCapabilities(
                         fork: SessionForkCapabilities(),
                         list: SessionListCapabilities(),
@@ -171,8 +171,8 @@ final class SloppyACPServerDelegate: AgentDelegate, @unchecked Sendable {
             let sessionID = request.sessionId.value
             _ = try await service.getAgentSession(agentID: agentID, sessionID: sessionID)
 
-            let content = Self.promptText(from: request.prompt)
-            guard !content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            let prompt = Self.promptPayload(from: request.prompt)
+            guard !prompt.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !prompt.attachments.isEmpty else {
                 throw ServerError.invalidPrompt
             }
 
@@ -199,7 +199,8 @@ final class SloppyACPServerDelegate: AgentDelegate, @unchecked Sendable {
                 sessionID: sessionID,
                 request: AgentSessionPostMessageRequest(
                     userId: "acp",
-                    content: content,
+                    content: prompt.content,
+                    attachments: prompt.attachments,
                     mode: .defaultMode
                 )
             )
@@ -601,11 +602,22 @@ extension SloppyACPServerDelegate {
         return "ACP \(URL(fileURLWithPath: raw).lastPathComponent)"
     }
 
-    private static func promptText(from blocks: [ContentBlock]) -> String {
-        blocks.compactMap { block in
+    private static func promptPayload(from blocks: [ContentBlock]) -> (content: String, attachments: [AgentAttachmentUpload]) {
+        var attachments: [AgentAttachmentUpload] = []
+        let content = blocks.compactMap { block in
             switch block {
             case .text(let text):
                 return text.text
+            case .image(let image):
+                attachments.append(
+                    AgentAttachmentUpload(
+                        name: imageName(from: image.uri, fallbackExtension: imageExtension(for: image.mimeType)),
+                        mimeType: image.mimeType,
+                        sizeBytes: Data(base64Encoded: image.data, options: [.ignoreUnknownCharacters])?.count ?? 0,
+                        contentBase64: image.data
+                    )
+                )
+                return image.uri.map { "Image attached: \($0)" } ?? "Image attached."
             case .resourceLink(let link):
                 return link.uri
             case .resource(let resource):
@@ -613,13 +625,57 @@ extension SloppyACPServerDelegate {
                 case .text(let text):
                     return text.text
                 case .blob(let blob):
+                    if let mimeType = blob.mimeType, isImageMimeType(mimeType) {
+                        attachments.append(
+                            AgentAttachmentUpload(
+                                name: imageName(from: blob.uri, fallbackExtension: imageExtension(for: mimeType)),
+                                mimeType: mimeType,
+                                sizeBytes: Data(base64Encoded: blob.blob, options: [.ignoreUnknownCharacters])?.count ?? 0,
+                                contentBase64: blob.blob
+                            )
+                        )
+                    }
                     return blob.uri
                 }
-            case .image, .audio:
+            case .audio:
                 return nil
             }
         }
         .joined(separator: "\n\n")
+
+        return (content, attachments)
+    }
+
+    private static func isImageMimeType(_ mimeType: String) -> Bool {
+        mimeType.lowercased().hasPrefix("image/")
+    }
+
+    private static func imageExtension(for mimeType: String) -> String {
+        switch mimeType.lowercased() {
+        case "image/jpeg", "image/jpg":
+            return "jpg"
+        case "image/gif":
+            return "gif"
+        case "image/webp":
+            return "webp"
+        case "image/heic":
+            return "heic"
+        case "image/svg+xml":
+            return "svg"
+        default:
+            return "png"
+        }
+    }
+
+    private static func imageName(from uri: String?, fallbackExtension: String) -> String {
+        guard let uri,
+              let components = URLComponents(string: uri),
+              let lastPathComponent = components.url?.lastPathComponent,
+              !lastPathComponent.isEmpty
+        else {
+            return "acp-image.\(fallbackExtension)"
+        }
+        return lastPathComponent
     }
 
     private static func assistantText(from events: [AgentSessionEvent]) -> String {

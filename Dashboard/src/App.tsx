@@ -352,6 +352,8 @@ function DashboardShell({
           routeProjectId={route.projectId}
           routeProjectTab={route.projectTab}
           routeProjectTaskReference={route.projectTaskReference}
+          routeProjectWorkflowId={route.projectWorkflowId}
+          routeProjectWorkflowRunId={route.projectWorkflowRunId}
           routeProjectChatAgentId={route.projectTab === "chat" ? route.chatAgentId : null}
           routeProjectChatSessionId={route.projectTab === "chat" ? route.chatSessionId : null}
           onRouteProjectChange={onProjectRouteChange as any}

@@ -57,7 +57,7 @@ public struct ChatBubbleView: View {
                 .padding(.vertical, sp.s)
                 .background {
                     RoundedRectangleShape(cornerRadius: Self.userBubbleRadius)
-                        .fill(c.surface)
+                        .fill(c.accent.opacity(0.20 as Float))
                 }
         }
     }
@@ -76,7 +76,7 @@ public struct ChatBubbleView: View {
             .padding(.vertical, sp.s)
             .background {
                 RoundedRectangleShape(cornerRadius: Self.userBubbleRadius)
-                    .fill(c.surface)
+                    .fill(c.accent.opacity(0.20 as Float))
             }
     }
 
@@ -98,7 +98,11 @@ public struct ChatBubbleView: View {
             HStack(spacing: sp.s) {
                 Text("SLOPPY")
                     .font(.system(size: ty.caption))
-                    .foregroundColor(c.textMuted)
+                    .foregroundColor(c.accentCyan)
+                    .padding(.horizontal, sp.s)
+                    .padding(.vertical, sp.xs)
+                    .background(c.accentCyan.opacity(0.08 as Float))
+                    .glassEffect(.regular.tint(c.accentCyan.opacity(0.06 as Float)), in: .rect(cornerRadius: 999))
                 Icons.symbol(.arrowForward, size: ty.micro)
                     .foregroundColor(c.textMuted)
             }

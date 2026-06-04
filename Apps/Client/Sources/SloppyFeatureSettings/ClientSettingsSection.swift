@@ -49,6 +49,11 @@ struct ClientSettingsSection: View {
             }
             .padding(.horizontal, sp.m)
 
+            SettingsSectionCard("Appearance") {
+                colorSchemePicker
+            }
+            .padding(.horizontal, sp.m)
+
             SettingsSectionCard("Accent Color") {
                 accentColorPicker
             }
@@ -62,6 +67,45 @@ struct ClientSettingsSection: View {
             hostDraft = settings.serverHost
             portDraft = String(settings.serverPort)
         }
+    }
+
+    private var colorSchemePicker: some View {
+        let c = theme.colors
+        let sp = theme.spacing
+        let ty = theme.typography
+
+        return VStack(alignment: .leading, spacing: 0) {
+            Text("COLOR SCHEME")
+                .font(.system(size: ty.micro))
+                .foregroundColor(c.textSecondary)
+                .padding(.horizontal, sp.m)
+                .padding(.top, sp.s)
+
+            HStack(spacing: sp.s) {
+                colorSchemeButton("LIGHT", scheme: .light)
+                colorSchemeButton("DARK", scheme: .dark)
+            }
+            .padding(.horizontal, sp.m)
+            .padding(.vertical, sp.s)
+        }
+    }
+
+    private func colorSchemeButton(_ title: String, scheme: ClientColorScheme) -> some View {
+        let c = theme.colors
+        let sp = theme.spacing
+        let bo = theme.borders
+        let ty = theme.typography
+        let selected = settings.colorScheme == scheme
+
+        return Button(title) {
+            settings.colorScheme = scheme
+        }
+        .font(.system(size: ty.caption))
+        .foregroundColor(selected ? c.textPrimary : c.textMuted)
+        .padding(.vertical, sp.xs)
+        .padding(.horizontal, sp.s)
+        .background(selected ? c.surfaceRaised : Color.clear)
+        .border(selected ? c.borderBold : c.border, lineWidth: bo.thin)
     }
 
     private var accentColorPicker: some View {

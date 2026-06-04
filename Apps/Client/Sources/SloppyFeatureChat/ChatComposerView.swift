@@ -11,13 +11,13 @@ public final class ChatComposerDraft {
 }
 
 public struct ChatComposerView: View {
-    private static let panelWidth: Float = 840
-    public static let panelHeight: Float = 118
+    private static let panelWidth: Float = 900
+    public static let panelHeight: Float = 64
     public static let phonePanelHeight: Float = 56
-    private static let panelRadius: Float = 18
-    private static let fieldHeight: Float = 52
+    private static let panelRadius: Float = 32
+    private static let fieldHeight: Float = 48
     private static let phoneFieldHeight: Float = 36
-    private static let sendSize: Float = 32
+    private static let sendSize: Float = 38
 
     @Environment(\.userInterfaceIdiom) private var idiom
     @Environment(\.theme) private var theme
@@ -51,7 +51,7 @@ public struct ChatComposerView: View {
         let ty = theme.typography
         let fieldInk = c.textPrimary
         let sendInk = Color.fromHex(0x0C0C0C)
-        let sendFill = Color.white.opacity(0.92 as Float)
+        let sendFill = c.accentCyan.opacity(0.92 as Float)
 
         return HStack(spacing: sp.s) {
             Button(action: {}) {
@@ -85,7 +85,8 @@ public struct ChatComposerView: View {
             maxHeight: Self.phonePanelHeight,
             alignment: .leading
         )
-        .glassEffect(.regular, in: .rect(cornerRadius: Self.panelRadius))
+        .background(c.surfaceGlass.opacity(0.72 as Float))
+        .glassEffect(.regular.tint(c.surfaceGlow.opacity(0.16 as Float)), in: .rect(cornerRadius: Self.panelRadius))
     }
 
     private var regularBody: some View {
@@ -93,11 +94,17 @@ public struct ChatComposerView: View {
         let sp = theme.spacing
         let ty = theme.typography
         let fieldInk = c.textPrimary
-        let sendInk = Color.fromHex(0x0C0C0C)
-        let sendFill = Color.white.opacity(0.92 as Float)
+        let actionInk = Color.fromHex(0x1C1D20)
+        let actionFill = Color.fromHex(0xA7DFFF)
 
-        return VStack(alignment: .leading, spacing: sp.s) {
-            TextField("Message \(agentName)...", text: Binding(
+        return HStack(spacing: sp.m) {
+            Button(action: {}) {
+                Icons.symbol(.add, size: 28)
+                    .foregroundColor(actionInk)
+                    .frame(width: Self.sendSize, height: Self.sendSize)
+            }
+
+            TextField("Ask \(agentDisplayName)", text: Binding(
                 get: { draft.text },
                 set: { draft.text = $0 }
             ))
@@ -106,27 +113,27 @@ public struct ChatComposerView: View {
                 .textFieldStyle(PlainTextFieldStyle())
                 .frame(minWidth: 0, maxWidth: .infinity, minHeight: Self.fieldHeight, maxHeight: Self.fieldHeight, alignment: .leading)
 
-            HStack(spacing: sp.m) {
-                Button(action: {}) {
-                    Icons.symbol(.add, size: ty.body)
-                        .foregroundColor(c.textSecondary)
-                }
-                .frame(width: 28, height: 28)
+            Text("Pro")
+                .font(.system(size: ty.body))
+                .foregroundColor(actionInk)
+                .lineLimit(1)
+
+            Button(action: {}) {
+                Icons.symbol(.keyboardCommandKey, size: ty.heading)
+                    .foregroundColor(actionInk)
+                    .frame(width: 34, height: 34)
             }
-            .frame(minWidth: 0, maxWidth: .infinity, minHeight: Self.sendSize, maxHeight: Self.sendSize, alignment: .leading)
-            .overlay(anchor: .trailing) {
-                HStack(spacing: sp.s) {
-                    Button(action: submit) {
-                        Icons.symbol(.arrowUpward, size: 17)
-                            .foregroundColor(sendInk)
-                            .frame(width: Self.sendSize, height: Self.sendSize)
-                            .glassEffect(.regular.tint(sendFill), in: .rect(cornerRadius: Self.sendSize / 2))
-                    }
-                }
+
+            Button(action: submit) {
+                Icons.symbol(.arrowUpward, size: ty.heading)
+                    .foregroundColor(actionInk)
+                    .frame(width: Self.sendSize, height: Self.sendSize)
+                    .glassEffect(.regular.tint(actionFill), in: .rect(cornerRadius: Self.sendSize / 2))
             }
         }
-        .padding(.horizontal, sp.l)
-        .padding(.vertical, sp.l)
+        .padding(.leading, sp.l)
+        .padding(.trailing, sp.s)
+        .padding(.vertical, sp.s)
         .frame(
             minWidth: 0,
             maxWidth: .infinity,
@@ -134,8 +141,13 @@ public struct ChatComposerView: View {
             maxHeight: Self.panelHeight,
             alignment: .leading
         )
-        .glassEffect(.regular, in: .rect(cornerRadius: Self.panelRadius))
+        .background(c.surfaceGlass.opacity(0.72 as Float))
+        .glassEffect(.regular.tint(c.surfaceGlow.opacity(0.16 as Float)), in: .rect(cornerRadius: Self.panelRadius))
         .frame(maxWidth: Self.panelWidth)
+    }
+
+    private var agentDisplayName: String {
+        agentName.isEmpty ? "Sloppy" : agentName
     }
 
     public static func panelHeight(for idiom: UserInterfaceIdiom) -> Float {

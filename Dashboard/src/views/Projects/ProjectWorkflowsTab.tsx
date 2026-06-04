@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   createProjectWorkflow,
   deleteProjectWorkflow,
@@ -15,6 +15,15 @@ type AnyRecord = Record<string, any>;
 interface ProjectWorkflowsTabProps {
   project: AnyRecord;
   selectedTask?: AnyRecord | null;
+  routeWorkflowId?: string | null;
+  routeWorkflowRunId?: string | null;
+}
+
+interface WorkflowCanvasPanState {
+  originClientX: number;
+  originClientY: number;
+  originScrollLeft: number;
+  originScrollTop: number;
 }
 
 const STARTER_WORKFLOW = {
@@ -67,16 +76,27 @@ function workflowNodeIcon(type: unknown) {
   }
 }
 
-export function ProjectWorkflowsTab({ project, selectedTask }: ProjectWorkflowsTabProps) {
+export function ProjectWorkflowsTab({ project, selectedTask, routeWorkflowId = null, routeWorkflowRunId = null }: ProjectWorkflowsTabProps) {
+  const scrollerRef = useRef<HTMLDivElement | null>(null);
   const [workflows, setWorkflows] = useState<AnyRecord[]>([]);
   const [runs, setRuns] = useState<AnyRecord[]>([]);
   const [actions, setActions] = useState<AnyRecord[]>([]);
   const [selectedWorkflowId, setSelectedWorkflowId] = useState("");
+  const [selectedRunId, setSelectedRunId] = useState("");
+  const [panState, setPanState] = useState<WorkflowCanvasPanState | null>(null);
   const [isBusy, setIsBusy] = useState(false);
 
   const selectedWorkflow = useMemo(
     () => workflows.find((workflow) => workflow.id === selectedWorkflowId) || workflows[0] || null,
     [selectedWorkflowId, workflows]
+  );
+  const selectedRun = useMemo(
+    () => runs.find((run) => run.id === selectedRunId) || null,
+    [runs, selectedRunId]
+  );
+  const activeNodeIds = useMemo(
+    () => new Set((Array.isArray(selectedRun?.currentNodeIds) ? selectedRun.currentNodeIds : []).map(String)),
+    [selectedRun]
   );
 
   async function load() {
@@ -85,17 +105,56 @@ export function ProjectWorkflowsTab({ project, selectedTask }: ProjectWorkflowsT
       fetchProjectWorkflowRuns(project.id),
       fetchProjectWorkflowActions(project.id)
     ]);
-    setWorkflows(nextWorkflows || []);
-    setRuns(nextRuns || []);
+    const workflowList = nextWorkflows || [];
+    const runList = nextRuns || [];
+    setWorkflows(workflowList);
+    setRuns(runList);
     setActions(nextActions || []);
-    if (!selectedWorkflowId && nextWorkflows?.[0]?.id) {
-      setSelectedWorkflowId(String(nextWorkflows[0].id));
+
+    const routeRun = routeWorkflowRunId
+      ? runList.find((run) => String(run?.id || "") === String(routeWorkflowRunId))
+      : null;
+    const targetWorkflowId = routeRun?.workflowId || routeWorkflowId;
+    const targetWorkflow = targetWorkflowId
+      ? workflowList.find((workflow) => String(workflow?.id || "") === String(targetWorkflowId))
+      : null;
+
+    if (routeRun?.id) {
+      setSelectedRunId(String(routeRun.id));
+    } else if (!routeWorkflowRunId && selectedRunId) {
+      setSelectedRunId("");
+    }
+    if (targetWorkflow?.id) {
+      setSelectedWorkflowId(String(targetWorkflow.id));
+    } else if (!selectedWorkflowId && workflowList[0]?.id) {
+      setSelectedWorkflowId(String(workflowList[0].id));
     }
   }
 
   useEffect(() => {
     void load();
-  }, [project.id]);
+  }, [project.id, routeWorkflowId, routeWorkflowRunId]);
+
+  useEffect(() => {
+    if (!panState) {
+      return undefined;
+    }
+    function handlePointerMove(event: PointerEvent) {
+      const scroller = scrollerRef.current;
+      if (!scroller) return;
+      scroller.scrollLeft = panState.originScrollLeft - (event.clientX - panState.originClientX);
+      scroller.scrollTop = panState.originScrollTop - (event.clientY - panState.originClientY);
+    }
+    function handlePointerUp() {
+      setPanState(null);
+    }
+    window.addEventListener("pointermove", handlePointerMove);
+    window.addEventListener("pointerup", handlePointerUp);
+    return () => {
+      window.removeEventListener("pointermove", handlePointerMove);
+      window.removeEventListener("pointerup", handlePointerUp);
+    };
+  }, [panState]);
 
   async function createStarterWorkflow() {
     setIsBusy(true);
@@ -131,6 +190,7 @@ export function ProjectWorkflowsTab({ project, selectedTask }: ProjectWorkflowsT
       const didDelete = await deleteProjectWorkflow(project.id, workflowId);
       if (didDelete) {
         setSelectedWorkflowId(selectWorkflowAfterDelete(workflows, workflowId));
+        setSelectedRunId("");
         await load();
       }
     } finally {
@@ -198,7 +258,24 @@ export function ProjectWorkflowsTab({ project, selectedTask }: ProjectWorkflowsT
         </aside>
 
         <section className="project-workflows-board-pane" aria-label="Workflow board">
-          <div className="project-workflows-board-scroller">
+          <div
+            className={`project-workflows-board-scroller ${panState ? "is-panning" : ""}`}
+            ref={scrollerRef}
+            onPointerDown={(event) => {
+              if (event.button !== 0) return;
+              const target = event.target as HTMLElement;
+              if (target.closest(".project-workflow-node, button, a, input, textarea, select")) {
+                return;
+              }
+              setPanState({
+                originClientX: event.clientX,
+                originClientY: event.clientY,
+                originScrollLeft: scrollerRef.current?.scrollLeft || 0,
+                originScrollTop: scrollerRef.current?.scrollTop || 0
+              });
+              event.preventDefault();
+            }}
+          >
             <div
               className="project-workflows-board"
               style={{ width: workflowGraph.width, height: workflowGraph.height }}
@@ -245,7 +322,7 @@ export function ProjectWorkflowsTab({ project, selectedTask }: ProjectWorkflowsT
                     const lane = workflowGraph.laneMap.get(String(node.laneId || ""));
                     return (
                       <article
-                        className={`project-workflow-node ${formatStatus(node.type).replace(/\s+/g, "-")}`}
+                        className={`project-workflow-node ${formatStatus(node.type).replace(/\s+/g, "-")} ${activeNodeIds.has(String(node.id)) ? "active" : ""}`}
                         key={node.id}
                         style={{ left: node.positionX, top: node.positionY }}
                       >
@@ -309,10 +386,18 @@ export function ProjectWorkflowsTab({ project, selectedTask }: ProjectWorkflowsT
             {runs.length === 0 ? (
               <p className="placeholder-text">No runs yet.</p>
             ) : runs.slice(0, 8).map((run) => (
-              <article className="project-workflow-run" key={run.id}>
+              <button
+                type="button"
+                className={`project-workflow-run ${selectedRunId === String(run.id) ? "active" : ""}`}
+                key={run.id}
+                onClick={() => {
+                  setSelectedRunId(String(run.id));
+                  if (run.workflowId) setSelectedWorkflowId(String(run.workflowId));
+                }}
+              >
                 <span>{formatStatus(run.status)}</span>
                 <small>{formatDate(run.startedAt)}</small>
-              </article>
+              </button>
             ))}
           </section>
         </aside>

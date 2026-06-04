@@ -48,13 +48,52 @@ func sloppyACPServerInitializeAdvertisesSessionCapabilities() async throws {
     #expect(response.agentInfo?.title == "Sloppy")
     #expect(response.agentCapabilities.loadSession == true)
     #expect(response.agentCapabilities.mcpCapabilities == nil)
-    #expect(response.agentCapabilities.promptCapabilities?.image == false)
+    #expect(response.agentCapabilities.promptCapabilities?.image == true)
     #expect(response.agentCapabilities.promptCapabilities?.audio == nil)
     #expect(response.agentCapabilities.promptCapabilities?.embeddedContext == nil)
     #expect(response.agentCapabilities.sessionCapabilities?.close == nil)
     #expect(response.agentCapabilities.sessionCapabilities?.list != nil)
     #expect(response.agentCapabilities.sessionCapabilities?.resume != nil)
     #expect(response.authMethods?.isEmpty == true)
+}
+
+@Test
+func sloppyACPServerAcceptsImagePromptBlocksAsAttachments() async throws {
+    let service = try await makeACPServerService()
+    let recorder = ACPServerUpdateRecorder()
+    let delegate = SloppyACPServerDelegate(
+        service: service,
+        agentID: "dev",
+        defaultCwd: "/tmp",
+        sendUpdate: { sessionId, update in await recorder.append(sessionId: sessionId, update: update) }
+    )
+
+    let created = try await delegate.handleNewSession(NewSessionRequest(cwd: "/tmp"))
+    let imageData = Data([0x89, 0x50, 0x4E, 0x47])
+    _ = try await delegate.handlePrompt(
+        SessionPromptRequest(
+            sessionId: created.sessionId,
+            prompt: [
+                .image(
+                    ImageContent(
+                        data: imageData.base64EncodedString(),
+                        mimeType: "image/png",
+                        uri: "file:///tmp/mock.png"
+                    )
+                )
+            ]
+        )
+    )
+
+    let detail = try await service.getAgentSession(agentID: "dev", sessionID: created.sessionId.value)
+    let userMessage = try #require(detail.events.compactMap(\.message).last(where: { $0.role == .user }))
+    let attachment = try #require(userMessage.segments.compactMap(\.attachment).first)
+
+    #expect(userMessage.segments.compactMap(\.text).joined(separator: "\n").contains("Image attached"))
+    #expect(attachment.name == "mock.png")
+    #expect(attachment.mimeType == "image/png")
+    #expect(attachment.sizeBytes == imageData.count)
+    #expect(attachment.relativePath != nil)
 }
 
 @Test

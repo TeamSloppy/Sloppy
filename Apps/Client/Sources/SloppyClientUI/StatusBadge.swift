@@ -13,13 +13,13 @@ public struct StatusBadge: View {
 
     public var body: some View {
         let sp = theme.spacing
-        let bo = theme.borders
         let ty = theme.typography
 
         return HStack(spacing: sp.xs) {
             Color.clear
                 .frame(width: 6, height: 6)
                 .background(color)
+                .glassEffect(.regular.tint(color.opacity(0.32 as Float)), in: .rect(cornerRadius: 3))
 
             Text(label.uppercased())
                 .font(.system(size: ty.micro))
@@ -27,7 +27,8 @@ public struct StatusBadge: View {
         }
         .padding(.horizontal, sp.s)
         .padding(.vertical, sp.xs)
-        .border(color, lineWidth: bo.thin)
+        .background(color.opacity(0.10 as Float))
+        .glassEffect(.regular.tint(color.opacity(0.08 as Float)), in: .rect(cornerRadius: 999))
     }
 
     public static func forTaskStatus(_ status: String) -> StatusBadge {

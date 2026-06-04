@@ -5331,9 +5331,37 @@
   width: 100%;
   height: 100%;
   overflow: auto;
+  overscroll-behavior: contain;
+  touch-action: none;
   background-color: var(--bg);
   background-image: radial-gradient(circle at 1px 1px, rgba(204, 255, 0, 0.22) 1px, transparent 0);
   background-size: 28px 28px;
+  cursor: grab;
+  scrollbar-width: thin;
+  scrollbar-color: var(--line-strong) transparent;
+}
+
+.project-workflows-board-scroller.is-panning,
+.project-workflows-board-scroller:active {
+  cursor: grabbing;
+}
+
+.project-workflows-board-scroller::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+.project-workflows-board-scroller::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.project-workflows-board-scroller::-webkit-scrollbar-thumb {
+  background: var(--line);
+  border: 2px solid var(--bg);
+}
+
+.project-workflows-board-scroller:hover::-webkit-scrollbar-thumb {
+  background: var(--line-strong);
 }
 
 .project-workflows-board {
@@ -5438,6 +5466,11 @@
   box-shadow: 3px 3px 0 var(--accent);
 }
 
+.project-workflow-node.active {
+  border-color: var(--accent);
+  box-shadow: 4px 4px 0 var(--accent);
+}
+
 .project-workflow-node .material-symbols-rounded {
   font-size: 18px;
   color: var(--accent);
@@ -5480,6 +5513,18 @@
   border: 1px solid var(--line);
   border-radius: 0;
   background: var(--bg);
+}
+
+.project-workflow-run {
+  width: 100%;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+
+.project-workflow-run.active {
+  border-color: var(--accent);
+  box-shadow: 3px 3px 0 var(--accent);
 }
 
 .project-workflow-action div {

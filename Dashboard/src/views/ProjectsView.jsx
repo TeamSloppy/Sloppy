@@ -1116,6 +1116,8 @@ export function ProjectsView({
   routeProjectId = null,
   routeProjectTab = "overview",
   routeProjectTaskReference = null,
+  routeProjectWorkflowId = null,
+  routeProjectWorkflowRunId = null,
   routeProjectChatAgentId = null,
   routeProjectChatSessionId = null,
   onRouteProjectChange = () => { },
@@ -2260,7 +2262,14 @@ export function ProjectsView({
     }
 
     if (selectedTab === "workflows") {
-      return <ProjectWorkflowsTab project={project} selectedTask={selectedTask} />;
+      return (
+        <ProjectWorkflowsTab
+          project={project}
+          selectedTask={selectedTask}
+          routeWorkflowId={routeProjectWorkflowId}
+          routeWorkflowRunId={routeProjectWorkflowRunId}
+        />
+      );
     }
 
     return (

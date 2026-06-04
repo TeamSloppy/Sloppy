@@ -10,7 +10,7 @@ enum MainSidebarSelection: Hashable {
 
 @MainActor
 struct MainSidebarView: View {
-    static let expandedWidth: Float = 332
+    static let expandedWidth: Float = 348
     static let collapsedWidth: Float = 64
     static let minimumWidth: Float = 240
     static let maximumWidth: Float = 520
@@ -45,7 +45,7 @@ struct MainSidebarView: View {
         #if os(iOS)
         false
         #else
-        true
+        false
         #endif
     }
 
@@ -63,21 +63,22 @@ struct MainSidebarView: View {
         let sp = theme.spacing
 
         let content = VStack(alignment: .leading, spacing: 0) {
-            projectsHeader(c: c, sp: sp)
+            desktopWindowHeader(c: c, sp: sp)
+                .padding(.bottom, sp.m)
+
+            modeSegment(c: c, sp: sp)
+                .padding(.bottom, sp.m)
 
             ScrollView {
-                VStack(alignment: .leading, spacing: 0) {
-                    projectsSection(c: c, sp: sp)
-
-                    Color.clear
-                        .frame(height: theme.borders.thin)
-                        .background(c.border.opacity(0.45 as Float))
-                        .padding(.top, sp.m)
-
-                    chatsSection(c: c, sp: sp)
+                VStack(alignment: .leading, spacing: sp.l) {
+                    chatActions(c: c, sp: sp)
+                    notebooksSection(c: c, sp: sp)
+                    recentsSection(c: c, sp: sp)
                 }
             }
             .frame(minHeight: 0, maxHeight: .infinity)
+
+            userProfile(c: c, sp: sp)
         }
         .padding(sp.m)
         .frame(minWidth: 0, maxWidth: .infinity, minHeight: 0, maxHeight: .infinity, alignment: .topLeading)
@@ -117,14 +118,8 @@ struct MainSidebarView: View {
         .padding(.vertical, sp.l)
     }
 
-    private func projectsHeader(c: AppColors, sp: AppSpacing) -> some View {
-        let ty = theme.typography
-
-        return HStack(spacing: sp.s) {
-            Text("Projects")
-                .font(.system(size: ty.heading))
-                .foregroundColor(c.textMuted)
-
+    private func desktopWindowHeader(c: AppColors, sp: AppSpacing) -> some View {
+        HStack(spacing: sp.s) {
             Spacer(minLength: 0)
 
             headerIconButton(isOverlay ? .close : .collapseContent, c: c) {
@@ -134,31 +129,38 @@ struct MainSidebarView: View {
                     isCollapsed = true
                 }
             }
-
-            headerIconButton(.moreHoriz, c: c, action: {})
-            headerIconButton(.openInNew, c: c, action: onOpenWorkspace)
         }
-        .padding(.top, 16)
+        .padding(.top, sp.l)
     }
 
-    private func chatsSection(c: AppColors, sp: AppSpacing) -> some View {
+    private func modeSegment(c: AppColors, sp: AppSpacing) -> some View {
         let ty = theme.typography
 
-        return VStack(alignment: .leading, spacing: sp.s) {
-            HStack(spacing: sp.s) {
-                Text("Chats")
-                    .font(.system(size: ty.heading))
+        return HStack(spacing: 0) {
+            Text("Chat")
+                .font(.system(size: ty.body))
+                .foregroundColor(c.textPrimary)
+                .frame(minWidth: 0, maxWidth: .infinity, minHeight: 34, maxHeight: 34)
+                .background(c.surfaceRaised.opacity(0.68 as Float))
+                .glassEffect(.regular.tint(c.surfaceGlass.opacity(0.20 as Float)), in: .rect(cornerRadius: 18))
+
+            HStack(spacing: sp.xs) {
+                Text("Spark")
+                    .font(.system(size: ty.body))
+                    .foregroundColor(c.textSecondary)
+                Text("BETA")
+                    .font(.system(size: ty.micro))
                     .foregroundColor(c.textMuted)
-
-                Spacer(minLength: 0)
-
-                headerIconButton(.moreHoriz, c: c, action: {})
-                headerIconButton(.chatAddOn, c: c) {
-                    onSelectNewChat()
-                }
             }
-            .padding(.horizontal, sp.m)
+            .frame(minWidth: 0, maxWidth: .infinity, minHeight: 34, maxHeight: 34)
+        }
+        .padding(2)
+        .background(c.surface.opacity(0.82 as Float))
+        .glassEffect(.regular.tint(c.surfaceGlass.opacity(0.18 as Float)), in: .rect(cornerRadius: 19))
+    }
 
+    private func chatActions(c: AppColors, sp: AppSpacing) -> some View {
+        VStack(alignment: .leading, spacing: sp.xs) {
             sidebarPlainRow(
                 icon: .chatAddOn,
                 title: "New chat",
@@ -169,6 +171,32 @@ struct MainSidebarView: View {
             ) {
                 onSelectNewChat()
             }
+
+            sidebarPlainRow(
+                icon: .autoAwesome,
+                title: "Search chats",
+                trailing: nil,
+                isSelected: false,
+                c: c,
+                sp: sp
+            ) {}
+
+            sidebarPlainRow(
+                icon: .folder,
+                title: "Library",
+                trailing: nil,
+                isSelected: false,
+                c: c,
+                sp: sp
+            ) {}
+        }
+    }
+
+    private func recentsSection(c: AppColors, sp: AppSpacing) -> some View {
+        let ty = theme.typography
+
+        return VStack(alignment: .leading, spacing: sp.s) {
+            sectionLabel("Recents", c: c, ty: ty)
 
             if isLoadingChatSessions && chatSessions.isEmpty {
                 Text("Loading chats…")
@@ -183,7 +211,7 @@ struct MainSidebarView: View {
                     .padding(.horizontal, sp.m)
                     .padding(.vertical, sp.s)
             } else {
-                ForEach(chatSessions) { session in
+                ForEach(chatSessions.prefix(12)) { session in
                     chatSessionRow(session: session, c: c, sp: sp)
                 }
             }
@@ -197,8 +225,59 @@ struct MainSidebarView: View {
                     .padding(.top, sp.xs)
             }
         }
-        .padding(.top, sp.l)
-        .padding(.horizontal, sp.s)
+        .padding(.horizontal, sp.xs)
+    }
+
+    private func notebooksSection(c: AppColors, sp: AppSpacing) -> some View {
+        let ty = theme.typography
+
+        return VStack(alignment: .leading, spacing: sp.s) {
+            sectionLabel("Notebooks", c: c, ty: ty)
+
+            sidebarPlainRow(
+                icon: .add,
+                title: "New notebook",
+                trailing: nil,
+                isSelected: false,
+                c: c,
+                sp: sp
+            ) {}
+
+            projectsSection(c: c, sp: sp)
+        }
+        .padding(.horizontal, sp.xs)
+    }
+
+    private func sectionLabel(_ title: String, c: AppColors, ty: AppTypography) -> some View {
+        Text(title)
+            .font(.system(size: ty.body))
+            .foregroundColor(c.textMuted)
+            .padding(.horizontal, theme.spacing.s)
+    }
+
+    private func userProfile(c: AppColors, sp: AppSpacing) -> some View {
+        let ty = theme.typography
+
+        return HStack(spacing: sp.s) {
+            Text("CW")
+                .font(.system(size: ty.micro))
+                .foregroundColor(Color.fromHex(0x1F2933))
+                .frame(width: 34, height: 34)
+                .background(Color.fromHex(0xBDE4FF).opacity(0.84 as Float))
+                .glassEffect(.regular.tint(c.surfaceGlass.opacity(0.24 as Float)), in: .rect(cornerRadius: 17))
+
+            VStack(alignment: .leading, spacing: 1) {
+                Text("Camille Walsh")
+                    .font(.system(size: ty.body))
+                    .foregroundColor(c.textPrimary)
+                    .lineLimit(1)
+                Text("Ultra")
+                    .font(.system(size: ty.caption))
+                    .foregroundColor(c.textMuted)
+                    .lineLimit(1)
+            }
+        }
+        .padding(.top, sp.m)
     }
 
     private func chatSessionRow(
@@ -208,12 +287,10 @@ struct MainSidebarView: View {
     ) -> some View {
         let isPinned = pinnedSessionIds.contains(session.id)
         let title = session.title.isEmpty ? "Chat" : session.title
-        let trailing = isPinned ? "PIN" : "\(session.messageCount)"
-
         return sidebarPlainRow(
-            icon: .chatAddOn,
+            icon: nil,
             title: title,
-            trailing: trailing,
+            trailing: isPinned ? "PIN" : nil,
             isSelected: selectedChatSessionId == session.id,
             c: c,
             sp: sp,
@@ -440,8 +517,9 @@ struct MainSidebarView: View {
     private func sidebarSurface<Content: View>(_ content: Content, c: AppColors) -> some View {
         if usesLiquidGlass {
             content
-                .glassEffect(.regular, in: RoundedRectangleShape(cornerRadius: 12))
-                .padding(6)
+                .padding(8)
+                .background(c.surface.opacity(0.94 as Float))
+                .glassEffect(.regular.tint(c.surfaceGlass.opacity(0.12 as Float)), in: RoundedRectangleShape(cornerRadius: 28))
         } else {
             content
                 .background(c.background)
@@ -539,9 +617,10 @@ private struct HoverableSidebarRow: View {
             .padding(.leading, leadingInset)
             .padding(.trailing, spacing.m)
             .padding(.vertical, spacing.s)
+            .background(isActive ? colors.surfaceGlow.opacity(isSelected ? 0.24 as Float : 0.12 as Float) : Color.clear)
             .applySidebarGlass(
                 usesLiquidGlass,
-                style: isActive ? .regular : .identity,
+                style: isActive ? .regular.tint((isSelected ? colors.accent : colors.surfaceGlow).opacity(0.10 as Float)) : .identity,
                 cornerRadius: rowRadius
             )
         }

@@ -95,6 +95,7 @@ private actor MockACPTransportClient: ACPTransportClient {
     private var terminateCount = 0
     private var setModeIDs: [String] = []
     private var sentPromptTexts: [String] = []
+    private var sentPromptImageCounts: [Int] = []
     private var lastPermissionOutcome: RequestPermissionResponse?
 
     private let notificationContinuation: AsyncStream<JSONRPCNotification>.Continuation
@@ -162,6 +163,7 @@ private actor MockACPTransportClient: ACPTransportClient {
     func sendPrompt(sessionId _: SessionId, content: [ContentBlock]) async throws -> SessionPromptResponse {
         sendPromptCount += 1
         sentPromptTexts.append(content.compactMap(Self.text(from:)).joined(separator: "\n"))
+        sentPromptImageCounts.append(content.filter(Self.isImage(_:)).count)
         if let permissionRequest, let delegate {
             lastPermissionOutcome = try await delegate.handlePermissionRequest(request: permissionRequest)
         }
@@ -175,7 +177,7 @@ private actor MockACPTransportClient: ACPTransportClient {
         notificationContinuation.finish()
     }
 
-    func snapshot() -> (connects: Int, newSessions: Int, loads: Int, setModes: Int, modeIDs: [String], prompts: Int, terminated: Int, promptTexts: [String], permissionOutcome: RequestPermissionResponse?) {
+    func snapshot() -> (connects: Int, newSessions: Int, loads: Int, setModes: Int, modeIDs: [String], prompts: Int, terminated: Int, promptTexts: [String], promptImageCounts: [Int], permissionOutcome: RequestPermissionResponse?) {
         (
             connects: connectCount,
             newSessions: newSessionCount,
@@ -185,6 +187,7 @@ private actor MockACPTransportClient: ACPTransportClient {
             prompts: sendPromptCount,
             terminated: terminateCount,
             promptTexts: sentPromptTexts,
+            promptImageCounts: sentPromptImageCounts,
             permissionOutcome: lastPermissionOutcome
         )
     }
@@ -196,6 +199,13 @@ private actor MockACPTransportClient: ACPTransportClient {
         default:
             return nil
         }
+    }
+
+    private static func isImage(_ block: ContentBlock) -> Bool {
+        if case .image = block {
+            return true
+        }
+        return false
     }
 }
 
@@ -329,6 +339,37 @@ func acpSessionManagerCreatesSessionSendsPrimerAndPersistsSidecar() async throws
     #expect(sidecar.targetId == "local")
     #expect(sidecar.upstreamSessionId == "upstream-1")
     #expect(sidecar.supportsLoadSession == true)
+}
+
+@Test
+func acpSessionManagerSendsImageContentBlocks() async throws {
+    let target = CoreConfig.ACP.Target(
+        id: "local",
+        title: "Local ACP",
+        transport: .stdio,
+        command: "/bin/echo"
+    )
+    let client = MockACPTransportClient(initializeResponse: makeInitializeResponse(loadSession: true))
+    let (manager, _, sessionID) = try makeSessionManagerFixture(target: target, clients: [client])
+
+    _ = try await manager.postMessage(
+        agentID: "agent-1",
+        sloppySessionID: sessionID,
+        runtime: .init(type: .acp, acp: .init(targetId: "local")),
+        content: [
+            .text(TextContent(text: "inspect this")),
+            .image(ImageContent(data: Data([1, 2, 3]).base64EncodedString(), mimeType: "image/png"))
+        ],
+        localSessionHadPriorMessages: false,
+        primerContent: nil,
+        onChunk: { _ in },
+        onEvent: { _ in }
+    )
+
+    let snapshot = await client.snapshot()
+    #expect(snapshot.prompts == 1)
+    #expect(snapshot.promptTexts == ["inspect this"])
+    #expect(snapshot.promptImageCounts == [1])
 }
 
 @Test

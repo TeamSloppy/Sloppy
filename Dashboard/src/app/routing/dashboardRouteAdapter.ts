@@ -35,6 +35,8 @@ export interface DashboardRoute {
   projectId: string | null;
   projectTab: ProjectTab | null;
   projectTaskReference: string | null;
+  projectWorkflowId: string | null;
+  projectWorkflowRunId: string | null;
   agentId: string | null;
   agentTab: AgentTab | null;
   agentInitialChatSessionId: string | null;
@@ -96,6 +98,8 @@ export function parseRouteFromPath(pathname: string): DashboardRoute {
       projectId: null,
       projectTab: "tasks",
       projectTaskReference: decodePathSegment(sectionArgRaw) || null,
+      projectWorkflowId: null,
+      projectWorkflowRunId: null,
       agentId: null,
       agentTab: null,
       agentInitialChatSessionId: null,
@@ -120,6 +124,8 @@ export function parseRouteFromPath(pathname: string): DashboardRoute {
       projectId: sectionArg || null,
       projectTab: sectionArg ? "chat" : null,
       projectTaskReference: null,
+      projectWorkflowId: null,
+      projectWorkflowRunId: null,
       agentId: null,
       agentTab: null,
       agentInitialChatSessionId: null,
@@ -143,6 +149,8 @@ export function parseRouteFromPath(pathname: string): DashboardRoute {
       projectId: decodePathSegment(sectionRaw),
       projectTab: "tasks",
       projectTaskReference: sectionArg2 || null,
+      projectWorkflowId: null,
+      projectWorkflowRunId: null,
       agentId: null,
       agentTab: null,
       agentInitialChatSessionId: null,
@@ -156,8 +164,15 @@ export function parseRouteFromPath(pathname: string): DashboardRoute {
 
   const configSection = section === "config" && sectionArg ? sectionArg : null;
   const projectId = section === "projects" && sectionArg ? sectionArg : null;
-  const projectTab = section === "projects" && projectId ? normalizeProjectTab(sectionArg2Lower) : null;
+  const isWorkflowRunRoute = section === "projects" && Boolean(projectId) && sectionArg2Lower === "workflow-runs";
+  const projectTab = isWorkflowRunRoute
+    ? "workflows"
+    : section === "projects" && projectId
+      ? normalizeProjectTab(sectionArg2Lower)
+      : null;
   const projectTaskReference = section === "projects" && (projectTab === "tasks" || projectTab === "review") ? sectionArg3 || null : null;
+  const projectWorkflowId = section === "projects" && projectTab === "workflows" && !isWorkflowRunRoute ? sectionArg3 || null : null;
+  const projectWorkflowRunId = isWorkflowRunRoute ? sectionArg3 || null : null;
   const chatProjectId = section === "projects" && projectTab === "chat" && projectId ? projectId : null;
   const chatAgentId = chatProjectId ? sectionArg3 || null : null;
   const chatSessionId = chatProjectId && chatAgentId ? sectionArg4 || null : null;
@@ -176,6 +191,8 @@ export function parseRouteFromPath(pathname: string): DashboardRoute {
     projectId,
     projectTab,
     projectTaskReference,
+    projectWorkflowId,
+    projectWorkflowRunId,
     agentId,
     agentTab,
     agentInitialChatSessionId,
@@ -213,6 +230,10 @@ export function buildPathFromRoute(route: DashboardRoute) {
       nextPathname = `/tasks/${encodeURIComponent(route.projectTaskReference)}`;
     } else if (route.projectTab === "review" && route.projectId && route.projectTaskReference) {
       nextPathname = `/projects/${encodeURIComponent(route.projectId)}/review/${encodeURIComponent(route.projectTaskReference)}`;
+    } else if (route.projectTab === "workflows" && route.projectId && route.projectWorkflowRunId) {
+      nextPathname = `/projects/${encodeURIComponent(route.projectId)}/workflow-runs/${encodeURIComponent(route.projectWorkflowRunId)}`;
+    } else if (route.projectTab === "workflows" && route.projectId && route.projectWorkflowId) {
+      nextPathname = `/projects/${encodeURIComponent(route.projectId)}/workflows/${encodeURIComponent(route.projectWorkflowId)}`;
     } else if (route.projectId) {
       nextPathname = `/projects/${encodeURIComponent(route.projectId)}`;
       if (route.projectTab && route.projectTab !== DEFAULT_PROJECT_TAB) {

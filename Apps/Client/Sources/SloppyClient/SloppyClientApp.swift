@@ -15,7 +15,6 @@ struct SloppyClientApp: App {
     private var baseScene: some AppScene {
         WindowGroup {
             RootShellView()
-                .theme(.sloppyDark)
 //                .debugOverlay()
 //                .hotReloading()
         }

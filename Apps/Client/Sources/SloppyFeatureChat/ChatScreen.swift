@@ -80,6 +80,7 @@ private struct ChatScreenContent: View {
                 .navigationBarTrailingItems {
                     ChatNavigationActions(viewModel: viewModel)
                 }
+                .navigationBarHidden(idiom != .phone)
                 .overlay {
                     ChatInitialLoadTrigger(viewModel: viewModel)
                 }
@@ -100,6 +101,8 @@ private struct ChatChrome: View {
 
     var body: some View {
         ZStack(anchor: .topLeading) {
+            ChatCanvasBackground()
+
             ZStack(anchor: .bottom) {
                 ChatTranscriptRegion(
                     viewModel: viewModel,
@@ -119,6 +122,10 @@ private struct ChatChrome: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
 
             ChatConnectionBar(connectionMonitor: connectionMonitor)
+
+            if idiom != .phone {
+                ChatFloatingActions(viewModel: viewModel)
+            }
 
             ChatOverlayLayer(
                 viewModel: viewModel,
@@ -170,7 +177,7 @@ private struct ChatChrome: View {
     }
 
     private var messagesTopInset: Float {
-        idiom == .phone ? theme.spacing.s : theme.spacing.xl
+        idiom == .phone ? theme.spacing.s : theme.spacing.xxl
     }
 
     private var composerScrollGap: Float {
@@ -182,6 +189,30 @@ private struct ChatChrome: View {
             return 390
         }
         return max(320, screen.size.width)
+    }
+}
+
+@MainActor
+private struct ChatCanvasBackground: View {
+    @Environment(\.theme) private var theme
+
+    var body: some View {
+        ZStack(anchor: .bottom) {
+            Color.fromHex(0xFBFCFE)
+                .ignoresSafeArea()
+
+            Color.fromHex(0xBDE4FF)
+                .opacity(0.76 as Float)
+                .frame(maxWidth: .infinity, maxHeight: 260)
+                .glassEffect(.regular.tint(Color.fromHex(0x89CBF7).opacity(0.20 as Float)), in: .rect(cornerRadius: 36))
+
+            Color.fromHex(0xF9FBFF)
+                .opacity(0.60 as Float)
+                .frame(maxWidth: .infinity, maxHeight: 120)
+                .padding(.bottom, 210)
+                .glassEffect(.regular.tint(theme.colors.surfaceGlass.opacity(0.20 as Float)), in: .rect(cornerRadius: 44))
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
 
@@ -319,6 +350,45 @@ private struct ChatNavigationActions: View {
                         .foregroundColor(c.textSecondary)
                 }
             }
+        }
+    }
+}
+
+@MainActor
+private struct ChatFloatingActions: View {
+    let viewModel: ChatScreenViewModel
+
+    @Environment(\.theme) private var theme
+
+    var body: some View {
+        let sp = theme.spacing
+
+        return HStack(spacing: sp.s) {
+            floatingButton(.autoAwesome) {
+                viewModel.showSessionPicker = true
+            }
+            floatingButton(.openInNew) {
+                viewModel.openSettings()
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .trailing)
+        .padding(.top, sp.s)
+        .padding(.trailing, sp.l)
+    }
+
+    private func floatingButton(
+        _ icon: MaterialSymbol,
+        action: @escaping @MainActor () -> Void
+    ) -> some View {
+        let c = theme.colors
+        let ty = theme.typography
+
+        return Button(action: action) {
+            Icons.symbol(icon, size: ty.heading)
+                .foregroundColor(Color.fromHex(0x2B2D31))
+                .frame(width: 44, height: 44)
+                .background(Color.white.opacity(0.62 as Float))
+                .glassEffect(.regular.tint(c.surfaceGlow.opacity(0.08 as Float)), in: .rect(cornerRadius: 22))
         }
     }
 }
@@ -476,7 +546,8 @@ private struct ChatTranscriptPane: View {
     var body: some View {
         if transcript.isEmpty {
             VStack(spacing: theme.spacing.xl) {
-                Spacer()
+                Color.clear
+                    .frame(height: 300)
                 ChatGreetingView(agentName: agentName)
                     .frame(width: heroWidth)
                 Spacer()

@@ -24,6 +24,7 @@ struct MainView: View {
 
     @Environment(\.userInterfaceIdiom) private var idiom
     @Environment(\.theme) private var theme
+    @Environment(\.safeAreaInsets) private var safeAreaInsets
 
     init(
         baseURL: URL,
@@ -70,11 +71,8 @@ struct MainView: View {
     }
 
     var body: some View {
-        let c = theme.colors
-
         ZStack {
-            c.background
-                .ignoresSafeArea()
+            AppAtmosphericBackground()
 
             regularSplitLayout()
         }
@@ -96,21 +94,20 @@ struct MainView: View {
     }
 
     private func regularSplitLayout() -> some View {
-        NavigationSplitView(
-            columnVisibility: .constant(.automatic),
-            preferredCompactColumn: .constant(.detail)
-        ) {
+        let sp = theme.spacing
+
+        return HStack(spacing: 0) {
             sidebarView(isOverlay: false)
+                .frame(width: sidebarWidth, alignment: .topLeading)
                 .frame(maxHeight: .infinity, alignment: .topLeading)
-                .navigationSplitViewColumnWidth(
-                    min: sidebarMinimumWidth,
-                    ideal: sidebarWidth,
-                    max: sidebarMaximumWidth
-                )
-        } detail: {
+
             chatScreen(showsSidebarControl: false)
+                .frame(minWidth: 0, maxWidth: .infinity, minHeight: 0, maxHeight: .infinity)
         }
-        .navigationSplitViewSeparators(.hidden)
+        .padding(.top, max(sp.s, safeAreaInsets.top + sp.s))
+        .padding(.bottom, max(sp.s, safeAreaInsets.bottom + sp.s))
+        .padding(.leading, sp.s)
+        .padding(.trailing, sp.s)
     }
 
     @ViewBuilder

@@ -8,6 +8,7 @@ public final class ClientSettings {
         static let serverHost = "client_server_host"
         static let serverPort = "client_server_port"
         static let accentColorHex = "client_accent_color_hex"
+        static let colorScheme = "client_color_scheme"
         static let windowCloseBehavior = "client_window_close_behavior"
         static let lastAgentId = "client_last_agent_id"
         static let lastSessionId = "client_last_session_id"
@@ -25,6 +26,10 @@ public final class ClientSettings {
 
     public var accentColorHex: String {
         didSet { UserDefaults.standard.set(accentColorHex, forKey: Keys.accentColorHex) }
+    }
+
+    public var colorScheme: ClientColorScheme {
+        didSet { UserDefaults.standard.set(colorScheme.rawValue, forKey: Keys.colorScheme) }
     }
 
     public var windowCloseBehavior: ClientWindowCloseBehavior {
@@ -67,6 +72,9 @@ public final class ClientSettings {
         serverHost = defaults.string(forKey: Keys.serverHost) ?? "localhost"
         serverPort = defaults.integer(forKey: Keys.serverPort).nonZero ?? 25101
         accentColorHex = defaults.string(forKey: Keys.accentColorHex) ?? "#FF2D6F"
+        colorScheme = defaults
+            .string(forKey: Keys.colorScheme)
+            .flatMap(ClientColorScheme.init(rawValue:)) ?? .light
         windowCloseBehavior = defaults
             .string(forKey: Keys.windowCloseBehavior)
             .flatMap(ClientWindowCloseBehavior.init(rawValue:)) ?? .keepProcess
@@ -101,6 +109,11 @@ public final class ClientSettings {
             pinnedSessionIds.remove(sessionId)
         }
     }
+}
+
+public enum ClientColorScheme: String, Codable, Sendable, Equatable, CaseIterable {
+    case light
+    case dark
 }
 
 public enum ClientWindowCloseBehavior: String, Codable, Sendable, Equatable, CaseIterable {

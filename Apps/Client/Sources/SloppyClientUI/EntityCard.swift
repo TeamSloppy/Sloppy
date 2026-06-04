@@ -44,6 +44,7 @@ public struct EntityCard: View {
             Color.clear
                 .frame(width: bo.thick)
                 .background(accent)
+                .opacity(0.92 as Float)
 
             HStack(spacing: sp.m) {
                 VStack(alignment: .leading, spacing: sp.xs) {
@@ -58,12 +59,17 @@ public struct EntityCard: View {
                 if let trailing {
                     Text(trailing.uppercased())
                         .font(.system(size: ty.micro))
-                        .foregroundColor(c.textMuted)
+                        .foregroundColor(accent)
+                        .padding(.horizontal, sp.s)
+                        .padding(.vertical, sp.xs)
+                        .background(accent.opacity(0.10 as Float))
+                        .glassEffect(.regular.tint(accent.opacity(0.08 as Float)), in: .rect(cornerRadius: 10))
                 }
             }
             .padding(sp.m)
         }
-        .background(c.surface)
-        .border(c.border, lineWidth: bo.thin)
+        .background(c.surfaceGlass.opacity(0.82 as Float))
+        .glassEffect(.regular.tint(c.surfaceGlow.opacity(0.16 as Float)), in: .rect(cornerRadius: 20))
+        .border(c.border.opacity(0.72 as Float), lineWidth: bo.thin)
     }
 }

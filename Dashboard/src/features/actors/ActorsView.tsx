@@ -721,7 +721,7 @@ export function ActorsView() {
     void loadDelegationPreview(delegationRootId, { silent: true });
   }, [boardMode, delegationRootId, board.links, board.nodes]);
 
-  async function loadDelegationPreview(rootId, options = {}) {
+  async function loadDelegationPreview(rootId, options: { silent?: boolean } = {}) {
     const normalizedRootId = asString(rootId);
     if (!normalizedRootId) {
       setDelegationPreview(null);

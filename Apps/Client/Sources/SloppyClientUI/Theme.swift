@@ -6,6 +6,8 @@ public struct AppColors: Sendable, Hashable {
     public var background: Color
     public var surface: Color
     public var surfaceRaised: Color
+    public var surfaceGlass: Color
+    public var surfaceGlow: Color
 
     public var accent: Color
     public var accentCyan: Color
@@ -26,23 +28,47 @@ public struct AppColors: Sendable, Hashable {
     public var statusNeutral: Color
 
     public static let dark = AppColors(
-        background:     .fromHex(0x0A0A0A),
-        surface:        .fromHex(0x141414),
-        surfaceRaised:  .fromHex(0x1C1C1C),
-        accent:         .fromHex(0xFF2D6F),
-        accentCyan:     .fromHex(0x00F0FF),
-        accentAcid:     .fromHex(0xCDFF00),
-        textPrimary:    .fromHex(0xF2F2F2),
-        textSecondary:  .fromHex(0xB7B7B7),
-        textMuted:      .fromHex(0x707070),
-        border:         .fromHex(0x2A2A2A),
-        borderBold:     .fromHex(0x444444),
-        statusActive:   .fromHex(0x00F0FF),
-        statusReady:    .fromHex(0xCDFF00),
-        statusDone:     .fromHex(0x4ADE80),
-        statusBlocked:  .fromHex(0xFF3333),
-        statusWarning:  .fromHex(0xFFAA00),
-        statusNeutral:  .fromHex(0x666666)
+        background:     .fromHex(0x030611),
+        surface:        .fromHex(0x0B1020),
+        surfaceRaised:  .fromHex(0x141B33),
+        surfaceGlass:   .fromHex(0x111A2E),
+        surfaceGlow:    .fromHex(0x24315A),
+        accent:         .fromHex(0x8B5CFF),
+        accentCyan:     .fromHex(0x25D7FF),
+        accentAcid:     .fromHex(0xFFB86B),
+        textPrimary:    .fromHex(0xF7F4FF),
+        textSecondary:  .fromHex(0xB8C3DD),
+        textMuted:      .fromHex(0x66718E),
+        border:         .fromHex(0x22304D),
+        borderBold:     .fromHex(0x5B6FA5),
+        statusActive:   .fromHex(0x25D7FF),
+        statusReady:    .fromHex(0xB48CFF),
+        statusDone:     .fromHex(0x5CF0A8),
+        statusBlocked:  .fromHex(0xFF5A7A),
+        statusWarning:  .fromHex(0xFFB86B),
+        statusNeutral:  .fromHex(0x7784A3)
+    )
+
+    public static let light = AppColors(
+        background:     .fromHex(0xF7FBFF),
+        surface:        .fromHex(0xFFFFFF),
+        surfaceRaised:  .fromHex(0xF5F7FA),
+        surfaceGlass:   .fromHex(0xFFFFFF),
+        surfaceGlow:    .fromHex(0xCFEAFF),
+        accent:         .fromHex(0x3B82F6),
+        accentCyan:     .fromHex(0x63C7FF),
+        accentAcid:     .fromHex(0xD4AF37),
+        textPrimary:    .fromHex(0x141518),
+        textSecondary:  .fromHex(0x2F343B),
+        textMuted:      .fromHex(0x6B7280),
+        border:         .fromHex(0xDCE4EC),
+        borderBold:     .fromHex(0xAAB8C5),
+        statusActive:   .fromHex(0x2684FF),
+        statusReady:    .fromHex(0x7C5CFF),
+        statusDone:     .fromHex(0x16A164),
+        statusBlocked:  .fromHex(0xD92D54),
+        statusWarning:  .fromHex(0xB7791F),
+        statusNeutral:  .fromHex(0x6B7280)
     )
 }
 
@@ -61,9 +87,9 @@ public struct AppTypography: Sendable, Hashable {
     public var micro: Double
 
     public static let `default` = AppTypography(
-        hero:    42,
-        title:   28,
-        heading: 20,
+        hero:    46,
+        title:   30,
+        heading: 19,
         body:    15,
         caption: 12,
         micro:   10
@@ -142,6 +168,15 @@ public extension Theme {
     static let sloppyDark: Theme = {
         var t = Theme()
         t[AppColorsKey.self] = .dark
+        t[AppTypographyKey.self] = .default
+        t[AppSpacingKey.self] = .default
+        t[AppBordersKey.self] = .default
+        return t
+    }()
+
+    static let sloppyLight: Theme = {
+        var t = Theme()
+        t[AppColorsKey.self] = .light
         t[AppTypographyKey.self] = .default
         t[AppSpacingKey.self] = .default
         t[AppBordersKey.self] = .default

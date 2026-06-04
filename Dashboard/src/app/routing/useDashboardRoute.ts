@@ -48,6 +48,8 @@ export function useDashboardRoute(): DashboardRouteController {
     route.projectId,
     route.projectTab,
     route.projectTaskReference,
+    route.projectWorkflowId,
+    route.projectWorkflowRunId,
     route.section,
     route.sessionAgentId,
     route.sessionId
@@ -88,6 +90,8 @@ export function useDashboardRoute(): DashboardRouteController {
         projectId: normalizedProjectID,
         projectTab: normalizedProjectTab,
         projectTaskReference: normalizedTaskReference,
+        projectWorkflowId: null,
+        projectWorkflowRunId: null,
         agentInitialChatSessionId: null,
         chatProjectId:
           normalizedProjectID && normalizedProjectTab === "chat" ? normalizedProjectID : null,

@@ -1292,13 +1292,32 @@ actor AgentSessionOrchestrator {
         }
 
         for attachment in attachments {
-            blocks.append(.text(TextContent(text: attachmentContextDescription(agentID: agentID, attachment: attachment))))
+            if let imageBlock = acpImageContentBlock(agentID: agentID, attachment: attachment) {
+                blocks.append(imageBlock)
+            } else {
+                blocks.append(.text(TextContent(text: attachmentContextDescription(agentID: agentID, attachment: attachment))))
+            }
         }
 
         if blocks.isEmpty {
             blocks.append(.text(TextContent(text: "User attached files.")))
         }
         return blocks
+    }
+
+    private func acpImageContentBlock(agentID: String, attachment: AgentAttachment) -> ContentBlock? {
+        guard attachment.mimeType.lowercased().hasPrefix("image/"),
+              let fileURL = try? sessionStore.resolveAttachmentFileURL(agentID: agentID, attachment: attachment),
+              let data = try? Data(contentsOf: fileURL) else {
+            return nil
+        }
+        return .image(
+            ImageContent(
+                data: data.base64EncodedString(),
+                mimeType: attachment.mimeType,
+                uri: fileURL.absoluteString
+            )
+        )
     }
 
     private func runtimeContentWithAttachmentContext(
