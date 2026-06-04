@@ -26,6 +26,9 @@ public actor SQLiteStore: PersistenceStore {
     private var fallbackCronTasks: [String: AgentCronTask] = [:]
     private var fallbackAccessUsers: [String: ChannelAccessUser] = [:]
     private var fallbackSelfImprovementProposalReviewJobs: [String: SelfImprovementProposalReviewJob] = [:]
+    private var fallbackWorkflowRuns: [String: WorkflowRun] = [:]
+    private var fallbackWorkflowRunSteps: [String: WorkflowRunStep] = [:]
+    private var fallbackWorkflowPendingActions: [String: WorkflowPendingAction] = [:]
 
     /// Creates a persistence store and applies schema when SQLite is available.
     public init(path: String, schemaSQL: String, fallbackProjectsPath: String? = nil) {
@@ -740,6 +743,258 @@ public actor SQLiteStore: PersistenceStore {
         return result
 #else
         return []
+#endif
+    }
+
+    public func saveWorkflowRun(_ run: WorkflowRun) async {
+#if canImport(CSQLite3)
+        guard let db else {
+            fallbackWorkflowRuns[run.id] = run
+            return
+        }
+        let sql =
+            """
+            INSERT OR REPLACE INTO workflow_runs(
+                id, workflow_id, workflow_version, project_id, task_id, status,
+                current_node_ids_json, started_by, started_at, finished_at
+            ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+            """
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK else {
+            fallbackWorkflowRuns[run.id] = run
+            return
+        }
+        defer { sqlite3_finalize(statement) }
+
+        bindText(run.id, at: 1, statement: statement)
+        bindText(run.workflowId, at: 2, statement: statement)
+        sqlite3_bind_int(statement, 3, Int32(run.workflowVersion))
+        bindText(run.projectId, at: 4, statement: statement)
+        bindOptionalText(run.taskId, at: 5, statement: statement)
+        bindText(run.status.rawValue, at: 6, statement: statement)
+        bindText(jsonString(run.currentNodeIds, fallback: "[]"), at: 7, statement: statement)
+        bindText(run.startedBy, at: 8, statement: statement)
+        bindText(isoFormatter.string(from: run.startedAt), at: 9, statement: statement)
+        bindOptionalText(run.finishedAt.map { isoFormatter.string(from: $0) }, at: 10, statement: statement)
+
+        if sqlite3_step(statement) != SQLITE_DONE {
+            fallbackWorkflowRuns[run.id] = run
+        }
+#else
+        fallbackWorkflowRuns[run.id] = run
+#endif
+    }
+
+    public func listWorkflowRuns(projectId: String) async -> [WorkflowRun] {
+#if canImport(CSQLite3)
+        guard let db else { return fallbackWorkflowRuns(projectId: projectId) }
+        let sql =
+            """
+            SELECT id, workflow_id, workflow_version, project_id, task_id, status, current_node_ids_json, started_by, started_at, finished_at
+            FROM workflow_runs
+            WHERE project_id = ?
+            ORDER BY started_at DESC;
+            """
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK else { return [] }
+        defer { sqlite3_finalize(statement) }
+        bindText(projectId, at: 1, statement: statement)
+        var result: [WorkflowRun] = []
+        while sqlite3_step(statement) == SQLITE_ROW {
+            if let run = decodeWorkflowRun(statement: statement) {
+                result.append(run)
+            }
+        }
+        return result
+#else
+        return fallbackWorkflowRuns(projectId: projectId)
+#endif
+    }
+
+    public func getWorkflowRun(id: String) async -> WorkflowRun? {
+#if canImport(CSQLite3)
+        guard let db else { return fallbackWorkflowRuns[id] }
+        let sql =
+            """
+            SELECT id, workflow_id, workflow_version, project_id, task_id, status, current_node_ids_json, started_by, started_at, finished_at
+            FROM workflow_runs
+            WHERE id = ?;
+            """
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK else { return nil }
+        defer { sqlite3_finalize(statement) }
+        bindText(id, at: 1, statement: statement)
+        guard sqlite3_step(statement) == SQLITE_ROW else { return nil }
+        return decodeWorkflowRun(statement: statement)
+#else
+        return fallbackWorkflowRuns[id]
+#endif
+    }
+
+    public func saveWorkflowRunStep(_ step: WorkflowRunStep) async {
+#if canImport(CSQLite3)
+        guard let db else {
+            fallbackWorkflowRunSteps[step.id] = step
+            return
+        }
+        let sql =
+            """
+            INSERT OR REPLACE INTO workflow_run_steps(
+                id, run_id, node_id, status, input_json, output_json, error, started_at, finished_at
+            ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?);
+            """
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK else {
+            fallbackWorkflowRunSteps[step.id] = step
+            return
+        }
+        defer { sqlite3_finalize(statement) }
+        bindText(step.id, at: 1, statement: statement)
+        bindText(step.runId, at: 2, statement: statement)
+        bindText(step.nodeId, at: 3, statement: statement)
+        bindText(step.status.rawValue, at: 4, statement: statement)
+        bindText(jsonString(step.input, fallback: "{}"), at: 5, statement: statement)
+        bindText(jsonString(step.output, fallback: "{}"), at: 6, statement: statement)
+        bindOptionalText(step.error, at: 7, statement: statement)
+        bindText(isoFormatter.string(from: step.startedAt), at: 8, statement: statement)
+        bindOptionalText(step.finishedAt.map { isoFormatter.string(from: $0) }, at: 9, statement: statement)
+        if sqlite3_step(statement) != SQLITE_DONE {
+            fallbackWorkflowRunSteps[step.id] = step
+        }
+#else
+        fallbackWorkflowRunSteps[step.id] = step
+#endif
+    }
+
+    public func listWorkflowRunSteps(runId: String) async -> [WorkflowRunStep] {
+#if canImport(CSQLite3)
+        guard let db else { return fallbackWorkflowRunSteps(runId: runId) }
+        let sql =
+            """
+            SELECT id, run_id, node_id, status, input_json, output_json, error, started_at, finished_at
+            FROM workflow_run_steps
+            WHERE run_id = ?
+            ORDER BY started_at ASC;
+            """
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK else { return [] }
+        defer { sqlite3_finalize(statement) }
+        bindText(runId, at: 1, statement: statement)
+        var result: [WorkflowRunStep] = []
+        while sqlite3_step(statement) == SQLITE_ROW {
+            if let step = decodeWorkflowRunStep(statement: statement) {
+                result.append(step)
+            }
+        }
+        return result
+#else
+        return fallbackWorkflowRunSteps(runId: runId)
+#endif
+    }
+
+    public func saveWorkflowPendingAction(_ action: WorkflowPendingAction) async {
+#if canImport(CSQLite3)
+        guard let db else {
+            fallbackWorkflowPendingActions[action.id] = action
+            return
+        }
+        let sql =
+            """
+            INSERT OR REPLACE INTO workflow_pending_actions(
+                id, project_id, workflow_run_id, node_id, task_id, assignee, prompt,
+                decisions_json, created_at, resolved_at
+            ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+            """
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK else {
+            fallbackWorkflowPendingActions[action.id] = action
+            return
+        }
+        defer { sqlite3_finalize(statement) }
+        bindText(action.id, at: 1, statement: statement)
+        bindText(action.projectId, at: 2, statement: statement)
+        bindText(action.workflowRunId, at: 3, statement: statement)
+        bindText(action.nodeId, at: 4, statement: statement)
+        bindOptionalText(action.taskId, at: 5, statement: statement)
+        bindText(action.assignee, at: 6, statement: statement)
+        bindText(action.prompt, at: 7, statement: statement)
+        bindText(jsonString(action.decisions, fallback: "[]"), at: 8, statement: statement)
+        bindText(isoFormatter.string(from: action.createdAt), at: 9, statement: statement)
+        bindOptionalText(action.resolvedAt.map { isoFormatter.string(from: $0) }, at: 10, statement: statement)
+        if sqlite3_step(statement) != SQLITE_DONE {
+            fallbackWorkflowPendingActions[action.id] = action
+        }
+#else
+        fallbackWorkflowPendingActions[action.id] = action
+#endif
+    }
+
+    public func listWorkflowPendingActions(projectId: String, includeResolved: Bool) async -> [WorkflowPendingAction] {
+#if canImport(CSQLite3)
+        guard let db else { return fallbackWorkflowPendingActions(projectId: projectId, includeResolved: includeResolved) }
+        let resolvedClause = includeResolved ? "" : "AND resolved_at IS NULL"
+        let sql =
+            """
+            SELECT id, project_id, workflow_run_id, node_id, task_id, assignee, prompt, decisions_json, created_at, resolved_at
+            FROM workflow_pending_actions
+            WHERE project_id = ? \(resolvedClause)
+            ORDER BY created_at DESC;
+            """
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK else { return [] }
+        defer { sqlite3_finalize(statement) }
+        bindText(projectId, at: 1, statement: statement)
+        var result: [WorkflowPendingAction] = []
+        while sqlite3_step(statement) == SQLITE_ROW {
+            if let action = decodeWorkflowPendingAction(statement: statement) {
+                result.append(action)
+            }
+        }
+        return result
+#else
+        return fallbackWorkflowPendingActions(projectId: projectId, includeResolved: includeResolved)
+#endif
+    }
+
+    public func listWorkflowPendingActions(runId: String) async -> [WorkflowPendingAction] {
+#if canImport(CSQLite3)
+        guard let db else { return fallbackWorkflowPendingActions(runId: runId) }
+        let sql =
+            """
+            SELECT id, project_id, workflow_run_id, node_id, task_id, assignee, prompt, decisions_json, created_at, resolved_at
+            FROM workflow_pending_actions
+            WHERE workflow_run_id = ?
+            ORDER BY created_at DESC;
+            """
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK else { return [] }
+        defer { sqlite3_finalize(statement) }
+        bindText(runId, at: 1, statement: statement)
+        var result: [WorkflowPendingAction] = []
+        while sqlite3_step(statement) == SQLITE_ROW {
+            if let action = decodeWorkflowPendingAction(statement: statement) {
+                result.append(action)
+            }
+        }
+        return result
+#else
+        return fallbackWorkflowPendingActions(runId: runId)
+#endif
+    }
+
+    public func resolveWorkflowPendingAction(actionId: String, resolvedAt: Date) async -> WorkflowPendingAction? {
+#if canImport(CSQLite3)
+        guard let db else { return resolveFallbackWorkflowPendingAction(actionId: actionId, resolvedAt: resolvedAt) }
+        let sql = "UPDATE workflow_pending_actions SET resolved_at = ? WHERE id = ?;"
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK else { return nil }
+        defer { sqlite3_finalize(statement) }
+        bindText(isoFormatter.string(from: resolvedAt), at: 1, statement: statement)
+        bindText(actionId, at: 2, statement: statement)
+        guard sqlite3_step(statement) == SQLITE_DONE else { return nil }
+        return workflowPendingAction(id: actionId)
+#else
+        return resolveFallbackWorkflowPendingAction(actionId: actionId, resolvedAt: resolvedAt)
 #endif
     }
 
@@ -2444,6 +2699,155 @@ public actor SQLiteStore: PersistenceStore {
         return Int(sqlite3_column_int(statement, index))
     }
 
+    private func jsonString<T: Encodable>(_ value: T, fallback: String) -> String {
+        (try? String(data: JSONEncoder().encode(value), encoding: .utf8)) ?? fallback
+    }
+
+    private func decodeJSON<T: Decodable>(_ type: T.Type, from value: String, fallback: T) -> T {
+        (try? JSONDecoder().decode(type, from: Data(value.utf8))) ?? fallback
+    }
+
+    private func fallbackWorkflowRuns(projectId: String) -> [WorkflowRun] {
+        fallbackWorkflowRuns.values
+            .filter { $0.projectId == projectId }
+            .sorted { $0.startedAt > $1.startedAt }
+    }
+
+    private func fallbackWorkflowRunSteps(runId: String) -> [WorkflowRunStep] {
+        fallbackWorkflowRunSteps.values
+            .filter { $0.runId == runId }
+            .sorted { $0.startedAt < $1.startedAt }
+    }
+
+    private func fallbackWorkflowPendingActions(projectId: String, includeResolved: Bool) -> [WorkflowPendingAction] {
+        fallbackWorkflowPendingActions.values
+            .filter { $0.projectId == projectId && (includeResolved || $0.resolvedAt == nil) }
+            .sorted { $0.createdAt > $1.createdAt }
+    }
+
+    private func fallbackWorkflowPendingActions(runId: String) -> [WorkflowPendingAction] {
+        fallbackWorkflowPendingActions.values
+            .filter { $0.workflowRunId == runId }
+            .sorted { $0.createdAt > $1.createdAt }
+    }
+
+    private func resolveFallbackWorkflowPendingAction(actionId: String, resolvedAt: Date) -> WorkflowPendingAction? {
+        guard var action = fallbackWorkflowPendingActions[actionId] else {
+            return nil
+        }
+        action.resolvedAt = resolvedAt
+        fallbackWorkflowPendingActions[actionId] = action
+        return action
+    }
+
+    private func workflowPendingAction(id: String) -> WorkflowPendingAction? {
+#if canImport(CSQLite3)
+        guard let db else { return fallbackWorkflowPendingActions[id] }
+        let sql =
+            """
+            SELECT id, project_id, workflow_run_id, node_id, task_id, assignee, prompt, decisions_json, created_at, resolved_at
+            FROM workflow_pending_actions
+            WHERE id = ?;
+            """
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK else { return nil }
+        defer { sqlite3_finalize(statement) }
+        bindText(id, at: 1, statement: statement)
+        guard sqlite3_step(statement) == SQLITE_ROW else { return nil }
+        return decodeWorkflowPendingAction(statement: statement)
+#else
+        return fallbackWorkflowPendingActions[id]
+#endif
+    }
+
+    private func decodeWorkflowRun(statement: OpaquePointer?) -> WorkflowRun? {
+        guard
+            let idPtr = sqlite3_column_text(statement, 0),
+            let workflowIdPtr = sqlite3_column_text(statement, 1),
+            let projectIdPtr = sqlite3_column_text(statement, 3),
+            let statusPtr = sqlite3_column_text(statement, 5),
+            let currentNodeIdsPtr = sqlite3_column_text(statement, 6),
+            let startedByPtr = sqlite3_column_text(statement, 7),
+            let startedAtPtr = sqlite3_column_text(statement, 8)
+        else {
+            return nil
+        }
+        let currentNodeIds = decodeJSON([String].self, from: String(cString: currentNodeIdsPtr), fallback: [])
+        let startedAt = isoFormatter.date(from: String(cString: startedAtPtr)) ?? Date()
+        let finishedAt = optionalText(statement: statement, index: 9).flatMap { isoFormatter.date(from: $0) }
+        return WorkflowRun(
+            id: String(cString: idPtr),
+            workflowId: String(cString: workflowIdPtr),
+            workflowVersion: Int(sqlite3_column_int(statement, 2)),
+            projectId: String(cString: projectIdPtr),
+            taskId: optionalText(statement: statement, index: 4),
+            status: WorkflowRunStatus(rawValue: String(cString: statusPtr)) ?? .failed,
+            currentNodeIds: currentNodeIds,
+            startedBy: String(cString: startedByPtr),
+            startedAt: startedAt,
+            finishedAt: finishedAt
+        )
+    }
+
+    private func decodeWorkflowRunStep(statement: OpaquePointer?) -> WorkflowRunStep? {
+        guard
+            let idPtr = sqlite3_column_text(statement, 0),
+            let runIdPtr = sqlite3_column_text(statement, 1),
+            let nodeIdPtr = sqlite3_column_text(statement, 2),
+            let statusPtr = sqlite3_column_text(statement, 3),
+            let inputPtr = sqlite3_column_text(statement, 4),
+            let outputPtr = sqlite3_column_text(statement, 5),
+            let startedAtPtr = sqlite3_column_text(statement, 7)
+        else {
+            return nil
+        }
+        let input = decodeJSON([String: JSONValue].self, from: String(cString: inputPtr), fallback: [:])
+        let output = decodeJSON([String: JSONValue].self, from: String(cString: outputPtr), fallback: [:])
+        let startedAt = isoFormatter.date(from: String(cString: startedAtPtr)) ?? Date()
+        let finishedAt = optionalText(statement: statement, index: 8).flatMap { isoFormatter.date(from: $0) }
+        return WorkflowRunStep(
+            id: String(cString: idPtr),
+            runId: String(cString: runIdPtr),
+            nodeId: String(cString: nodeIdPtr),
+            status: WorkflowStepStatus(rawValue: String(cString: statusPtr)) ?? .failed,
+            input: input,
+            output: output,
+            error: optionalText(statement: statement, index: 6),
+            startedAt: startedAt,
+            finishedAt: finishedAt
+        )
+    }
+
+    private func decodeWorkflowPendingAction(statement: OpaquePointer?) -> WorkflowPendingAction? {
+        guard
+            let idPtr = sqlite3_column_text(statement, 0),
+            let projectIdPtr = sqlite3_column_text(statement, 1),
+            let runIdPtr = sqlite3_column_text(statement, 2),
+            let nodeIdPtr = sqlite3_column_text(statement, 3),
+            let assigneePtr = sqlite3_column_text(statement, 5),
+            let promptPtr = sqlite3_column_text(statement, 6),
+            let decisionsPtr = sqlite3_column_text(statement, 7),
+            let createdAtPtr = sqlite3_column_text(statement, 8)
+        else {
+            return nil
+        }
+        let decisions = decodeJSON([WorkflowHumanDecision].self, from: String(cString: decisionsPtr), fallback: [])
+        let createdAt = isoFormatter.date(from: String(cString: createdAtPtr)) ?? Date()
+        let resolvedAt = optionalText(statement: statement, index: 9).flatMap { isoFormatter.date(from: $0) }
+        return WorkflowPendingAction(
+            id: String(cString: idPtr),
+            projectId: String(cString: projectIdPtr),
+            workflowRunId: String(cString: runIdPtr),
+            nodeId: String(cString: nodeIdPtr),
+            taskId: optionalText(statement: statement, index: 4),
+            assignee: String(cString: assigneePtr),
+            prompt: String(cString: promptPtr),
+            decisions: decisions,
+            createdAt: createdAt,
+            resolvedAt: resolvedAt
+        )
+    }
+
     private static func applyProjectTaskMigrations(db: OpaquePointer?) {
         guard let db else {
             return
@@ -2489,6 +2893,57 @@ public actor SQLiteStore: PersistenceStore {
         _ = sqlite3_exec(
             db,
             "ALTER TABLE channel_plugins ADD COLUMN delivery_mode TEXT NOT NULL DEFAULT 'http';",
+            nil, nil, nil
+        )
+    }
+
+    private static func applyWorkflowMigrations(db: OpaquePointer?) {
+        guard let db else { return }
+        _ = sqlite3_exec(
+            db,
+            """
+            CREATE TABLE IF NOT EXISTS workflow_runs (
+                id TEXT PRIMARY KEY,
+                workflow_id TEXT NOT NULL,
+                workflow_version INTEGER NOT NULL,
+                project_id TEXT NOT NULL,
+                task_id TEXT,
+                status TEXT NOT NULL,
+                current_node_ids_json TEXT NOT NULL,
+                started_by TEXT NOT NULL,
+                started_at TEXT NOT NULL,
+                finished_at TEXT
+            );
+            CREATE INDEX IF NOT EXISTS idx_workflow_runs_project ON workflow_runs(project_id, started_at DESC);
+
+            CREATE TABLE IF NOT EXISTS workflow_run_steps (
+                id TEXT PRIMARY KEY,
+                run_id TEXT NOT NULL,
+                node_id TEXT NOT NULL,
+                status TEXT NOT NULL,
+                input_json TEXT NOT NULL,
+                output_json TEXT NOT NULL,
+                error TEXT,
+                started_at TEXT NOT NULL,
+                finished_at TEXT
+            );
+            CREATE INDEX IF NOT EXISTS idx_workflow_run_steps_run ON workflow_run_steps(run_id, started_at ASC);
+
+            CREATE TABLE IF NOT EXISTS workflow_pending_actions (
+                id TEXT PRIMARY KEY,
+                project_id TEXT NOT NULL,
+                workflow_run_id TEXT NOT NULL,
+                node_id TEXT NOT NULL,
+                task_id TEXT,
+                assignee TEXT NOT NULL,
+                prompt TEXT NOT NULL,
+                decisions_json TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                resolved_at TEXT
+            );
+            CREATE INDEX IF NOT EXISTS idx_workflow_pending_actions_project ON workflow_pending_actions(project_id, resolved_at, created_at DESC);
+            CREATE INDEX IF NOT EXISTS idx_workflow_pending_actions_run ON workflow_pending_actions(workflow_run_id);
+            """,
             nil, nil, nil
         )
     }
@@ -3353,6 +3808,7 @@ public actor SQLiteStore: PersistenceStore {
         applyRuntimeEventMigrations(db: db)
         applyProjectTaskMigrations(db: db)
         applyChannelPluginMigrations(db: db)
+        applyWorkflowMigrations(db: db)
         applyCronTaskMigrations(db: db)
         applyDashboardProjectsMigrations(db: db)
         applyClarificationMigrations(db: db)

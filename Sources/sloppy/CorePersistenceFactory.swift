@@ -32,6 +32,9 @@ public actor InMemoryPersistenceStore: PersistenceStore {
     private var tasks: [String: PersistedTaskRecord] = [:]
     private var projects: [String: ProjectRecord] = [:]
     private var selfImprovementProposalReviewJobs: [String: SelfImprovementProposalReviewJob] = [:]
+    private var workflowRuns: [String: WorkflowRun] = [:]
+    private var workflowRunSteps: [String: WorkflowRunStep] = [:]
+    private var workflowPendingActions: [String: WorkflowPendingAction] = [:]
 
     public init() {}
 
@@ -169,6 +172,57 @@ public actor InMemoryPersistenceStore: PersistenceStore {
             .sorted { $0.createdAt > $1.createdAt }
             .prefix(max(1, min(limit, 20_000)))
             .compactMap(\.durationMs)
+    }
+
+    public func saveWorkflowRun(_ run: WorkflowRun) async {
+        workflowRuns[run.id] = run
+    }
+
+    public func listWorkflowRuns(projectId: String) async -> [WorkflowRun] {
+        workflowRuns.values
+            .filter { $0.projectId == projectId }
+            .sorted { $0.startedAt > $1.startedAt }
+    }
+
+    public func getWorkflowRun(id: String) async -> WorkflowRun? {
+        workflowRuns[id]
+    }
+
+    public func saveWorkflowRunStep(_ step: WorkflowRunStep) async {
+        workflowRunSteps[step.id] = step
+    }
+
+    public func listWorkflowRunSteps(runId: String) async -> [WorkflowRunStep] {
+        workflowRunSteps.values
+            .filter { $0.runId == runId }
+            .sorted { $0.startedAt < $1.startedAt }
+    }
+
+    public func saveWorkflowPendingAction(_ action: WorkflowPendingAction) async {
+        workflowPendingActions[action.id] = action
+    }
+
+    public func listWorkflowPendingActions(projectId: String, includeResolved: Bool) async -> [WorkflowPendingAction] {
+        workflowPendingActions.values
+            .filter { action in
+                action.projectId == projectId && (includeResolved || action.resolvedAt == nil)
+            }
+            .sorted { $0.createdAt > $1.createdAt }
+    }
+
+    public func listWorkflowPendingActions(runId: String) async -> [WorkflowPendingAction] {
+        workflowPendingActions.values
+            .filter { $0.workflowRunId == runId }
+            .sorted { $0.createdAt > $1.createdAt }
+    }
+
+    public func resolveWorkflowPendingAction(actionId: String, resolvedAt: Date) async -> WorkflowPendingAction? {
+        guard var action = workflowPendingActions[actionId] else {
+            return nil
+        }
+        action.resolvedAt = resolvedAt
+        workflowPendingActions[actionId] = action
+        return action
     }
 
     public func upsertSelfImprovementProposalReviewJob(
@@ -715,6 +769,51 @@ enum CorePersistenceFactory {
         CREATE INDEX IF NOT EXISTS idx_tool_invocations_project_created ON tool_invocations(project_id, created_at DESC);
         CREATE INDEX IF NOT EXISTS idx_tool_invocations_task_created ON tool_invocations(task_id, created_at DESC);
         CREATE INDEX IF NOT EXISTS idx_tool_invocations_tool_created ON tool_invocations(tool, created_at DESC);
+
+        CREATE TABLE IF NOT EXISTS workflow_runs (
+            id TEXT PRIMARY KEY,
+            workflow_id TEXT NOT NULL,
+            workflow_version INTEGER NOT NULL,
+            project_id TEXT NOT NULL,
+            task_id TEXT,
+            status TEXT NOT NULL,
+            current_node_ids_json TEXT NOT NULL,
+            started_by TEXT NOT NULL,
+            started_at TEXT NOT NULL,
+            finished_at TEXT
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_workflow_runs_project ON workflow_runs(project_id, started_at DESC);
+
+        CREATE TABLE IF NOT EXISTS workflow_run_steps (
+            id TEXT PRIMARY KEY,
+            run_id TEXT NOT NULL,
+            node_id TEXT NOT NULL,
+            status TEXT NOT NULL,
+            input_json TEXT NOT NULL,
+            output_json TEXT NOT NULL,
+            error TEXT,
+            started_at TEXT NOT NULL,
+            finished_at TEXT
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_workflow_run_steps_run ON workflow_run_steps(run_id, started_at ASC);
+
+        CREATE TABLE IF NOT EXISTS workflow_pending_actions (
+            id TEXT PRIMARY KEY,
+            project_id TEXT NOT NULL,
+            workflow_run_id TEXT NOT NULL,
+            node_id TEXT NOT NULL,
+            task_id TEXT,
+            assignee TEXT NOT NULL,
+            prompt TEXT NOT NULL,
+            decisions_json TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            resolved_at TEXT
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_workflow_pending_actions_project ON workflow_pending_actions(project_id, resolved_at, created_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_workflow_pending_actions_run ON workflow_pending_actions(workflow_run_id);
 
         CREATE TABLE IF NOT EXISTS project_event_facts (
             id TEXT PRIMARY KEY,

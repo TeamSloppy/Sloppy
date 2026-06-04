@@ -138,6 +138,51 @@ CREATE INDEX IF NOT EXISTS idx_tool_invocations_project_created ON tool_invocati
 CREATE INDEX IF NOT EXISTS idx_tool_invocations_task_created ON tool_invocations(task_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_tool_invocations_tool_created ON tool_invocations(tool, created_at DESC);
 
+CREATE TABLE IF NOT EXISTS workflow_runs (
+    id TEXT PRIMARY KEY,
+    workflow_id TEXT NOT NULL,
+    workflow_version INTEGER NOT NULL,
+    project_id TEXT NOT NULL,
+    task_id TEXT,
+    status TEXT NOT NULL,
+    current_node_ids_json TEXT NOT NULL,
+    started_by TEXT NOT NULL,
+    started_at TEXT NOT NULL,
+    finished_at TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_workflow_runs_project ON workflow_runs(project_id, started_at DESC);
+
+CREATE TABLE IF NOT EXISTS workflow_run_steps (
+    id TEXT PRIMARY KEY,
+    run_id TEXT NOT NULL,
+    node_id TEXT NOT NULL,
+    status TEXT NOT NULL,
+    input_json TEXT NOT NULL,
+    output_json TEXT NOT NULL,
+    error TEXT,
+    started_at TEXT NOT NULL,
+    finished_at TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_workflow_run_steps_run ON workflow_run_steps(run_id, started_at ASC);
+
+CREATE TABLE IF NOT EXISTS workflow_pending_actions (
+    id TEXT PRIMARY KEY,
+    project_id TEXT NOT NULL,
+    workflow_run_id TEXT NOT NULL,
+    node_id TEXT NOT NULL,
+    task_id TEXT,
+    assignee TEXT NOT NULL,
+    prompt TEXT NOT NULL,
+    decisions_json TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    resolved_at TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_workflow_pending_actions_project ON workflow_pending_actions(project_id, resolved_at, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_workflow_pending_actions_run ON workflow_pending_actions(workflow_run_id);
+
 CREATE TABLE IF NOT EXISTS self_improvement_proposal_review_queue (
     id TEXT PRIMARY KEY,
     agent_id TEXT NOT NULL,

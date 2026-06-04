@@ -231,6 +231,33 @@ public protocol PersistenceStore: Sendable {
     /// Lists recent tool invocation rows for a project/task timeline.
     func listToolInvocations(projectId: String?, taskId: String?, limit: Int) async -> [PersistedToolInvocationRecord]
 
+    /// Creates or replaces one workflow run record.
+    func saveWorkflowRun(_ run: WorkflowRun) async
+
+    /// Lists workflow runs for a project ordered newest first.
+    func listWorkflowRuns(projectId: String) async -> [WorkflowRun]
+
+    /// Returns one workflow run by identifier.
+    func getWorkflowRun(id: String) async -> WorkflowRun?
+
+    /// Creates or replaces one workflow run step record.
+    func saveWorkflowRunStep(_ step: WorkflowRunStep) async
+
+    /// Lists workflow run steps ordered by start time.
+    func listWorkflowRunSteps(runId: String) async -> [WorkflowRunStep]
+
+    /// Creates or replaces one workflow pending action.
+    func saveWorkflowPendingAction(_ action: WorkflowPendingAction) async
+
+    /// Lists workflow pending actions for a project.
+    func listWorkflowPendingActions(projectId: String, includeResolved: Bool) async -> [WorkflowPendingAction]
+
+    /// Lists workflow pending actions for a run.
+    func listWorkflowPendingActions(runId: String) async -> [WorkflowPendingAction]
+
+    /// Marks a workflow pending action as resolved.
+    func resolveWorkflowPendingAction(actionId: String, resolvedAt: Date) async -> WorkflowPendingAction?
+
     /// Inserts or updates a pending self-improvement proposal review job.
     func upsertSelfImprovementProposalReviewJob(
         agentId: String,
