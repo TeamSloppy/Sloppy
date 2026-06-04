@@ -1,5 +1,7 @@
 import React, { useState } from "react";
 
+import { pathBasename, resolveDroppedPluginDirectory } from "../pluginDrop";
+
 function ensurePlugin(draft, index, emptyPlugin) {
   if (!Array.isArray(draft.plugins)) {
     draft.plugins = [];
@@ -38,66 +40,6 @@ function isLocalPluginSource(value) {
     || source.startsWith("../")
     || source.startsWith("file://")
     || /^[A-Za-z]:[\\/]/.test(source);
-}
-
-function fileUriToPath(value) {
-  try {
-    const url = new URL(value);
-    if (url.protocol !== "file:") {
-      return "";
-    }
-    let pathname = decodeURIComponent(url.pathname || "");
-    if (/^\/[A-Za-z]:/.test(pathname)) {
-      pathname = pathname.slice(1);
-    }
-    return pathname;
-  } catch {
-    return "";
-  }
-}
-
-function pathBasename(value) {
-  return String(value || "")
-    .replace(/\/+$/, "")
-    .split(/[\\/]/)
-    .filter(Boolean)
-    .pop() || "plugin";
-}
-
-function droppedDirectoryPayload(dataTransfer) {
-  const uriList = dataTransfer.getData("text/uri-list");
-  const fileUri = String(uriList || "")
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .find((line) => line && !line.startsWith("#") && line.startsWith("file://"));
-  if (fileUri) {
-    const path = fileUriToPath(fileUri);
-    if (path) {
-      return { path, name: pathBasename(path), hasDirectory: true };
-    }
-  }
-
-  let directoryName = "";
-  for (const item of Array.from(dataTransfer.items || []) as DataTransferItem[]) {
-    const entry = (item as any).webkitGetAsEntry?.();
-    if (entry?.isDirectory) {
-      directoryName = entry.name || directoryName;
-      const file = item.getAsFile?.();
-      const filePath = (file as any)?.path || "";
-      if (filePath) {
-        return { path: filePath, name: entry.name || pathBasename(filePath), hasDirectory: true };
-      }
-    }
-  }
-
-  for (const file of Array.from(dataTransfer.files || []) as File[]) {
-    const filePath = (file as any)?.path || "";
-    if (filePath) {
-      return { path: filePath, name: file.name || pathBasename(filePath), hasDirectory: true };
-    }
-  }
-
-  return { path: "", name: directoryName, hasDirectory: Boolean(directoryName) };
 }
 
 export function PluginEditor({
@@ -182,17 +124,17 @@ export function PluginEditor({
     }
   }
 
-  function handleDrop(event) {
+  async function handleDrop(event) {
     event.preventDefault();
     setIsDraggingPlugin(false);
-    const payload = droppedDirectoryPayload(event.dataTransfer);
-    if (payload.path) {
-      setPluginSource(payload.path);
-      setInstallStatus(`${payload.name || pathBasename(payload.path)} ready.`);
+    const result = await resolveDroppedPluginDirectory(event.dataTransfer, selectDirectory);
+    if (result.path) {
+      setPluginSource(result.path);
+      setInstallStatus(`${result.name || pathBasename(result.path)} ready.`);
       return;
     }
-    if (payload.hasDirectory) {
-      setInstallStatus("Folder detected, but the browser hid its path. Use Choose folder.");
+    if (result.status === "needs_picker") {
+      setInstallStatus("Folder detected, but no path was selected.");
       return;
     }
     setInstallStatus("Drop a plugin folder or paste a Git URL.");

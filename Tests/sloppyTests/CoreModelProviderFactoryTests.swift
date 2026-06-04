@@ -68,6 +68,21 @@ func coreModelProviderFactoryUsesExplicitOpenAIPrefixes() {
 }
 
 @Test
+func coreModelProviderFactoryResolvesUnprefixedRequestedModelAgainstResolvedModels() {
+    let resolvedModels = [
+        "openai-oauth:gpt-5.3-codex",
+        "anthropic:claude-sonnet-4.5",
+    ]
+
+    #expect(
+        CoreModelProviderFactory.resolveRequestedModel(
+            "gpt-5.3-codex",
+            from: resolvedModels
+        ) == "openai-oauth:gpt-5.3-codex"
+    )
+}
+
+@Test
 func openCodeImporterParsesOpenAICompatibleProviderModels() {
     let config: [String: Any] = [
         "provider": [

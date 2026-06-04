@@ -29,7 +29,7 @@ enum BuiltInSkillCatalog {
             modeSkill(for: .auto),
             kanbanTaskManager(),
             taskSpecWriter()
-        ]
+        ] + bundledResourceSkills()
     }
 
     static func modeSkillMarkdown(for mode: AgentChatMode) -> String {
@@ -170,6 +170,136 @@ enum BuiltInSkillCatalog {
         }
 
         return fallback
+    }
+
+    private static func bundledResourceSkills() -> [BuiltInSkillDefinition] {
+        var definitionsByID: [String: BuiltInSkillDefinition] = [:]
+        for root in skillResourceRootURLs() {
+            for definition in bundledResourceSkills(in: root) {
+                let id = "\(definition.owner)/\(definition.repo)"
+                if definitionsByID[id] == nil {
+                    definitionsByID[id] = definition
+                }
+            }
+        }
+        return definitionsByID.values.sorted {
+            $0.repo.localizedCaseInsensitiveCompare($1.repo) == .orderedAscending
+        }
+    }
+
+    private static func bundledResourceSkills(in root: URL) -> [BuiltInSkillDefinition] {
+        let builtInRepos = Set(["task-spec-writer", "kanban-task-manager"] + AgentChatMode.allCases.map { modeSkillRepo(for: $0) })
+        guard let children = try? FileManager.default.contentsOfDirectory(
+            at: root,
+            includingPropertiesForKeys: [.isDirectoryKey],
+            options: [.skipsHiddenFiles]
+        ) else {
+            return []
+        }
+
+        var definitionsByRepo: [String: BuiltInSkillDefinition] = [:]
+        for directory in children.sorted(by: { $0.lastPathComponent.localizedCaseInsensitiveCompare($1.lastPathComponent) == .orderedAscending }) {
+            guard let values = try? directory.resourceValues(forKeys: [.isDirectoryKey]),
+                  values.isDirectory == true
+            else { continue }
+
+            let repo = skillIDComponent(from: directory.lastPathComponent)
+            guard !builtInRepos.contains(repo), definitionsByRepo[repo] == nil else { continue }
+
+            let skillFile = directory.appendingPathComponent("SKILL.md")
+            guard let markdown = try? String(contentsOf: skillFile, encoding: .utf8) else { continue }
+            let frontmatter = SkillsGitHubClient.parseFrontmatter(from: markdown)
+            let name = normalizedFrontmatterValue(frontmatter?.name) ?? repo
+            let description = normalizedFrontmatterValue(frontmatter?.description) ?? "Bundled skill from Sloppy resources."
+            let userInvocable = frontmatter?.userInvocable ?? true
+            let allowedTools = frontmatter?.allowedTools ?? []
+
+            definitionsByRepo[repo] = BuiltInSkillDefinition(
+                owner: "bundled",
+                repo: repo,
+                name: name,
+                description: description,
+                userInvocable: userInvocable,
+                allowedTools: allowedTools,
+                files: collectSkillFiles(in: directory)
+            )
+        }
+
+        return definitionsByRepo.values.sorted {
+            $0.repo.localizedCaseInsensitiveCompare($1.repo) == .orderedAscending
+        }
+    }
+
+    private static func collectSkillFiles(in directory: URL) -> [String: String] {
+        guard let enumerator = FileManager.default.enumerator(
+            at: directory,
+            includingPropertiesForKeys: [.isRegularFileKey],
+            options: [.skipsHiddenFiles, .skipsPackageDescendants]
+        ) else {
+            return [:]
+        }
+
+        var files: [String: String] = [:]
+        let rootPath = directory.standardizedFileURL.path
+        for case let fileURL as URL in enumerator {
+            guard let values = try? fileURL.resourceValues(forKeys: [.isRegularFileKey]),
+                  values.isRegularFile == true,
+                  let content = try? String(contentsOf: fileURL, encoding: .utf8)
+            else { continue }
+
+            let relative = fileURL.standardizedFileURL.path
+                .dropFirst(rootPath.count)
+                .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+            guard isSafeSkillRelativePath(relative) else { continue }
+            files[relative] = content
+        }
+        return files
+    }
+
+    private static func skillResourceRootURLs() -> [URL] {
+        var candidates: [URL] = []
+        if let bundled = Bundle.module.resourceURL?.appendingPathComponent("Skills", isDirectory: true) {
+            candidates.append(bundled)
+        }
+        candidates.append(
+            URL(fileURLWithPath: FileManager.default.currentDirectoryPath, isDirectory: true)
+                .appendingPathComponent("Sources/sloppy/Resources", isDirectory: true)
+                .appendingPathComponent("Skills", isDirectory: true)
+        )
+        candidates.append(
+            URL(fileURLWithPath: #filePath)
+                .deletingLastPathComponent()
+                .deletingLastPathComponent()
+                .appendingPathComponent("Resources", isDirectory: true)
+                .appendingPathComponent("Skills", isDirectory: true)
+        )
+
+        var seen = Set<String>()
+        return candidates.map(\.standardizedFileURL).filter { url in
+            var isDirectory: ObjCBool = false
+            guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory), isDirectory.boolValue else {
+                return false
+            }
+            return seen.insert(url.path).inserted
+        }
+    }
+
+    private static func isSafeSkillRelativePath(_ relative: String) -> Bool {
+        let components = relative.split(separator: "/", omittingEmptySubsequences: false).map(String.init)
+        return !components.isEmpty && components.allSatisfy { !$0.isEmpty && $0 != "." && $0 != ".." }
+    }
+
+    private static func normalizedFrontmatterValue(_ raw: String?) -> String? {
+        let trimmed = raw?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    private static func skillIDComponent(from raw: String) -> String {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        let allowed = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_.")
+        var result = String(trimmed.unicodeScalars.map { allowed.contains($0) ? Character($0) : "-" })
+        result = result.trimmingCharacters(in: CharacterSet(charactersIn: "-_."))
+        return result.isEmpty ? "skill" : result
     }
 
     private static func modeSkillDescription(for mode: AgentChatMode) -> String {

@@ -83,6 +83,38 @@ func sloppyACPServerCreatesAndListsSessionsForConfiguredAgent() async throws {
 }
 
 @Test
+func sloppyACPServerNewSessionScopesProjectFromCwd() async throws {
+    let service = try await makeACPServerService()
+    let recorder = ACPServerUpdateRecorder()
+    let delegate = SloppyACPServerDelegate(
+        service: service,
+        agentID: "dev",
+        defaultCwd: nil,
+        sendUpdate: { sessionId, update in await recorder.append(sessionId: sessionId, update: update) }
+    )
+    let cwd = FileManager.default.temporaryDirectory
+        .appendingPathComponent("sloppy-acp-project-\(UUID().uuidString)", isDirectory: true)
+    try FileManager.default.createDirectory(at: cwd, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: cwd) }
+
+    let created = try await delegate.handleNewSession(NewSessionRequest(cwd: cwd.path))
+    let detail = try await service.getAgentSession(agentID: "dev", sessionID: created.sessionId.value)
+    let projectID = try #require(detail.summary.projectId)
+    let project = try await service.getProject(id: projectID)
+
+    let result = await service.invokeToolFromRuntime(
+        agentID: "dev",
+        sessionID: created.sessionId.value,
+        request: ToolInvocationRequest(tool: "project.current", arguments: [:]),
+        recordSessionEvents: false
+    )
+
+    #expect(project.repoPath == cwd.path)
+    #expect(result.ok == true)
+    #expect(result.data?.asObject?["projectId"]?.asString == projectID)
+}
+
+@Test
 func sloppyACPServerLoadSessionDoesNotAdvertiseUnsupportedModes() async throws {
     let service = try await makeACPServerService()
     let recorder = ACPServerUpdateRecorder()

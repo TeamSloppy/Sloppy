@@ -169,7 +169,10 @@ extension CoreService {
             throw GenerateError.noModelProvider
         }
 
-        let modelId = request.model.isEmpty ? (modelProvider.supportedModels.first ?? resolvedModels.first ?? "") : request.model
+        let modelId = CoreModelProviderFactory.resolveRequestedModel(
+            request.model,
+            from: modelProvider.supportedModels.isEmpty ? resolvedModels : modelProvider.supportedModels
+        )
         guard !modelId.isEmpty else {
             throw GenerateError.noModelAvailable
         }

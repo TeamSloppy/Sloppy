@@ -143,6 +143,25 @@ enum CoreModelProviderFactory {
         return "\(provider):\(modelValue)"
     }
 
+    static func resolveRequestedModel(_ requestedModel: String, from resolvedModels: [String]) -> String {
+        let model = requestedModel.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !model.isEmpty else {
+            return resolvedModels.first ?? ""
+        }
+        if resolvedModels.contains(model) || model.contains(":") {
+            return model
+        }
+
+        let matches = resolvedModels.filter { resolved in
+            guard let separatorIndex = resolved.firstIndex(of: ":") else {
+                return resolved == model
+            }
+            let unprefixed = resolved[resolved.index(after: separatorIndex)...]
+            return unprefixed == model
+        }
+        return matches.count == 1 ? matches[0] : model
+    }
+
     private static func inferredProvider(model: CoreConfig.ModelConfig) -> String? {
         if let catalog = model.providerCatalogId?.trimmingCharacters(in: .whitespacesAndNewlines), !catalog.isEmpty {
             switch catalog {

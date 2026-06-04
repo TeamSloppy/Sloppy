@@ -462,10 +462,13 @@ enum SloppyTUITheme {
     private static func contextUsageBar(_ summary: SloppyTUIContextUsageSummary) -> String {
         let width = 20
         guard summary.contextWindowTokens > 0 else {
-            return String(repeating: "⛶ ", count: width).trimmingCharacters(in: .whitespaces)
+            return Array(repeating: muted("□"), count: width).joined(separator: " ")
         }
 
-        let filled = min(width, max(0, Int((Double(summary.totalTokens) / Double(summary.contextWindowTokens) * Double(width)).rounded())))
+        var filled = min(width, max(0, Int((Double(summary.totalTokens) / Double(summary.contextWindowTokens) * Double(width)).rounded())))
+        if summary.totalTokens > 0, filled == 0 {
+            filled = 1
+        }
         var promptCount = min(filled, Int((Double(summary.promptTokens) / Double(summary.contextWindowTokens) * Double(width)).rounded()))
         var completionCount = min(max(0, filled - promptCount), Int((Double(summary.completionTokens) / Double(summary.contextWindowTokens) * Double(width)).rounded()))
 
@@ -480,9 +483,9 @@ enum SloppyTUITheme {
         }
 
         let freeCount = max(0, width - promptCount - completionCount)
-        let cells = Array(repeating: "⛁", count: promptCount)
-            + Array(repeating: "⛀", count: completionCount)
-            + Array(repeating: "⛶", count: freeCount)
+        let cells = Array(repeating: blue("●"), count: promptCount)
+            + Array(repeating: green("●"), count: completionCount)
+            + Array(repeating: muted("□"), count: freeCount)
         return cells.joined(separator: " ")
     }
 
@@ -669,6 +672,7 @@ enum SloppyTUITheme {
             ? summary.modelID
             : summary.modelTitle
         let bar = contextUsageBar(summary)
+        let totalText = "\(formatTokenCountShort(summary.totalTokens))/\(contextLabel.lowercased()) tokens"
         let promptPercent = summary.promptPercent.map(formatPercent) ?? "n/a"
         let completionPercent = summary.completionPercent.map(formatPercent) ?? "n/a"
         let freeText: String
@@ -684,17 +688,18 @@ enum SloppyTUITheme {
         return """
         ## Context Usage
         ```text
-        \(bar)  \(title) (\(contextLabel))
-        \(String(repeating: " ", count: 23))  \(summary.modelID)
-        \(String(repeating: " ", count: 23))  \(formatTokenCountShort(summary.totalTokens))/\(contextLabel.lowercased()) tokens (\(usagePercent))
+        \(bar)  \(foreground(title)) \(muted("·")) \(foreground(totalText))
+        \(String(repeating: " ", count: 23))  \(muted(summary.modelID)) \(muted("·")) \(foreground(contextLabel)) context
+        \(String(repeating: " ", count: 23))  \(foreground("used \(usagePercent)")) \(muted("·")) \(foreground("free \(freeText)"))
 
-        Recorded session usage by category
-        ⛁ Prompt:     \(formatTokenCountShort(summary.promptTokens)) tokens (\(promptPercent))
-        ⛀ Completion: \(formatTokenCountShort(summary.completionTokens)) tokens (\(completionPercent))
-        ⛶ Free space: \(freeText)
+        \(muted("Recorded session usage"))
+        \(foreground("Token usage by category"))
+        \(blue("●")) Prompt:     \(foreground(formatTokenCountShort(summary.promptTokens) + " tokens")) \(muted("(\(promptPercent))"))
+        \(green("●")) Completion: \(foreground(formatTokenCountShort(summary.completionTokens) + " tokens")) \(muted("(\(completionPercent))"))
+        \(muted("□")) Free space: \(foreground(freeText))
 
-        Pending next-message context: \(pendingContext)
-        Pending uploads: \(pendingUploads)
+        \(muted("Pending next-message context:")) \(foreground(pendingContext))
+        \(muted("Pending uploads:")) \(foreground(pendingUploads))
         ```
 
         Attach workspace context with `/context changes` or `/context diff`.

@@ -118,9 +118,10 @@ final class SloppyACPServerDelegate: AgentDelegate, @unchecked Sendable {
         do {
             try await validateReady()
             let title = titleForSession(cwd: request.cwd)
+            let project = await projectForSession(cwd: request.cwd)
             let summary = try await service.createAgentSession(
                 agentID: agentID,
-                request: AgentSessionCreateRequest(title: title)
+                request: AgentSessionCreateRequest(title: title, projectId: project?.id)
             )
             try await applyWorkingDirectory(request.cwd, sessionID: summary.id)
             try await sendUpdate(
@@ -423,10 +424,8 @@ extension SloppyACPServerDelegate {
     }
 
     private func applyWorkingDirectory(_ requestedCwd: String?, sessionID: String) async throws {
-        let cwd = requestedCwd?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let resolved =
-            cwd?.isEmpty == false ? cwd! : (defaultCwd ?? "")
-        guard !resolved.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+        let resolved = resolvedWorkingDirectory(requestedCwd)
+        guard !resolved.isEmpty else {
             return
         }
         _ = try await service.addAgentSessionDirectory(
@@ -434,6 +433,31 @@ extension SloppyACPServerDelegate {
             sessionID: sessionID,
             request: AgentSessionDirectoryRequest(path: resolved)
         )
+    }
+
+    private func projectForSession(cwd requestedCwd: String?) async -> ProjectRecord? {
+        let resolved = resolvedWorkingDirectory(requestedCwd)
+        guard !resolved.isEmpty else {
+            return nil
+        }
+        do {
+            return try await service.resolveOrCreateProjectForCurrentDirectory(resolved)
+        } catch {
+            logger.warning(
+                "ACP session project resolution failed",
+                metadata: [
+                    "cwd": .string(resolved),
+                    "error": .string(error.localizedDescription)
+                ]
+            )
+            return nil
+        }
+    }
+
+    private func resolvedWorkingDirectory(_ requestedCwd: String?) -> String {
+        let cwd = requestedCwd?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let resolved = cwd?.isEmpty == false ? cwd! : (defaultCwd ?? "")
+        return resolved.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     private func modelsInfo() async throws -> ModelsInfo? {

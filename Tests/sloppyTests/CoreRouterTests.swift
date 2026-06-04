@@ -3842,6 +3842,24 @@ func generateTextEndpointFailsGracefullyWithNoProvider() async throws {
 }
 
 @Test
+func generateTextEndpointResolvesBareRequestedModelFromConfiguredProvider() async throws {
+    var config = CoreConfig.test
+    config.models = [
+        .init(title: "Mock Model", apiKey: "", apiUrl: "", model: "mock:test-model")
+    ]
+    let service = CoreService(config: config)
+    let router = CoreRouter(service: service)
+
+    let requestBody = try JSONEncoder().encode(GenerateTextRequest(model: "test-model", prompt: "Hello"))
+    let response = await router.handle(method: "POST", path: "/v1/generate", body: requestBody)
+    #expect(response.status == 200)
+
+    let payload = try JSONDecoder().decode(GenerateTextResponse.self, from: response.body)
+    #expect(payload.model == "mock:test-model")
+    #expect(payload.text.contains("Mock response for prompt"))
+}
+
+@Test
 func projectMemoriesEndpointListAndFilterRecords() async throws {
     let config = CoreConfig.test
     let service = CoreService(config: config)

@@ -483,17 +483,19 @@ func contextUsageMarkdownShowsReadableTokenBreakdown() {
         pendingUploadCount: 2
     ))
 
+    let plainMarkdown = stripANSI(markdown)
     #expect(markdown.contains("## Context Usage"))
-    #expect(markdown.contains("Claude Opus 4.7 (1M)"))
-    #expect(markdown.contains("claude-opus-4-7"))
-    #expect(markdown.contains("8.0K/1m tokens (1%)"))
-    #expect(markdown.contains("Prompt:     6.0K tokens"))
-    #expect(markdown.contains("Completion: 2.0K tokens"))
-    #expect(markdown.contains("Free space: 992.0K tokens"))
-    #expect(markdown.contains("Pending next-message context: yes"))
-    #expect(markdown.contains("Pending uploads: 2"))
-    #expect(markdown.contains("/context changes"))
-    #expect(markdown.contains("/context diff"))
+    #expect(plainMarkdown.contains("Claude Opus 4.7 · 8.0K/1m tokens"))
+    #expect(plainMarkdown.contains("claude-opus-4-7 · 1M context"))
+    #expect(plainMarkdown.contains("used 1% · free 992.0K tokens"))
+    #expect(plainMarkdown.contains("Token usage by category"))
+    #expect(plainMarkdown.contains("● Prompt:     6.0K tokens (0.6%)"))
+    #expect(plainMarkdown.contains("● Completion: 2.0K tokens (0.2%)"))
+    #expect(plainMarkdown.contains("□ Free space: 992.0K tokens"))
+    #expect(plainMarkdown.contains("Pending next-message context: yes"))
+    #expect(plainMarkdown.contains("Pending uploads: 2"))
+    #expect(plainMarkdown.contains("/context changes"))
+    #expect(plainMarkdown.contains("/context diff"))
 }
 
 @Test
