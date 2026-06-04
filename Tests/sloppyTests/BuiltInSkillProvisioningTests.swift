@@ -27,7 +27,8 @@ func coreServiceCreateAgentInstallsBuiltInTaskSpecSkill() async throws {
         BuiltInSkillCatalog.modeDebugID,
         BuiltInSkillCatalog.modeAutoID,
         BuiltInSkillCatalog.kanbanTaskManagerID,
-        BuiltInSkillCatalog.taskSpecWriterID
+        BuiltInSkillCatalog.taskSpecWriterID,
+        BuiltInSkillCatalog.workflowID
     ])
     #expect(skillIDs.isSuperset(of: expectedCoreSkillIDs))
 
@@ -74,6 +75,11 @@ func coreServiceCreateAgentInstallsBuiltInTaskSpecSkill() async throws {
     #expect(modeAuto.name == "mode-auto")
     #expect(modeAuto.userInvocable == false)
     #expect(modeAuto.allowedTools.isEmpty)
+
+    let workflow = try #require(response.skills.first { $0.id == BuiltInSkillCatalog.workflowID })
+    #expect(workflow.name == "workflow")
+    #expect(workflow.userInvocable == true)
+    #expect(workflow.allowedTools.contains("project.workflow"))
 }
 
 @Test
@@ -108,9 +114,11 @@ func builtInSkillsBackfillIsIdempotentForExistingAgents() throws {
         BuiltInSkillCatalog.modeDebugID,
         BuiltInSkillCatalog.modeAutoID,
         BuiltInSkillCatalog.kanbanTaskManagerID,
-        BuiltInSkillCatalog.taskSpecWriterID
+        BuiltInSkillCatalog.taskSpecWriterID,
+        BuiltInSkillCatalog.workflowID
     ])))
-    #expect(installed.filter { $0.owner == "sloppy" }.allSatisfy { $0.userInvocable == false })
+    #expect(installed.filter { $0.owner == "sloppy" && $0.id != BuiltInSkillCatalog.workflowID }.allSatisfy { $0.userInvocable == false })
+    #expect(installed.first { $0.id == BuiltInSkillCatalog.workflowID }?.userInvocable == true)
     #expect(FileManager.default.fileExists(atPath: agentsRootURL
         .appendingPathComponent("existing-agent", isDirectory: true)
         .appendingPathComponent("skills", isDirectory: true)

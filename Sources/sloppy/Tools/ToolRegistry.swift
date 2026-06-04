@@ -127,6 +127,7 @@ struct ToolRegistry: Sendable {
             ProjectTaskCancelTool(),
             ProjectTaskDeleteTool(),
             TaskClarificationCreateTool(),
+            WorkflowTool(),
             ProjectEscalateTool(),
             ActorDiscussTool(),
             ActorConcludeDiscussionTool(),

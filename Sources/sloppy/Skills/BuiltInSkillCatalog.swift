@@ -19,6 +19,7 @@ enum BuiltInSkillCatalog {
     static let modePlanID = "sloppy/mode-plan"
     static let modeDebugID = "sloppy/mode-debug"
     static let modeAutoID = "sloppy/mode-auto"
+    static let workflowID = "sloppy/workflow"
 
     static func all() -> [BuiltInSkillDefinition] {
         [
@@ -28,7 +29,8 @@ enum BuiltInSkillCatalog {
             modeSkill(for: .debug),
             modeSkill(for: .auto),
             kanbanTaskManager(),
-            taskSpecWriter()
+            taskSpecWriter(),
+            workflow()
         ] + bundledResourceSkills()
     }
 
@@ -94,6 +96,25 @@ enum BuiltInSkillCatalog {
         )
     }
 
+    static func workflow() -> BuiltInSkillDefinition {
+        BuiltInSkillDefinition(
+            owner: "sloppy",
+            repo: "workflow",
+            name: "workflow",
+            description: "Creates explicit visual workflow plans for project work, links agent steps to typed runtime state, and returns Dashboard workflow URLs.",
+            userInvocable: true,
+            allowedTools: [
+                "project.current",
+                "project.task_list",
+                "project.task_get",
+                "project.workflow"
+            ],
+            files: [
+                "SKILL.md": loadWorkflowMarkdown()
+            ]
+        )
+    }
+
     static func modeSkill(for mode: AgentChatMode) -> BuiltInSkillDefinition {
         let repo = modeSkillRepo(for: mode)
         return BuiltInSkillDefinition(
@@ -143,6 +164,39 @@ enum BuiltInSkillCatalog {
         )
     }
 
+    private static func loadWorkflowMarkdown() -> String {
+        loadSkillMarkdown(
+            repo: "workflow",
+            fallback: """
+            ---
+            name: workflow
+            description: Create visual workflow plans for project work, with typed graph nodes, links to agent execution, and Dashboard URLs.
+            userInvocable: true
+            allowedTools:
+              - project.current
+              - project.task_list
+              - project.task_get
+              - project.workflow
+            ---
+
+            # Workflow
+
+            Use this skill when the user explicitly asks for a workflow, visual plan, workflow-mode execution, or when the task benefits from a visible step graph.
+
+            When active:
+            - inspect project and task context first
+            - create a draft workflow proposal before substantial work
+            - model work as lanes, nodes, and edges
+            - use `project.workflow` for workflow state; do not write workflow files directly
+            - link `agent_step` nodes to agent/session/delegated-task IDs through typed metadata
+            - update workflow state from runtime events and tool results, not model-output text
+            - after creating or completing a workflow, provide the Dashboard workflow URL
+
+            Do not create workflows outside this skill.
+            """
+        )
+    }
+
     private static func loadSkillMarkdown(repo: String, fallback: String) -> String {
         let relativePath = "Skills/\(repo)/SKILL.md"
         let candidates: [URL?] = [
@@ -188,7 +242,7 @@ enum BuiltInSkillCatalog {
     }
 
     private static func bundledResourceSkills(in root: URL) -> [BuiltInSkillDefinition] {
-        let builtInRepos = Set(["task-spec-writer", "kanban-task-manager"] + AgentChatMode.allCases.map { modeSkillRepo(for: $0) })
+        let builtInRepos = Set(["task-spec-writer", "kanban-task-manager", "workflow"] + AgentChatMode.allCases.map { modeSkillRepo(for: $0) })
         guard let children = try? FileManager.default.contentsOfDirectory(
             at: root,
             includingPropertiesForKeys: [.isDirectoryKey],

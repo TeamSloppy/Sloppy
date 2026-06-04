@@ -81,7 +81,7 @@ extension CoreService {
         }
     }
 
-    public func validateWorkflowDefinition(_ definition: WorkflowDefinition) -> [WorkflowValidationIssue] {
+    nonisolated public func validateWorkflowDefinition(_ definition: WorkflowDefinition) -> [WorkflowValidationIssue] {
         WorkflowRunner().validate(definition: definition)
     }
 

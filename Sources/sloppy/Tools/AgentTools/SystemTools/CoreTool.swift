@@ -142,6 +142,48 @@ protocol ProjectToolService: Sendable {
     func updateProject(projectID: String, request: ProjectUpdateRequest) async throws -> ProjectRecord
     func linkProjectChannel(projectID: String, request: ProjectChannelLinkRequest) async throws -> ProjectChannelLinkResponse
     func deleteProject(projectID: String) async throws
+
+    func listWorkflowDefinitions(projectID: String) async throws -> [WorkflowDefinition]
+    func getWorkflowDefinition(projectID: String, workflowID: String) async throws -> WorkflowDefinition
+    func createWorkflowDefinition(projectID: String, request: WorkflowDefinitionUpsertRequest) async throws -> WorkflowDefinition
+    func updateWorkflowDefinition(projectID: String, workflowID: String, request: WorkflowDefinitionUpsertRequest) async throws -> WorkflowDefinition
+    func startWorkflowRun(projectID: String, workflowID: String, request: WorkflowRunCreateRequest) async throws -> WorkflowRunDetail
+    func getWorkflowRunDetail(projectID: String, runID: String) async throws -> WorkflowRunDetail
+    func validateWorkflowDefinition(_ definition: WorkflowDefinition) -> [WorkflowValidationIssue]
+}
+
+enum ProjectToolServiceWorkflowError: Error {
+    case unsupported
+}
+
+extension ProjectToolService {
+    func listWorkflowDefinitions(projectID _: String) async throws -> [WorkflowDefinition] {
+        throw ProjectToolServiceWorkflowError.unsupported
+    }
+
+    func getWorkflowDefinition(projectID _: String, workflowID _: String) async throws -> WorkflowDefinition {
+        throw ProjectToolServiceWorkflowError.unsupported
+    }
+
+    func createWorkflowDefinition(projectID _: String, request _: WorkflowDefinitionUpsertRequest) async throws -> WorkflowDefinition {
+        throw ProjectToolServiceWorkflowError.unsupported
+    }
+
+    func updateWorkflowDefinition(projectID _: String, workflowID _: String, request _: WorkflowDefinitionUpsertRequest) async throws -> WorkflowDefinition {
+        throw ProjectToolServiceWorkflowError.unsupported
+    }
+
+    func startWorkflowRun(projectID _: String, workflowID _: String, request _: WorkflowRunCreateRequest) async throws -> WorkflowRunDetail {
+        throw ProjectToolServiceWorkflowError.unsupported
+    }
+
+    func getWorkflowRunDetail(projectID _: String, runID _: String) async throws -> WorkflowRunDetail {
+        throw ProjectToolServiceWorkflowError.unsupported
+    }
+
+    func validateWorkflowDefinition(_ definition: WorkflowDefinition) -> [WorkflowValidationIssue] {
+        WorkflowRunner().validate(definition: definition)
+    }
 }
 
 protocol RuntimeConfigToolService: Sendable {
