@@ -15,6 +15,9 @@ site/
 /core.sqlite-*
 /memory/
 
+/sloppy-client.*
+
+.zed/
 .antigravitycli/
 
 artifacts/
