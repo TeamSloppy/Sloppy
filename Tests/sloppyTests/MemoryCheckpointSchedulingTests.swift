@@ -347,6 +347,50 @@ func requestedMemoryCheckpointPersistsLifecycleEvents() async throws {
     #expect(checkpointEvents.last?.message == "Compact success.")
 }
 
+@Test
+func workerCompletedForExplicitlyDoneProjectTaskSchedulesMemoryCheckpoint() async throws {
+    let service = CoreService(config: .test, persistenceBuilder: InMemoryCorePersistenceBuilder())
+    let provider = BlockingMemoryCheckpointModelProvider()
+    await service.overrideModelProviderForTests(provider, defaultModel: "mock:test-model")
+
+    let agentID = "checkpoint-worker-\(UUID().uuidString.lowercased())"
+    _ = try await service.createAgent(
+        AgentCreateRequest(id: agentID, displayName: "Checkpoint Worker", role: "Testing")
+    )
+    let session = try await service.createAgentSession(
+        agentID: agentID,
+        request: AgentSessionCreateRequest(title: "Worker", projectId: "checkpoint-worker-project")
+    )
+    let project = try await service.createProject(
+        ProjectCreateRequest(id: "checkpoint-worker-project", name: "Checkpoint Worker Project")
+    ).project
+    let updated = try await service.createProjectTask(
+        projectID: project.id,
+        request: ProjectTaskCreateRequest(
+            title: "Remember worker completion",
+            status: ProjectTaskStatus.done.rawValue
+        )
+    )
+    let task = try #require(updated.tasks.first)
+
+    await service.handleVisorEvent(
+        EventEnvelope(
+            messageType: .workerCompleted,
+            channelId: "agent:\(agentID):session:\(session.id)",
+            taskId: task.id,
+            workerId: "worker-1",
+            payload: .object([:])
+        )
+    )
+
+    let checkpointStarted = await waitForMemoryCheckpointCondition(timeoutNanoseconds: 5_000_000_000) {
+        await provider.hasStarted()
+    }
+    #expect(checkpointStarted)
+
+    await provider.release()
+}
+
 private func waitForMemoryCheckpointCondition(
     timeoutNanoseconds: UInt64,
     condition: @escaping @Sendable () async -> Bool

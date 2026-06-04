@@ -148,6 +148,31 @@ extension CoreService {
         }
     }
 
+    func scheduleProjectMemoryCheckpointFromWorkerEvent(
+        projectID: String,
+        taskID: String,
+        status: String,
+        event: EventEnvelope
+    ) {
+        guard let parsed = Self.parseAgentSessionChannelId(event.channelId) else {
+            logger.debug(
+                "memory.checkpoint.project_skipped_no_agent_session",
+                metadata: [
+                    "project_id": .string(projectID),
+                    "task_id": .string(taskID),
+                    "channel_id": .string(event.channelId),
+                    "status": .string(status),
+                ]
+            )
+            return
+        }
+        scheduleAgentMemoryCheckpoint(
+            agentID: parsed.agentID,
+            sessionID: parsed.sessionID,
+            reason: "project_task_\(status):\(projectID):\(taskID)"
+        )
+    }
+
     private func runScheduledAgentMemoryCheckpoint(agentID: String, sessionID: String, reason: String) async {
         logger.info(
             "memory.checkpoint.background_started",

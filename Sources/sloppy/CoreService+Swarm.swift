@@ -1348,6 +1348,15 @@ extension CoreService {
                 agentID: task.claimedAgentId,
                 artifactPath: completionArtifactPath
             )
+            if event.messageType == .workerCompleted,
+               resolvedStatus == ProjectTaskStatus.done.rawValue || resolvedStatus == ProjectTaskStatus.needsReview.rawValue {
+                scheduleProjectMemoryCheckpointFromWorkerEvent(
+                    projectID: project.id,
+                    taskID: task.id,
+                    status: resolvedStatus,
+                    event: event
+                )
+            }
 
             if event.messageType == .workerCompleted {
                 let completionActor = task.claimedAgentId ?? task.claimedActorId ?? "worker"

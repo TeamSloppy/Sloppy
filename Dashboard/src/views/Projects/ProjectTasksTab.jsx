@@ -17,6 +17,7 @@ import {
     sortProjectKanbanColumnTasks,
     taskSelectionRangeIds
 } from "./taskSelection";
+import { buildRelatedIssueGroups } from "./taskRelations";
 import { resolveLinkedAgentPet } from "./commentAvatars";
 import {
     fetchTaskComments,
@@ -198,6 +199,106 @@ function DetailDropdown({ label, icon, color, children }) {
                 </ul>
             )}
         </div>
+    );
+}
+
+function statusTitle(statusId) {
+    return TASK_STATUSES.find((status) => status.id === statusId)?.title || statusId || "Backlog";
+}
+
+function taskAssigneeLabel(task, createModalActors, createModalTeams, agentDirectory) {
+    if (task.actorId) {
+        return createModalActors.find((actor) => actor.id === task.actorId)?.displayName || task.actorId;
+    }
+    if (task.teamId) {
+        return createModalTeams.find((team) => team.id === task.teamId)?.name || task.teamId;
+    }
+    if (task.claimedActorId) {
+        return createModalActors.find((actor) => actor.id === task.claimedActorId)?.displayName || task.claimedActorId;
+    }
+    if (task.claimedAgentId) {
+        return agentDirectory[task.claimedAgentId]?.displayName || task.claimedAgentId;
+    }
+    return "Unassigned";
+}
+
+function RelatedIssuesTab({
+    task,
+    project,
+    createModalActors,
+    createModalTeams,
+    agentDirectory,
+    openTaskDetails
+}) {
+    const groups = buildRelatedIssueGroups(task, project.tasks);
+    const total = groups.reduce((sum, group) => sum + group.items.length, 0);
+
+    if (total === 0) {
+        return <p className="placeholder-text">No related issues.</p>;
+    }
+
+    return (
+        <div className="td-related-issues">
+            <div className="td-related-issues-head">
+                <strong>Related issues</strong>
+                <span>{total}</span>
+            </div>
+            <div className="td-related-issues-table" role="table" aria-label="Related issues">
+                <div className="td-related-issues-row td-related-issues-row--header" role="row">
+                    <span>Key</span>
+                    <span>Summary</span>
+                    <span>Status</span>
+                    <span>Assignee</span>
+                    <span>Updated</span>
+                </div>
+                {groups.map((group) => (
+                    <React.Fragment key={group.id}>
+                        <div className="td-related-issues-group">
+                            <strong>{group.title}</strong>
+                            <span>{group.items.length}</span>
+                        </div>
+                        {group.items.map((item) => (
+                            <button
+                                type="button"
+                                key={`${group.id}-${item.task.id}`}
+                                className="td-related-issues-row td-related-issues-row--item"
+                                onClick={() => openTaskDetails(item.task)}
+                            >
+                                <span className="td-related-key">
+                                    <span className="material-symbols-rounded" aria-hidden="true">task_alt</span>
+                                    #{item.task.id}
+                                </span>
+                                <span className="td-related-title">{item.task.title}</span>
+                                <span className="td-related-status">
+                                    <span className="tcm-status-dot" style={{ background: TASK_STATUS_COLORS[item.task.status] || "#94a3b8" }} />
+                                    {statusTitle(item.task.status)}
+                                </span>
+                                <span>{taskAssigneeLabel(item.task, createModalActors, createModalTeams, agentDirectory)}</span>
+                                <span>{formatRelativeTime(item.task.updatedAt)}</span>
+                            </button>
+                        ))}
+                    </React.Fragment>
+                ))}
+            </div>
+        </div>
+    );
+}
+
+function TaskTagsValue({ tags }) {
+    const normalizedTags = Array.isArray(tags)
+        ? tags.map((tag) => String(tag || "").trim()).filter(Boolean)
+        : [];
+
+    if (normalizedTags.length === 0) {
+        return <span className="td-prop-empty">—</span>;
+    }
+
+    return (
+        <span className="td-prop-tags">
+            {normalizedTags.map((tag) => (
+                <span key={tag} className="project-task-tag-badge">{tag}</span>
+            ))}
+        </span>
     );
 }
 
@@ -1154,6 +1255,7 @@ function TaskDetailView({
     closeTaskDetails,
     updateDetailAssignee,
     deleteTaskFromModal,
+    openTaskDetails,
     createModalActors,
     createModalTeams,
     agentDirectory,
@@ -1170,6 +1272,7 @@ function TaskDetailView({
             ? !window.matchMedia(`(max-width: ${TASK_DETAIL_MOBILE_MAX_PX}px)`).matches
             : true
     );
+    const [actionsOpen, setActionsOpen] = useState(false);
     const descriptionInputRef = useRef(null);
     const hasReviewDiff = Boolean(task.worktreeBranch);
     const canShowReviewTab = hasReviewDiff || task.status === "needs_review";
@@ -1216,6 +1319,26 @@ function TaskDetailView({
         return () => window.removeEventListener("keydown", onKeyDown);
     }, [isMobileTaskDetail, sidebarOpen]);
 
+    useEffect(() => {
+        if (!actionsOpen) {
+            return;
+        }
+        function closeActions() {
+            setActionsOpen(false);
+        }
+        function onKeyDown(e) {
+            if (e.key === "Escape") {
+                setActionsOpen(false);
+            }
+        }
+        window.addEventListener("mousedown", closeActions);
+        window.addEventListener("keydown", onKeyDown);
+        return () => {
+            window.removeEventListener("mousedown", closeActions);
+            window.removeEventListener("keydown", onKeyDown);
+        };
+    }, [actionsOpen]);
+
     const resolvedActorId = task.claimedActorId || task.actorId || "";
     const isDirty =
         editDraft.title !== task.title ||
@@ -1248,6 +1371,11 @@ function TaskDetailView({
         ? `GitHub #${task.externalMetadata.externalIssueNumber}`
         : "Open GitHub Issue";
     const attachments = Array.isArray(task.attachments) ? task.attachments : [];
+    const parentTask = task.parentTaskId
+        ? project.tasks.find((candidate) => String(candidate.id || "").trim() === String(task.parentTaskId || "").trim())
+        : null;
+    const createdByLabel = task.createdBy || "—";
+    const relatedIssueCount = buildRelatedIssueGroups(task, project.tasks).reduce((sum, group) => sum + group.items.length, 0);
 
     useEffect(() => {
         const input = descriptionInputRef.current;
@@ -1323,6 +1451,38 @@ function TaskDetailView({
                                 <span className="material-symbols-rounded">right_panel_open</span>
                             </button>
                         )}
+                        <div
+                            className="td-actions-wrap"
+                            onMouseDown={(event) => event.stopPropagation()}
+                            onClick={(event) => event.stopPropagation()}
+                        >
+                            <button
+                                type="button"
+                                className="task-review-open-btn"
+                                onClick={() => setActionsOpen((open) => !open)}
+                                aria-haspopup="menu"
+                                aria-expanded={actionsOpen}
+                            >
+                                <span className="material-symbols-rounded" aria-hidden="true">more_horiz</span>
+                                Actions
+                            </button>
+                            {actionsOpen ? (
+                                <div className="td-actions-menu" role="menu">
+                                    <button
+                                        type="button"
+                                        className="danger"
+                                        role="menuitem"
+                                        onClick={() => {
+                                            setActionsOpen(false);
+                                            deleteTaskFromModal();
+                                        }}
+                                    >
+                                        <span className="material-symbols-rounded" aria-hidden="true">delete</span>
+                                        Delete task
+                                    </button>
+                                </div>
+                            ) : null}
+                        </div>
                     </div>
                 </header>
 
@@ -1383,7 +1543,8 @@ function TaskDetailView({
                             onClick={() => setActiveTab("subtasks")}
                         >
                             <span className="material-symbols-rounded td-tab-icon">account_tree</span>
-                            Sub-issues
+                            Related issues
+                            {relatedIssueCount > 0 ? <span className="td-tab-count">{relatedIssueCount}</span> : null}
                         </button>
                         <button
                             type="button"
@@ -1431,24 +1592,14 @@ function TaskDetailView({
                             />
                         )}
                         {activeTab === "subtasks" && (
-                            <div className="td-tab-placeholder">
-                                {task.swarmId ? (
-                                    <div className="td-subtasks-list">
-                                        {project.tasks
-                                            .filter((t) => t.swarmId === task.swarmId && t.swarmParentTaskId === (task.swarmTaskId || `task:${task.id}`))
-                                            .map((sub) => (
-                                                <div key={sub.id} className="td-subtask-row">
-                                                    <span className="tcm-status-dot" style={{ background: TASK_STATUS_COLORS[sub.status] || "#94a3b8" }} />
-                                                    <span className="td-subtask-title">{sub.title}</span>
-                                                    <span className="td-subtask-id">#{sub.id}</span>
-                                                </div>
-                                            ))
-                                        }
-                                    </div>
-                                ) : (
-                                    <p className="placeholder-text">No sub-issues.</p>
-                                )}
-                            </div>
+                            <RelatedIssuesTab
+                                task={task}
+                                project={project}
+                                createModalActors={createModalActors}
+                                createModalTeams={createModalTeams}
+                                agentDirectory={agentDirectory}
+                                openTaskDetails={openTaskDetails}
+                            />
                         )}
                         {activeTab === "activity" && (
                             <ActivityTab
@@ -1514,6 +1665,14 @@ function TaskDetailView({
                                 </li>
                             ))}
                         </DetailDropdown>
+                    </div>
+
+                    <div className="td-prop-row">
+                        <span className="td-prop-label">Type</span>
+                        <span className="td-prop-value td-prop-value--static">
+                            <span className="material-symbols-rounded td-prop-value-icon" aria-hidden="true">task</span>
+                            Task
+                        </span>
                     </div>
 
                     <div className="td-prop-row">
@@ -1592,6 +1751,11 @@ function TaskDetailView({
                     </div>
 
                     <div className="td-prop-row">
+                        <span className="td-prop-label">Author</span>
+                        <span className="td-prop-value td-prop-value--static">{createdByLabel}</span>
+                    </div>
+
+                    <div className="td-prop-row">
                         <span className="td-prop-label">Kind</span>
                         <DetailDropdown
                             label={TASK_KINDS.find((k) => k.id === editDraft.kind)?.title || "None"}
@@ -1660,6 +1824,31 @@ function TaskDetailView({
                         <span className="td-prop-value td-prop-value--static">{project.name}</span>
                     </div>
 
+                    <div className="td-prop-row td-prop-row--stacked">
+                        <span className="td-prop-label">Tags</span>
+                        <TaskTagsValue tags={task.tags} />
+                    </div>
+
+                    <div className="td-prop-row">
+                        <span className="td-prop-label">Parent issue</span>
+                        {parentTask ? (
+                            <button
+                                type="button"
+                                className="td-prop-value td-prop-link"
+                                onClick={() => openTaskDetails(parentTask)}
+                            >
+                                #{parentTask.id}
+                            </button>
+                        ) : (
+                            <span className="td-prop-empty">—</span>
+                        )}
+                    </div>
+
+                    <div className="td-prop-row">
+                        <span className="td-prop-label">Related issues</span>
+                        <span className="td-prop-value td-prop-value--static">{relatedIssueCount || "—"}</span>
+                    </div>
+
                     <div className="td-prop-row">
                         <span className="td-prop-label">Created</span>
                         <span className="td-prop-value td-prop-value--static">
@@ -1700,12 +1889,6 @@ function TaskDetailView({
                             </a>
                         </div>
                     ) : null}
-                </div>
-
-                <div className="td-sidebar-danger">
-                    <button type="button" className="danger" onClick={deleteTaskFromModal}>
-                        Delete task
-                    </button>
                 </div>
             </aside>
 
@@ -2060,6 +2243,7 @@ export function ProjectTasksTab({
                 closeTaskDetails={closeTaskDetails}
                 updateDetailAssignee={updateDetailAssignee}
                 deleteTaskFromModal={deleteTaskFromModal}
+                openTaskDetails={openTaskDetails}
                 createModalActors={createModalActors}
                 createModalTeams={createModalTeams}
                 agentDirectory={agentDirectory}

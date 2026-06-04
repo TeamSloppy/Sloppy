@@ -122,7 +122,14 @@ export function normalizeTask(task, index = 0) {
     teamId: String(task?.teamId || "").trim(),
     claimedActorId: String(task?.claimedActorId || "").trim(),
     claimedAgentId: String(task?.claimedAgentId || "").trim(),
+    parentTaskId: String(task?.parentTaskId || "").trim(),
+    createdBy: String(task?.createdBy || "").trim(),
+    dependsOnTaskIds: Array.isArray(task?.dependsOnTaskIds)
+      ? task.dependsOnTaskIds.map((id) => String(id).trim()).filter(Boolean)
+      : [],
     worktreeBranch: String(task?.worktreeBranch || "").trim() || null,
+    sourceControlProviderId: String(task?.sourceControlProviderId || "").trim() || null,
+    selectedModel: String(task?.selectedModel || "").trim() || null,
     swarmId: String(task?.swarmId || "").trim(),
     swarmTaskId: String(task?.swarmTaskId || "").trim(),
     swarmParentTaskId: String(task?.swarmParentTaskId || "").trim(),

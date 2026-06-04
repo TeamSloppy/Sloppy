@@ -1001,6 +1001,12 @@ extension CoreService {
                 actorID: handoffDelegate.actorID,
                 agentID: handoffDelegate.agentID
             )
+            scheduleProjectMemoryCheckpointFromWorkerEvent(
+                projectID: project.id,
+                taskID: task.id,
+                status: task.status,
+                event: event
+            )
             await appendAutoReviewTaskComment(
                 projectID: project.id,
                 taskID: task.id,
@@ -1039,6 +1045,12 @@ extension CoreService {
                 actorID: handoffDelegate.actorID,
                 agentID: handoffDelegate.agentID,
                 artifactPath: completionArtifactPath
+            )
+            scheduleProjectMemoryCheckpointFromWorkerEvent(
+                projectID: project.id,
+                taskID: task.id,
+                status: task.status,
+                event: event
             )
             let reviewMessage = "Task \(task.id) is ready for review. Approve or reject via the dashboard."
             await runtime.appendSystemMessage(channelId: event.channelId, content: reviewMessage)
@@ -1084,6 +1096,12 @@ extension CoreService {
                 actorID: handoffDelegate.actorID,
                 agentID: handoffDelegate.agentID,
                 artifactPath: completionArtifactPath
+            )
+            scheduleProjectMemoryCheckpointFromWorkerEvent(
+                projectID: project.id,
+                taskID: task.id,
+                status: task.status,
+                event: event
             )
             _ = await runtime.createWorker(
                 spec: WorkerTaskSpec(
