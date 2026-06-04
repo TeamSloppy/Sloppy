@@ -1052,6 +1052,15 @@
   min-width: 0;
 }
 
+/* Workflows board: stretch to bottom of the project workspace */
+.project-tab-layout:has(.project-workflows-grid) {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+}
+
 .project-participants-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
@@ -5197,5 +5206,322 @@
     max-height: 180px;
     border-right: none;
     border-bottom: 1px solid var(--line);
+  }
+}
+
+/* Project workflows tab */
+.project-workflows-shell {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0 !important;
+  gap: 16px;
+}
+
+.project-workflows-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.project-workflows-toolbar h2 {
+  margin: 0;
+  font-size: 20px;
+}
+
+.project-workflows-toolbar p {
+  margin: 4px 0 0;
+  color: var(--muted);
+}
+
+.project-workflows-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.project-workflows-actions button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.project-workflows-grid {
+  display: grid;
+  grid-template-columns: 260px minmax(420px, 1fr) 300px;
+  flex: 1;
+  min-height: 0 !important;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  overflow: hidden;
+}
+
+.project-workflows-list,
+.project-workflows-inspector {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 0;
+  padding: 12px;
+  background: var(--surface-2);
+  overflow: auto;
+}
+
+.project-workflows-list {
+  border-right: 1px solid var(--line);
+}
+
+.project-workflows-inspector {
+  border-left: 1px solid var(--line);
+}
+
+.project-workflows-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 30px;
+  color: var(--text);
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+
+.project-workflows-panel-header small {
+  color: var(--accent);
+}
+
+.project-workflow-row {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 0;
+  background: var(--bg);
+  color: var(--text);
+  text-align: left;
+}
+
+.project-workflow-row.active {
+  border-color: var(--accent);
+  box-shadow: 3px 3px 0 var(--accent);
+}
+
+.project-workflow-row small,
+.project-workflow-node small,
+.project-workflow-run small,
+.project-workflow-action small {
+  color: var(--muted);
+}
+
+.project-workflows-board-pane {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--surface);
+}
+
+.project-workflows-board-scroller {
+  width: 100%;
+  height: 100%;
+  overflow: auto;
+  background-color: var(--bg);
+  background-image: radial-gradient(circle at 1px 1px, rgba(204, 255, 0, 0.22) 1px, transparent 0);
+  background-size: 28px 28px;
+}
+
+.project-workflows-board {
+  position: relative;
+  min-width: 900px;
+  min-height: 420px;
+}
+
+.project-workflows-lane-strip {
+  position: absolute;
+  top: 18px;
+  left: 18px;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  max-width: calc(100% - 36px);
+  z-index: 3;
+}
+
+.project-workflows-lane-strip span {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 8px;
+  border: 1px solid var(--line);
+  background: rgba(10, 10, 10, 0.76);
+  color: var(--text);
+  font-size: 12px;
+}
+
+.project-workflows-lane-strip small {
+  color: var(--muted);
+}
+
+.project-workflows-links-layer {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.project-workflows-links-layer marker path {
+  fill: var(--accent);
+}
+
+.project-workflow-link {
+  fill: none;
+  stroke: #7f89a7;
+  stroke-width: 3;
+  stroke-linecap: round;
+  opacity: 0.82;
+}
+
+@keyframes project-workflow-link-flow {
+  from { stroke-dashoffset: 24; }
+  to { stroke-dashoffset: 0; }
+}
+
+.project-workflow-link-flow {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 3;
+  stroke-linecap: round;
+  stroke-dasharray: 6 18;
+  opacity: 0.75;
+  animation: project-workflow-link-flow 1s linear infinite;
+}
+
+.project-workflow-link-label {
+  fill: var(--text);
+  stroke: var(--bg);
+  stroke-width: 4px;
+  paint-order: stroke;
+  font-size: 11px;
+  font-weight: 700;
+  text-anchor: middle;
+  dominant-baseline: middle;
+  pointer-events: none;
+}
+
+.project-workflow-node {
+  position: absolute;
+  width: 190px;
+  min-height: 92px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--line-strong);
+  border-radius: 0;
+  background: var(--surface);
+  color: var(--text);
+  transition: transform 0.1s steps(2), box-shadow 0.1s steps(2);
+  z-index: 2;
+}
+
+.project-workflow-node:hover {
+  transform: translate(-3px, -3px);
+  box-shadow: 3px 3px 0 var(--accent);
+}
+
+.project-workflow-node .material-symbols-rounded {
+  font-size: 18px;
+  color: var(--accent);
+}
+
+.project-workflow-node strong {
+  display: block;
+  font-size: 13px;
+}
+
+.project-workflow-node em {
+  display: inline-flex;
+  margin-top: 6px;
+  padding: 2px 6px;
+  border: 1px solid var(--line);
+  color: #8ab4ff;
+  font-size: 11px;
+  font-style: normal;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.project-workflows-inspector section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.project-workflows-inspector h3 {
+  margin: 0;
+  font-size: 14px;
+}
+
+.project-workflow-action,
+.project-workflow-run {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 0;
+  background: var(--bg);
+}
+
+.project-workflow-action div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.project-workflow-action button {
+  padding: 5px 8px;
+  border: 1px solid var(--line);
+  border-radius: 0;
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+.project-workflow-action button:hover {
+  background: var(--accent);
+  color: var(--bg);
+}
+
+.project-workflows-empty-canvas {
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 8px;
+  min-height: 360px;
+  color: var(--muted);
+}
+
+.project-workflows-empty-canvas .material-symbols-rounded {
+  color: var(--accent);
+  font-size: 34px;
+}
+
+@media (max-width: 1040px) {
+  .project-workflows-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .project-workflows-toolbar {
+    align-items: flex-start;
+    flex-direction: column;
   }
 }

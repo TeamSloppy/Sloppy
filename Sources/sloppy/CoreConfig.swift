@@ -754,6 +754,19 @@ public struct CoreConfig: Codable, Sendable {
         }
     }
 
+    public struct TUI: Codable, Sendable, Equatable {
+        public var defaultEditor: String
+
+        public init(defaultEditor: String = "") {
+            self.defaultEditor = defaultEditor
+        }
+
+        public init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            defaultEditor = try container.decodeIfPresent(String.self, forKey: .defaultEditor) ?? ""
+        }
+    }
+
     public struct GitSync: Codable, Sendable, Equatable {
         public struct Schedule: Codable, Sendable, Equatable {
             public enum Frequency: String, Codable, Sendable, Equatable {
@@ -1471,6 +1484,7 @@ public struct CoreConfig: Codable, Sendable {
     public var workspace: Workspace
     public var auth: Auth
     public var onboarding: Onboarding
+    public var tui: TUI
     public var models: [ModelConfig]
     public var opencode: OpenCode
     public var disableModelInference: Bool
@@ -1500,6 +1514,7 @@ public struct CoreConfig: Codable, Sendable {
         workspace: Workspace,
         auth: Auth,
         onboarding: Onboarding = Onboarding(),
+        tui: TUI = TUI(),
         models: [ModelConfig],
         opencode: OpenCode = OpenCode(),
         sessionRetention: SessionRetention = SessionRetention(),
@@ -1527,6 +1542,7 @@ public struct CoreConfig: Codable, Sendable {
         self.workspace = workspace
         self.auth = auth
         self.onboarding = onboarding
+        self.tui = tui
         self.models = models
         self.opencode = opencode
         self.sessionRetention = sessionRetention
@@ -1640,6 +1656,7 @@ public struct CoreConfig: Codable, Sendable {
         case workspace
         case auth
         case onboarding
+        case tui
         case models
         case opencode
         case sessionRetention
@@ -1671,6 +1688,7 @@ public struct CoreConfig: Codable, Sendable {
         workspace = try container.decodeIfPresent(Workspace.self, forKey: .workspace) ?? .init()
         auth = try container.decode(Auth.self, forKey: .auth)
         onboarding = try container.decodeIfPresent(Onboarding.self, forKey: .onboarding) ?? .init()
+        tui = try container.decodeIfPresent(TUI.self, forKey: .tui) ?? .init()
         memory = try container.decode(Memory.self, forKey: .memory)
         sessionRetention = try container.decodeIfPresent(SessionRetention.self, forKey: .sessionRetention) ?? .init()
         nodes = try container.decodeIfPresent([Node].self, forKey: .nodes) ?? []
@@ -1701,6 +1719,7 @@ public struct CoreConfig: Codable, Sendable {
         try container.encode(workspace, forKey: .workspace)
         try container.encode(auth, forKey: .auth)
         try container.encode(onboarding, forKey: .onboarding)
+        try container.encode(tui, forKey: .tui)
         try container.encode(models, forKey: .models)
         try container.encode(opencode, forKey: .opencode)
         try container.encode(sessionRetention, forKey: .sessionRetention)

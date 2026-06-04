@@ -205,6 +205,141 @@ func sloppyACPServerLoadSessionReplaysStoredTranscript() async throws {
 }
 
 @Test
+func sloppyACPServerDoesNotForwardRunStatusesAsThoughtChunks() async throws {
+    let service = try await makeACPServerService()
+    let recorder = ACPServerUpdateRecorder()
+    let delegate = SloppyACPServerDelegate(
+        service: service,
+        agentID: "dev",
+        defaultCwd: "/tmp",
+        sendUpdate: { sessionId, update in await recorder.append(sessionId: sessionId, update: update) }
+    )
+
+    let created = try await delegate.handleNewSession(NewSessionRequest(cwd: "/tmp"))
+    let events = [
+        AgentSessionEvent(
+            agentId: "dev",
+            sessionId: created.sessionId.value,
+            type: .runStatus,
+            runStatus: AgentRunStatusEvent(
+                stage: .responding,
+                label: "Responding",
+                details: "Generating response..."
+            )
+        ),
+        AgentSessionEvent(
+            agentId: "dev",
+            sessionId: created.sessionId.value,
+            type: .runStatus,
+            runStatus: AgentRunStatusEvent(
+                stage: .searching,
+                label: "Executing tool",
+                details: "Tool: files.read"
+            )
+        ),
+        AgentSessionEvent(
+            agentId: "dev",
+            sessionId: created.sessionId.value,
+            type: .toolCall,
+            toolCall: AgentToolCallEvent(tool: "files.read", arguments: ["path": .string("Package.swift")])
+        ),
+        AgentSessionEvent(
+            agentId: "dev",
+            sessionId: created.sessionId.value,
+            type: .toolResult,
+            toolResult: AgentToolResultEvent(tool: "files.read", ok: true, data: .object(["summary": .string("Read Package.swift")]))
+        ),
+    ]
+    _ = try await service.appendAgentSessionEvents(
+        agentID: "dev",
+        sessionID: created.sessionId.value,
+        request: AgentSessionAppendEventsRequest(events: events)
+    )
+
+    _ = try await delegate.handleLoadSession(
+        LoadSessionRequest(sessionId: created.sessionId, cwd: "/tmp")
+    )
+
+    let updates = await recorder.updates.map(\.1)
+    #expect(updates.contains { update in
+        if case .agentThoughtChunk = update { return true }
+        return false
+    } == false)
+    #expect(updates.contains { update in
+        if case .toolCall = update { return true }
+        return false
+    })
+    #expect(updates.contains { update in
+        if case .toolCallUpdate = update { return true }
+        return false
+    })
+}
+
+@Test
+func sloppyACPServerUsesUniqueToolCallIdsForRepeatedToolInvocations() async throws {
+    let service = try await makeACPServerService()
+    let recorder = ACPServerUpdateRecorder()
+    let delegate = SloppyACPServerDelegate(
+        service: service,
+        agentID: "dev",
+        defaultCwd: "/tmp",
+        sendUpdate: { sessionId, update in await recorder.append(sessionId: sessionId, update: update) }
+    )
+
+    let created = try await delegate.handleNewSession(NewSessionRequest(cwd: "/tmp"))
+    let firstCall = AgentSessionEvent(
+        id: "event-call-1",
+        agentId: "dev",
+        sessionId: created.sessionId.value,
+        type: .toolCall,
+        toolCall: AgentToolCallEvent(tool: "files.read", arguments: ["path": .string("Package.swift")])
+    )
+    let firstResult = AgentSessionEvent(
+        id: "event-result-1",
+        agentId: "dev",
+        sessionId: created.sessionId.value,
+        type: .toolResult,
+        toolResult: AgentToolResultEvent(tool: "files.read", ok: true)
+    )
+    let secondCall = AgentSessionEvent(
+        id: "event-call-2",
+        agentId: "dev",
+        sessionId: created.sessionId.value,
+        type: .toolCall,
+        toolCall: AgentToolCallEvent(tool: "files.read", arguments: ["path": .string("README.md")])
+    )
+    let secondResult = AgentSessionEvent(
+        id: "event-result-2",
+        agentId: "dev",
+        sessionId: created.sessionId.value,
+        type: .toolResult,
+        toolResult: AgentToolResultEvent(tool: "files.read", ok: true)
+    )
+    _ = try await service.appendAgentSessionEvents(
+        agentID: "dev",
+        sessionID: created.sessionId.value,
+        request: AgentSessionAppendEventsRequest(events: [firstCall, firstResult, secondCall, secondResult])
+    )
+
+    _ = try await delegate.handleLoadSession(
+        LoadSessionRequest(sessionId: created.sessionId, cwd: "/tmp")
+    )
+
+    let updates = await recorder.updates.map(\.1)
+    let callIds = updates.compactMap { update -> String? in
+        if case .toolCall(let call) = update { return call.toolCallId }
+        return nil
+    }
+    let resultIds = updates.compactMap { update -> String? in
+        if case .toolCallUpdate(let result) = update { return result.toolCallId }
+        return nil
+    }
+
+    #expect(callIds == ["event-call-1", "event-call-2"])
+    #expect(resultIds == callIds)
+}
+
+@Test
 func acpServerDeltaTrackerConvertsFullDraftsToACPChunks() async {
     let tracker = ACPServerDeltaTracker()
 

@@ -46,6 +46,54 @@ func missingSessionRetentionConfigFallsBackToEnabledThirtyDays() throws {
 }
 
 @Test
+func missingTUIConfigFallsBackToNoDefaultEditor() throws {
+    let json =
+        """
+        {
+          "listen": { "host": "0.0.0.0", "port": 25101 },
+          "auth": { "token": "dev-token" },
+          "models": [],
+          "memory": { "backend": "sqlite-local-vectors" },
+          "nodes": ["local"],
+          "gateways": [],
+          "plugins": [],
+          "sqlitePath": "core.sqlite"
+        }
+        """
+
+    let decoded = try JSONDecoder().decode(CoreConfig.self, from: Data(json.utf8))
+
+    #expect(decoded.tui.defaultEditor == "")
+}
+
+@Test
+func tuiDefaultEditorDecodesAndEncodes() throws {
+    let json =
+        """
+        {
+          "listen": { "host": "0.0.0.0", "port": 25101 },
+          "auth": { "token": "dev-token" },
+          "models": [],
+          "memory": { "backend": "sqlite-local-vectors" },
+          "nodes": ["local"],
+          "gateways": [],
+          "plugins": [],
+          "tui": { "defaultEditor": "zed --reuse-window" },
+          "sqlitePath": "core.sqlite"
+        }
+        """
+
+    let decoded = try JSONDecoder().decode(CoreConfig.self, from: Data(json.utf8))
+
+    #expect(decoded.tui.defaultEditor == "zed --reuse-window")
+
+    let encoded = try JSONEncoder().encode(decoded)
+    let object = try #require(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+    let tui = try #require(object["tui"] as? [String: Any])
+    #expect(tui["defaultEditor"] as? String == "zed --reuse-window")
+}
+
+@Test
 func legacyStringNodesDecodeAsConfigNodes() throws {
     let json =
         """

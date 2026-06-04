@@ -12,6 +12,7 @@ export const SETTINGS_ITEMS = [
   { id: "plugins", title: "Plugins", icon: "extension" },
   { id: "mcp", title: "MCP", icon: "account_tree" },
   { id: "browser", title: "Browser", icon: "open_in_browser" },
+  { id: "tui", title: "TUI", icon: "terminal" },
   { id: "ui", title: "UI", icon: "palette" },
   { id: "nodehost", title: "NodeHost", icon: "dns" },
   // { id: "bindings", title: "Bindings", icon: "cable" },
@@ -376,6 +377,9 @@ export const EMPTY_CONFIG = {
       enabled: false,
       localOnly: true
     }
+  },
+  tui: {
+    defaultEditor: ""
   },
   toolHooks: {
     preTools: {
@@ -753,6 +757,7 @@ export function normalizeConfig(config) {
   normalized.ui.dashboardTerminal.enabled = Boolean(config?.ui?.dashboardTerminal?.enabled);
   normalized.ui.dashboardTerminal.localOnly =
     config?.ui?.dashboardTerminal?.localOnly == null ? true : Boolean(config?.ui?.dashboardTerminal?.localOnly);
+  normalized.tui.defaultEditor = String(config?.tui?.defaultEditor || "");
   normalized.toolHooks.preTools.enabled = Boolean(config?.toolHooks?.preTools?.enabled);
   normalized.toolHooks.preTools.command = String(config?.toolHooks?.preTools?.command || "");
   normalized.toolHooks.preTools.arguments = Array.isArray(config?.toolHooks?.preTools?.arguments)

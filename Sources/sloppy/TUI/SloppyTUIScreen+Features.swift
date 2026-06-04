@@ -251,7 +251,11 @@ extension SloppyTUIScreen {
 
     func openCodeEditor(_ args: [String]) async {
         do {
-            let result = try await SloppyTUICodeEditorLauncher.open(path: runtime.cwd, preferredEditor: args)
+            let preferredEditor = SloppyTUIEditorCommand.preferredEditor(
+                args: args,
+                defaultEditor: runtime.config.tui.defaultEditor
+            )
+            let result = try await SloppyTUICodeEditorLauncher.open(path: runtime.cwd, preferredEditor: preferredEditor)
             appendLocalCard("Opened `\(result.path)` in `\(result.label)`.", autoDismissAfter: 6)
         } catch {
             let message = (error as? LocalizedError)?.errorDescription ?? String(describing: error)

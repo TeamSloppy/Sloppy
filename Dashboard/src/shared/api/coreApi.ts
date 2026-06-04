@@ -125,6 +125,15 @@ export interface CoreApi {
   fetchTaskByReference: (taskReference: string) => Promise<AnyRecord | null>;
   createProject: (payload: AnyRecord) => Promise<{ project: AnyRecord; repoCloneSucceeded: boolean | null } | null>;
   updateProject: (projectId: string, payload: AnyRecord) => Promise<AnyRecord | null>;
+  fetchProjectWorkflows: (projectId: string) => Promise<AnyRecord[] | null>;
+  createProjectWorkflow: (projectId: string, payload: AnyRecord) => Promise<AnyRecord | null>;
+  updateProjectWorkflow: (projectId: string, workflowId: string, payload: AnyRecord) => Promise<AnyRecord | null>;
+  deleteProjectWorkflow: (projectId: string, workflowId: string) => Promise<boolean>;
+  startProjectWorkflowRun: (projectId: string, workflowId: string, payload: AnyRecord) => Promise<AnyRecord | null>;
+  fetchProjectWorkflowRuns: (projectId: string) => Promise<AnyRecord[] | null>;
+  fetchProjectWorkflowRun: (projectId: string, runId: string) => Promise<AnyRecord | null>;
+  fetchProjectWorkflowActions: (projectId: string) => Promise<AnyRecord[] | null>;
+  resolveProjectWorkflowAction: (projectId: string, actionId: string, payload: AnyRecord) => Promise<AnyRecord | null>;
   fetchSourceControlProviders: () => Promise<AnyRecord[] | null>;
   fetchProjectTaskSync: (projectId: string) => Promise<AnyRecord | null>;
   updateProjectTaskSync: (projectId: string, payload: AnyRecord) => Promise<AnyRecord | null>;
@@ -906,6 +915,86 @@ export function createCoreApi(): CoreApi {
       if (!response.ok) {
         return null;
       }
+      return response.data;
+    },
+
+    fetchProjectWorkflows: async (projectId) => {
+      const response = await requestJson<AnyRecord[]>({
+        path: `/v1/projects/${encodeURIComponent(projectId)}/workflows`
+      });
+      if (!response.ok || !Array.isArray(response.data)) return null;
+      return response.data;
+    },
+
+    createProjectWorkflow: async (projectId, payload) => {
+      const response = await requestJson<AnyRecord, AnyRecord>({
+        path: `/v1/projects/${encodeURIComponent(projectId)}/workflows`,
+        method: "POST",
+        body: payload
+      });
+      if (!response.ok) return null;
+      return response.data;
+    },
+
+    updateProjectWorkflow: async (projectId, workflowId, payload) => {
+      const response = await requestJson<AnyRecord, AnyRecord>({
+        path: `/v1/projects/${encodeURIComponent(projectId)}/workflows/${encodeURIComponent(workflowId)}`,
+        method: "PUT",
+        body: payload
+      });
+      if (!response.ok) return null;
+      return response.data;
+    },
+
+    deleteProjectWorkflow: async (projectId, workflowId) => {
+      const response = await requestJson({
+        path: `/v1/projects/${encodeURIComponent(projectId)}/workflows/${encodeURIComponent(workflowId)}`,
+        method: "DELETE"
+      });
+      return response.ok;
+    },
+
+    startProjectWorkflowRun: async (projectId, workflowId, payload) => {
+      const response = await requestJson<AnyRecord, AnyRecord>({
+        path: `/v1/projects/${encodeURIComponent(projectId)}/workflows/${encodeURIComponent(workflowId)}/runs`,
+        method: "POST",
+        body: payload
+      });
+      if (!response.ok) return null;
+      return response.data;
+    },
+
+    fetchProjectWorkflowRuns: async (projectId) => {
+      const response = await requestJson<AnyRecord[]>({
+        path: `/v1/projects/${encodeURIComponent(projectId)}/workflow-runs`
+      });
+      if (!response.ok || !Array.isArray(response.data)) return null;
+      return response.data;
+    },
+
+    fetchProjectWorkflowRun: async (projectId, runId) => {
+      const response = await requestJson<AnyRecord>({
+        path: `/v1/projects/${encodeURIComponent(projectId)}/workflow-runs/${encodeURIComponent(runId)}`
+      });
+      if (!response.ok) return null;
+      return response.data;
+    },
+
+    fetchProjectWorkflowActions: async (projectId) => {
+      const response = await requestJson<AnyRecord[]>({
+        path: `/v1/projects/${encodeURIComponent(projectId)}/workflow-actions`
+      });
+      if (!response.ok || !Array.isArray(response.data)) return null;
+      return response.data;
+    },
+
+    resolveProjectWorkflowAction: async (projectId, actionId, payload) => {
+      const response = await requestJson<AnyRecord, AnyRecord>({
+        path: `/v1/projects/${encodeURIComponent(projectId)}/workflow-actions/${encodeURIComponent(actionId)}/resolve`,
+        method: "POST",
+        body: payload
+      });
+      if (!response.ok) return null;
       return response.data;
     },
 

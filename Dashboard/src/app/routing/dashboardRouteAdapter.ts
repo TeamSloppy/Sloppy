@@ -15,7 +15,7 @@ export const TOP_LEVEL_SECTIONS = [
 ] as const;
 
 export const AGENT_TABS = ["overview", "chat", "workers", "memories", "tasks", "skills", "tools", "channels", "cron", "config"] as const;
-export const PROJECT_TABS = ["overview", "chat", "files", "tasks", "analytics", "workers", "visor", "memory", "settings", "review"] as const;
+export const PROJECT_TABS = ["overview", "chat", "files", "tasks", "analytics", "workers", "visor", "memory", "workflows", "settings", "review"] as const;
 
 const TOP_LEVEL_SECTION_SET = new Set<string>(TOP_LEVEL_SECTIONS);
 const AGENT_TAB_SET = new Set<string>(AGENT_TABS);

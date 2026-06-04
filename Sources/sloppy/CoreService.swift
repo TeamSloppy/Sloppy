@@ -201,6 +201,7 @@ public actor CoreService {
     let agentCatalogStore: AgentCatalogFileStore
     let sessionStore: AgentSessionFileStore
     let actorBoardStore: ActorBoardFileStore
+    let workflowDefinitionStore: WorkflowDefinitionFileStore
     let sessionOrchestrator: AgentSessionOrchestrator
     let sessionGoalController: AgentSessionGoalController
     let acpSessionManager: ACPSessionManager
@@ -416,6 +417,7 @@ public actor CoreService {
         self.systemLogStore = SystemLogFileStore(workspaceRootURL: self.workspaceRootURL)
         self.channelDelivery = ChannelDeliveryService(store: self.store)
         self.actorBoardStore = ActorBoardFileStore(workspaceRootURL: self.workspaceRootURL)
+        self.workflowDefinitionStore = WorkflowDefinitionFileStore(workspaceRootURL: self.workspaceRootURL)
         self.channelSessionStore = ChannelSessionFileStore(workspaceRootURL: self.workspaceRootURL)
         self.channelModelStore = ChannelModelStore(workspaceRootURL: self.workspaceRootURL)
         self.channelChatModeStore = ChannelChatModeStore(workspaceRootURL: self.workspaceRootURL)

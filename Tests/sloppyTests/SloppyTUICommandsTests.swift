@@ -380,6 +380,12 @@ func codeEditorLauncherUsesExplicitPreferredEditor() {
 }
 
 @Test
+func codeEditorCommandUsesDefaultEditorWhenNoOverrideIsProvided() {
+    #expect(SloppyTUIEditorCommand.preferredEditor(args: [], defaultEditor: "zed --reuse-window") == ["zed", "--reuse-window"])
+    #expect(SloppyTUIEditorCommand.preferredEditor(args: ["cursor"], defaultEditor: "zed") == ["cursor"])
+}
+
+@Test
 func doubleEscapeDetectorInterruptsOnlyOnSecondNearbyEscape() {
     var detector = SloppyTUIDoubleEscapeDetector(interval: 0.75)
     let first = Date(timeIntervalSince1970: 100)

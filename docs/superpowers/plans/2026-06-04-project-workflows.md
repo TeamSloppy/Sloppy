@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Build the first project-scoped visual workflows MVP: persisted workflow definitions, manual runs, deterministic execution for simple nodes, Dashboard pending human actions, and a minimal project Workflows tab.
+**Goal:** Build the first project-scoped visual workflows MVP: persisted workflow definitions, manual runs, deterministic execution for simple nodes, Dashboard pending human actions, a minimal project Workflows tab, and a follow-up path for a built-in workflow skill that lets agents intentionally create visual workflow plans.
 
 **Architecture:** Add shared workflow DTOs in `Protocols`, a file-backed definition store under `workspace/workflows/<projectId>/`, SQLite-backed run/action history, CoreService workflow APIs, a `ProjectWorkflowsAPIRouter`, and Dashboard project UI. The MVP runner executes a deterministic single-path graph and pauses for Dashboard human actions.
 
@@ -21,7 +21,30 @@ This plan implements the MVP vertical slice:
 - Dashboard pending human actions
 - minimal project Workflows tab
 
-This plan intentionally defers agent steps, tool checks, automatic triggers, templates, parallel branches, and external-channel approvals.
+This plan intentionally defers general automatic workflow creation, tool checks, automatic triggers, templates, parallel branches, and external-channel approvals. Agent-created workflows are allowed only through the built-in workflow skill described below, so regular agent turns do not silently invent workflow state.
+
+## Built-in Workflow Skill Direction
+
+The agent-planned workflow behavior belongs behind an explicit built-in skill, tentatively named `workflow`. When that skill is active, the agent may create a project workflow as part of doing the user's work. Outside that skill, agents should use the normal task/session flow and must not create workflow definitions or runs as a side effect.
+
+The skill's job is to make workflow planning intentional:
+
+- inspect the current project/task context
+- propose a structured workflow graph before execution when the work benefits from visual planning
+- create lanes, nodes, and edges through typed workflow APIs/tools
+- bind `agent_step` nodes to real agent sessions or subagent tasks through typed runtime metadata
+- update node/run state from runtime events, not model-output phrase matching
+- finish by offering a Dashboard link to inspect the workflow visualization
+
+The expected user-facing flow is:
+
+1. User invokes or selects the built-in workflow skill for a task.
+2. The agent creates a draft workflow proposal with lanes, nodes, edges, and short rationale.
+3. Dashboard can render the draft graph and allow a human to run, reject, or defer it.
+4. The first MVP run advances through deterministic nodes and human actions; the workflow skill phase adds typed `agent_step` links to real agent sessions or subagent tasks.
+5. When the workflow is created or completed, the agent reports a link such as `/projects/<projectId>/workflows/<workflowId>` or `/projects/<projectId>/workflow-runs/<runId>`.
+
+This is intentionally similar to Claude Code Workflows in spirit: the workflow is the visible plan for doing the work. Sloppy's difference is that the plan is first-class project state with a live graph visualization.
 
 ## File Structure
 
@@ -44,6 +67,9 @@ This plan intentionally defers agent steps, tool checks, automatic triggers, tem
 - Modify `Dashboard/src/views/Projects/utils.js`: add `workflows` tab metadata.
 - Modify `Dashboard/src/views/ProjectsView.jsx`: render Workflows tab.
 - Create `Dashboard/src/views/Projects/ProjectWorkflowsTab.tsx`: MVP UI.
+- Create `Sources/sloppy/Tools/AgentTools/WorkflowTool.swift`: built-in workflow-skill tool for proposing, linking, and starting workflows.
+- Create built-in skill metadata/instructions for `workflow`: explicit activation rules and tool usage guidance.
+- Modify agent prompt/skill catalog wiring as needed so the built-in workflow skill is discoverable but not always active.
 - Modify or create a Dashboard stylesheet under `Dashboard/src/styles/` following existing project styles.
 
 ---
@@ -1113,7 +1139,135 @@ git commit -m "feat: add project workflows tab"
 
 ---
 
-### Task 8: Verify MVP Vertical Slice
+### Task 8: Add Built-in Workflow Skill Integration
+
+**Files:**
+- Create: `Sources/sloppy/Tools/AgentTools/WorkflowTool.swift`
+- Modify: `Sources/sloppy/Tools/ToolRegistry.swift`
+- Modify: built-in skill catalog/store files used by `CoreService` for bundled skills
+- Modify: agent prompt/skill wiring only if bundled skill discovery requires it
+- Test: `Tests/sloppyTests/WorkflowToolTests.swift`
+- Test: skill catalog/prompt tests if bundled skills have existing coverage
+
+- [ ] **Step 1: Write tool and skill activation tests**
+
+Create tests that verify:
+
+- the workflow tool is registered in the default tool registry
+- the tool can create a draft workflow definition for a project/task using a structured payload
+- the tool rejects invalid graphs with validation issues
+- the tool returns stable Dashboard URLs for the workflow definition and run
+- regular agent prompt behavior does not instruct agents to create workflows unless the built-in workflow skill is active
+
+The tests must assert typed fields and persisted records. Do not assert behavior by matching model prose.
+
+- [ ] **Step 2: Add built-in `workflow` skill instructions**
+
+Add a bundled skill named `workflow` with guidance similar to:
+
+```markdown
+# Workflow
+
+Use this skill when the user explicitly asks for a workflow, visual plan, workflow-mode execution, or a task would benefit from a visible step graph.
+
+When active:
+- inspect project/task context first
+- create a draft workflow proposal before running substantial work
+- model work as lanes, nodes, and edges
+- use typed workflow tools/APIs only
+- link agent work to `agent_step` nodes through runtime metadata
+- update workflow state from runtime events, not model-output text
+- after creating or completing a workflow, provide the Dashboard workflow URL
+
+Do not create workflows outside this skill.
+```
+
+The skill is built in, so users do not need to install it. It should be discoverable from the normal skill list.
+
+- [ ] **Step 3: Add `WorkflowTool`**
+
+Create `Sources/sloppy/Tools/AgentTools/WorkflowTool.swift` conforming to `CoreTool`.
+
+Recommended tool operations:
+
+- `propose`: create or update a draft `WorkflowDefinition` for a project/task
+- `start`: start a workflow run
+- `link_agent_step`: bind a workflow node to an agent session or subagent task id
+- `status`: return definition/run detail plus Dashboard URLs
+
+The tool input should be structured, for example:
+
+```json
+{
+  "operation": "propose",
+  "projectId": "project-id",
+  "taskId": "task-id",
+  "name": "Implement feature workflow",
+  "rationale": "Visible plan before execution",
+  "lanes": [],
+  "nodes": [],
+  "edges": []
+}
+```
+
+The tool response should include:
+
+```json
+{
+  "workflowId": "wf_...",
+  "runId": null,
+  "definitionUrl": "/projects/project-id/workflows/wf_...",
+  "runUrl": null,
+  "validationIssues": []
+}
+```
+
+- [ ] **Step 4: Register the tool**
+
+Add `WorkflowTool()` to `ToolRegistry.makeDefault()` in the project/task tool area. Keep permissions aligned with existing project mutation tools.
+
+- [ ] **Step 5: Support `agent_step` node metadata**
+
+Extend workflow node/run state enough for the tool to persist links from `agent_step` nodes to real execution:
+
+- agent id
+- session id or delegated task id
+- current status
+- started/finished timestamps if already available
+
+Prefer `node.config` or typed run-step output for the MVP unless a stronger model is already needed. Do not infer completion from localized phrases or free-form assistant text.
+
+- [ ] **Step 6: Return Dashboard links**
+
+Add a small URL builder used by the tool and Dashboard tests:
+
+- workflow definition: `/projects/<projectId>/workflows/<workflowId>`
+- workflow run: `/projects/<projectId>/workflow-runs/<runId>`
+
+If the existing Dashboard route shape differs, update this step to match the actual router and keep the API response stable.
+
+- [ ] **Step 7: Run focused tests**
+
+Run:
+
+```bash
+swift test --filter WorkflowToolTests
+swift test --filter WorkflowRunnerTests
+swift test --filter ProjectWorkflowsAPIRouterTests
+```
+
+Expected: tests pass.
+
+- [ ] **Step 8: Commit**
+
+```bash
+git add Sources/sloppy/Tools/AgentTools/WorkflowTool.swift Sources/sloppy/Tools/ToolRegistry.swift Tests/sloppyTests/WorkflowToolTests.swift <built-in-skill-files>
+git commit -m "feat: add built-in workflow skill"
+```
+
+---
+
+### Task 9: Verify MVP Vertical Slice
 
 **Files:**
 - No new files unless fixing issues found by verification.

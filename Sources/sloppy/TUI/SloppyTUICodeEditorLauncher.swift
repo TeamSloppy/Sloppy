@@ -5,6 +5,15 @@ struct SloppyTUICodeEditorLaunchResult: Sendable, Equatable {
     var path: String
 }
 
+enum SloppyTUIEditorCommand {
+    static func preferredEditor(args: [String], defaultEditor: String) -> [String] {
+        if !args.isEmpty {
+            return args
+        }
+        return SloppyTUICodeEditorLauncher.splitCommandLine(defaultEditor) ?? []
+    }
+}
+
 enum SloppyTUICodeEditorLauncher {
     enum Error: LocalizedError, Equatable {
         case pathMissing(String)

@@ -179,6 +179,7 @@ final class SloppyACPServerDelegate: AgentDelegate, @unchecked Sendable {
             let stream = try await service.streamAgentSessionEvents(
                 agentID: agentID, sessionID: sessionID)
             let deltaTracker = ACPServerDeltaTracker()
+            let toolCallTracker = ACPServerToolCallTracker()
             let streamTask = Task {
                 for await update in stream {
                     if Task.isCancelled {
@@ -187,7 +188,8 @@ final class SloppyACPServerDelegate: AgentDelegate, @unchecked Sendable {
                     await self.forward(
                         update: update,
                         acpSessionID: request.sessionId,
-                        deltaTracker: deltaTracker
+                        deltaTracker: deltaTracker,
+                        toolCallTracker: toolCallTracker
                     )
                 }
             }
@@ -331,8 +333,9 @@ final class SloppyACPServerDelegate: AgentDelegate, @unchecked Sendable {
             if let cwd = request.cwd {
                 try await applyWorkingDirectory(cwd, sessionID: detail.summary.id)
             }
+            let toolCallTracker = ACPServerToolCallTracker()
             for event in detail.events {
-                try await forward(event: event, acpSessionID: request.sessionId)
+                try await forward(event: event, acpSessionID: request.sessionId, toolCallTracker: toolCallTracker)
             }
             let response = LoadSessionResponse(
                 sessionId: request.sessionId,
@@ -502,7 +505,8 @@ extension SloppyACPServerDelegate {
     private func forward(
         update: AgentSessionStreamUpdate,
         acpSessionID: SessionId,
-        deltaTracker: ACPServerDeltaTracker
+        deltaTracker: ACPServerDeltaTracker,
+        toolCallTracker: ACPServerToolCallTracker
     ) async {
         do {
             switch update.kind {
@@ -513,7 +517,12 @@ extension SloppyACPServerDelegate {
                 try await sendUpdate(acpSessionID, .agentMessageChunk(.text(TextContent(text: delta))))
             case .sessionEvent:
                 guard let event = update.event else { return }
-                try await forward(event: event, acpSessionID: acpSessionID, deltaTracker: deltaTracker)
+                try await forward(
+                    event: event,
+                    acpSessionID: acpSessionID,
+                    deltaTracker: deltaTracker,
+                    toolCallTracker: toolCallTracker
+                )
             case .sessionReady, .heartbeat, .sessionClosed, .sessionError:
                 return
             }
@@ -525,7 +534,8 @@ extension SloppyACPServerDelegate {
     private func forward(
         event: AgentSessionEvent,
         acpSessionID: SessionId,
-        deltaTracker: ACPServerDeltaTracker? = nil
+        deltaTracker: ACPServerDeltaTracker? = nil,
+        toolCallTracker: ACPServerToolCallTracker
     ) async throws {
         switch event.type {
         case .message:
@@ -546,20 +556,15 @@ extension SloppyACPServerDelegate {
                     acpSessionID, .agentThoughtChunk(.text(TextContent(text: text))))
             }
         case .runStatus:
-            guard let status = event.runStatus else { return }
-            let parts = [status.label, status.details, status.expandedText].compactMap { $0 }.filter
-            { !$0.isEmpty }
-            guard !parts.isEmpty else { return }
-            try await sendUpdate(
-                acpSessionID,
-                .agentThoughtChunk(.text(TextContent(text: parts.joined(separator: "\n")))))
+            return
         case .toolCall:
             guard let call = event.toolCall else { return }
+            let toolCallId = await toolCallTracker.recordCall(tool: call.tool, eventID: event.id)
             try await sendUpdate(
                 acpSessionID,
                 .toolCall(
                     ToolCallUpdate(
-                        toolCallId: call.tool,
+                        toolCallId: toolCallId,
                         status: .inProgress,
                         title: call.tool,
                         kind: Self.toolKind(for: call.tool),
@@ -572,11 +577,12 @@ extension SloppyACPServerDelegate {
             )
         case .toolResult:
             guard let result = event.toolResult else { return }
+            let toolCallId = await toolCallTracker.consumeResult(tool: result.tool, eventID: event.id)
             try await sendUpdate(
                 acpSessionID,
                 .toolCallUpdate(
                     ToolCallUpdateDetails(
-                        toolCallId: result.tool,
+                        toolCallId: toolCallId,
                         status: result.ok ? .completed : .failed,
                         content: [.content(.text(TextContent(text: Self.toolResultText(result))))]
                     )
@@ -664,6 +670,24 @@ extension SloppyACPServerDelegate {
             return result.ok ? "Done." : "Failed."
         }
         return text
+    }
+}
+
+actor ACPServerToolCallTracker {
+    private var pendingCallIdsByTool: [String: [String]] = [:]
+
+    func recordCall(tool: String, eventID: String) -> String {
+        pendingCallIdsByTool[tool, default: []].append(eventID)
+        return eventID
+    }
+
+    func consumeResult(tool: String, eventID: String) -> String {
+        guard var pending = pendingCallIdsByTool[tool], !pending.isEmpty else {
+            return eventID
+        }
+        let callID = pending.removeFirst()
+        pendingCallIdsByTool[tool] = pending
+        return callID
     }
 }
 

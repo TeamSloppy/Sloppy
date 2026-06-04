@@ -1555,6 +1555,47 @@ export function ConfigView({
     );
   }
 
+  function renderTUISettings() {
+    const defaultEditor = String(draftConfig?.tui?.defaultEditor || "");
+
+    return (
+      <div className="tg-settings-shell sessions-settings-shell">
+        <section className="entry-editor-card providers-intro-card">
+          <h3>TUI</h3>
+          <p className="placeholder-text">
+            Configure terminal interface defaults.
+          </p>
+        </section>
+
+        <section className="entry-editor-card">
+          <h3>Editor</h3>
+          <div className="entry-form-grid">
+            <label style={{ gridColumn: "1 / -1" }}>
+              Default editor command
+              <input
+                type="text"
+                value={defaultEditor}
+                placeholder="code --reuse-window"
+                onChange={(event) => {
+                  mutateDraft((draft) => {
+                    if (!draft.tui) {
+                      draft.tui = { defaultEditor: "" };
+                    }
+                    draft.tui.defaultEditor = event.target.value;
+                  });
+                }}
+                spellCheck={false}
+              />
+              <span className="entry-form-hint">
+                Used by `/editor` when no editor argument is passed. `/editor zed` overrides this value for that launch.
+              </span>
+            </label>
+          </div>
+        </section>
+      </div>
+    );
+  }
+
   function renderSettingsContent() {
     if (selectedSettings === "providers") {
       return (
@@ -1694,6 +1735,10 @@ export function ConfigView({
 
     if (selectedSettings === "ui") {
       return <UIEditor draftConfig={draftConfig} mutateDraft={mutateDraft} />;
+    }
+
+    if (selectedSettings === "tui") {
+      return renderTUISettings();
     }
 
     if (selectedSettings === "proxy") {
