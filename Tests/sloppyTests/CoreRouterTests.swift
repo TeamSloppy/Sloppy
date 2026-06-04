@@ -2722,6 +2722,52 @@ func actorRouteEndpointResolvesRecipientsFromLinks() async throws {
 }
 
 @Test
+func actorDelegationTreePreviewEndpointReturnsLevels() async throws {
+    let config = CoreConfig.test
+    let service = CoreService(config: config, persistenceBuilder: InMemoryCorePersistenceBuilder())
+    let router = CoreRouter(service: service)
+    let encoder = JSONEncoder()
+    encoder.dateEncodingStrategy = .iso8601
+    let decoder = JSONDecoder()
+    decoder.dateDecodingStrategy = .iso8601
+
+    for request in [
+        AgentCreateRequest(id: "lead", displayName: "Lead", role: "Plans work"),
+        AgentCreateRequest(id: "child", displayName: "Child", role: "Executes work")
+    ] {
+        let response = await router.handle(method: "POST", path: "/v1/agents", body: try encoder.encode(request))
+        #expect(response.status == 201)
+    }
+
+    let boardResponse = await router.handle(method: "GET", path: "/v1/actors/board", body: nil)
+    #expect(boardResponse.status == 200)
+    let board = try decoder.decode(ActorBoardSnapshot.self, from: boardResponse.body)
+    let updateRequest = ActorBoardUpdateRequest(
+        nodes: board.nodes,
+        links: [
+            ActorLink(
+                id: "lead-child",
+                sourceActorId: "agent:lead",
+                targetActorId: "agent:child",
+                direction: .oneWay,
+                relationship: .hierarchical,
+                communicationType: .task
+            )
+        ],
+        teams: board.teams
+    )
+    let updateResponse = await router.handle(method: "PUT", path: "/v1/actors/board", body: try encoder.encode(updateRequest))
+    #expect(updateResponse.status == 200)
+
+    let previewBody = try encoder.encode(ActorDelegationTreePreviewRequest(rootActorId: "agent:lead"))
+    let previewResponse = await router.handle(method: "POST", path: "/v1/actors/delegation-tree/preview", body: previewBody)
+    #expect(previewResponse.status == 200)
+    let preview = try decoder.decode(ActorDelegationTreePreviewResponse.self, from: previewResponse.body)
+    #expect(preview.status == .valid)
+    #expect(preview.levels.map { $0.map(\.actorId) } == [["agent:child"]])
+}
+
+@Test
 func actorBoardInfersHierarchicalRelationshipFromSockets() async throws {
     let config = CoreConfig.test
     let service = CoreService(config: config)

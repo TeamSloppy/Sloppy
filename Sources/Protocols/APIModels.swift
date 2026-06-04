@@ -4992,6 +4992,83 @@ public struct ActorRouteResponse: Codable, Sendable, Equatable {
     }
 }
 
+public enum ActorDelegationTreeStatus: String, Codable, Sendable, Equatable {
+    case valid
+    case invalid
+}
+
+public enum ActorDelegationTreeIssueSeverity: String, Codable, Sendable, Equatable {
+    case error
+    case warning
+}
+
+public struct ActorDelegationTreeIssue: Codable, Sendable, Equatable {
+    public var code: String
+    public var message: String
+    public var severity: ActorDelegationTreeIssueSeverity
+    public var actorId: String?
+    public var linkId: String?
+
+    public init(
+        code: String,
+        message: String,
+        severity: ActorDelegationTreeIssueSeverity,
+        actorId: String? = nil,
+        linkId: String? = nil
+    ) {
+        self.code = code
+        self.message = message
+        self.severity = severity
+        self.actorId = actorId
+        self.linkId = linkId
+    }
+}
+
+public struct ActorDelegationTreeLevelActor: Codable, Sendable, Equatable {
+    public var actorId: String
+    public var displayName: String
+    public var linkedAgentId: String
+
+    public init(actorId: String, displayName: String, linkedAgentId: String) {
+        self.actorId = actorId
+        self.displayName = displayName
+        self.linkedAgentId = linkedAgentId
+    }
+}
+
+public struct ActorDelegationTreePreviewRequest: Codable, Sendable {
+    public var rootActorId: String
+
+    public init(rootActorId: String) {
+        self.rootActorId = rootActorId
+    }
+}
+
+public struct ActorDelegationTreePreviewResponse: Codable, Sendable, Equatable {
+    public var status: ActorDelegationTreeStatus
+    public var rootActorId: String
+    public var levels: [[ActorDelegationTreeLevelActor]]
+    public var errors: [ActorDelegationTreeIssue]
+    public var warnings: [ActorDelegationTreeIssue]
+    public var previewedAt: Date
+
+    public init(
+        status: ActorDelegationTreeStatus,
+        rootActorId: String,
+        levels: [[ActorDelegationTreeLevelActor]],
+        errors: [ActorDelegationTreeIssue],
+        warnings: [ActorDelegationTreeIssue],
+        previewedAt: Date = Date()
+    ) {
+        self.status = status
+        self.rootActorId = rootActorId
+        self.levels = levels
+        self.errors = errors
+        self.warnings = warnings
+        self.previewedAt = previewedAt
+    }
+}
+
 // MARK: - Skills Models
 
 /// Skill information from skills.sh registry

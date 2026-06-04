@@ -476,6 +476,102 @@
   color: var(--text);
 }
 
+.actors-mode-switch {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--line);
+}
+
+.actors-fast-actions .actors-mode-button {
+  text-align: center;
+  padding: 4px 6px;
+}
+
+.actors-delegation-panel {
+  position: absolute;
+  right: 14px;
+  bottom: 36px;
+  z-index: 10;
+  width: min(340px, calc(100% - 28px));
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 0;
+  background: rgba(9, 12, 18, 0.94);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.35);
+  pointer-events: auto;
+}
+
+.actors-delegation-panel header,
+.actors-delegation-root,
+.actors-delegation-level {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+}
+
+.actors-delegation-panel header span,
+.actors-delegation-root span,
+.actors-delegation-level span {
+  color: var(--muted);
+  font-size: 0.76rem;
+}
+
+.actors-delegation-root strong,
+.actors-delegation-level strong {
+  font-size: 0.82rem;
+  text-align: right;
+}
+
+.actors-delegation-root-button {
+  min-height: 28px;
+  border: 1px solid var(--line);
+  border-radius: 0;
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text);
+}
+
+.actors-delegation-levels {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-top: 4px;
+  border-top: 1px solid var(--line);
+}
+
+.actors-delegation-empty,
+.actors-delegation-issue {
+  margin: 0;
+  font-size: 0.78rem;
+  line-height: 1.35;
+}
+
+.actors-delegation-empty {
+  color: var(--muted);
+}
+
+.actors-delegation-issue {
+  padding: 6px 8px;
+  border: 1px solid var(--line);
+}
+
+.actors-delegation-issue.error {
+  border-color: rgba(248, 113, 113, 0.42);
+  color: #fecaca;
+  background: rgba(248, 113, 113, 0.10);
+}
+
+.actors-delegation-issue.warning {
+  border-color: rgba(251, 191, 36, 0.42);
+  color: #fde68a;
+  background: rgba(251, 191, 36, 0.10);
+}
+
 /* Status strip at bottom of pane */
 .actors-board-status {
   position: absolute;

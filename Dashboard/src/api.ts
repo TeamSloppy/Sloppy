@@ -90,6 +90,7 @@ export const deleteAgent = coreApi.deleteAgent;
 export const fetchActorsBoard = coreApi.fetchActorsBoard;
 export const updateActorsBoard = coreApi.updateActorsBoard;
 export const resolveActorRoute = coreApi.resolveActorRoute;
+export const previewActorDelegationTree = coreApi.previewActorDelegationTree;
 export const createActorNode = coreApi.createActorNode;
 export const updateActorNode = coreApi.updateActorNode;
 export const deleteActorNode = coreApi.deleteActorNode;

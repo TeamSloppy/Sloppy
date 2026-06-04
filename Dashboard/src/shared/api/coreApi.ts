@@ -160,6 +160,7 @@ export interface CoreApi {
   fetchActorsBoard: () => Promise<AnyRecord | null>;
   updateActorsBoard: (payload: AnyRecord) => Promise<AnyRecord | null>;
   resolveActorRoute: (payload: AnyRecord) => Promise<AnyRecord | null>;
+  previewActorDelegationTree: (payload: AnyRecord) => Promise<AnyRecord | null>;
   createActorNode: (payload: AnyRecord) => Promise<AnyRecord | null>;
   updateActorNode: (actorId: string, payload: AnyRecord) => Promise<AnyRecord | null>;
   deleteActorNode: (actorId: string) => Promise<AnyRecord | null>;
@@ -1305,6 +1306,18 @@ export function createCoreApi(): CoreApi {
     resolveActorRoute: async (payload) => {
       const response = await requestJson<AnyRecord, AnyRecord>({
         path: "/v1/actors/route",
+        method: "POST",
+        body: payload
+      });
+      if (!response.ok) {
+        return null;
+      }
+      return response.data;
+    },
+
+    previewActorDelegationTree: async (payload) => {
+      const response = await requestJson<AnyRecord, AnyRecord>({
+        path: "/v1/actors/delegation-tree/preview",
         method: "POST",
         body: payload
       });

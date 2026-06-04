@@ -9,6 +9,7 @@ import {
   deleteActorTeam,
   fetchActorsBoard,
   fetchAgents,
+  previewActorDelegationTree,
   resolveActorRoute,
   updateActorsBoard,
   updateActorLink,
@@ -294,9 +295,13 @@ export function ActorsView() {
   const [statusText, setStatusText] = useState("Loading actors board...");
   const [selectedNodeId, setSelectedNodeId] = useState(null);
   const [selectedLinkId, setSelectedLinkId] = useState(null);
+  const [boardMode, setBoardMode] = useState("map");
   const [linkDirection, setLinkDirection] = useState("one_way");
   const [linkRelationship, setLinkRelationship] = useState("peer");
   const [linkCommunicationType, setLinkCommunicationType] = useState("chat");
+  const [delegationRootId, setDelegationRootId] = useState(null);
+  const [delegationPreview, setDelegationPreview] = useState(null);
+  const [isPreviewLoading, setIsPreviewLoading] = useState(false);
   const [newActorName, setNewActorName] = useState("");
   const [newActorKind, setNewActorKind] = useState("human");
   const [newActorRole, setNewActorRole] = useState("");
@@ -644,10 +649,14 @@ export function ActorsView() {
     if (selectedNodeId && !nodeIds.has(selectedNodeId)) {
       setSelectedNodeId(null);
     }
+    if (delegationRootId && !nodeIds.has(delegationRootId)) {
+      setDelegationRootId(null);
+      setDelegationPreview(null);
+    }
     if (teamMembers.some((entry) => !nodeIds.has(entry))) {
       setTeamMembers((previous) => previous.filter((entry) => nodeIds.has(entry)));
     }
-  }, [board.nodes, selectedNodeId, teamMembers]);
+  }, [board.nodes, selectedNodeId, delegationRootId, teamMembers]);
 
   useEffect(() => {
     if (!linkMenu) {
@@ -705,6 +714,36 @@ export function ActorsView() {
     setLinkCommunicationType(selectedLink.communicationType);
   }, [selectedLinkId, selectedLink?.id, selectedLink?.direction, selectedLink?.relationship, selectedLink?.communicationType, selectedLink?.sourceSocket, selectedLink?.targetSocket]);
 
+  useEffect(() => {
+    if (boardMode !== "delegation" || !delegationRootId) {
+      return;
+    }
+    void loadDelegationPreview(delegationRootId, { silent: true });
+  }, [boardMode, delegationRootId, board.links, board.nodes]);
+
+  async function loadDelegationPreview(rootId, options = {}) {
+    const normalizedRootId = asString(rootId);
+    if (!normalizedRootId) {
+      setDelegationPreview(null);
+      setStatusText("Select a root agent.");
+      return;
+    }
+
+    setIsPreviewLoading(true);
+    const response = await previewActorDelegationTree({ rootActorId: normalizedRootId });
+    setIsPreviewLoading(false);
+    if (!response) {
+      setDelegationPreview(null);
+      setStatusText("Delegation tree preview failed.");
+      return;
+    }
+
+    setDelegationPreview(response);
+    if (!options.silent) {
+      setStatusText("Delegation tree preview updated.");
+    }
+  }
+
   async function createLink(sourceNodeId, sourceSocket, targetNodeId, targetSocket) {
     if (!sourceNodeId || !targetNodeId || sourceNodeId === targetNodeId) {
       setStatusText("Link requires different source and target.");
@@ -713,17 +752,21 @@ export function ActorsView() {
 
     const normalizedSourceSocket = normalizeSocket(sourceSocket, "right");
     const normalizedTargetSocket = normalizeSocket(targetSocket, "left");
-    const relationship = inferRelationshipFromSockets(normalizedSourceSocket, normalizedTargetSocket);
+    const relationship = boardMode === "delegation"
+      ? "hierarchical"
+      : inferRelationshipFromSockets(normalizedSourceSocket, normalizedTargetSocket);
+    const direction = boardMode === "delegation" ? "one_way" : linkDirection;
+    const communicationType = boardMode === "delegation" ? "task" : linkCommunicationType;
     const duplicate = boardRef.current.links.find(
       (link) =>
         link.sourceActorId === sourceNodeId &&
         link.targetActorId === targetNodeId &&
-        link.direction === linkDirection &&
+        link.direction === direction &&
         (link.relationship || inferRelationshipFromSockets(
           normalizeSocket(link.sourceSocket, "right"),
           normalizeSocket(link.targetSocket, "left")
         )) === relationship &&
-        link.communicationType === linkCommunicationType &&
+        link.communicationType === communicationType &&
         normalizeSocket(link.sourceSocket, "right") === normalizedSourceSocket &&
         normalizeSocket(link.targetSocket, "left") === normalizedTargetSocket
     );
@@ -740,9 +783,9 @@ export function ActorsView() {
       id: nextLinkID,
       sourceActorId: sourceNodeId,
       targetActorId: targetNodeId,
-      direction: linkDirection,
+      direction,
       relationship,
-      communicationType: linkCommunicationType,
+      communicationType,
       sourceSocket: normalizedSourceSocket,
       targetSocket: normalizedTargetSocket,
       createdAt: new Date().toISOString()
@@ -753,6 +796,9 @@ export function ActorsView() {
       setSelectedLinkId(nextLinkID);
       setSelectedNodeId(null);
       setLinkMenu(null);
+      if (boardMode === "delegation" && delegationRootId) {
+        void loadDelegationPreview(delegationRootId, { silent: true });
+      }
     }
   }
 
@@ -1219,6 +1265,11 @@ export function ActorsView() {
     };
   }, [selectedNode?.positionX, selectedNode?.positionY]);
 
+  const delegationRootNode = delegationRootId ? nodeMap.get(delegationRootId) || null : null;
+  const delegationErrors = Array.isArray(delegationPreview?.errors) ? delegationPreview.errors : [];
+  const delegationWarnings = Array.isArray(delegationPreview?.warnings) ? delegationPreview.warnings : [];
+  const delegationLevels = Array.isArray(delegationPreview?.levels) ? delegationPreview.levels : [];
+
   return (
     <main className="actors-shell" data-tour-id="actors-board-actions">
       <div className="actors-layout">
@@ -1519,9 +1570,36 @@ export function ActorsView() {
           </div>
 
           <div className="actors-fast-actions" onPointerDown={(event) => event.stopPropagation()}>
+            <div className="actors-mode-switch" role="group" aria-label="Actor board mode">
+              <button
+                type="button"
+                className={`actors-mode-button ${boardMode === "map" ? "active" : ""}`}
+                onClick={() => setBoardMode("map")}
+              >
+                Map
+              </button>
+              <button
+                type="button"
+                className={`actors-mode-button ${boardMode === "delegation" ? "active" : ""}`}
+                onClick={() => {
+                  setBoardMode("delegation");
+                  if (selectedNode?.kind === "agent") {
+                    setDelegationRootId(selectedNode.id);
+                  }
+                }}
+              >
+                Delegation Tree
+              </button>
+            </div>
             <p className="actors-hint">Drag between handles to link</p>
-            <p className="actors-hint">Top/Bottom → Hierarchical</p>
-            <p className="actors-hint">Left/Right → Peer</p>
+            {boardMode === "delegation" ? (
+              <p className="actors-hint">Links become one-way task delegation</p>
+            ) : (
+              <>
+                <p className="actors-hint">Top/Bottom → Hierarchical</p>
+                <p className="actors-hint">Left/Right → Peer</p>
+              </>
+            )}
             <button
               type="button"
               className={showNewActorPopup ? "active" : ""}
@@ -1565,6 +1643,53 @@ export function ActorsView() {
           <div className="actors-board-status">
             {isLoading ? "Loading…" : isSaving ? "Saving…" : statusText}
           </div>
+
+          {boardMode === "delegation" ? (
+            <div className="actors-delegation-panel" onPointerDown={(event) => event.stopPropagation()}>
+              <header>
+                <strong>Delegation Tree</strong>
+                <span>{isPreviewLoading ? "Previewing…" : delegationPreview?.status || "No root"}</span>
+              </header>
+              <div className="actors-delegation-root">
+                <span>Root</span>
+                <strong>{delegationRootNode?.displayName || delegationRootId || "Select an agent"}</strong>
+              </div>
+              {selectedNode?.kind === "agent" ? (
+                <button
+                  type="button"
+                  className="actors-delegation-root-button"
+                  onClick={() => {
+                    setDelegationRootId(selectedNode.id);
+                    void loadDelegationPreview(selectedNode.id);
+                  }}
+                >
+                  Use selected as root
+                </button>
+              ) : null}
+              {delegationLevels.length > 0 ? (
+                <div className="actors-delegation-levels">
+                  {delegationLevels.map((level, index) => (
+                    <div className="actors-delegation-level" key={`level-${index + 1}`}>
+                      <span>Depth {index + 1}</span>
+                      <strong>
+                        {level.map((actor) => actor.displayName || actor.actorId).join(", ")}
+                      </strong>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="actors-delegation-empty">No execution children for this root.</p>
+              )}
+              {[...delegationErrors, ...delegationWarnings].map((issue, index) => (
+                <p
+                  key={`${issue.code || "issue"}-${issue.actorId || issue.linkId || index}`}
+                  className={`actors-delegation-issue ${issue.severity === "warning" ? "warning" : "error"}`}
+                >
+                  {issue.message || issue.code}
+                </p>
+              ))}
+            </div>
+          ) : null}
 
           {showNewActorPopup ? (
             <div

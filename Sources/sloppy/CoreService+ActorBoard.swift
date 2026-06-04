@@ -33,6 +33,131 @@ extension CoreService {
         }
     }
 
+    /// Validates and previews the saved delegation tree rooted at one actor.
+    public func previewActorDelegationTree(request: ActorDelegationTreePreviewRequest) throws -> ActorDelegationTreePreviewResponse {
+        do {
+            let agents = try listAgents()
+            let board = try actorBoardStore.loadBoard(agents: agents)
+            return Self.previewActorDelegationTree(board: board, rootActorId: request.rootActorId)
+        } catch {
+            throw mapActorBoardError(error)
+        }
+    }
+
+    static func previewActorDelegationTree(
+        board: ActorBoardSnapshot,
+        rootActorId rawRootActorId: String
+    ) -> ActorDelegationTreePreviewResponse {
+        let rootActorId = normalizedActorEntityIDValue(rawRootActorId) ?? rawRootActorId.trimmingCharacters(in: .whitespacesAndNewlines)
+        var errors: [ActorDelegationTreeIssue] = []
+        var warnings: [ActorDelegationTreeIssue] = []
+        let nodesByID = Dictionary(uniqueKeysWithValues: board.nodes.map { ($0.id, $0) })
+
+        guard !rootActorId.isEmpty else {
+            errors.append(actorDelegationIssue(
+                code: "missing_root",
+                message: "Select a root agent for the delegation tree.",
+                severity: .error
+            ))
+            return actorDelegationPreview(rootActorId: rootActorId, levels: [], errors: errors, warnings: warnings)
+        }
+
+        guard let rootNode = nodesByID[rootActorId] else {
+            errors.append(actorDelegationIssue(
+                code: "unknown_root",
+                message: "The selected root actor is not on the Actor Board.",
+                severity: .error,
+                actorId: rootActorId
+            ))
+            return actorDelegationPreview(rootActorId: rootActorId, levels: [], errors: errors, warnings: warnings)
+        }
+
+        validateExecutionAgent(rootNode, into: &errors, code: "root_not_agent")
+
+        let executionLinks = board.links.filter { link in
+            guard link.communicationType == .task, effectiveActorRelationship(for: link) == .hierarchical else {
+                return false
+            }
+            if link.direction == .twoWay {
+                warnings.append(actorDelegationIssue(
+                    code: "ignored_two_way_task_link",
+                    message: "Two-way hierarchical task links are ignored by swarm execution.",
+                    severity: .warning,
+                    linkId: link.id
+                ))
+                return false
+            }
+            return true
+        }
+
+        for link in executionLinks {
+            if let target = nodesByID[link.targetActorId], target.kind != .agent {
+                errors.append(actorDelegationIssue(
+                    code: "non_agent_execution_node",
+                    message: "Delegation tree execution links can only target agent nodes.",
+                    severity: .error,
+                    actorId: target.id,
+                    linkId: link.id
+                ))
+            }
+        }
+
+        let disconnectedRoots = Set(executionLinks.map(\.sourceActorId)).subtracting(Set(executionLinks.map(\.targetActorId))).subtracting([rootActorId])
+        for actorId in disconnectedRoots.sorted() {
+            warnings.append(actorDelegationIssue(
+                code: "disconnected_execution_tree",
+                message: "Another execution tree exists on the board and is not reachable from the selected root.",
+                severity: .warning,
+                actorId: actorId
+            ))
+        }
+
+        switch SwarmCoordinator.buildHierarchy(rootActorId: rootActorId, links: board.links) {
+        case .noHierarchy:
+            errors.append(actorDelegationIssue(
+                code: "root_without_children",
+                message: "The selected root agent has no one-way hierarchical task children.",
+                severity: .error,
+                actorId: rootActorId
+            ))
+            return actorDelegationPreview(rootActorId: rootActorId, levels: [], errors: errors, warnings: warnings)
+        case .cycle:
+            errors.append(actorDelegationIssue(
+                code: "cycle",
+                message: "The reachable delegation tree contains a cycle.",
+                severity: .error,
+                actorId: rootActorId
+            ))
+            return actorDelegationPreview(rootActorId: rootActorId, levels: [], errors: errors, warnings: warnings)
+        case .hierarchy(let hierarchy):
+            let levels = hierarchy.levels.map { level in
+                level.compactMap { actorId -> ActorDelegationTreeLevelActor? in
+                    guard let node = nodesByID[actorId] else {
+                        errors.append(actorDelegationIssue(
+                            code: "unknown_execution_node",
+                            message: "A delegation tree link references an actor that is not on the board.",
+                            severity: .error,
+                            actorId: actorId
+                        ))
+                        return nil
+                    }
+                    guard validateExecutionAgent(node, into: &errors, code: "agent_missing_link") else {
+                        return nil
+                    }
+                    return ActorDelegationTreeLevelActor(
+                        actorId: node.id,
+                        displayName: node.displayName,
+                        linkedAgentId: node.linkedAgentId!.trimmingCharacters(in: .whitespacesAndNewlines)
+                    )
+                }
+                .sorted { lhs, rhs in
+                    lhs.actorId.localizedCaseInsensitiveCompare(rhs.actorId) == .orderedAscending
+                }
+            }
+            return actorDelegationPreview(rootActorId: rootActorId, levels: levels, errors: errors, warnings: warnings)
+        }
+    }
+
     /// Creates one actor node in board.
     public func createActorNode(node: ActorNode) throws -> ActorBoardSnapshot {
         guard let nodeID = normalizedActorEntityID(node.id) else {
@@ -266,4 +391,94 @@ extension CoreService {
     }
 
     /// Lists agent chat sessions backed by JSONL files.
+}
+
+private func actorDelegationPreview(
+    rootActorId: String,
+    levels: [[ActorDelegationTreeLevelActor]],
+    errors: [ActorDelegationTreeIssue],
+    warnings: [ActorDelegationTreeIssue]
+) -> ActorDelegationTreePreviewResponse {
+    ActorDelegationTreePreviewResponse(
+        status: errors.isEmpty ? .valid : .invalid,
+        rootActorId: rootActorId,
+        levels: levels,
+        errors: errors,
+        warnings: warnings
+    )
+}
+
+private func actorDelegationIssue(
+    code: String,
+    message: String,
+    severity: ActorDelegationTreeIssueSeverity,
+    actorId: String? = nil,
+    linkId: String? = nil
+) -> ActorDelegationTreeIssue {
+    ActorDelegationTreeIssue(
+        code: code,
+        message: message,
+        severity: severity,
+        actorId: actorId,
+        linkId: linkId
+    )
+}
+
+@discardableResult
+private func validateExecutionAgent(
+    _ node: ActorNode,
+    into errors: inout [ActorDelegationTreeIssue],
+    code: String
+) -> Bool {
+    guard node.kind == .agent else {
+        errors.append(actorDelegationIssue(
+            code: code,
+            message: "Delegation tree execution nodes must be agents.",
+            severity: .error,
+            actorId: node.id
+        ))
+        return false
+    }
+    guard let linkedAgentId = node.linkedAgentId?.trimmingCharacters(in: .whitespacesAndNewlines), !linkedAgentId.isEmpty else {
+        errors.append(actorDelegationIssue(
+            code: code,
+            message: "Delegation tree agent nodes must link to a configured agent.",
+            severity: .error,
+            actorId: node.id
+        ))
+        return false
+    }
+    return true
+}
+
+private func effectiveActorRelationship(for link: ActorLink) -> ActorRelationshipType {
+    if let relationship = link.relationship {
+        return relationship
+    }
+
+    let sourceSocket = link.sourceSocket ?? .right
+    let targetSocket = link.targetSocket ?? .left
+    if (sourceSocket == .bottom && targetSocket == .top)
+        || (sourceSocket == .top && targetSocket == .bottom) {
+        return .hierarchical
+    }
+    return .peer
+}
+
+private func normalizedActorEntityIDValue(_ raw: String) -> String? {
+    let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !trimmed.isEmpty else {
+        return nil
+    }
+
+    let allowed = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_.:/")
+    if trimmed.rangeOfCharacter(from: allowed.inverted) != nil {
+        return nil
+    }
+
+    guard trimmed.count <= 180 else {
+        return nil
+    }
+
+    return trimmed
 }

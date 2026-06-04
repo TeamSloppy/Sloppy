@@ -159,6 +159,23 @@ struct ActorsAPIRouter: APIRouter {
             }
         }
 
+        router.post("/v1/actors/delegation-tree/preview", metadata: RouteMetadata(summary: "Preview actor delegation tree", description: "Validates and previews the saved Actor Board delegation tree for a root actor", tags: ["Actors"])) { request in
+            guard let body = request.body,
+                  let payload = CoreRouter.decode(body, as: ActorDelegationTreePreviewRequest.self)
+            else {
+                return CoreRouter.json(status: HTTPStatus.badRequest, payload: ["error": ErrorCode.invalidActorPayload])
+            }
+
+            do {
+                let preview = try await service.previewActorDelegationTree(request: payload)
+                return CoreRouter.encodable(status: HTTPStatus.ok, payload: preview)
+            } catch let error as CoreService.ActorBoardError {
+                return CoreRouter.actorBoardErrorResponse(error, fallback: ErrorCode.actorRouteFailed)
+            } catch {
+                return CoreRouter.json(status: HTTPStatus.internalServerError, payload: ["error": ErrorCode.actorRouteFailed])
+            }
+        }
+
         router.delete("/v1/actors/nodes/:actorId", metadata: RouteMetadata(summary: "Delete actor node", description: "Deletes a specific actor node", tags: ["Actors"])) { request in
             let actorId = request.pathParam("actorId") ?? ""
 
