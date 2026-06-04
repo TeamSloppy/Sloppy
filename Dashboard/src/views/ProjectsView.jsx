@@ -1294,12 +1294,19 @@ export function ProjectsView({
   }, [notifications, liveUpdatesProjectId]);
 
   useEffect(() => {
-    if (!routeProjectId || !selectedProject?.isSummary) {
+    const taskCountTotal = Number(selectedProject?.taskCounts?.total || 0);
+    const loadedTaskCount = Array.isArray(selectedProject?.tasks) ? selectedProject.tasks.length : 0;
+    const needsProjectDetails =
+      Boolean(selectedProject?.isSummary) ||
+      (taskCountTotal > 0 && loadedTaskCount < taskCountTotal);
+    const projectId = selectedProject?.id || routeProjectId;
+
+    if (!projectId || !needsProjectDetails) {
       return;
     }
 
     let isCancelled = false;
-    fetchProjectRequest(routeProjectId)
+    fetchProjectRequest(projectId)
       .then((project) => {
         if (!isCancelled && project) {
           replaceProjectInState(project);
@@ -1314,7 +1321,14 @@ export function ProjectsView({
     return () => {
       isCancelled = true;
     };
-  }, [routeProjectId, selectedProject?.id, selectedProject?.isSummary, selectedProject?.updatedAt]);
+  }, [
+    routeProjectId,
+    selectedProject?.id,
+    selectedProject?.isSummary,
+    selectedProject?.taskCounts?.total,
+    selectedProject?.tasks?.length,
+    selectedProject?.updatedAt
+  ]);
 
   useEffect(() => {
     const shouldLoadAssignments =

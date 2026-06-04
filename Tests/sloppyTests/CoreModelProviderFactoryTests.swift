@@ -18,6 +18,14 @@ private final class OAuthTokenBox: @unchecked Sendable {
 }
 
 @Test
+func providerModelOptionInfersContextWindowForFutureGPT5Models() {
+    let option = CoreService.providerModelOption(for: "openai-api:gpt-5.5")
+
+    #expect(option.contextWindow == "1.0M")
+    #expect(option.capabilities.contains("tools"))
+}
+
+@Test
 func coreModelProviderFactoryAcceptsOpenRouterPrefixedModel() {
     let model = CoreConfig.ModelConfig(
         title: "openrouter-main",

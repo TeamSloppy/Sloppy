@@ -524,7 +524,7 @@ extension CoreService {
         var capabilities: [String] = []
         var contextWindow: String?
 
-        if lowered.hasPrefix("gpt-5.4") {
+        if lowered.hasPrefix("gpt-5.") {
             capabilities.append("tools")
             contextWindow = "1.0M"
         } else if lowered.hasPrefix("gpt-4o") {
