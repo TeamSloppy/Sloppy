@@ -132,7 +132,32 @@ export function AgentOverviewTab({ agent, navigateToAgent }: any) {
     return (
         <div className="agent-dashboard">
             <div className="agent-top-grid">
-                <AgentPetCard pet={agentSnapshot?.pet} />
+                <div className="agent-top-left">
+                    <AgentPetCard pet={agentSnapshot?.pet} />
+
+                    <section className="dashboard-section">
+                        <div className="dashboard-section-header">
+                            <h3>Latest Run</h3>
+                            <button className="text-button" onClick={() => navigateToAgent(agent.id, 'memories')}>View history &rarr;</button>
+                        </div>
+                        <div className="latest-run-card">
+                            {latestSession ? (
+                                <>
+                                    <div className="latest-run-status">
+                                        <span className={`material-symbols-rounded text-${latestSession.failureReason ? 'critical' : 'done'}`}>
+                                            {latestSession.failureReason ? 'error' : 'check_circle'}
+                                        </span>
+                                        <span className="run-id">{latestSession.id.split('-')[0]}</span>
+                                        <span className="badge badge-assignment">{latestSession.kind || 'Session'}</span>
+                                    </div>
+                                    <span className="run-time">{lastRunTime}</span>
+                                </>
+                            ) : (
+                                <span className="text-muted">No sessions yet.</span>
+                            )}
+                        </div>
+                    </section>
+                </div>
 
                 <div className="agent-top-right">
                     <section className="dashboard-section">
@@ -195,29 +220,6 @@ export function AgentOverviewTab({ agent, navigateToAgent }: any) {
                     </section>
                 </div>
             </div>
-
-            <section className="dashboard-section">
-                <div className="dashboard-section-header">
-                    <h3>Latest Run</h3>
-                    <button className="text-button" onClick={() => navigateToAgent(agent.id, 'memories')}>View history &rarr;</button>
-                </div>
-                <div className="latest-run-card">
-                    {latestSession ? (
-                        <>
-                            <div className="latest-run-status">
-                                <span className={`material-symbols-rounded text-${latestSession.failureReason ? 'critical' : 'done'}`}>
-                                    {latestSession.failureReason ? 'error' : 'check_circle'}
-                                </span>
-                                <span className="run-id">{latestSession.id.split('-')[0]}</span>
-                                <span className="badge badge-assignment">{latestSession.kind || 'Session'}</span>
-                            </div>
-                            <span className="run-time">{lastRunTime}</span>
-                        </>
-                    ) : (
-                        <span className="text-muted">No sessions yet.</span>
-                    )}
-                </div>
-            </section>
 
             <section className="dashboard-charts-grid">
                 <div className="chart-card">

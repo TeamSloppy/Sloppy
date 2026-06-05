@@ -400,6 +400,13 @@
   min-width: 0;
 }
 
+.agent-top-left {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  min-width: 0;
+}
+
 .agent-top-right {
   display: flex;
   flex-direction: column;
