@@ -276,6 +276,43 @@ public actor RuntimeSystem {
         sessionsByChannel[channelId] != nil
     }
 
+    /// Runs a one-shot text generation outside channel transcript state. Tools are never attached.
+    public func generateText(
+        prompt: String,
+        model: String?,
+        reasoningEffort: ReasoningEffort? = nil,
+        maxTokens: Int = 1024
+    ) async -> String? {
+        let normalizedModel = model?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let activeModel = (normalizedModel?.isEmpty == false ? normalizedModel : nil) ?? defaultModel
+        guard let modelProvider, let activeModel else {
+            return nil
+        }
+
+        do {
+            let languageModel = try await modelProvider.createLanguageModel(for: activeModel)
+            let session = LanguageModelSession(model: languageModel, tools: [])
+            let options = modelProvider.generationOptions(
+                for: activeModel,
+                maxTokens: maxTokens,
+                reasoningEffort: reasoningEffort
+            )
+            let response = try await session.respond(to: prompt, options: options)
+            let trimmed = response.content.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? nil : trimmed
+        } catch {
+            logger.warning(
+                "One-shot model generation failed",
+                metadata: [
+                    "model": .string(activeModel),
+                    "prompt_chars": .stringConvertible(prompt.count),
+                    "error": .string(error.localizedDescription)
+                ]
+            )
+            return nil
+        }
+    }
+
     /// Posts channel message and executes route-specific orchestration flow.
     public func postMessage(
         channelId: String,

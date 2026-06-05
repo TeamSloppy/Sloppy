@@ -244,6 +244,8 @@ actor AgentSessionOrchestrator {
         } else {
             selectedModel = (catalogModel?.isEmpty == false) ? catalogModel : nil
         }
+        let configuredPlannerModel = agentConfig.plannerModel?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let plannerModel = (configuredPlannerModel?.isEmpty == false ? configuredPlannerModel : nil) ?? selectedModel
         let selectedModelCapabilities = Set(
             agentConfig.availableModels
                 .first(where: { $0.id == selectedModel })?
@@ -269,6 +271,8 @@ actor AgentSessionOrchestrator {
                 "session_id": .string(sessionID),
                 "user_id": .string(request.userId),
                 "mode": .string((request.mode ?? AgentChatMode.defaultMode).rawValue),
+                "planner_model": .string(optionalString(plannerModel)),
+                "executor_model": .string(optionalString(selectedModel)),
                 "attachment_count": .stringConvertible(request.attachments.count),
                 "prompt": .string(truncateForLog(content.isEmpty ? "[attachments_only_prompt]" : content))
             ]
@@ -304,6 +308,8 @@ actor AgentSessionOrchestrator {
             Building route plan and evaluating context budget.
             - Agent: \(agentID)
             - Session: \(sessionID)
+            - Planner model: \(plannerModel ?? "default")
+            - Executor model: \(selectedModel ?? "default")
             - Attachments: \(attachments.count)
             \(attachmentPlanningSummary(attachments))
             """
@@ -372,11 +378,19 @@ actor AgentSessionOrchestrator {
         var runtimeOutcome: SessionRuntimeOutcome
         switch agentConfig.runtime.type {
         case .native:
+            let plannedRuntimeContent = await runtimeContentWithPlannerOutput(
+                agentID: agentID,
+                sessionID: sessionID,
+                content: runtimeContentWithAttachments,
+                plannerModel: plannerModel,
+                executorModel: selectedModel,
+                reasoningEffort: reasoningEffort
+            )
             runtimeOutcome = await postNativeMessage(
                 agentID: agentID,
                 sessionID: sessionID,
                 userID: request.userId,
-                content: runtimeContentWithAttachments,
+                content: plannedRuntimeContent,
                 selectedModel: selectedModel,
                 reasoningEffort: reasoningEffort,
                 mode: requestMode
@@ -937,6 +951,93 @@ actor AgentSessionOrchestrator {
             return content
         }
         return "\(content)\n\n#[FRIEND_REMINDER.md]\n\(reminder)"
+    }
+
+    private func runtimeContentWithPlannerOutput(
+        agentID: String,
+        sessionID: String,
+        content: String,
+        plannerModel: String?,
+        executorModel: String?,
+        reasoningEffort: ReasoningEffort?
+    ) async -> String {
+        appendEventsSafely(
+            agentID: agentID,
+            sessionID: sessionID,
+            events: [
+                AgentSessionEvent(
+                    agentId: agentID,
+                    sessionId: sessionID,
+                    type: .runStatus,
+                    runStatus: AgentRunStatusEvent(
+                        stage: .thinking,
+                        label: "Planning",
+                        details: "Generating execution plan..."
+                    )
+                )
+            ]
+        )
+
+        guard let plan = await runtime.generateText(
+            prompt: plannerPrompt(
+                agentID: agentID,
+                sessionID: sessionID,
+                executorModel: executorModel,
+                content: content
+            ),
+            model: plannerModel,
+            reasoningEffort: reasoningEffort,
+            maxTokens: 1200
+        ) else {
+            return content
+        }
+
+        let boundedPlan = truncatePlannerOutput(plan)
+        appendEventsSafely(
+            agentID: agentID,
+            sessionID: sessionID,
+            events: [
+                AgentSessionEvent(
+                    agentId: agentID,
+                    sessionId: sessionID,
+                    type: .message,
+                    message: AgentSessionMessage(
+                        role: .assistant,
+                        segments: [AgentMessageSegment(kind: .thinking, text: boundedPlan)]
+                    )
+                )
+            ]
+        )
+        return "\(content)\n\n[Planner output]\n\(boundedPlan)"
+    }
+
+    private func plannerPrompt(
+        agentID: String,
+        sessionID: String,
+        executorModel: String?,
+        content: String
+    ) -> String {
+        """
+        You are the planning model for a Sloppy native agent run.
+
+        Create a concise execution plan for the executor model. Do not call tools. Do not write the final answer. Focus on order of operations, risks, validation, and when to ask the user for input.
+
+        Agent: \(agentID)
+        Session: \(sessionID)
+        Executor model: \(executorModel ?? "default")
+
+        User/runtime context:
+        \(content)
+        """
+    }
+
+    private func truncatePlannerOutput(_ text: String) -> String {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.count > 4_000 else {
+            return trimmed
+        }
+        let end = trimmed.index(trimmed.startIndex, offsetBy: 4_000)
+        return String(trimmed[..<end]) + "\n\n[Planner output truncated]"
     }
 
     private func postNativeMessage(

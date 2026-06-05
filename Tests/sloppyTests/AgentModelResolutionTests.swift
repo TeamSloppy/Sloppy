@@ -75,3 +75,49 @@ func readingAgentConfigPreservesTemporarilyUnavailableSelectedModel() async thro
     #expect(reloaded.selectedModel == installedModel.id)
     #expect(reloaded.availableModels.contains { $0.id == installedModel.id })
 }
+
+@Test
+func readingAgentConfigPreservesTemporarilyUnavailablePlannerModel() async throws {
+    let agentsRootURL = FileManager.default.temporaryDirectory
+        .appendingPathComponent("agent-planner-model-preserve-\(UUID().uuidString)", isDirectory: true)
+        .appendingPathComponent("agents", isDirectory: true)
+    let store = AgentCatalogFileStore(agentsRootURL: agentsRootURL)
+    defer {
+        try? FileManager.default.removeItem(at: agentsRootURL.deletingLastPathComponent())
+    }
+
+    let executorModel = ProviderModelOption(id: "openai-api:executor-model", title: "Executor", capabilities: ["tools"])
+    let plannerModel = ProviderModelOption(id: "openai-api:planner-model", title: "Planner", capabilities: ["reasoning"])
+    let fallbackModel = ProviderModelOption(id: "openai-api:fallback-model", title: "Fallback", capabilities: ["tools"])
+    let agent = try store.createAgent(
+        AgentCreateRequest(id: "planner-agent", displayName: "Planner Agent", role: "Developer"),
+        availableModels: [executorModel, plannerModel]
+    )
+    let initial = try store.getAgentConfig(agentID: agent.id, availableModels: [executorModel, plannerModel])
+    let configured = try store.updateAgentConfig(
+        agentID: agent.id,
+        request: AgentConfigUpdateRequest(
+            role: initial.role,
+            selectedModel: executorModel.id,
+            plannerModel: plannerModel.id,
+            documents: initial.documents,
+            heartbeat: initial.heartbeat,
+            channelSessions: initial.channelSessions,
+            runtime: .init(type: .native)
+        ),
+        availableModels: [executorModel, plannerModel]
+    )
+    #expect(configured.selectedModel == executorModel.id)
+    #expect(configured.plannerModel == plannerModel.id)
+
+    let reloaded = try store.getAgentConfig(
+        agentID: agent.id,
+        availableModels: [fallbackModel],
+        persistedModelAllowed: { _ in false }
+    )
+
+    #expect(reloaded.selectedModel == executorModel.id)
+    #expect(reloaded.plannerModel == plannerModel.id)
+    #expect(reloaded.availableModels.contains { $0.id == executorModel.id })
+    #expect(reloaded.availableModels.contains { $0.id == plannerModel.id })
+}

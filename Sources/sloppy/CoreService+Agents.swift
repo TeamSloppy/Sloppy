@@ -537,12 +537,14 @@ extension CoreService {
         var available = base
         let cfg = currentConfig
         let hasOAuth = openAIOAuthService.currentAccessToken() != nil
-        if request.runtime.type == .native, let raw = request.selectedModel {
-            let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !trimmed.isEmpty,
-               !available.contains(where: { $0.id == trimmed }),
-               CoreService.isRuntimeRoutableModelID(trimmed, config: cfg, hasOAuthCredentials: hasOAuth) {
-                available.append(CoreService.providerModelOption(for: trimmed))
+        if request.runtime.type == .native {
+            for raw in [request.selectedModel, request.plannerModel] {
+                let trimmed = raw?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                if !trimmed.isEmpty,
+                   !available.contains(where: { $0.id == trimmed }),
+                   CoreService.isRuntimeRoutableModelID(trimmed, config: cfg, hasOAuthCredentials: hasOAuth) {
+                    available.append(CoreService.providerModelOption(for: trimmed))
+                }
             }
         }
         return available

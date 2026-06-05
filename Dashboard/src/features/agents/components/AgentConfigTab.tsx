@@ -16,6 +16,7 @@ import {
   filterModelsByQuery,
   mergeModelOptions
 } from "../utils/aggregateProviderModels";
+import { AggregatedModelPicker } from "../../config/components/AggregatedModelPicker";
 import { ChannelModelSelector } from "./ChannelModelSelector";
 import { resolveSystemRole, SYSTEM_ROLES } from "./AgentCreateForm";
 
@@ -33,6 +34,7 @@ function emptyAgentConfigDraft(agentId) {
     agentId,
     role: "",
     selectedModel: "",
+    plannerModel: "",
     availableModels: [],
     documents: {
       userMarkdown: "",
@@ -74,6 +76,7 @@ function normalizeConfigDraft(agentId, config) {
     agentId: config.agentId || agentId,
     role: String(config.role || ""),
     selectedModel: coerceLegacySloppyModelId(String(config.selectedModel || "")),
+    plannerModel: coerceLegacySloppyModelId(String(config.plannerModel || "")),
     availableModels: Array.isArray(config.availableModels) ? config.availableModels : [],
     documents: {
       userMarkdown: String(config.documents?.userMarkdown || ""),
@@ -554,8 +557,9 @@ export function AgentConfigTab({ agentId, agentDisplayName = "", onDeleteAgent =
 
     const runtimeType = draft.runtime?.type || "native";
     const selectedModel = coerceLegacySloppyModelId(String(draft.selectedModel || "").trim());
+    const plannerModel = coerceLegacySloppyModelId(String(draft.plannerModel || "").trim());
     if (runtimeType === "native" && !selectedModel) {
-      setStatusText("Model is required for native runtime.");
+      setStatusText("Executor model is required for native runtime.");
       return;
     }
     if (runtimeType === "acp" && !draft.runtime?.acp?.targetId?.trim()) {
@@ -585,6 +589,7 @@ export function AgentConfigTab({ agentId, agentDisplayName = "", onDeleteAgent =
     const payload = {
       role: String(draft.role || "").trim(),
       selectedModel: runtimeType === "native" ? selectedModel : null,
+      plannerModel: runtimeType === "native" ? plannerModel || null : null,
       documents: {
         userMarkdown: String(draft.documents.userMarkdown || ""),
         agentsMarkdown: String(draft.documents.agentsMarkdown || ""),
@@ -892,7 +897,7 @@ export function AgentConfigTab({ agentId, agentDisplayName = "", onDeleteAgent =
           <h3>Models</h3>
           <div className="entry-form-grid">
             <label style={{ gridColumn: "1 / -1" }}>
-              Default Model
+              Executor Model
               <div ref={defaultModelPickerRef} className="provider-model-picker">
                 <input
                   value={modelPickerQuery}
@@ -910,6 +915,16 @@ export function AgentConfigTab({ agentId, agentDisplayName = "", onDeleteAgent =
                 </span>
               ) : null}
             </label>
+            <AggregatedModelPicker
+              label="Planner Model"
+              value={String(draft.plannerModel || "")}
+              onChange={(id) => updateField("plannerModel", id)}
+              aggregatedModels={aggregatedModels}
+              disabled={isSaving || isACP}
+              hint="When empty, the planner uses the executor model."
+              emptyOptionTitle="Use executor model"
+              emptyOptionSubtitle="Clear planner override"
+            />
           </div>
 
           {channelNodes.length > 0 && (

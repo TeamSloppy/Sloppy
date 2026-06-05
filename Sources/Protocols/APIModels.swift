@@ -2230,6 +2230,7 @@ public struct AgentConfigDetail: Codable, Sendable, Equatable {
     public var agentId: String
     public var role: String
     public var selectedModel: String?
+    public var plannerModel: String?
     public var availableModels: [ProviderModelOption]
     public var documents: AgentDocumentBundle
     public var heartbeat: AgentHeartbeatSettings
@@ -2241,6 +2242,7 @@ public struct AgentConfigDetail: Codable, Sendable, Equatable {
         agentId: String,
         role: String,
         selectedModel: String?,
+        plannerModel: String? = nil,
         availableModels: [ProviderModelOption],
         documents: AgentDocumentBundle,
         heartbeat: AgentHeartbeatSettings = AgentHeartbeatSettings(),
@@ -2251,6 +2253,7 @@ public struct AgentConfigDetail: Codable, Sendable, Equatable {
         self.agentId = agentId
         self.role = role
         self.selectedModel = selectedModel
+        self.plannerModel = plannerModel
         self.availableModels = availableModels
         self.documents = documents
         self.heartbeat = heartbeat
@@ -2260,7 +2263,7 @@ public struct AgentConfigDetail: Codable, Sendable, Equatable {
     }
 
     enum CodingKeys: String, CodingKey {
-        case agentId, role, selectedModel, availableModels, documents, heartbeat, channelSessions, heartbeatStatus, runtime
+        case agentId, role, selectedModel, plannerModel, availableModels, documents, heartbeat, channelSessions, heartbeatStatus, runtime
     }
 
     public init(from decoder: Decoder) throws {
@@ -2268,6 +2271,7 @@ public struct AgentConfigDetail: Codable, Sendable, Equatable {
         agentId = try container.decode(String.self, forKey: .agentId)
         role = try container.decodeIfPresent(String.self, forKey: .role) ?? ""
         selectedModel = try container.decodeIfPresent(String.self, forKey: .selectedModel)
+        plannerModel = try container.decodeIfPresent(String.self, forKey: .plannerModel)
         availableModels = try container.decode([ProviderModelOption].self, forKey: .availableModels)
         documents = try container.decode(AgentDocumentBundle.self, forKey: .documents)
         heartbeat = try container.decodeIfPresent(AgentHeartbeatSettings.self, forKey: .heartbeat) ?? AgentHeartbeatSettings()
@@ -2280,6 +2284,7 @@ public struct AgentConfigDetail: Codable, Sendable, Equatable {
 public struct AgentConfigUpdateRequest: Codable, Sendable {
     public var role: String?
     public var selectedModel: String?
+    public var plannerModel: String?
     public var documents: AgentDocumentBundle
     public var heartbeat: AgentHeartbeatSettings
     public var channelSessions: AgentChannelSessionSettings
@@ -2288,6 +2293,7 @@ public struct AgentConfigUpdateRequest: Codable, Sendable {
     public init(
         role: String?,
         selectedModel: String?,
+        plannerModel: String? = nil,
         documents: AgentDocumentBundle,
         heartbeat: AgentHeartbeatSettings = AgentHeartbeatSettings(),
         channelSessions: AgentChannelSessionSettings = AgentChannelSessionSettings(),
@@ -2295,6 +2301,7 @@ public struct AgentConfigUpdateRequest: Codable, Sendable {
     ) {
         self.role = role
         self.selectedModel = selectedModel
+        self.plannerModel = plannerModel
         self.documents = documents
         self.heartbeat = heartbeat
         self.channelSessions = channelSessions
@@ -2302,13 +2309,14 @@ public struct AgentConfigUpdateRequest: Codable, Sendable {
     }
 
     enum CodingKeys: String, CodingKey {
-        case role, selectedModel, documents, heartbeat, channelSessions, runtime
+        case role, selectedModel, plannerModel, documents, heartbeat, channelSessions, runtime
     }
 
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         role = try container.decodeIfPresent(String.self, forKey: .role)
         selectedModel = try container.decodeIfPresent(String.self, forKey: .selectedModel)
+        plannerModel = try container.decodeIfPresent(String.self, forKey: .plannerModel)
         documents = try container.decode(AgentDocumentBundle.self, forKey: .documents)
         heartbeat = try container.decodeIfPresent(AgentHeartbeatSettings.self, forKey: .heartbeat) ?? AgentHeartbeatSettings()
         channelSessions = try container.decodeIfPresent(AgentChannelSessionSettings.self, forKey: .channelSessions) ?? AgentChannelSessionSettings()

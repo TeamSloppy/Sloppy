@@ -358,6 +358,7 @@ private func waitForAgentSessionCondition(
 private func makeAgentSessionFixture(
     agentID: String,
     selectedModel: String,
+    plannerModel: String? = nil,
     availableModels: [ProviderModelOption]
 ) throws -> (AgentCatalogFileStore, AgentSessionFileStore, URL) {
     let agentsRootURL = FileManager.default.temporaryDirectory
@@ -379,6 +380,7 @@ private func makeAgentSessionFixture(
         request: AgentConfigUpdateRequest(
             role: nil,
             selectedModel: selectedModel,
+            plannerModel: plannerModel,
             documents: AgentDocumentBundle(
                 userMarkdown: "# User\nTest user\n",
                 agentsMarkdown: "# Agent\nTest agent\n",
@@ -390,6 +392,44 @@ private func makeAgentSessionFixture(
     )
 
     return (catalogStore, sessionStore, agentsRootURL)
+}
+
+@Test
+func nativeAgentRunPlansWithPlannerModelThenExecutesWithExecutorModel() async throws {
+    let availableModels = [
+        ProviderModelOption(id: "mock:planner", title: "Planner", capabilities: ["reasoning"]),
+        ProviderModelOption(id: "mock:executor", title: "Executor", capabilities: ["tools"])
+    ]
+    let (catalogStore, sessionStore, _) = try makeAgentSessionFixture(
+        agentID: "planner-executor-agent",
+        selectedModel: "mock:executor",
+        plannerModel: "mock:planner",
+        availableModels: availableModels
+    )
+    let provider = SessionCapturingModelProvider(models: availableModels.map(\.id))
+    let runtime = RuntimeSystem(modelProvider: provider, defaultModel: "mock:executor")
+    let orchestrator = AgentSessionOrchestrator(
+        runtime: runtime,
+        sessionStore: sessionStore,
+        agentCatalogStore: catalogStore,
+        availableModels: availableModels
+    )
+
+    let session = try await orchestrator.createSession(agentID: "planner-executor-agent", request: AgentSessionCreateRequest())
+    _ = try await orchestrator.postMessage(
+        agentID: "planner-executor-agent",
+        sessionID: session.id,
+        request: AgentSessionPostMessageRequest(
+            userId: "dashboard",
+            content: "Build a small feature"
+        )
+    )
+
+    #expect(await provider.requestedModelsSnapshot() == ["mock:planner", "mock:executor"])
+    let prompts = await provider.requestedPromptsSnapshot()
+    #expect(prompts.count == 2)
+    #expect(prompts.last?.contains("[Planner output]") == true)
+    #expect(prompts.last?.contains("Captured.") == true)
 }
 
 private func expectedFallbackBootstrapMessage(
@@ -540,8 +580,8 @@ func agentSessionOrchestratorDropsReasoningEffortForNonReasoningModels() async t
         )
     )
 
-    #expect(await provider.requestedModelsSnapshot() == ["openai-api:gpt-5.4-mini"])
-    #expect(await provider.requestedReasoningEffortsSnapshot() == [nil])
+    #expect(await provider.requestedModelsSnapshot() == ["openai-api:gpt-5.4-mini", "openai-api:gpt-5.4-mini"])
+    #expect(await provider.requestedReasoningEffortsSnapshot() == [nil, nil])
 }
 
 @Test
@@ -641,7 +681,7 @@ func agentSessionTreatsPlainAssistantAnswerWithoutToolsAsDone() async throws {
         return event.message?.segments.compactMap(\.text).joined(separator: "\n")
     }
 
-    #expect(await provider.requestCount() == 1)
+    #expect(await provider.requestCount() == 2)
     #expect(assistantTexts.last == "Recovered without tools.")
     #expect(response.appendedEvents.last?.runStatus?.stage == .done)
 }
@@ -1610,7 +1650,7 @@ func agentSessionReusesPersistentSessionAcrossMessages() async throws {
         request: AgentSessionPostMessageRequest(userId: "dashboard", content: "second message")
     )
 
-    #expect(await provider.requestedModelsSnapshot().count == 1)
+    #expect(await provider.requestedModelsSnapshot().count == 3)
 }
 
 @Test
@@ -2268,7 +2308,7 @@ func agentSessionInvalidatesCachedModelSessionWhenStaleBootstrapGainsHistory() a
         sessionID: session.id,
         request: AgentSessionPostMessageRequest(userId: "dashboard", content: "first live turn")
     )
-    #expect(await provider.requestedModelsSnapshot().count == 1)
+    #expect(await provider.requestedModelsSnapshot().count == 2)
 
     let mutationStore = AgentSessionFileStore(agentsRootURL: agentsRootURL)
     _ = try mutationStore.appendEvents(
@@ -2293,7 +2333,7 @@ func agentSessionInvalidatesCachedModelSessionWhenStaleBootstrapGainsHistory() a
         request: AgentSessionPostMessageRequest(userId: "dashboard", content: "continue with restored context")
     )
 
-    #expect(await provider.requestedModelsSnapshot().count == 2)
+    #expect(await provider.requestedModelsSnapshot().count == 4)
     let restoredTranscript = await provider.requestedTranscriptsSnapshot().last?.joined(separator: "\n") ?? ""
     #expect(restoredTranscript.contains("first live turn"))
     #expect(restoredTranscript.contains("persisted context that was not in the cached model session"))

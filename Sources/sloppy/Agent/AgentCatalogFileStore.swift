@@ -17,6 +17,7 @@ final class AgentCatalogFileStore {
         let role: String
         let createdAt: Date
         let selectedModel: String?
+        let plannerModel: String?
         let heartbeat: AgentHeartbeatSettings?
         let channelSessions: AgentChannelSessionSettings?
         let runtime: AgentRuntimeConfig?
@@ -217,6 +218,7 @@ final class AgentCatalogFileStore {
         let heartbeatStatus = try readHeartbeatStatus(agentID: normalizedAgentID, isSystem: summary.isSystem)
         let visibleModels = Self.availableModelsIncludingSelected(
             configFile.selectedModel,
+            configFile.plannerModel,
             availableModels: availableModels
         )
 
@@ -224,6 +226,7 @@ final class AgentCatalogFileStore {
             agentId: normalizedAgentID,
             role: summary.role,
             selectedModel: configFile.selectedModel,
+            plannerModel: configFile.plannerModel,
             availableModels: visibleModels,
             documents: documents,
             heartbeat: configFile.heartbeat ?? AgentHeartbeatSettings(),
@@ -251,7 +254,9 @@ final class AgentCatalogFileStore {
 
         let runtime = request.runtime
         let normalizedSelectedModel = request.selectedModel?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalizedPlannerModel = request.plannerModel?.trimmingCharacters(in: .whitespacesAndNewlines)
         let selectedModel: String?
+        let plannerModel: String?
         switch runtime.type {
         case .native:
             guard let normalizedSelectedModel, !normalizedSelectedModel.isEmpty else {
@@ -265,12 +270,24 @@ final class AgentCatalogFileStore {
                 throw StoreError.invalidModel
             }
             selectedModel = canonical
+            if let normalizedPlannerModel, !normalizedPlannerModel.isEmpty {
+                guard let canonicalPlanner = CoreService.resolveCanonicalAgentModelID(
+                    normalizedPlannerModel,
+                    availableModels: availableModels
+                ) else {
+                    throw StoreError.invalidModel
+                }
+                plannerModel = canonicalPlanner
+            } else {
+                plannerModel = nil
+            }
         case .acp:
             let targetId = runtime.acp?.targetId.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
             guard !targetId.isEmpty else {
                 throw StoreError.invalidPayload
             }
             selectedModel = nil
+            plannerModel = nil
         }
 
         let normalizedIdentityMarkdown = normalizedIdentityValue(
@@ -315,6 +332,7 @@ final class AgentCatalogFileStore {
                     role: newRole,
                     createdAt: summary.createdAt,
                     selectedModel: selectedModel,
+                    plannerModel: plannerModel,
                     heartbeat: heartbeat,
                     channelSessions: channelSessions,
                     runtime: runtime
@@ -345,6 +363,7 @@ final class AgentCatalogFileStore {
             agentId: normalizedAgentID,
             role: newRole,
             selectedModel: selectedModel,
+            plannerModel: plannerModel,
             availableModels: availableModels,
             documents: normalizedDocuments,
             heartbeat: heartbeat,
@@ -652,6 +671,7 @@ final class AgentCatalogFileStore {
                 role: summary.role,
                 createdAt: summary.createdAt,
                 selectedModel: availableModels.first?.id,
+                plannerModel: nil,
                 heartbeat: AgentHeartbeatSettings(),
                 channelSessions: AgentChannelSessionSettings(),
                 runtime: summary.runtime
@@ -704,6 +724,7 @@ final class AgentCatalogFileStore {
                 role: summary.role,
                 createdAt: summary.createdAt,
                 selectedModel: availableModels.first?.id,
+                plannerModel: nil,
                 heartbeat: AgentHeartbeatSettings(),
                 channelSessions: AgentChannelSessionSettings(),
                 runtime: summary.runtime
@@ -717,6 +738,7 @@ final class AgentCatalogFileStore {
         decoder.dateDecodingStrategy = .iso8601
         var decoded = try decoder.decode(AgentConfigFile.self, from: data)
         let selectedModel = decoded.selectedModel?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let plannerModel = decoded.plannerModel?.trimmingCharacters(in: .whitespacesAndNewlines)
         let runtime = decoded.runtime ?? summary.runtime
         let resolvedModel = selectedModel.flatMap { raw -> String? in
             if let canonical = CoreService.resolveCanonicalAgentModelID(raw, availableModels: availableModels) {
@@ -727,13 +749,24 @@ final class AgentCatalogFileStore {
             }
             return nil
         }
-        if let selectedModel, let resolvedModel, resolvedModel != selectedModel {
+        let resolvedPlannerModel = plannerModel.flatMap { raw -> String? in
+            if let canonical = CoreService.resolveCanonicalAgentModelID(raw, availableModels: availableModels) {
+                return canonical
+            }
+            if let persistedModelAllowed, persistedModelAllowed(raw) {
+                return raw
+            }
+            return nil
+        }
+        if let selectedModel, let resolvedModel, resolvedModel != selectedModel
+            || (plannerModel != nil && resolvedPlannerModel != nil && resolvedPlannerModel != plannerModel) {
             decoded = AgentConfigFile(
                 id: decoded.id,
                 displayName: decoded.displayName,
                 role: decoded.role,
                 createdAt: decoded.createdAt,
                 selectedModel: resolvedModel,
+                plannerModel: resolvedPlannerModel,
                 heartbeat: decoded.heartbeat ?? AgentHeartbeatSettings(),
                 channelSessions: decoded.channelSessions ?? AgentChannelSessionSettings(),
                 runtime: runtime
@@ -749,6 +782,7 @@ final class AgentCatalogFileStore {
                 role: decoded.role,
                 createdAt: decoded.createdAt,
                 selectedModel: availableModels.first?.id,
+                plannerModel: decoded.plannerModel,
                 heartbeat: decoded.heartbeat ?? AgentHeartbeatSettings(),
                 channelSessions: decoded.channelSessions ?? AgentChannelSessionSettings(),
                 runtime: runtime
@@ -761,6 +795,7 @@ final class AgentCatalogFileStore {
                 role: decoded.role,
                 createdAt: decoded.createdAt,
                 selectedModel: runtime.type == .native ? decoded.selectedModel : nil,
+                plannerModel: runtime.type == .native ? decoded.plannerModel : nil,
                 heartbeat: decoded.heartbeat ?? AgentHeartbeatSettings(),
                 channelSessions: decoded.channelSessions ?? AgentChannelSessionSettings(),
                 runtime: runtime
@@ -772,15 +807,20 @@ final class AgentCatalogFileStore {
 
     private static func availableModelsIncludingSelected(
         _ selectedModel: String?,
+        _ plannerModel: String?,
         availableModels: [ProviderModelOption]
     ) -> [ProviderModelOption] {
-        let selected = selectedModel?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        guard !selected.isEmpty,
-              !availableModels.contains(where: { $0.id == selected })
-        else {
-            return availableModels
+        var models = availableModels
+        for raw in [selectedModel, plannerModel] {
+            let selected = raw?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            guard !selected.isEmpty,
+                  !models.contains(where: { $0.id == selected })
+            else {
+                continue
+            }
+            models.append(CoreService.providerModelOption(for: selected))
         }
-        return availableModels + [CoreService.providerModelOption(for: selected)]
+        return models
     }
 
     private func writeAgentConfigFile(_ configFile: AgentConfigFile, isSystem: Bool) throws {
