@@ -2812,15 +2812,39 @@
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
+  align-items: center;
   min-width: 0;
 }
 
-.source-control-provider-capabilities span {
+.source-control-provider-capabilities > span {
   padding: 3px 7px;
   border: 1px solid var(--line);
   background: var(--surface-2);
   color: var(--muted);
   font-size: 0.72rem;
+}
+
+.source-control-debug-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid var(--line);
+  background: var(--surface-2);
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.source-control-debug-button:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: var(--surface-3);
+}
+
+.source-control-debug-button .material-symbols-rounded {
+  font-size: 1rem;
 }
 
 .review-worktree-path {
@@ -2836,6 +2860,68 @@
   border: 1px solid var(--line);
   background: var(--surface-2);
   color: var(--accent);
+  overflow-wrap: anywhere;
+}
+
+.review-debug-modal {
+  width: min(520px, 100%);
+  border: 1px solid var(--line);
+  background: var(--surface-3);
+  box-shadow: var(--shadow-brutalist);
+  padding: 14px 16px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.review-debug-modal-subtitle {
+  margin: 6px 0 0;
+  color: var(--muted);
+  font-size: 0.78rem;
+  line-height: 1.4;
+}
+
+.review-debug-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.review-debug-actions button {
+  min-width: 96px;
+}
+
+.review-debug-status {
+  margin: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  background: var(--surface-2);
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.review-debug-status.success {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+.review-debug-result {
+  display: grid;
+  grid-template-columns: 72px minmax(0, 1fr);
+  gap: 8px 10px;
+  align-items: start;
+  font-size: 0.78rem;
+}
+
+.review-debug-result span {
+  color: var(--muted);
+}
+
+.review-debug-result code {
+  min-width: 0;
+  padding: 6px 8px;
+  border: 1px solid var(--line);
+  background: var(--surface-2);
+  color: var(--text);
   overflow-wrap: anywhere;
 }
 

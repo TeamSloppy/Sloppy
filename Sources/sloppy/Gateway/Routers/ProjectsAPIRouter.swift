@@ -169,6 +169,29 @@ struct ProjectsAPIRouter: APIRouter {
             }
         }
 
+        router.post("/v1/projects/:projectId/source-control/worktrees", metadata: RouteMetadata(summary: "Create project source-control worktree", description: "Creates a dedicated source-control worktree for manual project debugging", tags: ["Projects"])) { request in
+            let projectId = request.pathParam("projectId") ?? ""
+            guard let body = request.body,
+                  let payload = CoreRouter.decode(body, as: ProjectSourceControlCreateWorktreeRequest.self)
+            else {
+                return CoreRouter.json(status: HTTPStatus.badRequest, payload: ["error": ErrorCode.invalidBody])
+            }
+            do {
+                let result = try await service.createTUIBackgroundWorktree(projectID: projectId, taskID: payload.taskId)
+                return CoreRouter.encodable(
+                    status: HTTPStatus.ok,
+                    payload: ProjectSourceControlCreateWorktreeResponse(worktree: result)
+                )
+            } catch let error as CoreService.ProjectError {
+                return CoreRouter.projectErrorResponse(error, fallback: ErrorCode.projectUpdateFailed)
+            } catch {
+                return CoreRouter.json(
+                    status: HTTPStatus.internalServerError,
+                    payload: ["error": ErrorCode.projectUpdateFailed, "message": error.localizedDescription]
+                )
+            }
+        }
+
         router.post("/v1/projects", metadata: RouteMetadata(summary: "Create project", description: "Creates a new project", tags: ["Projects"])) { request in
             guard let body = request.body,
                   let payload = CoreRouter.decode(body, as: ProjectCreateRequest.self)

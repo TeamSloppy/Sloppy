@@ -96,3 +96,23 @@ func promptTemplateLoaderReadsInstalledPromptViaSymlinkedBinary() throws {
 
     #expect(try loader.loadPartial(named: "session_capabilities") == "session-capabilities")
 }
+
+@Test
+func promptTemplateLoaderFindsResourcesFromTopLevelSloppySourceFile() throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: root) }
+
+    let promptsDirectory = root.appendingPathComponent("Sources/sloppy/Resources/Prompts/en/partials", isDirectory: true)
+    try FileManager.default.createDirectory(at: promptsDirectory, withIntermediateDirectories: true)
+
+    let runtimeRules = promptsDirectory.appendingPathComponent("runtime_rules.md")
+    try "runtime-rules".write(to: runtimeRules, atomically: true, encoding: .utf8)
+
+    let loader = PromptTemplateLoader(
+        executablePath: nil,
+        currentDirectoryPath: root.appendingPathComponent("RuntimeCwd").path,
+        sourceFilePath: root.appendingPathComponent("Sources/sloppy/CoreService+Debug.swift").path
+    )
+
+    #expect(try loader.loadPartial(named: "runtime_rules") == "runtime-rules")
+}

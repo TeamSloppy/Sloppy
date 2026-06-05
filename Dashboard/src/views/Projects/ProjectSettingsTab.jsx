@@ -8,7 +8,8 @@ import {
     syncProjectTasksNow,
     fetchProjectTaskSyncToken,
     setProjectTaskSyncToken,
-    clearProjectTaskSyncToken
+    clearProjectTaskSyncToken,
+    createProjectSourceControlWorktree
 } from "../../api";
 import { PROJECT_IMAGE_ICON_MAX_BYTES, ProjectIcon, isProjectImageIcon } from "../../components/ProjectIcon";
 
@@ -410,11 +411,19 @@ export function ProjectSettingsTab({
     const [taskSyncBusy, setTaskSyncBusy] = useState(false);
     const [taskSyncDiscovery, setTaskSyncDiscovery] = useState(null);
     const [sourceControlProviders, setSourceControlProviders] = useState([DEFAULT_SOURCE_CONTROL_PROVIDER]);
+    const [debugWorktreeOpen, setDebugWorktreeOpen] = useState(false);
+    const [debugWorktreeName, setDebugWorktreeName] = useState("");
+    const [debugWorktreeStatus, setDebugWorktreeStatus] = useState("");
+    const [debugWorktreeResult, setDebugWorktreeResult] = useState(null);
+    const [debugWorktreeBusy, setDebugWorktreeBusy] = useState(false);
 
     useEffect(() => {
         setDraft(cloneDraft(project));
         setTaskSyncDraft(cloneTaskSyncDraft(project));
         setIconUploadStatus("");
+        setDebugWorktreeName("");
+        setDebugWorktreeStatus("");
+        setDebugWorktreeResult(null);
     }, [project?.id, project?.updatedAt]);
 
     useEffect(() => {
@@ -538,6 +547,39 @@ export function ProjectSettingsTab({
         setDraft(cloneDraft(project));
         setIconUploadStatus("");
         setStatusText("Changes cancelled");
+    }
+
+    function openDebugWorktreeModal() {
+        setDebugWorktreeName(`debug-${project.id}`);
+        setDebugWorktreeStatus("");
+        setDebugWorktreeResult(null);
+        setDebugWorktreeOpen(true);
+    }
+
+    async function createDebugWorktree(event) {
+        event.preventDefault();
+        const taskId = debugWorktreeName.trim();
+        if (!taskId) {
+            setDebugWorktreeStatus("Enter a worktree name.");
+            return;
+        }
+        setDebugWorktreeBusy(true);
+        setDebugWorktreeStatus("Creating worktree...");
+        setDebugWorktreeResult(null);
+        try {
+            const result = await createProjectSourceControlWorktree(project.id, { taskId });
+            const worktree = result?.worktree;
+            if (worktree?.worktreePath && worktree?.branchName) {
+                setDebugWorktreeResult(worktree);
+                setDebugWorktreeStatus("Worktree created");
+                return;
+            }
+            setDebugWorktreeStatus(result?.message || "Failed to create worktree");
+        } catch (error) {
+            setDebugWorktreeStatus(error?.message || "Failed to create worktree");
+        } finally {
+            setDebugWorktreeBusy(false);
+        }
     }
 
     function handleIconUpload(event) {
@@ -1408,6 +1450,15 @@ export function ProjectSettingsTab({
                             {selectedProvider.capabilities.map((capability) => (
                                 <span key={capability}>{capability}</span>
                             ))}
+                            <button
+                                type="button"
+                                className="source-control-debug-button"
+                                onClick={openDebugWorktreeModal}
+                                title="Debug worktree actions"
+                                aria-label="Debug worktree actions"
+                            >
+                                <span className="material-symbols-rounded">bug_report</span>
+                            </button>
                         </div>
                     ) : null}
                 </div>
@@ -1449,6 +1500,55 @@ export function ProjectSettingsTab({
                     </div>
                 )}
             </section>
+        );
+    }
+
+    function renderDebugWorktreeModal() {
+        if (!debugWorktreeOpen) return null;
+        return (
+            <div className="project-visor-preview-modal-backdrop" onClick={() => setDebugWorktreeOpen(false)}>
+                <form className="review-debug-modal" onSubmit={createDebugWorktree} onClick={(event) => event.stopPropagation()}>
+                    <div className="project-visor-preview-modal-head">
+                        <div>
+                            <h4>Debug worktree</h4>
+                            <p className="review-debug-modal-subtitle">Create a dedicated worktree through the configured provider.</p>
+                        </div>
+                        <button
+                            type="button"
+                            className="project-visor-preview-modal-close"
+                            onClick={() => setDebugWorktreeOpen(false)}
+                            aria-label="Close debug worktree modal"
+                        >
+                            <span className="material-symbols-rounded">close</span>
+                        </button>
+                    </div>
+                    <label className="entry-form-field">
+                        <span className="task-sync-field-label">Worktree name</span>
+                        <input
+                            value={debugWorktreeName}
+                            onChange={(event) => setDebugWorktreeName(event.target.value)}
+                            placeholder="debug-worktree"
+                            autoFocus
+                        />
+                    </label>
+                    <div className="review-debug-actions">
+                        <button type="submit" className="hover-levitate" disabled={debugWorktreeBusy}>
+                            {debugWorktreeBusy ? "Creating..." : "Create"}
+                        </button>
+                    </div>
+                    {debugWorktreeStatus ? (
+                        <p className={`review-debug-status ${debugWorktreeResult ? "success" : ""}`}>{debugWorktreeStatus}</p>
+                    ) : null}
+                    {debugWorktreeResult ? (
+                        <div className="review-debug-result">
+                            <span>Branch</span>
+                            <code>{debugWorktreeResult.branchName}</code>
+                            <span>Path</span>
+                            <code>{debugWorktreeResult.worktreePath}</code>
+                        </div>
+                    ) : null}
+                </form>
+            </div>
         );
     }
 
@@ -1822,6 +1922,7 @@ export function ProjectSettingsTab({
 
                 {renderSettingsContent()}
             </section>
+            {renderDebugWorktreeModal()}
         </section>
     );
 }

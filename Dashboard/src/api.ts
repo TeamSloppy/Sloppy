@@ -156,6 +156,7 @@ export const fetchTaskDiff = coreApi.fetchTaskDiff;
 export const fetchProjectWorkingTreeSourceControl = coreApi.fetchProjectWorkingTreeSourceControl;
 export const subscribeProjectChangeStream = coreApi.subscribeProjectChangeStream;
 export const postProjectSourceControlRestore = coreApi.postProjectSourceControlRestore;
+export const createProjectSourceControlWorktree = coreApi.createProjectSourceControlWorktree;
 export const approveProjectTask = coreApi.approveProjectTask;
 export const rejectProjectTask = coreApi.rejectProjectTask;
 export const fetchReviewComments = coreApi.fetchReviewComments;

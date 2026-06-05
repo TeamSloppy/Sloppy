@@ -5450,6 +5450,22 @@ public struct ProjectSourceControlRestoreResponse: Codable, Sendable {
     }
 }
 
+public struct ProjectSourceControlCreateWorktreeRequest: Codable, Sendable {
+    public var taskId: String
+
+    public init(taskId: String) {
+        self.taskId = taskId
+    }
+}
+
+public struct ProjectSourceControlCreateWorktreeResponse: Codable, Sendable {
+    public var worktree: SourceControlWorktreeResult
+
+    public init(worktree: SourceControlWorktreeResult) {
+        self.worktree = worktree
+    }
+}
+
 public struct ReviewComment: Codable, Sendable, Identifiable {
     public var id: String
     public var taskId: String

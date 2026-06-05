@@ -406,3 +406,29 @@ func projectSourceControlRestoreRevertsFileToHead() async throws {
     let restored = try String(contentsOf: projectDir.appendingPathComponent("tracked.txt"), encoding: .utf8)
     #expect(restored == "committed")
 }
+
+@Test
+func projectSourceControlCreateWorktreeCreatesDedicatedBranchAndPath() async throws {
+    let config = CoreConfig.test
+    let service = CoreService(config: config, persistenceBuilder: InMemoryCorePersistenceBuilder())
+    let router = CoreRouter(service: service)
+    let (projectID, projectDir) = try await makeProjectAndDir(router: router, config: config)
+
+    try FileManager.default.createDirectory(at: projectDir, withIntermediateDirectories: true)
+    try runGitInProjectDir(projectDir, ["init", "--initial-branch=main"])
+    try runGitInProjectDir(projectDir, ["config", "user.email", "test@sloppy.dev"])
+    try runGitInProjectDir(projectDir, ["config", "user.name", "SloppyTest"])
+    try Data("committed".utf8).write(to: projectDir.appendingPathComponent("tracked.txt"))
+    try runGitInProjectDir(projectDir, ["add", "."])
+    try runGitInProjectDir(projectDir, ["commit", "-m", "init"])
+
+    let request = ProjectSourceControlCreateWorktreeRequest(taskId: "debug-worktree-test")
+    let body = try JSONEncoder().encode(request)
+    let resp = await router.handle(method: "POST", path: "/v1/projects/\(projectID)/source-control/worktrees", body: body)
+    #expect(resp.status == 200)
+
+    let payload = try JSONDecoder().decode(ProjectSourceControlCreateWorktreeResponse.self, from: resp.body)
+    #expect(payload.worktree.branchName.hasPrefix("sloppy/task-debug-wo"))
+    #expect(payload.worktree.worktreePath.contains("/worktrees/\(projectID)/debug-worktree-test"))
+    #expect(FileManager.default.fileExists(atPath: payload.worktree.worktreePath))
+}

@@ -107,9 +107,14 @@ private extension PromptTemplateLoader {
                 .appendingPathComponent(basePath)
         )
 
+        let sourceDirectory = URL(fileURLWithPath: sourceFilePath).deletingLastPathComponent()
         append(
-            URL(fileURLWithPath: sourceFilePath)
-                .deletingLastPathComponent()
+            sourceDirectory
+                .appendingPathComponent("Resources")
+                .appendingPathComponent(basePath)
+        )
+        append(
+            sourceDirectory
                 .deletingLastPathComponent()
                 .appendingPathComponent("Resources")
                 .appendingPathComponent(basePath)

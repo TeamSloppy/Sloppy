@@ -269,6 +269,7 @@ export interface CoreApi {
     handlers?: ProjectChangeStreamHandlers
   ) => () => void;
   postProjectSourceControlRestore: (projectId: string, path: string) => Promise<boolean>;
+  createProjectSourceControlWorktree: (projectId: string, payload: { taskId: string }) => Promise<AnyRecord | null>;
   approveProjectTask: (projectId: string, taskId: string) => Promise<boolean>;
   rejectProjectTask: (projectId: string, taskId: string, reason?: string) => Promise<boolean>;
   fetchReviewComments: (projectId: string, taskId: string) => Promise<AnyRecord[] | null>;
@@ -2174,6 +2175,23 @@ export function createCoreApi(): CoreApi {
         body: { path }
       });
       return response.ok;
+    },
+
+    createProjectSourceControlWorktree: async (projectId, payload) => {
+      const response = await requestJson<AnyRecord, { taskId: string }>({
+        path: `/v1/projects/${encodeURIComponent(projectId)}/source-control/worktrees`,
+        method: "POST",
+        body: payload
+      });
+      if (!response.ok) {
+        return {
+          ok: false,
+          status: response.status,
+          error: response.data?.error ?? null,
+          message: response.data?.message ?? formatHttpError(response.status, response.data)
+        };
+      }
+      return response.data;
     },
 
     approveProjectTask: async (projectId, taskId) => {

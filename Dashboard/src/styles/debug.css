@@ -283,6 +283,20 @@
   justify-content: flex-end;
 }
 
+.debug-load-more {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding-top: 12px;
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.debug-load-more button {
+  min-width: 180px;
+}
+
 /* Prompt templates */
 .debug-templates-list {
   display: grid;

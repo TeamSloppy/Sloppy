@@ -58,6 +58,8 @@ interface PromptTemplate {
   chars: number;
 }
 
+const DEBUG_CHANNELS_PAGE_SIZE = 20;
+
 function kilo(n: number) {
   if (n >= 1000) return `${(n / 1000).toFixed(1)}k`;
   return String(n);
@@ -319,6 +321,7 @@ function ChannelsPanel({ coreApi }: { coreApi: CoreApi }) {
   const [loading, setLoading] = useState(false);
   const [selectedChannelId, setSelectedChannelId] = useState("");
   const [statusText, setStatusText] = useState("");
+  const [visibleCount, setVisibleCount] = useState(DEBUG_CHANNELS_PAGE_SIZE);
 
   function parseSessionScopedChannel(channelId: string): { agentId: string; sessionId: string } | null {
     const normalized = String(channelId || "").trim();
@@ -345,6 +348,7 @@ function ChannelsPanel({ coreApi }: { coreApi: CoreApi }) {
     setLoading(false);
     if (!result || !Array.isArray((result as AnyRecord).channels)) return;
     setChannels((result as AnyRecord).channels as ChannelInfo[]);
+    setVisibleCount(DEBUG_CHANNELS_PAGE_SIZE);
   }, [coreApi]);
 
   useEffect(() => {
@@ -371,6 +375,9 @@ function ChannelsPanel({ coreApi }: { coreApi: CoreApi }) {
     await load();
   }
 
+  const visibleChannels = channels.slice(0, visibleCount);
+  const remainingChannels = Math.max(0, channels.length - visibleChannels.length);
+
   return (
     <Panel
       title="Active Channels"
@@ -388,49 +395,65 @@ function ChannelsPanel({ coreApi }: { coreApi: CoreApi }) {
       {channels.length === 0 ? (
         <p className="placeholder-text">{loading ? "Loading..." : "No active channels."}</p>
       ) : (
-        <div className="debug-channels-table">
-          <div className="debug-table-head">
-            <span>Channel</span>
-            <span>Msgs</span>
-            <span>Utilization</span>
-            <span>Bootstrap</span>
-            <span>Workers</span>
-            <span>Actions</span>
-          </div>
-          {channels.map((ch) => (
-            <div
-              key={ch.channelId}
-              className={`debug-table-row ${selectedChannelId === ch.channelId ? "selected" : ""}`}
-              onClick={() => setSelectedChannelId(ch.channelId)}
-              role="button"
-              tabIndex={0}
-              onKeyDown={(event) => {
-                if (event.key === "Enter" || event.key === " ") {
-                  event.preventDefault();
-                  setSelectedChannelId(ch.channelId);
-                }
-              }}
-            >
-              <code className="debug-channel-id">{ch.channelId}</code>
-              <span>{ch.messageCount}</span>
-              <UtilBar value={ch.contextUtilization} />
-              <span>{kilo(ch.bootstrapChars)}c</span>
-              <span>{ch.activeWorkerIds.length > 0 ? ch.activeWorkerIds.join(", ") : "—"}</span>
-              <div className="debug-row-actions">
-                <button
-                  type="button"
-                  className="hover-levitate"
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    setSelectedChannelId(ch.channelId);
-                  }}
-                >
-                  {selectedChannelId === ch.channelId ? "Selected" : "Select"}
-                </button>
-              </div>
+        <>
+          <div className="debug-channels-table">
+            <div className="debug-table-head">
+              <span>Channel</span>
+              <span>Msgs</span>
+              <span>Utilization</span>
+              <span>Bootstrap</span>
+              <span>Workers</span>
+              <span>Actions</span>
             </div>
-          ))}
-        </div>
+            {visibleChannels.map((ch) => (
+              <div
+                key={ch.channelId}
+                className={`debug-table-row ${selectedChannelId === ch.channelId ? "selected" : ""}`}
+                onClick={() => setSelectedChannelId(ch.channelId)}
+                role="button"
+                tabIndex={0}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    setSelectedChannelId(ch.channelId);
+                  }
+                }}
+              >
+                <code className="debug-channel-id">{ch.channelId}</code>
+                <span>{ch.messageCount}</span>
+                <UtilBar value={ch.contextUtilization} />
+                <span>{kilo(ch.bootstrapChars)}c</span>
+                <span>{ch.activeWorkerIds.length > 0 ? ch.activeWorkerIds.join(", ") : "—"}</span>
+                <div className="debug-row-actions">
+                  <button
+                    type="button"
+                    className="hover-levitate"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      setSelectedChannelId(ch.channelId);
+                    }}
+                  >
+                    {selectedChannelId === ch.channelId ? "Selected" : "Select"}
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+          {remainingChannels > 0 && (
+            <div className="debug-load-more">
+              <span>
+                Showing {visibleChannels.length} of {channels.length} channels
+              </span>
+              <button
+                type="button"
+                className="hover-levitate"
+                onClick={() => setVisibleCount((count) => count + DEBUG_CHANNELS_PAGE_SIZE)}
+              >
+                Load more ({remainingChannels} remaining)
+              </button>
+            </div>
+          )}
+        </>
       )}
       {statusText ? <p className="placeholder-text">{statusText}</p> : null}
       {selectedChannelId ? <p className="placeholder-text">Selected channel: <code>{selectedChannelId}</code></p> : null}

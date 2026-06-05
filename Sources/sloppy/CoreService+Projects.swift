@@ -346,18 +346,57 @@ extension CoreService {
         guard let normalizedID = normalizedProjectID(projectID) else {
             throw ProjectError.invalidProjectID
         }
+        let normalizedTaskID = taskID.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedTaskID.isEmpty else {
+            throw ProjectError.invalidTaskID
+        }
         guard let project = await store.project(id: normalizedID) else {
             throw ProjectError.notFound
         }
 
         let rootPath = try await resolveProjectWorkspaceRoot(projectID: normalizedID).path
         let provider = sourceControlProvider(for: project)
-        return try await provider.createWorktree(
-            repoPath: rootPath,
-            taskId: taskID,
-            baseBranch: "HEAD",
-            worktreeRootPath: defaultWorktreeRootPath(projectID: normalizedID)
+        let worktreeRootPath = defaultWorktreeRootPath(projectID: normalizedID)
+        logger.info(
+            "source_control.worktree.create.started",
+            metadata: [
+                "project_id": .string(normalizedID),
+                "task_id": .string(normalizedTaskID),
+                "provider_id": .string(provider.id),
+                "repo_path": .string(rootPath),
+                "worktree_root_path": .string(worktreeRootPath)
+            ]
         )
+        do {
+            let result = try await provider.createWorktree(
+                repoPath: rootPath,
+                taskId: normalizedTaskID,
+                baseBranch: "HEAD",
+                worktreeRootPath: worktreeRootPath
+            )
+            logger.info(
+                "source_control.worktree.create.succeeded",
+                metadata: [
+                    "project_id": .string(normalizedID),
+                    "task_id": .string(normalizedTaskID),
+                    "provider_id": .string(provider.id),
+                    "branch_name": .string(result.branchName),
+                    "worktree_path": .string(result.worktreePath)
+                ]
+            )
+            return result
+        } catch {
+            logger.error(
+                "source_control.worktree.create.failed",
+                metadata: [
+                    "project_id": .string(normalizedID),
+                    "task_id": .string(normalizedTaskID),
+                    "provider_id": .string(provider.id),
+                    "error": .string(error.localizedDescription)
+                ]
+            )
+            throw error
+        }
     }
 
     public struct TUIBackgroundSessionStartResult: Sendable {
