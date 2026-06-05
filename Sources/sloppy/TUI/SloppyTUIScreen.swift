@@ -335,6 +335,7 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
     var activePicker: SloppyTUIPicker?
     var pendingPlanInputRequest: PlanInputRequest?
     var pendingToolApproval: ToolApprovalRecord?
+    var pendingToolApprovalPreviewCard: (approvalID: String, cardID: Int)?
     var tokenUsageSummary: SloppyTUITokenUsageSummary?
     var tokenUsageCostUSD: Double?
     var projectFileIndex: ProjectFileIndex?

@@ -201,6 +201,11 @@ extension SloppyTUIScreen {
     }
 
     func appendLocalCard(_ text: String, autoDismissAfter seconds: TimeInterval? = nil) {
+        _ = appendLocalCardReturningID(text, autoDismissAfter: seconds)
+    }
+
+    @discardableResult
+    func appendLocalCardReturningID(_ text: String, autoDismissAfter seconds: TimeInterval? = nil) -> Int {
         nextLocalCardID += 1
         let id = nextLocalCardID
         localCards.append(SloppyTUILocalCard(id: id, block: .local(text)))
@@ -216,6 +221,7 @@ extension SloppyTUIScreen {
             scheduleLocalCardDismissal(id: id, after: dismissAfter)
         }
         renderTimeline()
+        return id
     }
 
     func dismissFirstStartBootstrapCard() {

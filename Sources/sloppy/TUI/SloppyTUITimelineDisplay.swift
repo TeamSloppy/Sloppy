@@ -100,6 +100,26 @@ enum SloppyTUITimelineDisplay {
         }
     }
 
+    static func toolApprovalDisplay(_ approval: ToolApprovalRecord) -> String? {
+        guard approval.tool == "files.edit" else {
+            return nil
+        }
+        let path = displayPath(approval.arguments["path"]?.asString)
+        guard let diff = editPreview(search: approval.arguments["search"]?.asString, replace: approval.arguments["replace"]?.asString) else {
+            return nil
+        }
+        let added = approval.arguments["replace"]?.asString.map(lineCount) ?? 0
+        let removed = approval.arguments["search"]?.asString.map(lineCount) ?? 0
+        return """
+        ## Edit file
+        `\(path)`
+
+        Added \(added) \(lineLabel(added)), removed \(removed) \(lineLabel(removed))
+
+        \(diff)
+        """
+    }
+
     private static func collapseInlineAttachedFiles(_ text: String) -> String {
         let normalized = text
             .replacingOccurrences(of: "\r\n", with: "\n")
@@ -188,6 +208,14 @@ enum SloppyTUITimelineDisplay {
         let removed = search.split(separator: "\n", omittingEmptySubsequences: false).map { "-\(String($0))" }
         let added = replace.split(separator: "\n", omittingEmptySubsequences: false).map { "+\(String($0))" }
         return fencedBlock("diff", (removed + added).joined(separator: "\n"), maxCharacters: 6_000)
+    }
+
+    private static func lineCount(_ text: String) -> Int {
+        text.split(separator: "\n", omittingEmptySubsequences: false).count
+    }
+
+    private static func lineLabel(_ count: Int) -> String {
+        count == 1 ? "line" : "lines"
     }
 
     private static func fencedBlock(_ language: String, _ text: String, maxCharacters: Int) -> String {

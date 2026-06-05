@@ -159,6 +159,29 @@ func transcriptToResponsesInputSanitizesToolNamesWhenOutputIsPresent() {
 }
 
 @Test
+func transcriptToResponsesInputSanitizesAllProviderUnsafeToolNameCharacters() {
+    let model = OpenAIOAuthModel(bearerToken: "test", model: "gpt-5")
+    let toolCall = Transcript.ToolCall(
+        id: "call_789",
+        toolName: "mcp.fs/read-file",
+        arguments: GeneratedContent("{}")
+    )
+    let output = Transcript.ToolOutput(
+        id: "call_789",
+        toolName: "mcp.fs/read-file",
+        segments: [.text(.init(content: "{}"))]
+    )
+    let transcript = Transcript(entries: [
+        .toolCalls(Transcript.ToolCalls([toolCall])),
+        .toolOutput(output)
+    ])
+
+    let items = model.transcriptToResponsesInput(transcript)
+
+    #expect(items[0]["name"] as? String == "mcp_fs_read-file")
+}
+
+@Test
 func transcriptToResponsesInputDropsOrphanToolCalls() {
     let model = OpenAIOAuthModel(bearerToken: "test", model: "gpt-5")
     let toolCall = Transcript.ToolCall(

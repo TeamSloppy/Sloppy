@@ -310,12 +310,14 @@ extension SloppyTUIScreen {
                 activePicker = nil
                 refreshStaticChrome()
             }
+            dismissPendingToolApprovalPreview()
             return
         }
 
         guard pendingPlanInputRequest == nil else {
             return
         }
+        showPendingToolApprovalPreviewIfNeeded(approval)
         activePicker = SloppyTUIToolApprovalState.picker(
             for: approval,
             previousApprovalID: previousApprovalID,
@@ -353,6 +355,7 @@ extension SloppyTUIScreen {
                 return
             }
             pendingToolApproval = nil
+            dismissPendingToolApprovalPreview()
             if activePicker?.kind == .toolApproval {
                 activePicker = nil
             }
@@ -363,6 +366,28 @@ extension SloppyTUIScreen {
             activePicker = SloppyTUIToolApprovalState.picker(for: approval, previousApprovalID: approval.id, previousSelectedIndex: 0)
             appendLocalCard("Tool approval decision failed: \(String(describing: error))", autoDismissAfter: 10)
         }
+    }
+
+    func showPendingToolApprovalPreviewIfNeeded(_ approval: ToolApprovalRecord) {
+        guard pendingToolApprovalPreviewCard?.approvalID != approval.id else {
+            return
+        }
+        dismissPendingToolApprovalPreview()
+        guard let display = SloppyTUITimelineDisplay.toolApprovalDisplay(approval) else {
+            return
+        }
+        let cardID = appendLocalCardReturningID(display)
+        pendingToolApprovalPreviewCard = (approvalID: approval.id, cardID: cardID)
+    }
+
+    func dismissPendingToolApprovalPreview() {
+        guard let preview = pendingToolApprovalPreviewCard else {
+            return
+        }
+        dismissLocalCards { card in
+            card.id == preview.cardID
+        }
+        pendingToolApprovalPreviewCard = nil
     }
 
     func rejectPendingToolApproval() async {

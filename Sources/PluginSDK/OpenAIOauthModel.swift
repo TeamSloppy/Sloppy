@@ -490,7 +490,7 @@ extension OpenAIOAuthModel {
                     } else {
                         argumentsJSON = "{}"
                     }
-                    let sanitized = call.toolName.replacingOccurrences(of: ".", with: "_")
+                    let sanitized = ModelToolNameSanitizer.sanitizeName(call.toolName)
                     items.append([
                         "type": "function_call",
                         "call_id": call.id,
@@ -566,7 +566,7 @@ private extension OpenAIOAuthModel {
                     } else {
                         argumentsJSON = "{}"
                     }
-                    let sanitized = call.toolName.replacingOccurrences(of: ".", with: "_")
+                    let sanitized = ModelToolNameSanitizer.sanitizeName(call.toolName)
                     inputItems.append([
                         "type": "function_call",
                         "call_id": call.id,
@@ -633,7 +633,7 @@ private extension OpenAIOAuthModel {
         var definitions: [[String: Any]] = []
         var nameMap: [String: String] = [:]
         for tool in tools {
-            let sanitized = tool.name.replacingOccurrences(of: ".", with: "_")
+            let sanitized = ModelToolNameSanitizer.sanitizeName(tool.name)
             nameMap[sanitized] = tool.name
             let params = resolveSchemaToObject(tool.parameters)
             definitions.append([

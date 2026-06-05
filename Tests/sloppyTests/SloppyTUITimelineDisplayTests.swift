@@ -1,3 +1,4 @@
+import Foundation
 import Protocols
 import Testing
 @testable import sloppy
@@ -90,4 +91,29 @@ func tuiToolResultTitleIncludesGrepMatchCount() {
     )
 
     #expect(title == "Grep (11 matches)")
+}
+
+@Test
+func tuiToolApprovalDisplayShowsFilesEditDiffPreview() throws {
+    let approval = ToolApprovalRecord(
+        id: "approval-edit",
+        agentId: "agent-1",
+        sessionId: "session-1",
+        tool: "files.edit",
+        arguments: [
+            "path": .string("Classes/Platform/DiskPushNotifications.swift"),
+            "search": .string("guard let filter = isIncluded else {\n    continuation.finish()\n    return\n}"),
+            "replace": .string("guard let payload = Self.decodePayload(Payload.self, from: rawData, decoder: decoder) else {\n    continue\n}")
+        ],
+        expiresAt: Date(timeIntervalSince1970: 200)
+    )
+
+    let display = try #require(SloppyTUITimelineDisplay.toolApprovalDisplay(approval))
+
+    #expect(display.contains("## Edit file"))
+    #expect(display.contains("Classes/Platform/DiskPushNotifications.swift"))
+    #expect(display.contains("Added 3 lines, removed 4 lines"))
+    #expect(display.contains("```diff"))
+    #expect(display.contains("-guard let filter = isIncluded else {"))
+    #expect(display.contains("+guard let payload = Self.decodePayload"))
 }
