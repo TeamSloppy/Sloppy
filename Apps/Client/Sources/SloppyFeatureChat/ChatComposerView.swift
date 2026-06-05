@@ -86,7 +86,6 @@ public struct ChatComposerView: View {
             alignment: .leading
         )
         .background(c.surfaceGlass.opacity(0.72 as Float))
-        .glassEffect(.regular.tint(c.surfaceGlow.opacity(0.16 as Float)), in: .rect(cornerRadius: Self.panelRadius))
     }
 
     private var regularBody: some View {
@@ -142,7 +141,6 @@ public struct ChatComposerView: View {
             alignment: .leading
         )
         .background(c.surfaceGlass.opacity(0.72 as Float))
-        .glassEffect(.regular.tint(c.surfaceGlow.opacity(0.16 as Float)), in: .rect(cornerRadius: Self.panelRadius))
         .frame(maxWidth: Self.panelWidth)
     }
 

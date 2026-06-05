@@ -101,7 +101,7 @@ private struct ChatChrome: View {
 
     var body: some View {
         ZStack(anchor: .topLeading) {
-            ChatCanvasBackground()
+//            ChatCanvasBackground()
 
             ZStack(anchor: .bottom) {
                 ChatTranscriptRegion(

@@ -198,26 +198,7 @@ enum BuiltInSkillCatalog {
     }
 
     private static func loadSkillMarkdown(repo: String, fallback: String) -> String {
-        let relativePath = "Skills/\(repo)/SKILL.md"
-        let candidates: [URL?] = [
-            Bundle.module.url(
-                forResource: "SKILL",
-                withExtension: "md",
-                subdirectory: "Skills/\(repo)"
-            ),
-            Bundle.module.resourceURL?
-                .appendingPathComponent(relativePath),
-            URL(fileURLWithPath: FileManager.default.currentDirectoryPath, isDirectory: true)
-                .appendingPathComponent("Sources/sloppy/Resources")
-                .appendingPathComponent(relativePath),
-            URL(fileURLWithPath: #filePath)
-                .deletingLastPathComponent()
-                .deletingLastPathComponent()
-                .appendingPathComponent("Resources")
-                .appendingPathComponent(relativePath)
-        ]
-
-        for candidate in candidates.compactMap({ $0 }) {
+        for candidate in skillMarkdownURLs(repo: repo) {
             if let text = try? String(contentsOf: candidate, encoding: .utf8) {
                 return text
             }
@@ -227,8 +208,22 @@ enum BuiltInSkillCatalog {
     }
 
     private static func bundledResourceSkills() -> [BuiltInSkillDefinition] {
+        resourceSkillDefinitions()
+    }
+
+    static func resourceSkillDefinitions(
+        fileManager: FileManager = .default,
+        executablePath: String? = CommandLine.arguments.first,
+        currentDirectoryPath: String = FileManager.default.currentDirectoryPath,
+        sourceFilePath: String = #filePath
+    ) -> [BuiltInSkillDefinition] {
         var definitionsByID: [String: BuiltInSkillDefinition] = [:]
-        for root in skillResourceRootURLs() {
+        for root in skillResourceRootURLs(
+            fileManager: fileManager,
+            executablePath: executablePath,
+            currentDirectoryPath: currentDirectoryPath,
+            sourceFilePath: sourceFilePath
+        ) {
             for definition in bundledResourceSkills(in: root) {
                 let id = "\(definition.owner)/\(definition.repo)"
                 if definitionsByID[id] == nil {
@@ -310,18 +305,61 @@ enum BuiltInSkillCatalog {
         return files
     }
 
-    private static func skillResourceRootURLs() -> [URL] {
-        var candidates: [URL] = []
-        if let bundled = Bundle.module.resourceURL?.appendingPathComponent("Skills", isDirectory: true) {
-            candidates.append(bundled)
+    private static func skillMarkdownURLs(
+        repo: String,
+        fileManager: FileManager = .default,
+        executablePath: String? = CommandLine.arguments.first,
+        currentDirectoryPath: String = FileManager.default.currentDirectoryPath,
+        sourceFilePath: String = #filePath
+    ) -> [URL] {
+        skillResourceRootURLs(
+            fileManager: fileManager,
+            executablePath: executablePath,
+            currentDirectoryPath: currentDirectoryPath,
+            sourceFilePath: sourceFilePath
+        ).map {
+            $0.appendingPathComponent(repo).appendingPathComponent("SKILL.md")
         }
+    }
+
+    private static func skillResourceRootURLs(
+        fileManager: FileManager,
+        executablePath: String?,
+        currentDirectoryPath: String,
+        sourceFilePath: String
+    ) -> [URL] {
+        var candidates: [URL] = []
+
+        for directoryURL in executableDirectories(
+            fileManager: fileManager,
+            executablePath: executablePath,
+            currentDirectoryPath: currentDirectoryPath
+        ) {
+            candidates.append(directoryURL.appendingPathComponent("Skills", isDirectory: true))
+            candidates.append(
+                directoryURL
+                    .appendingPathComponent("Sloppy_sloppy.bundle", isDirectory: true)
+                    .appendingPathComponent("Skills", isDirectory: true)
+            )
+            candidates.append(
+                directoryURL
+                    .appendingPathComponent("Sloppy_sloppy.resources", isDirectory: true)
+                    .appendingPathComponent("Skills", isDirectory: true)
+            )
+            candidates.append(
+                directoryURL
+                    .deletingLastPathComponent()
+                    .appendingPathComponent("share/sloppy/Skills", isDirectory: true)
+            )
+        }
+
         candidates.append(
-            URL(fileURLWithPath: FileManager.default.currentDirectoryPath, isDirectory: true)
+            URL(fileURLWithPath: currentDirectoryPath, isDirectory: true)
                 .appendingPathComponent("Sources/sloppy/Resources", isDirectory: true)
                 .appendingPathComponent("Skills", isDirectory: true)
         )
         candidates.append(
-            URL(fileURLWithPath: #filePath)
+            URL(fileURLWithPath: sourceFilePath)
                 .deletingLastPathComponent()
                 .deletingLastPathComponent()
                 .appendingPathComponent("Resources", isDirectory: true)
@@ -336,6 +374,48 @@ enum BuiltInSkillCatalog {
             }
             return seen.insert(url.path).inserted
         }
+    }
+
+    private static func executableDirectories(
+        fileManager: FileManager,
+        executablePath: String?,
+        currentDirectoryPath: String
+    ) -> [URL] {
+        guard let executablePath, !executablePath.isEmpty else {
+            return []
+        }
+
+        let currentDirectoryURL = URL(fileURLWithPath: currentDirectoryPath, isDirectory: true)
+        let rawExecutableURL: URL
+        if executablePath.hasPrefix("/") {
+            rawExecutableURL = URL(fileURLWithPath: executablePath)
+        } else {
+            rawExecutableURL = URL(fileURLWithPath: executablePath, relativeTo: currentDirectoryURL)
+        }
+
+        var directories: [URL] = []
+        var seenPaths = Set<String>()
+
+        func append(_ url: URL) {
+            let directoryURL = url.standardizedFileURL.deletingLastPathComponent()
+            guard seenPaths.insert(directoryURL.path).inserted else { return }
+            directories.append(directoryURL)
+        }
+
+        append(rawExecutableURL)
+        append(rawExecutableURL.resolvingSymlinksInPath())
+
+        if let destination = try? fileManager.destinationOfSymbolicLink(atPath: rawExecutableURL.path) {
+            let destinationURL: URL
+            if destination.hasPrefix("/") {
+                destinationURL = URL(fileURLWithPath: destination)
+            } else {
+                destinationURL = rawExecutableURL.deletingLastPathComponent().appendingPathComponent(destination)
+            }
+            append(destinationURL)
+        }
+
+        return directories
     }
 
     private static func isSafeSkillRelativePath(_ relative: String) -> Bool {

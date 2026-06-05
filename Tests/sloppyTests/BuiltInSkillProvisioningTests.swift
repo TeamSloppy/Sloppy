@@ -153,6 +153,48 @@ func builtInModePlanReferencesKanbanTaskManager() throws {
 }
 
 @Test
+func builtInSkillsLoadAdditionalSkillsFromInstalledShareDirectoryViaSymlink() throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: root) }
+
+    let installRoot = root.appendingPathComponent("install", isDirectory: true)
+    let linkRoot = root.appendingPathComponent("links", isDirectory: true)
+    let binDirectory = installRoot.appendingPathComponent("bin", isDirectory: true)
+    let skillDirectory = installRoot
+        .appendingPathComponent("share/sloppy/Skills/release-only", isDirectory: true)
+    try FileManager.default.createDirectory(at: binDirectory, withIntermediateDirectories: true)
+    try FileManager.default.createDirectory(at: linkRoot, withIntermediateDirectories: true)
+    try FileManager.default.createDirectory(at: skillDirectory, withIntermediateDirectories: true)
+
+    let realBinaryPath = binDirectory.appendingPathComponent("sloppy").path
+    let symlinkPath = linkRoot.appendingPathComponent("sloppy").path
+    FileManager.default.createFile(atPath: realBinaryPath, contents: Data(), attributes: nil)
+    try FileManager.default.createSymbolicLink(atPath: symlinkPath, withDestinationPath: realBinaryPath)
+
+    try """
+    ---
+    name: release-only
+    description: Skill shipped only in release share resources.
+    user_invocable: true
+    allowed_tools: project.current
+    ---
+
+    # Release Only
+    """.write(to: skillDirectory.appendingPathComponent("SKILL.md"), atomically: true, encoding: .utf8)
+
+    let definitions = BuiltInSkillCatalog.resourceSkillDefinitions(
+        executablePath: symlinkPath,
+        currentDirectoryPath: root.path,
+        sourceFilePath: root.appendingPathComponent("Missing/BuiltInSkillCatalog.swift").path
+    )
+
+    let skill = try #require(definitions.first { $0.repo == "release-only" })
+    #expect(skill.owner == "bundled")
+    #expect(skill.name == "release-only")
+    #expect(skill.allowedTools == ["project.current"])
+}
+
+@Test
 func agentSkillsStoreListsSharedSkillsFromAgentsRoot() throws {
     let root = FileManager.default.temporaryDirectory
         .appendingPathComponent("shared-skill-provisioning-\(UUID().uuidString)", isDirectory: true)

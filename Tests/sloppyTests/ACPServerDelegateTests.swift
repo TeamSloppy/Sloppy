@@ -97,6 +97,56 @@ func sloppyACPServerAcceptsImagePromptBlocksAsAttachments() async throws {
 }
 
 @Test
+func sloppyACPServerDoesNotDuplicateInlineImageTrailingText() async throws {
+    let service = try await makeACPServerService()
+    let recorder = ACPServerUpdateRecorder()
+    let delegate = SloppyACPServerDelegate(
+        service: service,
+        agentID: "dev",
+        defaultCwd: "/tmp",
+        sendUpdate: { sessionId, update in await recorder.append(sessionId: sessionId, update: update) }
+    )
+
+    let created = try await delegate.handleNewSession(NewSessionRequest(cwd: "/tmp"))
+    let trailingText = """
+    Сейчас же у нас там были какие-то странные шары, хочется вот этого.
+
+    1) Голубой цвет может быть Color.accentColor
+    2) Основной цвет фона должен приходить из theme
+    """
+    let fullText = """
+    для @AppAtmosphericBackground надо сделать шейдер эффект.
+
+    \(trailingText)
+    """
+
+    _ = try await delegate.handlePrompt(
+        SessionPromptRequest(
+            sessionId: created.sessionId,
+            prompt: [
+                .text(TextContent(text: fullText)),
+                .image(
+                    ImageContent(
+                        data: Data([0x89, 0x50, 0x4E, 0x47]).base64EncodedString(),
+                        mimeType: "image/png",
+                        uri: "zed:///agent/pasted-image?name=Image"
+                    )
+                ),
+                .text(TextContent(text: trailingText))
+            ]
+        )
+    )
+
+    let detail = try await service.getAgentSession(agentID: "dev", sessionID: created.sessionId.value)
+    let userMessage = try #require(detail.events.compactMap(\.message).last(where: { $0.role == .user }))
+    let text = userMessage.segments.compactMap(\.text).joined(separator: "\n")
+
+    #expect(text.contains("Image attached: zed:///agent/pasted-image?name=Image"))
+    #expect(text.ranges(of: "Сейчас же у нас там были какие-то странные шары").count == 1)
+    #expect(text.ranges(of: "Основной цвет фона должен приходить из theme").count == 1)
+}
+
+@Test
 func sloppyACPServerCreatesAndListsSessionsForConfiguredAgent() async throws {
     let service = try await makeACPServerService()
     let recorder = ACPServerUpdateRecorder()

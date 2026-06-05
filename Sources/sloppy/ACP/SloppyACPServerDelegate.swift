@@ -604,10 +604,13 @@ extension SloppyACPServerDelegate {
 
     private static func promptPayload(from blocks: [ContentBlock]) -> (content: String, attachments: [AgentAttachmentUpload]) {
         var attachments: [AgentAttachmentUpload] = []
-        let content = blocks.compactMap { block in
+        var contentParts: [String] = []
+        var previousTextBlock: String?
+
+        for block in blocks {
             switch block {
             case .text(let text):
-                return text.text
+                appendPromptText(text.text, to: &contentParts, previousTextBlock: &previousTextBlock)
             case .image(let image):
                 attachments.append(
                     AgentAttachmentUpload(
@@ -617,13 +620,13 @@ extension SloppyACPServerDelegate {
                         contentBase64: image.data
                     )
                 )
-                return image.uri.map { "Image attached: \($0)" } ?? "Image attached."
+                contentParts.append(image.uri.map { "Image attached: \($0)" } ?? "Image attached.")
             case .resourceLink(let link):
-                return link.uri
+                appendPromptText(link.uri, to: &contentParts, previousTextBlock: &previousTextBlock)
             case .resource(let resource):
                 switch resource.resource {
                 case .text(let text):
-                    return text.text
+                    appendPromptText(text.text, to: &contentParts, previousTextBlock: &previousTextBlock)
                 case .blob(let blob):
                     if let mimeType = blob.mimeType, isImageMimeType(mimeType) {
                         attachments.append(
@@ -635,15 +638,40 @@ extension SloppyACPServerDelegate {
                             )
                         )
                     }
-                    return blob.uri
+                    appendPromptText(blob.uri, to: &contentParts, previousTextBlock: &previousTextBlock)
                 }
             case .audio:
-                return nil
+                break
             }
         }
-        .joined(separator: "\n\n")
 
-        return (content, attachments)
+        return (contentParts.joined(separator: "\n\n"), attachments)
+    }
+
+    private static func appendPromptText(
+        _ text: String,
+        to contentParts: inout [String],
+        previousTextBlock: inout String?
+    ) {
+        let normalizedText = normalizedPromptTextForOverlap(text)
+        guard !normalizedText.isEmpty else {
+            return
+        }
+
+        if normalizedText.count >= 32,
+           let previousTextBlock,
+           normalizedPromptTextForOverlap(previousTextBlock).hasSuffix(normalizedText) {
+            return
+        }
+
+        contentParts.append(text)
+        previousTextBlock = text
+    }
+
+    private static func normalizedPromptTextForOverlap(_ text: String) -> String {
+        text
+            .replacingOccurrences(of: "\r\n", with: "\n")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     private static func isImageMimeType(_ mimeType: String) -> Bool {
