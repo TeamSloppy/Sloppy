@@ -253,7 +253,16 @@ export function ConfigView({
     if (!needle) {
       return SETTINGS_ITEMS;
     }
-    return SETTINGS_ITEMS.filter((item) => item.title.toLowerCase().includes(needle));
+    return SETTINGS_ITEMS.filter((item) => {
+      const searchableText = [
+        item.id,
+        item.title,
+        ...(Array.isArray(item.searchTerms) ? item.searchTerms : [])
+      ]
+        .join(" ")
+        .toLowerCase();
+      return searchableText.includes(needle);
+    });
   }, [query]);
 
   const isRawMode = selectedSettings === "config";

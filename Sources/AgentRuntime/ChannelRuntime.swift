@@ -5,12 +5,20 @@ public struct ChannelMessageEntry: Codable, Sendable, Equatable {
     public var id: String
     public var userId: String
     public var content: String
+    public var attachments: [ChannelAttachment]
     public var createdAt: Date
 
-    public init(id: String = UUID().uuidString, userId: String, content: String, createdAt: Date = Date()) {
+    public init(
+        id: String = UUID().uuidString,
+        userId: String,
+        content: String,
+        attachments: [ChannelAttachment] = [],
+        createdAt: Date = Date()
+    ) {
         self.id = id
         self.userId = userId
         self.content = content
+        self.attachments = attachments
         self.createdAt = createdAt
     }
 }
@@ -65,7 +73,7 @@ public actor ChannelRuntime {
     /// Ingests user message into channel state and emits routing decision.
     public func ingest(channelId: String, request: ChannelMessageRequest) async -> ChannelIngestResult {
         var state = channels[channelId, default: ChannelState()]
-        let message = ChannelMessageEntry(userId: request.userId, content: request.content)
+        let message = ChannelMessageEntry(userId: request.userId, content: request.content, attachments: request.attachments)
         state.messages.append(message)
         state.contextUtilization = estimateUtilization(state.messages)
 
@@ -73,10 +81,14 @@ public actor ChannelRuntime {
         state.lastDecision = decision
         channels[channelId] = state
 
-        await publish(channelId: channelId, messageType: .channelMessageReceived, payload: [
+        var payload: [String: JSONValue] = [
             "userId": .string(request.userId),
             "message": .string(request.content)
-        ])
+        ]
+        if !request.attachments.isEmpty, let encoded = try? JSONValueCoder.encode(request.attachments) {
+            payload["attachments"] = encoded
+        }
+        await publish(channelId: channelId, messageType: .channelMessageReceived, payload: payload)
 
         if let payload = try? JSONValueCoder.encode(decision) {
             await publish(channelId: channelId, messageType: .channelRouteDecided, payload: payload.objectValue)

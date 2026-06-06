@@ -1,24 +1,104 @@
 import Foundation
 
+public enum ChannelAttachmentType: String, Codable, Sendable, Equatable, CaseIterable {
+    case image
+    case audio
+    case voice
+    case video
+    case document
+    case file
+    case unknown
+}
+
+public struct ChannelAttachment: Codable, Sendable, Equatable {
+    public var id: String
+    public var type: ChannelAttachmentType
+    public var mimeType: String?
+    public var filename: String?
+    public var sizeBytes: Int?
+    public var url: String?
+    public var localPath: String?
+    public var platformMetadata: [String: String]
+
+    public init(
+        id: String,
+        type: ChannelAttachmentType = .unknown,
+        mimeType: String? = nil,
+        filename: String? = nil,
+        sizeBytes: Int? = nil,
+        url: String? = nil,
+        localPath: String? = nil,
+        platformMetadata: [String: String] = [:]
+    ) {
+        self.id = id
+        self.type = type
+        self.mimeType = mimeType
+        self.filename = filename
+        self.sizeBytes = sizeBytes
+        self.url = url
+        self.localPath = localPath
+        self.platformMetadata = platformMetadata
+    }
+}
+
+public extension ChannelAttachment {
+    static func inferredType(mimeType: String?, filename: String? = nil, preferred: ChannelAttachmentType? = nil) -> ChannelAttachmentType {
+        if let preferred, preferred != .unknown { return preferred }
+        let mime = mimeType?.lowercased() ?? ""
+        if mime.hasPrefix("image/") { return .image }
+        if mime.hasPrefix("video/") { return .video }
+        if mime.hasPrefix("audio/") { return .audio }
+        if mime == "application/pdf" || mime.hasPrefix("text/") { return .document }
+        let ext = filename.map { ($0 as NSString).pathExtension.lowercased() } ?? ""
+        if ["jpg", "jpeg", "png", "gif", "webp", "heic"].contains(ext) { return .image }
+        if ["mp4", "mov", "webm", "mkv"].contains(ext) { return .video }
+        if ["mp3", "wav", "m4a", "ogg", "opus"].contains(ext) { return .audio }
+        if ["pdf", "txt", "md", "doc", "docx"].contains(ext) { return .document }
+        return .file
+    }
+}
+
 public struct ChannelMessageRequest: Codable, Sendable {
     public var userId: String
     public var content: String
     public var topicId: String?
     public var model: String?
     public var reasoningEffort: ReasoningEffort?
+    public var attachments: [ChannelAttachment]
 
     public init(
         userId: String,
         content: String,
         topicId: String? = nil,
         model: String? = nil,
-        reasoningEffort: ReasoningEffort? = nil
+        reasoningEffort: ReasoningEffort? = nil,
+        attachments: [ChannelAttachment] = []
     ) {
         self.userId = userId
         self.content = content
         self.topicId = topicId
         self.model = model
         self.reasoningEffort = reasoningEffort
+        self.attachments = attachments
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case userId
+        case content
+        case topicId
+        case model
+        case reasoningEffort
+        case attachments
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.userId = try container.decode(String.self, forKey: .userId)
+        self.content = try container.decode(String.self, forKey: .content)
+        self.topicId = try container.decodeIfPresent(String.self, forKey: .topicId)
+        self.model = try container.decodeIfPresent(String.self, forKey: .model)
+        self.reasoningEffort = try container.decodeIfPresent(ReasoningEffort.self, forKey: .reasoningEffort)
+        self.attachments = try container.decodeIfPresent([ChannelAttachment].self, forKey: .attachments) ?? []
     }
 }
 
@@ -2226,6 +2306,43 @@ public struct AgentChannelSessionSettings: Codable, Sendable, Equatable {
     }
 }
 
+
+public struct AgentSkillSettings: Codable, Sendable, Equatable {
+    /// Skill ids disabled for this agent. Disabled skills remain installed but are omitted from prompt context, auto routing, and skill shortcuts.
+    public var disabledSkills: [String]
+
+    public init(disabledSkills: [String] = []) {
+        self.disabledSkills = Self.normalizedSkillIds(disabledSkills)
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case disabledSkills
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        disabledSkills = Self.normalizedSkillIds(try container.decodeIfPresent([String].self, forKey: .disabledSkills) ?? [])
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(disabledSkills, forKey: .disabledSkills)
+    }
+
+    private static func normalizedSkillIds(_ values: [String]) -> [String] {
+        var seen = Set<String>()
+        var result: [String] = []
+        for value in values {
+            let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty, seen.insert(trimmed).inserted else {
+                continue
+            }
+            result.append(trimmed)
+        }
+        return result
+    }
+}
+
 public struct AgentConfigDetail: Codable, Sendable, Equatable {
     public var agentId: String
     public var role: String
@@ -2237,6 +2354,7 @@ public struct AgentConfigDetail: Codable, Sendable, Equatable {
     public var channelSessions: AgentChannelSessionSettings
     public var heartbeatStatus: AgentHeartbeatStatus
     public var runtime: AgentRuntimeConfig
+    public var skills: AgentSkillSettings
 
     public init(
         agentId: String,
@@ -2248,7 +2366,8 @@ public struct AgentConfigDetail: Codable, Sendable, Equatable {
         heartbeat: AgentHeartbeatSettings = AgentHeartbeatSettings(),
         channelSessions: AgentChannelSessionSettings = AgentChannelSessionSettings(),
         heartbeatStatus: AgentHeartbeatStatus = AgentHeartbeatStatus(),
-        runtime: AgentRuntimeConfig = AgentRuntimeConfig()
+        runtime: AgentRuntimeConfig = AgentRuntimeConfig(),
+        skills: AgentSkillSettings = AgentSkillSettings()
     ) {
         self.agentId = agentId
         self.role = role
@@ -2260,10 +2379,11 @@ public struct AgentConfigDetail: Codable, Sendable, Equatable {
         self.channelSessions = channelSessions
         self.heartbeatStatus = heartbeatStatus
         self.runtime = runtime
+        self.skills = skills
     }
 
     enum CodingKeys: String, CodingKey {
-        case agentId, role, selectedModel, plannerModel, availableModels, documents, heartbeat, channelSessions, heartbeatStatus, runtime
+        case agentId, role, selectedModel, plannerModel, availableModels, documents, heartbeat, channelSessions, heartbeatStatus, runtime, skills
     }
 
     public init(from decoder: Decoder) throws {
@@ -2278,6 +2398,7 @@ public struct AgentConfigDetail: Codable, Sendable, Equatable {
         channelSessions = try container.decodeIfPresent(AgentChannelSessionSettings.self, forKey: .channelSessions) ?? AgentChannelSessionSettings()
         heartbeatStatus = try container.decodeIfPresent(AgentHeartbeatStatus.self, forKey: .heartbeatStatus) ?? AgentHeartbeatStatus()
         runtime = try container.decodeIfPresent(AgentRuntimeConfig.self, forKey: .runtime) ?? .init()
+        skills = try container.decodeIfPresent(AgentSkillSettings.self, forKey: .skills) ?? AgentSkillSettings()
     }
 }
 
@@ -2289,6 +2410,7 @@ public struct AgentConfigUpdateRequest: Codable, Sendable {
     public var heartbeat: AgentHeartbeatSettings
     public var channelSessions: AgentChannelSessionSettings
     public var runtime: AgentRuntimeConfig
+    public var skills: AgentSkillSettings
 
     public init(
         role: String?,
@@ -2297,7 +2419,8 @@ public struct AgentConfigUpdateRequest: Codable, Sendable {
         documents: AgentDocumentBundle,
         heartbeat: AgentHeartbeatSettings = AgentHeartbeatSettings(),
         channelSessions: AgentChannelSessionSettings = AgentChannelSessionSettings(),
-        runtime: AgentRuntimeConfig = AgentRuntimeConfig()
+        runtime: AgentRuntimeConfig = AgentRuntimeConfig(),
+        skills: AgentSkillSettings = AgentSkillSettings()
     ) {
         self.role = role
         self.selectedModel = selectedModel
@@ -2306,10 +2429,11 @@ public struct AgentConfigUpdateRequest: Codable, Sendable {
         self.heartbeat = heartbeat
         self.channelSessions = channelSessions
         self.runtime = runtime
+        self.skills = skills
     }
 
     enum CodingKeys: String, CodingKey {
-        case role, selectedModel, plannerModel, documents, heartbeat, channelSessions, runtime
+        case role, selectedModel, plannerModel, documents, heartbeat, channelSessions, runtime, skills
     }
 
     public init(from decoder: Decoder) throws {
@@ -2321,6 +2445,7 @@ public struct AgentConfigUpdateRequest: Codable, Sendable {
         heartbeat = try container.decodeIfPresent(AgentHeartbeatSettings.self, forKey: .heartbeat) ?? AgentHeartbeatSettings()
         channelSessions = try container.decodeIfPresent(AgentChannelSessionSettings.self, forKey: .channelSessions) ?? AgentChannelSessionSettings()
         runtime = try container.decodeIfPresent(AgentRuntimeConfig.self, forKey: .runtime) ?? .init()
+        skills = try container.decodeIfPresent(AgentSkillSettings.self, forKey: .skills) ?? AgentSkillSettings()
     }
 }
 

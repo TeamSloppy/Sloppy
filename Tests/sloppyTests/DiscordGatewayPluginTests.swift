@@ -27,7 +27,8 @@ private actor RecordingInboundReceiver: InboundMessageReceiver {
         userId: String,
         content: String,
         topicId: String?,
-        inboundContext: ChannelInboundContext?
+        inboundContext: ChannelInboundContext?,
+        attachments: [ChannelAttachment]
     ) async -> Bool {
         messages.append(Message(channelId: channelId, userId: userId, content: content, topicId: topicId))
         return shouldAccept

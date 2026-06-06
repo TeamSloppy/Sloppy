@@ -71,15 +71,11 @@ struct MainView: View {
     }
 
     var body: some View {
-        ZStack {
-            AppAtmosphericBackground()
-
-            regularSplitLayout()
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .onAppear {
-            Task { await loadProjects() }
-        }
+        regularSplitLayout()
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .onAppear {
+                Task { await loadProjects() }
+            }
     }
     
     @State private var isDebugEnabled = false

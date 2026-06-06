@@ -332,7 +332,7 @@ public actor RuntimeSystem {
                 guard let self else { return }
                 await self.respondInline(
                     channelId: channelId,
-                    userMessage: request.content,
+                    userMessage: Self.contentForModel(content: request.content, attachments: request.attachments),
                     model: request.model,
                     reasoningEffort: request.reasoningEffort,
                     onResponseChunk: onResponseChunk,
@@ -415,6 +415,27 @@ public actor RuntimeSystem {
             workerId: workerId,
             conclusion: conclusion
         )
+    }
+
+    private static func contentForModel(content: String, attachments: [ChannelAttachment]) -> String {
+        guard !attachments.isEmpty else { return content }
+        var lines: [String] = []
+        let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmed.isEmpty {
+            lines.append(trimmed)
+            lines.append("")
+        }
+        lines.append("Attachments:")
+        for (index, attachment) in attachments.enumerated() {
+            var details = ["type=\(attachment.type.rawValue)"]
+            if let mimeType = attachment.mimeType { details.append("mime=\(mimeType)") }
+            if let filename = attachment.filename { details.append("filename=\(filename)") }
+            if let size = attachment.sizeBytes { details.append("size=\(size) bytes") }
+            if let url = attachment.url { details.append("url=\(url)") }
+            if let localPath = attachment.localPath { details.append("localPath=\(localPath)") }
+            lines.append("- [\(index + 1)] id=\(attachment.id) \(details.joined(separator: ", "))")
+        }
+        return lines.joined(separator: "\n")
     }
 
     /// Uses configured model provider for direct responses or falls back to static response.

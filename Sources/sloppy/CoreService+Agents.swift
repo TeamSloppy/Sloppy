@@ -583,11 +583,19 @@ extension CoreService {
                     throw AgentConfigError.invalidPayload
                 }
             }
+            let previousSkills = (try? agentCatalogStore.getAgentConfig(
+                agentID: agentID,
+                availableModels: availableModels,
+                persistedModelAllowed: makePersistedModelAllowance()
+            ).skills) ?? AgentSkillSettings()
             let updated = try agentCatalogStore.updateAgentConfig(
                 agentID: agentID,
                 request: request,
                 availableModels: availableModels
             )
+            if previousSkills != updated.skills {
+                await sessionOrchestrator.notifySkillsChanged(agentID: agentID)
+            }
             if !currentConfig.onboarding.completed {
                 logger.info(
                     "onboarding.agent_config.updated",

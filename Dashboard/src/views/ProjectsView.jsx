@@ -1135,6 +1135,7 @@ export function ProjectsView({
   const [isCreateTaskModalOpen, setIsCreateTaskModalOpen] = useState(false);
   const [taskDraft, setTaskDraft] = useState(emptyTaskDraft);
   const [editingTask, setEditingTask] = useState(null);
+  const [sideTask, setSideTask] = useState(null);
   const [editDraft, setEditDraft] = useState(emptyTaskDraft);
   const [projectNameDraft, setProjectNameDraft] = useState("");
   const [createModalActors, setCreateModalActors] = useState([]);
@@ -1242,6 +1243,13 @@ export function ProjectsView({
     }
     return resolveTaskByReference(selectedProject.id, selectedProject.tasks, routeProjectTaskReference);
   }, [selectedProject, selectedTab, routeProjectTaskReference]);
+
+  const resolvedSideTask = useMemo(() => {
+    if (!selectedProject || selectedTab !== "tasks" || selectedTask || !sideTask) {
+      return null;
+    }
+    return resolveTaskByReference(selectedProject.id, selectedProject.tasks, String(sideTask.id || "").trim()) || sideTask;
+  }, [selectedProject, selectedTab, selectedTask, sideTask]);
 
   const reviewTask = useMemo(() => {
     if (!selectedProject || selectedTab !== "review" || !routeProjectTaskReference) {
@@ -1405,6 +1413,7 @@ export function ProjectsView({
   useEffect(() => {
     if (!selectedProject || selectedTab !== "tasks") {
       setIsTaskDetailFullscreen(false);
+      setSideTask(null);
       return;
     }
     if (!routeProjectTaskReference) {
@@ -1419,26 +1428,29 @@ export function ProjectsView({
   }, [selectedProject, selectedTab, routeProjectTaskReference, selectedTask, onRouteProjectChange]);
 
   useEffect(() => {
-    if (!selectedTask) {
+    const activeTask = selectedTask || resolvedSideTask;
+    if (!activeTask) {
       setEditingTask(null);
       setEditDraft(emptyTaskDraft());
       return;
     }
-    const resolvedActorId = selectedTask.claimedActorId || selectedTask.actorId || "";
-    setEditingTask(selectedTask);
+    const resolvedActorId = activeTask.claimedActorId || activeTask.actorId || "";
+    setEditingTask(activeTask);
     setEditDraft({
-      title: selectedTask.title,
-      description: selectedTask.description || "",
-      priority: selectedTask.priority,
-      status: selectedTask.status,
-      kind: selectedTask.kind || "",
-      loopModeOverride: selectedTask.loopModeOverride || "",
+      title: activeTask.title,
+      description: activeTask.description || "",
+      priority: activeTask.priority,
+      status: activeTask.status,
+      kind: activeTask.kind || "",
+      loopModeOverride: activeTask.loopModeOverride || "",
       actorId: resolvedActorId,
-      teamId: selectedTask.teamId || ""
+      teamId: activeTask.teamId || ""
     });
   }, [
     selectedTask?.id,
     selectedTask?.updatedAt,
+    resolvedSideTask?.id,
+    resolvedSideTask?.updatedAt,
     selectedTask?.title,
     selectedTask?.description,
     selectedTask?.priority,
@@ -1447,7 +1459,16 @@ export function ProjectsView({
     selectedTask?.loopModeOverride,
     selectedTask?.actorId,
     selectedTask?.teamId,
-    selectedTask?.claimedActorId
+    selectedTask?.claimedActorId,
+    resolvedSideTask?.title,
+    resolvedSideTask?.description,
+    resolvedSideTask?.priority,
+    resolvedSideTask?.status,
+    resolvedSideTask?.kind,
+    resolvedSideTask?.loopModeOverride,
+    resolvedSideTask?.actorId,
+    resolvedSideTask?.teamId,
+    resolvedSideTask?.claimedActorId
   ]);
 
   useEffect(() => {
@@ -1531,11 +1552,13 @@ export function ProjectsView({
 
   function openProject(projectId, projectTab = "overview") {
     closeEditTaskModal();
+    setSideTask(null);
     onRouteProjectChange(projectId, projectTab, null);
   }
 
   function closeProject() {
     closeEditTaskModal();
+    setSideTask(null);
     onRouteProjectChange(null, null, null);
     setIsTaskDetailFullscreen(false);
   }
@@ -1544,9 +1567,36 @@ export function ProjectsView({
     if (!selectedProject || !task) {
       return;
     }
+    setSideTask(null);
     openEditTaskModal(task);
     const taskReference = String(task.id || "").trim();
     onRouteProjectChange(selectedProject.id, "tasks", taskReference);
+  }
+
+  function openTaskSideView(task) {
+    if (!selectedProject || !task) {
+      return;
+    }
+    const taskReference = String(task.id || "").trim();
+    const currentSideTaskReference = String(resolvedSideTask?.id || sideTask?.id || "").trim();
+    if (currentSideTaskReference && currentSideTaskReference === taskReference) {
+      closeTaskSideView();
+      return;
+    }
+    if (routeProjectTaskReference) {
+      onRouteProjectChange(selectedProject.id, "tasks", null);
+    }
+    setSideTask(task);
+    openEditTaskModal(task);
+  }
+
+  function closeTaskSideView() {
+    setSideTask(null);
+    closeEditTaskModal();
+  }
+
+  function expandTaskDetails(task) {
+    openTaskDetails(task);
   }
 
   function closeTaskDetails() {
@@ -1554,6 +1604,7 @@ export function ProjectsView({
       return;
     }
     closeEditTaskModal();
+    setSideTask(null);
     onRouteProjectChange(selectedProject.id, "tasks", null);
     setIsTaskDetailFullscreen(false);
   }
@@ -1841,6 +1892,7 @@ export function ProjectsView({
     replaceProjectInState(updated);
     if (selectedTask && String(selectedTask.id || "").trim() === deletedTaskId) {
       onRouteProjectChange(selectedProject.id, "tasks", null);
+      setSideTask(null);
       setIsTaskDetailFullscreen(false);
     }
     closeEditTaskModal();
@@ -2218,6 +2270,7 @@ export function ProjectsView({
         <ProjectTasksTab
           project={project}
           selectedTask={selectedTask}
+          sideTask={resolvedSideTask}
           editDraft={editDraft}
           isTaskDetailFullscreen={isTaskDetailFullscreen}
           updateEditDraft={updateEditDraft}
@@ -2228,6 +2281,9 @@ export function ProjectsView({
           updateDetailAssignee={updateDetailAssignee}
           deleteTaskFromModal={deleteTaskFromModal}
           openTaskDetails={openTaskDetails}
+          openTaskSideView={openTaskSideView}
+          expandTaskDetails={expandTaskDetails}
+          closeTaskSideView={closeTaskSideView}
           openCreateTaskModal={openCreateTaskModal}
           moveTask={moveTask}
           bulkUpdateTasks={bulkUpdateTasks}

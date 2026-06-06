@@ -16,3 +16,18 @@ func tuiAttachmentFileReferenceDoesNotInlineContent() {
     #expect(block.contains("Content not inlined"))
     #expect(!block.contains("```"))
 }
+
+@Test
+func tuiImagePathDetectionIsCaseInsensitive() {
+    #expect(SloppyTUIAttachmentContext.isImagePath("/tmp/CAT.PNG"))
+    #expect(SloppyTUIAttachmentContext.isImagePath("file:///tmp/cat.webp"))
+    #expect(SloppyTUIAttachmentContext.isImagePath("Assets/gallery/cat.heic"))
+    #expect(!SloppyTUIAttachmentContext.isImagePath("Sources/App.swift"))
+}
+
+@Test
+func tuiImageMarkerUsesFilenameOnly() {
+    #expect(SloppyTUIAttachmentContext.imageMarker(forPath: "/tmp/screenshots/cat.png") == "[Image cat.png]")
+    #expect(SloppyTUIAttachmentContext.imageMarker(forPath: "file:///tmp/screenshots/CAT.PNG") == "[Image CAT.PNG]")
+    #expect(SloppyTUIAttachmentContext.imageMarker(filename: "") == "[Image]")
+}

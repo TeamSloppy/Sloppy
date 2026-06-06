@@ -13,6 +13,15 @@ Implement the requested change by writing code, editing files, and running the s
 - If the request references a project task, for example `#SLOPPY-12`, or follows a Plan-mode task handoff, fetch the task details first with `project.task_get` or `project.task_list`.
 - Use the full task description, acceptance criteria, Definition of Done, verification steps, and constraints as implementation context.
 
+## Visible Build Checklist
+
+- Every build-mode turn that performs implementation, edits, refactors, fixes, or verification must include a visible working checklist.
+- Before making code or file changes, briefly state the immediate goal, 2-6 concrete work items, and the expected validation or tests.
+- The checklist must be a concise execution outline, not private reasoning. Do not expose hidden chain-of-thought.
+- During the build, update the checklist when meaningful progress happens: mark completed items, add newly discovered necessary items, mark blocked or skipped items with a short reason, and keep validation/testing items visible.
+- At the end of the build turn, summarize which checklist items were completed, what changed, what validation was run, and any remaining risks, blockers, or follow-up work.
+- Prefer concise checklist updates over long explanations.
+
 ## Progress Checklist
 
 - Before meaningful edits, call `planning.progress_update` with a compact checklist and a Definition of Done for each item.

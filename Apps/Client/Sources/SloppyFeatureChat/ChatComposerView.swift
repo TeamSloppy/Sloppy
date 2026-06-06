@@ -60,20 +60,26 @@ public struct ChatComposerView: View {
                     .frame(width: 28, height: 28)
             }
 
-            TextField("Message \(agentName)...", text: Binding(
-                get: { draft.text },
-                set: { draft.text = $0 }
-            ))
-                .font(.system(size: ty.body))
-                .foregroundColor(fieldInk)
-                .textFieldStyle(PlainTextFieldStyle())
-                .frame(minWidth: 0, maxWidth: .infinity, minHeight: Self.phoneFieldHeight, maxHeight: Self.phoneFieldHeight, alignment: .leading)
+            TextField(
+                "Message \(agentName)...",
+                text: Binding(
+                    get: { draft.text },
+                    set: { draft.text = $0 }
+                )
+            )
+            .font(.system(size: ty.body))
+            .foregroundColor(fieldInk)
+            .textFieldStyle(PlainTextFieldStyle())
+            .frame(
+                minWidth: 0, maxWidth: .infinity, minHeight: Self.phoneFieldHeight,
+                maxHeight: Self.phoneFieldHeight, alignment: .leading)
 
             Button(action: submit) {
                 Icons.symbol(.arrowUpward, size: 17)
                     .foregroundColor(sendInk)
                     .frame(width: Self.sendSize, height: Self.sendSize)
-                    .glassEffect(.regular.tint(sendFill), in: .rect(cornerRadius: Self.sendSize / 2))
+                    .glassEffect(
+                        .regular.tint(sendFill), in: .rect(cornerRadius: Self.sendSize / 2))
             }
         }
         .padding(.horizontal, sp.s)
@@ -103,14 +109,19 @@ public struct ChatComposerView: View {
                     .frame(width: Self.sendSize, height: Self.sendSize)
             }
 
-            TextField("Ask \(agentDisplayName)", text: Binding(
-                get: { draft.text },
-                set: { draft.text = $0 }
-            ))
-                .font(.system(size: ty.body))
-                .foregroundColor(fieldInk)
-                .textFieldStyle(PlainTextFieldStyle())
-                .frame(minWidth: 0, maxWidth: .infinity, minHeight: Self.fieldHeight, maxHeight: Self.fieldHeight, alignment: .leading)
+            TextField(
+                "Ask \(agentDisplayName)",
+                text: Binding(
+                    get: { draft.text },
+                    set: { draft.text = $0 }
+                )
+            )
+            .font(.system(size: ty.body))
+            .foregroundColor(fieldInk)
+            .textFieldStyle(PlainTextFieldStyle())
+            .frame(
+                minWidth: 0, maxWidth: .infinity, minHeight: Self.fieldHeight,
+                maxHeight: Self.fieldHeight, alignment: .leading)
 
             Text("Pro")
                 .font(.system(size: ty.body))
@@ -127,7 +138,8 @@ public struct ChatComposerView: View {
                 Icons.symbol(.arrowUpward, size: ty.heading)
                     .foregroundColor(actionInk)
                     .frame(width: Self.sendSize, height: Self.sendSize)
-                    .glassEffect(.regular.tint(actionFill), in: .rect(cornerRadius: Self.sendSize / 2))
+                    .glassEffect(
+                        .regular.tint(actionFill), in: .rect(cornerRadius: Self.sendSize / 2))
             }
         }
         .padding(.leading, sp.l)
@@ -140,7 +152,10 @@ public struct ChatComposerView: View {
             maxHeight: Self.panelHeight,
             alignment: .leading
         )
-        .background(c.surfaceGlass.opacity(0.72 as Float))
+        .background(
+            CapsuleShape()
+                .fill(c.surfaceGlass)
+        )
         .frame(maxWidth: Self.panelWidth)
     }
 

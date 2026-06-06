@@ -2206,10 +2206,35 @@ actor AgentSessionOrchestrator {
 
         do {
             try agentSkillsStore.provisionBuiltInSkills(agentID: agentID)
-            return try agentSkillsStore.listSkills(agentID: agentID)
+            let skills = try agentSkillsStore.listSkills(agentID: agentID)
+            let disabledSkillIDs = disabledSkillIDs(agentID: agentID)
+            guard !disabledSkillIDs.isEmpty else {
+                return skills
+            }
+            return skills.filter { !disabledSkillIDs.contains($0.id) }
         } catch {
             logger.warning(
                 "Failed to load installed skills for prompt bootstrap",
+                metadata: [
+                    "agent_id": .string(agentID),
+                    "error": .string(String(describing: error))
+                ]
+            )
+            return []
+        }
+    }
+
+    private func disabledSkillIDs(agentID: String) -> Set<String> {
+        do {
+            let config = try agentCatalogStore.getAgentConfig(
+                agentID: agentID,
+                availableModels: availableModels,
+                persistedModelAllowed: persistedModelAllowed()
+            )
+            return Set(config.skills.disabledSkills)
+        } catch {
+            logger.warning(
+                "Failed to load disabled skill settings",
                 metadata: [
                     "agent_id": .string(agentID),
                     "error": .string(String(describing: error))

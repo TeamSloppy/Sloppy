@@ -416,11 +416,12 @@ extension CoreService {
         userId: String,
         contentForModel: String,
         topicId: String?,
-        mode: AgentChatMode? = nil
+        mode: AgentChatMode? = nil,
+        attachments: [ChannelAttachment] = []
     ) async {
         var slot = inboundChannelPluginQueues[channelId] ?? InboundChannelPluginQueueSlot()
         if slot.processing {
-            slot.fifo.append((userId: userId, content: contentForModel, topicId: topicId, mode: mode))
+            slot.fifo.append((userId: userId, content: contentForModel, topicId: topicId, mode: mode, attachments: attachments))
             inboundChannelPluginQueues[channelId] = slot
             await deliverToChannelPlugin(
                 channelId: channelId,
@@ -438,7 +439,8 @@ extension CoreService {
                 initialUserId: userId,
                 initialContent: contentForModel,
                 initialTopicId: topicId,
-                initialMode: mode
+                initialMode: mode,
+                initialAttachments: attachments
             )
         }
     }
@@ -448,19 +450,22 @@ extension CoreService {
         initialUserId: String,
         initialContent: String,
         initialTopicId: String?,
-        initialMode: AgentChatMode?
+        initialMode: AgentChatMode?,
+        initialAttachments: [ChannelAttachment]
     ) async {
         var userId = initialUserId
         var content = initialContent
         var topicId = initialTopicId
         var mode = initialMode
+        var attachments = initialAttachments
         while true {
             await executeSingleInboundChannelPluginTurn(
                 channelId: channelId,
                 userId: userId,
                 contentForModel: content,
                 topicId: topicId,
-                mode: mode
+                mode: mode,
+                attachments: attachments
             )
             guard var slot = inboundChannelPluginQueues[channelId] else {
                 return
@@ -476,6 +481,7 @@ extension CoreService {
             content = next.content
             topicId = next.topicId
             mode = next.mode
+            attachments = next.attachments
         }
     }
 
@@ -484,7 +490,8 @@ extension CoreService {
         userId: String,
         contentForModel: String,
         topicId: String?,
-        mode forcedMode: AgentChatMode?
+        mode forcedMode: AgentChatMode?,
+        attachments: [ChannelAttachment]
     ) async {
         await channelStreamCancelRegistry.clearCancel(channelId: channelId)
 
@@ -520,7 +527,8 @@ extension CoreService {
             userId: userId,
             content: contentForRuntime,
             topicId: topicId,
-            model: modelOverride
+            model: modelOverride,
+            attachments: attachments
         )
         let collector = ResponseCollector()
         let outboundStreamID = await channelDelivery.beginStream(
@@ -921,7 +929,8 @@ extension CoreService: InboundMessageReceiver {
         userId: String,
         content: String,
         topicId: String?,
-        inboundContext: ChannelInboundContext?
+        inboundContext: ChannelInboundContext?,
+        attachments: [ChannelAttachment]
     ) async -> Bool {
         let bindingChannelId = channelId
         let sessionChannelId = ChannelGatewayScope.scopedChannelId(
@@ -1077,7 +1086,7 @@ extension CoreService: InboundMessageReceiver {
             }
 
             if var slot = inboundChannelPluginQueues[sessionChannelId], slot.processing {
-                slot.fifo.insert((userId: userId, content: btwTail, topicId: topicId, mode: nil), at: 0)
+                slot.fifo.insert((userId: userId, content: btwTail, topicId: topicId, mode: nil, attachments: []), at: 0)
                 inboundChannelPluginQueues[sessionChannelId] = slot
                 return true
             }
@@ -1141,7 +1150,8 @@ extension CoreService: InboundMessageReceiver {
             userId: userId,
             contentForModel: oneShotModeCommand?.message ?? trimmed,
             topicId: topicId,
-            mode: oneShotModeCommand?.mode
+            mode: oneShotModeCommand?.mode,
+            attachments: attachments
         )
         return true
     }

@@ -84,7 +84,7 @@ public actor CoreService {
     static let agentMemoryGraphNeighborLimit = 150
 
     struct InboundChannelPluginQueueSlot: Sendable {
-        var fifo: [(userId: String, content: String, topicId: String?, mode: AgentChatMode?)] = []
+        var fifo: [(userId: String, content: String, topicId: String?, mode: AgentChatMode?, attachments: [ChannelAttachment])] = []
         var processing: Bool = false
     }
 

@@ -327,7 +327,8 @@ actor TelegramPoller {
     // MARK: - Messages
 
     private func handleMessage(_ message: TelegramBotAPI.Message) async {
-        guard let rawText = message.text, !rawText.isEmpty else { return }
+        let attachments = telegramAttachments(from: message)
+        guard let rawText = message.text ?? message.caption ?? (attachments.isEmpty ? nil : "[Attachment]") else { return }
         if !ChannelSlashBotTargeting.telegramCommandTargetsThisBot(
             commandText: rawText,
             ourBotUsernameLowercased: botUsernameLowercased
@@ -434,7 +435,8 @@ actor TelegramPoller {
             userId: userIdString,
             content: text,
             topicId: topicId,
-            inboundContext: inboundContext
+            inboundContext: inboundContext,
+            attachments: attachments
         )
 
         if ok {
@@ -447,6 +449,45 @@ actor TelegramPoller {
                 messageThreadId: messageThreadId
             )
         }
+    }
+
+    private func telegramAttachments(from message: TelegramBotAPI.Message) -> [ChannelAttachment] {
+        var result: [ChannelAttachment] = []
+        if let photo = message.photo?.max(by: { ($0.fileSize ?? 0) < ($1.fileSize ?? 0) }) {
+            result.append(ChannelAttachment(
+                id: photo.fileUniqueId ?? photo.fileId,
+                type: .image,
+                mimeType: "image/jpeg",
+                filename: "telegram-photo-\(photo.fileUniqueId ?? photo.fileId).jpg",
+                sizeBytes: photo.fileSize,
+                platformMetadata: ["platform": "telegram", "file_id": photo.fileId, "width": String(photo.width), "height": String(photo.height)]
+            ))
+        }
+        appendTelegramMedia(message.voice, type: .voice, into: &result)
+        appendTelegramMedia(message.audio, type: .audio, into: &result)
+        appendTelegramMedia(message.document, type: .document, into: &result)
+        appendTelegramMedia(message.video, type: .video, into: &result)
+        appendTelegramMedia(message.animation, type: .video, into: &result)
+        return result
+    }
+
+    private func appendTelegramMedia(
+        _ media: TelegramBotAPI.MediaFile?,
+        type preferredType: ChannelAttachmentType,
+        into result: inout [ChannelAttachment]
+    ) {
+        guard let media else { return }
+        let filename = media.fileName ?? "telegram-\(preferredType.rawValue)-\(media.fileUniqueId ?? media.fileId)"
+        var metadata = ["platform": "telegram", "file_id": media.fileId]
+        if let duration = media.duration { metadata["duration"] = String(duration) }
+        result.append(ChannelAttachment(
+            id: media.fileUniqueId ?? media.fileId,
+            type: ChannelAttachment.inferredType(mimeType: media.mimeType, filename: filename, preferred: preferredType),
+            mimeType: media.mimeType,
+            filename: filename,
+            sizeBytes: media.fileSize,
+            platformMetadata: metadata
+        ))
     }
 
     private func handleProjectLinkSlashCommand(

@@ -21,6 +21,7 @@ final class AgentCatalogFileStore {
         let heartbeat: AgentHeartbeatSettings?
         let channelSessions: AgentChannelSessionSettings?
         let runtime: AgentRuntimeConfig?
+        let skills: AgentSkillSettings?
     }
 
     private struct AgentPetMetadataFile: Codable {
@@ -232,7 +233,8 @@ final class AgentCatalogFileStore {
             heartbeat: configFile.heartbeat ?? AgentHeartbeatSettings(),
             channelSessions: configFile.channelSessions ?? AgentChannelSessionSettings(),
             heartbeatStatus: heartbeatStatus,
-            runtime: configFile.runtime ?? summary.runtime
+            runtime: configFile.runtime ?? summary.runtime,
+            skills: configFile.skills ?? AgentSkillSettings()
         )
     }
 
@@ -335,7 +337,8 @@ final class AgentCatalogFileStore {
                     plannerModel: plannerModel,
                     heartbeat: heartbeat,
                     channelSessions: channelSessions,
-                    runtime: runtime
+                    runtime: runtime,
+                    skills: request.skills
                 ),
                 isSystem: summary.isSystem
             )
@@ -369,7 +372,8 @@ final class AgentCatalogFileStore {
             heartbeat: heartbeat,
             channelSessions: channelSessions,
             heartbeatStatus: try readHeartbeatStatus(agentID: normalizedAgentID, isSystem: summary.isSystem),
-            runtime: runtime
+            runtime: runtime,
+            skills: request.skills
         )
     }
 
@@ -674,7 +678,8 @@ final class AgentCatalogFileStore {
                 plannerModel: nil,
                 heartbeat: AgentHeartbeatSettings(),
                 channelSessions: AgentChannelSessionSettings(),
-                runtime: summary.runtime
+                runtime: summary.runtime,
+                skills: AgentSkillSettings()
             ),
             isSystem: summary.isSystem
         )
@@ -727,7 +732,8 @@ final class AgentCatalogFileStore {
                 plannerModel: nil,
                 heartbeat: AgentHeartbeatSettings(),
                 channelSessions: AgentChannelSessionSettings(),
-                runtime: summary.runtime
+                runtime: summary.runtime,
+                skills: AgentSkillSettings()
             )
             try writeAgentConfigFile(fallback, isSystem: summary.isSystem)
             return fallback
@@ -769,7 +775,8 @@ final class AgentCatalogFileStore {
                 plannerModel: resolvedPlannerModel,
                 heartbeat: decoded.heartbeat ?? AgentHeartbeatSettings(),
                 channelSessions: decoded.channelSessions ?? AgentChannelSessionSettings(),
-                runtime: runtime
+                runtime: runtime,
+                skills: decoded.skills ?? AgentSkillSettings()
             )
             try writeAgentConfigFile(decoded, isSystem: summary.isSystem)
         }
@@ -785,7 +792,8 @@ final class AgentCatalogFileStore {
                 plannerModel: decoded.plannerModel,
                 heartbeat: decoded.heartbeat ?? AgentHeartbeatSettings(),
                 channelSessions: decoded.channelSessions ?? AgentChannelSessionSettings(),
-                runtime: runtime
+                runtime: runtime,
+                skills: decoded.skills ?? AgentSkillSettings()
             )
             try writeAgentConfigFile(decoded, isSystem: summary.isSystem)
         } else if decoded.heartbeat == nil || decoded.channelSessions == nil || decoded.runtime == nil {
@@ -798,7 +806,8 @@ final class AgentCatalogFileStore {
                 plannerModel: runtime.type == .native ? decoded.plannerModel : nil,
                 heartbeat: decoded.heartbeat ?? AgentHeartbeatSettings(),
                 channelSessions: decoded.channelSessions ?? AgentChannelSessionSettings(),
-                runtime: runtime
+                runtime: runtime,
+                skills: decoded.skills ?? AgentSkillSettings()
             )
             try writeAgentConfigFile(decoded, isSystem: summary.isSystem)
         }

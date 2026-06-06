@@ -6,10 +6,12 @@ import Logging
 
 public actor SloppyAPIClient {
     public nonisolated let baseURL: URL
-    private let session: URLSession
-    private let decoder: JSONDecoder
-    private let encoder: JSONEncoder
-    private let logger: Logger
+
+    private let http: BackendHTTPClient
+    private let projects: ProjectService
+    private let agents: AgentService
+    private let sessions: SessionService
+    private let config: ConfigService
 
     public init(
         baseURL: URL = URL(string: "http://localhost:25101")!,
@@ -17,47 +19,32 @@ public actor SloppyAPIClient {
         logger: Logger = Logger(label: "sloppy.api-client")
     ) {
         self.baseURL = baseURL
-        self.session = session
-        self.logger = logger
-
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .custom { decoder in
-            let container = try decoder.singleValueContainer()
-            let str = try container.decode(String.self)
-            if let date = ISO8601DateFormatter().date(from: str) { return date }
-            let formatter = ISO8601DateFormatter()
-            formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-            if let date = formatter.date(from: str) { return date }
-            throw DecodingError.dataCorruptedError(
-                in: container,
-                debugDescription: "Cannot decode date: \(str)"
-            )
-        }
-        self.decoder = decoder
-
-        let encoder = JSONEncoder()
-        encoder.dateEncodingStrategy = .iso8601
-        self.encoder = encoder
+        let http = BackendHTTPClient(baseURL: baseURL, session: session, logger: logger)
+        self.http = http
+        self.projects = ProjectService(http: http)
+        self.agents = AgentService(http: http)
+        self.sessions = SessionService(http: http)
+        self.config = ConfigService(http: http)
     }
 
     public func fetchProjects() async throws -> [APIProjectRecord] {
-        try await get("/v1/projects")
+        try await projects.fetchProjects()
     }
 
     public func fetchProject(id: String) async throws -> APIProjectRecord {
-        try await get("/v1/projects/\(id)")
+        try await projects.fetchProject(id: id)
     }
 
     public func fetchAgents() async throws -> [APIAgentRecord] {
-        try await get("/v1/agents")
+        try await agents.fetchAgents()
     }
 
     public func fetchAgent(id: String) async throws -> APIAgentRecord {
-        try await get("/v1/agents/\(id)")
+        try await agents.fetchAgent(id: id)
     }
 
     public func fetchAgentTasks(agentId: String) async throws -> [APIAgentTaskRecord] {
-        try await get("/v1/agents/\(agentId)/tasks")
+        try await agents.fetchAgentTasks(agentId: agentId)
     }
 
     public func fetchOverviewData() async throws -> OverviewData {
@@ -85,39 +72,19 @@ public actor SloppyAPIClient {
     // MARK: - Session REST API
 
     public func fetchAgentSessions(agentId: String, projectId: String? = nil) async throws -> [ChatSessionSummary] {
-        var path = "/v1/agents/\(Self.encodePathSegment(agentId))/sessions"
-        if let projectId = projectId?.trimmingCharacters(in: .whitespacesAndNewlines), !projectId.isEmpty {
-            path += "?projectId=\(Self.encodeQueryValue(projectId))"
-        }
-        return try await get(path)
+        try await sessions.fetchAgentSessions(agentId: agentId, projectId: projectId)
     }
 
     public func fetchAgentSession(agentId: String, sessionId: String) async throws -> ChatSessionDetail {
-        try await get("/v1/agents/\(Self.encodePathSegment(agentId))/sessions/\(Self.encodePathSegment(sessionId))")
+        try await sessions.fetchAgentSession(agentId: agentId, sessionId: sessionId)
     }
 
     public func fetchAgentSessionData(agentId: String, sessionId: String) async throws -> Data {
-        try await getData("/v1/agents/\(Self.encodePathSegment(agentId))/sessions/\(Self.encodePathSegment(sessionId))")
+        try await sessions.fetchAgentSessionData(agentId: agentId, sessionId: sessionId)
     }
 
-    public func createAgentSession(
-        agentId: String,
-        title: String? = nil,
-        projectId: String? = nil
-    ) async throws -> ChatSessionSummary {
-        struct Payload: Encodable {
-            var title: String?
-            var kind: String = "chat"
-            var projectId: String?
-        }
-        let normalizedProjectId = projectId?.trimmingCharacters(in: .whitespacesAndNewlines)
-        return try await post(
-            "/v1/agents/\(Self.encodePathSegment(agentId))/sessions",
-            body: Payload(
-                title: title,
-                projectId: normalizedProjectId?.isEmpty == false ? normalizedProjectId : nil
-            )
-        )
+    public func createAgentSession(agentId: String, title: String? = nil, projectId: String? = nil) async throws -> ChatSessionSummary {
+        try await sessions.createAgentSession(agentId: agentId, title: title, projectId: projectId)
     }
 
     public func postSessionMessage(
@@ -126,139 +93,20 @@ public actor SloppyAPIClient {
         content: String,
         userId: String = "user"
     ) async throws -> ChatSessionSummary {
-        struct Payload: Encodable {
-            var userId: String
-            var content: String
-            var attachments: [String] = []
-            var spawnSubSession: Bool = false
-        }
-        struct Response: Decodable {
-            var summary: ChatSessionSummary
-        }
-        let response: Response = try await post(
-            "/v1/agents/\(Self.encodePathSegment(agentId))/sessions/\(Self.encodePathSegment(sessionId))/messages",
-            body: Payload(userId: userId, content: content)
-        )
-        return response.summary
+        try await sessions.postSessionMessage(agentId: agentId, sessionId: sessionId, content: content, userId: userId)
     }
 
     public func deleteAgentSession(agentId: String, sessionId: String) async throws {
-        try await delete("/v1/agents/\(Self.encodePathSegment(agentId))/sessions/\(Self.encodePathSegment(sessionId))")
+        try await sessions.deleteAgentSession(agentId: agentId, sessionId: sessionId)
     }
 
     // MARK: - Config API
 
     public func fetchConfig() async throws -> SloppyConfig {
-        try await get("/v1/config")
+        try await config.fetchConfig()
     }
 
     public func updateConfig(_ config: SloppyConfig) async throws -> SloppyConfig {
-        try await put("/v1/config", body: config)
+        try await self.config.updateConfig(config)
     }
-
-    // MARK: - Private helpers
-
-    private func get<T: Decodable>(_ path: String) async throws -> T {
-        let data = try await getData(path)
-        return try decoder.decode(T.self, from: data)
-    }
-
-    private func getData(_ path: String) async throws -> Data {
-        let url = url(for: path)
-        var request = URLRequest(url: url)
-        request.httpMethod = "GET"
-        request.setValue("application/json", forHTTPHeaderField: "Accept")
-
-        logger.debug("GET \(url.absoluteString)")
-        let (data, response) = try await session.data(for: request)
-
-        guard let http = response as? HTTPURLResponse else {
-            throw APIError.invalidResponse
-        }
-        guard (200..<300).contains(http.statusCode) else {
-            throw APIError.httpError(statusCode: http.statusCode)
-        }
-
-        return data
-    }
-
-    private func put<Body: Encodable, T: Decodable>(_ path: String, body: Body) async throws -> T {
-        let url = url(for: path)
-        var request = URLRequest(url: url)
-        request.httpMethod = "PUT"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue("application/json", forHTTPHeaderField: "Accept")
-        request.httpBody = try encoder.encode(body)
-
-        logger.debug("PUT \(url.absoluteString)")
-        let (data, response) = try await session.data(for: request)
-
-        guard let http = response as? HTTPURLResponse else {
-            throw APIError.invalidResponse
-        }
-        guard (200..<300).contains(http.statusCode) else {
-            throw APIError.httpError(statusCode: http.statusCode)
-        }
-
-        return try decoder.decode(T.self, from: data)
-    }
-
-    private func post<Body: Encodable, T: Decodable>(_ path: String, body: Body) async throws -> T {
-        let url = url(for: path)
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue("application/json", forHTTPHeaderField: "Accept")
-        request.httpBody = try encoder.encode(body)
-
-        logger.debug("POST \(url.absoluteString)")
-        let (data, response) = try await session.data(for: request)
-
-        guard let http = response as? HTTPURLResponse else {
-            throw APIError.invalidResponse
-        }
-        guard (200..<300).contains(http.statusCode) else {
-            throw APIError.httpError(statusCode: http.statusCode)
-        }
-
-        return try decoder.decode(T.self, from: data)
-    }
-
-    private func delete(_ path: String) async throws {
-        let url = url(for: path)
-        var request = URLRequest(url: url)
-        request.httpMethod = "DELETE"
-        request.setValue("application/json", forHTTPHeaderField: "Accept")
-
-        logger.debug("DELETE \(url.absoluteString)")
-        let (_, response) = try await session.data(for: request)
-
-        guard let http = response as? HTTPURLResponse else {
-            throw APIError.invalidResponse
-        }
-        guard (200..<300).contains(http.statusCode) else {
-            throw APIError.httpError(statusCode: http.statusCode)
-        }
-    }
-
-    private nonisolated func url(for path: String) -> URL {
-        URL(string: path, relativeTo: baseURL)?.absoluteURL ?? baseURL.appendingPathComponent(path)
-    }
-
-    private nonisolated static func encodePathSegment(_ segment: String) -> String {
-        var allowed = CharacterSet.urlPathAllowed
-        allowed.remove(charactersIn: "/?#[]@!$&'()*+,;=")
-        return segment.addingPercentEncoding(withAllowedCharacters: allowed) ?? segment
-    }
-
-    private nonisolated static func encodeQueryValue(_ value: String) -> String {
-        var allowed = CharacterSet.urlQueryAllowed
-        allowed.remove(charactersIn: ":#[]@!$&'()*+,;=")
-        return value.addingPercentEncoding(withAllowedCharacters: allowed) ?? value
-    }
-}
-
-public enum APIError: Error, Sendable {
-    case invalidResponse
-    case httpError(statusCode: Int)
 }

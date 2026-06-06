@@ -66,9 +66,6 @@ struct MainSidebarView: View {
             desktopWindowHeader(c: c, sp: sp)
                 .padding(.bottom, sp.m)
 
-            modeSegment(c: c, sp: sp)
-                .padding(.bottom, sp.m)
-
             ScrollView {
                 VStack(alignment: .leading, spacing: sp.l) {
                     chatActions(c: c, sp: sp)
@@ -77,8 +74,6 @@ struct MainSidebarView: View {
                 }
             }
             .frame(minHeight: 0, maxHeight: .infinity)
-
-            userProfile(c: c, sp: sp)
         }
         .padding(sp.m)
         .frame(minWidth: 0, maxWidth: .infinity, minHeight: 0, maxHeight: .infinity, alignment: .topLeading)
@@ -131,32 +126,6 @@ struct MainSidebarView: View {
             }
         }
         .padding(.top, sp.l)
-    }
-
-    private func modeSegment(c: AppColors, sp: AppSpacing) -> some View {
-        let ty = theme.typography
-
-        return HStack(spacing: 0) {
-            Text("Chat")
-                .font(.system(size: ty.body))
-                .foregroundColor(c.textPrimary)
-                .frame(minWidth: 0, maxWidth: .infinity, minHeight: 34, maxHeight: 34)
-                .background(c.surfaceRaised.opacity(0.68 as Float))
-                .glassEffect(.regular.tint(c.surfaceGlass.opacity(0.20 as Float)), in: .rect(cornerRadius: 18))
-
-            HStack(spacing: sp.xs) {
-                Text("Spark")
-                    .font(.system(size: ty.body))
-                    .foregroundColor(c.textSecondary)
-                Text("BETA")
-                    .font(.system(size: ty.micro))
-                    .foregroundColor(c.textMuted)
-            }
-            .frame(minWidth: 0, maxWidth: .infinity, minHeight: 34, maxHeight: 34)
-        }
-        .padding(2)
-        .background(c.surface.opacity(0.82 as Float))
-        .glassEffect(.regular.tint(c.surfaceGlass.opacity(0.18 as Float)), in: .rect(cornerRadius: 19))
     }
 
     private func chatActions(c: AppColors, sp: AppSpacing) -> some View {
@@ -253,31 +222,6 @@ struct MainSidebarView: View {
             .font(.system(size: ty.body))
             .foregroundColor(c.textMuted)
             .padding(.horizontal, theme.spacing.s)
-    }
-
-    private func userProfile(c: AppColors, sp: AppSpacing) -> some View {
-        let ty = theme.typography
-
-        return HStack(spacing: sp.s) {
-            Text("CW")
-                .font(.system(size: ty.micro))
-                .foregroundColor(Color.fromHex(0x1F2933))
-                .frame(width: 34, height: 34)
-                .background(Color.fromHex(0xBDE4FF).opacity(0.84 as Float))
-                .glassEffect(.regular.tint(c.surfaceGlass.opacity(0.24 as Float)), in: .rect(cornerRadius: 17))
-
-            VStack(alignment: .leading, spacing: 1) {
-                Text("Camille Walsh")
-                    .font(.system(size: ty.body))
-                    .foregroundColor(c.textPrimary)
-                    .lineLimit(1)
-                Text("Ultra")
-                    .font(.system(size: ty.caption))
-                    .foregroundColor(c.textMuted)
-                    .lineLimit(1)
-            }
-        }
-        .padding(.top, sp.m)
     }
 
     private func chatSessionRow(

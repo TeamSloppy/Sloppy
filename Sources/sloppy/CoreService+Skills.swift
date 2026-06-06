@@ -197,7 +197,12 @@ extension CoreService {
 
         do {
             try agentSkillsStore.provisionBuiltInSkills(agentID: normalizedAgentID)
-            return try agentSkillsStore.listSkills(agentID: normalizedAgentID)
+            let skills = try agentSkillsStore.listSkills(agentID: normalizedAgentID)
+            let disabled = Set((try? getAgentConfig(agentID: normalizedAgentID).skills.disabledSkills) ?? [])
+            guard !disabled.isEmpty else {
+                return skills
+            }
+            return skills.filter { !disabled.contains($0.id) }
         } catch {
             return []
         }

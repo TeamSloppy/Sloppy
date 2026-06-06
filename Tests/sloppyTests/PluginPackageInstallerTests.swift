@@ -532,7 +532,8 @@ private struct NoopInboundMessageReceiver: InboundMessageReceiver {
         userId: String,
         content: String,
         topicId: String?,
-        inboundContext: ChannelInboundContext?
+        inboundContext: ChannelInboundContext?,
+        attachments: [ChannelAttachment]
     ) async -> Bool {
         true
     }

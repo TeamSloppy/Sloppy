@@ -7,6 +7,7 @@ struct SloppyTUIQueuedMessage: Identifiable {
     var context: String?
     var uploads: [AgentAttachmentUpload]
     var spawnSubSession: Bool
+    var titleSource: String? = nil
 
     var displayText: String {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -34,14 +35,16 @@ struct SloppyTUIMessageQueue {
         text: String,
         context: String? = nil,
         uploads: [AgentAttachmentUpload] = [],
-        spawnSubSession: Bool = false
+        spawnSubSession: Bool = false,
+        titleSource: String? = nil
     ) -> SloppyTUIQueuedMessage {
         let message = SloppyTUIQueuedMessage(
             id: nextID,
             text: text,
             context: context,
             uploads: uploads,
-            spawnSubSession: spawnSubSession
+            spawnSubSession: spawnSubSession,
+            titleSource: titleSource
         )
         nextID += 1
         messages.append(message)

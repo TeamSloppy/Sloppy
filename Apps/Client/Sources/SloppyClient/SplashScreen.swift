@@ -1,9 +1,6 @@
 import AdaEngine
 import SloppyClientCore
 import SloppyClientUI
-#if canImport(FoundationNetworking)
-import FoundationNetworking
-#endif
 
 enum SplashResult {
     case connected(URL)
@@ -60,7 +57,7 @@ struct SplashScreen: View {
             // 1. Try configured host:port (includes default localhost:25101 on first launch).
             status = "Trying \(settings.serverHost):\(settings.serverPort)..."
             let url = settings.baseURL
-            if await checkHealth(url: url) {
+            if await HealthService(baseURL: url).isHealthy() {
                 onResult(.connected(url))
                 return
             }
@@ -87,18 +84,6 @@ struct SplashScreen: View {
             status = "No server found"
             try? await Task.sleep(nanoseconds: 800_000_000)
             onResult(.needsSetup)
-        }
-    }
-
-    private func checkHealth(url: URL) async -> Bool {
-        let endpoint = url.appendingPathComponent("/health")
-        var request = URLRequest(url: endpoint)
-        request.timeoutInterval = 5
-        do {
-            let (_, response) = try await URLSession.shared.data(for: request)
-            return (response as? HTTPURLResponse).map { (200..<300).contains($0.statusCode) } ?? false
-        } catch {
-            return false
         }
     }
 }

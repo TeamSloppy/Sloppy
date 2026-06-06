@@ -33,11 +33,12 @@ extension SloppyTUIScreen {
                     context: pendingContext,
                     uploads: pendingUploads,
                     clearsPendingInputs: true,
-                    interruptActiveRun: true
+                    interruptActiveRun: true,
+                    titleSource: value
                 )
                 return
             }
-            await sendMessage(skillInvocation)
+            await sendMessage(skillInvocation, titleSource: value)
             return
         }
 
@@ -54,11 +55,12 @@ extension SloppyTUIScreen {
                 context: pendingContext,
                 uploads: pendingUploads,
                 clearsPendingInputs: true,
-                interruptActiveRun: true
+                interruptActiveRun: true,
+                titleSource: value
             )
             return
         }
-        await sendMessage(value)
+        await sendMessage(value, titleSource: value)
     }
 
     func submitShellCommand(raw: String, value: String) async {
@@ -133,7 +135,8 @@ extension SloppyTUIScreen {
     func sendMessage(
         _ value: String,
         spawnSubSession: Bool = false,
-        interruptActiveRunOnQueue: Bool = true
+        interruptActiveRunOnQueue: Bool = true,
+        titleSource: String? = nil
     ) async {
         await sendMessage(
             value,
@@ -141,7 +144,8 @@ extension SloppyTUIScreen {
             uploads: pendingUploads,
             spawnSubSession: spawnSubSession,
             clearsPendingInputsOnSuccess: true,
-            interruptActiveRunOnQueue: interruptActiveRunOnQueue
+            interruptActiveRunOnQueue: interruptActiveRunOnQueue,
+            titleSource: titleSource
         )
     }
 
@@ -151,7 +155,8 @@ extension SloppyTUIScreen {
         uploads: [AgentAttachmentUpload],
         spawnSubSession: Bool = false,
         clearsPendingInputsOnSuccess: Bool,
-        interruptActiveRunOnQueue: Bool = true
+        interruptActiveRunOnQueue: Bool = true,
+        titleSource: String? = nil
     ) async {
         guard !isPosting else {
             await queueMessage(
@@ -159,7 +164,8 @@ extension SloppyTUIScreen {
                 context: context,
                 uploads: uploads,
                 spawnSubSession: spawnSubSession,
-                interruptActiveRun: interruptActiveRunOnQueue
+                interruptActiveRun: interruptActiveRunOnQueue,
+                titleSource: titleSource
             )
             return
         }
@@ -169,7 +175,8 @@ extension SloppyTUIScreen {
             context: context,
             uploads: uploads,
             spawnSubSession: spawnSubSession,
-            clearsPendingInputsOnSuccess: clearsPendingInputsOnSuccess
+            clearsPendingInputsOnSuccess: clearsPendingInputsOnSuccess,
+            titleSource: titleSource
         ) {
             showWorkspaceAccessPrompt(accessRequest)
             return
@@ -202,7 +209,7 @@ extension SloppyTUIScreen {
                 contentCharacters: content.count
             ))
             await Task.yield()
-            createdSessionForThisMessage = try await ensurePersistedSessionForMessage()
+            createdSessionForThisMessage = try await ensurePersistedSessionForMessage(titleSource: titleSource ?? value)
             postingSessionID = session.id
             postingSessionIDs.insert(session.id)
             refreshSessionList()
@@ -293,7 +300,8 @@ extension SloppyTUIScreen {
         context: String?,
         uploads: [AgentAttachmentUpload],
         spawnSubSession: Bool,
-        clearsPendingInputsOnSuccess: Bool
+        clearsPendingInputsOnSuccess: Bool,
+        titleSource: String? = nil
     ) async -> SloppyTUIWorkspaceAccessRequest? {
         let absolutePaths = SloppyTUIProjectPathTokens.attachmentPaths(in: value)
             .filter { $0.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("/") }
@@ -328,7 +336,8 @@ extension SloppyTUIScreen {
                     context: nil,
                     uploads: [],
                     spawnSubSession: false,
-                    clearsPendingInputsOnSuccess: false
+                    clearsPendingInputsOnSuccess: false,
+                    titleSource: titleSource
                 )
             }
             return SloppyTUIWorkspaceAccessRequest(
@@ -338,7 +347,8 @@ extension SloppyTUIScreen {
                 context: context,
                 uploads: uploads,
                 spawnSubSession: spawnSubSession,
-                clearsPendingInputsOnSuccess: clearsPendingInputsOnSuccess
+                clearsPendingInputsOnSuccess: clearsPendingInputsOnSuccess,
+                titleSource: titleSource
             )
         }
         return nil
@@ -396,7 +406,8 @@ extension SloppyTUIScreen {
                 context: request.context,
                 uploads: request.uploads,
                 spawnSubSession: request.spawnSubSession,
-                clearsPendingInputsOnSuccess: request.clearsPendingInputsOnSuccess
+                clearsPendingInputsOnSuccess: request.clearsPendingInputsOnSuccess,
+                titleSource: request.titleSource
             )
         } else {
             denyWorkspaceAccess(request.directoryPath)
@@ -449,16 +460,21 @@ extension SloppyTUIScreen {
         }.sorted()
     }
 
-    func ensurePersistedSessionForMessage() async throws -> Bool {
+    func ensurePersistedSessionForMessage(titleSource: String? = nil) async throws -> Bool {
         guard !hasPersistedSession else {
             return false
         }
         let draftDirectoryKey = currentSessionDirectoryKey()
         let draftDirectories = persistedDirectoriesForCurrentSession()
         let checkpointSessionID = pendingDraftCheckpointSessionID
+        let generatedTitle = SloppyTUISessionTitleGenerator.title(
+            for: titleSource ?? "",
+            fallback: "New session"
+        )
         session = try await service.createAgentSession(
             agentID: agent.id,
             request: AgentSessionCreateRequest(
+                title: generatedTitle,
                 checkpointSessionId: checkpointSessionID,
                 projectId: project.id
             )
@@ -496,13 +512,15 @@ extension SloppyTUIScreen {
         uploads: [AgentAttachmentUpload] = [],
         spawnSubSession: Bool = false,
         clearsPendingInputs: Bool = false,
-        interruptActiveRun: Bool = false
+        interruptActiveRun: Bool = false,
+        titleSource: String? = nil
     ) async {
         _ = queuedMessages.enqueue(
             text: value,
             context: context,
             uploads: uploads,
-            spawnSubSession: spawnSubSession
+            spawnSubSession: spawnSubSession,
+            titleSource: titleSource
         )
         if clearsPendingInputs {
             pendingContext = nil
@@ -541,7 +559,8 @@ extension SloppyTUIScreen {
             context: message.context,
             uploads: message.uploads,
             spawnSubSession: message.spawnSubSession,
-            clearsPendingInputsOnSuccess: false
+            clearsPendingInputsOnSuccess: false,
+            titleSource: message.titleSource
         )
         isDrainingQueuedMessages = false
         await sendNextQueuedMessageIfIdle()

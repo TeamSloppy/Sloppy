@@ -1,7 +1,4 @@
 import Foundation
-#if canImport(FoundationNetworking)
-import FoundationNetworking
-#endif
 import Logging
 import Observation
 
@@ -66,32 +63,16 @@ public final class ConnectionMonitor {
     }
 
     private func checkHealth() async -> Bool {
-        let url = baseURL.appendingPathComponent("health")
-        checkedURL = url
+        checkedURL = baseURL.appendingPathComponent("health")
         healthCheckAttempt += 1
-        var request = URLRequest(url: url)
-        request.httpMethod = "GET"
-        request.timeoutInterval = 5
 
-        do {
-            let (_, response) = try await URLSession.shared.data(for: request)
-            if let http = response as? HTTPURLResponse {
-                let ok = (200..<300).contains(http.statusCode)
-                lastFailureMessage = ok ? nil : "HTTP \(http.statusCode)"
-                if ok {
-                } else {
-                    logger.warning("Health check attempt \(healthCheckAttempt) failed: HTTP \(http.statusCode)")
-                }
-                return ok
-            }
-            lastFailureMessage = "Invalid HTTP response"
-            logger.warning("Health check attempt \(healthCheckAttempt) failed: invalid HTTP response")
-            return false
-        } catch {
-            let nsError = error as NSError
-            lastFailureMessage = "\(nsError.domain) \(nsError.code): \(nsError.localizedDescription)"
-            logger.warning("Health check attempt \(healthCheckAttempt) failed: \(nsError.domain) \(nsError.code): \(nsError.localizedDescription)")
-            return false
+        let result = await HealthService(baseURL: baseURL).check()
+        lastFailureMessage = result.failureMessage
+
+        if !result.isHealthy {
+            logger.warning("Health check attempt \(healthCheckAttempt) failed: \(result.failureMessage ?? "unknown error")")
         }
+
+        return result.isHealthy
     }
 }

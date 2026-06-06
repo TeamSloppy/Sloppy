@@ -1244,6 +1244,25 @@ function ClarificationsTab({ project, task }) {
 
 /** Same breakpoint as `.td-page` rules in `projects.css` (mobile task detail layout). */
 const TASK_DETAIL_MOBILE_MAX_PX = 860;
+const TASK_SIDE_VIEW_STORAGE_KEY = "sloppy.taskSideView.widthPercent";
+const TASK_SIDE_VIEW_DEFAULT_PERCENT = 42;
+const TASK_SIDE_VIEW_MIN_PERCENT = 25;
+const TASK_SIDE_VIEW_MAX_PERCENT = 80;
+
+function clampTaskSideViewWidthPercent(value) {
+    const numeric = Number(value);
+    if (!Number.isFinite(numeric)) return TASK_SIDE_VIEW_DEFAULT_PERCENT;
+    return Math.min(TASK_SIDE_VIEW_MAX_PERCENT, Math.max(TASK_SIDE_VIEW_MIN_PERCENT, numeric));
+}
+
+function readTaskSideViewWidthPercent() {
+    if (typeof window === "undefined") return TASK_SIDE_VIEW_DEFAULT_PERCENT;
+    try {
+        return clampTaskSideViewWidthPercent(window.localStorage.getItem(TASK_SIDE_VIEW_STORAGE_KEY));
+    } catch {
+        return TASK_SIDE_VIEW_DEFAULT_PERCENT;
+    }
+}
 
 function TaskDetailView({
     project,
@@ -1259,7 +1278,9 @@ function TaskDetailView({
     createModalActors,
     createModalTeams,
     agentDirectory,
-    onOpenReview
+    onOpenReview,
+    isSideView = false,
+    onExpand = null
 }) {
     const [activeTab, setActiveTab] = useState("comments");
     const [isMobileTaskDetail, setIsMobileTaskDetail] = useState(() =>
@@ -1386,7 +1407,7 @@ function TaskDetailView({
 
     return (
         <div
-            className={`td-page ${sidebarOpen ? "" : "td-page--sidebar-closed"} ${isMobileTaskDetail ? "td-page--mobile-props" : ""}`}
+            className={`td-page ${isSideView ? "td-page--side-view" : ""} ${sidebarOpen ? "" : "td-page--sidebar-closed"} ${isMobileTaskDetail ? "td-page--mobile-props" : ""}`}
         >
             <div className="td-main">
                 {isMobileTaskDetail && sidebarOpen ? (
@@ -1406,6 +1427,17 @@ function TaskDetailView({
                         <span className="td-breadcrumb-current">{task.title || "Untitled"}</span>
                     </div>
                     <div className="td-header-actions">
+                        {isSideView && onExpand ? (
+                            <button
+                                type="button"
+                                className="task-review-open-btn"
+                                onClick={onExpand}
+                                title="Open task fullscreen"
+                            >
+                                <span className="material-symbols-rounded" aria-hidden="true">open_in_full</span>
+                                Развернуть
+                            </button>
+                        ) : null}
                         {githubIssueURL ? (
                             <a
                                 className="task-review-open-btn"
@@ -1915,6 +1947,7 @@ function TaskDetailView({
 export function ProjectTasksTab({
     project,
     selectedTask,
+    sideTask,
     editDraft,
     isTaskDetailFullscreen,
     updateEditDraft,
@@ -1925,6 +1958,9 @@ export function ProjectTasksTab({
     updateDetailAssignee,
     deleteTaskFromModal,
     openTaskDetails,
+    openTaskSideView,
+    expandTaskDetails,
+    closeTaskSideView,
     openCreateTaskModal,
     moveTask,
     bulkUpdateTasks,
@@ -1946,6 +1982,8 @@ export function ProjectTasksTab({
     const [lastSelectedTaskId, setLastSelectedTaskId] = useState("");
     const [contextMenu, setContextMenu] = useState(null);
     const [bulkBusy, setBulkBusy] = useState(false);
+    const [sideViewWidthPercent, setSideViewWidthPercent] = useState(readTaskSideViewWidthPercent);
+    const [isResizingSideView, setIsResizingSideView] = useState(false);
 
     useEffect(() => {
         let cancelled = false;
@@ -2099,8 +2137,39 @@ export function ProjectTasksTab({
 
     const taskCounts = buildTaskCounts(filteredActiveTasks);
     const swarmGroups = buildSwarmGroups(filteredActiveTasks);
-    const selectedTaskId = selectedTask ? String(selectedTask.id || "").trim() : "";
+    const selectedTaskId = (selectedTask || sideTask) ? String((selectedTask || sideTask).id || "").trim() : "";
     const hasTaskFilters = Boolean(tagFilter || assigneeFilter);
+
+    useEffect(() => {
+        if (!isResizingSideView) {
+            return;
+        }
+        function updateWidth(event) {
+            const width = window.innerWidth || document.documentElement.clientWidth || 1;
+            const nextPercent = clampTaskSideViewWidthPercent(((width - event.clientX) / width) * 100);
+            setSideViewWidthPercent(nextPercent);
+        }
+        function stopResize() {
+            setIsResizingSideView(false);
+        }
+        document.body.classList.add("task-side-view-resizing");
+        window.addEventListener("pointermove", updateWidth);
+        window.addEventListener("pointerup", stopResize);
+        return () => {
+            document.body.classList.remove("task-side-view-resizing");
+            window.removeEventListener("pointermove", updateWidth);
+            window.removeEventListener("pointerup", stopResize);
+        };
+    }, [isResizingSideView]);
+
+    useEffect(() => {
+        if (typeof window === "undefined") return;
+        try {
+            window.localStorage.setItem(TASK_SIDE_VIEW_STORAGE_KEY, String(clampTaskSideViewWidthPercent(sideViewWidthPercent)));
+        } catch {
+            // Ignore storage failures; resizing should keep working for this session.
+        }
+    }, [sideViewWidthPercent]);
 
     function clearSelection() {
         setSelectedTaskIds(new Set());
@@ -2285,7 +2354,7 @@ export function ProjectTasksTab({
     };
 
     return (
-        <section className="project-tab-layout">
+        <section className={`project-tab-layout project-tab-layout--tasks${sideTask ? " project-tab-layout--with-task-side-view" : ""}`}>
             <section className="project-pane project-kanban-pane">
                 <div className="project-kanban-head">
                     <div className="project-kanban-summary">
@@ -2575,7 +2644,7 @@ export function ProjectTasksTab({
                                                                 toggleTaskSelection(task.id);
                                                                 return;
                                                             }
-                                                            openTaskDetails(task);
+                                                            openTaskSideView(task);
                                                         }}
                                                         onContextMenu={(event) => openTaskContextMenu(event, task)}
                                                         onKeyDown={(event) => {
@@ -2585,7 +2654,7 @@ export function ProjectTasksTab({
                                                                     toggleTaskSelection(task.id);
                                                                     return;
                                                                 }
-                                                                openTaskDetails(task);
+                                                                openTaskSideView(task);
                                                             }
                                                         }}
                                                         onDragStart={(event) => {
@@ -2858,6 +2927,43 @@ export function ProjectTasksTab({
                     </section>
                 )}
             </section>
+            {sideTask ? (
+                <aside
+                    className="task-side-view"
+                    style={{ width: `${clampTaskSideViewWidthPercent(sideViewWidthPercent)}vw` }}
+                    aria-label="Selected task details"
+                >
+                    <div
+                        className="task-side-view-resize-handle"
+                        role="separator"
+                        aria-orientation="vertical"
+                        aria-label="Resize task details panel"
+                        tabIndex={0}
+                        onPointerDown={(event) => {
+                            event.preventDefault();
+                            setIsResizingSideView(true);
+                        }}
+                    />
+                    <TaskDetailView
+                        project={project}
+                        task={sideTask}
+                        editDraft={editDraft}
+                        updateEditDraft={updateEditDraft}
+                        saveTaskEdit={saveTaskEdit}
+                        revertTaskEdit={revertTaskEdit}
+                        closeTaskDetails={closeTaskSideView}
+                        updateDetailAssignee={updateDetailAssignee}
+                        deleteTaskFromModal={deleteTaskFromModal}
+                        openTaskDetails={openTaskSideView}
+                        createModalActors={createModalActors}
+                        createModalTeams={createModalTeams}
+                        agentDirectory={agentDirectory}
+                        onOpenReview={onOpenReview}
+                        isSideView
+                        onExpand={() => expandTaskDetails(sideTask)}
+                    />
+                </aside>
+            ) : null}
         </section>
     );
 }

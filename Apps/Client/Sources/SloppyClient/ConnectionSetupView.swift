@@ -1,9 +1,6 @@
 import AdaEngine
 import SloppyClientCore
 import SloppyClientUI
-#if canImport(FoundationNetworking)
-import FoundationNetworking
-#endif
 
 struct ConnectionSetupView: View {
     let settings: ClientSettings
@@ -197,7 +194,7 @@ struct ConnectionSetupView: View {
         guard !isConnecting else { return }
         isConnecting = true
         Task { @MainActor in
-            let ok = await checkHealth(url: url)
+            let ok = await HealthService(baseURL: url).isHealthy()
             isConnecting = false
             if ok {
                 let server = SavedServer(label: "Discovered", host: url.host ?? "", port: url.port ?? 25101, isAutoDiscovered: true)
@@ -216,7 +213,7 @@ struct ConnectionSetupView: View {
         isConnecting = true
         Task { @MainActor in
             let url = address.baseURL
-            let ok = await checkHealth(url: url)
+            let ok = await HealthService(baseURL: url).isHealthy()
             isConnecting = false
             if ok {
                 let server = SavedServer(label: "Sloppy @ \(address.host)", host: address.host, port: address.port)
@@ -225,18 +222,6 @@ struct ConnectionSetupView: View {
             } else {
                 errorMessage = "Could not connect to \(address.host):\(address.port)"
             }
-        }
-    }
-
-    private func checkHealth(url: URL) async -> Bool {
-        let endpoint = url.appendingPathComponent("/health")
-        var request = URLRequest(url: endpoint)
-        request.timeoutInterval = 5
-        do {
-            let (_, response) = try await URLSession.shared.data(for: request)
-            return (response as? HTTPURLResponse).map { (200..<300).contains($0.statusCode) } ?? false
-        } catch {
-            return false
         }
     }
 }

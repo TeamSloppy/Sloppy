@@ -64,7 +64,8 @@ public protocol InboundMessageReceiver: Sendable {
         userId: String,
         content: String,
         topicId: String?,
-        inboundContext: ChannelInboundContext?
+        inboundContext: ChannelInboundContext?,
+        attachments: [ChannelAttachment]
     ) async -> Bool
 
     /// Checks whether a user is allowed to interact with the given channel.
@@ -111,12 +112,29 @@ public protocol InboundMessageReceiver: Sendable {
 }
 
 public extension InboundMessageReceiver {
+    func postMessage(
+        channelId: String,
+        userId: String,
+        content: String,
+        topicId: String?,
+        inboundContext: ChannelInboundContext?
+    ) async -> Bool {
+        await postMessage(
+            channelId: channelId,
+            userId: userId,
+            content: content,
+            topicId: topicId,
+            inboundContext: inboundContext,
+            attachments: []
+        )
+    }
+
     func postMessage(channelId: String, userId: String, content: String, topicId: String?) async -> Bool {
-        await postMessage(channelId: channelId, userId: userId, content: content, topicId: topicId, inboundContext: nil)
+        await postMessage(channelId: channelId, userId: userId, content: content, topicId: topicId, inboundContext: nil, attachments: [])
     }
 
     func postMessage(channelId: String, userId: String, content: String) async -> Bool {
-        await postMessage(channelId: channelId, userId: userId, content: content, topicId: nil, inboundContext: nil)
+        await postMessage(channelId: channelId, userId: userId, content: content, topicId: nil, inboundContext: nil, attachments: [])
     }
 
     func checkAccess(

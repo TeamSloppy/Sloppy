@@ -67,11 +67,52 @@ actor TelegramBotAPI {
         }
     }
 
+
+    struct PhotoSize: Decodable {
+        let fileId: String
+        let fileUniqueId: String?
+        let width: Int
+        let height: Int
+        let fileSize: Int?
+
+        enum CodingKeys: String, CodingKey {
+            case fileId = "file_id"
+            case fileUniqueId = "file_unique_id"
+            case width, height
+            case fileSize = "file_size"
+        }
+    }
+
+    struct MediaFile: Decodable {
+        let fileId: String
+        let fileUniqueId: String?
+        let fileName: String?
+        let mimeType: String?
+        let fileSize: Int?
+        let duration: Int?
+
+        enum CodingKeys: String, CodingKey {
+            case fileId = "file_id"
+            case fileUniqueId = "file_unique_id"
+            case fileName = "file_name"
+            case mimeType = "mime_type"
+            case fileSize = "file_size"
+            case duration
+        }
+    }
+
     struct Message: Decodable {
         let messageId: Int64
         let from: User?
         let chat: Chat
         let text: String?
+        let caption: String?
+        let photo: [PhotoSize]?
+        let voice: MediaFile?
+        let audio: MediaFile?
+        let document: MediaFile?
+        let video: MediaFile?
+        let animation: MediaFile?
         let date: Int
         /// Present for messages in forum topic threads (supergroups).
         let messageThreadId: Int?
@@ -80,7 +121,7 @@ actor TelegramBotAPI {
 
         enum CodingKeys: String, CodingKey {
             case messageId = "message_id"
-            case from, chat, text, date
+            case from, chat, text, caption, photo, voice, audio, document, video, animation, date
             case messageThreadId = "message_thread_id"
             case replyToMessage = "reply_to_message"
             case entities

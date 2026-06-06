@@ -50,6 +50,7 @@ actor DiscordGatewayLoop {
         let author: IncomingAuthor
         let mentionUserIds: [String]
         let referencedMessageAuthorId: String?
+        let attachments: [ChannelAttachment]
 
         init?(payload: DiscordGatewayPayload) {
             guard payload.op == 0,
@@ -69,6 +70,7 @@ actor DiscordGatewayLoop {
             let mentions = object["mentions"]?.asArray ?? []
             let mentionUserIds = mentions.compactMap { $0.asObject?["id"]?.asString }
             let referencedAuthor = object["referenced_message"]?.asObject?["author"]?.asObject?["id"]?.asString
+            let attachments = (object["attachments"]?.asArray ?? []).compactMap(Self.channelAttachment)
 
             self.id = id
             self.channelId = channelId
@@ -77,6 +79,7 @@ actor DiscordGatewayLoop {
             self.type = type
             self.mentionUserIds = mentionUserIds
             self.referencedMessageAuthorId = referencedAuthor
+            self.attachments = attachments
             self.author = IncomingAuthor(
                 id: authorId,
                 username: username,
@@ -84,6 +87,24 @@ actor DiscordGatewayLoop {
                 isBot: authorObject["bot"]?.asBool ?? false
             )
         }
+
+        private static func channelAttachment(from value: JSONValue) -> ChannelAttachment? {
+            guard let object = value.asObject, let id = object["id"]?.asString else { return nil }
+            let filename = object["filename"]?.asString
+            let mimeType = object["content_type"]?.asString
+            var metadata = ["platform": "discord"]
+            if let proxyURL = object["proxy_url"]?.asString { metadata["proxy_url"] = proxyURL }
+            return ChannelAttachment(
+                id: id,
+                type: ChannelAttachment.inferredType(mimeType: mimeType, filename: filename),
+                mimeType: mimeType,
+                filename: filename,
+                sizeBytes: object["size"]?.asInt,
+                url: object["url"]?.asString,
+                platformMetadata: metadata
+            )
+        }
+
     }
 
     private enum SessionControl: Error {
@@ -847,7 +868,8 @@ actor DiscordGatewayLoop {
             userId: "discord:\(message.author.id)",
             content: content,
             topicId: nil,
-            inboundContext: inboundContext
+            inboundContext: inboundContext,
+            attachments: message.attachments
         )
 
         if !ok {

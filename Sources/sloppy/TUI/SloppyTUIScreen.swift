@@ -163,6 +163,7 @@ struct SloppyTUIWorkspaceAccessRequest {
     var uploads: [AgentAttachmentUpload]
     var spawnSubSession: Bool
     var clearsPendingInputsOnSuccess: Bool
+    var titleSource: String?
 }
 
 @MainActor

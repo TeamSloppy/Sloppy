@@ -5656,3 +5656,94 @@
     flex-direction: column;
   }
 }
+
+.project-tab-layout--tasks {
+  position: relative;
+  display: flex;
+  align-items: stretch;
+  gap: 12px;
+  min-height: 0;
+}
+
+.project-tab-layout--with-task-side-view .project-kanban-pane {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.task-side-view {
+  position: relative;
+  flex: 0 0 auto;
+  min-width: 25vw;
+  max-width: 80vw;
+  height: 100%;
+  min-height: 0;
+  border: 1px solid var(--line-strong);
+  background: var(--surface);
+  box-shadow: -12px 0 28px rgba(0, 0, 0, 0.25);
+  overflow: hidden;
+  animation: task-side-view-slide-in 160ms ease-out both;
+}
+
+.task-side-view .td-page {
+  height: 100%;
+  min-height: 0;
+  border: 0;
+}
+
+.td-page--side-view {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.td-page--side-view .td-main {
+  min-width: 0;
+}
+
+.task-side-view-resize-handle {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 10px;
+  z-index: 4;
+  cursor: ew-resize;
+  background: linear-gradient(to right, rgba(148, 163, 184, 0.34), transparent);
+}
+
+.task-side-view-resize-handle:hover,
+.task-side-view-resize-handle:focus-visible {
+  background: rgba(96, 165, 250, 0.28);
+  outline: none;
+}
+
+body.task-side-view-resizing {
+  cursor: ew-resize;
+  user-select: none;
+}
+
+@keyframes task-side-view-slide-in {
+  from {
+    opacity: 0;
+    transform: translateX(16px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@media (max-width: 980px) {
+  .project-tab-layout--with-task-side-view {
+    flex-direction: column;
+  }
+
+  .task-side-view {
+    width: 100% !important;
+    max-width: 100%;
+    min-width: 0;
+    min-height: 70vh;
+  }
+
+  .task-side-view-resize-handle {
+    display: none;
+  }
+}

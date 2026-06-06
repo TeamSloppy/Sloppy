@@ -91,19 +91,7 @@ enum LocalNetworkScannerApple {
     }
 
     private static func confirmSloppyServer(host: String, port: UInt16) async -> Bool {
-        guard let url = URL(string: "http://\(host):\(port)/health") else { return false }
-        var request = URLRequest(url: url)
-        request.timeoutInterval = 3
-
-        do {
-            let (_, response) = try await URLSession.shared.data(for: request)
-            if let http = response as? HTTPURLResponse {
-                return (200..<300).contains(http.statusCode)
-            }
-            return false
-        } catch {
-            return false
-        }
+        return await HealthService(baseURL: URL(string: "http://\(host):\(port)")!).isHealthy(timeout: 3)
     }
 
     /// Derives the local /24 subnet base (e.g. "192.168.1") from the device's primary IP.

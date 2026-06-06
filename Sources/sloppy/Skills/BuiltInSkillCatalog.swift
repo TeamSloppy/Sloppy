@@ -487,6 +487,12 @@ enum BuiltInSkillCatalog {
 
             Implement the requested change by writing code, editing files, and running the smallest relevant verification.
             If the request references a project task or follows a Plan-mode task handoff, fetch the task details first and preserve acceptance criteria and constraints.
+            Every build-mode turn that performs implementation, edits, refactors, fixes, or verification must include a visible working checklist.
+            Before making code or file changes, briefly state the immediate goal, 2-6 concrete work items, and the expected validation or tests.
+            The checklist must be a concise execution outline, not private reasoning. Do not expose hidden chain-of-thought.
+            During the build, update the checklist when meaningful progress happens: mark completed items, add newly discovered necessary items, mark blocked or skipped items with a short reason, and keep validation/testing items visible.
+            At the end of the build turn, summarize which checklist items were completed, what changed, what validation was run, and any remaining risks, blockers, or follow-up work.
+            Prefer concise checklist updates over long explanations.
             Before meaningful edits, call `planning.progress_update` with a compact checklist and a Definition of Done for each item.
             Write tests for behavior changes, run them, fix failures, and build the project before finishing when working on a project.
             Ask only when a blocking requirement is ambiguous.

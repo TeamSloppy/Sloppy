@@ -6,12 +6,41 @@ import SloppyFeatureSettings
 
 @MainActor
 struct RootShellView: View {
+
+    @State private var debugOverlayMode: UIDebugOverlayMode?
     @State private var viewModel = RootShellViewModel()
 
     var body: some View {
         RootShellContent(viewModel: viewModel)
             .environment(viewModel)
             .theme(viewModel.settings.colorScheme.appTheme)
+            .debugOverlay(debugOverlayMode ?? .off)
+            .keyboardShortcuts([
+                KeyboardShortcutAction(
+                    .r, modifiers: [.command, .shift],
+                    action: {
+                        setDebugOverlayMode(.redraw)
+                    }),
+                KeyboardShortcutAction(
+                    .h, modifiers: [.command, .shift],
+                    action: {
+                        setDebugOverlayMode(.hitTestTarget)
+                    }),
+                KeyboardShortcutAction(
+                    .d, modifiers: [.command, .shift],
+                    action: {
+                        setDebugOverlayMode(.layoutBounds)
+                    }),
+                KeyboardShortcutAction(
+                    .f, modifiers: [.command, .shift],
+                    action: {
+                        setDebugOverlayMode(.focusedNode)
+                    }),
+            ])
+    }
+
+    private func setDebugOverlayMode(_ mode: UIDebugOverlayMode) {
+        debugOverlayMode = debugOverlayMode == mode ? .off : mode
     }
 }
 
@@ -72,7 +101,10 @@ private struct RootShellContent: View {
                     .padding(theme.spacing.m)
             }
         }
-        .frame(minWidth: 0, maxWidth: .infinity, minHeight: 0, maxHeight: .infinity, alignment: .topLeading)
+        .frame(
+            minWidth: 0, maxWidth: .infinity, minHeight: 0, maxHeight: .infinity,
+            alignment: .topLeading
+        )
         .onAppear {
             rootViewModel.startDeepLinkListener()
             rootViewModel.startDesktopWindowIntegration()
@@ -86,8 +118,8 @@ private struct RootShellContent: View {
     }
 }
 
-private extension ClientColorScheme {
-    var appTheme: Theme {
+extension ClientColorScheme {
+    fileprivate var appTheme: Theme {
         switch self {
         case .light:
             return .sloppyLight

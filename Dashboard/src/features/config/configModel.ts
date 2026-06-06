@@ -3,30 +3,90 @@ const GIT_SYNC_CONFLICT_STRATEGIES = new Set(["remote_wins", "local_wins", "manu
 const PROXY_TYPES = new Set(["socks5", "http", "https"]);
 
 export const SETTINGS_ITEMS = [
-  { id: "providers", title: "Providers", icon: "hub" },
-  { id: "search-tools", title: "Search Tools", icon: "travel_explore" },
-  { id: "model-routing", title: "Model routing", icon: "linear_scale" },
-  { id: "channels", title: "Channels", icon: "forum" },
-  { id: "sessions", title: "Sessions", icon: "history" },
-  { id: "approvals", title: "Approvals", icon: "fact_check" },
-  { id: "plugins", title: "Plugins", icon: "extension" },
-  { id: "mcp", title: "MCP", icon: "account_tree" },
-  { id: "browser", title: "Browser", icon: "open_in_browser" },
-  { id: "tui", title: "TUI", icon: "terminal" },
-  { id: "ui", title: "UI", icon: "palette" },
-  { id: "nodehost", title: "NodeHost", icon: "dns" },
+  {
+    id: "providers",
+    title: "Providers",
+    icon: "hub",
+    searchTerms: ["models", "api key", "api url", "openai", "codex", "openrouter", "anthropic", "claude", "gemini", "ollama"]
+  },
+  {
+    id: "search-tools",
+    title: "Search Tools",
+    icon: "travel_explore",
+    searchTerms: ["web search", "brave", "perplexity", "api key", "active provider"]
+  },
+  {
+    id: "model-routing",
+    title: "Model routing",
+    icon: "linear_scale",
+    searchTerms: ["routing", "routes", "model aliases", "default model", "agent models", "task model", "available models"]
+  },
+  {
+    id: "channels",
+    title: "Channels",
+    icon: "forum",
+    searchTerms: ["telegram", "discord", "bot token", "chat map", "topic map", "allowed users", "allowed chats", "inactivity"]
+  },
+  {
+    id: "sessions",
+    title: "Sessions",
+    icon: "history",
+    searchTerms: ["retention", "history", "days", "cleanup", "session retention"]
+  },
+  {
+    id: "approvals",
+    title: "Approvals",
+    icon: "fact_check",
+    searchTerms: ["pending", "approve", "approval", "requests", "permissions"]
+  },
+  {
+    id: "plugins",
+    title: "Plugins",
+    icon: "extension",
+    searchTerms: ["plugin", "install", "drop", "delivery mode", "enabled", "api url", "api key"]
+  },
+  {
+    id: "mcp",
+    title: "MCP",
+    icon: "account_tree",
+    searchTerms: ["servers", "stdio", "http", "command", "arguments", "cwd", "endpoint", "headers", "tools", "resources", "prompts", "timeout"]
+  },
+  {
+    id: "browser",
+    title: "Browser",
+    icon: "open_in_browser",
+    searchTerms: ["chromium", "cdp", "headless", "profile", "executable", "startup timeout", "arguments"]
+  },
+  { id: "tui", title: "TUI", icon: "terminal", searchTerms: ["terminal", "editor", "default editor", "cli"] },
+  { id: "ui", title: "UI", icon: "palette", searchTerms: ["dashboard", "auth", "token", "terminal", "local only"] },
+  {
+    id: "nodehost",
+    title: "NodeHost",
+    icon: "dns",
+    searchTerms: ["nodes", "remote", "local", "url", "token", "token env", "gateway", "host"]
+  },
   // { id: "bindings", title: "Bindings", icon: "cable" },
   // { id: "broadcast", title: "Broadcast", icon: "cell_tower" },
   // { id: "audio", title: "Audio", icon: "volume_up" },
   // { id: "media", title: "Media", icon: "perm_media" },
   // { id: "session", title: "Session", icon: "manage_accounts" },
-  { id: "visor", title: "Visor", icon: "visibility" },
-  { id: "acp", title: "ACP", icon: "smart_toy" },
-  { id: "proxy", title: "Proxy", icon: "vpn_key" },
-  { id: "git-sync", title: "Git Sync", icon: "sync" },
-  { id: "connect-client", title: "Connect Client", icon: "qr_code" },
-  { id: "config", title: "Config", icon: "edit_document" },
-  { id: "updates", title: "Updates", icon: "system_update" },
+  {
+    id: "visor",
+    title: "Visor",
+    icon: "visibility",
+    searchTerms: ["scheduler", "bulletin", "model", "tick interval", "worker timeout", "branch timeout", "maintenance", "decay", "prune", "webhook", "merge"]
+  },
+  { id: "acp", title: "ACP", icon: "smart_toy", searchTerms: ["targets", "server", "agent id", "cwd", "enabled"] },
+  { id: "proxy", title: "Proxy", icon: "vpn_key", searchTerms: ["socks5", "http", "https", "host", "port", "username", "password"] },
+  {
+    id: "git-sync",
+    title: "Git Sync",
+    icon: "sync",
+    searchTerms: ["repository", "branch", "schedule", "frequency", "time", "conflict", "strategy", "auth token", "sync now"]
+  },
+  { id: "connect-client", title: "Connect Client", icon: "qr_code", searchTerms: ["client", "qr", "connect", "mobile", "token"] },
+  { id: "config", title: "Config", icon: "edit_document", searchTerms: ["raw", "json", "runtime", "advanced", "edit config"] },
+  { id: "updates", title: "Updates", icon: "system_update", searchTerms: ["version", "check", "update", "release", "upgrade"] },
   // { id: "logging", title: "Logging", icon: "description" }
 ];
 

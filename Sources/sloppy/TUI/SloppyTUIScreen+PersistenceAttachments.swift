@@ -436,7 +436,12 @@ extension SloppyTUIScreen {
     func addPendingAttachmentFiles(_ urls: [URL]) {
         var added: [String] = []
         var skipped: [String] = []
+        var imageMarkers: [String] = []
         for url in urls {
+            if SloppyTUIAttachmentContext.isImagePath(url.path) {
+                imageMarkers.append(SloppyTUIAttachmentContext.imageMarker(filename: url.lastPathComponent))
+                continue
+            }
             do {
                 let upload = try makeAttachmentUpload(from: url)
                 pendingUploads.append(upload)
@@ -445,6 +450,10 @@ extension SloppyTUIScreen {
                 skipped.append("\(url.lastPathComponent): \(String(describing: error))")
             }
         }
+        if !imageMarkers.isEmpty {
+            insertImageMarkersIntoEditor(imageMarkers)
+            showSystemNotice("Inserted image reference" + (imageMarkers.count == 1 ? "." : "s."))
+        }
         if !added.isEmpty {
             showSystemNotice("Attached \(added.count) file(s): \(added.joined(separator: ", "))")
         }
@@ -452,6 +461,22 @@ extension SloppyTUIScreen {
             showSystemNotice("Attachment skipped: " + skipped.joined(separator: "; "))
         }
         refreshStaticChrome()
+    }
+
+    func insertImageMarkersIntoEditor(_ markers: [String]) {
+        let text = markers.joined(separator: "\n")
+        guard !text.isEmpty else { return }
+        editor.handle(input: .paste(text))
+    }
+
+    func imageMarkers(fromPastedText text: String) -> [String] {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return [] }
+        let candidates = splitPastedPathCandidates(trimmed)
+        guard !candidates.isEmpty,
+              candidates.allSatisfy({ SloppyTUIAttachmentContext.isImagePath($0) })
+        else { return [] }
+        return candidates.map { SloppyTUIAttachmentContext.imageMarker(forPath: $0) }
     }
 
     func makeAttachmentUpload(from url: URL) throws -> AgentAttachmentUpload {
@@ -501,6 +526,13 @@ extension SloppyTUIScreen {
         }
 
         if let text = pasteboard.string(forType: .string) {
+            let imageMarkers = imageMarkers(fromPastedText: text)
+            if !imageMarkers.isEmpty {
+                insertImageMarkersIntoEditor(imageMarkers)
+                showSystemNotice("Inserted image reference" + (imageMarkers.count == 1 ? "." : "s."))
+                refreshStaticChrome()
+                return
+            }
             let urls = attachmentURLs(fromPastedText: text)
             if !urls.isEmpty {
                 addPendingAttachmentFiles(urls)
@@ -530,15 +562,8 @@ extension SloppyTUIScreen {
             return
         }
         let name = "clipboard-\(Self.clipboardTimestamp()).\(pathExtension)"
-        pendingUploads.append(
-            AgentAttachmentUpload(
-                name: name,
-                mimeType: mimeType,
-                sizeBytes: data.count,
-                contentBase64: data.base64EncodedString()
-            )
-        )
-        showSystemNotice("Attached clipboard image: \(name)")
+        insertImageMarkersIntoEditor([SloppyTUIAttachmentContext.imageMarker(filename: name)])
+        showSystemNotice("Inserted clipboard image reference: \(name)")
         refreshStaticChrome()
     }
 
@@ -592,6 +617,9 @@ extension SloppyTUIScreen {
                 return manifest
             }
             scheduleProjectFileReindex()
+            if SloppyTUIAttachmentContext.isImagePath(path) {
+                return SloppyTUIAttachmentContext.imageMarker(forPath: path)
+            }
             return "[Attachment failed: \(path)] Cached path is stale or unavailable: \(String(describing: error))"
         }
     }
