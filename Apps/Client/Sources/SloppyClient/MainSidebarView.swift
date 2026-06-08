@@ -45,7 +45,7 @@ struct MainSidebarView: View {
         #if os(iOS)
         false
         #else
-        false
+        true
         #endif
     }
 
@@ -462,8 +462,8 @@ struct MainSidebarView: View {
         if usesLiquidGlass {
             content
                 .padding(8)
-                .background(c.surface.opacity(0.94 as Float))
-                .glassEffect(.regular.tint(c.surfaceGlass.opacity(0.12 as Float)), in: RoundedRectangleShape(cornerRadius: 28))
+                .background(Color.black.opacity(0.42 as Float))
+                .glassEffect(.regular.tint(Color.black.opacity(0.14 as Float)), in: RoundedRectangleShape(cornerRadius: 28))
         } else {
             content
                 .background(c.background)
@@ -561,10 +561,10 @@ private struct HoverableSidebarRow: View {
             .padding(.leading, leadingInset)
             .padding(.trailing, spacing.m)
             .padding(.vertical, spacing.s)
-            .background(isActive ? colors.surfaceGlow.opacity(isSelected ? 0.24 as Float : 0.12 as Float) : Color.clear)
+            .background(isActive ? Color.white.opacity(isSelected ? 0.10 as Float : 0.055 as Float) : Color.clear)
             .applySidebarGlass(
                 usesLiquidGlass,
-                style: isActive ? .regular.tint((isSelected ? colors.accent : colors.surfaceGlow).opacity(0.10 as Float)) : .identity,
+                style: isActive ? .regular.tint(Color.white.opacity(isSelected ? 0.07 as Float : 0.035 as Float)) : .identity,
                 cornerRadius: rowRadius
             )
         }

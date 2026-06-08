@@ -91,7 +91,8 @@ public struct ChatComposerView: View {
             maxHeight: Self.phonePanelHeight,
             alignment: .leading
         )
-        .background(c.surfaceGlass.opacity(0.72 as Float))
+        .background(Color.black.opacity(0.34 as Float))
+        .glassEffect(.regular.tint(Color.white.opacity(0.07 as Float)), in: .rect(cornerRadius: Self.phonePanelHeight / 2))
     }
 
     private var regularBody: some View {
@@ -154,8 +155,9 @@ public struct ChatComposerView: View {
         )
         .background(
             CapsuleShape()
-                .fill(c.surfaceGlass)
+                .fill(Color.black.opacity(0.34 as Float))
         )
+        .glassEffect(.regular.tint(Color.white.opacity(0.07 as Float)), in: CapsuleShape())
         .frame(maxWidth: Self.panelWidth)
     }
 

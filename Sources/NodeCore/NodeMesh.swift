@@ -446,6 +446,29 @@ public struct NodeMeshStore: Sendable {
     }
 
     @discardableResult
+    public func upsertNodeRecord(_ record: MeshNodeRecord, auditAction: String = "node.register") throws -> MeshNodeRecord {
+        var state = try load()
+        upsert(record, in: &state.nodes)
+        state.auditLog.append(MeshAuditLogEntry(actor: record.id, action: auditAction, allowed: true))
+        try save(state)
+        return record
+    }
+
+    @discardableResult
+    public func updateNodeStatus(nodeId: String, status: MeshNodeStatus, auditAction: String) throws -> MeshNodeRecord {
+        var state = try load()
+        guard let index = state.nodes.firstIndex(where: { $0.id == nodeId }) else {
+            throw NodeMeshStoreError.nodeMissing(nodeId)
+        }
+        state.nodes[index].status = status
+        state.nodes[index].lastSeenAt = Date()
+        let record = state.nodes[index]
+        state.auditLog.append(MeshAuditLogEntry(actor: nodeId, action: auditAction, allowed: true))
+        try save(state)
+        return record
+    }
+
+    @discardableResult
     public func createSharedProject(name: String, repoUrl: String, defaultBranch: String = "main") throws -> SharedProjectRecord {
         var state = try load()
         let project = SharedProjectRecord(
@@ -531,6 +554,19 @@ public struct NodeMeshStore: Sendable {
         state.auditLog.append(MeshAuditLogEntry(actor: envelope.from, target: envelope.to, action: envelope.type.rawValue, project: projectFromScope(envelope.scope), allowed: true))
         try save(state)
         return envelope
+    }
+
+    public func recordRouteFailure(_ envelope: MeshEnvelope, target: String, message: String) throws {
+        var state = try load()
+        state.auditLog.append(MeshAuditLogEntry(
+            actor: envelope.from,
+            target: target,
+            action: envelope.type.rawValue,
+            project: projectFromScope(envelope.scope),
+            allowed: false,
+            message: message
+        ))
+        try save(state)
     }
 
     @discardableResult

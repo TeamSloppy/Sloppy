@@ -14,6 +14,31 @@ public struct AppAtmosphericBackground: View {
             c.background
                 .ignoresSafeArea()
 
+            LinearGradient(
+                stops: [
+                    Gradient.Stop(color: Color.black.opacity(0.98 as Float), location: 0),
+                    Gradient.Stop(color: Color.black.opacity(0.82 as Float), location: 0.36),
+                    Gradient.Stop(color: Color.black.opacity(0.34 as Float), location: 0.72),
+                    Gradient.Stop(color: Color.black.opacity(0.08 as Float), location: 1),
+                ],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+            .allowsHitTesting(false)
+            .ignoresSafeArea()
+
+            LinearGradient(
+                stops: [
+                    Gradient.Stop(color: c.accentCyan.opacity(0.04 as Float), location: 0),
+                    Gradient.Stop(color: Color.white.opacity(0.025 as Float), location: 0.38),
+                    Gradient.Stop(color: Color.clear, location: 1),
+                ],
+                startPoint: .bottomLeading,
+                endPoint: .topTrailing
+            )
+            .allowsHitTesting(false)
+            .ignoresSafeArea()
+
             // // Keep the expensive full-screen atmospheric layer static. The only
             // // animated part is the much smaller bottom wave below, so the app keeps
             // // the requested pulse without putting the whole scene back into a

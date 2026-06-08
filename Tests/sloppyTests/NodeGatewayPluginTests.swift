@@ -1,6 +1,7 @@
 import Foundation
 import Testing
 import PluginSDK
+import Protocols
 @testable import sloppy
 
 private actor RecordingNodeGatewayReceiver: InboundMessageReceiver {

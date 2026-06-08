@@ -138,6 +138,23 @@
   font-size: 0.88rem;
 }
 
+.compactor-level-grid {
+  align-items: start;
+}
+
+.compactor-level-grid label {
+  grid-template-rows: auto 46px minmax(36px, auto);
+}
+
+.compactor-level-grid label input,
+.compactor-level-grid label select {
+  height: 46px;
+}
+
+.compactor-level-grid .entry-form-hint {
+  line-height: 1.35;
+}
+
 .entry-form-grid .entry-toggle-row {
   display: flex;
   align-items: center;

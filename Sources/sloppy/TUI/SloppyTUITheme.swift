@@ -459,10 +459,13 @@ enum SloppyTUITheme {
         return String(format: "%dh%02dm", total / 3_600, (total % 3_600) / 60)
     }
 
-    private static func contextUsageBar(_ summary: SloppyTUIContextUsageSummary) -> String {
-        let width = 20
+    private static func contextUsageGrid(_ summary: SloppyTUIContextUsageSummary) -> [String] {
+        let columns = 10
+        let rows = 10
+        let width = columns * rows
         guard summary.contextWindowTokens > 0 else {
-            return Array(repeating: muted("□"), count: width).joined(separator: " ")
+            let row = Array(repeating: muted("□"), count: columns).joined(separator: " ")
+            return Array(repeating: row, count: rows)
         }
 
         var filled = min(width, max(0, Int((Double(summary.totalTokens) / Double(summary.contextWindowTokens) * Double(width)).rounded())))
@@ -478,6 +481,10 @@ enum SloppyTUITheme {
         if summary.completionTokens > 0, filled > promptCount, completionCount == 0 {
             completionCount = 1
         }
+        if summary.completionTokens > 0, filled == 1, promptCount == 1 {
+            filled = 2
+            completionCount = 1
+        }
         if promptCount + completionCount > filled {
             completionCount = max(0, filled - promptCount)
         }
@@ -486,7 +493,9 @@ enum SloppyTUITheme {
         let cells = Array(repeating: blue("●"), count: promptCount)
             + Array(repeating: green("●"), count: completionCount)
             + Array(repeating: muted("□"), count: freeCount)
-        return cells.joined(separator: " ")
+        return stride(from: 0, to: cells.count, by: columns).map { index in
+            cells[index..<min(index + columns, cells.count)].joined(separator: " ")
+        }
     }
 
     static func welcomeScreen(
@@ -671,7 +680,7 @@ enum SloppyTUITheme {
         let title = summary.modelTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             ? summary.modelID
             : summary.modelTitle
-        let bar = contextUsageBar(summary)
+        let grid = contextUsageGrid(summary)
         let totalText = "\(formatTokenCountShort(summary.totalTokens))/\(contextLabel.lowercased()) tokens"
         let promptPercent = summary.promptPercent.map(formatPercent) ?? "n/a"
         let completionPercent = summary.completionPercent.map(formatPercent) ?? "n/a"
@@ -684,19 +693,28 @@ enum SloppyTUITheme {
         }
         let pendingContext = summary.pendingContextAttached ? "yes" : "no"
         let pendingUploads = summary.pendingUploadCount > 0 ? "\(summary.pendingUploadCount)" : "none"
+        let usageVisual = zip(
+            grid,
+            [
+                "\(foreground(title)) \(muted("·")) \(foreground(totalText))",
+                "\(muted(summary.modelID)) \(muted("·")) \(foreground(contextLabel)) context",
+                "\(foreground("used \(usagePercent)")) \(muted("·")) \(foreground("free \(freeText)"))",
+                "",
+                "\(muted("Estimated usage by category"))",
+                "\(muted("◉")) System prompt: \(muted("not recorded"))",
+                "\(muted("◉")) System tools:  \(muted("not recorded"))",
+                "\(blue("●")) Input prompt:  \(foreground(formatTokenCountShort(summary.promptTokens) + " tokens")) \(muted("(\(promptPercent))"))",
+                "\(green("●")) Completion: \(foreground(formatTokenCountShort(summary.completionTokens) + " tokens")) \(muted("(\(completionPercent))"))",
+                "\(muted("□")) Free space: \(foreground(freeText))",
+            ]
+        ).map { row, detail in
+            detail.isEmpty ? row : row + String(repeating: " ", count: 4) + detail
+        }.joined(separator: "\n")
 
         return """
         ## Context Usage
         ```text
-        \(bar)  \(foreground(title)) \(muted("·")) \(foreground(totalText))
-        \(String(repeating: " ", count: 23))  \(muted(summary.modelID)) \(muted("·")) \(foreground(contextLabel)) context
-        \(String(repeating: " ", count: 23))  \(foreground("used \(usagePercent)")) \(muted("·")) \(foreground("free \(freeText)"))
-
-        \(muted("Recorded session usage"))
-        \(foreground("Token usage by category"))
-        \(blue("●")) Prompt:     \(foreground(formatTokenCountShort(summary.promptTokens) + " tokens")) \(muted("(\(promptPercent))"))
-        \(green("●")) Completion: \(foreground(formatTokenCountShort(summary.completionTokens) + " tokens")) \(muted("(\(completionPercent))"))
-        \(muted("□")) Free space: \(foreground(freeText))
+        \(usageVisual)
 
         \(muted("Pending next-message context:")) \(foreground(pendingContext))
         \(muted("Pending uploads:")) \(foreground(pendingUploads))

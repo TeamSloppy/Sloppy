@@ -182,7 +182,7 @@ export function CompactorEditor({ draftConfig, mutateDraft }: CompactorEditorPro
             const threshold = thresholdPercent(level);
             return (
               <div className="entry-editor-card compact-entry-card" key={`${level.level || "level"}-${index}`}>
-                <div className="entry-form-grid">
+                <div className="entry-form-grid compactor-level-grid">
                   <label>
                     Level
                     <select

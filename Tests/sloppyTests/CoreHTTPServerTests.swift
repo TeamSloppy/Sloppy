@@ -6,6 +6,7 @@ import Logging
 import Testing
 @testable import sloppy
 @testable import Protocols
+@testable import SloppyNodeCore
 
 private struct SSEMalformedResponseError: Error {}
 private struct WebSocketMalformedResponseError: Error {}
@@ -184,6 +185,276 @@ func sseStreamEndpointOverHTTPServerReturnsSessionReadyEvent() async throws {
 // Linux Foundation uses libcurl for URLSession; WebSocket tasks are not supported there
 // (NSURLErrorDomain -1002 "WebSockets not supported by libcurl").
 #if !os(Linux)
+@Test
+func nodeMeshWebSocketRelaysTargetedEnvelopeBetweenConnectedNodes() async throws {
+    let config = CoreConfig.test
+    let service = CoreService(config: config)
+    let router = CoreRouter(service: service)
+    let server = CoreHTTPServer(
+        host: "127.0.0.1",
+        port: 0,
+        router: router,
+        logger: Logger(label: "sloppy.node.mesh.httpserver.tests")
+    )
+    try server.start()
+    defer { try? server.shutdown() }
+
+    let port = try #require(server.boundPort)
+    let wsURL = try #require(URL(string: "ws://127.0.0.1:\(port)/v1/node/mesh/ws"))
+    let laptopSocket = URLSession.shared.webSocketTask(with: wsURL)
+    let workerSocket = URLSession.shared.webSocketTask(with: wsURL)
+    laptopSocket.resume()
+    workerSocket.resume()
+    defer {
+        laptopSocket.cancel(with: .normalClosure, reason: nil)
+        workerSocket.cancel(with: .normalClosure, reason: nil)
+    }
+
+    let encoder = JSONEncoder()
+    encoder.dateEncodingStrategy = .iso8601
+    let decoder = JSONDecoder()
+    decoder.dateDecodingStrategy = .iso8601
+
+    try await sendMeshEnvelope(
+        MeshEnvelope(
+            type: .nodeHello,
+            from: "node_laptop",
+            payload: .object([
+                "name": .string("Laptop"),
+                "publicKey": .string("ed25519:laptop"),
+                "roles": .array([.string("client")]),
+                "capabilities": .array([.string("git")]),
+            ])
+        ),
+        encoder: encoder,
+        over: laptopSocket
+    )
+    try await sendMeshEnvelope(
+        MeshEnvelope(
+            type: .nodeHello,
+            from: "node_worker",
+            payload: .object([
+                "name": .string("Worker"),
+                "publicKey": .string("ed25519:worker"),
+                "roles": .array([.string("worker")]),
+                "capabilities": .array([.string("run_agent")]),
+            ])
+        ),
+        encoder: encoder,
+        over: workerSocket
+    )
+
+    try await sendMeshEnvelope(
+        MeshEnvelope(
+            type: .rpcRequest,
+            from: "node_laptop",
+            to: "node_worker",
+            payload: .object([
+                "method": .string("node.ping"),
+                "params": .object([:]),
+            ])
+        ),
+        encoder: encoder,
+        over: laptopSocket
+    )
+
+    let message = try await withAsyncTestTimeout(operation: "mesh routed rpc request") {
+        try await workerSocket.receive()
+    }
+    let payload = try #require(messagePayload(message))
+    let envelope = try decoder.decode(MeshEnvelope.self, from: Data(payload.utf8))
+    #expect(envelope.type == .rpcRequest)
+    #expect(envelope.from == "node_laptop")
+    #expect(envelope.to == "node_worker")
+    #expect(envelope.payload.asObject?["method"] == .string("node.ping"))
+}
+
+@Test
+func nodeMeshRelayTracksHeartbeatAndMarksOfflineOnDisconnect() async throws {
+    let relay = NodeMeshRelay(logger: Logger(label: "sloppy.node.mesh.relay.tests"))
+    let encoder = JSONEncoder()
+    encoder.dateEncodingStrategy = .iso8601
+    var continuation: AsyncStream<String>.Continuation!
+    let stream = AsyncStream<String> { next in
+        continuation = next
+    }
+    let connection = WebSocketConnectionContext(
+        sendText: { _ in true },
+        close: {},
+        incomingMessages: { stream }
+    )
+
+    let relayTask = Task {
+        await relay.attach(connection: connection, remoteAddress: "127.0.0.1")
+    }
+
+    continuation.yield(try encodedMeshEnvelope(
+        MeshEnvelope(
+            type: .nodeHello,
+            from: "node_worker",
+            payload: .object([
+                "name": .string("Worker"),
+                "publicKey": .string("ed25519:worker"),
+                "roles": .array([.string("worker")]),
+                "capabilities": .array([.string("run_agent")]),
+            ])
+        ),
+        encoder: encoder
+    ))
+    try await waitUntil("node_worker registered online") {
+        await relay.nodeRecord(id: "node_worker")?.status == .online
+    }
+    let firstSeenAt = try #require(await relay.nodeRecord(id: "node_worker")?.lastSeenAt)
+
+    try await Task.sleep(nanoseconds: 5_000_000)
+    continuation.yield(try encodedMeshEnvelope(
+        MeshEnvelope(type: .nodeHeartbeat, from: "node_worker"),
+        encoder: encoder
+    ))
+    try await waitUntil("node_worker heartbeat advanced") {
+        guard let node = await relay.nodeRecord(id: "node_worker") else {
+            return false
+        }
+        return node.status == .online && node.lastSeenAt > firstSeenAt
+    }
+
+    continuation.finish()
+    await relayTask.value
+    let offline = try #require(await relay.nodeRecord(id: "node_worker"))
+    #expect(offline.status == .offline)
+    #expect(await relay.activeNodeIds().isEmpty)
+}
+
+@Test
+func nodeMeshRelayPersistsHelloHeartbeatRouteAndOffline() async throws {
+    let stateURL = FileManager.default.temporaryDirectory
+        .appendingPathComponent("sloppy-relay-tests-\(UUID().uuidString)", isDirectory: true)
+        .appendingPathComponent("mesh.json")
+    let store = NodeMeshStore(stateURL: stateURL)
+    let relay = NodeMeshRelay(
+        store: store,
+        logger: Logger(label: "sloppy.node.mesh.relay.persistence.tests")
+    )
+    let encoder = JSONEncoder()
+    encoder.dateEncodingStrategy = .iso8601
+    var continuation: AsyncStream<String>.Continuation!
+    let stream = AsyncStream<String> { next in
+        continuation = next
+    }
+    let connection = WebSocketConnectionContext(
+        sendText: { _ in true },
+        close: {},
+        incomingMessages: { stream }
+    )
+
+    let relayTask = Task {
+        await relay.attach(connection: connection, remoteAddress: "127.0.0.1")
+    }
+
+    continuation.yield(try encodedMeshEnvelope(
+        MeshEnvelope(
+            type: .nodeHello,
+            from: "node_worker",
+            payload: .object([
+                "name": .string("Worker"),
+                "publicKey": .string("ed25519:worker"),
+                "roles": .array([.string("worker")]),
+                "capabilities": .array([.string("run_agent")]),
+            ])
+        ),
+        encoder: encoder
+    ))
+    try await waitUntil("node_worker persisted online") {
+        (try? store.load().nodes.first(where: { $0.id == "node_worker" })?.status) == .online
+    }
+    let firstSeenAt = try #require(try store.load().nodes.first(where: { $0.id == "node_worker" })?.lastSeenAt)
+
+    try await Task.sleep(nanoseconds: 1_100_000_000)
+    continuation.yield(try encodedMeshEnvelope(
+        MeshEnvelope(type: .nodeHeartbeat, from: "node_worker"),
+        encoder: encoder
+    ))
+    try await waitUntil("node_worker heartbeat persisted") {
+        guard let node = try? store.load().nodes.first(where: { $0.id == "node_worker" }) else {
+            return false
+        }
+        return node.status == .online && node.lastSeenAt > firstSeenAt
+    }
+
+    continuation.yield(try encodedMeshEnvelope(
+        MeshEnvelope(type: .rpcRequest, from: "node_worker", to: "node_worker"),
+        encoder: encoder
+    ))
+    try await waitUntil("routed envelope audited") {
+        (try? store.load().auditLog.last?.action) == "rpc.request"
+    }
+
+    continuation.finish()
+    await relayTask.value
+    let offline = try #require(try store.load().nodes.first(where: { $0.id == "node_worker" }))
+    #expect(offline.status == .offline)
+}
+
+@Test
+func nodeMeshRelayReturnsStructuredErrorForMissingTarget() async throws {
+    let relay = NodeMeshRelay(logger: Logger(label: "sloppy.node.mesh.relay.error.tests"))
+    let encoder = JSONEncoder()
+    encoder.dateEncodingStrategy = .iso8601
+    let decoder = JSONDecoder()
+    decoder.dateDecodingStrategy = .iso8601
+    var continuation: AsyncStream<String>.Continuation!
+    let sentMessages = WebSocketSentMessageRecorder()
+    let stream = AsyncStream<String> { next in
+        continuation = next
+    }
+    let connection = WebSocketConnectionContext(
+        sendText: { text in
+            await sentMessages.append(text)
+            return true
+        },
+        close: {},
+        incomingMessages: { stream }
+    )
+
+    let relayTask = Task {
+        await relay.attach(connection: connection, remoteAddress: "127.0.0.1")
+    }
+
+    continuation.yield(try encodedMeshEnvelope(
+        MeshEnvelope(type: .nodeHello, from: "node_laptop"),
+        encoder: encoder
+    ))
+    try await waitUntil("node_laptop registered online") {
+        await relay.nodeRecord(id: "node_laptop")?.status == .online
+    }
+    continuation.yield(try encodedMeshEnvelope(
+        MeshEnvelope(
+            id: "rpc_missing",
+            type: .rpcRequest,
+            from: "node_laptop",
+            to: "node_missing",
+            payload: .object(["method": .string("node.ping")])
+        ),
+        encoder: encoder
+    ))
+
+    try await waitUntil("missing target error sent") {
+        await sentMessages.isEmpty == false
+    }
+    let message = try #require(await sentMessages.last)
+    let envelope = try decoder.decode(MeshEnvelope.self, from: Data(message.utf8))
+    #expect(envelope.type == .rpcResponse)
+    #expect(envelope.from == "relay")
+    #expect(envelope.to == "node_laptop")
+    #expect(envelope.payload.asObject?["requestId"] == .string("rpc_missing"))
+    #expect(envelope.payload.asObject?["ok"] == .bool(false))
+    #expect(envelope.payload.asObject?["error"]?.asObject?["code"] == .string("node_unavailable"))
+    #expect(envelope.payload.asObject?["error"]?.asObject?["target"] == .string("node_missing"))
+
+    continuation.finish()
+    await relayTask.value
+}
+
 @Test
 func webSocketSessionStreamPublishesToolEventsOverHTTPServer() async throws {
     let config = CoreConfig.test
@@ -400,6 +671,19 @@ private func sendDashboardTerminalMessage(
     try await socket.send(.string(text))
 }
 
+private func sendMeshEnvelope(
+    _ envelope: MeshEnvelope,
+    encoder: JSONEncoder,
+    over socket: URLSessionWebSocketTask
+) async throws {
+    try await socket.send(.string(try encodedMeshEnvelope(envelope, encoder: encoder)))
+}
+
+private func encodedMeshEnvelope(_ envelope: MeshEnvelope, encoder: JSONEncoder) throws -> String {
+    let payload = try encoder.encode(envelope)
+    return try #require(String(data: payload, encoding: .utf8))
+}
+
 private func receiveDashboardTerminalMessage(
     over socket: URLSessionWebSocketTask
 ) async throws -> DashboardTerminalServerFrame {
@@ -442,6 +726,36 @@ private func collectDashboardTerminalOutput(
     return combined
 }
 #endif
+
+private actor WebSocketSentMessageRecorder {
+    private var messages: [String] = []
+
+    var isEmpty: Bool {
+        messages.isEmpty
+    }
+
+    var last: String? {
+        messages.last
+    }
+
+    func append(_ message: String) {
+        messages.append(message)
+    }
+}
+
+private func waitUntil(
+    _ operation: String,
+    timeoutSeconds: TimeInterval = 2,
+    condition: @escaping @Sendable () async -> Bool
+) async throws {
+    let deadline = Date().addingTimeInterval(timeoutSeconds)
+    while !(await condition()) {
+        if Date() > deadline {
+            throw AsyncTestTimeoutError(operation: operation)
+        }
+        try await Task.sleep(nanoseconds: 10_000_000)
+    }
+}
 
 private func withAsyncTestTimeout<T: Sendable>(
     seconds: Double = 10,

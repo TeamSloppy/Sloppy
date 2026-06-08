@@ -9,7 +9,24 @@ struct NodeMain: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "sloppy-node",
         abstract: "Runs the standalone Sloppy local executor.",
-        subcommands: [Init.self, Status.self, Start.self, InviteCreate.self, Join.self, List.self, SharedProjectCreate.self, SharedProjectAttach.self, Invoke.self],
+        subcommands: [
+            Init.self,
+            Status.self,
+            Start.self,
+            NetworkCreate.self,
+            InviteCreate.self,
+            Join.self,
+            List.self,
+            SharedProjectCreate.self,
+            SharedProjectAttach.self,
+            SharedProjectList.self,
+            TaskCreate.self,
+            TaskList.self,
+            TaskStatus.self,
+            RPCRequest.self,
+            AuditLog.self,
+            Invoke.self,
+        ],
         defaultSubcommand: Bootstrap.self
     )
 }
@@ -100,6 +117,9 @@ struct Start: AsyncParsableCommand {
     @Option(name: .long, help: "Heartbeat interval in seconds.")
     var heartbeatInterval: Double = 15
 
+    @Option(name: .long, help: "Relay URL. Overrides the relay in node config.")
+    var relay: String?
+
     mutating func run() async throws {
         await LoggingBootstrapper.shared.bootstrapIfNeeded()
         let logger = Logger(label: "sloppy.node.start")
@@ -107,7 +127,29 @@ struct Start: AsyncParsableCommand {
         let config = try store.load()
         let daemon = NodeDaemon(config: config)
         await daemon.connect()
-        logger.info("SloppyNode \(config.identity.nodeId) started name=\(config.identity.name) relay=\(config.relayURL ?? "none")")
+        let relayURL = relay ?? config.relayURL
+        logger.info("SloppyNode \(config.identity.nodeId) started name=\(config.identity.name) relay=\(relayURL ?? "none")")
+
+        if let relayURL, !relayURL.isEmpty {
+            let client = NodeMeshClient(
+                config: config,
+                daemon: daemon,
+                heartbeatInterval: heartbeatInterval,
+                onEnvelope: { envelope in
+                    logger.info(
+                        "Received mesh envelope",
+                        metadata: [
+                            "id": .string(envelope.id),
+                            "type": .string(envelope.type.rawValue),
+                            "from": .string(envelope.from),
+                            "to": envelope.to.map(Logger.MetadataValue.string) ?? .string("-"),
+                        ]
+                    )
+                }
+            )
+            try await client.run(relayURL: relayURL)
+            return
+        }
 
         while !Task.isCancelled {
             await daemon.heartbeat()
@@ -156,6 +198,30 @@ struct InviteCreate: AsyncParsableCommand {
         print("  roles: \(invite.roles.joined(separator: ","))")
         print("  capabilities: \(invite.capabilities.joined(separator: ","))")
         print("  expiresAt: \(ISO8601DateFormatter().string(from: invite.expiresAt))")
+    }
+}
+
+struct NetworkCreate: AsyncParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "network-create",
+        abstract: "Creates or updates local SloppyNode mesh network metadata."
+    )
+
+    @Option(name: .long, help: "Network id.")
+    var id: String
+
+    @Option(name: .long, help: "Human-readable network name. Defaults to id.")
+    var name: String?
+
+    @Option(name: .long, help: "Mesh state path. Defaults to ~/.sloppy/mesh.json.")
+    var meshPath: String?
+
+    mutating func run() async throws {
+        await LoggingBootstrapper.shared.bootstrapIfNeeded()
+        let state = try NodeMeshStore(stateURL: meshURL(from: meshPath)).createNetwork(id: id, name: name)
+        print("Created mesh network")
+        print("  id: \(state.networkId)")
+        print("  name: \(state.networkName)")
     }
 }
 
@@ -307,6 +373,193 @@ struct SharedProjectAttach: AsyncParsableCommand {
     }
 }
 
+struct SharedProjectList: AsyncParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "shared-project-list",
+        abstract: "Lists shared project metadata records."
+    )
+
+    @Option(name: .long, help: "Mesh state path. Defaults to ~/.sloppy/mesh.json.")
+    var meshPath: String?
+
+    mutating func run() async throws {
+        await LoggingBootstrapper.shared.bootstrapIfNeeded()
+        let projects = try NodeMeshStore(stateURL: meshURL(from: meshPath)).listSharedProjects()
+        print("PROJECT ID\tNAME\tREPO\tDEFAULT BRANCH\tMEMBERS")
+        for project in projects {
+            print("\(project.id)\t\(project.name)\t\(project.repoUrl)\t\(project.defaultBranch)\t\(project.members.count)")
+        }
+    }
+}
+
+struct TaskCreate: AsyncParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "task-create",
+        abstract: "Creates a mesh task dispatch record for a target node."
+    )
+
+    @Option(name: .long, help: "Shared project id or name.")
+    var project: String
+
+    @Option(name: .long, help: "Task title.")
+    var title: String
+
+    @Option(name: .long, help: "Target node id.")
+    var assign: String
+
+    @Option(name: .long, help: "Actor node id. Defaults to local.")
+    var actor: String = "local"
+
+    @Option(name: .long, help: "Mesh state path. Defaults to ~/.sloppy/mesh.json.")
+    var meshPath: String?
+
+    mutating func run() async throws {
+        await LoggingBootstrapper.shared.bootstrapIfNeeded()
+        let task = try NodeMeshStore(stateURL: meshURL(from: meshPath)).dispatchTask(
+            projectIdOrName: project,
+            title: title,
+            assignedNodeId: assign,
+            actor: actor
+        )
+        print("Created mesh task")
+        print("  id: \(task.id)")
+        print("  project: \(task.projectId)")
+        print("  assignedNode: \(task.assignedNodeId)")
+        print("  status: \(task.status.rawValue)")
+    }
+}
+
+struct TaskList: AsyncParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "task-list",
+        abstract: "Lists mesh task dispatch records."
+    )
+
+    @Option(name: .long, help: "Optional shared project id or name.")
+    var project: String?
+
+    @Option(name: .long, help: "Mesh state path. Defaults to ~/.sloppy/mesh.json.")
+    var meshPath: String?
+
+    mutating func run() async throws {
+        await LoggingBootstrapper.shared.bootstrapIfNeeded()
+        let tasks = try NodeMeshStore(stateURL: meshURL(from: meshPath)).listTasks(projectIdOrName: project)
+        print("TASK ID\tPROJECT\tASSIGNED NODE\tSTATUS\tBRANCH\tCOMMIT\tTITLE")
+        for task in tasks {
+            print("\(task.id)\t\(task.projectId)\t\(task.assignedNodeId)\t\(task.status.rawValue)\t\(task.branch ?? "-")\t\(task.commit ?? "-")\t\(task.title)")
+        }
+    }
+}
+
+struct TaskStatus: AsyncParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "task-status",
+        abstract: "Updates mesh task status and optional result metadata."
+    )
+
+    @Option(name: .long, help: "Mesh task id.")
+    var task: String
+
+    @Option(name: .long, help: "New status.")
+    var status: String
+
+    @Option(name: .long, help: "Actor node id.")
+    var actor: String
+
+    @Option(name: .long, help: "Result branch.")
+    var branch: String?
+
+    @Option(name: .long, help: "Result commit.")
+    var commit: String?
+
+    @Option(name: .long, help: "Result summary.")
+    var summary: String?
+
+    @Option(name: .long, help: "Mesh state path. Defaults to ~/.sloppy/mesh.json.")
+    var meshPath: String?
+
+    mutating func run() async throws {
+        await LoggingBootstrapper.shared.bootstrapIfNeeded()
+        guard let parsedStatus = MeshTaskStatus(rawValue: status) else {
+            throw ValidationError("Unknown task status '\(status)'.")
+        }
+        let task = try NodeMeshStore(stateURL: meshURL(from: meshPath)).updateTaskStatus(
+            taskId: task,
+            status: parsedStatus,
+            actor: actor,
+            branch: branch,
+            commit: commit,
+            summary: summary
+        )
+        print("Updated mesh task")
+        print("  id: \(task.id)")
+        print("  status: \(task.status.rawValue)")
+        if let branch = task.branch { print("  branch: \(branch)") }
+        if let commit = task.commit { print("  commit: \(commit)") }
+    }
+}
+
+struct RPCRequest: AsyncParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "rpc-request",
+        abstract: "Stores a mesh RPC request envelope for a target node."
+    )
+
+    @Option(name: .long, help: "Source node id.")
+    var from: String
+
+    @Option(name: .long, help: "Target node id.")
+    var to: String
+
+    @Option(name: .long, help: "RPC method name.")
+    var method: String
+
+    @Option(name: .long, help: "JSON params object/value.")
+    var params: String?
+
+    @Option(name: .long, help: "Mesh state path. Defaults to ~/.sloppy/mesh.json.")
+    var meshPath: String?
+
+    mutating func run() async throws {
+        await LoggingBootstrapper.shared.bootstrapIfNeeded()
+        let parsedParams = try parseJSONValue(params) ?? .object([:])
+        let envelope = try NodeMeshStore(stateURL: meshURL(from: meshPath)).rpcRequest(
+            from: from,
+            to: to,
+            method: method,
+            params: parsedParams
+        )
+        print("Created mesh RPC request")
+        print("  id: \(envelope.id)")
+        print("  from: \(envelope.from)")
+        print("  to: \(envelope.to ?? "-")")
+        print("  method: \(method)")
+    }
+}
+
+struct AuditLog: AsyncParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "audit-log",
+        abstract: "Prints local mesh audit log entries."
+    )
+
+    @Option(name: .long, help: "Maximum number of entries to print.")
+    var limit: Int = 50
+
+    @Option(name: .long, help: "Mesh state path. Defaults to ~/.sloppy/mesh.json.")
+    var meshPath: String?
+
+    mutating func run() async throws {
+        await LoggingBootstrapper.shared.bootstrapIfNeeded()
+        let state = try NodeMeshStore(stateURL: meshURL(from: meshPath)).load()
+        let entries = state.auditLog.suffix(max(0, limit))
+        print("TIME\tACTOR\tTARGET\tACTION\tPROJECT\tTASK\tALLOWED\tMESSAGE")
+        for entry in entries {
+            print("\(formatDate(entry.time))\t\(entry.actor)\t\(entry.target ?? "-")\t\(entry.action)\t\(entry.project ?? "-")\t\(entry.task ?? "-")\t\(entry.allowed)\t\(entry.message ?? "-")")
+        }
+    }
+}
+
 struct Bootstrap: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "bootstrap",
@@ -408,6 +661,24 @@ private func normalizeList(_ values: [String]) -> [String] {
         .flatMap { $0.split(separator: ",") }
         .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
         .filter { !$0.isEmpty }
+}
+
+private func parseJSONValue(_ text: String?) throws -> JSONValue? {
+    guard let text, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+        return nil
+    }
+    guard let data = text.data(using: .utf8) else {
+        throw ValidationError("Params must be valid UTF-8 JSON.")
+    }
+    do {
+        return try JSONDecoder().decode(JSONValue.self, from: data)
+    } catch {
+        throw ValidationError("Params must be valid JSON: \(error.localizedDescription)")
+    }
+}
+
+private func formatDate(_ date: Date) -> String {
+    ISO8601DateFormatter().string(from: date)
 }
 
 private actor LoggingBootstrapper {

@@ -536,6 +536,20 @@ public actor CoreRouter {
 
     private static func defaultWebSocketRoutes(service: CoreService) -> [WebSocketRouteDefinition] {
         var routes: [WebSocketRouteDefinition] = []
+        let nodeMeshRelay = NodeMeshRelay()
+
+        routes.append(
+            .init(
+                path: "/v1/node/mesh/ws",
+                validator: { _ in true },
+                callback: { request, connection in
+                    await nodeMeshRelay.attach(
+                        connection: connection,
+                        remoteAddress: request.remoteAddress
+                    )
+                }
+            )
+        )
 
         routes.append(
             .init(

@@ -92,18 +92,24 @@ struct MainView: View {
     private func regularSplitLayout() -> some View {
         let sp = theme.spacing
 
-        return HStack(spacing: 0) {
-            sidebarView(isOverlay: false)
-                .frame(width: sidebarWidth, alignment: .topLeading)
-                .frame(maxHeight: .infinity, alignment: .topLeading)
+        return SloppyGlassShell(cornerRadius: 34) {
+            HStack(spacing: 0) {
+                sidebarView(isOverlay: false)
+                    .frame(width: sidebarWidth, alignment: .topLeading)
+                    .frame(maxHeight: .infinity, alignment: .topLeading)
 
-            chatScreen(showsSidebarControl: false)
-                .frame(minWidth: 0, maxWidth: .infinity, minHeight: 0, maxHeight: .infinity)
+                chatScreen(showsSidebarControl: false)
+                    .frame(minWidth: 0, maxWidth: .infinity, minHeight: 0, maxHeight: .infinity)
+            }
         }
-        .padding(.top, max(sp.s, safeAreaInsets.top + sp.s))
-        .padding(.bottom, max(sp.s, safeAreaInsets.bottom + sp.s))
-        .padding(.leading, sp.s)
-        .padding(.trailing, sp.s)
+        .padding(
+            EdgeInsets(
+                top: max(sp.s, safeAreaInsets.top + sp.s),
+                leading: sp.s,
+                bottom: max(sp.s, safeAreaInsets.bottom + sp.s),
+                trailing: sp.s
+            )
+        )
     }
 
     @ViewBuilder
@@ -116,36 +122,40 @@ struct MainView: View {
     }
 
     private func fullScreenCompactLayout() -> some View {
-        ZStack {
-            if isMobileSidebarPresented {
-                sidebarView(isOverlay: true)
-                    .frame(minWidth: 0, maxWidth: .infinity, minHeight: 0, maxHeight: .infinity, alignment: .topLeading)
-            } else {
-                chatScreen(showsSidebarControl: true)
-                    .frame(minWidth: 0, maxWidth: .infinity, minHeight: 0, maxHeight: .infinity)
+        SloppyGlassShell(cornerRadius: 28) {
+            ZStack {
+                if isMobileSidebarPresented {
+                    sidebarView(isOverlay: true)
+                        .frame(minWidth: 0, maxWidth: .infinity, minHeight: 0, maxHeight: .infinity, alignment: .topLeading)
+                } else {
+                    chatScreen(showsSidebarControl: true)
+                        .frame(minWidth: 0, maxWidth: .infinity, minHeight: 0, maxHeight: .infinity)
+                }
             }
         }
     }
 
     private func compactOverlayLayout(availableWidth: Float) -> some View {
-        ZStack(anchor: .topLeading) {
-            chatScreen(showsSidebarControl: true)
-                .frame(minWidth: 0, maxWidth: .infinity, minHeight: 0, maxHeight: .infinity)
+        SloppyGlassShell(cornerRadius: 28) {
+            ZStack(anchor: .topLeading) {
+                chatScreen(showsSidebarControl: true)
+                    .frame(minWidth: 0, maxWidth: .infinity, minHeight: 0, maxHeight: .infinity)
 
-            if isMobileSidebarPresented {
-                Color.black
-                    .opacity(0.42 as Float)
-                    .ignoresSafeArea()
-                    .onTap {
-                        dismissMobileSidebar()
-                    }
+                if isMobileSidebarPresented {
+                    Color.black
+                        .opacity(0.42 as Float)
+                        .ignoresSafeArea()
+                        .onTap {
+                            dismissMobileSidebar()
+                        }
 
-                sidebarView(isOverlay: true)
-                    .frame(
-                        width: mobileSidebarWidth(availableWidth: availableWidth),
-                        alignment: .topLeading
-                    )
-                    .frame(maxHeight: .infinity, alignment: .topLeading)
+                    sidebarView(isOverlay: true)
+                        .frame(
+                            width: mobileSidebarWidth(availableWidth: availableWidth),
+                            alignment: .topLeading
+                        )
+                        .frame(maxHeight: .infinity, alignment: .topLeading)
+                }
             }
         }
     }

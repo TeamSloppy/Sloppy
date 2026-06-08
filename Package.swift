@@ -80,6 +80,7 @@ let package = Package(
                 "ChannelPluginTelegram",
                 "Protocols",
                 "PluginSDK",
+                "SloppyNodeCore",
                 "CSQLite3",
                 .product(name: "SloppyComputerControl", package: "SloppyComputerControl"),
                 .product(name: "AnyLanguageModel", package: "AnyLanguageModel"),

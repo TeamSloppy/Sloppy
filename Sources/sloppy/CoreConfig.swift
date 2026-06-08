@@ -1,5 +1,6 @@
 import AgentRuntime
 import Foundation
+import Protocols
 
 public struct CoreConfig: Codable, Sendable {
     public static let defaultConfigFileName = "sloppy.json"
