@@ -313,9 +313,8 @@ function cloneAutopilotSettings(project) {
         mode: settings.mode || "assistive",
         defaultAgentId: settings.defaultAgentId || "",
         reviewerAgentId: settings.reviewerAgentId || "",
-        includedTags: Array.isArray(settings.includedTags) && settings.includedTags.length > 0
-            ? [...settings.includedTags]
-            : ["autopilot"],
+        includedTags: Array.isArray(settings.includedTags) ? [...settings.includedTags] : [],
+        ignoredTags: Array.isArray(settings.ignoredTags) ? [...settings.ignoredTags] : [],
         trustedAuthors: Array.isArray(settings.trustedAuthors) ? [...settings.trustedAuthors] : [],
         maxParallelTasks: Number.isFinite(Number(settings.maxParallelTasks))
             ? Math.max(1, Number(settings.maxParallelTasks))
@@ -1328,12 +1327,28 @@ export function ProjectSettingsTab({
                     <label>
                         Included tags
                         <input
+                            placeholder="Empty means all tasks"
                             value={listText(settings.includedTags)}
                             onChange={(e) => mutateDraft((d) => {
-                                const nextTags = parseList(e.target.value);
-                                d.autopilotSettings.includedTags = nextTags.length > 0 ? nextTags : ["autopilot"];
+                                d.autopilotSettings.includedTags = parseList(e.target.value);
                             })}
                         />
+                        <small className="project-settings-field-hint">
+                            Leave empty to allow Autopilot to pick any eligible backlog task. Set one or more tags to include only matching tasks.
+                        </small>
+                    </label>
+                    <label>
+                        Ignored tags
+                        <input
+                            placeholder="blocked, manual, no-autopilot"
+                            value={listText(settings.ignoredTags)}
+                            onChange={(e) => mutateDraft((d) => {
+                                d.autopilotSettings.ignoredTags = parseList(e.target.value);
+                            })}
+                        />
+                        <small className="project-settings-field-hint">
+                            Autopilot skips tasks that have any ignored tag. Ignore tags take precedence over included tags.
+                        </small>
                     </label>
                     <label>
                         Trusted authors

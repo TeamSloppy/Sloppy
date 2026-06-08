@@ -67,6 +67,56 @@ func compactorThresholdsProduceEvents() async {
 }
 
 @Test
+func compactorUsesCustomConfigurationAndCanBeDisabled() async {
+    let bus = EventBus()
+    let disabled = Compactor(
+        eventBus: bus,
+        configuration: CompactorConfiguration(enabled: false)
+    )
+    let disabledJob = await disabled.evaluate(channelId: "disabled", utilization: 0.99)
+    #expect(disabledJob == nil)
+
+    let custom = Compactor(
+        eventBus: bus,
+        configuration: CompactorConfiguration(
+            contextWindowTokens: 64_000,
+            levels: [
+                CompactionLevelConfiguration(
+                    level: .aggressive,
+                    utilizationThreshold: 0.50,
+                    targetReductionPercent: 62,
+                    preserveRecentMessages: 12,
+                    preserveRecentTokens: 4_000
+                )
+            ]
+        )
+    )
+
+    let customJob = await custom.evaluate(channelId: "custom", utilization: 0.51)
+    #expect(customJob?.level == .aggressive)
+    #expect(customJob?.threshold == 0.50)
+    #expect(customJob?.targetReductionPercent == 62)
+    #expect(customJob?.preserveRecentMessages == 12)
+    #expect(customJob?.preserveRecentTokens == 4_000)
+    #expect(customJob?.contextWindowTokens == 64_000)
+}
+
+@Test
+func compactorConfigurationClampsUnsafeValues() {
+    let level = CompactionLevelConfiguration(
+        level: .soft,
+        utilizationThreshold: 150,
+        targetReductionPercent: 150,
+        preserveRecentMessages: -1,
+        preserveRecentTokens: -2
+    )
+    #expect(level.utilizationThreshold == 1.0)
+    #expect(level.targetReductionPercent == 100)
+    #expect(level.preserveRecentMessages == 0)
+    #expect(level.preserveRecentTokens == 0)
+}
+
+@Test
 func compactorDeduplicatesInFlightJobsByChannelAndLevel() async {
     let bus = EventBus()
     let workers = WorkerRuntime(eventBus: bus)

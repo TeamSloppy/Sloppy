@@ -30,7 +30,7 @@ Use this skill whenever you create, save, track, decompose, link, assign, retag,
 - Add concise subsystem tags such as `dashboard`, `runtime`, `tools`, `skills`, `api`, `storage`, `client`, or `docs` when they are clearly supported by the request.
 - Add type tags such as `bugfix`, `feature`, `refactor`, `test`, `planning`, or `follow-up` when useful for filtering.
 - If the work belongs to a configured external board, add the matching `taskSyncSettings.linkedProjects[].tag`.
-- Add autopilot tags only when the task should be eligible for autopilot. Use `autopilotSettings.includedTags` exactly as configured.
+- Add autopilot include tags only when `autopilotSettings.includedTags` is non-empty and the task should be eligible for autopilot. When `includedTags` is empty, no include tag is required because Autopilot may consider any otherwise eligible root task.
 
 ## Authors And Assignments
 
@@ -42,7 +42,7 @@ Use this skill whenever you create, save, track, decompose, link, assign, retag,
 ## Status Policy
 
 - Use `pending_approval` for work that needs human approval before execution.
-- When autopilot is enabled and the work should enter autopilot, create a root task in `backlog` with no `parentTaskId`, with an autopilot included tag, and with a trusted `changedBy` if trusted authors are configured.
+- When autopilot is enabled and the work should enter autopilot, create a root task in `backlog` with no `parentTaskId`, with an included tag only when `autopilotSettings.includedTags` is non-empty, without any `autopilotSettings.ignoredTags`, and with a trusted `changedBy` if trusted authors are configured.
 - Do not set autopilot work to `ready` unless the user explicitly asks for immediate launch. The scheduler will decompose and release eligible `backlog` roots by capacity.
 - Use `ready` only for explicit launch, `waiting_input` when a concrete decision is missing, and `blocked` when the task cannot proceed.
 
@@ -54,5 +54,5 @@ Before finishing, verify the board shape:
 - Every child task has the intended `parentTaskId`.
 - Every dependency references an existing sibling or prerequisite task.
 - Umbrella/root tasks summarize the whole objective and child tasks are individually executable.
-- Autopilot root eligibility matches `enabled`, `includedTags`, `trustedAuthors`, and root-task status.
+- Autopilot root eligibility matches `enabled`, `includedTags` (empty means all tags), `ignoredTags` (exclude precedence), `trustedAuthors`, and root-task status.
 - Save durable project conventions or recurring tag/author rules with `memory.save` when they should survive the current session.

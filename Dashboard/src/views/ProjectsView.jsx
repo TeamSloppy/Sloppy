@@ -52,6 +52,7 @@ import {
   buildProjectChannels,
   emptyProjectDraft
 } from "./Projects/utils";
+
 import {
   projectNotificationTargetsLiveUpdates,
   resolveProjectLiveUpdatesId
@@ -66,8 +67,11 @@ import { ProjectFilesTab } from "./Projects/ProjectFilesTab";
 import { ProjectMemoryTab } from "./Projects/ProjectMemoryTab";
 import { ProjectAnalyticsTab } from "./Projects/ProjectAnalyticsTab";
 import { ProjectWorkflowsTab } from "./Projects/ProjectWorkflowsTab";
+
 import { ProjectList } from "./Projects/ProjectList";
 import { TaskReviewView } from "./Projects/TaskReviewView";
+
+const PROJECT_EXTERNAL_REFRESH_INTERVAL_MS = 5000;
 
 function ProjectCreateModal({ isOpen, draft, onChange, onClose, onCreate, actors = [], teams = [] }) {
   const [actorSearch, setActorSearch] = useState("");
@@ -1264,6 +1268,39 @@ export function ProjectsView({
       setIsLoadingProjects(false);
     });
   }, []);
+
+  useEffect(() => {
+    if (!liveUpdatesProjectId || selectedTab !== "tasks") {
+      return;
+    }
+
+    let isCancelled = false;
+    let isRefreshing = false;
+
+    async function refreshProjectFromStore() {
+      if (isCancelled || isRefreshing) {
+        return;
+      }
+      isRefreshing = true;
+      try {
+        const project = await fetchProjectRequest(liveUpdatesProjectId);
+        if (!isCancelled && project) {
+          replaceProjectInState(project);
+        }
+      } catch {
+        // Keep websocket-driven updates as the primary path and avoid noisy
+        // status churn if the dashboard is temporarily disconnected.
+      } finally {
+        isRefreshing = false;
+      }
+    }
+
+    const interval = window.setInterval(refreshProjectFromStore, PROJECT_EXTERNAL_REFRESH_INTERVAL_MS);
+    return () => {
+      isCancelled = true;
+      window.clearInterval(interval);
+    };
+  }, [liveUpdatesProjectId, selectedTab]);
 
   useEffect(() => {
     if (!liveUpdatesProjectId || notifications.length === 0) {

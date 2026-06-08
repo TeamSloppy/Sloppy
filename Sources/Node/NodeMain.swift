@@ -9,7 +9,7 @@ struct NodeMain: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "sloppy-node",
         abstract: "Runs the standalone Sloppy local executor.",
-        subcommands: [Init.self, Status.self, Start.self, Invoke.self],
+        subcommands: [Init.self, Status.self, Start.self, InviteCreate.self, Join.self, List.self, SharedProjectCreate.self, SharedProjectAttach.self, Invoke.self],
         defaultSubcommand: Bootstrap.self
     )
 }
@@ -116,6 +116,197 @@ struct Start: AsyncParsableCommand {
     }
 }
 
+
+struct InviteCreate: AsyncParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "invite-create",
+        abstract: "Creates a one-time invite token for another SloppyNode."
+    )
+
+    @Option(name: .long, help: "Network id/name for this invite.")
+    var network: String = "personal"
+
+    @Option(name: .long, help: "Optional expected node name.")
+    var name: String?
+
+    @Option(name: .long, parsing: .upToNextOption, help: "Roles granted to the joining node, comma-separated or repeated.")
+    var roles: [String] = ["worker"]
+
+    @Option(name: .long, parsing: .upToNextOption, help: "Capabilities granted to the joining node, comma-separated or repeated.")
+    var capabilities: [String] = ["run_agent", "git"]
+
+    @Option(name: .long, help: "Invite lifetime in seconds.")
+    var ttlSeconds: Double = 86_400
+
+    @Option(name: .long, help: "Mesh state path. Defaults to ~/.sloppy/mesh.json.")
+    var meshPath: String?
+
+    mutating func run() async throws {
+        await LoggingBootstrapper.shared.bootstrapIfNeeded()
+        let store = NodeMeshStore(stateURL: meshURL(from: meshPath))
+        let invite = try store.createInvite(
+            networkId: network,
+            name: name,
+            roles: normalizeList(roles),
+            capabilities: normalizeList(capabilities),
+            ttlSeconds: ttlSeconds
+        )
+        print(invite.token)
+        print("  network: \(invite.networkId)")
+        print("  roles: \(invite.roles.joined(separator: ","))")
+        print("  capabilities: \(invite.capabilities.joined(separator: ","))")
+        print("  expiresAt: \(ISO8601DateFormatter().string(from: invite.expiresAt))")
+    }
+}
+
+struct Join: AsyncParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "join",
+        abstract: "Joins a SloppyNode mesh using a one-time invite token."
+    )
+
+    @Option(name: .long, help: "Relay/coordinator URL, e.g. https://sloppy.example.com.")
+    var relay: String
+
+    @Option(name: .long, help: "Invite token created by the coordinator.")
+    var invite: String
+
+    @Option(name: .long, help: "Human-readable node name. Defaults to invite name or host name.")
+    var name: String?
+
+    @Option(name: .long, help: "Config path. Defaults to ~/.sloppy/node.json.")
+    var configPath: String?
+
+    @Option(name: .long, help: "Mesh state path. Defaults to ~/.sloppy/mesh.json.")
+    var meshPath: String?
+
+    @Flag(name: .long, help: "Replace an existing local node config.")
+    var force: Bool = false
+
+    mutating func run() async throws {
+        await LoggingBootstrapper.shared.bootstrapIfNeeded()
+        let meshStore = NodeMeshStore(stateURL: meshURL(from: meshPath))
+        let state = try meshStore.load()
+        let inviteRecord = state.invites.first(where: { $0.token == invite })
+        let nodeName = name ?? inviteRecord?.name ?? Host.current().localizedName ?? "joined-node"
+        let roles = inviteRecord?.roles.isEmpty == false ? inviteRecord!.roles : ["worker"]
+        let capabilities = inviteRecord?.capabilities.isEmpty == false ? inviteRecord!.capabilities : ["run_agent", "git"]
+
+        let configStore = NodeConfigStore(configURL: configURL(from: configPath))
+        let config = try configStore.initialize(
+            name: nodeName,
+            roles: roles,
+            capabilities: capabilities,
+            relayURL: relay,
+            force: force
+        )
+        let record = try meshStore.consumeInvite(token: invite, identity: config.identity, endpoint: relay)
+
+        print("Joined SloppyNode mesh")
+        print("  id: \(record.id)")
+        print("  name: \(record.name)")
+        print("  relay: \(relay)")
+        print("  config: \(configStore.configURL.path)")
+    }
+}
+
+struct List: AsyncParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "list",
+        abstract: "Lists known SloppyNodes in the mesh registry."
+    )
+
+    @Option(name: .long, help: "Mesh state path. Defaults to ~/.sloppy/mesh.json.")
+    var meshPath: String?
+
+    mutating func run() async throws {
+        await LoggingBootstrapper.shared.bootstrapIfNeeded()
+        let state = try NodeMeshStore(stateURL: meshURL(from: meshPath)).load()
+        print("NODE ID\tNAME\tSTATUS\tROLES\tCAPABILITIES")
+        for node in state.nodes.sorted(by: { $0.name < $1.name }) {
+            print("\(node.id)\t\(node.name)\t\(node.status.rawValue)\t\(node.roles.joined(separator: ","))\t\(node.capabilities.joined(separator: ","))")
+        }
+    }
+}
+
+struct SharedProjectCreate: AsyncParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "shared-project-create",
+        abstract: "Creates a shared project metadata record."
+    )
+
+    @Option(name: .long, help: "Shared project name.")
+    var name: String
+
+    @Option(name: .long, help: "Git repository URL shared by all nodes.")
+    var repo: String
+
+    @Option(name: .long, help: "Default Git branch.")
+    var defaultBranch: String = "main"
+
+    @Option(name: .long, help: "Mesh state path. Defaults to ~/.sloppy/mesh.json.")
+    var meshPath: String?
+
+    mutating func run() async throws {
+        await LoggingBootstrapper.shared.bootstrapIfNeeded()
+        let project = try NodeMeshStore(stateURL: meshURL(from: meshPath)).createSharedProject(
+            name: name,
+            repoUrl: repo,
+            defaultBranch: defaultBranch
+        )
+        print("Created shared project")
+        print("  id: \(project.id)")
+        print("  name: \(project.name)")
+        print("  repo: \(project.repoUrl)")
+        print("  defaultBranch: \(project.defaultBranch)")
+    }
+}
+
+struct SharedProjectAttach: AsyncParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "shared-project-attach",
+        abstract: "Attaches a node/local repo path to a shared project."
+    )
+
+    @Option(name: .long, help: "Shared project id or name.")
+    var project: String
+
+    @Option(name: .long, help: "Node id to attach.")
+    var node: String
+
+    @Option(name: .long, help: "Local repository path on that node.")
+    var path: String
+
+    @Option(name: .long, help: "Member role: owner, controller, worker, reviewer.")
+    var role: String = "worker"
+
+    @Option(name: .long, parsing: .upToNextOption, help: "Permissions, comma-separated or repeated.")
+    var permissions: [String] = ["project.read", "task.update"]
+
+    @Option(name: .long, help: "Optional actor id for this member.")
+    var actorId: String?
+
+    @Option(name: .long, help: "Mesh state path. Defaults to ~/.sloppy/mesh.json.")
+    var meshPath: String?
+
+    mutating func run() async throws {
+        await LoggingBootstrapper.shared.bootstrapIfNeeded()
+        let updated = try NodeMeshStore(stateURL: meshURL(from: meshPath)).attachMember(
+            projectIdOrName: project,
+            nodeId: node,
+            localRepoPath: path,
+            role: role,
+            actorId: actorId,
+            permissions: normalizeList(permissions)
+        )
+        print("Attached node to shared project")
+        print("  project: \(updated.id)")
+        print("  node: \(node)")
+        print("  path: \(path)")
+        print("  members: \(updated.members.count)")
+    }
+}
+
 struct Bootstrap: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "bootstrap",
@@ -190,6 +381,16 @@ struct Invoke: AsyncParsableCommand {
         FileHandle.standardOutput.write(data)
         FileHandle.standardOutput.write(Data("\n".utf8))
     }
+}
+
+private func meshURL(from path: String?) -> URL {
+    guard let path, !path.isEmpty else {
+        return NodeMeshStore.defaultStateURL()
+    }
+    if path.hasPrefix("~/") {
+        return FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(String(path.dropFirst(2)))
+    }
+    return URL(fileURLWithPath: path)
 }
 
 private func configURL(from path: String?) -> URL {

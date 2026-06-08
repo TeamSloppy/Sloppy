@@ -382,6 +382,8 @@ public actor CoreService {
             visorCompletionProvider: visorCompletionProvider,
             visorStreamingProvider: visorStreamingProvider,
             visorBulletinMaxWords: config.visor.bulletinMaxWords,
+            compactorConfiguration: config.compactor.runtimeConfiguration,
+            compactorRetryPolicy: config.compactor.runtimeRetryPolicy,
             preResponseMemoryLimit: config.memory.retrieval.topK
         )
         self.runtime = runtime

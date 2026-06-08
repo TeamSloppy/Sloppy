@@ -354,6 +354,7 @@ public struct ProjectAutopilotSettings: Codable, Sendable, Equatable {
     public var defaultAgentId: String?
     public var reviewerAgentId: String?
     public var includedTags: [String]
+    public var ignoredTags: [String]
     public var trustedAuthors: [String]
     public var maxParallelTasks: Int
     public var canUseWeb: Bool
@@ -368,7 +369,8 @@ public struct ProjectAutopilotSettings: Codable, Sendable, Equatable {
         mode: ProjectAutopilotMode = .assistive,
         defaultAgentId: String? = nil,
         reviewerAgentId: String? = nil,
-        includedTags: [String] = ["autopilot"],
+        includedTags: [String] = [],
+        ignoredTags: [String] = [],
         trustedAuthors: [String] = [],
         maxParallelTasks: Int = 1,
         canUseWeb: Bool = false,
@@ -382,7 +384,8 @@ public struct ProjectAutopilotSettings: Codable, Sendable, Equatable {
         self.mode = mode
         self.defaultAgentId = defaultAgentId
         self.reviewerAgentId = reviewerAgentId
-        self.includedTags = includedTags.isEmpty ? ["autopilot"] : includedTags
+        self.includedTags = Self.normalizedTags(includedTags)
+        self.ignoredTags = Self.normalizedTags(ignoredTags)
         self.trustedAuthors = trustedAuthors
         self.maxParallelTasks = max(1, maxParallelTasks)
         self.canUseWeb = canUseWeb
@@ -399,6 +402,7 @@ public struct ProjectAutopilotSettings: Codable, Sendable, Equatable {
         case defaultAgentId
         case reviewerAgentId
         case includedTags
+        case ignoredTags
         case trustedAuthors
         case maxParallelTasks
         case canUseWeb
@@ -415,8 +419,9 @@ public struct ProjectAutopilotSettings: Codable, Sendable, Equatable {
         mode = try container.decodeIfPresent(ProjectAutopilotMode.self, forKey: .mode) ?? .assistive
         defaultAgentId = try container.decodeIfPresent(String.self, forKey: .defaultAgentId)
         reviewerAgentId = try container.decodeIfPresent(String.self, forKey: .reviewerAgentId)
-        let tags = try container.decodeIfPresent([String].self, forKey: .includedTags) ?? ["autopilot"]
-        includedTags = tags.isEmpty ? ["autopilot"] : tags
+        let tags = try container.decodeIfPresent([String].self, forKey: .includedTags) ?? []
+        includedTags = Self.normalizedTags(tags)
+        ignoredTags = Self.normalizedTags(try container.decodeIfPresent([String].self, forKey: .ignoredTags) ?? [])
         trustedAuthors = try container.decodeIfPresent([String].self, forKey: .trustedAuthors) ?? []
         maxParallelTasks = max(1, try container.decodeIfPresent(Int.self, forKey: .maxParallelTasks) ?? 1)
         canUseWeb = try container.decodeIfPresent(Bool.self, forKey: .canUseWeb) ?? false
@@ -425,6 +430,19 @@ public struct ProjectAutopilotSettings: Codable, Sendable, Equatable {
         canStartLocalhost = try container.decodeIfPresent(Bool.self, forKey: .canStartLocalhost) ?? false
         canCommit = try container.decodeIfPresent(Bool.self, forKey: .canCommit) ?? false
         canPush = try container.decodeIfPresent(Bool.self, forKey: .canPush) ?? false
+    }
+
+    private static func normalizedTags(_ tags: [String]) -> [String] {
+        var seen = Set<String>()
+        var result: [String] = []
+        for tag in tags {
+            let normalized = tag.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !normalized.isEmpty else { continue }
+            let key = normalized.lowercased()
+            guard seen.insert(key).inserted else { continue }
+            result.append(normalized)
+        }
+        return result
     }
 }
 

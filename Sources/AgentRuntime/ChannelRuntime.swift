@@ -64,10 +64,12 @@ private struct ChannelState: Sendable {
 
 public actor ChannelRuntime {
     private let eventBus: EventBus
+    private let contextWindowTokens: Int
     private var channels: [String: ChannelState] = [:]
 
-    public init(eventBus: EventBus) {
+    public init(eventBus: EventBus, contextWindowTokens: Int = 32_000) {
         self.eventBus = eventBus
+        self.contextWindowTokens = max(1, contextWindowTokens)
     }
 
     /// Ingests user message into channel state and emits routing decision.
@@ -200,7 +202,7 @@ public actor ChannelRuntime {
     private func estimateUtilization(_ messages: [ChannelMessageEntry]) -> Double {
         let characters = messages.reduce(0) { $0 + $1.content.count }
         let estimatedTokens = max(1, characters / 4)
-        return min(Double(estimatedTokens) / 32_000.0, 1.0)
+        return min(Double(estimatedTokens) / Double(contextWindowTokens), 1.0)
     }
 
     private func decideRoute(for message: String, utilization: Double) -> ChannelRouteDecision {

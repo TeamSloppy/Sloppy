@@ -75,6 +75,21 @@ struct NodeDaemonInvokeTests {
         #expect(reloaded.relayURL == "https://sloppy.example.com")
     }
 
+    @Test("node identity signs and verifies challenge")
+    func nodeIdentitySignsAndVerifiesChallenge() throws {
+        let identity = NodeIdentityGenerator.makeIdentity(
+            name: "signer",
+            roles: ["worker"],
+            capabilities: ["git"]
+        )
+        let challenge = Data("challenge".utf8)
+        let signature = try NodeIdentityGenerator.sign(challenge: challenge, privateKey: identity.privateKey)
+
+        #expect(signature.hasPrefix("ed25519:"))
+        #expect(NodeIdentityGenerator.verify(signature: signature, challenge: challenge, publicKey: identity.publicKey))
+        #expect(!NodeIdentityGenerator.verify(signature: signature, challenge: Data("other".utf8), publicKey: identity.publicKey))
+    }
+
     @Test("config store refuses to overwrite existing identity without force")
     func configStoreRefusesOverwriteWithoutForce() throws {
         let directory = FileManager.default.temporaryDirectory

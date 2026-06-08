@@ -304,13 +304,31 @@ public struct CompactionJob: Codable, Sendable, Equatable {
     public var channelId: String
     public var level: CompactionLevel
     public var threshold: Double
+    public var targetReductionPercent: Int
+    public var preserveRecentMessages: Int
+    public var preserveRecentTokens: Int
+    public var contextWindowTokens: Int
     public var createdAt: Date
 
-    public init(id: String = UUID().uuidString, channelId: String, level: CompactionLevel, threshold: Double, createdAt: Date = Date()) {
+    public init(
+        id: String = UUID().uuidString,
+        channelId: String,
+        level: CompactionLevel,
+        threshold: Double,
+        targetReductionPercent: Int = 50,
+        preserveRecentMessages: Int = 8,
+        preserveRecentTokens: Int = 2_000,
+        contextWindowTokens: Int = 32_000,
+        createdAt: Date = Date()
+    ) {
         self.id = id
         self.channelId = channelId
         self.level = level
         self.threshold = threshold
+        self.targetReductionPercent = targetReductionPercent
+        self.preserveRecentMessages = preserveRecentMessages
+        self.preserveRecentTokens = preserveRecentTokens
+        self.contextWindowTokens = contextWindowTokens
         self.createdAt = createdAt
     }
 }

@@ -45,6 +45,7 @@ import { BrowserEditor } from "./components/BrowserEditor";
 import { ACPEditor } from "./components/ACPEditor";
 import { UIEditor } from "./components/UIEditor";
 import { VisorEditor } from "./components/VisorEditor";
+import { CompactorEditor } from "./components/CompactorEditor";
 import { ClientConnectView } from "./components/ClientConnectView";
 import { ChannelsEditor } from "./components/ChannelsEditor";
 import { GitHubAccessCard } from "./components/GitHubAccessCard";
@@ -1768,6 +1769,10 @@ export function ConfigView({
           modelRoutingCatalogStatus={modelRoutingCatalogStatus}
         />
       );
+    }
+
+    if (selectedSettings === "compactor") {
+      return <CompactorEditor draftConfig={draftConfig} mutateDraft={mutateDraft} />;
     }
 
     if (selectedSettings === "model-routing") {

@@ -76,6 +76,12 @@ export const SETTINGS_ITEMS = [
     icon: "visibility",
     searchTerms: ["scheduler", "bulletin", "model", "tick interval", "worker timeout", "branch timeout", "maintenance", "decay", "prune", "webhook", "merge"]
   },
+  {
+    id: "compactor",
+    title: "Compactor",
+    icon: "compress",
+    searchTerms: ["context", "compaction", "compact", "tokens", "threshold", "reduction", "summarize", "context window"]
+  },
   { id: "acp", title: "ACP", icon: "smart_toy", searchTerms: ["targets", "server", "agent id", "cwd", "enabled"] },
   { id: "proxy", title: "Proxy", icon: "vpn_key", searchTerms: ["socks5", "http", "https", "host", "port", "username", "password"] },
   {
@@ -427,6 +433,39 @@ export const EMPTY_CONFIG = {
     mergeEnabled: false,
     mergeSimilarityThreshold: 0.80,
     mergeMaxPerRun: 10
+  },
+  compactor: {
+    enabled: true,
+    contextWindowTokens: 32000,
+    levels: [
+      {
+        level: "soft",
+        utilizationThreshold: 0.8,
+        targetReductionPercent: 30,
+        preserveRecentMessages: 8,
+        preserveRecentTokens: 2000
+      },
+      {
+        level: "aggressive",
+        utilizationThreshold: 0.85,
+        targetReductionPercent: 50,
+        preserveRecentMessages: 8,
+        preserveRecentTokens: 2000
+      },
+      {
+        level: "emergency",
+        utilizationThreshold: 0.95,
+        targetReductionPercent: 70,
+        preserveRecentMessages: 8,
+        preserveRecentTokens: 2000
+      }
+    ],
+    retry: {
+      maxAttempts: 3,
+      initialBackoffMs: 250,
+      multiplier: 2.0,
+      maxBackoffMs: 2000
+    }
   },
   ui: {
     dashboardAuth: {
@@ -935,6 +974,32 @@ export function normalizeConfig(config) {
   normalized.browser.additionalArguments = Array.isArray(config?.browser?.additionalArguments)
     ? config.browser.additionalArguments.map((arg) => String(arg)).filter(Boolean)
     : [];
+
+  const cc = config?.compactor;
+  normalized.compactor.enabled = cc?.enabled !== false;
+  normalized.compactor.contextWindowTokens = Math.max(1, parseInteger(
+    cc?.contextWindowTokens ?? normalized.compactor.contextWindowTokens,
+    normalized.compactor.contextWindowTokens
+  ));
+  normalized.compactor.levels = Array.isArray(cc?.levels) && cc.levels.length > 0
+    ? cc.levels.map((level) => {
+      const rawThreshold = level?.utilizationThreshold ?? (level?.thresholdPercent != null ? Number(level.thresholdPercent) / 100 : 0.8);
+      const thresholdRatio = Number(rawThreshold) > 1 ? Number(rawThreshold) / 100 : Number(rawThreshold);
+      return {
+        level: ["soft", "aggressive", "emergency"].includes(String(level?.level)) ? String(level.level) : "soft",
+        utilizationThreshold: Math.min(1, Math.max(0, Number.isFinite(thresholdRatio) ? thresholdRatio : 0.8)),
+        targetReductionPercent: Math.min(100, Math.max(1, parseInteger(level?.targetReductionPercent ?? 50, 50))),
+        preserveRecentMessages: Math.max(0, parseInteger(level?.preserveRecentMessages ?? 8, 8)),
+        preserveRecentTokens: Math.max(0, parseInteger(level?.preserveRecentTokens ?? 2000, 2000))
+      };
+    })
+    : normalized.compactor.levels;
+  normalized.compactor.retry = {
+    maxAttempts: Math.max(1, parseInteger(cc?.retry?.maxAttempts ?? normalized.compactor.retry.maxAttempts, normalized.compactor.retry.maxAttempts)),
+    initialBackoffMs: Math.max(0, parseInteger(cc?.retry?.initialBackoffMs ?? normalized.compactor.retry.initialBackoffMs, normalized.compactor.retry.initialBackoffMs)),
+    multiplier: Math.max(1, parseNumber(cc?.retry?.multiplier ?? normalized.compactor.retry.multiplier, normalized.compactor.retry.multiplier)),
+    maxBackoffMs: Math.max(0, parseInteger(cc?.retry?.maxBackoffMs ?? normalized.compactor.retry.maxBackoffMs, normalized.compactor.retry.maxBackoffMs))
+  };
 
   const vc = config?.visor;
   normalized.visor.scheduler.enabled = vc?.scheduler?.enabled !== false;

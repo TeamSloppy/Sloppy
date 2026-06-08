@@ -22,6 +22,60 @@ public struct CompactorRetryPolicy: Sendable, Equatable {
     public static let `default` = CompactorRetryPolicy()
 }
 
+
+public struct CompactionLevelConfiguration: Sendable, Equatable {
+    public var level: CompactionLevel
+    public var utilizationThreshold: Double
+    public var targetReductionPercent: Int
+    public var preserveRecentMessages: Int
+    public var preserveRecentTokens: Int
+
+    public init(
+        level: CompactionLevel,
+        utilizationThreshold: Double,
+        targetReductionPercent: Int,
+        preserveRecentMessages: Int = 8,
+        preserveRecentTokens: Int = 2_000
+    ) {
+        self.level = level
+        self.utilizationThreshold = min(max(utilizationThreshold, 0.0), 1.0)
+        self.targetReductionPercent = min(max(targetReductionPercent, 1), 100)
+        self.preserveRecentMessages = max(0, preserveRecentMessages)
+        self.preserveRecentTokens = max(0, preserveRecentTokens)
+    }
+}
+
+public struct CompactorConfiguration: Sendable, Equatable {
+    public var enabled: Bool
+    public var contextWindowTokens: Int
+    public var levels: [CompactionLevelConfiguration]
+
+    public init(
+        enabled: Bool = true,
+        contextWindowTokens: Int = 32_000,
+        levels: [CompactionLevelConfiguration] = Self.defaultLevels
+    ) {
+        self.enabled = enabled
+        self.contextWindowTokens = max(1, contextWindowTokens)
+        self.levels = levels.isEmpty ? Self.defaultLevels : levels
+    }
+
+    public static let defaultLevels: [CompactionLevelConfiguration] = [
+        CompactionLevelConfiguration(level: .soft, utilizationThreshold: 0.80, targetReductionPercent: 30),
+        CompactionLevelConfiguration(level: .aggressive, utilizationThreshold: 0.85, targetReductionPercent: 50),
+        CompactionLevelConfiguration(level: .emergency, utilizationThreshold: 0.95, targetReductionPercent: 70),
+    ]
+
+    public static let `default` = CompactorConfiguration()
+
+    public func matchingLevel(for utilization: Double) -> CompactionLevelConfiguration? {
+        guard enabled else { return nil }
+        return levels
+            .sorted { lhs, rhs in lhs.utilizationThreshold > rhs.utilizationThreshold }
+            .first { utilization > $0.utilizationThreshold }
+    }
+}
+
 public struct CompactionJobExecutionResult: Sendable, Equatable {
     public var success: Bool
     public var workerId: String?
@@ -42,6 +96,7 @@ public actor Compactor {
     public typealias SleepOperation = @Sendable (UInt64) async -> Void
 
     private let eventBus: EventBus
+    private let configuration: CompactorConfiguration
     private let retryPolicy: CompactorRetryPolicy
     private let applier: CompactionApplier
     private let sleepOperation: SleepOperation
@@ -54,6 +109,7 @@ public actor Compactor {
 
     public init(eventBus: EventBus) {
         self.eventBus = eventBus
+        self.configuration = .default
         self.retryPolicy = .default
         self.applier = Compactor.defaultApplier
         self.sleepOperation = Compactor.defaultSleepOperation
@@ -61,11 +117,25 @@ public actor Compactor {
 
     public init(
         eventBus: EventBus,
+        configuration: CompactorConfiguration = .default,
+        retryPolicy: CompactorRetryPolicy = .default
+    ) {
+        self.eventBus = eventBus
+        self.configuration = configuration
+        self.retryPolicy = retryPolicy
+        self.applier = Compactor.defaultApplier
+        self.sleepOperation = Compactor.defaultSleepOperation
+    }
+
+    public init(
+        eventBus: EventBus,
+        configuration: CompactorConfiguration = .default,
         retryPolicy: CompactorRetryPolicy = .default,
         applier: @escaping CompactionApplier,
         sleepOperation: @escaping SleepOperation
     ) {
         self.eventBus = eventBus
+        self.configuration = configuration
         self.retryPolicy = retryPolicy
         self.applier = applier
         self.sleepOperation = sleepOperation
@@ -73,34 +143,26 @@ public actor Compactor {
 
     /// Evaluates channel context utilization and schedules compaction job when needed.
     public func evaluate(channelId: String, utilization: Double) async -> CompactionJob? {
-        let level: CompactionLevel?
-        let threshold: Double
-
-        if utilization > 0.95 {
-            level = .emergency
-            threshold = 0.95
-        } else if utilization > 0.85 {
-            level = .aggressive
-            threshold = 0.85
-        } else if utilization > 0.80 {
-            level = .soft
-            threshold = 0.80
-        } else {
-            level = nil
-            threshold = 0
-        }
-
-        guard let level else {
+        guard let levelConfig = configuration.matchingLevel(for: utilization) else {
             lastLevelByChannel[channelId] = nil
             return nil
         }
 
+        let level = levelConfig.level
         if lastLevelByChannel[channelId] == level {
             return nil
         }
 
         lastLevelByChannel[channelId] = level
-        let job = CompactionJob(channelId: channelId, level: level, threshold: threshold)
+        let job = CompactionJob(
+            channelId: channelId,
+            level: level,
+            threshold: levelConfig.utilizationThreshold,
+            targetReductionPercent: levelConfig.targetReductionPercent,
+            preserveRecentMessages: levelConfig.preserveRecentMessages,
+            preserveRecentTokens: levelConfig.preserveRecentTokens,
+            contextWindowTokens: configuration.contextWindowTokens
+        )
 
         if let payload = try? JSONValueCoder.encode(job) {
             await eventBus.publish(
@@ -223,7 +285,11 @@ public actor Compactor {
                 workerId: workerId,
                 payload: .object([
                     "jobId": .string(job.id),
-                    "level": .string(job.level.rawValue)
+                    "level": .string(job.level.rawValue),
+                    "targetReductionPercent": .number(Double(job.targetReductionPercent)),
+                    "preserveRecentMessages": .number(Double(job.preserveRecentMessages)),
+                    "preserveRecentTokens": .number(Double(job.preserveRecentTokens)),
+                    "contextWindowTokens": .number(Double(job.contextWindowTokens))
                 ])
             )
         )
@@ -256,7 +322,7 @@ public actor Compactor {
             taskId: "compaction-\(job.id)",
             channelId: job.channelId,
             title: "Compaction \(job.level.rawValue)",
-            objective: "Summarize channel context at \(Int(job.threshold * 100))% threshold",
+            objective: "Summarize channel context at \(Int(job.threshold * 100))% threshold; target \(job.targetReductionPercent)% reduction while preserving the latest \(job.preserveRecentMessages) messages / \(job.preserveRecentTokens) tokens.",
             tools: ["file"],
             mode: .fireAndForget
         )

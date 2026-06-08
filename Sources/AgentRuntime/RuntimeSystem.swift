@@ -184,6 +184,8 @@ public actor RuntimeSystem {
         visorCompletionProvider: (@Sendable (String, Int) async -> String?)? = nil,
         visorStreamingProvider: (@Sendable (String, Int) -> AsyncStream<String>)? = nil,
         visorBulletinMaxWords: Int = 300,
+        compactorConfiguration: CompactorConfiguration = .default,
+        compactorRetryPolicy: CompactorRetryPolicy = .default,
         preResponseMemoryLimit: Int = 8,
         modelReconnectDelays: [Duration]? = nil,
         modelReconnectSleeper: (@Sendable (Duration) async -> Void)? = nil
@@ -197,13 +199,20 @@ public actor RuntimeSystem {
         self.modelReconnectSleeper = modelReconnectSleeper ?? { delay in
             try? await Task.sleep(for: delay)
         }
-        self.channels = ChannelRuntime(eventBus: bus)
+        self.channels = ChannelRuntime(
+            eventBus: bus,
+            contextWindowTokens: compactorConfiguration.contextWindowTokens
+        )
         self.workers = WorkerRuntime(
             eventBus: bus,
             executor: workerExecutor ?? DefaultWorkerExecutor()
         )
         self.branches = BranchRuntime(eventBus: bus, memoryStore: memory)
-        self.compactor = Compactor(eventBus: bus)
+        self.compactor = Compactor(
+            eventBus: bus,
+            configuration: compactorConfiguration,
+            retryPolicy: compactorRetryPolicy
+        )
         self.visor = Visor(
             eventBus: bus,
             memoryStore: memory,

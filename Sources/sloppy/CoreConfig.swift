@@ -1,3 +1,4 @@
+import AgentRuntime
 import Foundation
 
 public struct CoreConfig: Codable, Sendable {
@@ -1480,6 +1481,131 @@ public struct CoreConfig: Codable, Sendable {
         }
     }
 
+
+    public struct Compactor: Codable, Sendable, Equatable {
+        public struct Level: Codable, Sendable, Equatable {
+            public var level: CompactionLevel
+            public var utilizationThreshold: Double
+            public var targetReductionPercent: Int
+            public var preserveRecentMessages: Int
+            public var preserveRecentTokens: Int
+
+            private enum CodingKeys: String, CodingKey {
+                case level
+                case utilizationThreshold
+                case thresholdPercent
+                case targetReductionPercent
+                case preserveRecentMessages
+                case preserveRecentTokens
+            }
+
+            public init(
+                level: CompactionLevel,
+                utilizationThreshold: Double,
+                targetReductionPercent: Int,
+                preserveRecentMessages: Int = 8,
+                preserveRecentTokens: Int = 2_000
+            ) {
+                self.level = level
+                self.utilizationThreshold = Self.normalizedThreshold(utilizationThreshold)
+                self.targetReductionPercent = min(max(targetReductionPercent, 1), 100)
+                self.preserveRecentMessages = max(0, preserveRecentMessages)
+                self.preserveRecentTokens = max(0, preserveRecentTokens)
+            }
+
+            public init(from decoder: Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                level = try container.decode(CompactionLevel.self, forKey: .level)
+                let decodedThreshold = try container.decodeIfPresent(Double.self, forKey: .utilizationThreshold)
+                    ?? (try container.decodeIfPresent(Double.self, forKey: .thresholdPercent).map { $0 / 100.0 })
+                    ?? 0.80
+                utilizationThreshold = Self.normalizedThreshold(decodedThreshold)
+                targetReductionPercent = min(max(try container.decodeIfPresent(Int.self, forKey: .targetReductionPercent) ?? 50, 1), 100)
+                preserveRecentMessages = max(0, try container.decodeIfPresent(Int.self, forKey: .preserveRecentMessages) ?? 8)
+                preserveRecentTokens = max(0, try container.decodeIfPresent(Int.self, forKey: .preserveRecentTokens) ?? 2_000)
+            }
+
+            public func encode(to encoder: Encoder) throws {
+                var container = encoder.container(keyedBy: CodingKeys.self)
+                try container.encode(level, forKey: .level)
+                try container.encode(utilizationThreshold, forKey: .utilizationThreshold)
+                try container.encode(targetReductionPercent, forKey: .targetReductionPercent)
+                try container.encode(preserveRecentMessages, forKey: .preserveRecentMessages)
+                try container.encode(preserveRecentTokens, forKey: .preserveRecentTokens)
+            }
+
+            private static func normalizedThreshold(_ value: Double) -> Double {
+                let ratio = value > 1.0 ? value / 100.0 : value
+                return min(max(ratio, 0.0), 1.0)
+            }
+        }
+
+        public var enabled: Bool
+        public var contextWindowTokens: Int
+        public var levels: [Level]
+        public var retry: Retry
+
+        public struct Retry: Codable, Sendable, Equatable {
+            public var maxAttempts: Int
+            public var initialBackoffMs: Int
+            public var multiplier: Double
+            public var maxBackoffMs: Int
+
+            public init(
+                maxAttempts: Int = 3,
+                initialBackoffMs: Int = 250,
+                multiplier: Double = 2.0,
+                maxBackoffMs: Int = 2_000
+            ) {
+                self.maxAttempts = max(1, maxAttempts)
+                self.initialBackoffMs = max(0, initialBackoffMs)
+                self.multiplier = max(1.0, multiplier)
+                self.maxBackoffMs = max(maxBackoffMs, initialBackoffMs)
+            }
+        }
+
+        public init(
+            enabled: Bool = true,
+            contextWindowTokens: Int = 32_000,
+            levels: [Level] = [
+                Level(level: .soft, utilizationThreshold: 0.80, targetReductionPercent: 30),
+                Level(level: .aggressive, utilizationThreshold: 0.85, targetReductionPercent: 50),
+                Level(level: .emergency, utilizationThreshold: 0.95, targetReductionPercent: 70),
+            ],
+            retry: Retry = Retry()
+        ) {
+            self.enabled = enabled
+            self.contextWindowTokens = max(1, contextWindowTokens)
+            self.levels = levels.isEmpty ? Self().levels : levels
+            self.retry = retry
+        }
+
+        public var runtimeConfiguration: CompactorConfiguration {
+            CompactorConfiguration(
+                enabled: enabled,
+                contextWindowTokens: contextWindowTokens,
+                levels: levels.map { level in
+                    CompactionLevelConfiguration(
+                        level: level.level,
+                        utilizationThreshold: level.utilizationThreshold,
+                        targetReductionPercent: level.targetReductionPercent,
+                        preserveRecentMessages: level.preserveRecentMessages,
+                        preserveRecentTokens: level.preserveRecentTokens
+                    )
+                }
+            )
+        }
+
+        public var runtimeRetryPolicy: CompactorRetryPolicy {
+            CompactorRetryPolicy(
+                maxAttempts: retry.maxAttempts,
+                initialBackoffNanoseconds: UInt64(retry.initialBackoffMs) * 1_000_000,
+                multiplier: retry.multiplier,
+                maxBackoffNanoseconds: UInt64(retry.maxBackoffMs) * 1_000_000
+            )
+        }
+    }
+
     public var listen: Listen
     public var workspace: Workspace
     public var auth: Auth
@@ -1502,6 +1628,7 @@ public struct CoreConfig: Codable, Sendable {
     public var proxy: Proxy
     public var browser: Browser
     public var visor: Visor
+    public var compactor: Compactor
     public var kanban: Kanban
     public var ui: UI
     public var toolHooks: ToolHooks
@@ -1531,6 +1658,7 @@ public struct CoreConfig: Codable, Sendable {
         proxy: Proxy = Proxy(),
         browser: Browser = Browser(),
         visor: Visor = Visor(),
+        compactor: Compactor = Compactor(),
         kanban: Kanban = Kanban(),
         ui: UI = UI(),
         toolHooks: ToolHooks = ToolHooks(),
@@ -1559,6 +1687,7 @@ public struct CoreConfig: Codable, Sendable {
         self.proxy = proxy
         self.browser = browser
         self.visor = visor
+        self.compactor = compactor
         self.kanban = kanban
         self.ui = ui
         self.toolHooks = toolHooks
@@ -1601,6 +1730,7 @@ public struct CoreConfig: Codable, Sendable {
             proxy: .init(),
             browser: .init(),
             visor: .init(),
+            compactor: .init(),
             kanban: .init(),
             ui: .init(),
             toolHooks: .init(),
@@ -1673,6 +1803,7 @@ public struct CoreConfig: Codable, Sendable {
         case proxy
         case browser
         case visor
+        case compactor
         case kanban
         case ui
         case toolHooks
@@ -1702,6 +1833,7 @@ public struct CoreConfig: Codable, Sendable {
         proxy = try container.decodeIfPresent(Proxy.self, forKey: .proxy) ?? .init()
         browser = try container.decodeIfPresent(Browser.self, forKey: .browser) ?? .init()
         visor = try container.decodeIfPresent(Visor.self, forKey: .visor) ?? .init()
+        compactor = try container.decodeIfPresent(Compactor.self, forKey: .compactor) ?? .init()
         kanban = try container.decodeIfPresent(Kanban.self, forKey: .kanban) ?? .init()
         ui = try container.decodeIfPresent(UI.self, forKey: .ui) ?? .init()
         toolHooks = try container.decodeIfPresent(ToolHooks.self, forKey: .toolHooks) ?? .init()
@@ -1736,6 +1868,7 @@ public struct CoreConfig: Codable, Sendable {
         try container.encode(proxy, forKey: .proxy)
         try container.encode(browser, forKey: .browser)
         try container.encode(visor, forKey: .visor)
+        try container.encode(compactor, forKey: .compactor)
         try container.encode(kanban, forKey: .kanban)
         try container.encode(ui, forKey: .ui)
         try container.encode(toolHooks, forKey: .toolHooks)

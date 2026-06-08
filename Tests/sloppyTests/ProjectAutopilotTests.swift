@@ -125,11 +125,11 @@ func projectAutopilotDisabledDoesNothing() async throws {
 }
 
 @Test
-func projectAutopilotIgnoresUntaggedBacklogTask() async throws {
+func projectAutopilotIncludeTagsRestrictUntaggedBacklogTask() async throws {
     let service = CoreService(config: .test, persistenceBuilder: InMemoryCorePersistenceBuilder())
     let project = ProjectRecord(
-        id: "autopilot-untagged",
-        name: "Autopilot Untagged",
+        id: "autopilot-included-tags-restrict-untagged",
+        name: "Autopilot Include Tags Restrict Untagged",
         description: "",
         channels: [ProjectChannel(id: "channel-1", title: "Main", channelId: "chan")],
         tasks: [
@@ -141,7 +141,71 @@ func projectAutopilotIgnoresUntaggedBacklogTask() async throws {
                 status: ProjectTaskStatus.backlog.rawValue
             )
         ],
-        autopilotSettings: ProjectAutopilotSettings(enabled: true, defaultAgentId: "builder")
+        autopilotSettings: ProjectAutopilotSettings(
+            enabled: true,
+            defaultAgentId: "builder",
+            includedTags: ["autopilot"]
+        )
+    )
+    await service.store.saveProject(project)
+
+    await service.processAutonomousExecution()
+
+    let saved = await service.store.project(id: project.id)
+    #expect(saved?.tasks.first?.status == ProjectTaskStatus.backlog.rawValue)
+}
+
+@Test
+func projectAutopilotDefaultAllowsUntaggedBacklogTask() async throws {
+    let service = CoreService(config: .test, persistenceBuilder: InMemoryCorePersistenceBuilder())
+    let project = ProjectRecord(
+        id: "autopilot-default-allows-untagged",
+        name: "Autopilot Default Allows Untagged",
+        description: "",
+        channels: [ProjectChannel(id: "channel-1", title: "Main", channelId: "chan")],
+        tasks: [
+            ProjectTask(
+                id: "task-1",
+                title: "Untagged",
+                description: "",
+                priority: "medium",
+                status: ProjectTaskStatus.backlog.rawValue
+            )
+        ],
+        autopilotSettings: ProjectAutopilotSettings(enabled: true)
+    )
+    await service.store.saveProject(project)
+
+    await service.processAutonomousExecution()
+
+    let saved = await service.store.project(id: project.id)
+    #expect(saved?.tasks.first?.status == ProjectTaskStatus.blocked.rawValue)
+    #expect(saved?.tasks.first?.description.contains("Autopilot blocked") == true)
+}
+
+@Test
+func projectAutopilotIgnoredTagsExcludeBacklogTask() async throws {
+    let service = CoreService(config: .test, persistenceBuilder: InMemoryCorePersistenceBuilder())
+    let project = ProjectRecord(
+        id: "autopilot-ignored-tags",
+        name: "Autopilot Ignored Tags",
+        description: "",
+        channels: [ProjectChannel(id: "channel-1", title: "Main", channelId: "chan")],
+        tasks: [
+            ProjectTask(
+                id: "task-1",
+                title: "Ignored",
+                description: "",
+                priority: "medium",
+                status: ProjectTaskStatus.backlog.rawValue,
+                tags: ["autopilot", "manual"]
+            )
+        ],
+        autopilotSettings: ProjectAutopilotSettings(
+            enabled: true,
+            includedTags: ["autopilot"],
+            ignoredTags: ["manual"]
+        )
     )
     await service.store.saveProject(project)
 

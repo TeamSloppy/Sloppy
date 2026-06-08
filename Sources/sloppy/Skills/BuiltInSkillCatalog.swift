@@ -495,6 +495,11 @@ enum BuiltInSkillCatalog {
             Prefer concise checklist updates over long explanations.
             Before meaningful edits, call `planning.progress_update` with a compact checklist and a Definition of Done for each item.
             Write tests for behavior changes, run them, fix failures, and build the project before finishing when working on a project.
+            When build work affects a web UI, desktop UI, visual layout, user flow, interactive behavior, or other user-visible screen state, follow the `ui-visual-verification` skill as part of verification.
+            For web UI changes, open the relevant page in a browser when possible, interact with the changed flow, capture screenshots for important states, and compare the observed behavior against the expected result.
+            For desktop UI changes, launch or focus the app when practical, capture the screen or relevant window state, exercise the changed interaction, and inspect screenshots for regressions.
+            If browser, display, app launch, credentials, or test data are unavailable, state the limitation and perform the strongest remaining validation.
+            Do not fabricate visual observations, screenshots, clicks, or results.
             Ask only when a blocking requirement is ambiguous.
             """
         case .plan:

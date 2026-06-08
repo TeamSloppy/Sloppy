@@ -8,7 +8,8 @@ func projectAutopilotSettingsDefaultsAreSafe() {
 
     #expect(settings.enabled == false)
     #expect(settings.mode == .assistive)
-    #expect(settings.includedTags == ["autopilot"])
+    #expect(settings.includedTags == [])
+    #expect(settings.ignoredTags == [])
     #expect(settings.maxParallelTasks == 1)
     #expect(settings.canCommit == false)
     #expect(settings.canPush == false)
@@ -70,6 +71,7 @@ func projectAutopilotFieldsEncodeAndDecode() throws {
             defaultAgentId: "builder",
             reviewerAgentId: "reviewer",
             includedTags: ["autopilot", "ship"],
+            ignoredTags: ["manual", "blocked"],
             trustedAuthors: ["user"],
             maxParallelTasks: 3,
             canUseWeb: true,
@@ -92,6 +94,7 @@ func projectAutopilotFieldsEncodeAndDecode() throws {
     #expect(decoded.autopilotSettings.mode == .parallel)
     #expect(decoded.autopilotSettings.defaultAgentId == "builder")
     #expect(decoded.autopilotSettings.includedTags == ["autopilot", "ship"])
+    #expect(decoded.autopilotSettings.ignoredTags == ["manual", "blocked"])
     #expect(decoded.autopilotSettings.maxParallelTasks == 3)
     #expect(decoded.tasks[0].createdBy == "user")
     #expect(decoded.tasks[0].dependsOnTaskIds == ["task-0"])

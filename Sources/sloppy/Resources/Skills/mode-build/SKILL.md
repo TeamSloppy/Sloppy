@@ -43,6 +43,15 @@ Implement the requested change by writing code, editing files, and running the s
 - If tests fail, fix the code and run the tests again.
 - If tests pass, continue with the next step.
 
+## UI and Visual Verification
+
+- When build work affects a web UI, desktop UI, visual layout, user flow, interactive behavior, or other user-visible screen state, follow the `ui-visual-verification` skill as part of verification.
+- For web UI changes, open the relevant page in a browser when possible, interact with the changed flow, capture screenshots for important states, and compare the observed behavior against the expected result.
+- For desktop UI changes, launch or focus the app when practical, capture the screen or relevant window state, exercise the changed interaction, and inspect screenshots for regressions.
+- Keep UI verification scoped to the changed surface and highest-risk adjacent flows unless the user asks for a broader QA pass.
+- If browser, display, app launch, credentials, or test data are unavailable, state the limitation and perform the strongest remaining validation.
+- Do not fabricate visual observations, screenshots, clicks, or results.
+
 ## Verification
 
 - Run the smallest relevant verification first.

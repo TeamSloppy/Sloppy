@@ -748,19 +748,14 @@ actor ACPSessionManager {
             return
         }
 
-        await permissionNotificationSink?(
-            currentRun.agentID,
-            currentRun.sloppySessionID,
-            summary
-        )
         await currentRun.onEvent(
             AgentSessionEvent(
                 agentId: currentRun.agentID,
                 sessionId: currentRun.sloppySessionID,
                 type: .runStatus,
                 runStatus: AgentRunStatusEvent(
-                    stage: .paused,
-                    label: "Tool approval required",
+                    stage: .thinking,
+                    label: "Permission requested",
                     details: summary
                 )
             )

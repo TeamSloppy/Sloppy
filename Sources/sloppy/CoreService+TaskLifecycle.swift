@@ -1646,6 +1646,15 @@ extension CoreService {
 
         let detail = try? getAgentSession(agentID: agentID, sessionID: session.id)
         var resultEvents = detail?.events ?? response.appendedEvents
+        if latestDelegateFinishOutcome(from: resultEvents) == nil {
+            resultEvents = await attemptDelegatedTaskFinishRescueIfNeeded(
+                agentID: agentID,
+                session: session,
+                taskID: taskID,
+                currentEvents: resultEvents,
+                selectedModel: selectedModel
+            ) ?? resultEvents
+        }
         if latestDelegateFinishOutcome(from: resultEvents) == nil,
            let syntheticFinish = syntheticDelegateFinishEvent(
                agentID: agentID,
@@ -1673,6 +1682,62 @@ extension CoreService {
         await runtime.clearChannelToolAllowList(channelId: channelId)
         await runtime.invalidateChannelSession(channelId: channelId)
         return text
+    }
+
+    private func attemptDelegatedTaskFinishRescueIfNeeded(
+        agentID: String,
+        session: AgentSessionSummary,
+        taskID: String,
+        currentEvents: [AgentSessionEvent],
+        selectedModel: String?
+    ) async -> [AgentSessionEvent]? {
+        guard latestDelegateFinishOutcome(from: currentEvents) == nil else {
+            return currentEvents
+        }
+        let latestRunStatus = currentEvents.reversed().compactMap(\.runStatus).first
+        if latestRunStatus?.stage == .paused {
+            return nil
+        }
+
+        let rescuePrompt = """
+        [Delegated task finalization required]
+        Your previous turn produced a response but did not close the delegated worker protocol.
+
+        Do not continue implementation or analysis. Close the worker now:
+        1. If task `\(taskID)` is complete and not already marked done, call `project.task_update` with status=`done`, completionConfidence=`done`, and concrete completionNote evidence.
+        2. Then call `agent_delegate.finish` as your final tool call.
+        3. If the task is not complete or you cannot provide evidence, call `agent_delegate.finish` with status=`blocked` or `failed` and explain why.
+
+        Do not answer in plain text only. The worker flow is incomplete until `agent_delegate.finish` is called.
+        """
+
+        do {
+            _ = try await postAgentSessionMessage(
+                agentID: agentID,
+                sessionID: session.id,
+                request: AgentSessionPostMessageRequest(
+                    userId: "system_task_worker",
+                    content: rescuePrompt,
+                    selectedModel: {
+                        let t = selectedModel?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                        return t.isEmpty ? nil : t
+                    }()
+                )
+            )
+            let detail = try? getAgentSession(agentID: agentID, sessionID: session.id)
+            return detail?.events
+        } catch {
+            logger.warning(
+                "task.worker.finalizer_rescue_failed",
+                metadata: [
+                    "agent_id": .string(agentID),
+                    "task_id": .string(taskID),
+                    "session_id": .string(session.id),
+                    "error": .string(error.localizedDescription)
+                ]
+            )
+            return nil
+        }
     }
 
     private struct AutopilotWorkerContext {

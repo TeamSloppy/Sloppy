@@ -231,6 +231,7 @@ func projectCurrentExposesAutopilotSettingsAndTaskSyncLinkedProjects() async thr
     let autopilot = try #require(data["autopilotSettings"]?.asObject)
     #expect(autopilot["enabled"]?.asBool == true)
     #expect(autopilot["includedTags"]?.asArray?.compactMap(\.asString) == ["autopilot"])
+    #expect(autopilot["ignoredTags"]?.asArray?.compactMap(\.asString) == [])
     #expect(autopilot["trustedAuthors"]?.asArray?.compactMap(\.asString) == ["agent:test-agent"])
     #expect(data["models"]?.asArray?.compactMap(\.asString) == ["mock:fast"])
 

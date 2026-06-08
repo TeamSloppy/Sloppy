@@ -127,6 +127,7 @@ private func autopilotSettingsJSONValue(_ settings: ProjectAutopilotSettings) ->
         "defaultAgentId": settings.defaultAgentId.map { .string($0) } ?? .null,
         "reviewerAgentId": settings.reviewerAgentId.map { .string($0) } ?? .null,
         "includedTags": .array(settings.includedTags.map { .string($0) }),
+        "ignoredTags": .array(settings.ignoredTags.map { .string($0) }),
         "trustedAuthors": .array(settings.trustedAuthors.map { .string($0) }),
         "maxParallelTasks": .number(Double(settings.maxParallelTasks)),
         "canUseWeb": .bool(settings.canUseWeb),

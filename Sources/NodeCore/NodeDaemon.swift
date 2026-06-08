@@ -2,6 +2,10 @@ import Foundation
 import Protocols
 import SloppyComputerControl
 
+#if canImport(CryptoKit)
+import CryptoKit
+#endif
+
 #if canImport(Security)
 import Security
 #endif
@@ -93,11 +97,8 @@ public struct NodeConfigStore: Sendable {
         }
 
         let config = NodeConfig(
-            identity: NodeIdentity(
-                nodeId: NodeIdentityGenerator.makeNodeId(name: name),
+            identity: NodeIdentityGenerator.makeIdentity(
                 name: name,
-                publicKey: "ed25519:" + NodeIdentityGenerator.randomToken(byteCount: 32),
-                privateKey: "ed25519:" + NodeIdentityGenerator.randomToken(byteCount: 64),
                 roles: roles,
                 capabilities: capabilities
             ),
@@ -127,7 +128,73 @@ public struct NodeConfigStore: Sendable {
     }
 }
 
+
+public enum NodeIdentityError: LocalizedError, Equatable {
+    case invalidKeyMaterial
+    case signingUnsupported
+
+    public var errorDescription: String? {
+        switch self {
+        case .invalidKeyMaterial:
+            "Invalid node identity key material."
+        case .signingUnsupported:
+            "Ed25519 signing is not supported by this build."
+        }
+    }
+}
+
 public enum NodeIdentityGenerator {
+    public static func makeIdentity(name: String, roles: [String], capabilities: [String]) -> NodeIdentity {
+        let keyPair = makeKeyPair()
+        return NodeIdentity(
+            nodeId: makeNodeId(name: name),
+            name: name,
+            publicKey: keyPair.publicKey,
+            privateKey: keyPair.privateKey,
+            roles: roles,
+            capabilities: capabilities
+        )
+    }
+
+    public static func makeKeyPair() -> (publicKey: String, privateKey: String) {
+        #if canImport(CryptoKit)
+        let privateKey = Curve25519.Signing.PrivateKey()
+        let publicKey = privateKey.publicKey
+        return (
+            publicKey: "ed25519:" + base64URL(privateKey.publicKey.rawRepresentation),
+            privateKey: "ed25519:" + base64URL(privateKey.rawRepresentation)
+        )
+        #else
+        return (
+            publicKey: "ed25519:" + randomToken(byteCount: 32),
+            privateKey: "ed25519:" + randomToken(byteCount: 32)
+        )
+        #endif
+    }
+
+    public static func sign(challenge: Data, privateKey: String) throws -> String {
+        #if canImport(CryptoKit)
+        let key = try Curve25519.Signing.PrivateKey(rawRepresentation: decodeKeyMaterial(privateKey))
+        let signature = try key.signature(for: challenge)
+        return "ed25519:" + base64URL(signature)
+        #else
+        throw NodeIdentityError.signingUnsupported
+        #endif
+    }
+
+    public static func verify(signature: String, challenge: Data, publicKey: String) -> Bool {
+        #if canImport(CryptoKit)
+        do {
+            let key = try Curve25519.Signing.PublicKey(rawRepresentation: decodeKeyMaterial(publicKey))
+            return key.isValidSignature(try decodeKeyMaterial(signature), for: challenge)
+        } catch {
+            return false
+        }
+        #else
+        return false
+        #endif
+    }
+
     public static func makeNodeId(name: String) -> String {
         let slug = name
             .lowercased()
@@ -151,6 +218,28 @@ public enum NodeIdentityGenerator {
             .replacingOccurrences(of: "+", with: "-")
             .replacingOccurrences(of: "/", with: "_")
             .replacingOccurrences(of: "=", with: "")
+    }
+
+    private static func base64URL(_ data: Data) -> String {
+        data.base64EncodedString()
+            .replacingOccurrences(of: "+", with: "-")
+            .replacingOccurrences(of: "/", with: "_")
+            .replacingOccurrences(of: "=", with: "")
+    }
+
+    private static func decodeKeyMaterial(_ value: String) throws -> Data {
+        let raw = value.hasPrefix("ed25519:") ? String(value.dropFirst("ed25519:".count)) : value
+        var base64 = raw
+            .replacingOccurrences(of: "-", with: "+")
+            .replacingOccurrences(of: "_", with: "/")
+        let remainder = base64.count % 4
+        if remainder > 0 {
+            base64 += String(repeating: "=", count: 4 - remainder)
+        }
+        guard let data = Data(base64Encoded: base64), !data.isEmpty else {
+            throw NodeIdentityError.invalidKeyMaterial
+        }
+        return data
     }
 
     private static func fillRandomBytes(_ bytes: inout [UInt8]) -> Bool {

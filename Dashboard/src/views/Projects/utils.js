@@ -223,9 +223,8 @@ export function normalizeProject(project, index = 0) {
       mode: String(autopilotRaw.mode || "assistive").trim() || "assistive",
       defaultAgentId: String(autopilotRaw.defaultAgentId || "").trim(),
       reviewerAgentId: String(autopilotRaw.reviewerAgentId || "").trim(),
-      includedTags: Array.isArray(autopilotRaw.includedTags) && autopilotRaw.includedTags.length > 0
-        ? autopilotRaw.includedTags.map(String)
-        : ["autopilot"],
+      includedTags: Array.isArray(autopilotRaw.includedTags) ? autopilotRaw.includedTags.map(String) : [],
+      ignoredTags: Array.isArray(autopilotRaw.ignoredTags) ? autopilotRaw.ignoredTags.map(String) : [],
       trustedAuthors: Array.isArray(autopilotRaw.trustedAuthors) ? autopilotRaw.trustedAuthors.map(String) : [],
       maxParallelTasks: Number.isFinite(Number(autopilotRaw.maxParallelTasks))
         ? Math.max(1, Number(autopilotRaw.maxParallelTasks))
@@ -242,7 +241,8 @@ export function normalizeProject(project, index = 0) {
       mode: "assistive",
       defaultAgentId: "",
       reviewerAgentId: "",
-      includedTags: ["autopilot"],
+      includedTags: [],
+      ignoredTags: [],
       trustedAuthors: [],
       maxParallelTasks: 1,
       canUseWeb: false,

@@ -240,10 +240,16 @@ extension CoreService {
     func isEligibleAutopilotRoot(project: ProjectRecord, task: ProjectTask) -> Bool {
         guard task.parentTaskId == nil else { return false }
         let settings = project.autopilotSettings
-        let included = Set(settings.includedTags.map { $0.lowercased() })
-        let taskTags = Set(task.tags.map { $0.lowercased() })
-        guard !included.isDisjoint(with: taskTags) else {
+        let included = Set(settings.includedTags.map { normalizeWhitespace($0).lowercased() }.filter { !$0.isEmpty })
+        let ignored = Set(settings.ignoredTags.map { normalizeWhitespace($0).lowercased() }.filter { !$0.isEmpty })
+        let taskTags = Set(task.tags.map { normalizeWhitespace($0).lowercased() }.filter { !$0.isEmpty })
+        guard ignored.isDisjoint(with: taskTags) else {
             return false
+        }
+        if !included.isEmpty {
+            guard !included.isDisjoint(with: taskTags) else {
+                return false
+            }
         }
         let trustedAuthors = Set(settings.trustedAuthors.map { $0.lowercased() })
         if !trustedAuthors.isEmpty {
