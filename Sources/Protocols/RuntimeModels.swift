@@ -119,14 +119,47 @@ public struct MemoryRef: Codable, Sendable, Equatable {
 public struct TokenUsage: Codable, Sendable, Equatable {
     public var prompt: Int
     public var completion: Int
+    public var cachedInput: Int
+    public var cacheCreationInput: Int
+    public var reasoning: Int
 
-    public init(prompt: Int, completion: Int) {
+    public init(
+        prompt: Int,
+        completion: Int,
+        cachedInputTokens: Int = 0,
+        cacheCreationInputTokens: Int = 0,
+        reasoningTokens: Int = 0
+    ) {
         self.prompt = prompt
         self.completion = completion
+        self.cachedInput = cachedInputTokens
+        self.cacheCreationInput = cacheCreationInputTokens
+        self.reasoning = reasoningTokens
     }
 
     public var total: Int {
         prompt + completion
+    }
+
+    public var uncachedInput: Int {
+        max(0, prompt - cachedInput)
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case prompt
+        case completion
+        case cachedInput
+        case cacheCreationInput
+        case reasoning
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        prompt = try container.decode(Int.self, forKey: .prompt)
+        completion = try container.decode(Int.self, forKey: .completion)
+        cachedInput = try container.decodeIfPresent(Int.self, forKey: .cachedInput) ?? 0
+        cacheCreationInput = try container.decodeIfPresent(Int.self, forKey: .cacheCreationInput) ?? 0
+        reasoning = try container.decodeIfPresent(Int.self, forKey: .reasoning) ?? 0
     }
 }
 

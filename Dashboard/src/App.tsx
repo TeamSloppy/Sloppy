@@ -24,6 +24,7 @@ import { ConfigView } from "./views/ConfigView";
 import { LogsView } from "./views/LogsView";
 import { DebugView } from "./views/DebugView";
 import { NotFoundView } from "./views/NotFoundView";
+import { NodesView } from "./views/NodesView";
 import { ProjectsView } from "./views/ProjectsView";
 import { ChannelSessionView } from "./views/ChannelSessionView";
 import { RuntimeOverviewView } from "./views/RuntimeOverviewView";
@@ -391,6 +392,11 @@ function DashboardShell({
       id: "visor",
       label: { icon: "visibility", title: "Visor" },
       content: <VisorChatView />
+    },
+    {
+      id: "nodes",
+      label: { icon: "hub", title: "Nodes" },
+      content: <NodesView coreApi={dependencies.coreApi} />
     },
     {
       id: "config",

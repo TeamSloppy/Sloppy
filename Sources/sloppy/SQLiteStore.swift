@@ -128,8 +128,11 @@ public actor SQLiteStore: PersistenceStore {
                 prompt_tokens,
                 completion_tokens,
                 total_tokens,
+                cached_input_tokens,
+                cache_creation_input_tokens,
+                reasoning_tokens,
                 created_at
-            ) VALUES(?, ?, ?, ?, ?, ?, ?);
+            ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
             """
 
         var statement: OpaquePointer?
@@ -142,7 +145,10 @@ public actor SQLiteStore: PersistenceStore {
         sqlite3_bind_int(statement, 4, Int32(usage.prompt))
         sqlite3_bind_int(statement, 5, Int32(usage.completion))
         sqlite3_bind_int(statement, 6, Int32(usage.total))
-        bindText(isoFormatter.string(from: Date()), at: 7, statement: statement)
+        sqlite3_bind_int(statement, 7, Int32(usage.cachedInput))
+        sqlite3_bind_int(statement, 8, Int32(usage.cacheCreationInput))
+        sqlite3_bind_int(statement, 9, Int32(usage.reasoning))
+        bindText(isoFormatter.string(from: Date()), at: 10, statement: statement)
 
         _ = sqlite3_step(statement)
 #endif
@@ -163,7 +169,8 @@ public actor SQLiteStore: PersistenceStore {
 
         let sql =
             """
-            SELECT id, channel_id, task_id, prompt_tokens, completion_tokens, total_tokens, created_at
+            SELECT id, channel_id, task_id, prompt_tokens, completion_tokens, total_tokens,
+                   cached_input_tokens, cache_creation_input_tokens, reasoning_tokens, created_at
             FROM token_usage
             \(whereClause)
             ORDER BY created_at DESC
@@ -196,7 +203,7 @@ public actor SQLiteStore: PersistenceStore {
             guard
                 let idPtr = sqlite3_column_text(statement, 0),
                 let channelIdPtr = sqlite3_column_text(statement, 1),
-                let createdAtPtr = sqlite3_column_text(statement, 6)
+                let createdAtPtr = sqlite3_column_text(statement, 9)
             else {
                 continue
             }
@@ -207,6 +214,9 @@ public actor SQLiteStore: PersistenceStore {
             let promptTokens = Int(sqlite3_column_int(statement, 3))
             let completionTokens = Int(sqlite3_column_int(statement, 4))
             let totalTokens = Int(sqlite3_column_int(statement, 5))
+            let cachedInputTokens = Int(sqlite3_column_int(statement, 6))
+            let cacheCreationInputTokens = Int(sqlite3_column_int(statement, 7))
+            let reasoningTokens = Int(sqlite3_column_int(statement, 8))
             let createdAt = isoFormatter.date(from: String(cString: createdAtPtr)) ?? Date()
 
             result.append(
@@ -217,6 +227,9 @@ public actor SQLiteStore: PersistenceStore {
                     promptTokens: promptTokens,
                     completionTokens: completionTokens,
                     totalTokens: totalTokens,
+                    cachedInputTokens: cachedInputTokens,
+                    cacheCreationInputTokens: cacheCreationInputTokens,
+                    reasoningTokens: reasoningTokens,
                     createdAt: createdAt
                 )
             )
@@ -242,7 +255,8 @@ public actor SQLiteStore: PersistenceStore {
 
         let sql =
             """
-            SELECT id, channel_id, task_id, prompt_tokens, completion_tokens, total_tokens, created_at
+            SELECT id, channel_id, task_id, prompt_tokens, completion_tokens, total_tokens,
+                   cached_input_tokens, cache_creation_input_tokens, reasoning_tokens, created_at
             FROM token_usage
             \(whereClause)
             ORDER BY created_at DESC
@@ -271,7 +285,7 @@ public actor SQLiteStore: PersistenceStore {
             guard
                 let idPtr = sqlite3_column_text(statement, 0),
                 let channelIdPtr = sqlite3_column_text(statement, 1),
-                let createdAtPtr = sqlite3_column_text(statement, 6)
+                let createdAtPtr = sqlite3_column_text(statement, 9)
             else {
                 continue
             }
@@ -282,6 +296,9 @@ public actor SQLiteStore: PersistenceStore {
             let promptTokens = Int(sqlite3_column_int(statement, 3))
             let completionTokens = Int(sqlite3_column_int(statement, 4))
             let totalTokens = Int(sqlite3_column_int(statement, 5))
+            let cachedInputTokens = Int(sqlite3_column_int(statement, 6))
+            let cacheCreationInputTokens = Int(sqlite3_column_int(statement, 7))
+            let reasoningTokens = Int(sqlite3_column_int(statement, 8))
             let createdAt = isoFormatter.date(from: String(cString: createdAtPtr)) ?? Date()
 
             result.append(
@@ -292,6 +309,9 @@ public actor SQLiteStore: PersistenceStore {
                     promptTokens: promptTokens,
                     completionTokens: completionTokens,
                     totalTokens: totalTokens,
+                    cachedInputTokens: cachedInputTokens,
+                    cacheCreationInputTokens: cacheCreationInputTokens,
+                    reasoningTokens: reasoningTokens,
                     createdAt: createdAt
                 )
             )
@@ -3630,6 +3650,18 @@ public actor SQLiteStore: PersistenceStore {
         )
     }
 
+    private static func applyTokenUsageMigrations(db: OpaquePointer?) {
+        guard let db else { return }
+        let statements = [
+            "ALTER TABLE token_usage ADD COLUMN cached_input_tokens INTEGER NOT NULL DEFAULT 0;",
+            "ALTER TABLE token_usage ADD COLUMN cache_creation_input_tokens INTEGER NOT NULL DEFAULT 0;",
+            "ALTER TABLE token_usage ADD COLUMN reasoning_tokens INTEGER NOT NULL DEFAULT 0;"
+        ]
+        for statement in statements {
+            _ = sqlite3_exec(db, statement, nil, nil, nil)
+        }
+    }
+
     private static func applyClarificationMigrations(db: OpaquePointer?) {
         guard let db else { return }
         _ = sqlite3_exec(
@@ -3810,6 +3842,7 @@ public actor SQLiteStore: PersistenceStore {
         applyChannelPluginMigrations(db: db)
         applyWorkflowMigrations(db: db)
         applyCronTaskMigrations(db: db)
+        applyTokenUsageMigrations(db: db)
         applyDashboardProjectsMigrations(db: db)
         applyClarificationMigrations(db: db)
         return (db, nil)

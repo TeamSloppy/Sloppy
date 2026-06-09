@@ -2018,22 +2018,26 @@ func openAIOAuthModelIgnoresUnknownSSEEvents() {
 func openAIOAuthModelParsesResponseCompletedWithUsage() {
     let usageCapture = TokenUsageCapture()
     let model = OpenAIOAuthModel(bearerToken: "token", model: "gpt-5", tokenUsageCapture: usageCapture)
-    let line = #"data: {"type":"response.completed","response":{"id":"resp_123","usage":{"input_tokens":150,"output_tokens":42}}}"#
+    let line = #"data: {"type":"response.completed","response":{"id":"resp_123","usage":{"input_tokens":150,"output_tokens":42,"input_tokens_details":{"cached_tokens":96},"output_tokens_details":{"reasoning_tokens":12}}}}"#
     let result = model.parseSSEResponseCompleted(line)
     #expect(result != nil)
     #expect(result?.responseId == "resp_123")
     #expect(result?.inputTokens == 150)
     #expect(result?.outputTokens == 42)
+    #expect(result?.cachedInputTokens == 96)
+    #expect(result?.reasoningTokens == 12)
 }
 
 @Test
 func tokenUsageCaptureStoresAndConsumes() {
     let capture = TokenUsageCapture()
     #expect(capture.consume() == nil)
-    capture.store(promptTokens: 100, completionTokens: 50)
+    capture.store(promptTokens: 100, completionTokens: 50, cachedInputTokens: 80, reasoningTokens: 5)
     let result = capture.consume()
     #expect(result?.prompt == 100)
     #expect(result?.completion == 50)
+    #expect(result?.cachedInputTokens == 80)
+    #expect(result?.reasoningTokens == 5)
     #expect(capture.consume() == nil)
 }
 

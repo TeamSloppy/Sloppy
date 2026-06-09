@@ -10,6 +10,7 @@ extension CoreRouter {
             ProjectsAPIRouter(service: service),
             ProjectWorkflowsAPIRouter(service: service),
             TasksAPIRouter(service: service),
+            NodeMeshAPIRouter(service: service),
             ProvidersAPIRouter(service: service),
             GitHubAPIRouter(service: service),
             TaskSyncAPIRouter(service: service),

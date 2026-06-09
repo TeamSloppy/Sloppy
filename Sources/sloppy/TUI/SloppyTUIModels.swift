@@ -508,6 +508,9 @@ struct SloppyTUITokenUsageSummary: Equatable {
     var promptTokens: Int
     var completionTokens: Int
     var totalTokens: Int
+    var cachedInputTokens: Int = 0
+    var cacheCreationInputTokens: Int = 0
+    var reasoningTokens: Int = 0
     var contextWindowTokens: Int
     var costUSD: Double?
 
@@ -523,6 +526,10 @@ struct SloppyTUITokenUsageSummary: Equatable {
             return nil
         }
         return max(0, contextWindowTokens - totalTokens)
+    }
+
+    var uncachedInputTokens: Int {
+        max(0, promptTokens - cachedInputTokens)
     }
 }
 

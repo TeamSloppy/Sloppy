@@ -54,14 +54,21 @@ struct AnthropicModelProviderFactory: ModelProviderFactory {
 
             guard !keyProvider().isEmpty else { return nil }
 
+            let tokenUsageCapture = TokenUsageCapture()
+            let tokenUsageCaptureID = TokenUsageCaptureRegistry.register(tokenUsageCapture)
             return AnthropicModelProvider(
                 supportedModels: anthropicModels,
                 apiKey: keyProvider,
                 baseURL: baseURL,
                 tools: config.tools,
                 systemInstructions: config.systemInstructions,
-                session: config.proxySession,
-                refreshTokenIfNeeded: config.anthropicOAuthTokenRefresh
+                session: ProxySessionFactory.makeSession(
+                    proxy: config.coreConfig.proxy,
+                    protocolClasses: [OAuthAnthropicURLProtocol.self],
+                    additionalHeaders: [TokenUsageCaptureRegistry.headerField: tokenUsageCaptureID]
+                ),
+                refreshTokenIfNeeded: config.anthropicOAuthTokenRefresh,
+                tokenUsageCapture: tokenUsageCapture
             )
         }
 
@@ -87,13 +94,20 @@ struct AnthropicModelProviderFactory: ModelProviderFactory {
             ?? claudeSettings.baseURL
             ?? OAuthAnthropicLanguageModel.defaultBaseURL
 
+        let tokenUsageCapture = TokenUsageCapture()
+        let tokenUsageCaptureID = TokenUsageCaptureRegistry.register(tokenUsageCapture)
         return AnthropicModelProvider(
             supportedModels: anthropicModels,
             apiKey: { resolvedKey },
             baseURL: baseURL,
             tools: config.tools,
             systemInstructions: config.systemInstructions,
-            session: config.proxySession
+            session: ProxySessionFactory.makeSession(
+                proxy: config.coreConfig.proxy,
+                protocolClasses: [OAuthAnthropicURLProtocol.self],
+                additionalHeaders: [TokenUsageCaptureRegistry.headerField: tokenUsageCaptureID]
+            ),
+            tokenUsageCapture: tokenUsageCapture
         )
     }
 

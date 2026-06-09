@@ -574,6 +574,51 @@ func openAIModelProviderResponsesModeUsesOpenAIResponsesVariant() async throws {
 }
 
 @Test
+func openAIModelProviderAddsPromptCacheHintsForOpenAIEndpoints() {
+    let provider = OpenAIModelProvider(
+        supportedModels: ["openai:gpt-5.5"],
+        settings: .init(
+            apiKey: { "sk-test" },
+            baseURL: URL(string: "https://api.openai.com/v1")!,
+            modelIdentifierPrefix: "openai:"
+        )
+    )
+
+    let options = provider.generationOptions(
+        for: "openai:gpt-5.5",
+        maxTokens: 1024,
+        reasoningEffort: nil
+    )
+    let custom = options[custom: OpenAILanguageModel.self]
+
+    #expect(custom?.promptCacheKey == "sloppy-openai-gpt-5-5")
+    #expect(custom?.promptCacheRetention == "24h")
+}
+
+@Test
+func openAIModelProviderSkipsPromptCacheHintsForOpenAICompatibleEndpoints() {
+    let provider = OpenAIModelProvider(
+        supportedModels: ["openrouter:openai/gpt-4o-mini"],
+        settings: .init(
+            apiKey: { "sk-or-test" },
+            baseURL: URL(string: "https://openrouter.ai/api/v1")!,
+            modelIdentifierPrefix: "openrouter:",
+            useOpenAICodexOAuthPath: false
+        )
+    )
+
+    let options = provider.generationOptions(
+        for: "openrouter:openai/gpt-4o-mini",
+        maxTokens: 1024,
+        reasoningEffort: nil
+    )
+    let custom = options[custom: OpenAILanguageModel.self]
+
+    #expect(custom?.promptCacheKey == nil)
+    #expect(custom?.promptCacheRetention == nil)
+}
+
+@Test
 func openAIModelProviderUsesDynamicOAuthTokenWhenCodexSessionIsCached() async throws {
     let box = OAuthTokenBox(token: "stale-oauth-token")
     let provider = OpenAIModelProvider(
@@ -748,6 +793,112 @@ func geminiOAuthURLProtocolUnwrapsAntigravityResponseBody() throws {
     let object = try #require(JSONSerialization.jsonObject(with: unwrapped) as? [String: Any])
     #expect(object["candidates"] != nil)
     #expect(object["traceId"] == nil)
+}
+
+@Test
+func anthropicURLProtocolAddsCacheControlToLastUserTextBlock() throws {
+    var request = URLRequest(url: try #require(URL(string: "https://api.anthropic.com/v1/messages")))
+    request.setValue("api-key", forHTTPHeaderField: "x-api-key")
+    request.setValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
+    request.httpBody = Data(
+        """
+        {
+          "model": "claude-sonnet-4-5",
+          "max_tokens": 1024,
+          "messages": [
+            {
+              "role": "user",
+              "content": [{ "type": "text", "text": "Stable context" }]
+            },
+            {
+              "role": "assistant",
+              "content": [{ "type": "text", "text": "Ok" }]
+            },
+            {
+              "role": "user",
+              "content": [{ "type": "text", "text": "Fresh request" }]
+            }
+          ]
+        }
+        """.utf8
+    )
+
+    let modified = OAuthAnthropicURLProtocol.modifiedRequest(from: request)
+    let body = try #require(modified.httpBody)
+    let object = try #require(JSONSerialization.jsonObject(with: body) as? [String: Any])
+    let messages = try #require(object["messages"] as? [[String: Any]])
+    let firstContent = try #require(messages[0]["content"] as? [[String: Any]])
+    let lastContent = try #require(messages[2]["content"] as? [[String: Any]])
+    let cacheControl = try #require(lastContent[0]["cache_control"] as? [String: Any])
+
+    #expect(firstContent[0]["cache_control"] == nil)
+    #expect(cacheControl["type"] as? String == "ephemeral")
+}
+
+@Test
+func anthropicURLProtocolCapturesPromptCacheUsage() throws {
+    let capture = TokenUsageCapture()
+    let response = Data(
+        """
+        {
+          "id": "msg_123",
+          "type": "message",
+          "role": "assistant",
+          "content": [{ "type": "text", "text": "Hello" }],
+          "model": "claude-sonnet-4-5",
+          "usage": {
+            "input_tokens": 120,
+            "output_tokens": 25,
+            "cache_creation_input_tokens": 40,
+            "cache_read_input_tokens": 60
+          }
+        }
+        """.utf8
+    )
+
+    OAuthAnthropicURLProtocol.captureUsage(from: response, into: capture)
+    let consumed = try #require(capture.consume())
+
+    #expect(consumed.prompt == 120)
+    #expect(consumed.completion == 25)
+    #expect(consumed.cachedInputTokens == 60)
+    #expect(consumed.cacheCreationInputTokens == 40)
+}
+
+@Test
+func geminiOAuthURLProtocolCapturesCachedUsageFromWrappedResponse() throws {
+    let capture = TokenUsageCapture()
+    let wrapped = Data(
+        """
+        {
+          "response": {
+            "candidates": [
+              {
+                "content": {
+                  "role": "model",
+                  "parts": [{ "text": "Hello" }]
+                }
+              }
+            ],
+            "usageMetadata": {
+              "promptTokenCount": 140,
+              "candidatesTokenCount": 30,
+              "cachedContentTokenCount": 90,
+              "thoughtsTokenCount": 8,
+              "totalTokenCount": 178
+            }
+          }
+        }
+        """.utf8
+    )
+
+    _ = try GeminiOAuthURLProtocol.responseBodyForGeminiParser(from: wrapped, tokenUsageCapture: capture)
+    let consumed = try #require(capture.consume())
+
+    #expect(consumed.prompt == 140)
+    #expect(consumed.completion == 30)
+    #expect(consumed.cachedInputTokens == 90)
+    #expect(consumed.reasoningTokens == 8)
 }
 
 @Test

@@ -1,8 +1,8 @@
 import ArgumentParser
 import Foundation
 import Logging
-import SloppyNodeCore
 import Protocols
+import SloppyNodeCore
 
 @main
 struct NodeMain: AsyncParsableCommand {
@@ -19,6 +19,8 @@ struct NodeMain: AsyncParsableCommand {
             List.self,
             SharedProjectCreate.self,
             SharedProjectAttach.self,
+            SharedProjectUpdate.self,
+            SharedProjectRemoveMember.self,
             SharedProjectList.self,
             TaskCreate.self,
             TaskList.self,
@@ -158,7 +160,6 @@ struct Start: AsyncParsableCommand {
     }
 }
 
-
 struct InviteCreate: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "invite-create",
@@ -178,7 +179,7 @@ struct InviteCreate: AsyncParsableCommand {
     var capabilities: [String] = ["run_agent", "git"]
 
     @Option(name: .long, help: "Invite lifetime in seconds.")
-    var ttlSeconds: Double = 86_400
+    var ttlSeconds: Double = 86400
 
     @Option(name: .long, help: "Mesh state path. Defaults to ~/.sloppy/mesh.json.")
     var meshPath: String?
@@ -373,6 +374,108 @@ struct SharedProjectAttach: AsyncParsableCommand {
     }
 }
 
+struct SharedProjectUpdate: AsyncParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "shared-project-update",
+        abstract: "Updates shared project metadata and policies."
+    )
+
+    @Option(name: .long, help: "Shared project id or name.")
+    var project: String
+
+    @Option(name: .long, help: "New shared project name.")
+    var name: String?
+
+    @Option(name: .long, help: "New Git repository URL.")
+    var repo: String?
+
+    @Option(name: .long, help: "New default Git branch.")
+    var defaultBranch: String?
+
+    @Option(name: .long, help: "Set branchPerTask policy (true/false).")
+    var branchPerTask: String?
+
+    @Option(name: .long, help: "Set directPushToMain policy (true/false).")
+    var directPushToMain: String?
+
+    @Option(name: .long, help: "Set requireCleanWorktree policy (true/false).")
+    var requireCleanWorktree: String?
+
+    @Option(name: .long, help: "Set requireTestsBeforeReady policy (true/false).")
+    var requireTestsBeforeReady: String?
+
+    @Option(name: .long, help: "Actor node id. Defaults to local.")
+    var actor: String = "local"
+
+    @Option(name: .long, help: "Mesh state path. Defaults to ~/.sloppy/mesh.json.")
+    var meshPath: String?
+
+    mutating func run() async throws {
+        await LoggingBootstrapper.shared.bootstrapIfNeeded()
+        let store = NodeMeshStore(stateURL: meshURL(from: meshPath))
+        let current = try store.listSharedProjects().first { $0.id == project || $0.name == project }
+        let policies = try updatedPolicies(from: current?.policies)
+        let updated = try store.updateSharedProject(
+            projectIdOrName: project,
+            name: name,
+            repoUrl: repo,
+            defaultBranch: defaultBranch,
+            policies: policies,
+            actor: actor
+        )
+        print("Updated shared project")
+        print("  id: \(updated.id)")
+        print("  name: \(updated.name)")
+        print("  repo: \(updated.repoUrl)")
+        print("  defaultBranch: \(updated.defaultBranch)")
+    }
+
+    private func updatedPolicies(from current: SharedProjectPolicies?) throws -> SharedProjectPolicies? {
+        guard branchPerTask != nil || directPushToMain != nil || requireCleanWorktree != nil || requireTestsBeforeReady != nil else {
+            return nil
+        }
+        let base = current ?? SharedProjectPolicies()
+        return try SharedProjectPolicies(
+            branchPerTask: parseBoolOption(branchPerTask, name: "branch-per-task") ?? base.branchPerTask,
+            directPushToMain: parseBoolOption(directPushToMain, name: "direct-push-to-main") ?? base.directPushToMain,
+            requireCleanWorktree: parseBoolOption(requireCleanWorktree, name: "require-clean-worktree") ?? base.requireCleanWorktree,
+            requireTestsBeforeReady: parseBoolOption(requireTestsBeforeReady, name: "require-tests-before-ready") ?? base.requireTestsBeforeReady
+        )
+    }
+}
+
+struct SharedProjectRemoveMember: AsyncParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "shared-project-remove-member",
+        abstract: "Removes a node from a shared project."
+    )
+
+    @Option(name: .long, help: "Shared project id or name.")
+    var project: String
+
+    @Option(name: .long, help: "Node id to remove.")
+    var node: String
+
+    @Option(name: .long, help: "Actor node id. Defaults to local.")
+    var actor: String = "local"
+
+    @Option(name: .long, help: "Mesh state path. Defaults to ~/.sloppy/mesh.json.")
+    var meshPath: String?
+
+    mutating func run() async throws {
+        await LoggingBootstrapper.shared.bootstrapIfNeeded()
+        let updated = try NodeMeshStore(stateURL: meshURL(from: meshPath)).removeSharedProjectMember(
+            projectIdOrName: project,
+            nodeId: node,
+            actor: actor
+        )
+        print("Removed shared project member")
+        print("  project: \(updated.id)")
+        print("  node: \(node)")
+        print("  members: \(updated.members.count)")
+    }
+}
+
 struct SharedProjectList: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "shared-project-list",
@@ -502,11 +605,11 @@ struct TaskStatus: AsyncParsableCommand {
 struct RPCRequest: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "rpc-request",
-        abstract: "Stores a mesh RPC request envelope for a target node."
+        abstract: "Creates a mesh RPC request envelope or sends it over a live relay."
     )
 
-    @Option(name: .long, help: "Source node id.")
-    var from: String
+    @Option(name: .long, help: "Source node id for local envelope mode.")
+    var from: String?
 
     @Option(name: .long, help: "Target node id.")
     var to: String
@@ -520,9 +623,46 @@ struct RPCRequest: AsyncParsableCommand {
     @Option(name: .long, help: "Mesh state path. Defaults to ~/.sloppy/mesh.json.")
     var meshPath: String?
 
+    @Flag(name: .long, help: "Send the RPC request over the configured relay and print the response JSON.")
+    var live: Bool = false
+
+    @Option(name: .long, help: "Relay URL for live mode. Overrides node config.")
+    var relay: String?
+
+    @Option(name: .long, help: "Config path for live mode. Defaults to ~/.sloppy/node.json.")
+    var configPath: String?
+
+    @Option(name: .long, help: "Live RPC timeout in seconds.")
+    var timeout: Double = 30
+
     mutating func run() async throws {
         await LoggingBootstrapper.shared.bootstrapIfNeeded()
         let parsedParams = try parseJSONValue(params) ?? .object([:])
+
+        if live {
+            let store = NodeConfigStore(configURL: configURL(from: configPath))
+            let config = try store.load()
+            let daemon = NodeDaemon(config: config)
+            let client = NodeMeshClient(config: config, daemon: daemon)
+            let response = try await client.sendRPCRequest(
+                relayURL: relay,
+                to: to,
+                method: method,
+                params: parsedParams,
+                timeout: timeout
+            )
+            let encoder = JSONEncoder()
+            encoder.dateEncodingStrategy = .iso8601
+            encoder.outputFormatting = [.sortedKeys]
+            let data = try encoder.encode(response)
+            FileHandle.standardOutput.write(data)
+            FileHandle.standardOutput.write(Data("\n".utf8))
+            return
+        }
+
+        guard let from, !from.isEmpty else {
+            throw ValidationError("--from is required unless --live is set.")
+        }
         let envelope = try NodeMeshStore(stateURL: meshURL(from: meshPath)).rpcRequest(
             from: from,
             to: to,
@@ -661,6 +801,15 @@ private func normalizeList(_ values: [String]) -> [String] {
         .flatMap { $0.split(separator: ",") }
         .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
         .filter { !$0.isEmpty }
+}
+
+private func parseBoolOption(_ value: String?, name: String) throws -> Bool? {
+    guard let value else { return nil }
+    switch value.lowercased() {
+    case "true", "yes", "1": return true
+    case "false", "no", "0": return false
+    default: throw ValidationError("Invalid boolean for --\(name): \(value)")
+    }
 }
 
 private func parseJSONValue(_ text: String?) throws -> JSONValue? {

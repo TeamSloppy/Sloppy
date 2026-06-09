@@ -50,6 +50,10 @@ private struct RootShellContent: View {
     @Environment(\.safeAreaInsets) private var safeAreaInsets
     @Environment(\.theme) private var theme
 
+    init(viewModel: RootShellViewModel) {
+        self._viewModel = State(initialValue: viewModel)
+    }
+
     var body: some View {
         let rootViewModel = viewModel
 

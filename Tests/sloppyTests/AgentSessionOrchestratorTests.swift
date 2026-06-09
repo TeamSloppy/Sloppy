@@ -204,6 +204,7 @@ private actor SequentialOutputModelProvider: ModelProvider {
 private struct ToolCallingLanguageModel: LanguageModel {
     typealias UnavailableReason = Never
     let toolNames: [String]
+    var toolArguments: [String: GeneratedContent] = [:]
     let finalText: String
     var callStore: MockCallStore? = nil
 
@@ -223,14 +224,14 @@ private struct ToolCallingLanguageModel: LanguageModel {
                 let toolCall = Transcript.ToolCall(
                     id: UUID().uuidString,
                     toolName: toolName,
-                    arguments: toolName == "session.complete"
+                    arguments: toolArguments[toolName] ?? (toolName == "session.complete"
                         ? GeneratedContent(properties: ["summary": "Completion summary from tool"])
                         : (toolName == "agent_delegate.finish"
                             ? GeneratedContent(properties: [
                                 "status": "completed",
                                 "summary": "Delegated finish summary from tool",
                             ])
-                            : GeneratedContent(""))
+                            : GeneratedContent("")))
                 )
                 await delegate.didGenerateToolCalls([toolCall], in: session)
                 let decision = await delegate.toolCallDecision(for: toolCall, in: session)
@@ -290,23 +291,33 @@ private actor ToolCallingModelProvider: ModelProvider {
     let id: String = "tool-calling"
     let supportedModels: [String]
     private let toolNames: [String]
+    private let toolArguments: [String: GeneratedContent]
     private let finalText: String
     nonisolated let callStore = MockCallStore()
 
     init(models: [String], toolName: String, finalText: String = "Tool result inspected.") {
         self.supportedModels = models
         self.toolNames = [toolName]
+        self.toolArguments = [:]
         self.finalText = finalText
     }
 
     init(models: [String], toolNames: [String], finalText: String = "Tool result inspected.") {
         self.supportedModels = models
         self.toolNames = toolNames
+        self.toolArguments = [:]
+        self.finalText = finalText
+    }
+
+    init(models: [String], toolNames: [String], toolArguments: [String: GeneratedContent], finalText: String = "Tool result inspected.") {
+        self.supportedModels = models
+        self.toolNames = toolNames
+        self.toolArguments = toolArguments
         self.finalText = finalText
     }
 
     func createLanguageModel(for modelName: String) async throws -> any LanguageModel {
-        ToolCallingLanguageModel(toolNames: toolNames, finalText: finalText, callStore: callStore)
+        ToolCallingLanguageModel(toolNames: toolNames, toolArguments: toolArguments, finalText: finalText, callStore: callStore)
     }
 
     func requestedTranscriptsSnapshot() -> [[String]] { callStore.transcripts }
@@ -639,6 +650,73 @@ func agentSessionOrchestratorAppendsPlanArtifactEventForCompletedPlanTurn() asyn
     #expect(records.first?.sessionTitle == "Plan Session")
     #expect(records.first?.projectID == "project")
     #expect(records.first?.markdown.contains("# Durable Plan") == true)
+}
+
+@Test
+func agentSessionOrchestratorAppendsPlanArtifactEventForAutoModePlanRoute() async throws {
+    let agentID = "auto-plan-artifact-agent"
+    let availableModels = [ProviderModelOption(id: "mock:auto-plan", title: "mock:auto-plan", capabilities: ["tools"])]
+    let (catalogStore, sessionStore, _) = try makeAgentSessionFixture(
+        agentID: agentID,
+        selectedModel: "mock:auto-plan",
+        availableModels: availableModels
+    )
+    let provider = ToolCallingModelProvider(
+        models: ["mock:auto-plan"],
+        toolNames: ["planning.select_route"],
+        toolArguments: [
+            "planning.select_route": GeneratedContent(properties: [
+                "route": "mode-plan",
+                "reason": "User asked for a plan.",
+            ])
+        ],
+        finalText: "# Auto Durable Plan\n\nBuild the thing after approval."
+    )
+    let runtime = RuntimeSystem(modelProvider: provider, defaultModel: "mock:auto-plan")
+    let capture = PlanArtifactRecorderCapture()
+    let orchestrator = AgentSessionOrchestrator(
+        runtime: runtime,
+        sessionStore: sessionStore,
+        agentCatalogStore: catalogStore,
+        availableModels: availableModels,
+        planArtifactRecorder: { agentID, sessionID, sessionTitle, projectID, messageEventID, markdown, createdAt in
+            await capture.record(sessionTitle: sessionTitle, projectID: projectID, messageEventID: messageEventID, markdown: markdown)
+            return AgentPlanArtifactEvent(artifact: PlanArtifactRecord(
+                projectId: projectID ?? "",
+                projectName: "Project",
+                agentId: agentID,
+                sessionId: sessionID,
+                messageEventId: messageEventID,
+                planName: "auto-durable-plan",
+                createdAt: createdAt,
+                storageKind: PlanArtifactStorageKind.workspace,
+                markdownPath: "/tmp/auto-durable-plan.md",
+                webUrl: "/v1/projects/project/plans/auto-durable-plan/web"
+            ))
+        }
+    )
+
+    let session = try await orchestrator.createSession(
+        agentID: agentID,
+        request: AgentSessionCreateRequest(title: "Auto Plan Session", projectId: "project")
+    )
+    let response = try await orchestrator.postMessage(
+        agentID: agentID,
+        sessionID: session.id,
+        request: AgentSessionPostMessageRequest(userId: "dashboard", content: "Plan it", mode: .auto)
+    )
+
+    let assistantEvent = try #require(response.appendedEvents.first(where: { $0.type == .message && $0.message?.role == .assistant }))
+    let artifactEvent = try #require(response.appendedEvents.first(where: { $0.type == .planArtifact })?.planArtifact)
+    let detail = try sessionStore.loadSession(agentID: agentID, sessionID: session.id)
+    #expect(detail.events.contains { $0.toolCall?.tool == "planning.select_route" })
+    #expect(artifactEvent.artifact.messageEventId == assistantEvent.id)
+    #expect(artifactEvent.artifact.planName == "auto-durable-plan")
+    let records = await capture.records
+    #expect(records.count == 1)
+    #expect(records.first?.sessionTitle == "Auto Plan Session")
+    #expect(records.first?.projectID == "project")
+    #expect(records.first?.markdown.contains("# Auto Durable Plan") == true)
 }
 
 @Test

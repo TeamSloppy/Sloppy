@@ -32,6 +32,8 @@ struct GeminiModelProviderFactory: ModelProviderFactory {
 
         if let oauthCredentials = config.geminiOAuthCredentialsProvider?() {
             let tokenBox = GeminiOAuthTokenBox(credentials: oauthCredentials)
+            let tokenUsageCapture = TokenUsageCapture()
+            let tokenUsageCaptureID = TokenUsageCaptureRegistry.register(tokenUsageCapture)
             return GeminiModelProvider(
                 supportedModels: geminiModels,
                 apiKey: { tokenBox.accessToken() },
@@ -56,8 +58,10 @@ struct GeminiModelProviderFactory: ModelProviderFactory {
                 systemInstructions: config.systemInstructions,
                 session: ProxySessionFactory.makeSession(
                     proxy: config.coreConfig.proxy,
-                    protocolClasses: [GeminiOAuthURLProtocol.self]
-                )
+                    protocolClasses: [GeminiOAuthURLProtocol.self],
+                    additionalHeaders: [TokenUsageCaptureRegistry.headerField: tokenUsageCaptureID]
+                ),
+                tokenUsageCapture: tokenUsageCapture
             )
         }
 

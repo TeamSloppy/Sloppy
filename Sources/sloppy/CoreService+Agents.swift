@@ -676,10 +676,16 @@ extension CoreService {
 
         var totalPrompt = 0
         var totalCompletion = 0
+        var totalCachedInput = 0
+        var totalCacheCreationInput = 0
+        var totalReasoning = 0
         for channelID in channelIDs {
             let usage = await listTokenUsage(channelId: channelID)
             totalPrompt += usage.totalPromptTokens
             totalCompletion += usage.totalCompletionTokens
+            totalCachedInput += usage.totalCachedInputTokens
+            totalCacheCreationInput += usage.totalCacheCreationInputTokens
+            totalReasoning += usage.totalReasoningTokens
         }
 
         // Try to get cost from CodexBar (reads local provider logs).
@@ -705,7 +711,9 @@ extension CoreService {
         return AgentTokenUsageResponse(
             inputTokens: totalPrompt,
             outputTokens: totalCompletion,
-            cachedTokens: 0,
+            cachedTokens: totalCachedInput,
+            cacheCreationTokens: totalCacheCreationInput,
+            reasoningTokens: totalReasoning,
             totalCostUSD: totalCostUSD
         )
     }

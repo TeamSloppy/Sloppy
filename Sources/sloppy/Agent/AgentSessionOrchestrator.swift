@@ -65,6 +65,7 @@ actor AgentSessionOrchestrator {
     private var streamedAssistantLastPersistedByChannel: [String: String] = [:]
     private var streamedAssistantLastPersistedAtByChannel: [String: Date] = [:]
     private var pausedInputRequestByChannel: [String: String] = [:]
+    private var selectedAutoRouteModeByChannel: [String: AgentChatMode] = [:]
     private var toolDrivenSessionRunChannels: Set<String> = []
     private var completedSessionRunChannels: Set<String> = []
     private var sessionCompletionSummaryByChannel: [String: String] = [:]
@@ -556,7 +557,8 @@ actor AgentSessionOrchestrator {
             )
             finalEvents.append(assistantEvent)
 
-            let shouldRecordPlanArtifact = requestMode == .plan &&
+            let effectiveMode = runtimeOutcome.selectedAutoRouteMode ?? requestMode
+            let shouldRecordPlanArtifact = effectiveMode == .plan &&
                 !runtimeOutcome.wasInterrupted &&
                 !runtimeOutcome.hitTurnLimit &&
                 !isAssistantErrorText(runtimeOutcome.assistantText)
@@ -886,6 +888,7 @@ actor AgentSessionOrchestrator {
     private struct SessionRuntimeOutcome {
         var assistantText: String
         var routeDecision: ChannelRouteDecision?
+        var selectedAutoRouteMode: AgentChatMode?
         var wasInterrupted: Bool
         var didResetContext: Bool
         var pausedInputRequestID: String?
@@ -1178,7 +1181,37 @@ actor AgentSessionOrchestrator {
                 guard await self.shouldContinueSessionRun(channelID: channelID, runID: runID) else {
                     return Self.cancelledToolResult(tool: toolRequest.tool)
                 }
-                let result = await self.invokeTool(agentID: agentID, sessionID: sessionID, request: toolRequest, mode: mode)
+                if toolRequest.tool == "planning.select_route" {
+                    let result = await self.selectAutoRoute(channelID: channelID, request: toolRequest, mode: mode)
+                    guard await self.shouldContinueSessionRun(channelID: channelID, runID: runID) else {
+                        return Self.cancelledToolResult(tool: toolRequest.tool)
+                    }
+                    let toolResultEvent = AgentSessionEvent(
+                        agentId: agentID,
+                        sessionId: sessionID,
+                        type: .toolResult,
+                        toolResult: AgentToolResultEvent(
+                            tool: result.tool,
+                            ok: result.ok,
+                            data: result.data,
+                            error: result.error,
+                            durationMs: result.durationMs
+                        )
+                    )
+                    if toolInvokerRecordsEvents {
+                        await self.appendEventsSafely(
+                            agentID: agentID,
+                            sessionID: sessionID,
+                            events: [toolCallEvent, toolResultEvent]
+                        )
+                    } else {
+                        await self.appendEventsSafely(agentID: agentID, sessionID: sessionID, events: [toolResultEvent])
+                    }
+                    return result
+                }
+
+                let effectiveToolMode = await self.selectedAutoRouteModeByChannel[channelID] ?? mode
+                let result = await self.invokeTool(agentID: agentID, sessionID: sessionID, request: toolRequest, mode: effectiveToolMode)
                 guard await self.shouldContinueSessionRun(channelID: channelID, runID: runID) else {
                     return Self.cancelledToolResult(tool: toolRequest.tool)
                 }
@@ -1268,6 +1301,7 @@ actor AgentSessionOrchestrator {
 
         let snapshot = await runtime.channelState(channelId: channelID)
         let nativeLoopOutcome = await nativeLoopOutcomeBox.get()
+        let selectedAutoRouteMode = selectedAutoRouteModeByChannel[channelID]
         let streamedAssistantText = streamedAssistantByChannel[channelID]?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let assistantTextFromSnapshot = snapshot?.messages.reversed().first(where: {
             $0.userId == "system" && !$0.content.contains(Self.sessionContextBootstrapMarker)
@@ -1285,6 +1319,7 @@ actor AgentSessionOrchestrator {
         return SessionRuntimeOutcome(
             assistantText: assistantText,
             routeDecision: routeDecision,
+            selectedAutoRouteMode: selectedAutoRouteMode,
             wasInterrupted: wasInterrupted,
             didResetContext: false,
             pausedInputRequestID: pausedInputRequestByChannel[channelID],
@@ -1517,6 +1552,7 @@ actor AgentSessionOrchestrator {
         streamedAssistantLastPersistedByChannel.removeValue(forKey: channelID)
         streamedAssistantLastPersistedAtByChannel.removeValue(forKey: channelID)
         pausedInputRequestByChannel.removeValue(forKey: channelID)
+        selectedAutoRouteModeByChannel.removeValue(forKey: channelID)
         toolDrivenSessionRunChannels.remove(channelID)
         completedSessionRunChannels.remove(channelID)
         sessionCompletionSummaryByChannel.removeValue(forKey: channelID)
@@ -1524,6 +1560,59 @@ actor AgentSessionOrchestrator {
 
     private func rememberPausedInputRequest(channelID: String, requestID: String) {
         pausedInputRequestByChannel[channelID] = requestID
+    }
+
+    private func selectAutoRoute(channelID: String, request: ToolInvocationRequest, mode: AgentChatMode) -> ToolInvocationResult {
+        guard mode == .auto else {
+            return ToolInvocationResult(
+                tool: request.tool,
+                ok: false,
+                error: ToolErrorPayload(
+                    code: "auto_mode_required",
+                    message: "`planning.select_route` is only available in auto mode.",
+                    retryable: false
+                )
+            )
+        }
+        let route = request.arguments["route"]?.asString?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !route.isEmpty else {
+            return ToolInvocationResult(
+                tool: request.tool,
+                ok: false,
+                error: ToolErrorPayload(
+                    code: "invalid_route",
+                    message: "`route` is required.",
+                    retryable: false
+                )
+            )
+        }
+        if let selectedMode = Self.autoRouteMode(route) {
+            selectedAutoRouteModeByChannel[channelID] = selectedMode
+        }
+        return ToolInvocationResult(
+            tool: request.tool,
+            ok: true,
+            data: .object([
+                "route": .string(route),
+                "mode": .string(selectedAutoRouteModeByChannel[channelID]?.rawValue ?? "skill"),
+                "message": .string("Auto route recorded.")
+            ])
+        )
+    }
+
+    private static func autoRouteMode(_ route: String) -> AgentChatMode? {
+        switch route.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "mode-ask":
+            return .ask
+        case "mode-build":
+            return .build
+        case "mode-plan":
+            return .plan
+        case "mode-debug":
+            return .debug
+        default:
+            return nil
+        }
     }
 
     private func markSessionRunToolDriven(channelID: String) {

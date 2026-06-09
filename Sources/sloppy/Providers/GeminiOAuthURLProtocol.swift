@@ -1,4 +1,5 @@
 import Foundation
+import PluginSDK
 
 #if canImport(FoundationNetworking)
 import FoundationNetworking
@@ -68,7 +69,16 @@ final class GeminiOAuthURLProtocol: URLProtocol {
         } else {
             if !responseBuffer.isEmpty {
                 do {
-                    client?.urlProtocol(self, didLoad: try Self.responseDataForGeminiParser(from: responseBuffer))
+                    let capture = TokenUsageCaptureRegistry.capture(
+                        for: request.value(forHTTPHeaderField: TokenUsageCaptureRegistry.headerField)
+                    )
+                    client?.urlProtocol(
+                        self,
+                        didLoad: try Self.responseDataForGeminiParser(
+                            from: responseBuffer,
+                            tokenUsageCapture: capture
+                        )
+                    )
                 } catch {
                     client?.urlProtocol(self, didFailWithError: error)
                     activeDelegate = nil
@@ -97,6 +107,7 @@ final class GeminiOAuthURLProtocol: URLProtocol {
         let route = try cloudCodeRoute(for: request)
         mutable.url = route.url
         mutable.setValue(nil, forHTTPHeaderField: "x-goog-api-key")
+        mutable.setValue(nil, forHTTPHeaderField: TokenUsageCaptureRegistry.headerField)
         mutable.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         GeminiCodeAssistProjectResolver.applyHeaders(
             to: &mutable,
@@ -117,24 +128,34 @@ final class GeminiOAuthURLProtocol: URLProtocol {
         return mutable
     }
 
-    static func responseBodyForGeminiParser(from data: Data) throws -> Data {
+    static func responseBodyForGeminiParser(
+        from data: Data,
+        tokenUsageCapture: TokenUsageCapture? = nil
+    ) throws -> Data {
         guard let object = try JSONSerialization.jsonObject(with: data) as? [String: Any],
               let response = object["response"] as? [String: Any]
         else {
             return data
         }
+        captureUsage(from: response, into: tokenUsageCapture)
         return try JSONSerialization.data(withJSONObject: response)
     }
 
-    private static func responseDataForGeminiParser(from data: Data) throws -> Data {
+    private static func responseDataForGeminiParser(
+        from data: Data,
+        tokenUsageCapture: TokenUsageCapture? = nil
+    ) throws -> Data {
         let text = String(decoding: data, as: UTF8.self)
         if text.contains("\ndata:") || text.hasPrefix("data:") {
-            return try eventStreamBodyForGeminiParser(from: text)
+            return try eventStreamBodyForGeminiParser(from: text, tokenUsageCapture: tokenUsageCapture)
         }
-        return try responseBodyForGeminiParser(from: data)
+        return try responseBodyForGeminiParser(from: data, tokenUsageCapture: tokenUsageCapture)
     }
 
-    private static func eventStreamBodyForGeminiParser(from text: String) throws -> Data {
+    private static func eventStreamBodyForGeminiParser(
+        from text: String,
+        tokenUsageCapture: TokenUsageCapture? = nil
+    ) throws -> Data {
         var lines: [String] = []
         for line in text.split(separator: "\n", omittingEmptySubsequences: false) {
             guard line.hasPrefix("data:") else {
@@ -146,10 +167,31 @@ final class GeminiOAuthURLProtocol: URLProtocol {
                 lines.append(String(line))
                 continue
             }
-            let unwrapped = try responseBodyForGeminiParser(from: Data(payload.utf8))
+            let unwrapped = try responseBodyForGeminiParser(
+                from: Data(payload.utf8),
+                tokenUsageCapture: tokenUsageCapture
+            )
             lines.append("data: \(String(decoding: unwrapped, as: UTF8.self))")
         }
         return Data(lines.joined(separator: "\n").utf8)
+    }
+
+    private static func captureUsage(from response: [String: Any], into capture: TokenUsageCapture?) {
+        guard let capture,
+              let usage = response["usageMetadata"] as? [String: Any]
+        else {
+            return
+        }
+        let promptTokens = usage["promptTokenCount"] as? Int ?? 0
+        let completionTokens = usage["candidatesTokenCount"] as? Int ?? 0
+        let cachedTokens = usage["cachedContentTokenCount"] as? Int ?? 0
+        let reasoningTokens = usage["thoughtsTokenCount"] as? Int ?? 0
+        capture.store(
+            promptTokens: promptTokens,
+            completionTokens: completionTokens,
+            cachedInputTokens: cachedTokens,
+            reasoningTokens: reasoningTokens
+        )
     }
 
     private static func cloudCodeRoute(for request: URLRequest) throws -> (url: URL, model: String, isStreaming: Bool) {

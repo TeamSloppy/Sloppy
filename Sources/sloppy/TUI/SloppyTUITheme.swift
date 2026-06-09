@@ -589,6 +589,12 @@ enum SloppyTUITheme {
         if let percent = summary.usagePercent {
             text += " (\(percent)%)"
         }
+        if summary.cachedInputTokens > 0 {
+            text += " · cached \(formatTokenCountShort(summary.cachedInputTokens))"
+        }
+        if summary.cachedInputTokens > 0, summary.promptTokens > 0 {
+            text += " · uncached \(formatTokenCountShort(summary.uncachedInputTokens))"
+        }
         if let costUSD = summary.costUSD {
             text += " · \(formatUSD(costUSD))"
         }
@@ -607,6 +613,12 @@ enum SloppyTUITheme {
         if let percent = summary.usagePercent, summary.contextWindowTokens > 0 {
             details.append("\(percent)%")
             details.append("\(formatTokenCountShort(summary.totalTokens))/\(formatTokenCountShort(summary.contextWindowTokens)) tokens")
+            if summary.cachedInputTokens > 0 {
+                details.append("cached \(formatTokenCountShort(summary.cachedInputTokens))")
+            }
+            if summary.cachedInputTokens > 0, summary.promptTokens > 0 {
+                details.append("uncached \(formatTokenCountShort(summary.uncachedInputTokens))")
+            }
             if let freeTokens = summary.freeTokens {
                 details.append("free \(formatTokenCountShort(freeTokens))")
             }

@@ -2,6 +2,8 @@ import Foundation
 import Protocols
 
 public enum MeshMessageType: String, Codable, Sendable, Equatable {
+    case authChallenge = "auth.challenge"
+    case authResponse = "auth.response"
     case nodeHello = "node.hello"
     case nodeHeartbeat = "node.heartbeat"
     case nodeRegistryUpdate = "node.registry.update"
@@ -44,6 +46,44 @@ public struct MeshEnvelope: Codable, Sendable, Equatable {
         self.scope = scope
         self.timestamp = timestamp
         self.payload = payload
+        self.signature = signature
+    }
+}
+
+public struct MeshAuthChallengePayload: Codable, Sendable, Equatable {
+    public var nonce: String
+    public var nodeId: String
+    public var publicKey: String
+    public var issuedAt: Date
+
+    public init(
+        nonce: String,
+        nodeId: String,
+        publicKey: String,
+        issuedAt: Date = Date()
+    ) {
+        self.nonce = nonce
+        self.nodeId = nodeId
+        self.publicKey = publicKey
+        self.issuedAt = issuedAt
+    }
+}
+
+public struct MeshAuthResponsePayload: Codable, Sendable, Equatable {
+    public var nonce: String
+    public var nodeId: String
+    public var publicKey: String
+    public var signature: String
+
+    public init(
+        nonce: String,
+        nodeId: String,
+        publicKey: String,
+        signature: String
+    ) {
+        self.nonce = nonce
+        self.nodeId = nodeId
+        self.publicKey = publicKey
         self.signature = signature
     }
 }
@@ -93,6 +133,37 @@ public struct MeshTaskRecord: Codable, Sendable, Equatable {
         self.summary = summary
         self.createdAt = createdAt
         self.updatedAt = updatedAt
+    }
+}
+
+public struct MeshTaskCreateRequest: Codable, Sendable, Equatable {
+    public var projectId: String
+    public var title: String
+    public var assignedNodeId: String
+
+    public init(projectId: String, title: String, assignedNodeId: String) {
+        self.projectId = projectId
+        self.title = title
+        self.assignedNodeId = assignedNodeId
+    }
+}
+
+public struct MeshTaskUpdateRequest: Codable, Sendable, Equatable {
+    public var status: MeshTaskStatus
+    public var branch: String?
+    public var commit: String?
+    public var summary: String?
+
+    public init(
+        status: MeshTaskStatus,
+        branch: String? = nil,
+        commit: String? = nil,
+        summary: String? = nil
+    ) {
+        self.status = status
+        self.branch = branch
+        self.commit = commit
+        self.summary = summary
     }
 }
 
@@ -188,6 +259,32 @@ public struct SharedProjectPolicies: Codable, Sendable, Equatable {
     }
 }
 
+public enum MeshPermission: String, Codable, CaseIterable, Sendable, Equatable {
+    case projectRead = "project.read"
+    case projectWrite = "project.write"
+    case taskCreate = "task.create"
+    case taskAssign = "task.assign"
+    case taskUpdate = "task.update"
+    case nodeRPC = "node.rpc"
+    case nodeShell = "node.shell"
+    case nodeAgentSpawn = "node.agent.spawn"
+    case nodeFilesRead = "node.files.read"
+    case nodeFilesWrite = "node.files.write"
+    case nodeRelay = "node.relay"
+
+    public static let workerDefaults: [MeshPermission] = [
+        .projectRead,
+        .taskUpdate,
+        .nodeRPC,
+    ]
+}
+
+public extension [MeshPermission] {
+    var rawValues: [String] {
+        map(\.rawValue)
+    }
+}
+
 public struct SharedProjectMember: Codable, Sendable, Equatable {
     public var nodeId: String
     public var actorId: String?
@@ -241,6 +338,59 @@ public struct SharedProjectRecord: Codable, Sendable, Equatable {
         self.policies = policies
         self.createdAt = createdAt
         self.updatedAt = updatedAt
+    }
+}
+
+public struct MeshSharedProjectCreateRequest: Codable, Sendable, Equatable {
+    public var name: String
+    public var repoUrl: String
+    public var defaultBranch: String
+
+    public init(name: String, repoUrl: String, defaultBranch: String = "main") {
+        self.name = name
+        self.repoUrl = repoUrl
+        self.defaultBranch = defaultBranch
+    }
+}
+
+public struct MeshSharedProjectMemberRequest: Codable, Sendable, Equatable {
+    public var nodeId: String
+    public var actorId: String?
+    public var localRepoPath: String
+    public var role: String
+    public var permissions: [String]
+
+    public init(
+        nodeId: String,
+        actorId: String? = nil,
+        localRepoPath: String,
+        role: String,
+        permissions: [String]
+    ) {
+        self.nodeId = nodeId
+        self.actorId = actorId
+        self.localRepoPath = localRepoPath
+        self.role = role
+        self.permissions = permissions
+    }
+}
+
+public struct MeshSharedProjectUpdateRequest: Codable, Sendable, Equatable {
+    public var name: String?
+    public var repoUrl: String?
+    public var defaultBranch: String?
+    public var policies: SharedProjectPolicies?
+
+    public init(
+        name: String? = nil,
+        repoUrl: String? = nil,
+        defaultBranch: String? = nil,
+        policies: SharedProjectPolicies? = nil
+    ) {
+        self.name = name
+        self.repoUrl = repoUrl
+        self.defaultBranch = defaultBranch
+        self.policies = policies
     }
 }
 
@@ -321,19 +471,19 @@ public enum NodeMeshStoreError: LocalizedError, Equatable {
     public var errorDescription: String? {
         switch self {
         case .inviteMissing:
-            return "Invite token was not found."
+            "Invite token was not found."
         case .inviteExpired:
-            return "Invite token has expired."
+            "Invite token has expired."
         case .inviteConsumed:
-            return "Invite token has already been consumed."
+            "Invite token has already been consumed."
         case let .projectMissing(projectId):
-            return "Shared project '\(projectId)' was not found."
+            "Shared project '\(projectId)' was not found."
         case let .nodeMissing(nodeId):
-            return "Node '\(nodeId)' was not found."
+            "Node '\(nodeId)' was not found."
         case let .permissionDenied(permission):
-            return "Permission denied: \(permission)."
+            "Permission denied: \(permission)."
         case let .taskMissing(taskId):
-            return "Mesh task '\(taskId)' was not found."
+            "Mesh task '\(taskId)' was not found."
         }
     }
 }
@@ -482,6 +632,12 @@ public struct NodeMeshStore: Sendable {
         } else {
             state.sharedProjects.append(project)
         }
+        appendProjectSyncEvent(
+            project,
+            action: "shared_project.create",
+            actor: "local",
+            in: &state
+        )
         state.auditLog.append(MeshAuditLogEntry(actor: "local", action: "shared_project.create", project: project.id, allowed: true))
         try save(state)
         return project
@@ -514,7 +670,72 @@ public struct NodeMeshStore: Sendable {
         }
         state.sharedProjects[projectIndex].updatedAt = Date()
         let project = state.sharedProjects[projectIndex]
+        appendProjectSyncEvent(
+            project,
+            action: "shared_project.attach",
+            actor: "local",
+            targetNodeId: nodeId,
+            in: &state
+        )
         state.auditLog.append(MeshAuditLogEntry(actor: "local", target: nodeId, action: "shared_project.attach", project: project.id, allowed: true))
+        try save(state)
+        return project
+    }
+
+    @discardableResult
+    public func updateSharedProject(
+        projectIdOrName: String,
+        name: String? = nil,
+        repoUrl: String? = nil,
+        defaultBranch: String? = nil,
+        policies: SharedProjectPolicies? = nil,
+        actor: String = "local"
+    ) throws -> SharedProjectRecord {
+        var state = try load()
+        guard let projectIndex = state.sharedProjects.firstIndex(where: { $0.id == projectIdOrName || $0.name == projectIdOrName }) else {
+            throw NodeMeshStoreError.projectMissing(projectIdOrName)
+        }
+
+        if let name, !name.isEmpty { state.sharedProjects[projectIndex].name = name }
+        if let repoUrl, !repoUrl.isEmpty { state.sharedProjects[projectIndex].repoUrl = repoUrl }
+        if let defaultBranch, !defaultBranch.isEmpty { state.sharedProjects[projectIndex].defaultBranch = defaultBranch }
+        if let policies { state.sharedProjects[projectIndex].policies = policies }
+        state.sharedProjects[projectIndex].updatedAt = Date()
+
+        let project = state.sharedProjects[projectIndex]
+        appendProjectSyncEvent(
+            project,
+            action: "shared_project.update",
+            actor: actor,
+            in: &state
+        )
+        state.auditLog.append(MeshAuditLogEntry(actor: actor, action: "shared_project.update", project: project.id, allowed: true))
+        try save(state)
+        return project
+    }
+
+    @discardableResult
+    public func removeSharedProjectMember(
+        projectIdOrName: String,
+        nodeId: String,
+        actor: String = "local"
+    ) throws -> SharedProjectRecord {
+        var state = try load()
+        guard let projectIndex = state.sharedProjects.firstIndex(where: { $0.id == projectIdOrName || $0.name == projectIdOrName }) else {
+            throw NodeMeshStoreError.projectMissing(projectIdOrName)
+        }
+
+        state.sharedProjects[projectIndex].members.removeAll { $0.nodeId == nodeId }
+        state.sharedProjects[projectIndex].updatedAt = Date()
+        let project = state.sharedProjects[projectIndex]
+        appendProjectSyncEvent(
+            project,
+            action: "shared_project.member.remove",
+            actor: actor,
+            targetNodeId: nodeId,
+            in: &state
+        )
+        state.auditLog.append(MeshAuditLogEntry(actor: actor, target: nodeId, action: "shared_project.member.remove", project: project.id, allowed: true))
         try save(state)
         return project
     }
@@ -651,9 +872,48 @@ public struct NodeMeshStore: Sendable {
         return task
     }
 
+    public func recordTaskDispatchDelivery(taskId: String, target: String, delivered: Bool, message: String? = nil) throws {
+        var state = try load()
+        let projectId = state.tasks.first(where: { $0.id == taskId })?.projectId
+        state.auditLog.append(MeshAuditLogEntry(
+            actor: "relay",
+            target: target,
+            action: "task.dispatch.delivery",
+            project: projectId,
+            task: taskId,
+            allowed: delivered,
+            message: message ?? (delivered ? "delivered" : "not delivered")
+        ))
+        try save(state)
+    }
+
     private func projectFromScope(_ scope: String?) -> String? {
         guard let scope, scope.hasPrefix("sharedProject:") else { return nil }
         return String(scope.dropFirst("sharedProject:".count))
+    }
+
+    private func appendProjectSyncEvent(
+        _ project: SharedProjectRecord,
+        action: String,
+        actor: String,
+        targetNodeId: String? = nil,
+        in state: inout MeshState
+    ) {
+        let memberNodeIds = Set(project.members.map(\.nodeId))
+        for nodeId in memberNodeIds {
+            state.envelopes.append(MeshEnvelope(
+                type: .projectSyncEvent,
+                from: actor,
+                to: nodeId,
+                scope: project.eventScope,
+                payload: .object([
+                    "action": .string(action),
+                    "projectId": .string(project.id),
+                    "targetNodeId": targetNodeId.map(JSONValue.string) ?? .null,
+                    "project": (try? JSONValueCoder.encode(project)) ?? .object([:]),
+                ])
+            ))
+        }
     }
 
     private func upsert(_ node: MeshNodeRecord, in nodes: inout [MeshNodeRecord]) {

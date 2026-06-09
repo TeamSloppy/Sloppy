@@ -253,6 +253,8 @@ private extension OpenAIOAuthModel {
     struct UsageInfo {
         var inputTokens: Int
         var outputTokens: Int
+        var cachedInputTokens: Int
+        var reasoningTokens: Int
     }
 
     struct StreamResult {
@@ -329,12 +331,22 @@ private extension OpenAIOAuthModel {
                 }
             } else if let completed = parseSSEResponseCompleted(line) {
                 responseId = completed.responseId
-                usage = UsageInfo(inputTokens: completed.inputTokens, outputTokens: completed.outputTokens)
+                usage = UsageInfo(
+                    inputTokens: completed.inputTokens,
+                    outputTokens: completed.outputTokens,
+                    cachedInputTokens: completed.cachedInputTokens,
+                    reasoningTokens: completed.reasoningTokens
+                )
             }
         }
 
         if let usage {
-            tokenUsageCapture?.store(promptTokens: usage.inputTokens, completionTokens: usage.outputTokens)
+            tokenUsageCapture?.store(
+                promptTokens: usage.inputTokens,
+                completionTokens: usage.outputTokens,
+                cachedInputTokens: usage.cachedInputTokens,
+                reasoningTokens: usage.reasoningTokens
+            )
         }
 
         return StreamResult(text: accumulated, functionCalls: functionCalls, responseId: responseId, usage: usage)
@@ -405,12 +417,22 @@ private extension OpenAIOAuthModel {
                 }
             } else if let completed = parseSSEResponseCompleted(line) {
                 responseId = completed.responseId
-                usage = UsageInfo(inputTokens: completed.inputTokens, outputTokens: completed.outputTokens)
+                usage = UsageInfo(
+                    inputTokens: completed.inputTokens,
+                    outputTokens: completed.outputTokens,
+                    cachedInputTokens: completed.cachedInputTokens,
+                    reasoningTokens: completed.reasoningTokens
+                )
             }
         }
 
         if let usage {
-            tokenUsageCapture?.store(promptTokens: usage.inputTokens, completionTokens: usage.outputTokens)
+            tokenUsageCapture?.store(
+                promptTokens: usage.inputTokens,
+                completionTokens: usage.outputTokens,
+                cachedInputTokens: usage.cachedInputTokens,
+                reasoningTokens: usage.reasoningTokens
+            )
         }
 
         return StreamResult(text: accumulated, functionCalls: functionCalls, responseId: responseId, usage: usage)
@@ -542,6 +564,7 @@ private extension OpenAIOAuthModel {
         if reasoningCapture != nil {
             body["reasoning"] = ["summary": "auto"]
         }
+        applyPromptCacheHints(to: &body)
         return try JSONSerialization.data(withJSONObject: body)
     }
 
@@ -621,7 +644,20 @@ private extension OpenAIOAuthModel {
         if reasoningCapture != nil {
             body["reasoning"] = ["summary": "auto"]
         }
+        applyPromptCacheHints(to: &body)
         return try JSONSerialization.data(withJSONObject: body)
+    }
+
+    func applyPromptCacheHints(to body: inout [String: Any]) {
+        body["prompt_cache_key"] = promptCacheKey()
+        body["prompt_cache_retention"] = "24h"
+    }
+
+    func promptCacheKey() -> String {
+        let safeModel = modelName.map { character -> Character in
+            character.isLetter || character.isNumber || character == "-" || character == "_" ? character : "-"
+        }
+        return "sloppy-openai-oauth-\(String(safeModel).prefix(80))"
     }
 
     struct ToolConversion {
@@ -761,7 +797,13 @@ extension OpenAIOAuthModel {
         return true
     }
 
-    func parseSSEResponseCompleted(_ line: String) -> (responseId: String, inputTokens: Int, outputTokens: Int)? {
+    func parseSSEResponseCompleted(_ line: String) -> (
+        responseId: String,
+        inputTokens: Int,
+        outputTokens: Int,
+        cachedInputTokens: Int,
+        reasoningTokens: Int
+    )? {
         guard line.hasPrefix("data: ") else { return nil }
         let payload = String(line.dropFirst(6))
         guard let data = payload.data(using: .utf8),
@@ -774,12 +816,26 @@ extension OpenAIOAuthModel {
 
         var inputTokens = 0
         var outputTokens = 0
+        var cachedInputTokens = 0
+        var reasoningTokens = 0
         if let usageObj = resp["usage"] as? [String: Any] {
             inputTokens = usageObj["input_tokens"] as? Int ?? 0
             outputTokens = usageObj["output_tokens"] as? Int ?? 0
+            if let inputDetails = usageObj["input_tokens_details"] as? [String: Any] {
+                cachedInputTokens = inputDetails["cached_tokens"] as? Int ?? 0
+            }
+            if let outputDetails = usageObj["output_tokens_details"] as? [String: Any] {
+                reasoningTokens = outputDetails["reasoning_tokens"] as? Int ?? 0
+            }
         }
 
-        return (responseId: id, inputTokens: inputTokens, outputTokens: outputTokens)
+        return (
+            responseId: id,
+            inputTokens: inputTokens,
+            outputTokens: outputTokens,
+            cachedInputTokens: cachedInputTokens,
+            reasoningTokens: reasoningTokens
+        )
     }
 }
 

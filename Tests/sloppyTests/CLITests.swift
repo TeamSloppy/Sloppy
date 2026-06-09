@@ -2,6 +2,7 @@ import Foundation
 import Testing
 @testable import sloppy
 import Protocols
+import ArgumentParser
 
 // MARK: - CLIStyle tests
 
@@ -239,6 +240,20 @@ func cliClientResolveStripsTrailingSlash() {
 func cliClientVerboseFlagPropagates() {
     let client = SloppyCLIClient.resolve(url: nil, token: nil, verbose: true)
     #expect(client.verbose == true)
+}
+
+@Test
+func runCommandParsesRelayStartupFlags() throws {
+    let command = try RunCommand.parse([
+        "--relay-only",
+        "--relay-public-url",
+        "https://sloppy.example.com",
+        "--no-gui",
+    ])
+
+    #expect(command.relayOnly)
+    #expect(command.relayPublicURL == "https://sloppy.example.com")
+    #expect(command.gui == false)
 }
 
 // MARK: - Plugin install source path tests

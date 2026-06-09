@@ -14,6 +14,8 @@ public struct AnthropicModelProvider: ModelProvider {
     private let baseURL: URL
     private let session: URLSession?
     private let refreshTokenIfNeeded: (@Sendable () async throws -> Void)?
+    private let _tokenUsageCapture: TokenUsageCapture
+    private let tokenUsageCaptureID: String
 
     public init(
         id: String = "anthropic",
@@ -23,8 +25,10 @@ public struct AnthropicModelProvider: ModelProvider {
         tools: [any Tool] = [],
         systemInstructions: String? = nil,
         session: URLSession? = nil,
-        refreshTokenIfNeeded: (@Sendable () async throws -> Void)? = nil
+        refreshTokenIfNeeded: (@Sendable () async throws -> Void)? = nil,
+        tokenUsageCapture: TokenUsageCapture? = nil
     ) {
+        let capture = tokenUsageCapture ?? TokenUsageCapture()
         self.id = id
         self.supportedModels = supportedModels
         self.tokenProvider = apiKey
@@ -33,6 +37,8 @@ public struct AnthropicModelProvider: ModelProvider {
         self.systemInstructions = systemInstructions
         self.session = session
         self.refreshTokenIfNeeded = refreshTokenIfNeeded
+        self._tokenUsageCapture = capture
+        self.tokenUsageCaptureID = TokenUsageCaptureRegistry.register(capture)
     }
 
     public func supports(modelName: String) -> Bool {
@@ -42,6 +48,11 @@ public struct AnthropicModelProvider: ModelProvider {
         return modelName.hasPrefix("anthropic:")
     }
 
+    public func tokenUsageCapture(for modelName: String) -> TokenUsageCapture? {
+        guard supports(modelName: modelName) else { return nil }
+        return _tokenUsageCapture
+    }
+
     public func createLanguageModel(for modelName: String) async throws -> any LanguageModel {
         let resolved = modelName.hasPrefix("anthropic:") ? String(modelName.dropFirst(10)) : modelName
         try? await refreshTokenIfNeeded?()
@@ -49,7 +60,9 @@ public struct AnthropicModelProvider: ModelProvider {
         if let session {
             httpSession = session
         } else {
-            httpSession = OAuthAnthropicURLSession.makeSessionRewritingAnthropicAuth()
+            httpSession = OAuthAnthropicURLSession.makeSessionRewritingAnthropicAuth(
+                tokenUsageCaptureID: tokenUsageCaptureID
+            )
         }
         return OAuthAnthropicLanguageModel(
             baseURL: baseURL,

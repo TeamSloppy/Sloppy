@@ -1,0 +1,925 @@
+{
+  "id": "sloppynode-mesh-shared-projects",
+  "title": "SloppyNode Mesh + Shared Projects Execution Tasks",
+  "createdAt": "2026-06-08",
+  "sourcePlan": "/Users/vlad-prusakov/Downloads/sloppynode-mesh-shared-projects-plan.md",
+  "repoRoot": "/Users/vlad-prusakov/Developer/Sloppy",
+  "statusLegend": {
+    "done": "Implemented and covered enough to build on.",
+    "partial": "Some foundations exist, but the plan definition of done is not satisfied.",
+    "todo": "Not implemented yet.",
+    "blocked": "Cannot proceed without a prior phase or external decision."
+  },
+  "currentSnapshot": {
+    "summary": "The repository has a local mesh model/store, SloppyNode identity, relay websocket routing with challenge auth, a NodeMeshClient, scoped RPC handlers, remote task lifecycle, worker Git execution policy, and dashboard mesh UX.",
+    "implementedHighlights": [
+      "Node identity, keypair generation, signing helpers, config persistence.",
+      "Local NodeMeshStore for nodes, invites, shared projects, tasks, envelopes, audit log.",
+      "CLI commands for node init/status/join/list, network-create, shared-project create/attach/list, task create/list/status, rpc-request, audit-log.",
+      "Relay websocket endpoint /v1/node/mesh/ws with hello, heartbeat, online/offline, targeted routing.",
+      "NodeMeshClient outbound websocket loop with hello, heartbeat, reconnect, and basic RPC responses.",
+      "Basic RPC methods: node.ping, node.status, node.capabilities, project.status stub.",
+      "Structured relay error response for unavailable target nodes.",
+      "RPC request manager with request/response correlation and timeout handling.",
+      "Typed mesh permission values and relay-side scoped RPC authorization.",
+      "Shared project update/remove-member operations and shared_project.list/get RPC handlers.",
+      "project.status reports local shared project path, Git branch/dirty state, and mesh tasks.",
+      "Worker execution can run through an injected autopilot adapter, create task branches, commit, push, and report branch/commit/tests/summary.",
+      "Core API exposes mesh nodes, shared projects, members, tasks, and audit log.",
+      "Dashboard Nodes view lists mesh nodes/projects and supports remote task assignment and review-state inspection."
+    ],
+    "mainGaps": [
+      "Live CLI RPC over relay is still limited to the implemented request/response path.",
+      "End-to-end production deployment still needs CI-parity/full-suite verification."
+    ]
+  },
+  "phases": [
+    {
+      "id": "phase-01-node-identity-daemon",
+      "title": "Node Identity and Daemon",
+      "status": "done",
+      "goal": "A node can initialize itself, persist identity locally, and run as a foreground daemon.",
+      "definitionOfDone": [
+        "sloppy-node init creates config with node identity.",
+        "Node keypair and node id are generated.",
+        "sloppy-node status prints local identity and state.",
+        "sloppy-node start can run in foreground."
+      ],
+      "evidence": [
+        "Sources/NodeCore/NodeDaemon.swift",
+        "Sources/Node/NodeMain.swift",
+        "Tests/SloppyNodeCoreTests/NodeDaemonInvokeTests.swift"
+      ],
+      "remainingTasks": []
+    },
+    {
+      "id": "phase-02-relay-persistent-connections",
+      "title": "VPS Relay and Persistent Connections",
+      "status": "done",
+      "goal": "Laptop and home Mac maintain outbound websocket connections to a relay, and the relay tracks online/offline status.",
+      "definitionOfDone": [
+        "Relay accepts websocket mesh connections.",
+        "Nodes send node.hello and node.heartbeat.",
+        "Relay routes envelopes by target node id.",
+        "Relay can persist online/offline status.",
+        "Production VPS flow supports secure WSS/TLS."
+      ],
+      "evidence": [
+        "Sources/sloppy/Gateway/NodeMeshRelay.swift",
+        "Sources/sloppy/Gateway/CoreRouter.swift",
+        "Sources/NodeCore/NodeMeshClient.swift",
+        "Tests/sloppyTests/CoreHTTPServerTests.swift"
+      ],
+      "remainingTasks": [
+        {
+          "id": "mesh-02-01-production-relay-store-wiring",
+          "title": "Wire NodeMeshRelay to a configured persistent store in CoreRouter/CoreService",
+          "status": "done",
+          "dependsOn": [],
+          "description": "The relay supports an injected NodeMeshStore, but the default websocket route currently constructs the relay without an explicit store. Add a configured mesh state path and use it for production relay persistence.",
+          "files": [
+            "Sources/sloppy/CoreConfig.swift",
+            "Sources/sloppy/CoreService.swift",
+            "Sources/sloppy/Gateway/CoreRouter.swift",
+            "Sources/sloppy/Gateway/NodeMeshRelay.swift",
+            "Tests/sloppyTests/CoreHTTPServerTests.swift"
+          ],
+          "tests": [
+            "swift test --filter nodeMeshRelayPersistsHelloHeartbeatRouteAndOffline",
+            "swift test --filter nodeMeshWebSocketRelaysTargetedEnvelopeBetweenConnectedNodes"
+          ],
+          "acceptanceCriteria": [
+            "Core config exposes a mesh state path or equivalent relay persistence setting.",
+            "Default /v1/node/mesh/ws route uses the configured store.",
+            "Tests do not write to ~/.sloppy."
+          ]
+        },
+        {
+          "id": "mesh-02-02-vps-service-public-url",
+          "title": "Add VPS/public relay startup flow",
+          "status": "done",
+          "dependsOn": [
+            "mesh-02-01-production-relay-store-wiring"
+          ],
+          "description": "Add CLI/config support for running a SloppyNode/Core relay with a public URL suitable for VPS deployment.",
+          "files": [
+            "Sources/Node/NodeMain.swift",
+            "Sources/sloppy/CLI/Commands",
+            "Sources/sloppy/CoreConfig.swift"
+          ],
+          "tests": [
+            "swift test --filter CLITests",
+            "swift build --product sloppy",
+            "swift build --product SloppyNode"
+          ],
+          "acceptanceCriteria": [
+            "A documented command starts a relay/coordinator process with public URL metadata.",
+            "Local tests can start a relay without requiring real TLS certificates."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "phase-03-invite-authentication",
+      "title": "Invite Flow and Challenge Authentication",
+      "status": "done",
+      "goal": "New nodes join with a one-time invite, then future websocket connections authenticate with node keys.",
+      "definitionOfDone": [
+        "Invite token creation exists.",
+        "Node join consumes invite and registers public key.",
+        "Relay sends nonce challenge on websocket connection.",
+        "Node signs nonce with private key.",
+        "Relay verifies signature against registered public key.",
+        "Unknown or invalid nodes are rejected before route attach."
+      ],
+      "evidence": [
+        "Sources/NodeCore/NodeDaemon.swift",
+        "Sources/NodeCore/NodeMesh.swift",
+        "Sources/Node/NodeMain.swift",
+        "Tests/SloppyNodeCoreTests/NodeDaemonInvokeTests.swift",
+        "Tests/SloppyNodeCoreTests/NodeMeshStoreTests.swift"
+      ],
+      "remainingTasks": [
+        {
+          "id": "mesh-03-01-auth-message-types",
+          "title": "Add mesh auth challenge message types",
+          "status": "done",
+          "dependsOn": [],
+          "description": "Extend mesh protocol with challenge and auth response frames so auth is typed instead of inferred from payload strings.",
+          "files": [
+            "Sources/NodeCore/NodeMesh.swift",
+            "Tests/SloppyNodeCoreTests/NodeMeshStoreTests.swift"
+          ],
+          "tests": [
+            "swift test --filter NodeMesh"
+          ],
+          "acceptanceCriteria": [
+            "MeshMessageType includes auth challenge/auth response or an equivalent typed auth frame.",
+            "Payload schema includes nonce, node id, public key reference, and signature."
+          ]
+        },
+        {
+          "id": "mesh-03-02-client-signs-relay-challenge",
+          "title": "Make NodeMeshClient sign relay challenges",
+          "status": "done",
+          "dependsOn": [
+            "mesh-03-01-auth-message-types"
+          ],
+          "description": "When the relay sends a nonce challenge, the client signs it with NodeIdentity.privateKey and sends an auth response before normal hello/routing.",
+          "files": [
+            "Sources/NodeCore/NodeMeshClient.swift",
+            "Tests/SloppyNodeCoreTests/NodeMeshClientTests.swift"
+          ],
+          "tests": [
+            "swift test --filter NodeMeshClientTests",
+            "swift build --product SloppyNode"
+          ],
+          "acceptanceCriteria": [
+            "Client auth response contains node id, signature, and public key or key id.",
+            "Client does not send normal RPC/task responses before auth completes."
+          ]
+        },
+        {
+          "id": "mesh-03-03-relay-verifies-node-auth",
+          "title": "Make NodeMeshRelay verify signed challenge before attach",
+          "status": "done",
+          "dependsOn": [
+            "mesh-03-01-auth-message-types",
+            "mesh-03-02-client-signs-relay-challenge",
+            "mesh-02-01-production-relay-store-wiring"
+          ],
+          "description": "Relay should load the registered node public key from NodeMeshStore, verify the signature, and reject unknown or invalid nodes.",
+          "files": [
+            "Sources/sloppy/Gateway/NodeMeshRelay.swift",
+            "Sources/NodeCore/NodeMesh.swift",
+            "Tests/sloppyTests/CoreHTTPServerTests.swift"
+          ],
+          "tests": [
+            "swift test --filter nodeMeshRelay",
+            "swift test --filter nodeMeshWebSocketRelaysTargetedEnvelopeBetweenConnectedNodes"
+          ],
+          "acceptanceCriteria": [
+            "Unknown node cannot become active.",
+            "Wrong signature cannot become active.",
+            "Valid registered node can become active.",
+            "Rejected websocket receives a structured auth error or closes cleanly."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "phase-04-rpc-routing",
+      "title": "Message Routing and RPC",
+      "status": "done",
+      "goal": "Nodes can call basic RPC methods through the relay and receive clean responses or timeouts.",
+      "definitionOfDone": [
+        "Envelope routing by target node id works.",
+        "RPC request/response correlation exists.",
+        "RPC timeout handling exists.",
+        "node.ping, node.capabilities, node.status, project.status work.",
+        "Failures are reported cleanly."
+      ],
+      "evidence": [
+        "Sources/NodeCore/NodeMeshClient.swift",
+        "Sources/sloppy/Gateway/NodeMeshRelay.swift",
+        "Tests/SloppyNodeCoreTests/NodeMeshClientTests.swift",
+        "Tests/sloppyTests/CoreHTTPServerTests.swift"
+      ],
+      "remainingTasks": [
+        {
+          "id": "mesh-04-01-rpc-request-manager",
+          "title": "Add RPC request manager with correlation and timeout",
+          "status": "done",
+          "dependsOn": [
+            "mesh-03-03-relay-verifies-node-auth"
+          ],
+          "description": "Create a small client-side RPC manager that sends rpc.request envelopes, waits for matching rpc.response requestId, and fails with timeout when no response arrives.",
+          "files": [
+            "Sources/NodeCore/NodeMeshClient.swift",
+            "Sources/NodeCore/NodeMeshRPC.swift",
+            "Tests/SloppyNodeCoreTests/NodeMeshClientTests.swift"
+          ],
+          "tests": [
+            "swift test --filter NodeMeshClientTests"
+          ],
+          "acceptanceCriteria": [
+            "Callers can await a response for a request id.",
+            "Timeout returns a typed error.",
+            "Late responses do not leak continuations."
+          ]
+        },
+        {
+          "id": "mesh-04-02-rpc-cli-live-request",
+          "title": "Make rpc-request optionally send over live relay",
+          "status": "done",
+          "dependsOn": [
+            "mesh-04-01-rpc-request-manager"
+          ],
+          "description": "The existing rpc-request command stores an envelope locally. Add a live mode that connects to relay, sends the request, waits for response, and prints JSON.",
+          "files": [
+            "Sources/Node/NodeMain.swift",
+            "Sources/NodeCore/NodeMeshClient.swift",
+            "Tests/SloppyNodeCoreTests/NodeMeshClientTests.swift"
+          ],
+          "tests": [
+            "swift test --filter NodeMeshClientTests",
+            "swift build --product SloppyNode"
+          ],
+          "acceptanceCriteria": [
+            "CLI supports live RPC through relay without polling mesh.json.",
+            "Timeout and unavailable target are printed clearly."
+          ]
+        },
+        {
+          "id": "mesh-04-03-project-status-real-data",
+          "title": "Replace project.status stub with real shared project status",
+          "status": "done",
+          "dependsOn": [
+            "mesh-06-02-shared-project-rpc"
+          ],
+          "description": "project.status should report local repo path, branch, dirty state, and active/running mesh tasks for the requested shared project.",
+          "files": [
+            "Sources/NodeCore/NodeMeshClient.swift",
+            "Sources/NodeCore/NodeMesh.swift",
+            "Tests/SloppyNodeCoreTests/NodeMeshClientTests.swift"
+          ],
+          "tests": [
+            "swift test --filter NodeMeshClientTests"
+          ],
+          "acceptanceCriteria": [
+            "project.status reads sharedProjectId from params.",
+            "Response includes localRepoPath when the node is a member.",
+            "Response includes gitBranch/dirty fields when repo exists."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "phase-05-acl-audit",
+      "title": "ACL and Audit Log",
+      "status": "done",
+      "goal": "Remote operations are authorized by node/project permissions and audited.",
+      "definitionOfDone": [
+        "Unauthorized RPC is denied.",
+        "Every remote action is recorded.",
+        "Remote shell/files/agent execution require explicit dangerous permissions."
+      ],
+      "evidence": [
+        "Sources/NodeCore/NodeMesh.swift",
+        "Tests/SloppyNodeCoreTests/NodeMeshStoreTests.swift"
+      ],
+      "remainingTasks": [
+        {
+          "id": "mesh-05-01-permission-model",
+          "title": "Define typed mesh permissions",
+          "status": "done",
+          "dependsOn": [],
+          "description": "Replace ad hoc permission strings in control flow with typed permission values or documented constants.",
+          "files": [
+            "Sources/NodeCore/NodeMesh.swift",
+            "Tests/SloppyNodeCoreTests/NodeMeshStoreTests.swift"
+          ],
+          "tests": [
+            "swift test --filter NodeMeshStoreTests"
+          ],
+          "acceptanceCriteria": [
+            "Permissions include project.read, project.write, task.create, task.assign, task.update, node.rpc, node.shell, node.agent.spawn, node.files.read, node.files.write, node.relay.",
+            "Tests cover permission encoding compatibility."
+          ]
+        },
+        {
+          "id": "mesh-05-02-authorize-rpc-routing",
+          "title": "Authorize RPC routing at relay/store boundary",
+          "status": "done",
+          "dependsOn": [
+            "mesh-05-01-permission-model",
+            "mesh-03-03-relay-verifies-node-auth"
+          ],
+          "description": "Before forwarding rpc.request, check whether the source node has permission to call the method/scope on the target node.",
+          "files": [
+            "Sources/NodeCore/NodeMesh.swift",
+            "Sources/sloppy/Gateway/NodeMeshRelay.swift",
+            "Tests/sloppyTests/CoreHTTPServerTests.swift"
+          ],
+          "tests": [
+            "swift test --filter nodeMeshRelay"
+          ],
+          "acceptanceCriteria": [
+            "Unauthorized RPC returns structured forbidden response.",
+            "Denied RPC is written to audit log with allowed=false.",
+            "Allowed RPC is forwarded normally."
+          ]
+        },
+        {
+          "id": "mesh-05-03-dangerous-operation-gates",
+          "title": "Gate dangerous remote operations",
+          "status": "done",
+          "dependsOn": [
+            "mesh-05-02-authorize-rpc-routing"
+          ],
+          "description": "Remote shell, file access, computer/browser control, and agent spawn must be disabled unless explicit permissions are present.",
+          "files": [
+            "Sources/NodeCore/NodeMeshClient.swift",
+            "Sources/NodeCore/NodeDaemon.swift",
+            "Sources/NodeCore/NodeMesh.swift",
+            "Tests/SloppyNodeCoreTests/NodeMeshClientTests.swift"
+          ],
+          "tests": [
+            "swift test --filter NodeMeshClientTests",
+            "swift test --filter NodeDaemonInvokeTests"
+          ],
+          "acceptanceCriteria": [
+            "node.shell is required for remote exec.",
+            "node.files.read/write are required for remote file access.",
+            "node.agent.spawn is required for remote autopilot task execution."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "phase-06-shared-projects",
+      "title": "Shared Project Entity",
+      "status": "done",
+      "goal": "Shared project metadata is first-class and visible to connected nodes.",
+      "definitionOfDone": [
+        "Shared project create/update/list exists.",
+        "Repo URL and default branch are stored.",
+        "Per-node local paths are stored.",
+        "Nodes can query their local shared project config.",
+        "Project metadata is visible over mesh."
+      ],
+      "evidence": [
+        "Sources/NodeCore/NodeMesh.swift",
+        "Sources/Node/NodeMain.swift",
+        "Tests/SloppyNodeCoreTests/NodeMeshStoreTests.swift"
+      ],
+      "remainingTasks": [
+        {
+          "id": "mesh-06-01-shared-project-update",
+          "title": "Add shared project update/remove member operations",
+          "status": "done",
+          "dependsOn": [],
+          "description": "Create explicit update APIs for project metadata and member removal so shared projects can evolve after creation.",
+          "files": [
+            "Sources/NodeCore/NodeMesh.swift",
+            "Sources/Node/NodeMain.swift",
+            "Tests/SloppyNodeCoreTests/NodeMeshStoreTests.swift"
+          ],
+          "tests": [
+            "swift test --filter NodeMeshStoreTests",
+            "swift build --product SloppyNode"
+          ],
+          "acceptanceCriteria": [
+            "Project name/repo/defaultBranch/policies can be updated.",
+            "Members can be removed.",
+            "Audit log records updates/removals."
+          ]
+        },
+        {
+          "id": "mesh-06-02-shared-project-rpc",
+          "title": "Add shared_project.list and shared_project.get RPC methods",
+          "status": "done",
+          "dependsOn": [
+            "mesh-04-01-rpc-request-manager",
+            "mesh-05-02-authorize-rpc-routing"
+          ],
+          "description": "Connected nodes should be able to query shared project metadata through RPC rather than only local mesh.json.",
+          "files": [
+            "Sources/NodeCore/NodeMeshClient.swift",
+            "Sources/NodeCore/NodeMesh.swift",
+            "Tests/SloppyNodeCoreTests/NodeMeshClientTests.swift"
+          ],
+          "tests": [
+            "swift test --filter NodeMeshClientTests"
+          ],
+          "acceptanceCriteria": [
+            "shared_project.list returns projects visible to caller.",
+            "shared_project.get returns a single project by id or name.",
+            "Unauthorized caller receives forbidden response."
+          ]
+        },
+        {
+          "id": "mesh-06-03-project-sync-events",
+          "title": "Publish project.sync events for shared project metadata changes",
+          "status": "done",
+          "dependsOn": [
+            "mesh-06-01-shared-project-update",
+            "mesh-05-02-authorize-rpc-routing"
+          ],
+          "description": "When shared project metadata changes, relay should publish project.sync/event.publish frames to affected nodes.",
+          "files": [
+            "Sources/NodeCore/NodeMesh.swift",
+            "Sources/sloppy/Gateway/NodeMeshRelay.swift",
+            "Tests/sloppyTests/CoreHTTPServerTests.swift"
+          ],
+          "tests": [
+            "swift test --filter nodeMeshRelay"
+          ],
+          "acceptanceCriteria": [
+            "Project changes produce scoped event envelopes.",
+            "Only project members receive project-scoped events."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "phase-07-remote-task-dispatch",
+      "title": "Remote Task Dispatch Lifecycle",
+      "status": "done",
+      "goal": "A task assigned to a remote node is delivered through relay, claimed by worker, and emits lifecycle status.",
+      "definitionOfDone": [
+        "Laptop can create a task assigned to home Mac.",
+        "Home Mac receives task.dispatch without polling.",
+        "Worker sends task.claimed, task.started, task.progress, task.blocked, task.ready_for_review.",
+        "Laptop CLI/UI sees state changes."
+      ],
+      "evidence": [
+        "Sources/NodeCore/NodeMesh.swift",
+        "Sources/Node/NodeMain.swift",
+        "Tests/SloppyNodeCoreTests/NodeMeshStoreTests.swift"
+      ],
+      "remainingTasks": [
+        {
+          "id": "mesh-07-01-deliver-store-task-dispatch-to-live-node",
+          "title": "Forward task.dispatch to connected target nodes",
+          "status": "done",
+          "dependsOn": [
+            "mesh-02-01-production-relay-store-wiring",
+            "mesh-05-02-authorize-rpc-routing"
+          ],
+          "description": "When a task is created for a connected node, relay should send the task.dispatch envelope to that node instead of only recording it in mesh.json.",
+          "files": [
+            "Sources/sloppy/Gateway/NodeMeshRelay.swift",
+            "Sources/NodeCore/NodeMesh.swift",
+            "Tests/sloppyTests/CoreHTTPServerTests.swift"
+          ],
+          "tests": [
+            "swift test --filter nodeMeshRelay"
+          ],
+          "acceptanceCriteria": [
+            "Connected worker receives task.dispatch frame.",
+            "Offline worker produces clean queued/offline status or error.",
+            "Audit log records dispatch delivery result."
+          ]
+        },
+        {
+          "id": "mesh-07-02-worker-task-handler",
+          "title": "Add NodeMeshClient worker handler for task.dispatch",
+          "status": "done",
+          "dependsOn": [
+            "mesh-07-01-deliver-store-task-dispatch-to-live-node"
+          ],
+          "description": "Worker should parse task.dispatch, persist/ack it locally, and emit task.claimed then task.started/task.progress as appropriate.",
+          "files": [
+            "Sources/NodeCore/NodeMeshClient.swift",
+            "Sources/NodeCore/NodeMeshWorker.swift",
+            "Tests/SloppyNodeCoreTests/NodeMeshClientTests.swift"
+          ],
+          "tests": [
+            "swift test --filter NodeMeshClientTests"
+          ],
+          "acceptanceCriteria": [
+            "Worker sends task.claimed for accepted dispatch.",
+            "Worker rejects unknown project/member config cleanly.",
+            "Status updates include task id, project id, node id, and status."
+          ]
+        },
+        {
+          "id": "mesh-07-03-task-status-event-ingestion",
+          "title": "Ingest remote task status updates on relay/controller",
+          "status": "done",
+          "dependsOn": [
+            "mesh-07-02-worker-task-handler"
+          ],
+          "description": "Relay/controller should update task records when receiving task.status.update frames from worker nodes.",
+          "files": [
+            "Sources/NodeCore/NodeMesh.swift",
+            "Sources/sloppy/Gateway/NodeMeshRelay.swift",
+            "Tests/sloppyTests/CoreHTTPServerTests.swift"
+          ],
+          "tests": [
+            "swift test --filter nodeMeshRelay",
+            "swift test --filter NodeMeshStoreTests"
+          ],
+          "acceptanceCriteria": [
+            "task.claimed/started/progress/blocked/ready_for_review update MeshTaskRecord.",
+            "Updates are audited.",
+            "Controller can observe updated task state."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "phase-08-git-execution-policy",
+      "title": "Git Execution Policy and Remote Autopilot",
+      "status": "done",
+      "goal": "A worker executes assigned work in its local repo using branch-per-task policy and reports branch/commit/tests.",
+      "definitionOfDone": [
+        "Worker verifies clean worktree before starting.",
+        "Worker creates branch agent/{nodeName}/{taskId}-{slug}.",
+        "Worker runs project-scoped autopilot/agent.",
+        "Worker commits and pushes result branch.",
+        "Direct push to main is prevented.",
+        "Result report includes branch, commit, tests, summary."
+      ],
+      "evidence": [
+        "Sources/NodeCore/NodeMeshGitPolicy.swift",
+        "Sources/NodeCore/NodeMeshWorker.swift",
+        "Tests/SloppyNodeCoreTests/NodeMeshGitPolicyTests.swift",
+        "Tests/SloppyNodeCoreTests/NodeMeshWorkerTests.swift"
+      ],
+      "remainingTasks": [
+        {
+          "id": "mesh-08-01-git-policy-checker",
+          "title": "Implement local Git policy checker",
+          "status": "done",
+          "dependsOn": [
+            "mesh-06-02-shared-project-rpc"
+          ],
+          "description": "Create a worker-side helper that checks repo exists, clean worktree, default branch, direct push policy, and branch naming.",
+          "files": [
+            "Sources/NodeCore/NodeMeshGitPolicy.swift",
+            "Tests/SloppyNodeCoreTests/NodeMeshGitPolicyTests.swift"
+          ],
+          "tests": [
+            "swift test --filter NodeMeshGitPolicyTests"
+          ],
+          "acceptanceCriteria": [
+            "Dirty worktree blocks execution by default.",
+            "Branch name follows agent/{nodeName}/{taskId}-{slug}.",
+            "directPushToMain=false is enforced."
+          ]
+        },
+        {
+          "id": "mesh-08-02-worker-branch-commit-push",
+          "title": "Add worker branch/commit/push execution shell",
+          "status": "done",
+          "dependsOn": [
+            "mesh-08-01-git-policy-checker",
+            "mesh-07-02-worker-task-handler"
+          ],
+          "description": "Worker should create a task branch, run configured commands or agent hook, commit changes, push branch, and report result metadata.",
+          "files": [
+            "Sources/NodeCore/NodeMeshWorker.swift",
+            "Sources/NodeCore/NodeMeshGitPolicy.swift",
+            "Tests/SloppyNodeCoreTests/NodeMeshWorkerTests.swift"
+          ],
+          "tests": [
+            "swift test --filter NodeMeshWorkerTests"
+          ],
+          "acceptanceCriteria": [
+            "Worker creates branch before execution.",
+            "Worker records command/test outcomes.",
+            "Worker reports branch and commit in task.ready_for_review."
+          ]
+        },
+        {
+          "id": "mesh-08-03-remote-autopilot-adapter",
+          "title": "Connect worker task execution to Sloppy agent/autopilot",
+          "status": "done",
+          "dependsOn": [
+            "mesh-08-02-worker-branch-commit-push"
+          ],
+          "description": "Replace placeholder execution with a project-scoped Sloppy agent/autopilot invocation using the worker localRepoPath.",
+          "files": [
+            "Sources/NodeCore/NodeMeshWorker.swift",
+            "Sources/sloppy/Agent",
+            "Sources/sloppy/CoreService+TaskLifecycle.swift",
+            "Tests/sloppyTests/ReviewFlowTests.swift"
+          ],
+          "tests": [
+            "swift test --filter ReviewFlowTests",
+            "swift test --filter TaskCompletionConfirmationTests"
+          ],
+          "acceptanceCriteria": [
+            "Remote worker launches the selected agent/autopilot for the assigned task.",
+            "Task progress streams back to controller.",
+            "Ready-for-review result includes branch/commit/tests/summary."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "phase-09-dashboard-ux",
+      "title": "Dashboard and UX Integration",
+      "status": "done",
+      "goal": "User can inspect nodes, shared projects, remote task execution, and ready-for-review branches from the dashboard.",
+      "definitionOfDone": [
+        "Dashboard shows node list and statuses.",
+        "Dashboard shows shared project members and local path mapping.",
+        "Task creation can assign to node.",
+        "Remote execution timeline is visible.",
+        "Ready-for-review branch/commit display is visible."
+      ],
+      "evidence": [
+        "Sources/NodeCore/NodeMesh.swift",
+        "Sources/sloppy/CoreService+NodeMesh.swift",
+        "Sources/sloppy/Gateway/Routers/NodeMeshAPIRouter.swift",
+        "Dashboard/src/views/NodesView.tsx",
+        "Dashboard/src/shared/api/coreApi.ts",
+        "Dashboard/src/styles/nodes.css",
+        "Tests/sloppyTests/CoreRouterTests.swift"
+      ],
+      "remainingTasks": [
+        {
+          "id": "mesh-09-01-core-api-for-mesh",
+          "title": "Expose mesh nodes/projects/tasks over Core API",
+          "status": "done",
+          "dependsOn": [
+            "mesh-07-03-task-status-event-ingestion"
+          ],
+          "description": "Add HTTP API endpoints for mesh nodes, shared projects, members, tasks, and audit log.",
+          "files": [
+            "Sources/Protocols/APIModels.swift",
+            "Sources/sloppy/CoreService.swift",
+            "Sources/sloppy/Gateway/Routers",
+            "Tests/sloppyTests/CoreRouterTests.swift"
+          ],
+          "tests": [
+            "swift test --filter CoreRouterTests"
+          ],
+          "acceptanceCriteria": [
+            "GET endpoints list nodes, shared projects, mesh tasks, and audit entries.",
+            "POST/PATCH endpoints create/update shared projects and dispatch tasks.",
+            "API uses typed models rather than raw JSON strings."
+          ]
+        },
+        {
+          "id": "mesh-09-02-dashboard-node-project-views",
+          "title": "Add dashboard views for nodes and shared projects",
+          "status": "done",
+          "dependsOn": [
+            "mesh-09-01-core-api-for-mesh"
+          ],
+          "description": "Create dashboard screens/components to inspect node status and shared project membership.",
+          "files": [
+            "Dashboard/src/shared/api/coreApi.ts",
+            "Dashboard/src/features",
+            "Dashboard/src/app/routing/dashboardRouteAdapter.ts",
+            "Dashboard/src/app/routing/useDashboardRoute.ts",
+            "Dashboard/src/App.tsx"
+          ],
+          "tests": [
+            "cd Dashboard && npm run typecheck",
+            "cd Dashboard && npm run build"
+          ],
+          "acceptanceCriteria": [
+            "Dashboard lists online/offline/degraded nodes.",
+            "Dashboard displays roles and capabilities.",
+            "Dashboard displays shared project members and local paths."
+          ]
+        },
+        {
+          "id": "mesh-09-03-dashboard-remote-task-flow",
+          "title": "Add dashboard remote task assignment and review state",
+          "status": "done",
+          "dependsOn": [
+            "mesh-09-02-dashboard-node-project-views",
+            "mesh-08-03-remote-autopilot-adapter"
+          ],
+          "description": "Extend task UI so a task can be assigned to a mesh node and remote lifecycle/branch result is visible.",
+          "files": [
+            "Dashboard/src/features",
+            "Dashboard/src/views",
+            "Dashboard/src/shared/api/coreApi.ts",
+            "Dashboard/src/styles"
+          ],
+          "tests": [
+            "cd Dashboard && npm run typecheck",
+            "cd Dashboard && npm run build"
+          ],
+          "acceptanceCriteria": [
+            "Task create/edit supports assign-to-node.",
+            "Remote status timeline displays claimed/started/progress/blocked/ready_for_review.",
+            "Ready-for-review branch and commit are visible."
+          ]
+        }
+      ]
+    }
+  ],
+  "recommendedExecutionOrder": [
+    "mesh-02-01-production-relay-store-wiring",
+    "mesh-03-01-auth-message-types",
+    "mesh-03-02-client-signs-relay-challenge",
+    "mesh-03-03-relay-verifies-node-auth",
+    "mesh-04-01-rpc-request-manager",
+    "mesh-05-01-permission-model",
+    "mesh-05-02-authorize-rpc-routing",
+    "mesh-06-02-shared-project-rpc",
+    "mesh-04-03-project-status-real-data",
+    "mesh-07-01-deliver-store-task-dispatch-to-live-node",
+    "mesh-07-02-worker-task-handler",
+    "mesh-07-03-task-status-event-ingestion",
+    "mesh-08-01-git-policy-checker",
+    "mesh-08-02-worker-branch-commit-push",
+    "mesh-08-03-remote-autopilot-adapter",
+    "mesh-09-01-core-api-for-mesh",
+    "mesh-09-02-dashboard-node-project-views",
+    "mesh-09-03-dashboard-remote-task-flow",
+    "mesh-02-02-vps-service-public-url",
+    "mesh-04-02-rpc-cli-live-request",
+    "mesh-05-03-dangerous-operation-gates",
+    "mesh-06-01-shared-project-update",
+    "mesh-06-03-project-sync-events"
+  ],
+  "verification": {
+    "swiftNodeCore": [
+      "swift test --filter NodeMesh",
+      "swift test --filter NodeMeshClientTests",
+      "swift test --filter NodeMeshStoreTests",
+      "swift build --product SloppyNode"
+    ],
+    "swiftRelayCore": [
+      "swift test --filter nodeMeshRelay",
+      "swift test --filter nodeMeshWebSocketRelaysTargetedEnvelopeBetweenConnectedNodes",
+      "swift build --product sloppy"
+    ],
+    "dashboard": [
+      "cd Dashboard && npm run typecheck",
+      "cd Dashboard && npm run build"
+    ],
+    "ciParityWhenReady": [
+      "swift test --parallel",
+      "swift build -c release --product sloppy",
+      "swift build -c release --product SloppyNode",
+      "cd Dashboard && npm run build"
+    ]
+  },
+  "mvpDefinitionOfDoneChecklist": [
+    {
+      "id": "mvp-01-vps-relay",
+      "text": "A VPS SloppyNode can run as relay/bootstrap/coordinator.",
+      "status": "done",
+      "coveredBy": [
+        "mesh-02-01-production-relay-store-wiring",
+        "mesh-02-02-vps-service-public-url"
+      ]
+    },
+    {
+      "id": "mvp-02-home-mac-join",
+      "text": "A home Mac can join the network without public IP.",
+      "status": "done",
+      "coveredBy": [
+        "mesh-03-03-relay-verifies-node-auth"
+      ]
+    },
+    {
+      "id": "mvp-03-laptop-join",
+      "text": "A laptop can join the same network.",
+      "status": "done",
+      "coveredBy": [
+        "mesh-03-03-relay-verifies-node-auth"
+      ]
+    },
+    {
+      "id": "mvp-04-node-list",
+      "text": "sloppy-node list shows all nodes and statuses.",
+      "status": "done",
+      "coveredBy": [
+        "mesh-02-01-production-relay-store-wiring"
+      ]
+    },
+    {
+      "id": "mvp-05-persistent-secure-connections",
+      "text": "Nodes maintain persistent secure connections.",
+      "status": "done",
+      "coveredBy": [
+        "mesh-02-02-vps-service-public-url",
+        "mesh-03-03-relay-verifies-node-auth"
+      ]
+    },
+    {
+      "id": "mvp-06-cryptographic-auth",
+      "text": "Nodes authenticate using cryptographic identity.",
+      "status": "done",
+      "coveredBy": [
+        "mesh-03-01-auth-message-types",
+        "mesh-03-02-client-signs-relay-challenge",
+        "mesh-03-03-relay-verifies-node-auth"
+      ]
+    },
+    {
+      "id": "mvp-07-shared-repo-url",
+      "text": "A shared project can be created with one repoUrl.",
+      "status": "done",
+      "coveredBy": []
+    },
+    {
+      "id": "mvp-08-per-node-local-path",
+      "text": "Each node can have its own localRepoPath for the same shared project.",
+      "status": "done",
+      "coveredBy": []
+    },
+    {
+      "id": "mvp-09-task-assigned",
+      "text": "A task can be assigned to the home Mac node.",
+      "status": "done",
+      "coveredBy": [
+        "mesh-07-01-deliver-store-task-dispatch-to-live-node"
+      ]
+    },
+    {
+      "id": "mvp-10-worker-receives-task",
+      "text": "The home Mac receives the task through the relay.",
+      "status": "done",
+      "coveredBy": [
+        "mesh-07-01-deliver-store-task-dispatch-to-live-node",
+        "mesh-07-02-worker-task-handler"
+      ]
+    },
+    {
+      "id": "mvp-11-worker-runs-task",
+      "text": "The home Mac runs the task in its local environment.",
+      "status": "done",
+      "coveredBy": [
+        "mesh-08-02-worker-branch-commit-push",
+        "mesh-08-03-remote-autopilot-adapter"
+      ]
+    },
+    {
+      "id": "mvp-12-task-branch",
+      "text": "The home Mac creates a task branch.",
+      "status": "done",
+      "coveredBy": [
+        "mesh-08-01-git-policy-checker",
+        "mesh-08-02-worker-branch-commit-push"
+      ]
+    },
+    {
+      "id": "mvp-13-push-branch",
+      "text": "The home Mac pushes the branch to Git.",
+      "status": "done",
+      "coveredBy": [
+        "mesh-08-02-worker-branch-commit-push"
+      ]
+    },
+    {
+      "id": "mvp-14-ready-for-review",
+      "text": "The laptop receives a ready_for_review event.",
+      "status": "done",
+      "coveredBy": [
+        "mesh-07-03-task-status-event-ingestion",
+        "mesh-08-03-remote-autopilot-adapter"
+      ]
+    },
+    {
+      "id": "mvp-15-acl",
+      "text": "ACL checks protect remote operations.",
+      "status": "done",
+      "coveredBy": [
+        "mesh-05-01-permission-model",
+        "mesh-05-02-authorize-rpc-routing",
+        "mesh-05-03-dangerous-operation-gates"
+      ]
+    },
+    {
+      "id": "mvp-16-audit",
+      "text": "Audit logs record all remote actions.",
+      "status": "done",
+      "coveredBy": [
+        "mesh-05-02-authorize-rpc-routing",
+        "mesh-07-03-task-status-event-ingestion"
+      ]
+    }
+  ]
+}

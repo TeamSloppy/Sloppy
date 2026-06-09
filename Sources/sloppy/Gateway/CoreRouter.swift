@@ -536,7 +536,7 @@ public actor CoreRouter {
 
     private static func defaultWebSocketRoutes(service: CoreService) -> [WebSocketRouteDefinition] {
         var routes: [WebSocketRouteDefinition] = []
-        let nodeMeshRelay = NodeMeshRelay()
+        let nodeMeshRelay = NodeMeshRelay(store: service.nodeMeshStore)
 
         routes.append(
             .init(

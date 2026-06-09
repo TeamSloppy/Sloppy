@@ -899,7 +899,13 @@ public actor RuntimeSystem {
                 }
 
                 if let captured = modelProvider.tokenUsageCapture(for: activeModel)?.consume() {
-                    await observationHandler(.usage(TokenUsage(prompt: captured.prompt, completion: captured.completion)))
+                    await observationHandler(.usage(TokenUsage(
+                        prompt: captured.prompt,
+                        completion: captured.completion,
+                        cachedInputTokens: captured.cachedInputTokens,
+                        cacheCreationInputTokens: captured.cacheCreationInputTokens,
+                        reasoningTokens: captured.reasoningTokens
+                    )))
                 }
             }
 

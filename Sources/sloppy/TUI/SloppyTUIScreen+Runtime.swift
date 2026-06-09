@@ -586,6 +586,9 @@ extension SloppyTUIScreen {
             promptTokens: usage.totalPromptTokens,
             completionTokens: usage.totalCompletionTokens,
             totalTokens: usage.totalTokens,
+            cachedInputTokens: usage.totalCachedInputTokens,
+            cacheCreationInputTokens: usage.totalCacheCreationInputTokens,
+            reasoningTokens: usage.totalReasoningTokens,
             contextWindowTokens: selectedModelContextWindowTokens,
             costUSD: tokenUsageCostUSD
         )
