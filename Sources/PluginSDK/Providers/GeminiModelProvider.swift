@@ -14,6 +14,7 @@ public struct GeminiModelProvider: ModelProvider {
     private let refreshTokenIfNeeded: (@Sendable () async throws -> Void)?
     private let baseURL: URL
     private let session: URLSession?
+    private let _tokenUsageCapture: TokenUsageCapture
 
     public init(
         id: String = "gemini",
@@ -23,7 +24,8 @@ public struct GeminiModelProvider: ModelProvider {
         baseURL: URL = GeminiLanguageModel.defaultBaseURL,
         tools: [any Tool] = [],
         systemInstructions: String? = nil,
-        session: URLSession? = nil
+        session: URLSession? = nil,
+        tokenUsageCapture: TokenUsageCapture? = nil
     ) {
         self.id = id
         self.supportedModels = supportedModels
@@ -33,6 +35,7 @@ public struct GeminiModelProvider: ModelProvider {
         self.tools = tools
         self.systemInstructions = systemInstructions
         self.session = session
+        self._tokenUsageCapture = tokenUsageCapture ?? TokenUsageCapture()
     }
 
     public func supports(modelName: String) -> Bool {
@@ -40,6 +43,11 @@ public struct GeminiModelProvider: ModelProvider {
             return true
         }
         return modelName.hasPrefix("gemini:")
+    }
+
+    public func tokenUsageCapture(for modelName: String) -> TokenUsageCapture? {
+        guard supports(modelName: modelName) else { return nil }
+        return _tokenUsageCapture
     }
 
     public func createLanguageModel(for modelName: String) async throws -> any LanguageModel {

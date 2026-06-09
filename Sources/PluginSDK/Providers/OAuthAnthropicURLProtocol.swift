@@ -8,10 +8,11 @@ import Foundation
 /// and rewrites auth headers for Claude Code–compatible routing (Bearer OAuth, MiniMax, third-party `x-api-key`, etc.).
 ///
 /// Uses a plain ``URLSession`` for the actual load so this protocol is not re-entered.
-final class OAuthAnthropicURLProtocol: URLProtocol {
+public final class OAuthAnthropicURLProtocol: URLProtocol {
     private var activeTask: URLSessionDataTask?
     private var activeSession: URLSession?
     private var activeDelegate: OAuthAnthropicURLProtocolSessionDelegate?
+    private var responseBuffer = Data()
 
     /// Session without custom `protocolClasses` so sub-requests do not loop through this type.
     private static let plainSession: URLSession = {
@@ -21,7 +22,7 @@ final class OAuthAnthropicURLProtocol: URLProtocol {
         return URLSession(configuration: config)
     }()
 
-    override class func canInit(with request: URLRequest) -> Bool {
+    public override class func canInit(with request: URLRequest) -> Bool {
         guard let scheme = request.url?.scheme?.lowercased(), scheme == "https" || scheme == "http" else {
             return false
         }
@@ -34,11 +35,11 @@ final class OAuthAnthropicURLProtocol: URLProtocol {
         return true
     }
 
-    override class func canonicalRequest(for request: URLRequest) -> URLRequest {
+    public override class func canonicalRequest(for request: URLRequest) -> URLRequest {
         request
     }
 
-    override func startLoading() {
+    public override func startLoading() {
         let request = self.request
         let modified = Self.modifiedRequest(from: request)
         
@@ -55,7 +56,7 @@ final class OAuthAnthropicURLProtocol: URLProtocol {
         task.resume()
     }
 
-    override func stopLoading() {
+    public override func stopLoading() {
         activeTask?.cancel()
         activeSession?.invalidateAndCancel()
         activeDelegate = nil
@@ -68,6 +69,7 @@ final class OAuthAnthropicURLProtocol: URLProtocol {
     }
 
     fileprivate func didReceive(data: Data) {
+        responseBuffer.append(data)
         self.client?.urlProtocol(self, didLoad: data)
     }
 
@@ -75,11 +77,17 @@ final class OAuthAnthropicURLProtocol: URLProtocol {
         if let error = error {
             self.client?.urlProtocol(self, didFailWithError: error)
         } else {
+            if let capture = TokenUsageCaptureRegistry.capture(
+                for: request.value(forHTTPHeaderField: TokenUsageCaptureRegistry.headerField)
+            ) {
+                Self.captureUsage(from: responseBuffer, into: capture)
+            }
             self.client?.urlProtocolDidFinishLoading(self)
         }
         activeDelegate = nil
         activeSession = nil
         activeTask = nil
+        responseBuffer.removeAll(keepingCapacity: false)
     }
 
     /// `.../v1/messages` → configured API base (e.g. `https://api.anthropic.com` or `https://proxy.example/anthropic`).
@@ -89,7 +97,7 @@ final class OAuthAnthropicURLProtocol: URLProtocol {
             .deletingLastPathComponent()
     }
 
-    private static func modifiedRequest(from request: URLRequest) -> URLRequest {
+    static func modifiedRequest(from request: URLRequest) -> URLRequest {
         guard let url = request.url else { return request }
         let apiKey = request.value(forHTTPHeaderField: "x-api-key") ?? ""
         let apiVersion = request.value(forHTTPHeaderField: "anthropic-version") ?? OAuthAnthropicAuthHeaders.defaultAPIVersion
@@ -108,13 +116,62 @@ final class OAuthAnthropicURLProtocol: URLProtocol {
         )
 
         var mutable = request
-        for field in ["x-api-key", "Authorization", "anthropic-beta", "user-agent", "x-app"] {
+        for field in ["x-api-key", "Authorization", "anthropic-beta", "user-agent", "x-app", TokenUsageCaptureRegistry.headerField] {
             mutable.setValue(nil, forHTTPHeaderField: field)
         }
         for (field, value) in authHeaders {
             mutable.setValue(value, forHTTPHeaderField: field)
         }
+        mutable.httpBody = request.httpBody.flatMap { body in
+            Self.bodyByAddingPromptCacheControl(to: body) ?? body
+        }
         return mutable
+    }
+
+    static func captureUsage(from data: Data, into capture: TokenUsageCapture) {
+        guard !data.isEmpty,
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let usage = object["usage"] as? [String: Any]
+        else {
+            return
+        }
+        let promptTokens = usage["input_tokens"] as? Int ?? 0
+        let completionTokens = usage["output_tokens"] as? Int ?? 0
+        let cacheCreationTokens = usage["cache_creation_input_tokens"] as? Int ?? 0
+        let cacheReadTokens = usage["cache_read_input_tokens"] as? Int ?? 0
+        capture.store(
+            promptTokens: promptTokens,
+            completionTokens: completionTokens,
+            cachedInputTokens: cacheReadTokens,
+            cacheCreationInputTokens: cacheCreationTokens
+        )
+    }
+
+    private static func bodyByAddingPromptCacheControl(to data: Data) -> Data? {
+        guard var object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              var messages = object["messages"] as? [[String: Any]]
+        else {
+            return nil
+        }
+        for messageIndex in messages.indices.reversed() {
+            guard messages[messageIndex]["role"] as? String == "user",
+                  var content = messages[messageIndex]["content"] as? [[String: Any]]
+            else {
+                continue
+            }
+            for contentIndex in content.indices.reversed() {
+                guard content[contentIndex]["type"] as? String == "text" else {
+                    continue
+                }
+                if content[contentIndex]["cache_control"] == nil {
+                    content[contentIndex]["cache_control"] = ["type": "ephemeral"]
+                }
+                messages[messageIndex]["content"] = content
+                object["messages"] = messages
+                return try? JSONSerialization.data(withJSONObject: object)
+            }
+        }
+        return nil
     }
 }
 
@@ -143,9 +200,14 @@ private final class OAuthAnthropicURLProtocolSessionDelegate: NSObject, URLSessi
 /// URL session that prepends ``OAuthAnthropicURLProtocol`` so Anthropic traffic gets OAuth / Claude Code–aligned auth headers.
 public enum OAuthAnthropicURLSession {
     /// Use when ``OAuthAnthropicLanguageModel`` should apply OAuth, Claude Code, or MiniMax auth rules on top of `x-api-key` requests.
-    public static func makeSessionRewritingAnthropicAuth() -> URLSession {
+    public static func makeSessionRewritingAnthropicAuth(tokenUsageCaptureID: String? = nil) -> URLSession {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [OAuthAnthropicURLProtocol.self]
+        if let tokenUsageCaptureID {
+            configuration.httpAdditionalHeaders = [
+                TokenUsageCaptureRegistry.headerField: tokenUsageCaptureID,
+            ]
+        }
         return URLSession(configuration: configuration)
     }
 }

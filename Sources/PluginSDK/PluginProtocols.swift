@@ -435,6 +435,27 @@ public final class TokenUsageCapture: @unchecked Sendable {
     }
 }
 
+public enum TokenUsageCaptureRegistry {
+    public static let headerField = "x-sloppy-token-usage-capture-id"
+
+    private nonisolated(unsafe) static var captures: [String: TokenUsageCapture] = [:]
+    private static let lock = NSLock()
+
+    public static func register(_ capture: TokenUsageCapture, id: String = UUID().uuidString) -> String {
+        lock.withLock {
+            captures[id] = capture
+        }
+        return id
+    }
+
+    public static func capture(for id: String?) -> TokenUsageCapture? {
+        guard let id, !id.isEmpty else { return nil }
+        return lock.withLock {
+            captures[id]
+        }
+    }
+}
+
 /// Plugin interface for model providers (Large Language Model integrations).
 /// Providers create `LanguageModel` instances that are used via `LanguageModelSession`.
 public protocol ModelProvider: Sendable {
