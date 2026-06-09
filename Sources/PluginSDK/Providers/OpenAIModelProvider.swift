@@ -131,12 +131,29 @@ public struct OpenAIModelProvider: ModelProvider {
 
     public func generationOptions(for modelName: String, maxTokens: Int, reasoningEffort: ReasoningEffort?) -> GenerationOptions {
         var options = GenerationOptions(maximumResponseTokens: maxTokens)
-        guard let mapped = mapReasoningEffort(reasoningEffort) else { return options }
+        let mapped = mapReasoningEffort(reasoningEffort)
         options[custom: OpenAILanguageModel.self] = .init(
             reasoningEffort: mapped,
-            reasoning: .init(effort: mapped)
+            reasoning: mapped.map { .init(effort: $0) },
+            promptCacheKey: supportsPromptCacheHints ? promptCacheKey(for: modelName) : nil,
+            promptCacheRetention: supportsPromptCacheHints ? "24h" : nil
         )
         return options
+    }
+
+    private var supportsPromptCacheHints: Bool {
+        settings.useOpenAICodexOAuthPath || settings.baseURL.host?.contains("openai.com") == true
+    }
+
+    private func promptCacheKey(for modelName: String) -> String {
+        let resolved = normalizeModelName(modelName)
+        let safeProvider = id.map { character -> Character in
+            character.isLetter || character.isNumber || character == "-" || character == "_" ? character : "-"
+        }
+        let safeModel = resolved.map { character -> Character in
+            character.isLetter || character.isNumber || character == "-" || character == "_" ? character : "-"
+        }
+        return "sloppy-\(String(safeProvider).prefix(32))-\(String(safeModel).prefix(80))"
     }
 
     private func normalizeModelName(_ model: String) -> String {

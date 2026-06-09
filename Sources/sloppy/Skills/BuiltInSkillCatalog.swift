@@ -544,6 +544,7 @@ enum BuiltInSkillCatalog {
             # Auto Mode
 
             Choose one route from the Auto route catalog before acting, then follow that route's referenced mode or skill instructions in the same turn.
+            Before following the selected route, call `planning.select_route` with the exact selected route id, such as `mode-plan`, `mode-build`, `mode-debug`, `mode-ask`, or `skill:<skill-id>`.
             Do not mutate files unless the selected route permits it. If no route is a good fit, use the Ask route and answer directly or ask for the smallest clarification needed.
             """
         }

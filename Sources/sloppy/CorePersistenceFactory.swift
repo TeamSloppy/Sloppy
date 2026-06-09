@@ -65,6 +65,9 @@ public actor InMemoryPersistenceStore: PersistenceStore {
                 promptTokens: entry.usage.prompt,
                 completionTokens: entry.usage.completion,
                 totalTokens: entry.usage.total,
+                cachedInputTokens: entry.usage.cachedInput,
+                cacheCreationInputTokens: entry.usage.cacheCreationInput,
+                reasoningTokens: entry.usage.reasoning,
                 createdAt: Date()
             )
             result.append(record)
@@ -750,6 +753,9 @@ enum CorePersistenceFactory {
             prompt_tokens INTEGER NOT NULL,
             completion_tokens INTEGER NOT NULL,
             total_tokens INTEGER NOT NULL,
+            cached_input_tokens INTEGER NOT NULL DEFAULT 0,
+            cache_creation_input_tokens INTEGER NOT NULL DEFAULT 0,
+            reasoning_tokens INTEGER NOT NULL DEFAULT 0,
             created_at TEXT NOT NULL
         );
 

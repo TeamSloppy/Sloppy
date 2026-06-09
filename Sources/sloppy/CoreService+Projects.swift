@@ -79,11 +79,17 @@ extension CoreService {
         let totalPrompt = records.reduce(0) { $0 + $1.promptTokens }
         let totalCompletion = records.reduce(0) { $0 + $1.completionTokens }
         let total = records.reduce(0) { $0 + $1.totalTokens }
+        let totalCachedInput = records.reduce(0) { $0 + $1.cachedInputTokens }
+        let totalCacheCreationInput = records.reduce(0) { $0 + $1.cacheCreationInputTokens }
+        let totalReasoning = records.reduce(0) { $0 + $1.reasoningTokens }
         return TokenUsageResponse(
             items: records,
             totalPromptTokens: totalPrompt,
             totalCompletionTokens: totalCompletion,
-            totalTokens: total
+            totalTokens: total,
+            totalCachedInputTokens: totalCachedInput,
+            totalCacheCreationInputTokens: totalCacheCreationInput,
+            totalReasoningTokens: totalReasoning
         )
     }
 
@@ -163,7 +169,10 @@ extension CoreService {
         let tokenTotals = ProjectTokenUsageTotals(
             totalPromptTokens: tokenRecords.reduce(0) { $0 + $1.promptTokens },
             totalCompletionTokens: tokenRecords.reduce(0) { $0 + $1.completionTokens },
-            totalTokens: tokenRecords.reduce(0) { $0 + $1.totalTokens }
+            totalTokens: tokenRecords.reduce(0) { $0 + $1.totalTokens },
+            totalCachedInputTokens: tokenRecords.reduce(0) { $0 + $1.cachedInputTokens },
+            totalCacheCreationInputTokens: tokenRecords.reduce(0) { $0 + $1.cacheCreationInputTokens },
+            totalReasoningTokens: tokenRecords.reduce(0) { $0 + $1.reasoningTokens }
         )
 
         return ProjectAnalyticsResponse(

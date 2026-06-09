@@ -3808,7 +3808,7 @@ func agentTokenUsageEndpointAggregatesSessionChannelData() async throws {
 
     // Persist token usage directly for the session channel
     let sessionChannelId = "agent:\(agentId):session:\(session.id)"
-    let usage = TokenUsage(prompt: 200, completion: 80)
+    let usage = TokenUsage(prompt: 200, completion: 80, cachedInputTokens: 150, reasoningTokens: 12)
     await service.persistTokenUsageForTest(channelId: sessionChannelId, usage: usage)
 
     // Agent token usage endpoint should return the aggregated session data
@@ -3824,6 +3824,43 @@ func agentTokenUsageEndpointAggregatesSessionChannelData() async throws {
     let result = try decoder.decode(AgentTokenUsageResponse.self, from: response.body)
     #expect(result.inputTokens == 200)
     #expect(result.outputTokens == 80)
+    #expect(result.cachedTokens == 150)
+}
+
+@Test
+func tokenUsageEndpointAggregatesCacheFields() async throws {
+    let config = CoreConfig.test
+    let service = CoreService(config: config)
+    let router = CoreRouter(service: service)
+
+    let channelId = "cache-usage-\(UUID().uuidString)"
+    await service.persistTokenUsageForTest(
+        channelId: channelId,
+        usage: TokenUsage(
+            prompt: 1_000,
+            completion: 120,
+            cachedInputTokens: 800,
+            cacheCreationInputTokens: 50,
+            reasoningTokens: 30
+        )
+    )
+
+    let response = await router.handle(
+        method: "GET",
+        path: "/v1/token-usage?channelId=\(channelId)",
+        body: nil
+    )
+    #expect(response.status == 200)
+
+    let decoder = JSONDecoder()
+    decoder.dateDecodingStrategy = .iso8601
+    let result = try decoder.decode(TokenUsageResponse.self, from: response.body)
+    #expect(result.totalPromptTokens == 1_000)
+    #expect(result.totalCompletionTokens == 120)
+    #expect(result.totalCachedInputTokens == 800)
+    #expect(result.totalCacheCreationInputTokens == 50)
+    #expect(result.totalReasoningTokens == 30)
+    #expect(result.items.first?.cachedInputTokens == 800)
 }
 
 private func extractArtifactID(from message: String) -> String? {

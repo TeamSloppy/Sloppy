@@ -19,17 +19,21 @@
       "Relay websocket endpoint /v1/node/mesh/ws with hello, heartbeat, online/offline, targeted routing.",
       "NodeMeshClient outbound websocket loop with hello, heartbeat, reconnect, and basic RPC responses.",
       "Basic RPC methods: node.ping, node.status, node.capabilities, project.status stub.",
-      "Structured relay error response for unavailable target nodes."
+      "Structured relay error response for unavailable target nodes.",
+      "RPC request manager with request/response correlation and timeout handling.",
+      "Typed mesh permission values and relay-side scoped RPC authorization.",
+      "Shared project update/remove-member operations and shared_project.list/get RPC handlers.",
+      "project.status reports local shared project path, Git branch/dirty state, and mesh tasks."
     ],
     "mainGaps": [
       "Relay challenge authentication is missing.",
       "Unknown nodes are not rejected before route attach by cryptographic identity.",
-      "RPC request manager, correlation waits, and timeout handling are missing.",
-      "Mesh-wide ACL for RPC and dangerous operations is missing.",
-      "Shared project metadata is local only; nodes cannot query it over mesh yet.",
       "Remote task dispatch is only recorded, not delivered into a worker lifecycle.",
       "Remote autopilot and Git branch execution are not implemented.",
-      "Dashboard integration is not implemented."
+      "Dashboard integration is not implemented.",
+      "Live CLI RPC over relay is still missing; rpc-request only records local envelopes.",
+      "Dangerous operation gates for shell/files/agent execution are not complete.",
+      "Shared project sync events are not implemented."
     ]
   },
   "phases": [
@@ -54,7 +58,7 @@
     {
       "id": "phase-02-relay-persistent-connections",
       "title": "VPS Relay and Persistent Connections",
-      "status": "partial",
+      "status": "done",
       "goal": "Laptop and home Mac maintain outbound websocket connections to a relay, and the relay tracks online/offline status.",
       "definitionOfDone": [
         "Relay accepts websocket mesh connections.",
@@ -121,7 +125,7 @@
     {
       "id": "phase-03-invite-authentication",
       "title": "Invite Flow and Challenge Authentication",
-      "status": "partial",
+      "status": "done",
       "goal": "New nodes join with a one-time invite, then future websocket connections authenticate with node keys.",
       "definitionOfDone": [
         "Invite token creation exists.",
@@ -228,7 +232,7 @@
         {
           "id": "mesh-04-01-rpc-request-manager",
           "title": "Add RPC request manager with correlation and timeout",
-          "status": "todo",
+          "status": "done",
           "dependsOn": [
             "mesh-03-03-relay-verifies-node-auth"
           ],
@@ -272,7 +276,7 @@
         {
           "id": "mesh-04-03-project-status-real-data",
           "title": "Replace project.status stub with real shared project status",
-          "status": "todo",
+          "status": "done",
           "dependsOn": [
             "mesh-06-02-shared-project-rpc"
           ],
@@ -311,7 +315,7 @@
         {
           "id": "mesh-05-01-permission-model",
           "title": "Define typed mesh permissions",
-          "status": "todo",
+          "status": "done",
           "dependsOn": [],
           "description": "Replace ad hoc permission strings in control flow with typed permission values or documented constants.",
           "files": [
@@ -329,7 +333,7 @@
         {
           "id": "mesh-05-02-authorize-rpc-routing",
           "title": "Authorize RPC routing at relay/store boundary",
-          "status": "todo",
+          "status": "done",
           "dependsOn": [
             "mesh-05-01-permission-model",
             "mesh-03-03-relay-verifies-node-auth"
@@ -396,7 +400,7 @@
         {
           "id": "mesh-06-01-shared-project-update",
           "title": "Add shared project update/remove member operations",
-          "status": "todo",
+          "status": "done",
           "dependsOn": [],
           "description": "Create explicit update APIs for project metadata and member removal so shared projects can evolve after creation.",
           "files": [
@@ -417,7 +421,7 @@
         {
           "id": "mesh-06-02-shared-project-rpc",
           "title": "Add shared_project.list and shared_project.get RPC methods",
-          "status": "todo",
+          "status": "done",
           "dependsOn": [
             "mesh-04-01-rpc-request-manager",
             "mesh-05-02-authorize-rpc-routing"
@@ -817,7 +821,7 @@
     {
       "id": "mvp-06-cryptographic-auth",
       "text": "Nodes authenticate using cryptographic identity.",
-      "status": "todo",
+      "status": "done",
       "coveredBy": [
         "mesh-03-01-auth-message-types",
         "mesh-03-02-client-signs-relay-challenge",
@@ -891,7 +895,7 @@
     {
       "id": "mvp-15-acl",
       "text": "ACL checks protect remote operations.",
-      "status": "todo",
+      "status": "partial",
       "coveredBy": [
         "mesh-05-01-permission-model",
         "mesh-05-02-authorize-rpc-routing",

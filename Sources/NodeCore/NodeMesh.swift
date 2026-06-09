@@ -248,7 +248,7 @@ public enum MeshPermission: String, Codable, CaseIterable, Sendable, Equatable {
     ]
 }
 
-public extension Array where Element == MeshPermission {
+public extension [MeshPermission] {
     var rawValues: [String] {
         map(\.rawValue)
     }
@@ -387,19 +387,19 @@ public enum NodeMeshStoreError: LocalizedError, Equatable {
     public var errorDescription: String? {
         switch self {
         case .inviteMissing:
-            return "Invite token was not found."
+            "Invite token was not found."
         case .inviteExpired:
-            return "Invite token has expired."
+            "Invite token has expired."
         case .inviteConsumed:
-            return "Invite token has already been consumed."
+            "Invite token has already been consumed."
         case let .projectMissing(projectId):
-            return "Shared project '\(projectId)' was not found."
+            "Shared project '\(projectId)' was not found."
         case let .nodeMissing(nodeId):
-            return "Node '\(nodeId)' was not found."
+            "Node '\(nodeId)' was not found."
         case let .permissionDenied(permission):
-            return "Permission denied: \(permission)."
+            "Permission denied: \(permission)."
         case let .taskMissing(taskId):
-            return "Mesh task '\(taskId)' was not found."
+            "Mesh task '\(taskId)' was not found."
         }
     }
 }
@@ -586,6 +586,51 @@ public struct NodeMeshStore: Sendable {
     }
 
     @discardableResult
+    public func updateSharedProject(
+        projectIdOrName: String,
+        name: String? = nil,
+        repoUrl: String? = nil,
+        defaultBranch: String? = nil,
+        policies: SharedProjectPolicies? = nil,
+        actor: String = "local"
+    ) throws -> SharedProjectRecord {
+        var state = try load()
+        guard let projectIndex = state.sharedProjects.firstIndex(where: { $0.id == projectIdOrName || $0.name == projectIdOrName }) else {
+            throw NodeMeshStoreError.projectMissing(projectIdOrName)
+        }
+
+        if let name, !name.isEmpty { state.sharedProjects[projectIndex].name = name }
+        if let repoUrl, !repoUrl.isEmpty { state.sharedProjects[projectIndex].repoUrl = repoUrl }
+        if let defaultBranch, !defaultBranch.isEmpty { state.sharedProjects[projectIndex].defaultBranch = defaultBranch }
+        if let policies { state.sharedProjects[projectIndex].policies = policies }
+        state.sharedProjects[projectIndex].updatedAt = Date()
+
+        let project = state.sharedProjects[projectIndex]
+        state.auditLog.append(MeshAuditLogEntry(actor: actor, action: "shared_project.update", project: project.id, allowed: true))
+        try save(state)
+        return project
+    }
+
+    @discardableResult
+    public func removeSharedProjectMember(
+        projectIdOrName: String,
+        nodeId: String,
+        actor: String = "local"
+    ) throws -> SharedProjectRecord {
+        var state = try load()
+        guard let projectIndex = state.sharedProjects.firstIndex(where: { $0.id == projectIdOrName || $0.name == projectIdOrName }) else {
+            throw NodeMeshStoreError.projectMissing(projectIdOrName)
+        }
+
+        state.sharedProjects[projectIndex].members.removeAll { $0.nodeId == nodeId }
+        state.sharedProjects[projectIndex].updatedAt = Date()
+        let project = state.sharedProjects[projectIndex]
+        state.auditLog.append(MeshAuditLogEntry(actor: actor, target: nodeId, action: "shared_project.member.remove", project: project.id, allowed: true))
+        try save(state)
+        return project
+    }
+
+    @discardableResult
     public func createNetwork(id: String, name: String? = nil) throws -> MeshState {
         var state = try load()
         state.networkId = id
@@ -715,6 +760,21 @@ public struct NodeMeshStore: Sendable {
         state.auditLog.append(MeshAuditLogEntry(actor: actor, action: "task.status.update", project: task.projectId, task: task.id, allowed: true, message: status.rawValue))
         try save(state)
         return task
+    }
+
+    public func recordTaskDispatchDelivery(taskId: String, target: String, delivered: Bool, message: String? = nil) throws {
+        var state = try load()
+        let projectId = state.tasks.first(where: { $0.id == taskId })?.projectId
+        state.auditLog.append(MeshAuditLogEntry(
+            actor: "relay",
+            target: target,
+            action: "task.dispatch.delivery",
+            project: projectId,
+            task: taskId,
+            allowed: delivered,
+            message: message ?? (delivered ? "delivered" : "not delivered")
+        ))
+        try save(state)
     }
 
     private func projectFromScope(_ scope: String?) -> String? {

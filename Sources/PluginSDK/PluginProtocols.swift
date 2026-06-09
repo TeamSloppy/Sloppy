@@ -387,22 +387,49 @@ public final class TokenUsageCapture: @unchecked Sendable {
     private let lock = NSLock()
     private var _promptTokens: Int = 0
     private var _completionTokens: Int = 0
+    private var _cachedInputTokens: Int = 0
+    private var _cacheCreationInputTokens: Int = 0
+    private var _reasoningTokens: Int = 0
 
     public init() {}
 
-    public func store(promptTokens: Int, completionTokens: Int) {
+    public func store(
+        promptTokens: Int,
+        completionTokens: Int,
+        cachedInputTokens: Int = 0,
+        cacheCreationInputTokens: Int = 0,
+        reasoningTokens: Int = 0
+    ) {
         lock.withLock {
             _promptTokens = promptTokens
             _completionTokens = completionTokens
+            _cachedInputTokens = cachedInputTokens
+            _cacheCreationInputTokens = cacheCreationInputTokens
+            _reasoningTokens = reasoningTokens
         }
     }
 
-    public func consume() -> (prompt: Int, completion: Int)? {
+    public func consume() -> (
+        prompt: Int,
+        completion: Int,
+        cachedInputTokens: Int,
+        cacheCreationInputTokens: Int,
+        reasoningTokens: Int
+    )? {
         lock.withLock {
-            guard _promptTokens > 0 || _completionTokens > 0 else { return nil }
-            let result = (prompt: _promptTokens, completion: _completionTokens)
+            guard _promptTokens > 0 || _completionTokens > 0 || _cachedInputTokens > 0 || _cacheCreationInputTokens > 0 || _reasoningTokens > 0 else { return nil }
+            let result = (
+                prompt: _promptTokens,
+                completion: _completionTokens,
+                cachedInputTokens: _cachedInputTokens,
+                cacheCreationInputTokens: _cacheCreationInputTokens,
+                reasoningTokens: _reasoningTokens
+            )
             _promptTokens = 0
             _completionTokens = 0
+            _cachedInputTokens = 0
+            _cacheCreationInputTokens = 0
+            _reasoningTokens = 0
             return result
         }
     }

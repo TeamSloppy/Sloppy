@@ -19,10 +19,10 @@ actor NodeMeshRelay {
     init(store: NodeMeshStore? = nil, logger: Logger = Logger(label: "sloppy.node.mesh.relay")) {
         self.store = store
         self.logger = logger
-        self.encoder = JSONEncoder()
-        self.encoder.dateEncodingStrategy = .iso8601
-        self.decoder = JSONDecoder()
-        self.decoder.dateDecodingStrategy = .iso8601
+        encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
     }
 
     func attach(connection: WebSocketConnectionContext, remoteAddress: String?) async {
@@ -53,9 +53,9 @@ actor NodeMeshRelay {
                 switch envelope.type {
                 case .authResponse:
                     switch verifyAuthResponse(envelope, challenge: authChallenge) {
-                    case .success(let node):
+                    case let .success(node):
                         authenticatedNode = node
-                    case .failure(let message):
+                    case let .failure(message):
                         try await sendAuthFailure(to: envelope.from, message: message, over: connection)
                         await connection.close()
                         return
@@ -73,6 +73,7 @@ actor NodeMeshRelay {
                     persist {
                         try store?.upsertNodeRecord(node, auditAction: "node.hello")
                     }
+                    try await sendPendingTaskDispatches(to: node.id)
                 case .nodeHeartbeat:
                     guard authenticatedNode?.id == envelope.from else {
                         continue
@@ -149,6 +150,9 @@ actor NodeMeshRelay {
     }
 
     private func route(_ envelope: MeshEnvelope) async throws {
+        if envelope.type == .taskStatusUpdate {
+            persistTaskStatusUpdate(envelope)
+        }
         guard let target = envelope.to else {
             return
         }
@@ -175,6 +179,39 @@ actor NodeMeshRelay {
             try store?.routeEnvelope(envelope)
         }
         try await send(envelope, over: connection.context)
+    }
+
+    private func sendPendingTaskDispatches(to nodeId: String) async throws {
+        guard let store, let connection = connections[nodeId] else {
+            return
+        }
+        let state = try store.load()
+        for envelope in state.envelopes where envelope.type == .taskDispatch && envelope.to == nodeId {
+            try await send(envelope, over: connection.context)
+            let taskId = envelope.payload.asObject?["taskId"]?.asString ?? envelope.id
+            persist {
+                try store.recordTaskDispatchDelivery(taskId: taskId, target: nodeId, delivered: true)
+            }
+        }
+    }
+
+    private func persistTaskStatusUpdate(_ envelope: MeshEnvelope) {
+        guard let store else { return }
+        let payload = envelope.payload.asObject ?? [:]
+        guard let taskId = payload["taskId"]?.asString,
+              let rawStatus = payload["status"]?.asString,
+              let status = MeshTaskStatus(rawValue: rawStatus)
+        else { return }
+        persist {
+            _ = try store.updateTaskStatus(
+                taskId: taskId,
+                status: status,
+                actor: envelope.from,
+                branch: payload["branch"]?.asString,
+                commit: payload["commit"]?.asString,
+                summary: payload["summary"]?.asString
+            )
+        }
     }
 
     private func rpcAuthorizationDenial(for envelope: MeshEnvelope, target: String) -> String? {
@@ -248,7 +285,7 @@ actor NodeMeshRelay {
     }
 
     private func stringArray(_ value: JSONValue?) -> [String] {
-        guard case .array(let values) = value else {
+        guard case let .array(values) = value else {
             return []
         }
         return values.compactMap(\.asString)

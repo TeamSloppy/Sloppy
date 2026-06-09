@@ -34,7 +34,7 @@ struct ToolRegistryTests {
             "agents.list",
             "channel.history",
             "system.list_tools", "session.complete",
-            "planning.request_input", "planning.progress_update",
+            "planning.select_route", "planning.request_input", "planning.progress_update",
             "cron",
             "project.list", "project.current", "project.create", "project.update", "project.delete",
             "project.task_list", "project.task_create", "project.task_get",

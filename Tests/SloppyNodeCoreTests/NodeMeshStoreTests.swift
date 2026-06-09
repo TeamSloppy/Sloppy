@@ -1,7 +1,7 @@
 import Foundation
 import Protocols
-import Testing
 @testable import SloppyNodeCore
+import Testing
 
 @Suite("NodeMeshStore")
 struct NodeMeshStoreTests {
@@ -13,11 +13,11 @@ struct NodeMeshStoreTests {
             publicKey: "ed25519:worker_public",
             issuedAt: Date(timeIntervalSince1970: 1_716_000_000)
         )
-        let challengeEnvelope = MeshEnvelope(
+        let challengeEnvelope = try MeshEnvelope(
             type: .authChallenge,
             from: "relay",
             to: "node_worker",
-            payload: try JSONValueCoder.encode(challenge)
+            payload: JSONValueCoder.encode(challenge)
         )
 
         let response = MeshAuthResponsePayload(
@@ -26,11 +26,11 @@ struct NodeMeshStoreTests {
             publicKey: "ed25519:worker_public",
             signature: "ed25519:worker_signature"
         )
-        let responseEnvelope = MeshEnvelope(
+        let responseEnvelope = try MeshEnvelope(
             type: .authResponse,
             from: "node_worker",
             to: "relay",
-            payload: try JSONValueCoder.encode(response)
+            payload: JSONValueCoder.encode(response)
         )
 
         let encoder = JSONEncoder()
@@ -125,6 +125,41 @@ struct NodeMeshStoreTests {
         #expect(updated.members.first(where: { $0.nodeId == controller.nodeId })?.localRepoPath == "/Users/me/dev/my-project")
         #expect(updated.members.first(where: { $0.nodeId == worker.nodeId })?.localRepoPath == "/Users/home/dev/my-project")
         #expect(updated.eventScope == "sharedProject:\(project.id)")
+    }
+
+    @Test("shared project update and member removal are audited")
+    func sharedProjectUpdateAndMemberRemovalAreAudited() throws {
+        let store = NodeMeshStore(stateURL: temporaryStateURL())
+        let worker = NodeIdentityGenerator.makeIdentity(name: "Worker", roles: ["worker"], capabilities: ["git"])
+        try store.registerNode(worker)
+        let project = try store.createSharedProject(name: "Old", repoUrl: "git@example.com:old.git")
+        _ = try store.attachMember(
+            projectIdOrName: project.id,
+            nodeId: worker.nodeId,
+            localRepoPath: "/repo",
+            role: "worker",
+            permissions: MeshPermission.workerDefaults.rawValues
+        )
+
+        let updated = try store.updateSharedProject(
+            projectIdOrName: project.id,
+            name: "New",
+            repoUrl: "git@example.com:new.git",
+            defaultBranch: "trunk",
+            policies: SharedProjectPolicies(requireTestsBeforeReady: false),
+            actor: "node_laptop"
+        )
+        #expect(updated.name == "New")
+        #expect(updated.repoUrl == "git@example.com:new.git")
+        #expect(updated.defaultBranch == "trunk")
+        #expect(updated.policies.requireTestsBeforeReady == false)
+
+        let withoutMember = try store.removeSharedProjectMember(projectIdOrName: updated.id, nodeId: worker.nodeId, actor: "node_laptop")
+        #expect(withoutMember.members.isEmpty)
+        let state = try store.load()
+        #expect(state.auditLog.map(\.action).contains("shared_project.update"))
+        #expect(state.auditLog.last?.action == "shared_project.member.remove")
+        #expect(state.auditLog.last?.target == worker.nodeId)
     }
 
     @Test("mesh permissions encode stable protocol values")

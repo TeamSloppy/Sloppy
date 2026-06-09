@@ -12,6 +12,7 @@ Choose one route from the Auto route catalog before acting, then follow that rou
 
 - First read the `[Auto route catalog]` block in the current user message.
 - Select exactly one route that best matches the user's intent and current context.
+- Before following the selected route, call `planning.select_route` with the exact selected route id, such as `mode-plan`, `mode-build`, `mode-debug`, `mode-ask`, or `skill:<skill-id>`.
 - Mention the selected route briefly when it helps the user understand the workflow.
 - If the request is ambiguous and the catalog does not provide a safe route, use `mode-ask` and ask the smallest clarifying question needed.
 

@@ -205,28 +205,29 @@ extension CoreService {
             return nil
         }
 
-        let prompt: Double?
-        if case .number(let val) = tokenUsageObj["prompt"] {
-            prompt = val
-        } else if case .string(let str) = tokenUsageObj["prompt"] {
-            prompt = Double(str)
-        } else {
-            prompt = nil
-        }
-
-        let completion: Double?
-        if case .number(let val) = tokenUsageObj["completion"] {
-            completion = val
-        } else if case .string(let str) = tokenUsageObj["completion"] {
-            completion = Double(str)
-        } else {
-            completion = nil
-        }
+        let prompt = numericTokenUsageValue(tokenUsageObj["prompt"])
+        let completion = numericTokenUsageValue(tokenUsageObj["completion"])
 
         guard let p = prompt, let c = completion else {
             return nil
         }
 
-        return TokenUsage(prompt: Int(p), completion: Int(c))
+        return TokenUsage(
+            prompt: Int(p),
+            completion: Int(c),
+            cachedInputTokens: Int(numericTokenUsageValue(tokenUsageObj["cachedInput"]) ?? 0),
+            cacheCreationInputTokens: Int(numericTokenUsageValue(tokenUsageObj["cacheCreationInput"]) ?? 0),
+            reasoningTokens: Int(numericTokenUsageValue(tokenUsageObj["reasoning"]) ?? 0)
+        )
+    }
+
+    func numericTokenUsageValue(_ field: JSONValue?) -> Double? {
+        if case .number(let val) = field {
+            return val
+        }
+        if case .string(let str) = field {
+            return Double(str)
+        }
+        return nil
     }
 }

@@ -1091,11 +1091,24 @@ public struct ProjectTokenUsageTotals: Codable, Sendable, Equatable {
     public var totalPromptTokens: Int
     public var totalCompletionTokens: Int
     public var totalTokens: Int
+    public var totalCachedInputTokens: Int
+    public var totalCacheCreationInputTokens: Int
+    public var totalReasoningTokens: Int
 
-    public init(totalPromptTokens: Int = 0, totalCompletionTokens: Int = 0, totalTokens: Int = 0) {
+    public init(
+        totalPromptTokens: Int = 0,
+        totalCompletionTokens: Int = 0,
+        totalTokens: Int = 0,
+        totalCachedInputTokens: Int = 0,
+        totalCacheCreationInputTokens: Int = 0,
+        totalReasoningTokens: Int = 0
+    ) {
         self.totalPromptTokens = totalPromptTokens
         self.totalCompletionTokens = totalCompletionTokens
         self.totalTokens = totalTokens
+        self.totalCachedInputTokens = totalCachedInputTokens
+        self.totalCacheCreationInputTokens = totalCacheCreationInputTokens
+        self.totalReasoningTokens = totalReasoningTokens
     }
 }
 
@@ -2580,12 +2593,23 @@ public struct AgentTokenUsageResponse: Codable, Sendable, Equatable {
     public var inputTokens: Int
     public var outputTokens: Int
     public var cachedTokens: Int
+    public var cacheCreationTokens: Int
+    public var reasoningTokens: Int
     public var totalCostUSD: Double
 
-    public init(inputTokens: Int, outputTokens: Int, cachedTokens: Int, totalCostUSD: Double) {
+    public init(
+        inputTokens: Int,
+        outputTokens: Int,
+        cachedTokens: Int,
+        cacheCreationTokens: Int = 0,
+        reasoningTokens: Int = 0,
+        totalCostUSD: Double
+    ) {
         self.inputTokens = inputTokens
         self.outputTokens = outputTokens
         self.cachedTokens = cachedTokens
+        self.cacheCreationTokens = cacheCreationTokens
+        self.reasoningTokens = reasoningTokens
         self.totalCostUSD = totalCostUSD
     }
 }
@@ -5422,6 +5446,9 @@ public struct TokenUsageRecord: Codable, Sendable, Equatable {
     public var promptTokens: Int
     public var completionTokens: Int
     public var totalTokens: Int
+    public var cachedInputTokens: Int
+    public var cacheCreationInputTokens: Int
+    public var reasoningTokens: Int
     public var createdAt: Date
 
     public init(
@@ -5431,6 +5458,9 @@ public struct TokenUsageRecord: Codable, Sendable, Equatable {
         promptTokens: Int,
         completionTokens: Int,
         totalTokens: Int,
+        cachedInputTokens: Int = 0,
+        cacheCreationInputTokens: Int = 0,
+        reasoningTokens: Int = 0,
         createdAt: Date = Date()
     ) {
         self.id = id
@@ -5439,6 +5469,9 @@ public struct TokenUsageRecord: Codable, Sendable, Equatable {
         self.promptTokens = promptTokens
         self.completionTokens = completionTokens
         self.totalTokens = totalTokens
+        self.cachedInputTokens = cachedInputTokens
+        self.cacheCreationInputTokens = cacheCreationInputTokens
+        self.reasoningTokens = reasoningTokens
         self.createdAt = createdAt
     }
 }
@@ -5449,17 +5482,26 @@ public struct TokenUsageResponse: Codable, Sendable {
     public var totalPromptTokens: Int
     public var totalCompletionTokens: Int
     public var totalTokens: Int
+    public var totalCachedInputTokens: Int
+    public var totalCacheCreationInputTokens: Int
+    public var totalReasoningTokens: Int
 
     public init(
         items: [TokenUsageRecord],
         totalPromptTokens: Int = 0,
         totalCompletionTokens: Int = 0,
-        totalTokens: Int = 0
+        totalTokens: Int = 0,
+        totalCachedInputTokens: Int = 0,
+        totalCacheCreationInputTokens: Int = 0,
+        totalReasoningTokens: Int = 0
     ) {
         self.items = items
         self.totalPromptTokens = totalPromptTokens
         self.totalCompletionTokens = totalCompletionTokens
         self.totalTokens = totalTokens
+        self.totalCachedInputTokens = totalCachedInputTokens
+        self.totalCacheCreationInputTokens = totalCacheCreationInputTokens
+        self.totalReasoningTokens = totalReasoningTokens
     }
 }
 

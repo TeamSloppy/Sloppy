@@ -574,6 +574,51 @@ func openAIModelProviderResponsesModeUsesOpenAIResponsesVariant() async throws {
 }
 
 @Test
+func openAIModelProviderAddsPromptCacheHintsForOpenAIEndpoints() {
+    let provider = OpenAIModelProvider(
+        supportedModels: ["openai:gpt-5.5"],
+        settings: .init(
+            apiKey: { "sk-test" },
+            baseURL: URL(string: "https://api.openai.com/v1")!,
+            modelIdentifierPrefix: "openai:"
+        )
+    )
+
+    let options = provider.generationOptions(
+        for: "openai:gpt-5.5",
+        maxTokens: 1024,
+        reasoningEffort: nil
+    )
+    let custom = options[custom: OpenAILanguageModel.self]
+
+    #expect(custom?.promptCacheKey == "sloppy-openai-gpt-5-5")
+    #expect(custom?.promptCacheRetention == "24h")
+}
+
+@Test
+func openAIModelProviderSkipsPromptCacheHintsForOpenAICompatibleEndpoints() {
+    let provider = OpenAIModelProvider(
+        supportedModels: ["openrouter:openai/gpt-4o-mini"],
+        settings: .init(
+            apiKey: { "sk-or-test" },
+            baseURL: URL(string: "https://openrouter.ai/api/v1")!,
+            modelIdentifierPrefix: "openrouter:",
+            useOpenAICodexOAuthPath: false
+        )
+    )
+
+    let options = provider.generationOptions(
+        for: "openrouter:openai/gpt-4o-mini",
+        maxTokens: 1024,
+        reasoningEffort: nil
+    )
+    let custom = options[custom: OpenAILanguageModel.self]
+
+    #expect(custom?.promptCacheKey == nil)
+    #expect(custom?.promptCacheRetention == nil)
+}
+
+@Test
 func openAIModelProviderUsesDynamicOAuthTokenWhenCodexSessionIsCached() async throws {
     let box = OAuthTokenBox(token: "stale-oauth-token")
     let provider = OpenAIModelProvider(
