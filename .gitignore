@@ -19,6 +19,7 @@ site/
 
 .zed/
 .antigravitycli/
+.superpowers/
 
 artifacts/
 logs/
