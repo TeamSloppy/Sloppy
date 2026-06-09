@@ -188,6 +188,11 @@ func sseStreamEndpointOverHTTPServerReturnsSessionReadyEvent() async throws {
 @Test
 func nodeMeshWebSocketRelaysTargetedEnvelopeBetweenConnectedNodes() async throws {
     let config = CoreConfig.test
+    let laptopIdentity = NodeIdentityGenerator.makeIdentity(name: "Laptop", roles: ["client"], capabilities: ["git"])
+    let workerIdentity = NodeIdentityGenerator.makeIdentity(name: "Worker", roles: ["worker"], capabilities: ["run_agent"])
+    let store = NodeMeshStore(stateURL: config.resolvedNodeMeshStateURL())
+    try store.registerNode(laptopIdentity, status: .offline)
+    try store.registerNode(workerIdentity, status: .offline)
     let service = CoreService(config: config)
     let router = CoreRouter(service: service)
     let server = CoreHTTPServer(
@@ -215,40 +220,14 @@ func nodeMeshWebSocketRelaysTargetedEnvelopeBetweenConnectedNodes() async throws
     let decoder = JSONDecoder()
     decoder.dateDecodingStrategy = .iso8601
 
-    try await sendMeshEnvelope(
-        MeshEnvelope(
-            type: .nodeHello,
-            from: "node_laptop",
-            payload: .object([
-                "name": .string("Laptop"),
-                "publicKey": .string("ed25519:laptop"),
-                "roles": .array([.string("client")]),
-                "capabilities": .array([.string("git")]),
-            ])
-        ),
-        encoder: encoder,
-        over: laptopSocket
-    )
-    try await sendMeshEnvelope(
-        MeshEnvelope(
-            type: .nodeHello,
-            from: "node_worker",
-            payload: .object([
-                "name": .string("Worker"),
-                "publicKey": .string("ed25519:worker"),
-                "roles": .array([.string("worker")]),
-                "capabilities": .array([.string("run_agent")]),
-            ])
-        ),
-        encoder: encoder,
-        over: workerSocket
-    )
+    try await authenticateMeshSocket(identity: laptopIdentity, encoder: encoder, decoder: decoder, over: laptopSocket)
+    try await authenticateMeshSocket(identity: workerIdentity, encoder: encoder, decoder: decoder, over: workerSocket)
 
     try await sendMeshEnvelope(
         MeshEnvelope(
             type: .rpcRequest,
-            from: "node_laptop",
-            to: "node_worker",
+            from: laptopIdentity.nodeId,
+            to: workerIdentity.nodeId,
             payload: .object([
                 "method": .string("node.ping"),
                 "params": .object([:]),
@@ -258,146 +237,66 @@ func nodeMeshWebSocketRelaysTargetedEnvelopeBetweenConnectedNodes() async throws
         over: laptopSocket
     )
 
-    let message = try await withAsyncTestTimeout(operation: "mesh routed rpc request") {
-        try await workerSocket.receive()
-    }
+    let message = try await receiveMeshWebSocketMessage(over: workerSocket, operation: "mesh routed rpc request")
     let payload = try #require(messagePayload(message))
     let envelope = try decoder.decode(MeshEnvelope.self, from: Data(payload.utf8))
     #expect(envelope.type == .rpcRequest)
-    #expect(envelope.from == "node_laptop")
-    #expect(envelope.to == "node_worker")
+    #expect(envelope.from == laptopIdentity.nodeId)
+    #expect(envelope.to == workerIdentity.nodeId)
     #expect(envelope.payload.asObject?["method"] == .string("node.ping"))
 }
 
 @Test
-func nodeMeshRelayTracksHeartbeatAndMarksOfflineOnDisconnect() async throws {
-    let relay = NodeMeshRelay(logger: Logger(label: "sloppy.node.mesh.relay.tests"))
+func nodeMeshWebSocketRoutePersistsStateToConfiguredStore() async throws {
+    var config = CoreConfig.test
+    config.nodeMeshStatePath = "mesh/relay-state.json"
+    let identity = NodeIdentityGenerator.makeIdentity(name: "Worker", roles: ["worker"], capabilities: ["run_agent"])
+    let store = NodeMeshStore(stateURL: config.resolvedNodeMeshStateURL())
+    try store.registerNode(identity, status: .offline)
+    let service = CoreService(config: config)
+    let router = CoreRouter(service: service)
+    let server = CoreHTTPServer(
+        host: "127.0.0.1",
+        port: 0,
+        router: router,
+        logger: Logger(label: "sloppy.node.mesh.httpserver.persistence.tests")
+    )
+    try server.start()
+    defer { try? server.shutdown() }
+
+    let port = try #require(server.boundPort)
+    let wsURL = try #require(URL(string: "ws://127.0.0.1:\(port)/v1/node/mesh/ws"))
+    let socket = URLSession.shared.webSocketTask(with: wsURL)
+    socket.resume()
+    defer {
+        socket.cancel(with: .normalClosure, reason: nil)
+    }
+
     let encoder = JSONEncoder()
     encoder.dateEncodingStrategy = .iso8601
-    var continuation: AsyncStream<String>.Continuation!
-    let stream = AsyncStream<String> { next in
-        continuation = next
-    }
-    let connection = WebSocketConnectionContext(
-        sendText: { _ in true },
-        close: {},
-        incomingMessages: { stream }
-    )
+    let decoder = JSONDecoder()
+    decoder.dateDecodingStrategy = .iso8601
+    try await authenticateMeshSocket(identity: identity, encoder: encoder, decoder: decoder, over: socket)
 
-    let relayTask = Task {
-        await relay.attach(connection: connection, remoteAddress: "127.0.0.1")
+    try await waitUntil("configured mesh state persisted online") {
+        (try? store.load().nodes.first(where: { $0.id == identity.nodeId })?.status) == .online
     }
 
-    continuation.yield(try encodedMeshEnvelope(
-        MeshEnvelope(
-            type: .nodeHello,
-            from: "node_worker",
-            payload: .object([
-                "name": .string("Worker"),
-                "publicKey": .string("ed25519:worker"),
-                "roles": .array([.string("worker")]),
-                "capabilities": .array([.string("run_agent")]),
-            ])
-        ),
-        encoder: encoder
-    ))
-    try await waitUntil("node_worker registered online") {
-        await relay.nodeRecord(id: "node_worker")?.status == .online
+    socket.cancel(with: .normalClosure, reason: nil)
+    try await waitUntil("configured mesh state persisted offline") {
+        (try? store.load().nodes.first(where: { $0.id == identity.nodeId })?.status) == .offline
     }
-    let firstSeenAt = try #require(await relay.nodeRecord(id: "node_worker")?.lastSeenAt)
-
-    try await Task.sleep(nanoseconds: 5_000_000)
-    continuation.yield(try encodedMeshEnvelope(
-        MeshEnvelope(type: .nodeHeartbeat, from: "node_worker"),
-        encoder: encoder
-    ))
-    try await waitUntil("node_worker heartbeat advanced") {
-        guard let node = await relay.nodeRecord(id: "node_worker") else {
-            return false
-        }
-        return node.status == .online && node.lastSeenAt > firstSeenAt
-    }
-
-    continuation.finish()
-    await relayTask.value
-    let offline = try #require(await relay.nodeRecord(id: "node_worker"))
-    #expect(offline.status == .offline)
-    #expect(await relay.activeNodeIds().isEmpty)
 }
 
 @Test
-func nodeMeshRelayPersistsHelloHeartbeatRouteAndOffline() async throws {
+func nodeMeshRelayTracksHeartbeatAndMarksOfflineOnDisconnect() async throws {
     let stateURL = FileManager.default.temporaryDirectory
         .appendingPathComponent("sloppy-relay-tests-\(UUID().uuidString)", isDirectory: true)
         .appendingPathComponent("mesh.json")
     let store = NodeMeshStore(stateURL: stateURL)
-    let relay = NodeMeshRelay(
-        store: store,
-        logger: Logger(label: "sloppy.node.mesh.relay.persistence.tests")
-    )
-    let encoder = JSONEncoder()
-    encoder.dateEncodingStrategy = .iso8601
-    var continuation: AsyncStream<String>.Continuation!
-    let stream = AsyncStream<String> { next in
-        continuation = next
-    }
-    let connection = WebSocketConnectionContext(
-        sendText: { _ in true },
-        close: {},
-        incomingMessages: { stream }
-    )
-
-    let relayTask = Task {
-        await relay.attach(connection: connection, remoteAddress: "127.0.0.1")
-    }
-
-    continuation.yield(try encodedMeshEnvelope(
-        MeshEnvelope(
-            type: .nodeHello,
-            from: "node_worker",
-            payload: .object([
-                "name": .string("Worker"),
-                "publicKey": .string("ed25519:worker"),
-                "roles": .array([.string("worker")]),
-                "capabilities": .array([.string("run_agent")]),
-            ])
-        ),
-        encoder: encoder
-    ))
-    try await waitUntil("node_worker persisted online") {
-        (try? store.load().nodes.first(where: { $0.id == "node_worker" })?.status) == .online
-    }
-    let firstSeenAt = try #require(try store.load().nodes.first(where: { $0.id == "node_worker" })?.lastSeenAt)
-
-    try await Task.sleep(nanoseconds: 1_100_000_000)
-    continuation.yield(try encodedMeshEnvelope(
-        MeshEnvelope(type: .nodeHeartbeat, from: "node_worker"),
-        encoder: encoder
-    ))
-    try await waitUntil("node_worker heartbeat persisted") {
-        guard let node = try? store.load().nodes.first(where: { $0.id == "node_worker" }) else {
-            return false
-        }
-        return node.status == .online && node.lastSeenAt > firstSeenAt
-    }
-
-    continuation.yield(try encodedMeshEnvelope(
-        MeshEnvelope(type: .rpcRequest, from: "node_worker", to: "node_worker"),
-        encoder: encoder
-    ))
-    try await waitUntil("routed envelope audited") {
-        (try? store.load().auditLog.last?.action) == "rpc.request"
-    }
-
-    continuation.finish()
-    await relayTask.value
-    let offline = try #require(try store.load().nodes.first(where: { $0.id == "node_worker" }))
-    #expect(offline.status == .offline)
-}
-
-@Test
-func nodeMeshRelayReturnsStructuredErrorForMissingTarget() async throws {
-    let relay = NodeMeshRelay(logger: Logger(label: "sloppy.node.mesh.relay.error.tests"))
+    let identity = NodeIdentityGenerator.makeIdentity(name: "Worker", roles: ["worker"], capabilities: ["run_agent"])
+    try store.registerNode(identity, status: .offline)
+    let relay = NodeMeshRelay(store: store, logger: Logger(label: "sloppy.node.mesh.relay.tests"))
     let encoder = JSONEncoder()
     encoder.dateEncodingStrategy = .iso8601
     let decoder = JSONDecoder()
@@ -420,18 +319,154 @@ func nodeMeshRelayReturnsStructuredErrorForMissingTarget() async throws {
         await relay.attach(connection: connection, remoteAddress: "127.0.0.1")
     }
 
+    try await authenticateRelayConnection(
+        identity: identity,
+        continuation: continuation,
+        sentMessages: sentMessages,
+        encoder: encoder,
+        decoder: decoder
+    )
+    try await waitUntil("node_worker registered online") {
+        await relay.nodeRecord(id: identity.nodeId)?.status == .online
+    }
+    let firstSeenAt = try #require(await relay.nodeRecord(id: identity.nodeId)?.lastSeenAt)
+
+    try await Task.sleep(nanoseconds: 5_000_000)
     continuation.yield(try encodedMeshEnvelope(
-        MeshEnvelope(type: .nodeHello, from: "node_laptop"),
+        MeshEnvelope(type: .nodeHeartbeat, from: identity.nodeId),
         encoder: encoder
     ))
+    try await waitUntil("node_worker heartbeat advanced") {
+        guard let node = await relay.nodeRecord(id: identity.nodeId) else {
+            return false
+        }
+        return node.status == .online && node.lastSeenAt > firstSeenAt
+    }
+
+    continuation.finish()
+    await relayTask.value
+    let offline = try #require(await relay.nodeRecord(id: identity.nodeId))
+    #expect(offline.status == .offline)
+    #expect(await relay.activeNodeIds().isEmpty)
+}
+
+@Test
+func nodeMeshRelayPersistsHelloHeartbeatRouteAndOffline() async throws {
+    let stateURL = FileManager.default.temporaryDirectory
+        .appendingPathComponent("sloppy-relay-tests-\(UUID().uuidString)", isDirectory: true)
+        .appendingPathComponent("mesh.json")
+    let store = NodeMeshStore(stateURL: stateURL)
+    let identity = NodeIdentityGenerator.makeIdentity(name: "Worker", roles: ["worker"], capabilities: ["run_agent"])
+    try store.registerNode(identity, status: .offline)
+    let relay = NodeMeshRelay(
+        store: store,
+        logger: Logger(label: "sloppy.node.mesh.relay.persistence.tests")
+    )
+    let encoder = JSONEncoder()
+    encoder.dateEncodingStrategy = .iso8601
+    let decoder = JSONDecoder()
+    decoder.dateDecodingStrategy = .iso8601
+    var continuation: AsyncStream<String>.Continuation!
+    let sentMessages = WebSocketSentMessageRecorder()
+    let stream = AsyncStream<String> { next in
+        continuation = next
+    }
+    let connection = WebSocketConnectionContext(
+        sendText: { text in
+            await sentMessages.append(text)
+            return true
+        },
+        close: {},
+        incomingMessages: { stream }
+    )
+
+    let relayTask = Task {
+        await relay.attach(connection: connection, remoteAddress: "127.0.0.1")
+    }
+
+    try await authenticateRelayConnection(
+        identity: identity,
+        continuation: continuation,
+        sentMessages: sentMessages,
+        encoder: encoder,
+        decoder: decoder
+    )
+    try await waitUntil("node_worker persisted online") {
+        (try? store.load().nodes.first(where: { $0.id == identity.nodeId })?.status) == .online
+    }
+    try await Task.sleep(nanoseconds: 1_100_000_000)
+    continuation.yield(try encodedMeshEnvelope(
+        MeshEnvelope(type: .nodeHeartbeat, from: identity.nodeId),
+        encoder: encoder
+    ))
+    try await waitUntil("node_worker heartbeat persisted") {
+        guard let state = try? store.load(),
+              let node = state.nodes.first(where: { $0.id == identity.nodeId }) else {
+            return false
+        }
+        return node.status == .online && state.auditLog.contains { $0.action == "node.heartbeat" && $0.actor == identity.nodeId }
+    }
+
+    continuation.yield(try encodedMeshEnvelope(
+        MeshEnvelope(type: .rpcRequest, from: identity.nodeId, to: identity.nodeId),
+        encoder: encoder
+    ))
+    try await waitUntil("routed envelope audited") {
+        (try? store.load().auditLog.last?.action) == "rpc.request"
+    }
+
+    continuation.finish()
+    await relayTask.value
+    let offline = try #require(try store.load().nodes.first(where: { $0.id == identity.nodeId }))
+    #expect(offline.status == .offline)
+}
+
+@Test
+func nodeMeshRelayReturnsStructuredErrorForMissingTarget() async throws {
+    let stateURL = FileManager.default.temporaryDirectory
+        .appendingPathComponent("sloppy-relay-tests-\(UUID().uuidString)", isDirectory: true)
+        .appendingPathComponent("mesh.json")
+    let store = NodeMeshStore(stateURL: stateURL)
+    let identity = NodeIdentityGenerator.makeIdentity(name: "Laptop", roles: ["client"], capabilities: ["git"])
+    try store.registerNode(identity, status: .offline)
+    let relay = NodeMeshRelay(store: store, logger: Logger(label: "sloppy.node.mesh.relay.error.tests"))
+    let encoder = JSONEncoder()
+    encoder.dateEncodingStrategy = .iso8601
+    let decoder = JSONDecoder()
+    decoder.dateDecodingStrategy = .iso8601
+    var continuation: AsyncStream<String>.Continuation!
+    let sentMessages = WebSocketSentMessageRecorder()
+    let stream = AsyncStream<String> { next in
+        continuation = next
+    }
+    let connection = WebSocketConnectionContext(
+        sendText: { text in
+            await sentMessages.append(text)
+            return true
+        },
+        close: {},
+        incomingMessages: { stream }
+    )
+
+    let relayTask = Task {
+        await relay.attach(connection: connection, remoteAddress: "127.0.0.1")
+    }
+
+    try await authenticateRelayConnection(
+        identity: identity,
+        continuation: continuation,
+        sentMessages: sentMessages,
+        encoder: encoder,
+        decoder: decoder
+    )
     try await waitUntil("node_laptop registered online") {
-        await relay.nodeRecord(id: "node_laptop")?.status == .online
+        await relay.nodeRecord(id: identity.nodeId)?.status == .online
     }
     continuation.yield(try encodedMeshEnvelope(
         MeshEnvelope(
             id: "rpc_missing",
             type: .rpcRequest,
-            from: "node_laptop",
+            from: identity.nodeId,
             to: "node_missing",
             payload: .object(["method": .string("node.ping")])
         ),
@@ -439,17 +474,245 @@ func nodeMeshRelayReturnsStructuredErrorForMissingTarget() async throws {
     ))
 
     try await waitUntil("missing target error sent") {
-        await sentMessages.isEmpty == false
+        await sentMessages.count >= 2
     }
     let message = try #require(await sentMessages.last)
     let envelope = try decoder.decode(MeshEnvelope.self, from: Data(message.utf8))
     #expect(envelope.type == .rpcResponse)
     #expect(envelope.from == "relay")
-    #expect(envelope.to == "node_laptop")
+    #expect(envelope.to == identity.nodeId)
     #expect(envelope.payload.asObject?["requestId"] == .string("rpc_missing"))
     #expect(envelope.payload.asObject?["ok"] == .bool(false))
     #expect(envelope.payload.asObject?["error"]?.asObject?["code"] == .string("node_unavailable"))
     #expect(envelope.payload.asObject?["error"]?.asObject?["target"] == .string("node_missing"))
+
+    continuation.finish()
+    await relayTask.value
+}
+
+@Test
+func nodeMeshRelayRejectsRPCWithoutPermission() async throws {
+    let stateURL = FileManager.default.temporaryDirectory
+        .appendingPathComponent("sloppy-relay-tests-\(UUID().uuidString)", isDirectory: true)
+        .appendingPathComponent("mesh.json")
+    let store = NodeMeshStore(stateURL: stateURL)
+    let laptopIdentity = NodeIdentityGenerator.makeIdentity(name: "Laptop", roles: ["client"], capabilities: ["git"])
+    let workerIdentity = NodeIdentityGenerator.makeIdentity(name: "Worker", roles: ["worker"], capabilities: ["run_agent"])
+    try store.registerNode(laptopIdentity, status: .offline)
+    try store.registerNode(workerIdentity, status: .offline)
+    let project = try store.createSharedProject(name: "Mesh Project", repoUrl: "git@example.com:mesh.git")
+    _ = try store.attachMember(
+        projectIdOrName: project.id,
+        nodeId: laptopIdentity.nodeId,
+        localRepoPath: "/Users/laptop/mesh",
+        role: "controller",
+        permissions: [MeshPermission.projectRead.rawValue]
+    )
+    _ = try store.attachMember(
+        projectIdOrName: project.id,
+        nodeId: workerIdentity.nodeId,
+        localRepoPath: "/Users/worker/mesh",
+        role: "worker",
+        permissions: MeshPermission.workerDefaults.rawValues
+    )
+
+    let relay = NodeMeshRelay(store: store, logger: Logger(label: "sloppy.node.mesh.relay.acl.tests"))
+    let encoder = JSONEncoder()
+    encoder.dateEncodingStrategy = .iso8601
+    let decoder = JSONDecoder()
+    decoder.dateDecodingStrategy = .iso8601
+
+    var laptopContinuation: AsyncStream<String>.Continuation!
+    let laptopMessages = WebSocketSentMessageRecorder()
+    let laptopStream = AsyncStream<String> { next in
+        laptopContinuation = next
+    }
+    let laptopConnection = WebSocketConnectionContext(
+        sendText: { text in
+            await laptopMessages.append(text)
+            return true
+        },
+        close: {},
+        incomingMessages: { laptopStream }
+    )
+    var workerContinuation: AsyncStream<String>.Continuation!
+    let workerMessages = WebSocketSentMessageRecorder()
+    let workerStream = AsyncStream<String> { next in
+        workerContinuation = next
+    }
+    let workerConnection = WebSocketConnectionContext(
+        sendText: { text in
+            await workerMessages.append(text)
+            return true
+        },
+        close: {},
+        incomingMessages: { workerStream }
+    )
+
+    let laptopTask = Task {
+        await relay.attach(connection: laptopConnection, remoteAddress: "127.0.0.1")
+    }
+    let workerTask = Task {
+        await relay.attach(connection: workerConnection, remoteAddress: "127.0.0.1")
+    }
+
+    try await authenticateRelayConnection(
+        identity: laptopIdentity,
+        continuation: laptopContinuation,
+        sentMessages: laptopMessages,
+        encoder: encoder,
+        decoder: decoder
+    )
+    try await authenticateRelayConnection(
+        identity: workerIdentity,
+        continuation: workerContinuation,
+        sentMessages: workerMessages,
+        encoder: encoder,
+        decoder: decoder
+    )
+    try await waitUntil("mesh nodes authenticated for acl test") {
+        await relay.activeNodeIds().sorted() == [laptopIdentity.nodeId, workerIdentity.nodeId].sorted()
+    }
+
+    laptopContinuation.yield(try encodedMeshEnvelope(
+        MeshEnvelope(
+            id: "rpc_forbidden",
+            type: .rpcRequest,
+            from: laptopIdentity.nodeId,
+            to: workerIdentity.nodeId,
+            scope: project.eventScope,
+            payload: .object(["method": .string("node.status")])
+        ),
+        encoder: encoder
+    ))
+
+    try await waitUntil("forbidden rpc response sent") {
+        await laptopMessages.count >= 2
+    }
+    let message = try #require(await laptopMessages.last)
+    let envelope = try decoder.decode(MeshEnvelope.self, from: Data(message.utf8))
+    #expect(envelope.type == .rpcResponse)
+    #expect(envelope.from == "relay")
+    #expect(envelope.to == laptopIdentity.nodeId)
+    #expect(envelope.payload.asObject?["requestId"] == .string("rpc_forbidden"))
+    #expect(envelope.payload.asObject?["ok"] == .bool(false))
+    #expect(envelope.payload.asObject?["error"]?.asObject?["code"] == .string("forbidden"))
+    #expect(await workerMessages.count == 1)
+    let audit = try #require(try store.load().auditLog.last)
+    #expect(audit.action == "rpc.request")
+    #expect(audit.allowed == false)
+    #expect(audit.message == "missing node.rpc permission")
+
+    laptopContinuation.finish()
+    workerContinuation.finish()
+    await laptopTask.value
+    await workerTask.value
+}
+
+@Test
+func nodeMeshRelayRejectsUnknownNodeAuth() async throws {
+    let stateURL = FileManager.default.temporaryDirectory
+        .appendingPathComponent("sloppy-relay-tests-\(UUID().uuidString)", isDirectory: true)
+        .appendingPathComponent("mesh.json")
+    let store = NodeMeshStore(stateURL: stateURL)
+    let identity = NodeIdentityGenerator.makeIdentity(name: "Unknown", roles: ["worker"], capabilities: ["run_agent"])
+    let relay = NodeMeshRelay(store: store, logger: Logger(label: "sloppy.node.mesh.relay.auth.tests"))
+    let encoder = JSONEncoder()
+    encoder.dateEncodingStrategy = .iso8601
+    let decoder = JSONDecoder()
+    decoder.dateDecodingStrategy = .iso8601
+    var continuation: AsyncStream<String>.Continuation!
+    let sentMessages = WebSocketSentMessageRecorder()
+    let stream = AsyncStream<String> { next in
+        continuation = next
+    }
+    let connection = WebSocketConnectionContext(
+        sendText: { text in
+            await sentMessages.append(text)
+            return true
+        },
+        close: {},
+        incomingMessages: { stream }
+    )
+
+    let relayTask = Task {
+        await relay.attach(connection: connection, remoteAddress: "127.0.0.1")
+    }
+    let challenge = try await receiveRelayAuthChallenge(sentMessages: sentMessages, decoder: decoder)
+    let response = try #require(try NodeMeshClient.makeAuthResponseEnvelope(identity: identity, challengeEnvelope: challenge))
+    continuation.yield(try encodedMeshEnvelope(response, encoder: encoder))
+
+    try await waitUntil("unknown node auth error sent") {
+        await sentMessages.count >= 2
+    }
+    let errorMessage = try #require(await sentMessages.last)
+    let errorEnvelope = try decoder.decode(MeshEnvelope.self, from: Data(errorMessage.utf8))
+    #expect(errorEnvelope.type == .rpcResponse)
+    #expect(errorEnvelope.payload.asObject?["ok"] == .bool(false))
+    #expect(errorEnvelope.payload.asObject?["error"]?.asObject?["code"] == .string("auth_failed"))
+    #expect(await relay.activeNodeIds().isEmpty)
+
+    continuation.finish()
+    await relayTask.value
+}
+
+@Test
+func nodeMeshRelayRejectsWrongSignatureAuth() async throws {
+    let stateURL = FileManager.default.temporaryDirectory
+        .appendingPathComponent("sloppy-relay-tests-\(UUID().uuidString)", isDirectory: true)
+        .appendingPathComponent("mesh.json")
+    let store = NodeMeshStore(stateURL: stateURL)
+    let registered = NodeIdentityGenerator.makeIdentity(name: "Worker", roles: ["worker"], capabilities: ["run_agent"])
+    let impostor = NodeIdentityGenerator.makeIdentity(name: "Impostor", roles: ["worker"], capabilities: ["run_agent"])
+    try store.registerNode(registered, status: .offline)
+    let relay = NodeMeshRelay(store: store, logger: Logger(label: "sloppy.node.mesh.relay.auth.tests"))
+    let encoder = JSONEncoder()
+    encoder.dateEncodingStrategy = .iso8601
+    let decoder = JSONDecoder()
+    decoder.dateDecodingStrategy = .iso8601
+    var continuation: AsyncStream<String>.Continuation!
+    let sentMessages = WebSocketSentMessageRecorder()
+    let stream = AsyncStream<String> { next in
+        continuation = next
+    }
+    let connection = WebSocketConnectionContext(
+        sendText: { text in
+            await sentMessages.append(text)
+            return true
+        },
+        close: {},
+        incomingMessages: { stream }
+    )
+
+    let relayTask = Task {
+        await relay.attach(connection: connection, remoteAddress: "127.0.0.1")
+    }
+    let challenge = try await receiveRelayAuthChallenge(sentMessages: sentMessages, decoder: decoder)
+    let nonce = try JSONValueCoder.decode(MeshAuthChallengePayload.self, from: challenge.payload).nonce
+    let wrongSignature = try NodeIdentityGenerator.sign(challenge: Data(nonce.utf8), privateKey: impostor.privateKey)
+    let response = MeshEnvelope(
+        type: .authResponse,
+        from: registered.nodeId,
+        to: "relay",
+        payload: try JSONValueCoder.encode(
+            MeshAuthResponsePayload(
+                nonce: nonce,
+                nodeId: registered.nodeId,
+                publicKey: registered.publicKey,
+                signature: wrongSignature
+            )
+        )
+    )
+    continuation.yield(try encodedMeshEnvelope(response, encoder: encoder))
+
+    try await waitUntil("wrong signature auth error sent") {
+        await sentMessages.count >= 2
+    }
+    let errorMessage = try #require(await sentMessages.last)
+    let errorEnvelope = try decoder.decode(MeshEnvelope.self, from: Data(errorMessage.utf8))
+    #expect(errorEnvelope.payload.asObject?["ok"] == .bool(false))
+    #expect(errorEnvelope.payload.asObject?["error"]?.asObject?["code"] == .string("auth_failed"))
+    #expect(await relay.activeNodeIds().isEmpty)
 
     continuation.finish()
     await relayTask.value
@@ -679,9 +942,78 @@ private func sendMeshEnvelope(
     try await socket.send(.string(try encodedMeshEnvelope(envelope, encoder: encoder)))
 }
 
+private func authenticateMeshSocket(
+    identity: NodeIdentity,
+    encoder: JSONEncoder,
+    decoder: JSONDecoder,
+    over socket: URLSessionWebSocketTask
+) async throws {
+    let challengeMessage = try await receiveMeshWebSocketMessage(over: socket, operation: "mesh auth challenge")
+    let challengePayload = try #require(messagePayload(challengeMessage))
+    let challengeEnvelope = try decoder.decode(MeshEnvelope.self, from: Data(challengePayload.utf8))
+    #expect(challengeEnvelope.type == .authChallenge)
+    let responseEnvelope = try #require(try NodeMeshClient.makeAuthResponseEnvelope(identity: identity, challengeEnvelope: challengeEnvelope))
+    try await sendMeshEnvelope(responseEnvelope, encoder: encoder, over: socket)
+    try await sendMeshEnvelope(NodeMeshClient.makeHelloEnvelope(identity: identity), encoder: encoder, over: socket)
+}
+
 private func encodedMeshEnvelope(_ envelope: MeshEnvelope, encoder: JSONEncoder) throws -> String {
     let payload = try encoder.encode(envelope)
     return try #require(String(data: payload, encoding: .utf8))
+}
+
+private func receiveMeshWebSocketMessage(
+    over socket: URLSessionWebSocketTask,
+    operation: String,
+    timeoutSeconds: TimeInterval = 5
+) async throws -> URLSessionWebSocketTask.Message {
+    final class ReceiveBox: @unchecked Sendable {
+        private let lock = NSLock()
+        private var finished = false
+        private var continuation: CheckedContinuation<URLSessionWebSocketTask.Message, Error>?
+
+        func setContinuation(_ continuation: CheckedContinuation<URLSessionWebSocketTask.Message, Error>) {
+            lock.lock()
+            self.continuation = continuation
+            lock.unlock()
+        }
+
+        func finish(_ result: Result<URLSessionWebSocketTask.Message, Error>) {
+            lock.lock()
+            guard !finished else {
+                lock.unlock()
+                return
+            }
+            finished = true
+            let continuation = continuation
+            self.continuation = nil
+            lock.unlock()
+
+            switch result {
+            case .success(let message):
+                continuation?.resume(returning: message)
+            case .failure(let error):
+                continuation?.resume(throwing: error)
+            }
+        }
+    }
+
+    let box = ReceiveBox()
+    return try await withCheckedThrowingContinuation { continuation in
+        box.setContinuation(continuation)
+        socket.receive { result in
+            switch result {
+            case .success(let message):
+                box.finish(.success(message))
+            case .failure(let error):
+                box.finish(.failure(error))
+            }
+        }
+        DispatchQueue.global().asyncAfter(deadline: .now() + timeoutSeconds) {
+            socket.cancel(with: .goingAway, reason: nil)
+            box.finish(.failure(AsyncTestTimeoutError(operation: operation)))
+        }
+    }
 }
 
 private func receiveDashboardTerminalMessage(
@@ -730,8 +1062,16 @@ private func collectDashboardTerminalOutput(
 private actor WebSocketSentMessageRecorder {
     private var messages: [String] = []
 
+    var count: Int {
+        messages.count
+    }
+
     var isEmpty: Bool {
         messages.isEmpty
+    }
+
+    var first: String? {
+        messages.first
     }
 
     var last: String? {
@@ -741,6 +1081,32 @@ private actor WebSocketSentMessageRecorder {
     func append(_ message: String) {
         messages.append(message)
     }
+}
+
+private func receiveRelayAuthChallenge(
+    sentMessages: WebSocketSentMessageRecorder,
+    decoder: JSONDecoder
+) async throws -> MeshEnvelope {
+    try await waitUntil("relay auth challenge sent") {
+        await sentMessages.isEmpty == false
+    }
+    let message = try #require(await sentMessages.first)
+    let envelope = try decoder.decode(MeshEnvelope.self, from: Data(message.utf8))
+    #expect(envelope.type == .authChallenge)
+    return envelope
+}
+
+private func authenticateRelayConnection(
+    identity: NodeIdentity,
+    continuation: AsyncStream<String>.Continuation,
+    sentMessages: WebSocketSentMessageRecorder,
+    encoder: JSONEncoder,
+    decoder: JSONDecoder
+) async throws {
+    let challenge = try await receiveRelayAuthChallenge(sentMessages: sentMessages, decoder: decoder)
+    let response = try #require(try NodeMeshClient.makeAuthResponseEnvelope(identity: identity, challengeEnvelope: challenge))
+    continuation.yield(try encodedMeshEnvelope(response, encoder: encoder))
+    continuation.yield(try encodedMeshEnvelope(NodeMeshClient.makeHelloEnvelope(identity: identity), encoder: encoder))
 }
 
 private func waitUntil(

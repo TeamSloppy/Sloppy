@@ -27,6 +27,35 @@ func bootstrapBulletinCliOverrideWinsOverConfig() {
     #expect(!shouldBootstrapVisorBulletin(cliOverride: false, config: config))
 }
 
+@Test
+func relayStartupOptionsStorePublicURLAndDisableDashboard() throws {
+    var config = CoreConfig.default
+
+    try applyRelayStartupOptions(
+        config: &config,
+        relayPublicURL: "https://sloppy.example.com",
+        relayOnly: true
+    )
+
+    #expect(config.nodeMeshPublicURL == "https://sloppy.example.com")
+    #expect(!shouldStartDashboard(guiOverride: nil, dashboardOverride: nil, relayOnly: true))
+    let metadata = try #require(relayStartupMetadata(config: config))
+    #expect(metadata.publicWebSocketURL == "wss://sloppy.example.com/v1/node/mesh/ws")
+}
+
+@Test
+func relayStartupOptionsRejectInvalidPublicURL() {
+    var config = CoreConfig.default
+
+    #expect(throws: Error.self) {
+        try applyRelayStartupOptions(
+            config: &config,
+            relayPublicURL: "not a url",
+            relayOnly: false
+        )
+    }
+}
+
 @available(macOS 15.0, *)
 @Test
 func serverEnvironmentOverridesUseSloppyTokenForLegacyAndDashboardAuth() {
@@ -44,6 +73,21 @@ func serverEnvironmentOverridesUseSloppyTokenForLegacyAndDashboardAuth() {
 
     #expect(config.auth.token == "env-secret-token")
     #expect(config.ui.dashboardAuth.token == "env-secret-token")
+}
+
+@available(macOS 15.0, *)
+@Test
+func serverEnvironmentOverridesUseNodeMeshPublicURL() {
+    var config = CoreConfig.default
+
+    let envConfig = ConfigReader(providers: [EnvironmentVariablesProvider()])
+    applyServerEnvironmentOverrides(
+        config: &config,
+        envConfig: envConfig,
+        environment: ["SLOPPY_NODE_MESH_PUBLIC_URL": "https://relay.example.com"]
+    )
+
+    #expect(config.nodeMeshPublicURL == "https://relay.example.com")
 }
 
 @Test

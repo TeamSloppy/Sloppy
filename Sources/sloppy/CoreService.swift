@@ -13,6 +13,7 @@ import Logging
 import Protocols
 import PluginSDK
 import CodexBarCore
+import SloppyNodeCore
 
 public enum AgentSessionStreamUpdateKind: String, Codable, Sendable {
     case sessionReady = "session_ready"
@@ -275,6 +276,7 @@ public actor CoreService {
     let toolApprovalService: ToolApprovalService
     let dashboardTerminalService: DashboardTerminalService
     let channelStreamCancelRegistry: ChannelStreamCancelRegistry
+    nonisolated let nodeMeshStore: NodeMeshStore
     var inboundChannelPluginQueues: [String: InboundChannelPluginQueueSlot] = [:]
 
     /// Creates core orchestration service with runtime and persistence backend.
@@ -393,6 +395,9 @@ public actor CoreService {
         self.store = persistenceBuilder.makeStore(config: config)
         self.workspaceRootURL = config
             .resolvedWorkspaceRootURL(currentDirectory: currentDirectory)
+        self.nodeMeshStore = NodeMeshStore(
+            stateURL: config.resolvedNodeMeshStateURL(currentDirectory: currentDirectory)
+        )
         self.openAIProviderCatalog = OpenAIProviderCatalogService()
         let providerWorkspaceRootURL = self.workspaceRootURL
         self.providerProbeService = providerProbeService ?? ProviderProbeService(

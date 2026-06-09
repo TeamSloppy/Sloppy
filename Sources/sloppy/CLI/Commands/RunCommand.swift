@@ -3,6 +3,7 @@ import Configuration
 import Foundation
 import Logging
 import Protocols
+import SloppyNodeCore
 #if os(Linux)
 import Glibc
 #else
@@ -31,6 +32,12 @@ struct RunCommand: AsyncParsableCommand {
 
     @Option(name: .customLong("generate-openapi"), help: "Generate OpenAPI (Swagger) specification and save to the provided path")
     var openapiPath: String?
+
+    @Option(name: .customLong("relay-public-url"), help: "Public HTTPS/WSS URL advertised for the node mesh relay.")
+    var relayPublicURL: String?
+
+    @Flag(name: .customLong("relay-only"), help: "Start as a foreground mesh relay/coordinator without the bundled dashboard.")
+    var relayOnly: Bool = false
 
     mutating func run() async throws {
         var runtimeLogger: Logger?
@@ -81,6 +88,11 @@ struct RunCommand: AsyncParsableCommand {
             } else {
                 config = try loadServerConfigRecovering(from: explicitConfigPath, currentDirectory: homeDirectory)
             }
+            try applyRelayStartupOptions(
+                config: &config,
+                relayPublicURL: relayPublicURL,
+                relayOnly: relayOnly
+            )
 
             let workspaceRoot = try prepareServerWorkspace(config: &config, currentDirectory: homeDirectory)
             let systemLogFileURL = defaultServerLogFileURL(in: workspaceRoot)
@@ -131,7 +143,7 @@ struct RunCommand: AsyncParsableCommand {
             try server.start()
             logger.info("sloppy HTTP server listening on \(config.listen.host):\(config.listen.port)")
 
-            let guiEnabled = shouldStartDashboard(guiOverride: gui, dashboardOverride: dashboard)
+            let guiEnabled = shouldStartDashboard(guiOverride: gui, dashboardOverride: dashboard, relayOnly: relayOnly)
             let lanIPv4 = NetworkAddressResolver.resolvePrimaryLANIPv4()
             let endpoints = NetworkAddressResolver.makeDisplayEndpoints(
                 bindHost: config.listen.host,
@@ -182,6 +194,13 @@ struct RunCommand: AsyncParsableCommand {
 // MARK: - Server helpers (previously file-level private in SloppyApp.swift)
 
 func shouldStartDashboard(guiOverride: Bool?, dashboardOverride: Bool?) -> Bool {
+    shouldStartDashboard(guiOverride: guiOverride, dashboardOverride: dashboardOverride, relayOnly: false)
+}
+
+func shouldStartDashboard(guiOverride: Bool?, dashboardOverride: Bool?, relayOnly: Bool) -> Bool {
+    if relayOnly {
+        return false
+    }
     if let guiOverride {
         return guiOverride
     }
@@ -189,6 +208,38 @@ func shouldStartDashboard(guiOverride: Bool?, dashboardOverride: Bool?) -> Bool 
         return dashboardOverride
     }
     return true
+}
+
+struct RelayStartupMetadata: Equatable, Sendable {
+    var publicURL: String
+    var publicWebSocketURL: String
+}
+
+func applyRelayStartupOptions(
+    config: inout CoreConfig,
+    relayPublicURL: String?,
+    relayOnly: Bool
+) throws {
+    if let publicURL = normalizedServerConfigPath(relayPublicURL) {
+        _ = try relayPublicWebSocketURL(from: publicURL)
+        config.nodeMeshPublicURL = publicURL
+    } else if relayOnly, let configuredURL = normalizedServerConfigPath(config.nodeMeshPublicURL) {
+        _ = try relayPublicWebSocketURL(from: configuredURL)
+        config.nodeMeshPublicURL = configuredURL
+    }
+}
+
+func relayStartupMetadata(config: CoreConfig) -> RelayStartupMetadata? {
+    guard let publicURL = normalizedServerConfigPath(config.nodeMeshPublicURL),
+          let publicWebSocketURL = try? relayPublicWebSocketURL(from: publicURL)
+    else {
+        return nil
+    }
+    return RelayStartupMetadata(publicURL: publicURL, publicWebSocketURL: publicWebSocketURL)
+}
+
+private func relayPublicWebSocketURL(from publicURL: String) throws -> String {
+    try NodeMeshClient.resolveRelayWebSocketURL(publicURL).absoluteString
 }
 
 func shouldBootstrapVisorBulletin(cliOverride: Bool?, config: CoreConfig) -> Bool {
@@ -238,6 +289,16 @@ func applyServerEnvironmentOverrides(
               config.ui.dashboardAuth.token.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
               !sloppyToken.isEmpty {
         config.ui.dashboardAuth.token = sloppyToken
+    }
+    let publicURLOverride = [
+        environment["SLOPPY_NODE_MESH_PUBLIC_URL"],
+        envConfig.string(forKey: "core.node_mesh.public_url", default: ""),
+        envConfig.string(forKey: "core.nodeMesh.publicURL", default: ""),
+    ]
+        .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
+        .first { !$0.isEmpty }
+    if let publicURLOverride {
+        config.nodeMeshPublicURL = publicURLOverride
     }
     config.sqlitePath = envConfig.string(forKey: "core.sqlite.path", default: config.sqlitePath)
 }
@@ -611,6 +672,9 @@ func printServerStartupBanner(
     }
     if let dashboardURL {
         rows.append(("Dashboard", dashboardURL))
+    }
+    if let relay = relayStartupMetadata(config: config) {
+        rows.append(("Relay WS", relay.publicWebSocketURL))
     }
     rows.append(contentsOf: [
         ("Health", "\(endpoints.preferredAPIBase)/health"),

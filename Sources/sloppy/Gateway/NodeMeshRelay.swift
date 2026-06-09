@@ -27,10 +27,21 @@ actor NodeMeshRelay {
 
     func attach(connection: WebSocketConnectionContext, remoteAddress: String?) async {
         var attachedNodeId: String?
+        let authChallenge = makeAuthChallenge()
+        var authenticatedNode: MeshNodeRecord?
         defer {
             if let attachedNodeId {
                 markOffline(nodeId: attachedNodeId)
             }
+        }
+
+        do {
+            try await Task.sleep(nanoseconds: 1_000_000)
+            try await send(authChallenge, over: connection)
+        } catch {
+            logger.warning("Node mesh auth challenge failed", metadata: ["error": .string(String(describing: error))])
+            await connection.close()
+            return
         }
 
         for await text in connection.incomingMessages() {
@@ -40,7 +51,21 @@ actor NodeMeshRelay {
             do {
                 let envelope = try decoder.decode(MeshEnvelope.self, from: data)
                 switch envelope.type {
+                case .authResponse:
+                    switch verifyAuthResponse(envelope, challenge: authChallenge) {
+                    case .success(let node):
+                        authenticatedNode = node
+                    case .failure(let message):
+                        try await sendAuthFailure(to: envelope.from, message: message, over: connection)
+                        await connection.close()
+                        return
+                    }
                 case .nodeHello:
+                    guard let authenticatedNode, authenticatedNode.id == envelope.from else {
+                        try await sendAuthFailure(to: envelope.from, message: "Node is not authenticated.", over: connection)
+                        await connection.close()
+                        return
+                    }
                     let node = nodeRecord(from: envelope, remoteAddress: remoteAddress)
                     nodes[node.id] = node
                     connections[node.id] = Connection(node: node, context: connection)
@@ -49,13 +74,69 @@ actor NodeMeshRelay {
                         try store?.upsertNodeRecord(node, auditAction: "node.hello")
                     }
                 case .nodeHeartbeat:
+                    guard authenticatedNode?.id == envelope.from else {
+                        continue
+                    }
                     handleHeartbeat(envelope)
                 default:
+                    guard authenticatedNode != nil else {
+                        continue
+                    }
                     try await route(envelope)
                 }
             } catch {
                 logger.warning("Node mesh websocket message failed", metadata: ["error": .string(String(describing: error))])
             }
+        }
+    }
+
+    private enum AuthVerificationResult {
+        case success(MeshNodeRecord)
+        case failure(String)
+    }
+
+    private func makeAuthChallenge() -> MeshEnvelope {
+        MeshEnvelope(
+            type: .authChallenge,
+            from: "relay",
+            payload: .object([
+                "nonce": .string(NodeIdentityGenerator.randomToken(byteCount: 24)),
+                "nodeId": .string(""),
+                "publicKey": .string(""),
+                "issuedAt": .string(ISO8601DateFormatter().string(from: Date())),
+            ])
+        )
+    }
+
+    private func verifyAuthResponse(_ envelope: MeshEnvelope, challenge: MeshEnvelope) -> AuthVerificationResult {
+        guard let store else {
+            return .failure("Node mesh store is not configured.")
+        }
+        do {
+            let challengePayload = try JSONValueCoder.decode(MeshAuthChallengePayload.self, from: challenge.payload)
+            let response = try JSONValueCoder.decode(MeshAuthResponsePayload.self, from: envelope.payload)
+            guard response.nonce == challengePayload.nonce else {
+                return .failure("Auth nonce does not match.")
+            }
+            guard response.nodeId == envelope.from else {
+                return .failure("Auth node id does not match envelope sender.")
+            }
+            guard let registered = try store.load().nodes.first(where: { $0.id == response.nodeId }) else {
+                return .failure("Node is not registered.")
+            }
+            guard response.publicKey == registered.publicKey else {
+                return .failure("Auth public key does not match registered node.")
+            }
+            guard NodeIdentityGenerator.verify(
+                signature: response.signature,
+                challenge: Data(response.nonce.utf8),
+                publicKey: registered.publicKey
+            ) else {
+                return .failure("Auth signature is invalid.")
+            }
+            return .success(registered)
+        } catch {
+            return .failure("Auth response is invalid.")
         }
     }
 
@@ -69,6 +150,13 @@ actor NodeMeshRelay {
 
     private func route(_ envelope: MeshEnvelope) async throws {
         guard let target = envelope.to else {
+            return
+        }
+        if envelope.type == .rpcRequest, let denial = rpcAuthorizationDenial(for: envelope, target: target) {
+            try await sendForbiddenRPCResponse(for: envelope, message: denial)
+            persist {
+                try store?.recordRouteFailure(envelope, target: target, message: denial)
+            }
             return
         }
         guard let connection = connections[target] else {
@@ -86,11 +174,34 @@ actor NodeMeshRelay {
         persist {
             try store?.routeEnvelope(envelope)
         }
-        let data = try encoder.encode(envelope)
-        guard let text = String(data: data, encoding: .utf8) else {
-            return
+        try await send(envelope, over: connection.context)
+    }
+
+    private func rpcAuthorizationDenial(for envelope: MeshEnvelope, target: String) -> String? {
+        guard let store,
+              envelope.scope?.hasPrefix("sharedProject:") == true,
+              let projectId = envelope.scope.map({ String($0.dropFirst("sharedProject:".count)) })
+        else {
+            return nil
         }
-        _ = await connection.context.sendText(text)
+
+        do {
+            guard let project = try store.load().sharedProjects.first(where: { $0.id == projectId }) else {
+                return "shared project scope is unknown"
+            }
+            guard let sourceMember = project.members.first(where: { $0.nodeId == envelope.from }) else {
+                return "source node is not a project member"
+            }
+            guard project.members.contains(where: { $0.nodeId == target }) else {
+                return "target node is not a project member"
+            }
+            guard sourceMember.permissions.contains(MeshPermission.nodeRPC.rawValue) else {
+                return "missing node.rpc permission"
+            }
+            return nil
+        } catch {
+            return "mesh authorization state is unavailable"
+        }
     }
 
     private func handleHeartbeat(_ envelope: MeshEnvelope) {
@@ -162,14 +273,55 @@ actor NodeMeshRelay {
                 ]),
             ])
         )
-        let data = try encoder.encode(errorEnvelope)
-        guard let text = String(data: data, encoding: .utf8) else {
-            return
-        }
-        _ = await source.context.sendText(text)
+        try await send(errorEnvelope, over: source.context)
         persist {
             try store?.recordRouteFailure(envelope, target: target, message: "target node unavailable")
         }
+    }
+
+    private func sendForbiddenRPCResponse(for envelope: MeshEnvelope, message: String) async throws {
+        guard let source = connections[envelope.from] else {
+            return
+        }
+        let errorEnvelope = MeshEnvelope(
+            type: .rpcResponse,
+            from: "relay",
+            to: envelope.from,
+            scope: envelope.scope,
+            payload: .object([
+                "requestId": .string(envelope.id),
+                "ok": .bool(false),
+                "error": .object([
+                    "code": .string("forbidden"),
+                    "message": .string(message),
+                ]),
+            ])
+        )
+        try await send(errorEnvelope, over: source.context)
+    }
+
+    private func sendAuthFailure(to nodeId: String, message: String, over connection: WebSocketConnectionContext) async throws {
+        let errorEnvelope = MeshEnvelope(
+            type: .rpcResponse,
+            from: "relay",
+            to: nodeId.isEmpty ? nil : nodeId,
+            payload: .object([
+                "ok": .bool(false),
+                "error": .object([
+                    "code": .string("auth_failed"),
+                    "message": .string(message),
+                ]),
+            ])
+        )
+        try await send(errorEnvelope, over: connection)
+    }
+
+    private func send(_ envelope: MeshEnvelope, over connection: WebSocketConnectionContext) async throws {
+        let data = try encoder.encode(envelope)
+        guard let text = String(data: data, encoding: .utf8) else {
+            return
+        }
+        _ = await connection.sendText(text)
     }
 
     private func persist(_ operation: () throws -> Void) {

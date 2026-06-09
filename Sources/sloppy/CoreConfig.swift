@@ -10,6 +10,7 @@ public struct CoreConfig: Codable, Sendable {
     public static let defaultWorkspaceName = ".sloppy"
     public static let defaultWorkspaceBasePath = "."
     public static let defaultSQLiteFileName = "memory/core.sqlite"
+    public static let defaultNodeMeshStateFileName = "node/mesh.json"
 
     public struct ModelConfig: Codable, Sendable, Equatable {
         public var title: String
@@ -1633,6 +1634,8 @@ public struct CoreConfig: Codable, Sendable {
     public var kanban: Kanban
     public var ui: UI
     public var toolHooks: ToolHooks
+    public var nodeMeshPublicURL: String?
+    public var nodeMeshStatePath: String
     public var sqlitePath: String
     /// Optional aliases for model ids (e.g. `"fast"` -> `"openai-api:gpt-5.4-mini"`) used when resolving `model` from SKILL.md or tools.
     public var modelRouting: [String: String]
@@ -1663,6 +1666,8 @@ public struct CoreConfig: Codable, Sendable {
         kanban: Kanban = Kanban(),
         ui: UI = UI(),
         toolHooks: ToolHooks = ToolHooks(),
+        nodeMeshPublicURL: String? = nil,
+        nodeMeshStatePath: String = CoreConfig.defaultNodeMeshStateFileName,
         sqlitePath: String,
         modelRouting: [String: String] = [:],
         disableModelInference: Bool = false
@@ -1692,6 +1697,8 @@ public struct CoreConfig: Codable, Sendable {
         self.kanban = kanban
         self.ui = ui
         self.toolHooks = toolHooks
+        self.nodeMeshPublicURL = nodeMeshPublicURL
+        self.nodeMeshStatePath = nodeMeshStatePath
         self.sqlitePath = sqlitePath
         self.modelRouting = modelRouting
         self.disableModelInference = disableModelInference
@@ -1735,6 +1742,8 @@ public struct CoreConfig: Codable, Sendable {
             kanban: .init(),
             ui: .init(),
             toolHooks: .init(),
+            nodeMeshPublicURL: nil,
+            nodeMeshStatePath: CoreConfig.defaultNodeMeshStateFileName,
             sqlitePath: CoreConfig.defaultSQLiteFileName,
             modelRouting: [:]
         )
@@ -1808,6 +1817,8 @@ public struct CoreConfig: Codable, Sendable {
         case kanban
         case ui
         case toolHooks
+        case nodeMeshPublicURL
+        case nodeMeshStatePath
         case sqlitePath
         case modelRouting
         case disableModelInference
@@ -1838,6 +1849,8 @@ public struct CoreConfig: Codable, Sendable {
         kanban = try container.decodeIfPresent(Kanban.self, forKey: .kanban) ?? .init()
         ui = try container.decodeIfPresent(UI.self, forKey: .ui) ?? .init()
         toolHooks = try container.decodeIfPresent(ToolHooks.self, forKey: .toolHooks) ?? .init()
+        nodeMeshPublicURL = try container.decodeIfPresent(String.self, forKey: .nodeMeshPublicURL)
+        nodeMeshStatePath = try container.decodeIfPresent(String.self, forKey: .nodeMeshStatePath) ?? Self.defaultNodeMeshStateFileName
         sqlitePath = try container.decode(String.self, forKey: .sqlitePath)
         models = try container.decodeIfPresent([ModelConfig].self, forKey: .models) ?? []
         opencode = try container.decodeIfPresent(OpenCode.self, forKey: .opencode) ?? .init()
@@ -1873,6 +1886,8 @@ public struct CoreConfig: Codable, Sendable {
         try container.encode(kanban, forKey: .kanban)
         try container.encode(ui, forKey: .ui)
         try container.encode(toolHooks, forKey: .toolHooks)
+        try container.encodeIfPresent(nodeMeshPublicURL, forKey: .nodeMeshPublicURL)
+        try container.encode(nodeMeshStatePath, forKey: .nodeMeshStatePath)
         try container.encode(sqlitePath, forKey: .sqlitePath)
         if !modelRouting.isEmpty {
             try container.encode(modelRouting, forKey: .modelRouting)
@@ -1922,6 +1937,15 @@ public struct CoreConfig: Codable, Sendable {
 
         return resolvedWorkspaceRootURL(currentDirectory: currentDirectory)
             .appendingPathComponent(sqlitePath)
+    }
+
+    public func resolvedNodeMeshStateURL(currentDirectory: String = FileManager.default.currentDirectoryPath) -> URL {
+        if Self.isAbsolutePath(nodeMeshStatePath) {
+            return URL(fileURLWithPath: nodeMeshStatePath)
+        }
+
+        return resolvedWorkspaceRootURL(currentDirectory: currentDirectory)
+            .appendingPathComponent(nodeMeshStatePath)
     }
 
     private static func resolvePath(_ rawPath: String, currentDirectory: URL) -> URL {

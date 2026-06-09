@@ -5,6 +5,55 @@ import Testing
 
 @Suite("NodeMeshStore")
 struct NodeMeshStoreTests {
+    @Test("auth challenge and response envelopes round trip as typed payloads")
+    func authChallengeAndResponseEnvelopesRoundTripAsTypedPayloads() throws {
+        let challenge = MeshAuthChallengePayload(
+            nonce: "nonce_123",
+            nodeId: "node_worker",
+            publicKey: "ed25519:worker_public",
+            issuedAt: Date(timeIntervalSince1970: 1_716_000_000)
+        )
+        let challengeEnvelope = MeshEnvelope(
+            type: .authChallenge,
+            from: "relay",
+            to: "node_worker",
+            payload: try JSONValueCoder.encode(challenge)
+        )
+
+        let response = MeshAuthResponsePayload(
+            nonce: challenge.nonce,
+            nodeId: "node_worker",
+            publicKey: "ed25519:worker_public",
+            signature: "ed25519:worker_signature"
+        )
+        let responseEnvelope = MeshEnvelope(
+            type: .authResponse,
+            from: "node_worker",
+            to: "relay",
+            payload: try JSONValueCoder.encode(response)
+        )
+
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+
+        let decodedChallengeEnvelope = try decoder.decode(MeshEnvelope.self, from: encoder.encode(challengeEnvelope))
+        let decodedChallenge = try JSONValueCoder.decode(MeshAuthChallengePayload.self, from: decodedChallengeEnvelope.payload)
+        #expect(decodedChallengeEnvelope.type == .authChallenge)
+        #expect(decodedChallenge.nonce == "nonce_123")
+        #expect(decodedChallenge.nodeId == "node_worker")
+        #expect(decodedChallenge.publicKey == "ed25519:worker_public")
+
+        let decodedResponseEnvelope = try decoder.decode(MeshEnvelope.self, from: encoder.encode(responseEnvelope))
+        let decodedResponse = try JSONValueCoder.decode(MeshAuthResponsePayload.self, from: decodedResponseEnvelope.payload)
+        #expect(decodedResponseEnvelope.type == .authResponse)
+        #expect(decodedResponse.nonce == "nonce_123")
+        #expect(decodedResponse.nodeId == "node_worker")
+        #expect(decodedResponse.publicKey == "ed25519:worker_public")
+        #expect(decodedResponse.signature == "ed25519:worker_signature")
+    }
+
     @Test("invite consume registers node once and rejects reuse")
     func inviteConsumeRegistersNodeOnceAndRejectsReuse() throws {
         let store = NodeMeshStore(stateURL: temporaryStateURL())
@@ -76,6 +125,31 @@ struct NodeMeshStoreTests {
         #expect(updated.members.first(where: { $0.nodeId == controller.nodeId })?.localRepoPath == "/Users/me/dev/my-project")
         #expect(updated.members.first(where: { $0.nodeId == worker.nodeId })?.localRepoPath == "/Users/home/dev/my-project")
         #expect(updated.eventScope == "sharedProject:\(project.id)")
+    }
+
+    @Test("mesh permissions encode stable protocol values")
+    func meshPermissionsEncodeStableProtocolValues() throws {
+        #expect(MeshPermission.projectRead.rawValue == "project.read")
+        #expect(MeshPermission.projectWrite.rawValue == "project.write")
+        #expect(MeshPermission.taskCreate.rawValue == "task.create")
+        #expect(MeshPermission.taskAssign.rawValue == "task.assign")
+        #expect(MeshPermission.taskUpdate.rawValue == "task.update")
+        #expect(MeshPermission.nodeRPC.rawValue == "node.rpc")
+        #expect(MeshPermission.nodeShell.rawValue == "node.shell")
+        #expect(MeshPermission.nodeAgentSpawn.rawValue == "node.agent.spawn")
+        #expect(MeshPermission.nodeFilesRead.rawValue == "node.files.read")
+        #expect(MeshPermission.nodeFilesWrite.rawValue == "node.files.write")
+        #expect(MeshPermission.nodeRelay.rawValue == "node.relay")
+
+        let member = SharedProjectMember(
+            nodeId: "node_worker",
+            localRepoPath: "/repo",
+            role: "worker",
+            permissions: MeshPermission.workerDefaults.rawValues
+        )
+        let data = try JSONEncoder().encode(member)
+        let object = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        #expect(object["permissions"] as? [String] == ["project.read", "task.update", "node.rpc"])
     }
 
     @Test("routing envelope to unknown node audits denial")

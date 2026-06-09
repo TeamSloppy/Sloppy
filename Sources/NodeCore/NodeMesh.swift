@@ -2,6 +2,8 @@ import Foundation
 import Protocols
 
 public enum MeshMessageType: String, Codable, Sendable, Equatable {
+    case authChallenge = "auth.challenge"
+    case authResponse = "auth.response"
     case nodeHello = "node.hello"
     case nodeHeartbeat = "node.heartbeat"
     case nodeRegistryUpdate = "node.registry.update"
@@ -44,6 +46,44 @@ public struct MeshEnvelope: Codable, Sendable, Equatable {
         self.scope = scope
         self.timestamp = timestamp
         self.payload = payload
+        self.signature = signature
+    }
+}
+
+public struct MeshAuthChallengePayload: Codable, Sendable, Equatable {
+    public var nonce: String
+    public var nodeId: String
+    public var publicKey: String
+    public var issuedAt: Date
+
+    public init(
+        nonce: String,
+        nodeId: String,
+        publicKey: String,
+        issuedAt: Date = Date()
+    ) {
+        self.nonce = nonce
+        self.nodeId = nodeId
+        self.publicKey = publicKey
+        self.issuedAt = issuedAt
+    }
+}
+
+public struct MeshAuthResponsePayload: Codable, Sendable, Equatable {
+    public var nonce: String
+    public var nodeId: String
+    public var publicKey: String
+    public var signature: String
+
+    public init(
+        nonce: String,
+        nodeId: String,
+        publicKey: String,
+        signature: String
+    ) {
+        self.nonce = nonce
+        self.nodeId = nodeId
+        self.publicKey = publicKey
         self.signature = signature
     }
 }
@@ -185,6 +225,32 @@ public struct SharedProjectPolicies: Codable, Sendable, Equatable {
         self.directPushToMain = directPushToMain
         self.requireCleanWorktree = requireCleanWorktree
         self.requireTestsBeforeReady = requireTestsBeforeReady
+    }
+}
+
+public enum MeshPermission: String, Codable, CaseIterable, Sendable, Equatable {
+    case projectRead = "project.read"
+    case projectWrite = "project.write"
+    case taskCreate = "task.create"
+    case taskAssign = "task.assign"
+    case taskUpdate = "task.update"
+    case nodeRPC = "node.rpc"
+    case nodeShell = "node.shell"
+    case nodeAgentSpawn = "node.agent.spawn"
+    case nodeFilesRead = "node.files.read"
+    case nodeFilesWrite = "node.files.write"
+    case nodeRelay = "node.relay"
+
+    public static let workerDefaults: [MeshPermission] = [
+        .projectRead,
+        .taskUpdate,
+        .nodeRPC,
+    ]
+}
+
+public extension Array where Element == MeshPermission {
+    var rawValues: [String] {
+        map(\.rawValue)
     }
 }
 
