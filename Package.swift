@@ -30,7 +30,7 @@ let package = Package(
         .package(url: "https://github.com/TeamSloppy/CodexBar.git", branch: "main"),
         .package(path: "Packages/TauTUI"),
         .package(url: "https://github.com/modelcontextprotocol/swift-sdk.git", from: "0.11.0"),
-        .package(url: "https://github.com/TeamSloppy/swift-acp", branch: "main"),
+        .package(path: "Vendor/swift-acp"),
         .package(url: "https://github.com/swiftlang/swift-tools-protocols.git", branch: "main"),
     ],
     targets: [
@@ -80,6 +80,7 @@ let package = Package(
                 "ChannelPluginTelegram",
                 "Protocols",
                 "PluginSDK",
+                "SloppyNodeCLI",
                 "SloppyNodeCore",
                 "CSQLite3",
                 .product(name: "SloppyComputerControl", package: "SloppyComputerControl"),
@@ -113,13 +114,19 @@ let package = Package(
         .executableTarget(
             name: "SloppyNode",
             dependencies: [
+                "SloppyNodeCLI",
+            ],
+            path: "Sources/Node"
+        ),
+        .target(
+            name: "SloppyNodeCLI",
+            dependencies: [
                 "SloppyNodeCore",
                 "Protocols",
-                "CSQLite3",
                 .product(name: "ArgumentParser", package: "swift-argument-parser"),
                 .product(name: "Logging", package: "swift-log"),
             ],
-            path: "Sources/Node"
+            path: "Sources/SloppyNodeCLI"
         ),
         .target(
             name: "SloppyNodeCore",

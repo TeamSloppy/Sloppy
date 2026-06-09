@@ -75,6 +75,18 @@ function isDashboardAuthRequired(config: AnyRecord | null) {
   return Boolean(dashboardAuth?.enabled) && String(dashboardAuth?.token || "").trim().length > 0;
 }
 
+function protectedDashboardAuthConfig(): AnyRecord {
+  return {
+    onboarding: { completed: true },
+    ui: {
+      dashboardAuth: {
+        enabled: true,
+        token: "protected"
+      }
+    }
+  };
+}
+
 async function copyTextToClipboard(text: string) {
   if (!text.trim()) {
     return false;
@@ -640,6 +652,37 @@ export function App() {
         }
 
         if (!config) {
+          const authStatus = await dependencies.coreApi.fetchDashboardAuthStatus();
+          if (isCancelled) {
+            return;
+          }
+          if (authStatus?.enabled) {
+            const existingToken = getDashboardAuthToken();
+            if (existingToken) {
+              setAuthState({ status: "checking", error: "" });
+              const validation = await dependencies.coreApi.validateDashboardAuthToken(existingToken);
+              if (isCancelled) {
+                return;
+              }
+              if (validation) {
+                retryBootstrap();
+                return;
+              }
+              setRememberDashboardToken(isDashboardAuthTokenPersisted());
+              setAuthState({
+                status: "required",
+                error: "Saved dashboard token is no longer valid."
+              });
+            } else {
+              setAuthState({ status: "required", error: "" });
+            }
+            setBootState({
+              isLoading: false,
+              config: protectedDashboardAuthConfig(),
+              error: ""
+            });
+            return;
+          }
           setBootState({
             isLoading: false,
             config: null,
@@ -778,6 +821,7 @@ export function App() {
     setDashboardAuthToken(token, { persist: rememberDashboardToken });
     setAuthState({ status: "authenticated", error: "" });
     setDashboardTokenInput("");
+    retryBootstrap();
   }
 
   if (bootState.isLoading) {

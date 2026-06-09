@@ -28,7 +28,7 @@ public struct AppColors: Sendable, Hashable {
     public var statusNeutral: Color
 
     public static let dark = AppColors(
-        background:     .fromHex(0x030611),
+        background:     .fromHex(0x000000),
         surface:        .fromHex(0x0B1020),
         surfaceRaised:  .fromHex(0x141B33),
         surfaceGlass:   .fromHex(0x111A2E),

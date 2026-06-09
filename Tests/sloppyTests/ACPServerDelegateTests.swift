@@ -294,6 +294,50 @@ func sloppyACPServerLoadSessionReplaysStoredTranscript() async throws {
 }
 
 @Test
+func sloppyACPServerRoutesThinkBlocksToThoughtChunksWhenLoadingSession() async throws {
+    let service = try await makeACPServerService()
+    let recorder = ACPServerUpdateRecorder()
+    let delegate = SloppyACPServerDelegate(
+        service: service,
+        agentID: "dev",
+        defaultCwd: "/tmp",
+        sendUpdate: { sessionId, update in await recorder.append(sessionId: sessionId, update: update) }
+    )
+
+    let created = try await delegate.handleNewSession(NewSessionRequest(cwd: "/tmp"))
+    let events = [
+        AgentSessionEvent(
+            agentId: "dev",
+            sessionId: created.sessionId.value,
+            type: .message,
+            message: AgentSessionMessage(
+                role: .assistant,
+                segments: [
+                    AgentMessageSegment(
+                        kind: .text,
+                        text: "Visible <think>hidden reasoning</think> answer"
+                    )
+                ]
+            )
+        ),
+    ]
+    _ = try await service.appendAgentSessionEvents(
+        agentID: "dev",
+        sessionID: created.sessionId.value,
+        request: AgentSessionAppendEventsRequest(events: events)
+    )
+
+    _ = try await delegate.handleLoadSession(
+        LoadSessionRequest(sessionId: created.sessionId, cwd: "/tmp")
+    )
+
+    let updates = await recorder.updates.map(\.1)
+    #expect(ACPServerTestHelpers.acpText(updates[safe: 1], expectedCase: "agent_message_chunk") == "Visible ")
+    #expect(ACPServerTestHelpers.acpText(updates[safe: 2], expectedCase: "agent_thought_chunk") == "hidden reasoning")
+    #expect(ACPServerTestHelpers.acpText(updates[safe: 3], expectedCase: "agent_message_chunk") == " answer")
+}
+
+@Test
 func sloppyACPServerDoesNotForwardRunStatusesAsThoughtChunks() async throws {
     let service = try await makeACPServerService()
     let recorder = ACPServerUpdateRecorder()
@@ -455,6 +499,47 @@ func acpServerDeltaTrackerAllowsFinalAssistantMessageWhenNoLiveDeltasWereSent() 
     #expect(await tracker.shouldForwardFinalAssistantMessage() == true)
 }
 
+@Test
+func acpServerThinkBlockRouterSendsThinkBlocksAsThoughtChunks() async {
+    let router = ACPServerThinkBlockRouter()
+
+    let first = await router.consume("Visible <think>hidden")
+    let second = await router.consume(" thought</think> answer")
+
+    #expect(first.map(\.kind) == [.message, .thought])
+    #expect(first.map(\.text) == ["Visible ", "hidden"])
+    #expect(second.map(\.kind) == [.thought, .message])
+    #expect(second.map(\.text) == [" thought", " answer"])
+}
+
+@Test
+func acpServerThinkBlockRouterHandlesSplitTagsAcrossChunks() async {
+    let router = ACPServerThinkBlockRouter()
+
+    let first = await router.consume("Visible <thi")
+    let second = await router.consume("nk>hidden</thi")
+    let third = await router.consume("nk> answer")
+
+    #expect(first.map(\.kind) == [.message])
+    #expect(first.map(\.text) == ["Visible "])
+    #expect(second.map(\.kind) == [.thought])
+    #expect(second.map(\.text) == ["hidden"])
+    #expect(third.map(\.kind) == [.message])
+    #expect(third.map(\.text) == [" answer"])
+}
+
+@Test
+func acpServerThinkBlockRouterFlushesBufferedTagPrefixesAtMessageEnd() async {
+    let router = ACPServerThinkBlockRouter()
+
+    let chunks = await router.consume("Visible <")
+    let flushed = await router.flush()
+
+    #expect(chunks.map(\.text) == ["Visible "])
+    #expect(flushed.map(\.kind) == [.message])
+    #expect(flushed.map(\.text) == ["<"])
+}
+
 private extension Array {
     subscript(safe index: Index) -> Element? {
         indices.contains(index) ? self[index] : nil
@@ -467,6 +552,8 @@ private enum ACPServerTestHelpers {
         case ("user_message_chunk", .userMessageChunk(.text(let text))):
             return text.text
         case ("agent_message_chunk", .agentMessageChunk(.text(let text))):
+            return text.text
+        case ("agent_thought_chunk", .agentThoughtChunk(.text(let text))):
             return text.text
         default:
             return nil

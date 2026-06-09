@@ -1208,10 +1208,8 @@ public actor CoreRouter {
         guard request.segments.first == "v1" else {
             return false
         }
-        switch request.method {
-        case .post, .put, .patch, .delete:
-            break
-        case .get:
+        if request.method == .get,
+           request.segments == ["v1", "dashboard", "auth", "status"] {
             return false
         }
         let status = await service.dashboardAuthStatus()

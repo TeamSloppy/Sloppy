@@ -110,6 +110,7 @@ func acpLoggingTransportLogsInboundAndOutboundMethodFrames() async throws {
         record.message == "ACP stdio frame"
             && record.metadata["direction"] == "inbound"
             && record.metadata["method"] == "session/new"
+            && record.metadata["payload"] == inbound
     })
     #expect(logs.contains { record in
         record.message == "ACP stdio frame"

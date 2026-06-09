@@ -68,7 +68,6 @@ public struct EntityCard: View {
             }
             .padding(sp.m)
         }
-        .background(c.surfaceGlass.opacity(0.82 as Float))
         .glassEffect(.regular.tint(c.surfaceGlow.opacity(0.16 as Float)), in: .rect(cornerRadius: 20))
         .border(c.border.opacity(0.72 as Float), lineWidth: bo.thin)
     }

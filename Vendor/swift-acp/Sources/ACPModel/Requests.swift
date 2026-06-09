@@ -54,6 +54,13 @@ public struct NewSessionRequest: Codable, Sendable {
         self.mcpServers = mcpServers
         self._meta = _meta
     }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        cwd = try container.decode(String.self, forKey: .cwd)
+        mcpServers = try container.decodeIfPresent([MCPServerConfig].self, forKey: .mcpServers) ?? []
+        _meta = try container.decodeIfPresent([String: AnyCodable].self, forKey: ._meta)
+    }
 }
 
 public struct AuthorizationRequest: Codable, Sendable {

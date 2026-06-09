@@ -99,11 +99,11 @@ export function buildWebSocketURL(path: string) {
   return apiURL.toString();
 }
 
-function isProtectedDashboardRequest(path: string, method: HttpMethod) {
+function isProtectedDashboardRequest(path: string) {
   if (!path.startsWith("/v1/")) {
     return false;
   }
-  return method === "POST" || method === "PUT" || method === "PATCH" || method === "DELETE";
+  return true;
 }
 
 async function parseJSONSafely<TData>(response: Response): Promise<TData | null> {
@@ -150,7 +150,7 @@ export async function requestJson<TResponse, TBody = unknown>(
     headers.set("content-type", "application/json");
   }
 
-  const protectedRequest = isProtectedDashboardRequest(options.path, method);
+  const protectedRequest = isProtectedDashboardRequest(options.path);
   if (protectedRequest && !headers.has("authorization")) {
     const dashboardToken = getDashboardAuthToken();
     if (dashboardToken) {

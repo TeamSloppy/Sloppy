@@ -50,6 +50,11 @@ private struct DashboardAuthValidateResponse: Encodable {
     var capabilities: Capabilities
 }
 
+private struct DashboardAuthStatusResponse: Encodable {
+    var enabled: Bool
+    var capabilities: DashboardAuthValidateResponse.Capabilities
+}
+
 private struct HealthResponse: Encodable {
     var status: String
     var pid: Int32
@@ -160,6 +165,21 @@ struct SystemAPIRouter: APIRouter {
                 status: HTTPStatus.ok,
                 payload: DashboardAuthValidateResponse(
                     ok: true,
+                    capabilities: .init(
+                        acceptsLegacyToken: status.acceptsLegacyToken,
+                        mutatingRoutesProtected: status.protectsMutatingRoutes,
+                        terminalWebSocketProtected: status.protectsTerminalWebSocket
+                    )
+                )
+            )
+        }
+
+        router.get("/v1/dashboard/auth/status", metadata: RouteMetadata(summary: "Dashboard auth status", description: "Returns whether dashboard operator auth is enabled without exposing the token", tags: ["System"])) { _ in
+            let status = await service.dashboardAuthStatus()
+            return CoreRouter.encodable(
+                status: HTTPStatus.ok,
+                payload: DashboardAuthStatusResponse(
+                    enabled: status.enabled,
                     capabilities: .init(
                         acceptsLegacyToken: status.acceptsLegacyToken,
                         mutatingRoutesProtected: status.protectsMutatingRoutes,

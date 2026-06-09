@@ -210,7 +210,7 @@ export function UIEditor({ draftConfig, mutateDraft }: UIEditorProps) {
               }}
             />
             <span className="entry-form-hint">
-              When enabled with a non-empty token, dashboard `POST`/`PUT`/`PATCH`/`DELETE` routes and the dashboard terminal require bearer auth. The legacy `auth.token` still works for CLI compatibility.
+              When enabled with a non-empty token, dashboard API routes and the dashboard terminal require bearer auth. The legacy `auth.token` still works for CLI compatibility.
             </span>
           </label>
         </div>

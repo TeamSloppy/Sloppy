@@ -11,7 +11,7 @@ struct MainView: View {
     let rootSafeAreaInsets: EdgeInsets
     let onOpenSettings: @MainActor () -> Void
     let onOpenWorkspace: @MainActor () -> Void
-
+    
     @State private var projects: [APIProjectRecord] = []
     @State private var isLoadingProjects = false
     @State private var didLoadProjects = false
@@ -21,11 +21,11 @@ struct MainView: View {
     @State private var isMobileSidebarPresented = false
     @State private var chatViewModel: ChatScreenViewModel
     @State private var chatNavigationSerial = 0
-
+    
     @Environment(\.userInterfaceIdiom) private var idiom
     @Environment(\.theme) private var theme
     @Environment(\.safeAreaInsets) private var safeAreaInsets
-
+    
     init(
         baseURL: URL,
         settings: ClientSettings,
@@ -49,27 +49,27 @@ struct MainView: View {
             )
         )
     }
-
+    
     private var sidebarWidth: Float {
         isSidebarCollapsed ? MainSidebarView.collapsedWidth : MainSidebarView.expandedWidth
     }
-
+    
     private var sidebarMinimumWidth: Float {
         isSidebarCollapsed ? MainSidebarView.collapsedWidth : MainSidebarView.minimumWidth
     }
-
+    
     private var sidebarMaximumWidth: Float {
         isSidebarCollapsed ? MainSidebarView.collapsedWidth : MainSidebarView.maximumWidth
     }
-
+    
     private var usesFullScreenCompactSidebar: Bool {
-        #if os(iOS)
+#if os(iOS)
         true
-        #else
+#else
         false
-        #endif
+#endif
     }
-
+    
     var body: some View {
         regularSplitLayout()
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -78,40 +78,17 @@ struct MainView: View {
             }
     }
     
-    @State private var isDebugEnabled = false
-
-    @ViewBuilder
-    private func splitLayout(isCompact: Bool, availableWidth: Float) -> some View {
-//        if isCompact {
-//            compactLayout(availableWidth: availableWidth)
-//        } else {
-            regularSplitLayout()
-//        }
-    }
-
     private func regularSplitLayout() -> some View {
         let sp = theme.spacing
-
-        return SloppyGlassShell(cornerRadius: 34) {
-            HStack(spacing: 0) {
-                sidebarView(isOverlay: false)
-                    .frame(width: sidebarWidth, alignment: .topLeading)
-                    .frame(maxHeight: .infinity, alignment: .topLeading)
-
-                chatScreen(showsSidebarControl: false)
-                    .frame(minWidth: 0, maxWidth: .infinity, minHeight: 0, maxHeight: .infinity)
-            }
+        
+        return NavigationSplitView {
+            sidebarView(isOverlay: false)
+        } detail: {
+            chatScreen(showsSidebarControl: false)
         }
-        .padding(
-            EdgeInsets(
-                top: max(sp.s, safeAreaInsets.top + sp.s),
-                leading: sp.s,
-                bottom: max(sp.s, safeAreaInsets.bottom + sp.s),
-                trailing: sp.s
-            )
-        )
+        .navigationSplitViewSeparators(.hidden)
     }
-
+    
     @ViewBuilder
     private func compactLayout(availableWidth: Float) -> some View {
         if usesFullScreenCompactSidebar {
@@ -120,46 +97,42 @@ struct MainView: View {
             compactOverlayLayout(availableWidth: availableWidth)
         }
     }
-
+    
     private func fullScreenCompactLayout() -> some View {
-        SloppyGlassShell(cornerRadius: 28) {
-            ZStack {
-                if isMobileSidebarPresented {
-                    sidebarView(isOverlay: true)
-                        .frame(minWidth: 0, maxWidth: .infinity, minHeight: 0, maxHeight: .infinity, alignment: .topLeading)
-                } else {
-                    chatScreen(showsSidebarControl: true)
-                        .frame(minWidth: 0, maxWidth: .infinity, minHeight: 0, maxHeight: .infinity)
-                }
-            }
-        }
-    }
-
-    private func compactOverlayLayout(availableWidth: Float) -> some View {
-        SloppyGlassShell(cornerRadius: 28) {
-            ZStack(anchor: .topLeading) {
+        ZStack {
+            if isMobileSidebarPresented {
+                sidebarView(isOverlay: true)
+                    .frame(minWidth: 0, maxWidth: .infinity, minHeight: 0, maxHeight: .infinity, alignment: .topLeading)
+            } else {
                 chatScreen(showsSidebarControl: true)
                     .frame(minWidth: 0, maxWidth: .infinity, minHeight: 0, maxHeight: .infinity)
-
-                if isMobileSidebarPresented {
-                    Color.black
-                        .opacity(0.42 as Float)
-                        .ignoresSafeArea()
-                        .onTap {
-                            dismissMobileSidebar()
-                        }
-
-                    sidebarView(isOverlay: true)
-                        .frame(
-                            width: mobileSidebarWidth(availableWidth: availableWidth),
-                            alignment: .topLeading
-                        )
-                        .frame(maxHeight: .infinity, alignment: .topLeading)
-                }
             }
         }
     }
-
+    
+    private func compactOverlayLayout(availableWidth: Float) -> some View {
+        ZStack(anchor: .topLeading) {
+            chatScreen(showsSidebarControl: true)
+                .frame(minWidth: 0, maxWidth: .infinity, minHeight: 0, maxHeight: .infinity)
+            
+            if isMobileSidebarPresented {
+                Color.black
+                    .opacity(0.42 as Float)
+                    .ignoresSafeArea()
+                    .onTap {
+                        dismissMobileSidebar()
+                    }
+                
+                sidebarView(isOverlay: true)
+                    .frame(
+                        width: mobileSidebarWidth(availableWidth: availableWidth),
+                        alignment: .topLeading
+                    )
+                    .frame(maxHeight: .infinity, alignment: .topLeading)
+            }
+        }
+    }
+    
     private func chatScreen(showsSidebarControl: Bool) -> some View {
         let openSidebar: (@MainActor () -> Void)? = showsSidebarControl ? openMobileSidebar : nil
         return ChatScreen(
@@ -168,7 +141,7 @@ struct MainView: View {
             onOpenSidebar: openSidebar
         )
     }
-
+    
     private func sidebarView(isOverlay: Bool) -> some View {
         MainSidebarView(
             projects: projects,
@@ -194,43 +167,43 @@ struct MainView: View {
             onSelectTask: selectTask
         )
     }
-
+    
     private func openMobileSidebar() {
         isSidebarCollapsed = false
         isMobileSidebarPresented = true
     }
-
+    
     private func dismissMobileSidebar() {
         guard isMobileSidebarPresented else {
             return
         }
         isMobileSidebarPresented = false
     }
-
+    
     private func selectNewChat() {
         updateSelectedSidebarItem(.chats)
         dismissMobileSidebar()
         navigateChat(.blank)
     }
-
+    
     private func selectChatSession(_ session: ChatSessionSummary) {
         updateSelectedSidebarItem(.chats)
         dismissMobileSidebar()
         chatViewModel.pickSession(session)
     }
-
+    
     private func deleteChatSession(_ session: ChatSessionSummary) {
         chatViewModel.deleteSession(session)
     }
-
+    
     private func togglePinChatSession(_ session: ChatSessionSummary) {
         chatViewModel.toggleSessionPinned(session)
     }
-
+    
     private func copyDebugSessionFileLink(_ session: ChatSessionSummary) {
         chatViewModel.copyDebugSessionFileLink(session)
     }
-
+    
     private func selectProject(_ project: APIProjectRecord) {
         updateSelectedSidebarItem(.project(project.id))
         dismissMobileSidebar()
@@ -242,7 +215,7 @@ struct MainView: View {
             )
         )
     }
-
+    
     private func selectTask(
         projectId: String,
         projectName: String,
@@ -261,40 +234,40 @@ struct MainView: View {
             )
         )
     }
-
+    
     private func updateSelectedSidebarItem(_ selection: MainSidebarSelection) {
         guard selectedSidebarItem != selection else {
             return
         }
         selectedSidebarItem = selection
     }
-
+    
     private func navigateChat(_ context: ChatNavigationRequest.Context) {
         chatNavigationSerial += 1
         chatViewModel.applyNavigationRequest(
             ChatNavigationRequest(id: chatNavigationSerial, context: context)
         )
     }
-
+    
     private func loadProjects(force: Bool = false) async {
         guard force || !didLoadProjects else { return }
         guard !isLoadingProjects else { return }
-
+        
         isLoadingProjects = true
         defer {
             didLoadProjects = true
             isLoadingProjects = false
         }
-
+        
         let client = SloppyAPIClient(baseURL: baseURL)
         let list = (try? await client.fetchProjects()) ?? []
         projects = list
-
+        
         if selectedSidebarItem == nil {
             selectedSidebarItem = .chats
         }
     }
-
+    
     private func mobileSidebarWidth(availableWidth: Float) -> Float {
         min(MainSidebarView.expandedWidth, max(280, availableWidth - theme.spacing.l))
     }

@@ -66,6 +66,11 @@ final class ACPLoggingTransport: Transport, @unchecked Sendable {
             "direction": .string(direction),
             "bytes": .stringConvertible(data.count),
         ]
+        if let payload = String(data: data, encoding: .utf8) {
+            metadata["payload"] = .string(payload)
+        } else {
+            metadata["payload_base64"] = .string(data.base64EncodedString())
+        }
 
         do {
             let message = try decoder.decode(Message.self, from: data)

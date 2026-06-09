@@ -106,6 +106,19 @@ final class ACPModelTests: XCTestCase {
         }
     }
 
+    func testNewSessionRequestDefaultsMissingMCPServersToEmptyArray() throws {
+        let json = """
+        {
+            "cwd": "/Users/test/project"
+        }
+        """
+
+        let request = try JSONDecoder().decode(NewSessionRequest.self, from: json.data(using: .utf8)!)
+
+        XCTAssertEqual(request.cwd, "/Users/test/project")
+        XCTAssertEqual(request.mcpServers.count, 0)
+    }
+
     // MARK: - Session Tests
 
     func testSessionIdEncoding() throws {

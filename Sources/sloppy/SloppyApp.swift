@@ -1,5 +1,6 @@
 import ArgumentParser
 import Foundation
+import SloppyNodeCLI
 #if canImport(Darwin)
 import Darwin
 #elseif canImport(Glibc)
@@ -21,6 +22,7 @@ struct SloppyApp: AsyncParsableCommand {
             ProvidersCommand.self,
             ActorCommand.self,
             PluginCommand.self,
+            NodeCommand.self,
             SourceControlCommand.self,
             MCPCommand.self,
             ACPCommand.self,

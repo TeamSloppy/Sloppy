@@ -95,6 +95,7 @@ export interface CoreApi {
   planArtifactWebUrl: (projectId: string, planName: string) => string;
   fetchPlanArtifact: (projectId: string, planName: string) => Promise<AnyRecord | null>;
   fetchRuntimeConfig: () => Promise<AnyRecord | null>;
+  fetchDashboardAuthStatus: () => Promise<AnyRecord | null>;
   validateDashboardAuthToken: (token: string) => Promise<AnyRecord | null>;
   updateRuntimeConfig: (config: AnyRecord) => Promise<AnyRecord>;
   runWorkspaceGitSync: () => Promise<AnyRecord | null>;
@@ -597,6 +598,16 @@ export function createCoreApi(): CoreApi {
     fetchRuntimeConfig: async () => {
       const response = await requestJson<AnyRecord>({
         path: "/v1/config"
+      });
+      if (!response.ok) {
+        return null;
+      }
+      return response.data;
+    },
+
+    fetchDashboardAuthStatus: async () => {
+      const response = await requestJson<AnyRecord>({
+        path: "/v1/dashboard/auth/status"
       });
       if (!response.ok) {
         return null;

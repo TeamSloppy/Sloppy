@@ -59,7 +59,7 @@ private struct RootShellContent: View {
 
         return ZStack(anchor: .topLeading) {
             AppAtmosphericBackground()
-
+            
             switch rootViewModel.appState {
             case .splash:
                 SplashScreen(settings: rootViewModel.settings) { result in
@@ -116,9 +116,6 @@ private struct RootShellContent: View {
         .onChange(of: rootViewModel.settings.windowCloseBehavior) { _, _ in
             rootViewModel.applyDesktopWindowCloseBehavior()
         }
-        .background {
-            theme.colors.background.ignoresSafeArea()
-        }
     }
 }
 
@@ -126,7 +123,7 @@ extension ClientColorScheme {
     fileprivate var appTheme: Theme {
         switch self {
         case .light:
-            return .sloppyLight
+            return .sloppyDark
         case .dark:
             return .sloppyDark
         }

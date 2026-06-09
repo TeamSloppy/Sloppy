@@ -86,7 +86,8 @@ final class SloppyDesktopOverlay {
                 level: .statusBar,
                 collectionBehavior: .allSpacesStationary,
                 showsImmediately: true,
-                makeKey: false
+                makeKey: false,
+                allowsMousePassthrough: true
             )
         ) { [weak self] in
             SloppyDesktopOverlayView {

@@ -30,7 +30,8 @@ struct SloppyClientApp: App {
                     dragRegionHeight: 52,
                     trafficLightOffset: Point(x: 6, y: 6)
                 ),
-//                background: .transparent
+                background: .transparent,
+                backgroundEffect: .blur(.underWindowBackground)
             ))
     }
 
@@ -69,8 +70,7 @@ struct SloppyClientApp: App {
                             instructions: "Inspect the live Sloppy client AdaEngine runtime.",
                             traceRecorder: nil
                         )),
-                    //            AdaUIDebug3DPlugin(presentation: .separateWindow, isEnabled: false),
-                    hotReloadPlugin
+//                    hotReloadPlugin
                 )
             #else
                 baseScene.addPlugins(

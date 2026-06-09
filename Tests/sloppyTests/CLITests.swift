@@ -55,6 +55,19 @@ func rootCommandAllowsTUIOnlyForInteractiveStdioWithoutPrompt() {
     #expect(!SloppyApp.shouldStartTUI(prompt: "hello", stdinIsTTY: true, stdoutIsTTY: true))
 }
 
+@Test
+func rootCommandIncludesSloppyNodeCommandTree() {
+    let rootSubcommands = SloppyApp.configuration.subcommands.compactMap { $0.configuration.commandName }
+    #expect(rootSubcommands.contains("node"))
+
+    let nodeCommand = SloppyApp.configuration.subcommands.first { $0.configuration.commandName == "node" }
+    let nodeSubcommands = nodeCommand?.configuration.subcommands.compactMap { $0.configuration.commandName } ?? []
+    #expect(nodeSubcommands.contains("init"))
+    #expect(nodeSubcommands.contains("start"))
+    #expect(nodeSubcommands.contains("invoke"))
+    #expect(nodeSubcommands.contains("task-create"))
+}
+
 // MARK: - Service command tests
 
 @Test

@@ -26,6 +26,11 @@ private struct DashboardAuthValidateResponsePayload: Decodable {
     let capabilities: Capabilities
 }
 
+private struct DashboardAuthStatusResponsePayload: Decodable {
+    let enabled: Bool
+    let capabilities: DashboardAuthValidateResponsePayload.Capabilities
+}
+
 private struct HealthResponsePayload: Decodable {
     let status: String
     let pid: Int32
@@ -961,7 +966,7 @@ func getConfigEndpoint() async throws {
 }
 
 @Test
-func dashboardAuthProtectsMutatingRoutesWhenEnabled() async throws {
+func dashboardAuthProtectsAPIRoutesWhenEnabled() async throws {
     var config = CoreConfig.test
     config.ui.dashboardAuth.enabled = true
     config.ui.dashboardAuth.token = "dashboard-secret"
@@ -999,7 +1004,20 @@ func dashboardAuthProtectsMutatingRoutesWhenEnabled() async throws {
     #expect(legacyAuth.status == 200)
 
     let readOnly = await router.handle(method: "GET", path: "/v1/config", body: nil)
-    #expect(readOnly.status == 200)
+    #expect(readOnly.status == 401)
+
+    let authorizedReadOnly = await router.handle(
+        method: "GET",
+        path: "/v1/config",
+        body: nil,
+        headers: ["Authorization": "Bearer dashboard-secret"]
+    )
+    #expect(authorizedReadOnly.status == 200)
+
+    let status = await router.handle(method: "GET", path: "/v1/dashboard/auth/status", body: nil)
+    #expect(status.status == 200)
+    let statusPayload = try JSONDecoder().decode(DashboardAuthStatusResponsePayload.self, from: status.body)
+    #expect(statusPayload.enabled == true)
 }
 
 @Test

@@ -179,6 +179,7 @@ final class SloppyACPServerDelegate: AgentDelegate, @unchecked Sendable {
             let stream = try await service.streamAgentSessionEvents(
                 agentID: agentID, sessionID: sessionID)
             let deltaTracker = ACPServerDeltaTracker()
+            let thinkBlockRouter = ACPServerThinkBlockRouter()
             let toolCallTracker = ACPServerToolCallTracker()
             let streamTask = Task {
                 for await update in stream {
@@ -189,6 +190,7 @@ final class SloppyACPServerDelegate: AgentDelegate, @unchecked Sendable {
                         update: update,
                         acpSessionID: request.sessionId,
                         deltaTracker: deltaTracker,
+                        thinkBlockRouter: thinkBlockRouter,
                         toolCallTracker: toolCallTracker
                     )
                 }
@@ -209,8 +211,12 @@ final class SloppyACPServerDelegate: AgentDelegate, @unchecked Sendable {
             if !(await deltaTracker.didSendDelta) {
                 let fallback = Self.assistantText(from: response.appendedEvents)
                 if !fallback.isEmpty {
-                    try await sendUpdate(
-                        request.sessionId, .agentMessageChunk(.text(TextContent(text: fallback))))
+                    try await forwardAssistantText(
+                        fallback,
+                        acpSessionID: request.sessionId,
+                        thinkBlockRouter: thinkBlockRouter,
+                        flush: true
+                    )
                 }
             }
 
@@ -334,9 +340,15 @@ final class SloppyACPServerDelegate: AgentDelegate, @unchecked Sendable {
             if let cwd = request.cwd {
                 try await applyWorkingDirectory(cwd, sessionID: detail.summary.id)
             }
+            let thinkBlockRouter = ACPServerThinkBlockRouter()
             let toolCallTracker = ACPServerToolCallTracker()
             for event in detail.events {
-                try await forward(event: event, acpSessionID: request.sessionId, toolCallTracker: toolCallTracker)
+                try await forward(
+                    event: event,
+                    acpSessionID: request.sessionId,
+                    thinkBlockRouter: thinkBlockRouter,
+                    toolCallTracker: toolCallTracker
+                )
             }
             let response = LoadSessionResponse(
                 sessionId: request.sessionId,
@@ -507,6 +519,7 @@ extension SloppyACPServerDelegate {
         update: AgentSessionStreamUpdate,
         acpSessionID: SessionId,
         deltaTracker: ACPServerDeltaTracker,
+        thinkBlockRouter: ACPServerThinkBlockRouter,
         toolCallTracker: ACPServerToolCallTracker
     ) async {
         do {
@@ -515,13 +528,14 @@ extension SloppyACPServerDelegate {
                 guard let message = update.message,
                       let delta = await deltaTracker.consume(fullDraft: message)
                 else { return }
-                try await sendUpdate(acpSessionID, .agentMessageChunk(.text(TextContent(text: delta))))
+                try await forwardAssistantText(delta, acpSessionID: acpSessionID, thinkBlockRouter: thinkBlockRouter)
             case .sessionEvent:
                 guard let event = update.event else { return }
                 try await forward(
                     event: event,
                     acpSessionID: acpSessionID,
                     deltaTracker: deltaTracker,
+                    thinkBlockRouter: thinkBlockRouter,
                     toolCallTracker: toolCallTracker
                 )
             case .sessionReady, .heartbeat, .sessionClosed, .sessionError:
@@ -536,6 +550,7 @@ extension SloppyACPServerDelegate {
         event: AgentSessionEvent,
         acpSessionID: SessionId,
         deltaTracker: ACPServerDeltaTracker? = nil,
+        thinkBlockRouter: ACPServerThinkBlockRouter = ACPServerThinkBlockRouter(),
         toolCallTracker: ACPServerToolCallTracker
     ) async throws {
         switch event.type {
@@ -545,10 +560,20 @@ extension SloppyACPServerDelegate {
             guard !text.isEmpty else { return }
             if message.role == .assistant {
                 if let deltaTracker, !(await deltaTracker.shouldForwardFinalAssistantMessage()) {
+                    try await forwardAssistantText(
+                        "",
+                        acpSessionID: acpSessionID,
+                        thinkBlockRouter: thinkBlockRouter,
+                        flush: true
+                    )
                     return
                 }
-                try await sendUpdate(
-                    acpSessionID, .agentMessageChunk(.text(TextContent(text: text))))
+                try await forwardAssistantText(
+                    text,
+                    acpSessionID: acpSessionID,
+                    thinkBlockRouter: thinkBlockRouter,
+                    flush: true
+                )
             } else if message.role == .user {
                 try await sendUpdate(
                     acpSessionID, .userMessageChunk(.text(TextContent(text: text))))
@@ -591,6 +616,24 @@ extension SloppyACPServerDelegate {
             )
         default:
             return
+        }
+    }
+
+    private func forwardAssistantText(
+        _ text: String,
+        acpSessionID: SessionId,
+        thinkBlockRouter: ACPServerThinkBlockRouter,
+        flush: Bool = false
+    ) async throws {
+        let chunks = await thinkBlockRouter.consume(text) + (flush ? await thinkBlockRouter.flush() : [])
+        for chunk in chunks {
+            let content = ContentBlock.text(TextContent(text: chunk.text))
+            switch chunk.kind {
+            case .message:
+                try await sendUpdate(acpSessionID, .agentMessageChunk(content))
+            case .thought:
+                try await sendUpdate(acpSessionID, .agentThoughtChunk(content))
+            }
         }
     }
 
@@ -772,6 +815,89 @@ actor ACPServerToolCallTracker {
         let callID = pending.removeFirst()
         pendingCallIdsByTool[tool] = pending
         return callID
+    }
+}
+
+enum ACPServerThinkBlockKind: Sendable, Equatable {
+    case message
+    case thought
+}
+
+struct ACPServerThinkBlockChunk: Sendable, Equatable {
+    let kind: ACPServerThinkBlockKind
+    let text: String
+}
+
+actor ACPServerThinkBlockRouter {
+    private static let openTag = "<think>"
+    private static let closeTag = "</think>"
+
+    private var buffer = ""
+    private var isInsideThinkBlock = false
+
+    func consume(_ text: String) -> [ACPServerThinkBlockChunk] {
+        buffer.append(text)
+
+        var chunks: [ACPServerThinkBlockChunk] = []
+        while !buffer.isEmpty {
+            let tag = isInsideThinkBlock ? Self.closeTag : Self.openTag
+            if let range = buffer.range(of: tag) {
+                append(
+                    String(buffer[..<range.lowerBound]),
+                    kind: isInsideThinkBlock ? .thought : .message,
+                    to: &chunks
+                )
+                buffer.removeSubrange(..<range.upperBound)
+                isInsideThinkBlock.toggle()
+                continue
+            }
+
+            let holdCount = Self.trailingPrefixLength(in: buffer, matching: tag)
+            let emitEnd = buffer.index(buffer.endIndex, offsetBy: -holdCount)
+            append(
+                String(buffer[..<emitEnd]),
+                kind: isInsideThinkBlock ? .thought : .message,
+                to: &chunks
+            )
+            buffer.removeSubrange(..<emitEnd)
+            break
+        }
+
+        return chunks
+    }
+
+    func flush() -> [ACPServerThinkBlockChunk] {
+        defer { buffer = "" }
+        guard !buffer.isEmpty else { return [] }
+        return [
+            ACPServerThinkBlockChunk(
+                kind: isInsideThinkBlock ? .thought : .message,
+                text: buffer
+            )
+        ]
+    }
+
+    private static func trailingPrefixLength(in text: String, matching tag: String) -> Int {
+        let maxCount = min(text.count, tag.count - 1)
+        guard maxCount > 0 else { return 0 }
+
+        for count in stride(from: maxCount, through: 1, by: -1) {
+            let suffix = text.suffix(count)
+            let prefix = tag.prefix(count)
+            if suffix == prefix {
+                return count
+            }
+        }
+        return 0
+    }
+
+    private func append(
+        _ text: String,
+        kind: ACPServerThinkBlockKind,
+        to chunks: inout [ACPServerThinkBlockChunk]
+    ) {
+        guard !text.isEmpty else { return }
+        chunks.append(ACPServerThinkBlockChunk(kind: kind, text: text))
     }
 }
 
