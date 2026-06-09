@@ -4,6 +4,7 @@ import Testing
 @testable import sloppy
 @testable import Protocols
 import PluginSDK
+import SloppyNodeCore
 
 #if canImport(CSQLite3)
 import CSQLite3
@@ -49,6 +50,127 @@ func bulletinsEndpoint() async {
 
     let response = await router.handle(method: "GET", path: "/v1/bulletins", body: nil)
     #expect(response.status == 200)
+}
+
+@Test
+func meshAPIListsStateAndDispatchesTasks() async throws {
+    let service = CoreService(config: .test)
+    let router = CoreRouter(service: service)
+    let encoder = JSONEncoder()
+    encoder.dateEncodingStrategy = .iso8601
+    let decoder = JSONDecoder()
+    decoder.dateDecodingStrategy = .iso8601
+
+    try service.nodeMeshStore.save(MeshState(
+        nodes: [
+            MeshNodeRecord(
+                id: "node_worker",
+                name: "Home Mac",
+                publicKey: "public-key",
+                roles: ["worker"],
+                status: .online,
+                capabilities: ["git", "agent"]
+            ),
+        ],
+        sharedProjects: [
+            SharedProjectRecord(
+                id: "shared_mesh",
+                name: "Mesh",
+                repoUrl: "git@example.com:mesh.git",
+                members: [
+                    SharedProjectMember(
+                        nodeId: "node_worker",
+                        actorId: "agent:worker",
+                        localRepoPath: "/tmp/mesh",
+                        role: "worker",
+                        permissions: MeshPermission.workerDefaults.rawValues + [MeshPermission.taskAssign.rawValue]
+                    ),
+                ]
+            ),
+        ],
+        auditLog: [
+            MeshAuditLogEntry(actor: "local", action: "network.create", allowed: true),
+        ]
+    ))
+
+    let nodesResponse = await router.handle(method: "GET", path: "/v1/node/mesh/nodes", body: nil)
+    #expect(nodesResponse.status == 200)
+    let nodes = try decoder.decode([MeshNodeRecord].self, from: nodesResponse.body)
+    #expect(nodes.map(\.id) == ["node_worker"])
+
+    let projectsResponse = await router.handle(method: "GET", path: "/v1/node/mesh/shared-projects", body: nil)
+    #expect(projectsResponse.status == 200)
+    let projects = try decoder.decode([SharedProjectRecord].self, from: projectsResponse.body)
+    #expect(projects.first?.members.first?.localRepoPath == "/tmp/mesh")
+
+    let createProjectBody = try encoder.encode(MeshSharedProjectCreateRequest(
+        name: "Mesh API",
+        repoUrl: "git@example.com:mesh-api.git",
+        defaultBranch: "main"
+    ))
+    let createProjectResponse = await router.handle(method: "POST", path: "/v1/node/mesh/shared-projects", body: createProjectBody)
+    #expect(createProjectResponse.status == 201)
+    let createdProject = try decoder.decode(SharedProjectRecord.self, from: createProjectResponse.body)
+    #expect(createdProject.name == "Mesh API")
+
+    let attachBody = try encoder.encode(MeshSharedProjectMemberRequest(
+        nodeId: "node_worker",
+        actorId: "agent:worker",
+        localRepoPath: "/tmp/mesh-api",
+        role: "worker",
+        permissions: MeshPermission.workerDefaults.rawValues
+    ))
+    let attachResponse = await router.handle(
+        method: "POST",
+        path: "/v1/node/mesh/shared-projects/\(createdProject.id)/members",
+        body: attachBody
+    )
+    #expect(attachResponse.status == 200)
+    let attachedProject = try decoder.decode(SharedProjectRecord.self, from: attachResponse.body)
+    #expect(attachedProject.members.first?.localRepoPath == "/tmp/mesh-api")
+
+    let updateProjectBody = try encoder.encode(MeshSharedProjectUpdateRequest(defaultBranch: "develop"))
+    let updateProjectResponse = await router.handle(
+        method: "PATCH",
+        path: "/v1/node/mesh/shared-projects/\(createdProject.id)",
+        body: updateProjectBody
+    )
+    #expect(updateProjectResponse.status == 200)
+    let updatedProject = try decoder.decode(SharedProjectRecord.self, from: updateProjectResponse.body)
+    #expect(updatedProject.defaultBranch == "develop")
+
+    let createBody = try encoder.encode(MeshTaskCreateRequest(
+        projectId: "shared_mesh",
+        title: "Implement dashboard flow",
+        assignedNodeId: "node_worker"
+    ))
+    let createResponse = await router.handle(method: "POST", path: "/v1/node/mesh/tasks", body: createBody)
+    #expect(createResponse.status == 201)
+    let createdTask = try decoder.decode(MeshTaskRecord.self, from: createResponse.body)
+    #expect(createdTask.status == .dispatched)
+    #expect(createdTask.assignedNodeId == "node_worker")
+
+    let updateBody = try encoder.encode(MeshTaskUpdateRequest(
+        status: .readyForReview,
+        branch: "agent/home/mesh",
+        commit: "abc123",
+        summary: "Ready"
+    ))
+    let updateResponse = await router.handle(method: "PATCH", path: "/v1/node/mesh/tasks/\(createdTask.id)", body: updateBody)
+    #expect(updateResponse.status == 200)
+    let updatedTask = try decoder.decode(MeshTaskRecord.self, from: updateResponse.body)
+    #expect(updatedTask.branch == "agent/home/mesh")
+    #expect(updatedTask.commit == "abc123")
+
+    let tasksResponse = await router.handle(method: "GET", path: "/v1/node/mesh/tasks?projectId=shared_mesh", body: nil)
+    #expect(tasksResponse.status == 200)
+    let tasks = try decoder.decode([MeshTaskRecord].self, from: tasksResponse.body)
+    #expect(tasks.map(\.id) == [createdTask.id])
+
+    let auditResponse = await router.handle(method: "GET", path: "/v1/node/mesh/audit-log", body: nil)
+    #expect(auditResponse.status == 200)
+    let auditLog = try decoder.decode([MeshAuditLogEntry].self, from: auditResponse.body)
+    #expect(auditLog.contains { $0.action == "task.dispatch" && $0.allowed })
 }
 
 @Test

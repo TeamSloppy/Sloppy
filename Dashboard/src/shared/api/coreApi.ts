@@ -85,6 +85,12 @@ export interface CoreApi {
   fetchChannelPlugins: () => Promise<AnyRecord[] | null>;
   installPlugin: (payload: AnyRecord) => Promise<AnyRecord | null>;
   fetchWorkers: () => Promise<AnyRecord[]>;
+  fetchMeshNodes: () => Promise<AnyRecord[]>;
+  fetchMeshSharedProjects: () => Promise<AnyRecord[]>;
+  fetchMeshTasks: (projectId?: string | null) => Promise<AnyRecord[]>;
+  fetchMeshAuditLog: () => Promise<AnyRecord[]>;
+  createMeshTask: (payload: AnyRecord) => Promise<AnyRecord | null>;
+  updateMeshTask: (taskId: string, payload: AnyRecord) => Promise<AnyRecord | null>;
   fetchArtifact: (id: string) => Promise<AnyRecord | null>;
   planArtifactWebUrl: (projectId: string, planName: string) => string;
   fetchPlanArtifact: (projectId: string, planName: string) => Promise<AnyRecord | null>;
@@ -492,6 +498,75 @@ export function createCoreApi(): CoreApi {
       });
       if (!response.ok || !Array.isArray(response.data)) {
         return [];
+      }
+      return response.data;
+    },
+
+    fetchMeshNodes: async () => {
+      const response = await requestJson<AnyRecord[]>({
+        path: "/v1/node/mesh/nodes"
+      });
+      if (!response.ok || !Array.isArray(response.data)) {
+        return [];
+      }
+      return response.data;
+    },
+
+    fetchMeshSharedProjects: async () => {
+      const response = await requestJson<AnyRecord[]>({
+        path: "/v1/node/mesh/shared-projects"
+      });
+      if (!response.ok || !Array.isArray(response.data)) {
+        return [];
+      }
+      return response.data;
+    },
+
+    fetchMeshTasks: async (projectId = null) => {
+      const params = new URLSearchParams();
+      if (projectId) {
+        params.set("projectId", projectId);
+      }
+      const query = params.toString();
+      const response = await requestJson<AnyRecord[]>({
+        path: `/v1/node/mesh/tasks${query ? `?${query}` : ""}`
+      });
+      if (!response.ok || !Array.isArray(response.data)) {
+        return [];
+      }
+      return response.data;
+    },
+
+    fetchMeshAuditLog: async () => {
+      const response = await requestJson<AnyRecord[]>({
+        path: "/v1/node/mesh/audit-log"
+      });
+      if (!response.ok || !Array.isArray(response.data)) {
+        return [];
+      }
+      return response.data;
+    },
+
+    createMeshTask: async (payload) => {
+      const response = await requestJson<AnyRecord, AnyRecord>({
+        path: "/v1/node/mesh/tasks",
+        method: "POST",
+        body: payload
+      });
+      if (!response.ok) {
+        return null;
+      }
+      return response.data;
+    },
+
+    updateMeshTask: async (taskId, payload) => {
+      const response = await requestJson<AnyRecord, AnyRecord>({
+        path: `/v1/node/mesh/tasks/${encodeURIComponent(taskId)}`,
+        method: "PATCH",
+        body: payload
+      });
+      if (!response.ok) {
+        return null;
       }
       return response.data;
     },

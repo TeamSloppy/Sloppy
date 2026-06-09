@@ -162,6 +162,30 @@ struct NodeMeshStoreTests {
         #expect(state.auditLog.last?.target == worker.nodeId)
     }
 
+    @Test("shared project metadata changes publish sync envelopes")
+    func sharedProjectMetadataChangesPublishSyncEnvelopes() throws {
+        let store = NodeMeshStore(stateURL: temporaryStateURL())
+        let worker = NodeIdentityGenerator.makeIdentity(name: "Home Mac", roles: ["worker"], capabilities: ["git"])
+        try store.registerNode(worker)
+        let project = try store.createSharedProject(name: "My Project", repoUrl: "git@example.com:repo.git")
+
+        _ = try store.attachMember(
+            projectIdOrName: project.id,
+            nodeId: worker.nodeId,
+            localRepoPath: "/Users/home/dev/repo",
+            role: "worker",
+            permissions: MeshPermission.workerDefaults.rawValues
+        )
+        _ = try store.updateSharedProject(projectIdOrName: project.id, defaultBranch: "trunk")
+
+        let syncEvents = try store.load().envelopes.filter { $0.type == .projectSyncEvent }
+        #expect(syncEvents.count == 2)
+        #expect(syncEvents.last?.to == worker.nodeId)
+        #expect(syncEvents.last?.scope == "sharedProject:\(project.id)")
+        #expect(syncEvents.last?.payload.asObject?["action"] == .string("shared_project.update"))
+        #expect(syncEvents.last?.payload.asObject?["projectId"] == .string(project.id))
+    }
+
     @Test("mesh permissions encode stable protocol values")
     func meshPermissionsEncodeStableProtocolValues() throws {
         #expect(MeshPermission.projectRead.rawValue == "project.read")

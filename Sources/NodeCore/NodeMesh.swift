@@ -136,6 +136,37 @@ public struct MeshTaskRecord: Codable, Sendable, Equatable {
     }
 }
 
+public struct MeshTaskCreateRequest: Codable, Sendable, Equatable {
+    public var projectId: String
+    public var title: String
+    public var assignedNodeId: String
+
+    public init(projectId: String, title: String, assignedNodeId: String) {
+        self.projectId = projectId
+        self.title = title
+        self.assignedNodeId = assignedNodeId
+    }
+}
+
+public struct MeshTaskUpdateRequest: Codable, Sendable, Equatable {
+    public var status: MeshTaskStatus
+    public var branch: String?
+    public var commit: String?
+    public var summary: String?
+
+    public init(
+        status: MeshTaskStatus,
+        branch: String? = nil,
+        commit: String? = nil,
+        summary: String? = nil
+    ) {
+        self.status = status
+        self.branch = branch
+        self.commit = commit
+        self.summary = summary
+    }
+}
+
 public enum MeshNodeStatus: String, Codable, Sendable, Equatable {
     case online
     case offline
@@ -307,6 +338,59 @@ public struct SharedProjectRecord: Codable, Sendable, Equatable {
         self.policies = policies
         self.createdAt = createdAt
         self.updatedAt = updatedAt
+    }
+}
+
+public struct MeshSharedProjectCreateRequest: Codable, Sendable, Equatable {
+    public var name: String
+    public var repoUrl: String
+    public var defaultBranch: String
+
+    public init(name: String, repoUrl: String, defaultBranch: String = "main") {
+        self.name = name
+        self.repoUrl = repoUrl
+        self.defaultBranch = defaultBranch
+    }
+}
+
+public struct MeshSharedProjectMemberRequest: Codable, Sendable, Equatable {
+    public var nodeId: String
+    public var actorId: String?
+    public var localRepoPath: String
+    public var role: String
+    public var permissions: [String]
+
+    public init(
+        nodeId: String,
+        actorId: String? = nil,
+        localRepoPath: String,
+        role: String,
+        permissions: [String]
+    ) {
+        self.nodeId = nodeId
+        self.actorId = actorId
+        self.localRepoPath = localRepoPath
+        self.role = role
+        self.permissions = permissions
+    }
+}
+
+public struct MeshSharedProjectUpdateRequest: Codable, Sendable, Equatable {
+    public var name: String?
+    public var repoUrl: String?
+    public var defaultBranch: String?
+    public var policies: SharedProjectPolicies?
+
+    public init(
+        name: String? = nil,
+        repoUrl: String? = nil,
+        defaultBranch: String? = nil,
+        policies: SharedProjectPolicies? = nil
+    ) {
+        self.name = name
+        self.repoUrl = repoUrl
+        self.defaultBranch = defaultBranch
+        self.policies = policies
     }
 }
 
@@ -548,6 +632,12 @@ public struct NodeMeshStore: Sendable {
         } else {
             state.sharedProjects.append(project)
         }
+        appendProjectSyncEvent(
+            project,
+            action: "shared_project.create",
+            actor: "local",
+            in: &state
+        )
         state.auditLog.append(MeshAuditLogEntry(actor: "local", action: "shared_project.create", project: project.id, allowed: true))
         try save(state)
         return project
@@ -580,6 +670,13 @@ public struct NodeMeshStore: Sendable {
         }
         state.sharedProjects[projectIndex].updatedAt = Date()
         let project = state.sharedProjects[projectIndex]
+        appendProjectSyncEvent(
+            project,
+            action: "shared_project.attach",
+            actor: "local",
+            targetNodeId: nodeId,
+            in: &state
+        )
         state.auditLog.append(MeshAuditLogEntry(actor: "local", target: nodeId, action: "shared_project.attach", project: project.id, allowed: true))
         try save(state)
         return project
@@ -606,6 +703,12 @@ public struct NodeMeshStore: Sendable {
         state.sharedProjects[projectIndex].updatedAt = Date()
 
         let project = state.sharedProjects[projectIndex]
+        appendProjectSyncEvent(
+            project,
+            action: "shared_project.update",
+            actor: actor,
+            in: &state
+        )
         state.auditLog.append(MeshAuditLogEntry(actor: actor, action: "shared_project.update", project: project.id, allowed: true))
         try save(state)
         return project
@@ -625,6 +728,13 @@ public struct NodeMeshStore: Sendable {
         state.sharedProjects[projectIndex].members.removeAll { $0.nodeId == nodeId }
         state.sharedProjects[projectIndex].updatedAt = Date()
         let project = state.sharedProjects[projectIndex]
+        appendProjectSyncEvent(
+            project,
+            action: "shared_project.member.remove",
+            actor: actor,
+            targetNodeId: nodeId,
+            in: &state
+        )
         state.auditLog.append(MeshAuditLogEntry(actor: actor, target: nodeId, action: "shared_project.member.remove", project: project.id, allowed: true))
         try save(state)
         return project
@@ -780,6 +890,30 @@ public struct NodeMeshStore: Sendable {
     private func projectFromScope(_ scope: String?) -> String? {
         guard let scope, scope.hasPrefix("sharedProject:") else { return nil }
         return String(scope.dropFirst("sharedProject:".count))
+    }
+
+    private func appendProjectSyncEvent(
+        _ project: SharedProjectRecord,
+        action: String,
+        actor: String,
+        targetNodeId: String? = nil,
+        in state: inout MeshState
+    ) {
+        let memberNodeIds = Set(project.members.map(\.nodeId))
+        for nodeId in memberNodeIds {
+            state.envelopes.append(MeshEnvelope(
+                type: .projectSyncEvent,
+                from: actor,
+                to: nodeId,
+                scope: project.eventScope,
+                payload: .object([
+                    "action": .string(action),
+                    "projectId": .string(project.id),
+                    "targetNodeId": targetNodeId.map(JSONValue.string) ?? .null,
+                    "project": (try? JSONValueCoder.encode(project)) ?? .object([:]),
+                ])
+            ))
+        }
     }
 
     private func upsert(_ node: MeshNodeRecord, in nodes: inout [MeshNodeRecord]) {

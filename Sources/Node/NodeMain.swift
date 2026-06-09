@@ -605,11 +605,11 @@ struct TaskStatus: AsyncParsableCommand {
 struct RPCRequest: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "rpc-request",
-        abstract: "Stores a mesh RPC request envelope for a target node."
+        abstract: "Creates a mesh RPC request envelope or sends it over a live relay."
     )
 
-    @Option(name: .long, help: "Source node id.")
-    var from: String
+    @Option(name: .long, help: "Source node id for local envelope mode.")
+    var from: String?
 
     @Option(name: .long, help: "Target node id.")
     var to: String
@@ -623,9 +623,46 @@ struct RPCRequest: AsyncParsableCommand {
     @Option(name: .long, help: "Mesh state path. Defaults to ~/.sloppy/mesh.json.")
     var meshPath: String?
 
+    @Flag(name: .long, help: "Send the RPC request over the configured relay and print the response JSON.")
+    var live: Bool = false
+
+    @Option(name: .long, help: "Relay URL for live mode. Overrides node config.")
+    var relay: String?
+
+    @Option(name: .long, help: "Config path for live mode. Defaults to ~/.sloppy/node.json.")
+    var configPath: String?
+
+    @Option(name: .long, help: "Live RPC timeout in seconds.")
+    var timeout: Double = 30
+
     mutating func run() async throws {
         await LoggingBootstrapper.shared.bootstrapIfNeeded()
         let parsedParams = try parseJSONValue(params) ?? .object([:])
+
+        if live {
+            let store = NodeConfigStore(configURL: configURL(from: configPath))
+            let config = try store.load()
+            let daemon = NodeDaemon(config: config)
+            let client = NodeMeshClient(config: config, daemon: daemon)
+            let response = try await client.sendRPCRequest(
+                relayURL: relay,
+                to: to,
+                method: method,
+                params: parsedParams,
+                timeout: timeout
+            )
+            let encoder = JSONEncoder()
+            encoder.dateEncodingStrategy = .iso8601
+            encoder.outputFormatting = [.sortedKeys]
+            let data = try encoder.encode(response)
+            FileHandle.standardOutput.write(data)
+            FileHandle.standardOutput.write(Data("\n".utf8))
+            return
+        }
+
+        guard let from, !from.isEmpty else {
+            throw ValidationError("--from is required unless --live is set.")
+        }
         let envelope = try NodeMeshStore(stateURL: meshURL(from: meshPath)).rpcRequest(
             from: from,
             to: to,

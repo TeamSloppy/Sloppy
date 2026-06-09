@@ -34,6 +34,37 @@ struct NodeMeshClientTests {
         #expect(envelope.payload.asObject?["capabilities"] == .array([.string("git"), .string("run_agent")]))
     }
 
+    @Test("client builds typed rpc request envelope")
+    func clientBuildsTypedRPCRequestEnvelope() {
+        let identity = NodeIdentityGenerator.makeIdentity(name: "Laptop", roles: ["client"], capabilities: [])
+        let envelope = NodeMeshClient.makeRPCRequestEnvelope(
+            identity: identity,
+            to: "node_worker",
+            method: "node.status",
+            params: .object(["verbose": .bool(true)])
+        )
+
+        #expect(envelope.type == .rpcRequest)
+        #expect(envelope.from == identity.nodeId)
+        #expect(envelope.to == "node_worker")
+        #expect(envelope.payload.asObject?["method"] == .string("node.status"))
+        #expect(envelope.payload.asObject?["params"]?.asObject?["verbose"] == .bool(true))
+    }
+
+    @Test("live rpc requires relay url")
+    func liveRPCRequiresRelayURL() async throws {
+        let identity = NodeIdentityGenerator.makeIdentity(name: "Laptop", roles: ["client"], capabilities: [])
+        let config = NodeConfig(identity: identity, relayURL: nil)
+        let client = NodeMeshClient(config: config)
+
+        do {
+            _ = try await client.sendRPCRequest(to: "node_worker", method: "node.ping", timeout: 0.01)
+            Issue.record("Expected missing relay URL error")
+        } catch let error as NodeMeshClientError {
+            #expect(error == .missingRelayURL)
+        }
+    }
+
     @Test("client handles node ping rpc request")
     func clientHandlesNodePingRPCRequest() async throws {
         let identity = NodeIdentityGenerator.makeIdentity(
@@ -294,6 +325,131 @@ struct NodeMeshClientTests {
         #expect(result["localRepoPath"] == JSONValue.string(repoURL.path))
         #expect(result["gitBranch"] == JSONValue.string("main"))
         #expect(result["dirty"] == JSONValue.bool(false))
+    }
+
+    @Test("client claims task dispatch for configured shared project")
+    func clientClaimsTaskDispatchForConfiguredSharedProject() async throws {
+        let worker = NodeIdentityGenerator.makeIdentity(name: "Worker", roles: ["worker"], capabilities: ["git"])
+        let laptop = NodeIdentityGenerator.makeIdentity(name: "Laptop", roles: ["client"], capabilities: ["git"])
+        let store = NodeMeshStore(stateURL: temporaryStateURL())
+        try store.registerNode(worker)
+        try store.registerNode(laptop)
+        let project = try store.createSharedProject(name: "Mesh Project", repoUrl: "git@example.com:mesh.git")
+        _ = try store.attachMember(
+            projectIdOrName: project.id,
+            nodeId: worker.nodeId,
+            localRepoPath: "/Users/worker/mesh",
+            role: "worker",
+            permissions: MeshPermission.workerDefaults.rawValues
+        )
+        let task = try store.dispatchTask(
+            projectIdOrName: project.id,
+            title: "Implement feature",
+            assignedNodeId: worker.nodeId,
+            actor: laptop.nodeId
+        )
+        let client = NodeMeshClient(config: NodeConfig(identity: worker), meshStore: store)
+        _ = try await client.response(to: authChallengeEnvelope(for: worker, nonce: "nonce_task_dispatch"))
+
+        let response = try #require(await client.response(to: MeshEnvelope(
+            id: "dispatch_1",
+            type: .taskDispatch,
+            from: laptop.nodeId,
+            to: worker.nodeId,
+            scope: project.eventScope,
+            payload: .object([
+                "taskId": .string(task.id),
+                "projectId": .string(project.id),
+                "title": .string(task.title),
+            ])
+        )))
+
+        #expect(response.type == .taskStatusUpdate)
+        #expect(response.from == worker.nodeId)
+        #expect(response.to == laptop.nodeId)
+        #expect(response.payload.asObject?["taskId"] == .string(task.id))
+        #expect(response.payload.asObject?["projectId"] == .string(project.id))
+        #expect(response.payload.asObject?["nodeId"] == .string(worker.nodeId))
+        #expect(response.payload.asObject?["status"] == .string("claimed"))
+        #expect(try store.load().tasks.first(where: { $0.id == task.id })?.status == .started)
+    }
+
+    @Test("client emits claimed and started responses for accepted task dispatch")
+    func clientEmitsClaimedAndStartedResponsesForAcceptedTaskDispatch() async throws {
+        let worker = NodeIdentityGenerator.makeIdentity(name: "Worker", roles: ["worker"], capabilities: ["git"])
+        let laptop = NodeIdentityGenerator.makeIdentity(name: "Laptop", roles: ["client"], capabilities: ["git"])
+        let store = NodeMeshStore(stateURL: temporaryStateURL())
+        try store.registerNode(worker)
+        try store.registerNode(laptop)
+        let project = try store.createSharedProject(name: "Mesh Project", repoUrl: "git@example.com:mesh.git")
+        _ = try store.attachMember(
+            projectIdOrName: project.id,
+            nodeId: worker.nodeId,
+            localRepoPath: "/Users/worker/mesh",
+            role: "worker",
+            permissions: MeshPermission.workerDefaults.rawValues
+        )
+        let task = try store.dispatchTask(
+            projectIdOrName: project.id,
+            title: "Implement feature",
+            assignedNodeId: worker.nodeId,
+            actor: laptop.nodeId
+        )
+        let client = NodeMeshClient(config: NodeConfig(identity: worker), meshStore: store)
+        _ = try await client.response(to: authChallengeEnvelope(for: worker, nonce: "nonce_task_dispatch_multi"))
+
+        let responses = await client.responses(to: MeshEnvelope(
+            id: "dispatch_multi",
+            type: .taskDispatch,
+            from: laptop.nodeId,
+            to: worker.nodeId,
+            scope: project.eventScope,
+            payload: .object([
+                "taskId": .string(task.id),
+                "projectId": .string(project.id),
+                "title": .string(task.title),
+            ])
+        ))
+
+        #expect(responses.count == 2)
+        #expect(responses.map { $0.payload.asObject?["status"] } == [.string("claimed"), .string("started")])
+        for response in responses {
+            #expect(response.type == .taskStatusUpdate)
+            #expect(response.from == worker.nodeId)
+            #expect(response.to == laptop.nodeId)
+            #expect(response.payload.asObject?["taskId"] == .string(task.id))
+            #expect(response.payload.asObject?["projectId"] == .string(project.id))
+            #expect(response.payload.asObject?["nodeId"] == .string(worker.nodeId))
+        }
+        #expect(try store.load().tasks.first(where: { $0.id == task.id })?.status == .started)
+    }
+
+    @Test("client blocks task dispatch for unknown shared project")
+    func clientBlocksTaskDispatchForUnknownSharedProject() async throws {
+        let worker = NodeIdentityGenerator.makeIdentity(name: "Worker", roles: ["worker"], capabilities: ["git"])
+        let store = NodeMeshStore(stateURL: temporaryStateURL())
+        try store.registerNode(worker)
+        let client = NodeMeshClient(config: NodeConfig(identity: worker), meshStore: store)
+        _ = try await client.response(to: authChallengeEnvelope(for: worker, nonce: "nonce_task_blocked"))
+
+        let response = try #require(await client.response(to: MeshEnvelope(
+            id: "dispatch_unknown_project",
+            type: .taskDispatch,
+            from: "node_laptop",
+            to: worker.nodeId,
+            scope: "sharedProject:sp_missing",
+            payload: .object([
+                "taskId": .string("mesh_task_missing"),
+                "projectId": .string("sp_missing"),
+                "title": .string("Implement feature"),
+            ])
+        )))
+
+        #expect(response.type == .taskStatusUpdate)
+        #expect(response.payload.asObject?["taskId"] == .string("mesh_task_missing"))
+        #expect(response.payload.asObject?["projectId"] == .string("sp_missing"))
+        #expect(response.payload.asObject?["status"] == .string("blocked"))
+        #expect(response.payload.asObject?["summary"] == .string("Shared project is not configured on this node."))
     }
 
     private func authChallengeEnvelope(for identity: NodeIdentity, nonce: String) throws -> MeshEnvelope {

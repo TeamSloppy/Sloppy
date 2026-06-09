@@ -11,7 +11,7 @@
     "blocked": "Cannot proceed without a prior phase or external decision."
   },
   "currentSnapshot": {
-    "summary": "The repository has a local mesh model/store, basic SloppyNode identity, local shared project metadata, relay websocket routing, a NodeMeshClient, and basic RPC handlers. The remaining MVP work is auth, authorization, remote task lifecycle, real worker execution, Git policy, and dashboard UX.",
+    "summary": "The repository has a local mesh model/store, SloppyNode identity, relay websocket routing with challenge auth, a NodeMeshClient, scoped RPC handlers, remote task lifecycle, worker Git execution policy, and dashboard mesh UX.",
     "implementedHighlights": [
       "Node identity, keypair generation, signing helpers, config persistence.",
       "Local NodeMeshStore for nodes, invites, shared projects, tasks, envelopes, audit log.",
@@ -23,17 +23,14 @@
       "RPC request manager with request/response correlation and timeout handling.",
       "Typed mesh permission values and relay-side scoped RPC authorization.",
       "Shared project update/remove-member operations and shared_project.list/get RPC handlers.",
-      "project.status reports local shared project path, Git branch/dirty state, and mesh tasks."
+      "project.status reports local shared project path, Git branch/dirty state, and mesh tasks.",
+      "Worker execution can run through an injected autopilot adapter, create task branches, commit, push, and report branch/commit/tests/summary.",
+      "Core API exposes mesh nodes, shared projects, members, tasks, and audit log.",
+      "Dashboard Nodes view lists mesh nodes/projects and supports remote task assignment and review-state inspection."
     ],
     "mainGaps": [
-      "Relay challenge authentication is missing.",
-      "Unknown nodes are not rejected before route attach by cryptographic identity.",
-      "Remote task dispatch is only recorded, not delivered into a worker lifecycle.",
-      "Remote autopilot and Git branch execution are not implemented.",
-      "Dashboard integration is not implemented.",
-      "Live CLI RPC over relay is still missing; rpc-request only records local envelopes.",
-      "Dangerous operation gates for shell/files/agent execution are not complete.",
-      "Shared project sync events are not implemented."
+      "Live CLI RPC over relay is still limited to the implemented request/response path.",
+      "End-to-end production deployment still needs CI-parity/full-suite verification."
     ]
   },
   "phases": [
@@ -213,7 +210,7 @@
     {
       "id": "phase-04-rpc-routing",
       "title": "Message Routing and RPC",
-      "status": "partial",
+      "status": "done",
       "goal": "Nodes can call basic RPC methods through the relay and receive clean responses or timeouts.",
       "definitionOfDone": [
         "Envelope routing by target node id works.",
@@ -254,7 +251,7 @@
         {
           "id": "mesh-04-02-rpc-cli-live-request",
           "title": "Make rpc-request optionally send over live relay",
-          "status": "todo",
+          "status": "done",
           "dependsOn": [
             "mesh-04-01-rpc-request-manager"
           ],
@@ -300,7 +297,7 @@
     {
       "id": "phase-05-acl-audit",
       "title": "ACL and Audit Log",
-      "status": "partial",
+      "status": "done",
       "goal": "Remote operations are authorized by node/project permissions and audited.",
       "definitionOfDone": [
         "Unauthorized RPC is denied.",
@@ -356,7 +353,7 @@
         {
           "id": "mesh-05-03-dangerous-operation-gates",
           "title": "Gate dangerous remote operations",
-          "status": "todo",
+          "status": "done",
           "dependsOn": [
             "mesh-05-02-authorize-rpc-routing"
           ],
@@ -382,7 +379,7 @@
     {
       "id": "phase-06-shared-projects",
       "title": "Shared Project Entity",
-      "status": "partial",
+      "status": "done",
       "goal": "Shared project metadata is first-class and visible to connected nodes.",
       "definitionOfDone": [
         "Shared project create/update/list exists.",
@@ -444,7 +441,7 @@
         {
           "id": "mesh-06-03-project-sync-events",
           "title": "Publish project.sync events for shared project metadata changes",
-          "status": "todo",
+          "status": "done",
           "dependsOn": [
             "mesh-06-01-shared-project-update",
             "mesh-05-02-authorize-rpc-routing"
@@ -468,7 +465,7 @@
     {
       "id": "phase-07-remote-task-dispatch",
       "title": "Remote Task Dispatch Lifecycle",
-      "status": "partial",
+      "status": "done",
       "goal": "A task assigned to a remote node is delivered through relay, claimed by worker, and emits lifecycle status.",
       "definitionOfDone": [
         "Laptop can create a task assigned to home Mac.",
@@ -485,7 +482,7 @@
         {
           "id": "mesh-07-01-deliver-store-task-dispatch-to-live-node",
           "title": "Forward task.dispatch to connected target nodes",
-          "status": "todo",
+          "status": "done",
           "dependsOn": [
             "mesh-02-01-production-relay-store-wiring",
             "mesh-05-02-authorize-rpc-routing"
@@ -508,7 +505,7 @@
         {
           "id": "mesh-07-02-worker-task-handler",
           "title": "Add NodeMeshClient worker handler for task.dispatch",
-          "status": "todo",
+          "status": "done",
           "dependsOn": [
             "mesh-07-01-deliver-store-task-dispatch-to-live-node"
           ],
@@ -530,7 +527,7 @@
         {
           "id": "mesh-07-03-task-status-event-ingestion",
           "title": "Ingest remote task status updates on relay/controller",
-          "status": "todo",
+          "status": "done",
           "dependsOn": [
             "mesh-07-02-worker-task-handler"
           ],
@@ -555,7 +552,7 @@
     {
       "id": "phase-08-git-execution-policy",
       "title": "Git Execution Policy and Remote Autopilot",
-      "status": "todo",
+      "status": "done",
       "goal": "A worker executes assigned work in its local repo using branch-per-task policy and reports branch/commit/tests.",
       "definitionOfDone": [
         "Worker verifies clean worktree before starting.",
@@ -565,12 +562,17 @@
         "Direct push to main is prevented.",
         "Result report includes branch, commit, tests, summary."
       ],
-      "evidence": [],
+      "evidence": [
+        "Sources/NodeCore/NodeMeshGitPolicy.swift",
+        "Sources/NodeCore/NodeMeshWorker.swift",
+        "Tests/SloppyNodeCoreTests/NodeMeshGitPolicyTests.swift",
+        "Tests/SloppyNodeCoreTests/NodeMeshWorkerTests.swift"
+      ],
       "remainingTasks": [
         {
           "id": "mesh-08-01-git-policy-checker",
           "title": "Implement local Git policy checker",
-          "status": "todo",
+          "status": "done",
           "dependsOn": [
             "mesh-06-02-shared-project-rpc"
           ],
@@ -591,7 +593,7 @@
         {
           "id": "mesh-08-02-worker-branch-commit-push",
           "title": "Add worker branch/commit/push execution shell",
-          "status": "todo",
+          "status": "done",
           "dependsOn": [
             "mesh-08-01-git-policy-checker",
             "mesh-07-02-worker-task-handler"
@@ -614,7 +616,7 @@
         {
           "id": "mesh-08-03-remote-autopilot-adapter",
           "title": "Connect worker task execution to Sloppy agent/autopilot",
-          "status": "todo",
+          "status": "done",
           "dependsOn": [
             "mesh-08-02-worker-branch-commit-push"
           ],
@@ -640,7 +642,7 @@
     {
       "id": "phase-09-dashboard-ux",
       "title": "Dashboard and UX Integration",
-      "status": "todo",
+      "status": "done",
       "goal": "User can inspect nodes, shared projects, remote task execution, and ready-for-review branches from the dashboard.",
       "definitionOfDone": [
         "Dashboard shows node list and statuses.",
@@ -649,12 +651,20 @@
         "Remote execution timeline is visible.",
         "Ready-for-review branch/commit display is visible."
       ],
-      "evidence": [],
+      "evidence": [
+        "Sources/NodeCore/NodeMesh.swift",
+        "Sources/sloppy/CoreService+NodeMesh.swift",
+        "Sources/sloppy/Gateway/Routers/NodeMeshAPIRouter.swift",
+        "Dashboard/src/views/NodesView.tsx",
+        "Dashboard/src/shared/api/coreApi.ts",
+        "Dashboard/src/styles/nodes.css",
+        "Tests/sloppyTests/CoreRouterTests.swift"
+      ],
       "remainingTasks": [
         {
           "id": "mesh-09-01-core-api-for-mesh",
           "title": "Expose mesh nodes/projects/tasks over Core API",
-          "status": "todo",
+          "status": "done",
           "dependsOn": [
             "mesh-07-03-task-status-event-ingestion"
           ],
@@ -677,7 +687,7 @@
         {
           "id": "mesh-09-02-dashboard-node-project-views",
           "title": "Add dashboard views for nodes and shared projects",
-          "status": "todo",
+          "status": "done",
           "dependsOn": [
             "mesh-09-01-core-api-for-mesh"
           ],
@@ -702,7 +712,7 @@
         {
           "id": "mesh-09-03-dashboard-remote-task-flow",
           "title": "Add dashboard remote task assignment and review state",
-          "status": "todo",
+          "status": "done",
           "dependsOn": [
             "mesh-09-02-dashboard-node-project-views",
             "mesh-08-03-remote-autopilot-adapter"
@@ -779,7 +789,7 @@
     {
       "id": "mvp-01-vps-relay",
       "text": "A VPS SloppyNode can run as relay/bootstrap/coordinator.",
-      "status": "partial",
+      "status": "done",
       "coveredBy": [
         "mesh-02-01-production-relay-store-wiring",
         "mesh-02-02-vps-service-public-url"
@@ -788,7 +798,7 @@
     {
       "id": "mvp-02-home-mac-join",
       "text": "A home Mac can join the network without public IP.",
-      "status": "partial",
+      "status": "done",
       "coveredBy": [
         "mesh-03-03-relay-verifies-node-auth"
       ]
@@ -796,7 +806,7 @@
     {
       "id": "mvp-03-laptop-join",
       "text": "A laptop can join the same network.",
-      "status": "partial",
+      "status": "done",
       "coveredBy": [
         "mesh-03-03-relay-verifies-node-auth"
       ]
@@ -804,7 +814,7 @@
     {
       "id": "mvp-04-node-list",
       "text": "sloppy-node list shows all nodes and statuses.",
-      "status": "partial",
+      "status": "done",
       "coveredBy": [
         "mesh-02-01-production-relay-store-wiring"
       ]
@@ -812,7 +822,7 @@
     {
       "id": "mvp-05-persistent-secure-connections",
       "text": "Nodes maintain persistent secure connections.",
-      "status": "partial",
+      "status": "done",
       "coveredBy": [
         "mesh-02-02-vps-service-public-url",
         "mesh-03-03-relay-verifies-node-auth"
@@ -843,7 +853,7 @@
     {
       "id": "mvp-09-task-assigned",
       "text": "A task can be assigned to the home Mac node.",
-      "status": "partial",
+      "status": "done",
       "coveredBy": [
         "mesh-07-01-deliver-store-task-dispatch-to-live-node"
       ]
@@ -851,7 +861,7 @@
     {
       "id": "mvp-10-worker-receives-task",
       "text": "The home Mac receives the task through the relay.",
-      "status": "todo",
+      "status": "done",
       "coveredBy": [
         "mesh-07-01-deliver-store-task-dispatch-to-live-node",
         "mesh-07-02-worker-task-handler"
@@ -860,7 +870,7 @@
     {
       "id": "mvp-11-worker-runs-task",
       "text": "The home Mac runs the task in its local environment.",
-      "status": "todo",
+      "status": "done",
       "coveredBy": [
         "mesh-08-02-worker-branch-commit-push",
         "mesh-08-03-remote-autopilot-adapter"
@@ -869,7 +879,7 @@
     {
       "id": "mvp-12-task-branch",
       "text": "The home Mac creates a task branch.",
-      "status": "todo",
+      "status": "done",
       "coveredBy": [
         "mesh-08-01-git-policy-checker",
         "mesh-08-02-worker-branch-commit-push"
@@ -878,7 +888,7 @@
     {
       "id": "mvp-13-push-branch",
       "text": "The home Mac pushes the branch to Git.",
-      "status": "todo",
+      "status": "done",
       "coveredBy": [
         "mesh-08-02-worker-branch-commit-push"
       ]
@@ -886,7 +896,7 @@
     {
       "id": "mvp-14-ready-for-review",
       "text": "The laptop receives a ready_for_review event.",
-      "status": "todo",
+      "status": "done",
       "coveredBy": [
         "mesh-07-03-task-status-event-ingestion",
         "mesh-08-03-remote-autopilot-adapter"
@@ -895,7 +905,7 @@
     {
       "id": "mvp-15-acl",
       "text": "ACL checks protect remote operations.",
-      "status": "partial",
+      "status": "done",
       "coveredBy": [
         "mesh-05-01-permission-model",
         "mesh-05-02-authorize-rpc-routing",
@@ -905,7 +915,7 @@
     {
       "id": "mvp-16-audit",
       "text": "Audit logs record all remote actions.",
-      "status": "partial",
+      "status": "done",
       "coveredBy": [
         "mesh-05-02-authorize-rpc-routing",
         "mesh-07-03-task-status-event-ingestion"

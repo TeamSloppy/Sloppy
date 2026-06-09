@@ -154,6 +154,9 @@ actor NodeMeshRelay {
             persistTaskStatusUpdate(envelope)
         }
         guard let target = envelope.to else {
+            if envelope.type == .projectSyncEvent {
+                try await publishProjectSyncEvent(envelope)
+            }
             return
         }
         if envelope.type == .rpcRequest, let denial = rpcAuthorizationDenial(for: envelope, target: target) {
@@ -173,12 +176,29 @@ actor NodeMeshRelay {
                 ]
             )
             try await sendUnavailableTargetError(for: envelope, target: target)
+            if envelope.type == .taskDispatch {
+                let taskId = envelope.payload.asObject?["taskId"]?.asString ?? envelope.id
+                persist {
+                    try store?.recordTaskDispatchDelivery(
+                        taskId: taskId,
+                        target: target,
+                        delivered: false,
+                        message: "target node unavailable"
+                    )
+                }
+            }
             return
         }
         persist {
             try store?.routeEnvelope(envelope)
         }
         try await send(envelope, over: connection.context)
+        if envelope.type == .taskDispatch {
+            let taskId = envelope.payload.asObject?["taskId"]?.asString ?? envelope.id
+            persist {
+                try store?.recordTaskDispatchDelivery(taskId: taskId, target: target, delivered: true)
+            }
+        }
     }
 
     private func sendPendingTaskDispatches(to nodeId: String) async throws {
@@ -193,6 +213,37 @@ actor NodeMeshRelay {
                 try store.recordTaskDispatchDelivery(taskId: taskId, target: nodeId, delivered: true)
             }
         }
+        for envelope in state.envelopes where envelope.type == .projectSyncEvent && envelope.to == nodeId {
+            try await send(envelope, over: connection.context)
+        }
+    }
+
+    private func publishProjectSyncEvent(_ envelope: MeshEnvelope) async throws {
+        guard let store,
+              let projectId = projectId(from: envelope),
+              let project = try? store.load().sharedProjects.first(where: { $0.id == projectId })
+        else {
+            return
+        }
+        persist {
+            try store.routeEnvelope(envelope)
+        }
+        let memberNodeIds = Set(project.members.map(\.nodeId))
+        for nodeId in memberNodeIds where nodeId != envelope.from {
+            guard let connection = connections[nodeId] else {
+                continue
+            }
+            var scopedEnvelope = envelope
+            scopedEnvelope.to = nodeId
+            try await send(scopedEnvelope, over: connection.context)
+        }
+    }
+
+    private func projectId(from envelope: MeshEnvelope) -> String? {
+        if let scope = envelope.scope, scope.hasPrefix("sharedProject:") {
+            return String(scope.dropFirst("sharedProject:".count))
+        }
+        return envelope.payload.asObject?["projectId"]?.asString
     }
 
     private func persistTaskStatusUpdate(_ envelope: MeshEnvelope) {

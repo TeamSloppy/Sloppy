@@ -8,6 +8,7 @@ import FoundationNetworking
 public enum NodeMeshClientError: LocalizedError, Equatable {
     case invalidRelayURL(String)
     case unsupportedRelayScheme(String)
+    case missingRelayURL
 
     public var errorDescription: String? {
         switch self {
@@ -15,6 +16,8 @@ public enum NodeMeshClientError: LocalizedError, Equatable {
             "Invalid relay URL: \(value)"
         case .unsupportedRelayScheme(let scheme):
             "Unsupported relay URL scheme: \(scheme)"
+        case .missingRelayURL:
+            "Mesh relay URL is required."
         }
     }
 }
@@ -94,6 +97,18 @@ public actor NodeMeshClient {
         MeshEnvelope(type: .nodeHeartbeat, from: identity.nodeId)
     }
 
+    public static func makeRPCRequestEnvelope(identity: NodeIdentity, to targetNodeId: String, method: String, params: JSONValue = .object([:])) -> MeshEnvelope {
+        MeshEnvelope(
+            type: .rpcRequest,
+            from: identity.nodeId,
+            to: targetNodeId,
+            payload: .object([
+                "method": .string(method),
+                "params": params,
+            ])
+        )
+    }
+
     public static func makeAuthResponseEnvelope(identity: NodeIdentity, challengeEnvelope: MeshEnvelope) throws -> MeshEnvelope? {
         guard challengeEnvelope.type == .authChallenge else {
             return nil
@@ -123,27 +138,35 @@ public actor NodeMeshClient {
     }
 
     public func response(to envelope: MeshEnvelope) async -> MeshEnvelope? {
+        await responses(to: envelope).first
+    }
+
+    public func responses(to envelope: MeshEnvelope) async -> [MeshEnvelope] {
         if envelope.type == .authChallenge {
             do {
                 guard let response = try Self.makeAuthResponseEnvelope(identity: config.identity, challengeEnvelope: envelope) else {
-                    return nil
+                    return []
                 }
                 isRelayAuthenticated = true
-                return response
+                return [response]
             } catch {
-                return nil
+                return []
             }
         }
 
         guard isRelayAuthenticated else {
-            return nil
+            return []
+        }
+
+        if envelope.type == .taskDispatch {
+            return handleTaskDispatch(envelope)
         }
 
         guard envelope.type == .rpcRequest else {
             if let onEnvelope {
                 await onEnvelope(envelope)
             }
-            return nil
+            return []
         }
 
         let payload = envelope.payload.asObject ?? [:]
@@ -193,13 +216,13 @@ public actor NodeMeshClient {
             ])
         }
 
-        return MeshEnvelope(
+        return [MeshEnvelope(
             type: .rpcResponse,
             from: config.identity.nodeId,
             to: envelope.from,
             scope: envelope.scope,
             payload: responsePayload
-        )
+        )]
     }
 
     private func sharedProjectListResponse(for envelope: MeshEnvelope, method: String) -> JSONValue {
@@ -315,6 +338,109 @@ public actor NodeMeshClient {
         ])
     }
 
+    private func handleTaskDispatch(_ envelope: MeshEnvelope) -> [MeshEnvelope] {
+        let payload = envelope.payload.asObject ?? [:]
+        let taskId = payload["taskId"]?.asString ?? envelope.id
+        let projectId = payload["projectId"]?.asString ?? ""
+
+        do {
+            guard let meshStore else {
+                return [makeTaskStatusUpdate(
+                    taskId: taskId,
+                    projectId: projectId,
+                    status: .blocked,
+                    to: envelope.from,
+                    scope: envelope.scope,
+                    summary: "Worker mesh store is not configured."
+                )]
+            }
+            let state = try meshStore.load()
+            guard let project = state.sharedProjects.first(where: { $0.id == projectId || $0.name == projectId }) else {
+                return [makeTaskStatusUpdate(
+                    taskId: taskId,
+                    projectId: projectId,
+                    status: .blocked,
+                    to: envelope.from,
+                    scope: envelope.scope,
+                    summary: "Shared project is not configured on this node."
+                )]
+            }
+            guard project.members.contains(where: { $0.nodeId == config.identity.nodeId }) else {
+                return [makeTaskStatusUpdate(
+                    taskId: taskId,
+                    projectId: project.id,
+                    status: .blocked,
+                    to: envelope.from,
+                    scope: envelope.scope,
+                    summary: "This node is not a member of the shared project."
+                )]
+            }
+
+            let claimed = try meshStore.updateTaskStatus(
+                taskId: taskId,
+                status: .claimed,
+                actor: config.identity.nodeId,
+                summary: "Task dispatch claimed by \(config.identity.name)."
+            )
+            let started = try meshStore.updateTaskStatus(
+                taskId: taskId,
+                status: .started,
+                actor: config.identity.nodeId,
+                summary: "Task execution started by \(config.identity.name)."
+            )
+            return [
+                makeTaskStatusUpdate(
+                    taskId: claimed.id,
+                    projectId: claimed.projectId,
+                    status: claimed.status,
+                    to: envelope.from,
+                    scope: envelope.scope,
+                    summary: claimed.summary
+                ),
+                makeTaskStatusUpdate(
+                    taskId: started.id,
+                    projectId: started.projectId,
+                    status: started.status,
+                    to: envelope.from,
+                    scope: envelope.scope,
+                    summary: started.summary
+                ),
+            ]
+        } catch {
+            return [makeTaskStatusUpdate(
+                taskId: taskId,
+                projectId: projectId,
+                status: .blocked,
+                to: envelope.from,
+                scope: envelope.scope,
+                summary: error.localizedDescription
+            )]
+        }
+    }
+
+    private func makeTaskStatusUpdate(
+        taskId: String,
+        projectId: String,
+        status: MeshTaskStatus,
+        to: String,
+        scope: String?,
+        summary: String?
+    ) -> MeshEnvelope {
+        MeshEnvelope(
+            type: .taskStatusUpdate,
+            from: config.identity.nodeId,
+            to: to,
+            scope: scope ?? (projectId.isEmpty ? nil : "sharedProject:\(projectId)"),
+            payload: .object([
+                "taskId": .string(taskId),
+                "projectId": .string(projectId),
+                "nodeId": .string(config.identity.nodeId),
+                "status": .string(status.rawValue),
+                "summary": summary.map(JSONValue.string) ?? .null,
+            ])
+        )
+    }
+
     private func gitOutput(arguments: [String], at path: String) -> String? {
         let process = Process()
         let stdout = Pipe()
@@ -355,6 +481,37 @@ public actor NodeMeshClient {
         }
     }
 
+    public func sendRPCRequest(
+        relayURL: String? = nil,
+        to targetNodeId: String,
+        method: String,
+        params: JSONValue = .object([:]),
+        timeout: TimeInterval = 30
+    ) async throws -> MeshEnvelope {
+        let configuredRelayURL = relayURL ?? config.relayURL
+        guard let configuredRelayURL, !configuredRelayURL.isEmpty else {
+            throw NodeMeshClientError.missingRelayURL
+        }
+        let url = try Self.resolveRelayWebSocketURL(configuredRelayURL)
+        let request = Self.makeRPCRequestEnvelope(identity: config.identity, to: targetNodeId, method: method, params: params)
+
+        return try await withThrowingTaskGroup(of: MeshEnvelope.self) { group in
+            group.addTask {
+                try await self.runRPCConnection(url: url, request: request, timeout: timeout)
+            }
+            group.addTask {
+                try await Task.sleep(nanoseconds: UInt64(max(0, timeout) * 1_000_000_000))
+                throw NodeMeshRPCError.timeout(request.id)
+            }
+
+            guard let response = try await group.next() else {
+                throw NodeMeshRPCError.timeout(request.id)
+            }
+            group.cancelAll()
+            return response
+        }
+    }
+
     private func runConnection(url: URL) async throws {
         #if os(Linux)
         throw NodeMeshClientError.unsupportedRelayScheme("linux-urlsession-websocket")
@@ -373,22 +530,67 @@ public actor NodeMeshClient {
                 continue
             }
             let envelope = try decoder.decode(MeshEnvelope.self, from: data)
-            if let responseEnvelope = await response(to: envelope) {
+            let responseEnvelopes = await responses(to: envelope)
+            for responseEnvelope in responseEnvelopes {
                 try await send(responseEnvelope, over: task)
-                if envelope.type == .authChallenge, !sentHello {
-                    await daemon.connect()
-                    try await send(Self.makeHelloEnvelope(identity: config.identity), over: task)
-                    sentHello = true
-                    heartbeatTask = Task {
-                        while !Task.isCancelled {
-                            try await Task.sleep(nanoseconds: UInt64(heartbeatInterval * 1_000_000_000))
-                            await daemon.heartbeat()
-                            try await send(Self.makeHeartbeatEnvelope(identity: config.identity), over: task)
-                        }
+            }
+            if envelope.type == .authChallenge, !responseEnvelopes.isEmpty, !sentHello {
+                await daemon.connect()
+                try await send(Self.makeHelloEnvelope(identity: config.identity), over: task)
+                sentHello = true
+                heartbeatTask = Task {
+                    while !Task.isCancelled {
+                        try await Task.sleep(nanoseconds: UInt64(heartbeatInterval * 1_000_000_000))
+                        await daemon.heartbeat()
+                        try await send(Self.makeHeartbeatEnvelope(identity: config.identity), over: task)
                     }
                 }
             }
         }
+        #endif
+    }
+
+    private func runRPCConnection(url: URL, request: MeshEnvelope, timeout: TimeInterval) async throws -> MeshEnvelope {
+        #if os(Linux)
+        throw NodeMeshClientError.unsupportedRelayScheme("linux-urlsession-websocket")
+        #else
+        let task = URLSession.shared.webSocketTask(with: url)
+        task.resume()
+        defer { task.cancel(with: .goingAway, reason: nil) }
+
+        let manager = NodeMeshRPCManager()
+        var sentRequest = false
+        var responseTask: Task<MeshEnvelope, Error>?
+        defer { responseTask?.cancel() }
+
+        while !Task.isCancelled {
+            let message = try await task.receive()
+            guard let text = Self.text(from: message), let data = text.data(using: .utf8) else {
+                continue
+            }
+            let envelope = try decoder.decode(MeshEnvelope.self, from: data)
+            let responseEnvelopes = await responses(to: envelope)
+            for responseEnvelope in responseEnvelopes {
+                try await send(responseEnvelope, over: task)
+            }
+
+            if envelope.type == .authChallenge, !responseEnvelopes.isEmpty, !sentRequest {
+                await daemon.connect()
+                try await send(Self.makeHelloEnvelope(identity: config.identity), over: task)
+                sentRequest = true
+                responseTask = Task {
+                    try await manager.send(request, timeout: timeout) { outbound in
+                        try await self.send(outbound, over: task)
+                    }
+                }
+            }
+
+            if await manager.receive(envelope), let responseTask {
+                return try await responseTask.value
+            }
+        }
+
+        throw CancellationError()
         #endif
     }
 
