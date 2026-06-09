@@ -136,7 +136,7 @@ public struct OpenAIModelProvider: ModelProvider {
             reasoningEffort: mapped,
             reasoning: mapped.map { .init(effort: $0) },
             promptCacheKey: supportsPromptCacheHints ? promptCacheKey(for: modelName) : nil,
-            promptCacheRetention: supportsPromptCacheHints ? "24h" : nil
+            promptCacheRetention: nil
         )
         return options
     }

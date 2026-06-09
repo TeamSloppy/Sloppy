@@ -19,7 +19,7 @@ import {
 } from "../../api";
 import { AgentPetIcon } from "../../features/agents/components/AgentPetSprite";
 import { LoadingSkeleton } from "../../components/LoadingSkeleton";
-import { TaskDetailView, TASK_SIDE_VIEW_STORAGE_KEY, clampTaskSideViewWidthPercent, readTaskSideViewWidthPercent } from "./ProjectTaskDetails";
+import { DetailDropdown, TaskDetailView, TASK_SIDE_VIEW_STORAGE_KEY, clampTaskSideViewWidthPercent, readTaskSideViewWidthPercent } from "./ProjectTaskDetails";
 
 function assigneeInitials(name) {
     const parts = String(name || "?")

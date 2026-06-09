@@ -246,7 +246,7 @@ function CommentAvatar({ comment, author, agentDirectory }) {
     );
 }
 
-function DetailDropdown({ label, icon, color, children }) {
+export function DetailDropdown({ label, icon, color, children }) {
     const [open, setOpen] = useState(false);
     const ref = useRef(null);
 
@@ -1868,4 +1868,3 @@ export function TaskDetailView({
         </div>
     );
 }
-

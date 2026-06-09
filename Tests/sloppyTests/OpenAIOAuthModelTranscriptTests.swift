@@ -22,6 +22,23 @@ func transcriptToResponsesInputConvertsPromptEntries() {
 }
 
 @Test
+func requestBodyIncludesPromptCacheKeyWithoutUnsupportedRetention() throws {
+    let model = OpenAIOAuthModel(bearerToken: "test", model: "gpt-5")
+    let transcript = Transcript(entries: [
+        .prompt(Transcript.Prompt(segments: [.text(.init(content: "Hello"))]))
+    ])
+
+    let data = try model.buildRequestBodyForTesting(
+        transcript: transcript,
+        options: GenerationOptions(maximumResponseTokens: 1024)
+    )
+    let body = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+
+    #expect(body["prompt_cache_key"] as? String == "sloppy-openai-oauth-gpt-5")
+    #expect(body["prompt_cache_retention"] == nil)
+}
+
+@Test
 func transcriptToResponsesInputConvertsResponseEntries() {
     let model = OpenAIOAuthModel(bearerToken: "test", model: "gpt-5")
     let transcript = Transcript(entries: [

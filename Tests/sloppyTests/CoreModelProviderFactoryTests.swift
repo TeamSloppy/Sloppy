@@ -592,7 +592,7 @@ func openAIModelProviderAddsPromptCacheHintsForOpenAIEndpoints() {
     let custom = options[custom: OpenAILanguageModel.self]
 
     #expect(custom?.promptCacheKey == "sloppy-openai-gpt-5-5")
-    #expect(custom?.promptCacheRetention == "24h")
+    #expect(custom?.promptCacheRetention == nil)
 }
 
 @Test

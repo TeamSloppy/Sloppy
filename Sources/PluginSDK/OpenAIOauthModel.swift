@@ -460,6 +460,10 @@ extension OpenAIOAuthModel {
     func buildHTTPRequestForTesting(body: Data) async throws -> URLRequest {
         try await buildHTTPRequest(body: body)
     }
+
+    func buildRequestBodyForTesting(transcript: Transcript, options: GenerationOptions) throws -> Data {
+        try buildRequestBody(transcript: transcript, options: options, tools: [])
+    }
 }
 
 // MARK: - Transcript Conversion
@@ -650,7 +654,6 @@ private extension OpenAIOAuthModel {
 
     func applyPromptCacheHints(to body: inout [String: Any]) {
         body["prompt_cache_key"] = promptCacheKey()
-        body["prompt_cache_retention"] = "24h"
     }
 
     func promptCacheKey() -> String {
