@@ -400,64 +400,79 @@ struct ChatTranscriptView: View {
             .padding(.horizontal, sp.l)
             .padding(.vertical, sp.m)
 
-            ZStack(anchor: .bottom) {
-                ScrollViewReader { proxy in
-                    ScrollView {
-                        if messages.isEmpty {
-                            EmptyStateView("No messages yet")
-                                .padding(.vertical, sp.xl)
-                                .padding(sp.m)
-                                .padding(.bottom, composerScrollInset)
-                        } else {
-                            LazyVStack(
-                                messages,
-                                alignment: .leading,
-                                spacing: sp.s,
-                                estimatedRowHeight: 156,
-                                overscan: 8
-                            ) { msg in
-                                ChatBubbleView(message: msg)
-                                    .frame(minWidth: 0, maxWidth: .infinity)
-                                    .allowsHitTesting(false)
+            GeometryReader { proxy in
+                let contentWidth = transcriptContentWidth(for: proxy.size.width)
+
+                ZStack(anchor: .bottom) {
+                    ScrollViewReader { proxy in
+                        ScrollView {
+                            if messages.isEmpty {
+                                HStack {
+                                    Spacer(minLength: 0)
+                                    EmptyStateView("No messages yet")
+                                        .padding(.vertical, sp.xl)
+                                        .padding(sp.m)
+                                        .padding(.bottom, composerScrollInset)
+                                        .frame(width: contentWidth)
+                                    Spacer(minLength: 0)
+                                }
+                            } else {
+                                HStack {
+                                    Spacer(minLength: 0)
+                                    LazyVStack(
+                                        messages,
+                                        alignment: .leading,
+                                        spacing: sp.s,
+                                        estimatedRowHeight: 156,
+                                        overscan: 8
+                                    ) { msg in
+                                        ChatBubbleView(message: msg)
+                                            .frame(minWidth: 0, maxWidth: .infinity)
+                                            .allowsHitTesting(false)
+                                    }
+                                    .padding(sp.m)
+                                    .padding(.bottom, composerScrollInset)
+                                    .frame(width: contentWidth)
+                                    Spacer(minLength: 0)
+                                }
                             }
-                            .padding(sp.m)
-                            .padding(.bottom, composerScrollInset)
                         }
-                    }
-                    .onChange(of: messages.count) { oldCount, newCount in
-                        guard newCount > oldCount,
-                              oldCount == 0 || proxy.isNearBottom(threshold: 220),
-                              let lastMessageId = messages.last?.id else {
-                            return
-                        }
+                        .onChange(of: messages.count) { oldCount, newCount in
+                            guard newCount > oldCount,
+                                  oldCount == 0 || proxy.isNearBottom(threshold: 220),
+                                  let lastMessageId = messages.last?.id else {
+                                return
+                            }
 
-                        Task { @MainActor in
-                            proxy.scrollTo(lastMessageId, anchor: .bottom)
+                            Task { @MainActor in
+                                proxy.scrollTo(lastMessageId, anchor: .bottom)
+                            }
                         }
-                    }
-                    .onChange(of: latestAssistantMessageLayoutKey) { _, _ in
-                        guard proxy.isNearBottom(threshold: 480),
-                              let lastMessage = messages.last,
-                              lastMessage.role == .assistant else {
-                            return
-                        }
+                        .onChange(of: latestAssistantMessageLayoutKey) { _, _ in
+                            guard proxy.isNearBottom(threshold: 480),
+                                  let lastMessage = messages.last,
+                                  lastMessage.role == .assistant else {
+                                return
+                            }
 
-                        Task { @MainActor in
-                            proxy.scrollTo(lastMessage.id, anchor: .bottom)
+                            Task { @MainActor in
+                                proxy.scrollTo(lastMessage.id, anchor: .bottom)
+                            }
                         }
                     }
+
+                    HStack {
+                        Spacer(minLength: 0)
+                        ChatComposerView(draft: composerDraft, agentName: agentId) { content in
+                            onSend(content)
+                        }
+                        .frame(width: contentWidth)
+                        Spacer(minLength: 0)
+                    }
+                    .padding(.bottom, sp.m)
                 }
-
-                HStack {
-                    Spacer(minLength: 0)
-                    ChatComposerView(draft: composerDraft, agentName: agentId) { content in
-                        onSend(content)
-                    }
-                    Spacer(minLength: 0)
-                }
-                .padding(.bottom, sp.m)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .background(c.background)
     }
@@ -472,5 +487,9 @@ struct ChatTranscriptView: View {
             return ""
         }
         return "\(message.id):\(message.textContent.count)"
+    }
+
+    private func transcriptContentWidth(for availableWidth: Float) -> Float {
+        max(0, min(availableWidth, ChatComposerView.panelWidth))
     }
 }

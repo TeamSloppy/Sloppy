@@ -4884,6 +4884,37 @@ body.agent-chat-no-page-scroll .page {
   gap: 4px;
 }
 
+.visor-chat-empty-state {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+
+.visor-chat-empty-card {
+  width: min(640px, 100%);
+  display: grid;
+  gap: 18px;
+  justify-items: center;
+  transform: translateY(-6vh);
+}
+
+.visor-chat-empty-title {
+  margin: 0;
+  color: var(--text);
+  font-size: clamp(1.1rem, 2vw, 1.55rem);
+  font-weight: 600;
+  line-height: 1.3;
+  text-align: center;
+  letter-spacing: -0.02em;
+}
+
+.visor-chat-empty-compose-wrap {
+  width: 100%;
+}
+
 .visor-chat-compose-wrap {
   flex-shrink: 0;
   padding: 0 24px;

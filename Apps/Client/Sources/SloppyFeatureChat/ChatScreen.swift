@@ -70,7 +70,6 @@ private struct ChatScreenContent: View {
                 rootSafeAreaInsets: rootSafeAreaInsets,
                 keyboardOccludedHeight: keyboardOccludedHeight
             )
-                .background(idiom == .phone ? theme.colors.background.ignoresSafeArea() : Color.clear.ignoresSafeArea())
                 .navigationBarLeadingItems {
                     ChatNavigationLeadingItems(
                         viewModel: viewModel,
@@ -80,7 +79,6 @@ private struct ChatScreenContent: View {
                 .navigationBarTrailingItems {
                     ChatNavigationActions(viewModel: viewModel)
                 }
-//                .navigationBarHidden(idiom != .phone)
                 .overlay {
                     ChatInitialLoadTrigger(viewModel: viewModel)
                 }
@@ -100,23 +98,36 @@ private struct ChatChrome: View {
     @Environment(\.theme) private var theme
 
     var body: some View {
-        ZStack(anchor: .bottom) {
-            ChatTranscriptRegion(
-                viewModel: viewModel,
-                contentWidth: contentWidth,
-                heroWidth: heroWidth,
-                messagesTopInset: messagesTopInset,
-                composerScrollInset: composerScrollInset
-            )
+        GeometryReader { proxy in
+            let contentWidth = contentWidth(for: proxy.size.width)
+            let heroWidth = heroWidth(for: contentWidth)
+
+            ZStack(anchor: .bottom) {
+                if viewModel.transcript.isEmpty {
+                    ChatEmptyChatRegion(
+                        viewModel: viewModel,
+                        contentWidth: contentWidth,
+                        heroWidth: heroWidth
+                    )
+                } else {
+                    ChatTranscriptRegion(
+                        viewModel: viewModel,
+                        contentWidth: contentWidth,
+                        heroWidth: heroWidth,
+                        messagesTopInset: messagesTopInset,
+                        composerScrollInset: composerScrollInset
+                    )
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+                    ChatComposerOverlay(
+                        viewModel: viewModel,
+                        contentWidth: contentWidth,
+                        composerBottomInset: composerBottomInset
+                    )
+                }
+            }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            
-            ChatComposerOverlay(
-                viewModel: viewModel,
-                contentWidth: contentWidth,
-                composerBottomInset: composerBottomInset
-            )
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
         
         ChatConnectionBar(connectionMonitor: connectionMonitor)
         
@@ -127,18 +138,13 @@ private struct ChatChrome: View {
         )
     }
 
-    private var contentWidth: Float {
-        if idiom == .phone {
-            return max(280, screenPointWidth - theme.spacing.s * 2)
-        }
-        return chatContentWidth
+    private func contentWidth(for availableWidth: Float) -> Float {
+        let horizontalInset = idiom == .phone ? theme.spacing.s * 2 : theme.spacing.l * 2
+        return max(0, min(chatContentWidth, availableWidth - horizontalInset))
     }
 
-    private var heroWidth: Float {
-        if idiom == .phone {
-            return contentWidth
-        }
-        return chatHeroWidth
+    private func heroWidth(for contentWidth: Float) -> Float {
+        min(contentWidth, chatHeroWidth)
     }
 
     private var pickerWidth: Float {
@@ -429,6 +435,29 @@ private struct ChatTranscriptRegion: View {
             messagesTopInset: messagesTopInset,
             composerScrollInset: composerScrollInset
         )
+    }
+}
+
+@MainActor
+private struct ChatEmptyChatRegion: View {
+    let viewModel: ChatScreenViewModel
+    let contentWidth: Float
+    let heroWidth: Float
+
+    @Environment(\.theme) private var theme
+
+    var body: some View {
+        VStack(spacing: theme.spacing.xl) {
+            ChatGreetingView(agentName: viewModel.selectedAgent?.displayName ?? "Agent")
+                .frame(width: heroWidth)
+
+            ChatComposerOverlay(
+                viewModel: viewModel,
+                contentWidth: contentWidth,
+                composerBottomInset: 0
+            )
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
     }
 }
 

@@ -434,7 +434,6 @@ struct MainSidebarView: View {
             Icons.symbol(icon, size: ty.body)
                 .foregroundColor(isActive ? c.textPrimary : c.textMuted)
                 .frame(width: 40, height: 40)
-                .background(isActive ? c.surfaceRaised.opacity(0.92 as Float) : Color.clear)
                 .applySidebarGlass(usesLiquidGlass, cornerRadius: 14)
         }
     }
@@ -452,7 +451,6 @@ struct MainSidebarView: View {
                 .font(.system(size: title.count <= 2 ? ty.caption : ty.micro))
                 .foregroundColor(isActive ? c.textPrimary : c.textMuted)
                 .frame(width: 40, height: 40)
-                .background(isActive ? c.surfaceRaised.opacity(0.92 as Float) : Color.clear)
                 .applySidebarGlass(usesLiquidGlass, cornerRadius: 14)
         }
     }
@@ -462,7 +460,6 @@ struct MainSidebarView: View {
         if usesLiquidGlass {
             content
                 .padding(8)
-                .background(Color.black.opacity(0.42 as Float))
                 .glassEffect(.regular.tint(Color.black.opacity(0.14 as Float)), in: RoundedRectangleShape(cornerRadius: 28))
         } else {
             content
@@ -561,7 +558,6 @@ private struct HoverableSidebarRow: View {
             .padding(.leading, leadingInset)
             .padding(.trailing, spacing.m)
             .padding(.vertical, spacing.s)
-            .background(isActive ? Color.white.opacity(isSelected ? 0.10 as Float : 0.055 as Float) : Color.clear)
             .applySidebarGlass(
                 usesLiquidGlass,
                 style: isActive ? .regular.tint(Color.white.opacity(isSelected ? 0.07 as Float : 0.035 as Float)) : .identity,

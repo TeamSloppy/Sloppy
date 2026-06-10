@@ -119,6 +119,43 @@ final class ACPModelTests: XCTestCase {
         XCTAssertEqual(request.mcpServers.count, 0)
     }
 
+    func testNewSessionRequestDecodesXcodeStdioMCPServerWithoutType() throws {
+        let json = """
+        {
+            "mcpServers": [
+                {
+                    "name": "xcode-tools",
+                    "command": "xcrun",
+                    "env": [
+                        {
+                            "value": "E18E3230-D163-4DB1-B349-7C645C0963F6",
+                            "name": "MCP_XCODE_SESSION_ID"
+                        },
+                        {
+                            "value": "22955",
+                            "name": "MCP_XCODE_PID"
+                        }
+                    ],
+                    "args": ["mcpbridge"]
+                }
+            ],
+            "cwd": "/Users/vlad-prusakov/Developer/Sloppy/Apps/Client"
+        }
+        """
+
+        let request = try JSONDecoder().decode(NewSessionRequest.self, from: json.data(using: .utf8)!)
+
+        XCTAssertEqual(request.cwd, "/Users/vlad-prusakov/Developer/Sloppy/Apps/Client")
+        XCTAssertEqual(request.mcpServers.count, 1)
+        guard case .stdio(let server) = request.mcpServers[0] else {
+            return XCTFail("Expected stdio MCP server.")
+        }
+        XCTAssertEqual(server.name, "xcode-tools")
+        XCTAssertEqual(server.command, "xcrun")
+        XCTAssertEqual(server.args, ["mcpbridge"])
+        XCTAssertEqual(server.env.map(\.name), ["MCP_XCODE_SESSION_ID", "MCP_XCODE_PID"])
+    }
+
     // MARK: - Session Tests
 
     func testSessionIdEncoding() throws {

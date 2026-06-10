@@ -132,6 +132,42 @@ export function VisorChatView() {
     localStorage.removeItem(STORAGE_KEY);
   }
 
+  const isEmptyChat = messages.length === 0;
+
+  function renderComposer() {
+    return (
+      <form
+        className="agent-chat-compose"
+        onSubmit={(e) => {
+          e.preventDefault();
+          handleSend();
+        }}
+      >
+        <div className="agent-chat-compose-row">
+          <textarea
+            ref={inputRef}
+            className="visor-chat-textarea"
+            placeholder="Ask Visor..."
+            value={inputText}
+            onChange={handleInputChange}
+            onKeyDown={handleKeyDown}
+            disabled={isSending}
+            rows={1}
+          />
+          <div className="agent-chat-compose-right">
+            <button
+              type="submit"
+              className="agent-chat-icon-button agent-chat-send-button"
+              disabled={isSending || !inputText.trim()}
+            >
+              <span className="material-symbols-rounded" aria-hidden="true">arrow_upward</span>
+            </button>
+          </div>
+        </div>
+      </form>
+    );
+  }
+
   return (
     <section className="visor-chat-shell">
       <div className="visor-chat-header">
@@ -156,91 +192,68 @@ export function VisorChatView() {
         )}
       </div>
 
-      <div className="visor-chat-messages" ref={scrollRef}>
-        {messages.length === 0 ? (
-          <p className="placeholder-text">Ask Visor anything about the runtime state.</p>
-        ) : (
-          messages.map((msg) => (
-            <article
-              key={msg.id}
-              className={`agent-chat-message ${msg.role === "user" ? "user" : "assistant"}${msg.streaming ? " streaming" : ""}`}
-            >
-              <div className="agent-chat-message-head">
-                <strong>{msg.role === "user" ? "you" : "visor"}</strong>
-              </div>
-              <div className="agent-chat-message-body">
-                {msg.streaming && msg.text.length === 0 ? (
-                  <div className="agent-chat-stream-indicator">
-                    <span className="agent-chat-stream-dot" />
-                    <span className="agent-chat-stream-dot" />
-                    <span className="agent-chat-stream-dot" />
-                  </div>
-                ) : (
-                  <div className="markdown-body">
-                    <ReactMarkdown
-                      remarkPlugins={[remarkGfm]}
-                      components={{
-                        code(props: any) {
-                          const { inline, className, children, ...rest } = props;
-                          const match = /language-(\w+)/.exec(className || "");
-                          return !inline && match ? (
-                            <SyntaxHighlighter
-                              style={oneDark as any}
-                              language={match[1]}
-                              PreTag="div"
-                              {...rest}
-                            >
-                              {String(children).replace(/\n$/, "")}
-                            </SyntaxHighlighter>
-                          ) : (
-                            <code className={className} {...rest}>
-                              {children}
-                            </code>
-                          );
-                        }
-                      }}
-                    >
-                      {msg.text}
-                    </ReactMarkdown>
-                  </div>
-                )}
-              </div>
-            </article>
-          ))
-        )}
-      </div>
-
-      <div className="visor-chat-compose-wrap">
-        <form
-          className="agent-chat-compose"
-          onSubmit={(e) => {
-            e.preventDefault();
-            handleSend();
-          }}
-        >
-          <div className="agent-chat-compose-row">
-            <textarea
-              ref={inputRef}
-              className="visor-chat-textarea"
-              placeholder="Ask Visor..."
-              value={inputText}
-              onChange={handleInputChange}
-              onKeyDown={handleKeyDown}
-              disabled={isSending}
-              rows={1}
-            />
-            <div className="agent-chat-compose-right">
-              <button
-                type="submit"
-                className="agent-chat-icon-button agent-chat-send-button"
-                disabled={isSending || !inputText.trim()}
-              >
-                <span className="material-symbols-rounded" aria-hidden="true">arrow_upward</span>
-              </button>
-            </div>
+      {isEmptyChat ? (
+        <div className="visor-chat-empty-state">
+          <div className="visor-chat-empty-card">
+            <p className="visor-chat-empty-title">Ask Visor anything about the runtime state.</p>
+            <div className="visor-chat-empty-compose-wrap">{renderComposer()}</div>
           </div>
-        </form>
-      </div>
+        </div>
+      ) : (
+        <>
+          <div className="visor-chat-messages" ref={scrollRef}>
+            {messages.map((msg) => (
+              <article
+                key={msg.id}
+                className={`agent-chat-message ${msg.role === "user" ? "user" : "assistant"}${msg.streaming ? " streaming" : ""}`}
+              >
+                <div className="agent-chat-message-head">
+                  <strong>{msg.role === "user" ? "you" : "visor"}</strong>
+                </div>
+                <div className="agent-chat-message-body">
+                  {msg.streaming && msg.text.length === 0 ? (
+                    <div className="agent-chat-stream-indicator">
+                      <span className="agent-chat-stream-dot" />
+                      <span className="agent-chat-stream-dot" />
+                      <span className="agent-chat-stream-dot" />
+                    </div>
+                  ) : (
+                    <div className="markdown-body">
+                      <ReactMarkdown
+                        remarkPlugins={[remarkGfm]}
+                        components={{
+                          code(props: any) {
+                            const { inline, className, children, ...rest } = props;
+                            const match = /language-(\w+)/.exec(className || "");
+                            return !inline && match ? (
+                              <SyntaxHighlighter
+                                style={oneDark as any}
+                                language={match[1]}
+                                PreTag="div"
+                                {...rest}
+                              >
+                                {String(children).replace(/\n$/, "")}
+                              </SyntaxHighlighter>
+                            ) : (
+                              <code className={className} {...rest}>
+                                {children}
+                              </code>
+                            );
+                          }
+                        }}
+                      >
+                        {msg.text}
+                      </ReactMarkdown>
+                    </div>
+                  )}
+                </div>
+              </article>
+            ))}
+          </div>
+
+          <div className="visor-chat-compose-wrap">{renderComposer()}</div>
+        </>
+      )}
     </section>
   );
 }

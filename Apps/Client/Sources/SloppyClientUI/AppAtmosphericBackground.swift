@@ -13,15 +13,12 @@ public struct AppAtmosphericBackground: View {
         LinearGradient(
             stops: [
                 Gradient.Stop(color: c.background, location: 0),
-                Gradient.Stop(color: c.background, location: 0.66),
-                Gradient.Stop(color: c.background.opacity(0.34 as Float), location: 0.92),
-                Gradient.Stop(color: Color.clear, location: 1),
+                Gradient.Stop(color: c.background.opacity(0.08 as Float), location: 1),
             ],
             startPoint: .top,
             endPoint: .bottom
         )
         .allowsHitTesting(false)
-        .ignoresSafeArea()
         
         
         // // Keep the expensive full-screen atmospheric layer static. The only

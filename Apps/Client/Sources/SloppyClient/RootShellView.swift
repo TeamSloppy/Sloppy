@@ -59,6 +59,7 @@ private struct RootShellContent: View {
 
         return ZStack(anchor: .topLeading) {
             AppAtmosphericBackground()
+                .ignoresSafeArea()
             
             switch rootViewModel.appState {
             case .splash:

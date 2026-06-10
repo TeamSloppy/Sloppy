@@ -31,7 +31,13 @@ struct SloppyClientApp: App {
                     trafficLightOffset: Point(x: 6, y: 6)
                 ),
                 background: .transparent,
-                backgroundEffect: .blur(.underWindowBackground)
+                backgroundEffect: {
+#if os(macOS)
+                    return .blur(.glass)
+#else
+                    return .none
+#endif
+                }()
             ))
     }
 

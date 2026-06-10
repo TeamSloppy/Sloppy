@@ -186,11 +186,13 @@ public enum MCPServerConfig: Codable, Sendable {
 
     enum CodingKeys: String, CodingKey {
         case type
+        case command
+        case url
     }
 
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        let type = try container.decode(String.self, forKey: .type)
+        let type = try container.decodeIfPresent(String.self, forKey: .type)
 
         switch type {
         case "stdio":
@@ -199,8 +201,24 @@ public enum MCPServerConfig: Codable, Sendable {
             self = .http(try HTTPServerConfig(from: decoder))
         case "sse":
             self = .sse(try SSEServerConfig(from: decoder))
+        case nil where container.contains(.command):
+            self = .stdio(try StdioServerConfig(from: decoder))
+        case nil where container.contains(.url):
+            self = .http(try HTTPServerConfig(from: decoder))
+        case nil:
+            throw DecodingError.keyNotFound(
+                CodingKeys.type,
+                DecodingError.Context(
+                    codingPath: decoder.codingPath,
+                    debugDescription: "MCP server config requires a type, command, or url."
+                )
+            )
         default:
-            throw DecodingError.dataCorruptedError(forKey: .type, in: container, debugDescription: "Unknown MCP server type: \(type)")
+            throw DecodingError.dataCorruptedError(
+                forKey: .type,
+                in: container,
+                debugDescription: "Unknown MCP server type: \(type ?? "nil")"
+            )
         }
     }
 

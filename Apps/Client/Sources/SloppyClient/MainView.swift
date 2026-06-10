@@ -79,10 +79,14 @@ struct MainView: View {
     }
     
     private func regularSplitLayout() -> some View {
-        let sp = theme.spacing
-        
         return NavigationSplitView {
             sidebarView(isOverlay: false)
+                .padding(.all, 4)
+                .navigationSplitViewColumnWidth(
+                    min: sidebarMinimumWidth,
+                    ideal: sidebarWidth,
+                    max: sidebarMaximumWidth
+                )
         } detail: {
             chatScreen(showsSidebarControl: false)
         }
