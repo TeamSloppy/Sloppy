@@ -36,9 +36,13 @@ enum CoreConfigFileStore {
         "\(path).backup"
     }
 
+    static func numberedBackupPath(for path: String, index: Int) -> String {
+        "\(backupPath(for: path)).\(index)"
+    }
+
     static func hasConfigOrBackup(at path: String, fileManager: FileManager = .default) -> Bool {
         fileManager.fileExists(atPath: path) ||
-            fileManager.fileExists(atPath: backupPath(for: path))
+            !backupCandidates(for: path, fileManager: fileManager).isEmpty
     }
 
     static func loadRecovering(
@@ -54,7 +58,8 @@ enum CoreConfigFileStore {
         let backupPath = backupPath(for: resolvedPath)
         let backupURL = URL(fileURLWithPath: backupPath)
         let primaryExists = fileManager.fileExists(atPath: configURL.path)
-        let backupExists = fileManager.fileExists(atPath: backupURL.path)
+        let backupURLs = backupCandidates(for: resolvedPath, fileManager: fileManager)
+        let backupExists = !backupURLs.isEmpty
 
         if primaryExists {
             do {
@@ -76,49 +81,49 @@ enum CoreConfigFileStore {
                 }
 
                 let primaryReason = describe(error)
-                do {
-                    let decodedBackup = try decodeConfig(at: backupURL)
-                    try restoreBackup(from: backupURL, to: configURL, fileManager: fileManager)
+                if let restored = try restoreFirstValidBackup(
+                    backupURLs,
+                    to: configURL,
+                    fileManager: fileManager
+                ) {
                     return CoreConfigFileLoadResult(
-                        config: decodedBackup.config,
+                        config: restored.config,
                         path: configURL.path,
-                        backupPath: backupURL.path,
+                        backupPath: restored.backupURL.path,
                         restoredFromBackup: true,
                         initializedFromDefault: false
                     )
-                } catch let restoreError as CoreConfigFileError {
-                    throw restoreError
-                } catch {
+                } else {
                     throw CoreConfigFileError.invalidPrimaryAndBackup(
                         path: configURL.path,
                         backupPath: backupURL.path,
                         primaryReason: primaryReason,
-                        backupReason: describe(error)
+                        backupReason: "No valid backup found."
                     )
                 }
             }
         }
 
         if backupExists {
-            do {
-                let decodedBackup = try decodeConfig(at: backupURL)
-                try restoreBackup(from: backupURL, to: configURL, fileManager: fileManager)
+            if let restored = try restoreFirstValidBackup(
+                backupURLs,
+                to: configURL,
+                fileManager: fileManager
+            ) {
                 return CoreConfigFileLoadResult(
-                    config: decodedBackup.config,
+                    config: restored.config,
                     path: configURL.path,
-                    backupPath: backupURL.path,
+                    backupPath: restored.backupURL.path,
                     restoredFromBackup: true,
                     initializedFromDefault: false
                 )
-            } catch let restoreError as CoreConfigFileError {
-                throw restoreError
-            } catch {
-                throw CoreConfigFileError.invalidBackup(
-                    path: configURL.path,
-                    backupPath: backupURL.path,
-                    reason: describe(error)
-                )
             }
+
+            throw CoreConfigFileError.invalidBackup(
+                path: configURL.path,
+                backupPath: backupURL.path,
+                reason: "No valid backup found."
+            )
         }
 
         return CoreConfigFileLoadResult(
@@ -142,11 +147,12 @@ enum CoreConfigFileStore {
         let backupURL = URL(fileURLWithPath: backupPath(for: configURL.path))
         do {
             let decoded = try decodeConfig(at: configURL)
+            let nextBackupURL = nextNumberedBackupURL(for: configURL.path, fileManager: fileManager)
             try fileManager.createDirectory(
-                at: backupURL.deletingLastPathComponent(),
+                at: nextBackupURL.deletingLastPathComponent(),
                 withIntermediateDirectories: true
             )
-            try decoded.data.write(to: backupURL, options: .atomic)
+            try decoded.data.write(to: nextBackupURL, options: .atomic)
         } catch {
             throw CoreConfigFileError.backupFailed(
                 path: configURL.path,
@@ -160,6 +166,70 @@ enum CoreConfigFileStore {
         let data = try Data(contentsOf: url)
         let config = try JSONDecoder().decode(CoreConfig.self, from: data)
         return (config, data)
+    }
+
+    private static func backupCandidates(for path: String, fileManager: FileManager) -> [URL] {
+        let legacyBackupPath = backupPath(for: path)
+        let configURL = URL(fileURLWithPath: path)
+        let directoryURL = configURL.deletingLastPathComponent()
+        let fileName = configURL.lastPathComponent
+        let numberedPrefix = "\(fileName).backup."
+        let numberedBackups: [(index: Int, url: URL)]
+
+        do {
+            numberedBackups = try fileManager.contentsOfDirectory(
+                at: directoryURL,
+                includingPropertiesForKeys: nil
+            )
+            .compactMap { url in
+                let name = url.lastPathComponent
+                guard name.hasPrefix(numberedPrefix) else {
+                    return nil
+                }
+                let suffix = name.dropFirst(numberedPrefix.count)
+                guard let index = Int(suffix), index > 0 else {
+                    return nil
+                }
+                return (index, url)
+            }
+        } catch {
+            numberedBackups = []
+        }
+
+        var candidates = numberedBackups
+            .sorted { $0.index > $1.index }
+            .map(\.url)
+        if fileManager.fileExists(atPath: legacyBackupPath) {
+            candidates.append(URL(fileURLWithPath: legacyBackupPath))
+        }
+        return candidates
+    }
+
+    private static func nextNumberedBackupURL(for path: String, fileManager: FileManager) -> URL {
+        var index = 1
+        while fileManager.fileExists(atPath: numberedBackupPath(for: path, index: index)) {
+            index += 1
+        }
+        return URL(fileURLWithPath: numberedBackupPath(for: path, index: index))
+    }
+
+    private static func restoreFirstValidBackup(
+        _ backupURLs: [URL],
+        to configURL: URL,
+        fileManager: FileManager
+    ) throws -> (config: CoreConfig, backupURL: URL)? {
+        for backupURL in backupURLs {
+            do {
+                let decodedBackup = try decodeConfig(at: backupURL)
+                try restoreBackup(from: backupURL, to: configURL, fileManager: fileManager)
+                return (decodedBackup.config, backupURL)
+            } catch let restoreError as CoreConfigFileError {
+                throw restoreError
+            } catch {
+                continue
+            }
+        }
+        return nil
     }
 
     private static func restoreBackup(

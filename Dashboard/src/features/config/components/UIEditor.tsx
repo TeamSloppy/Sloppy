@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useState } from "react";
+import { emitHoverSoundPreferenceChanged } from "../../../shared/ui/hoverSound";
 
 const ACCENT_STORAGE_KEY = "sloppy_accent_color";
 const DEFAULT_ACCENT = "#ccff00";
@@ -54,6 +55,7 @@ interface UIEditorProps {
 export function UIEditor({ draftConfig, mutateDraft }: UIEditorProps) {
   const [accentColor, setAccentColor] = useState(loadStoredAccent);
   const [hexInput, setHexInput] = useState(loadStoredAccent);
+  const hoverSoundsEnabled = draftConfig?.ui?.hoverSoundsEnabled === true;
   const dashboardAuthEnabled = Boolean(draftConfig?.ui?.dashboardAuth?.enabled);
   const dashboardAuthToken = String(draftConfig?.ui?.dashboardAuth?.token || "");
   const terminalEnabled = Boolean(draftConfig?.ui?.dashboardTerminal?.enabled);
@@ -163,6 +165,35 @@ export function UIEditor({ draftConfig, mutateDraft }: UIEditorProps) {
           <button type="button" onClick={handleReset}>
             Reset to Default
           </button>
+        </div>
+
+        <div style={{ gridColumn: "1 / -1", marginTop: "20px" }}>
+          <span style={{ fontSize: "0.85rem", color: "var(--muted)", display: "block", marginBottom: "8px" }}>
+            Interaction Sounds
+          </span>
+          <div className="settings-toggle-row">
+            <label className="agent-tools-guardrail agent-tools-guardrail-toggle">
+              <span className="agent-tools-guardrail-copy">
+                <span className="agent-tools-guardrail-title">Play hover sounds for cards and interactive elements</span>
+                <span className="agent-tools-guardrail-note">Uses subtle random pitch changes so repeated hovers feel varied.</span>
+              </span>
+              <span className="agent-tools-switch">
+                <input
+                  type="checkbox"
+                  checked={hoverSoundsEnabled}
+                  onChange={(event) => {
+                    const checked = event.target.checked;
+                    mutateDraft((draft) => {
+                      if (!draft.ui) draft.ui = {};
+                      draft.ui.hoverSoundsEnabled = checked;
+                    });
+                    emitHoverSoundPreferenceChanged(checked);
+                  }}
+                />
+                <span className="agent-tools-switch-track" />
+              </span>
+            </label>
+          </div>
         </div>
 
         <div style={{ gridColumn: "1 / -1", marginTop: "20px" }}>

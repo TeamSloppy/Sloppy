@@ -1364,10 +1364,50 @@ func updateConfigBacksUpExistingConfigBeforeReplacingIt() async throws {
     let primary = try decoder.decode(CoreConfig.self, from: Data(contentsOf: URL(fileURLWithPath: configPath)))
     let backup = try decoder.decode(
         CoreConfig.self,
-        from: Data(contentsOf: URL(fileURLWithPath: CoreConfigFileStore.backupPath(for: configPath)))
+        from: Data(contentsOf: URL(fileURLWithPath: CoreConfigFileStore.numberedBackupPath(for: configPath, index: 1)))
     )
     #expect(primary.listen.port == 26003)
     #expect(backup.listen.port == 25101)
+}
+
+@Test
+func updateConfigCreatesNumberedBackupForEveryApply() async throws {
+    let tempRoot = FileManager.default.temporaryDirectory
+        .appendingPathComponent("sloppy-config-numbered-backup-\(UUID().uuidString)", isDirectory: true)
+    try FileManager.default.createDirectory(at: tempRoot, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: tempRoot) }
+
+    let configPath = tempRoot.appendingPathComponent("sloppy.json").path
+    var initialConfig = CoreConfig.test
+    initialConfig.listen.port = 25101
+    var firstUpdate = initialConfig
+    firstUpdate.listen.port = 26003
+    var secondUpdate = initialConfig
+    secondUpdate.listen.port = 26004
+
+    let encoder = JSONEncoder()
+    encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+    try (encoder.encode(initialConfig) + Data("\n".utf8))
+        .write(to: URL(fileURLWithPath: configPath))
+
+    let service = CoreService(config: initialConfig, configPath: configPath)
+    _ = try await service.updateConfig(firstUpdate)
+    _ = try await service.updateConfig(secondUpdate)
+
+    let decoder = JSONDecoder()
+    let primary = try decoder.decode(CoreConfig.self, from: Data(contentsOf: URL(fileURLWithPath: configPath)))
+    let firstBackup = try decoder.decode(
+        CoreConfig.self,
+        from: Data(contentsOf: URL(fileURLWithPath: CoreConfigFileStore.numberedBackupPath(for: configPath, index: 1)))
+    )
+    let secondBackup = try decoder.decode(
+        CoreConfig.self,
+        from: Data(contentsOf: URL(fileURLWithPath: CoreConfigFileStore.numberedBackupPath(for: configPath, index: 2)))
+    )
+
+    #expect(primary.listen.port == 26004)
+    #expect(firstBackup.listen.port == 25101)
+    #expect(secondBackup.listen.port == 26003)
 }
 
 @Test

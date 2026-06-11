@@ -151,6 +151,40 @@ func configFileStoreRestoresMissingPrimaryFromBackup() throws {
 }
 
 @Test
+func configFileStoreRestoresInvalidPrimaryFromLatestNumberedBackup() throws {
+    let tempRoot = FileManager.default.temporaryDirectory
+        .appendingPathComponent("sloppy-config-numbered-restore-\(UUID().uuidString)", isDirectory: true)
+    try FileManager.default.createDirectory(at: tempRoot, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: tempRoot) }
+
+    let configPath = tempRoot.appendingPathComponent("sloppy.json").path
+    try Data("{ nope".utf8).write(to: URL(fileURLWithPath: configPath))
+
+    var firstBackupConfig = CoreConfig.default
+    firstBackupConfig.listen.port = 26001
+    try encodeConfig(firstBackupConfig).write(
+        to: URL(fileURLWithPath: CoreConfigFileStore.numberedBackupPath(for: configPath, index: 1))
+    )
+
+    var secondBackupConfig = CoreConfig.default
+    secondBackupConfig.listen.port = 26002
+    try encodeConfig(secondBackupConfig).write(
+        to: URL(fileURLWithPath: CoreConfigFileStore.numberedBackupPath(for: configPath, index: 2))
+    )
+
+    let result = try CoreConfigFileStore.loadRecovering(path: configPath, currentDirectory: tempRoot.path)
+
+    #expect(result.restoredFromBackup)
+    #expect(result.config.listen.port == 26002)
+    let expectedBackupPath = URL(
+        fileURLWithPath: CoreConfigFileStore.numberedBackupPath(for: configPath, index: 2)
+    ).standardizedFileURL.path
+    #expect(URL(fileURLWithPath: result.backupPath).standardizedFileURL.path == expectedBackupPath)
+    let restored = try JSONDecoder().decode(CoreConfig.self, from: Data(contentsOf: URL(fileURLWithPath: configPath)))
+    #expect(restored.listen.port == 26002)
+}
+
+@Test
 func missingConfigWithoutBackupInitializesDefaultConfig() throws {
     let tempRoot = FileManager.default.temporaryDirectory
         .appendingPathComponent("sloppy-config-default-\(UUID().uuidString)", isDirectory: true)

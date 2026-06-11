@@ -41,6 +41,8 @@ import {
   resolveApiBase,
   setStoredApiBaseOverride
 } from "./shared/api/httpClient";
+import { isHoverSoundEnabled } from "./shared/ui/hoverSound";
+import { useHoverSoundEffect } from "./shared/ui/useHoverSoundEffect";
 import { fetchProjectSummaries } from "./api";
 
 interface SidebarItem {
@@ -123,12 +125,14 @@ function DashboardShell({
   dependencies,
   debugEnabled,
   terminalEnabled,
+  hoverSoundsEnabled,
   onRuntimeConfigUpdated,
   autoStartTutorialAfterOnboarding
 }: {
   dependencies: ReturnType<typeof createDependencies>;
   debugEnabled: boolean;
   terminalEnabled: boolean;
+  hoverSoundsEnabled: boolean;
   onRuntimeConfigUpdated: (nextConfig: AnyRecord) => void;
   autoStartTutorialAfterOnboarding: boolean;
 }) {
@@ -145,6 +149,7 @@ function DashboardShell({
   const { status: updateStatus } = useUpdateCheck();
   const { activeStep, startTutorial, startTutorialFromOnboarding } = useTutorial();
   useNotificationSocket();
+  useHoverSoundEffect(hoverSoundsEnabled);
 
   const refreshSidebarProjects = useCallback(() => {
     fetchProjectSummaries()
@@ -1155,6 +1160,7 @@ export function App() {
           dependencies={dependencies}
           debugEnabled={Boolean(runtimeConfig?.debugEnabled)}
           terminalEnabled={Boolean(terminalConfig?.enabled)}
+          hoverSoundsEnabled={isHoverSoundEnabled(runtimeConfig)}
           autoStartTutorialAfterOnboarding={autoStartTutorialAfterOnboarding}
           onRuntimeConfigUpdated={(nextConfig) => {
             if (isDashboardAuthRequired(nextConfig as AnyRecord)) {
